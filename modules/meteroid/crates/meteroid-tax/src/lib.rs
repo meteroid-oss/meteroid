@@ -3,6 +3,7 @@ mod model;
 pub use model::*;
 mod shared;
 pub mod validation;
+pub mod vies;
 
 #[cfg(test)]
 mod tests;
@@ -58,11 +59,10 @@ lazy_static::lazy_static! {
 impl TaxEngine for MeteroidTaxEngine {
     async fn validate_vat_number(
         &self,
-        _vat_number: String,
+        vat_number: String,
         _address: Address,
     ) -> Result<VatNumberExternalValidationResult, Report<TaxEngineError>> {
-        // TODO Implement the VIES validation
-        Ok(VatNumberExternalValidationResult::ServiceUnavailable)
+        Ok(vies::validate(&vat_number).await.result)
     }
     async fn calculate_line_items_tax(
         &self,
@@ -106,11 +106,17 @@ impl TaxEngine for MeteroidTaxEngine {
             return Ok(CustomerTax::CustomTaxRates(customer.custom_tax_rates));
         }
 
+        // Strict mode (per invoicing entity, Hyperline-style): reverse charge only
+        // once VIES confirmed the number; otherwise the customer's country rate
+        // applies. Default is fail-open on format validity alone.
+        let vies_ok_or_not_required = !customer.require_vies_valid_for_reverse_charge
+            || customer.vat_number_vies_valid == Some(true);
         let is_b2b = customer
             .vat_number
             .as_ref()
             .is_some_and(|vat| !vat.trim().is_empty())
-            && customer.vat_number_format_valid;
+            && customer.vat_number_format_valid
+            && vies_ok_or_not_required;
 
         let invoicing_entity_country = match &invoicing_entity_address.country {
             Some(country) => country,

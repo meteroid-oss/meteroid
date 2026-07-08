@@ -102,6 +102,8 @@ pub async fn run_minimal_seed(pool: &PgPool) {
             bank_account_id: None,
             tax_resolver: diesel_models::enums::TaxResolverEnum::None,
             consolidate_recurring_invoices: false,
+            require_vies_valid_for_reverse_charge: false,
+            require_billing_information: false,
         }.insert(tx).await?;
 
         HistoricalRatesFromUsdRowNew::insert_batch(tx, vec![

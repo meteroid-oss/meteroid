@@ -9,6 +9,7 @@ on:
       - ".github/actions/rust-setup/**"
       - '**/Cargo.toml'
       - '**/Cargo.lock'
+      - '.cargo/audit.toml'
   pull_request:
     types: [ opened, reopened, synchronize ]
     paths:
@@ -16,6 +17,7 @@ on:
       - ".github/actions/rust-setup/**"
       - '**/Cargo.toml'
       - '**/Cargo.lock'
+      - '.cargo/audit.toml'
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
@@ -27,7 +29,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - uses: ./.github/actions/rust-setup
         with:

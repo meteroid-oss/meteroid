@@ -29,6 +29,7 @@ message Checkout {
   optional string card_connection_id = 17;
   optional string direct_debit_connection_id = 18;
   optional api.bankaccounts.v1.BankAccount bank_account = 19;
+  bool require_billing_information = 22;
 }
 
 message TaxBreakdownItem {

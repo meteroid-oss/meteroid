@@ -79,6 +79,8 @@ pub enum WorkerError {
     CurrencyRatesUpdateError,
     #[error("Failed to cleanup checkout sessions")]
     CheckoutSessionCleanupError,
+    #[error("Failed to enqueue VAT revalidations")]
+    VatRevalidation,
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -28,6 +28,7 @@ pub enum PgmqQueue {
     QuoteConversion,
     BiAggregation,
     WebhookIn,
+    VatValidation,
 }
 
 impl PgmqQueue {
@@ -45,6 +46,7 @@ impl PgmqQueue {
             PgmqQueue::QuoteConversion => "quote_conversion",
             PgmqQueue::BiAggregation => "bi_aggregation",
             PgmqQueue::WebhookIn => "webhook_in",
+            PgmqQueue::VatValidation => "vat_validation",
         }
     }
 }
@@ -66,6 +68,7 @@ impl std::str::FromStr for PgmqQueue {
             "quote_conversion" => Ok(PgmqQueue::QuoteConversion),
             "bi_aggregation" => Ok(PgmqQueue::BiAggregation),
             "webhook_in" => Ok(PgmqQueue::WebhookIn),
+            "vat_validation" => Ok(PgmqQueue::VatValidation),
             _ => Err(format!("Unknown queue: {s}")),
         }
     }
@@ -263,6 +266,32 @@ impl WebhookInProcessEvent {
 }
 json_value_serde!(WebhookInProcessEvent);
 derive_pgmq_message!(WebhookInProcessEvent, tenant_id);
+
+/// Request to externally (VIES) verify a customer's VAT number. Enqueued from the
+/// customer outbox on create/update, re-enqueued with a growing delay while VIES
+/// is unreachable, and sent by the periodic revalidation worker. The worker
+/// re-reads the customer as the source of truth and drops stale jobs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VatValidationRequestEvent {
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
+    pub vat_number: String,
+    /// Failed attempts so far; indexes into the worker's retry-delay schedule.
+    #[serde(default)]
+    pub attempt: u32,
+    /// Re-check of a number that may already hold a definitive VALID/INVALID
+    /// status (periodic freshness pass). A VIES outage never downgrades those.
+    #[serde(default)]
+    pub revalidate: bool,
+}
+
+impl VatValidationRequestEvent {
+    pub fn tenant_id(&self) -> TenantId {
+        self.tenant_id
+    }
+}
+json_value_serde!(VatValidationRequestEvent);
+derive_pgmq_message!(VatValidationRequestEvent, tenant_id);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SendEmailRequest {

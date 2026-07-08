@@ -14,6 +14,7 @@ import { PaymentMethodsCard } from '@/features/customers/cards/PaymentMethodsCar
 import { SubscriptionsCard } from '@/features/customers/cards/SubscriptionsCard'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { EditCustomerModal } from '@/features/customers/cards/customer/EditCustomerModal'
+import { VatValidationBadge } from '@/features/customers/components/BillingInfoCard'
 import { CustomerInvoiceModal } from '@/features/customers/modals/CustomerInvoiceModal'
 import { ManageConnectionsModal } from '@/features/customers/modals/ManageConnectionsModal'
 import { EffectiveEntitlementsCard } from '@/features/entitlements/customer/EffectiveEntitlementsCard'
@@ -225,7 +226,18 @@ export const Customer = () => {
                   />
                   <FlexDetails
                     title="Tax ID"
-                    value={data.vatNumber || (data.isTaxExempt ? 'Tax Exempt' : 'None')}
+                    value={
+                      data.vatNumber ? (
+                        <span className="flex items-center justify-end">
+                          <span>{data.vatNumber}</span>
+                          <VatValidationBadge customer={data} />
+                        </span>
+                      ) : data.isTaxExempt ? (
+                        'Tax Exempt'
+                      ) : (
+                        'None'
+                      )
+                    }
                   />
                 </Flex>
                 <Separator className="-my-3" />

@@ -41,6 +41,7 @@ autolabeler:
       - '/^chore(?:\((?:(?!deps|deps-dev)[\w-]+)\))?:(.*)$/i' # exclude dependabot PRs
       - '/^test(?:\(([^\)]*)\))?:(.*)$/i'
       - '/^refactor(?:\(([^\)]*)\))?:(.*)$/i'
+      - '/^port(?:\(([^\)]*)\))?:(.*)$/i'
   - label: 'bug'
     title:
       - '/^bug(?:\(([^\)]*)\))?:(.*)$/i'

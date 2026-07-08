@@ -367,6 +367,8 @@ mod tests {
         CustomerForTax {
             vat_number: vat_number.clone(),
             vat_number_format_valid: vat_number.is_some(),
+            vat_number_vies_valid: None,
+            require_vies_valid_for_reverse_charge: false,
             tax_exempt,
             custom_tax_rates,
             billing_address: test_address(country, None),
@@ -400,6 +402,43 @@ mod tests {
             // Should have tax applied (German VAT rate)
             assert!(result.tax_amount > 0);
             assert_eq!(result.total_amount_after_tax, 10000 + result.tax_amount);
+        }
+
+        #[tokio::test]
+        async fn test_meteroid_tax_engine_strict_vies_mode() {
+            let engine = MeteroidTaxEngine;
+            let invoicing_entity_address = test_address("FR", None);
+            let invoice_date = chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+
+            let mut customer = test_customer(Some("DE123456789".to_string()), false, vec![], "DE");
+            customer.require_vies_valid_for_reverse_charge = true;
+
+            // Strict mode + unverified number: no reverse charge, standard rate applies
+            let result = engine
+                .calculate_line_items_tax(
+                    "EUR".to_string(),
+                    customer.clone(),
+                    invoicing_entity_address.clone(),
+                    vec![test_line_item("item1", 10000, vec![])],
+                    invoice_date,
+                )
+                .await
+                .unwrap();
+            assert!(result.tax_amount > 0);
+
+            // Strict mode + VIES-verified: reverse charge applies
+            customer.vat_number_vies_valid = Some(true);
+            let result = engine
+                .calculate_line_items_tax(
+                    "EUR".to_string(),
+                    customer,
+                    invoicing_entity_address,
+                    vec![test_line_item("item1", 10000, vec![])],
+                    invoice_date,
+                )
+                .await
+                .unwrap();
+            assert_eq!(result.tax_amount, 0);
         }
 
         #[tokio::test]
@@ -625,6 +664,8 @@ mod tests {
         let customer = CustomerForTax {
             vat_number: Some("DE123456789".to_string()),
             vat_number_format_valid: true,
+            vat_number_vies_valid: None,
+            require_vies_valid_for_reverse_charge: false,
             tax_exempt: false,
             custom_tax_rates: vec![],
             billing_address: Address {
@@ -683,6 +724,8 @@ mod tests {
         let customer = CustomerForTax {
             vat_number: None,
             vat_number_format_valid: false,
+            vat_number_vies_valid: None,
+            require_vies_valid_for_reverse_charge: false,
             tax_exempt: true,
             custom_tax_rates: vec![],
             billing_address: Address {

@@ -22,6 +22,26 @@ export const billingInfoSchema = z.object({
 
 export type BillingInfoFormValues = z.infer<typeof billingInfoSchema>
 
+const REQUIRED_BILLING_FIELDS: { field: keyof BillingInfoFormValues; message: string }[] = [
+  { field: 'billingEmail', message: 'Billing email is required' },
+  { field: 'line1', message: 'Address line 1 is required' },
+  { field: 'city', message: 'City is required' },
+  { field: 'zipCode', message: 'Postal code is required' },
+  { field: 'country', message: 'Country is required' },
+]
+
+// superRefine keeps the inferred value type identical whether or not fields are required.
+export const makeBillingInfoSchema = (requireBillingInformation: boolean) =>
+  billingInfoSchema.superRefine((values, ctx) => {
+    if (!requireBillingInformation) return
+    for (const { field, message } of REQUIRED_BILLING_FIELDS) {
+      const value = values[field]
+      if (!value || value.trim().length === 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message })
+      }
+    }
+  })
+
 interface BillingInfoFormProps {
   customer: MessageInitShape<typeof CustomerSchema>
   methods: UseFormReturn<BillingInfoFormValues>

@@ -10,6 +10,26 @@ pub mod customer {
     use meteroid_store::domain::enums::ConnectorProviderEnum;
     use meteroid_store::errors::StoreError;
 
+    pub fn vat_validation_status_to_server(
+        status: Option<domain::VatNumberValidationStatus>,
+    ) -> server::VatNumberValidationStatus {
+        match status {
+            None => server::VatNumberValidationStatus::Unspecified,
+            Some(domain::VatNumberValidationStatus::Pending) => {
+                server::VatNumberValidationStatus::Pending
+            }
+            Some(domain::VatNumberValidationStatus::Valid) => {
+                server::VatNumberValidationStatus::Valid
+            }
+            Some(domain::VatNumberValidationStatus::Invalid) => {
+                server::VatNumberValidationStatus::Invalid
+            }
+            Some(domain::VatNumberValidationStatus::Unavailable) => {
+                server::VatNumberValidationStatus::Unavailable
+            }
+        }
+    }
+
     pub struct ServerAddressWrapper(pub server::Address);
 
     impl TryFrom<domain::Address> for ServerAddressWrapper {
@@ -123,6 +143,18 @@ pub mod customer {
                     .collect(),
                 is_tax_exempt: value.is_tax_exempt,
                 is_vat_number_valid: value.vat_number_format_valid,
+                vat_number_validation_status: vat_validation_status_to_server(
+                    value.vat_number_validation_status,
+                ) as i32,
+                vat_number_checked_at: value.vat_number_checked_at.map(chrono_to_timestamp),
+                vat_number_registered_name: value
+                    .vat_number_vies_check
+                    .as_ref()
+                    .and_then(|c| c.name.clone()),
+                vat_number_consultation_number: value
+                    .vat_number_vies_check
+                    .as_ref()
+                    .and_then(|c| c.request_identifier.clone()),
                 customer_connections: Vec::new(), // Will be populated in the service layer
                 payment_methods: Vec::new(),      // Will be populated in the service layer
                 connected_account_id: value.connected_account_id.map(|id| id.to_string()),

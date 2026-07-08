@@ -16,6 +16,7 @@ mod processor;
 pub mod processors;
 mod quote_conversion;
 mod send_email;
+mod vat_validation;
 mod webhook_in;
 mod webhook_out;
 

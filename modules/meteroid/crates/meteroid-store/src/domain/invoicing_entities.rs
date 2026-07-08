@@ -52,6 +52,9 @@ pub struct InvoicingEntity {
     pub bank_account_id: Option<BankAccountId>,
     #[map(~.into())]
     pub tax_resolver: TaxResolverEnum,
+    /// Opt-in strictness: reverse charge only for VIES-verified VAT numbers.
+    pub require_vies_valid_for_reverse_charge: bool,
+    pub require_billing_information: bool,
 }
 
 impl InvoicingEntity {
@@ -87,6 +90,8 @@ pub struct InvoicingEntityNew {
     pub city: Option<String>,
     pub vat_number: Option<String>,
     pub tax_resolver: TaxResolverEnum,
+    pub require_vies_valid_for_reverse_charge: Option<bool>,
+    pub require_billing_information: bool,
 }
 
 #[derive(Clone, Debug, o2o, Default)]
@@ -112,6 +117,8 @@ pub struct InvoicingEntityPatch {
     pub country: Option<CountryCode>,
     #[map(~.map(|x| x.into()))]
     pub tax_resolver: Option<TaxResolverEnum>,
+    pub require_vies_valid_for_reverse_charge: Option<bool>,
+    pub require_billing_information: Option<bool>,
 }
 
 #[derive(Clone, Debug, o2o, Default)]

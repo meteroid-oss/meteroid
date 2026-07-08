@@ -1,0 +1,23 @@
+# Vendored from https://github.com/franzos/world-tax-rs (v0.5.1, MIT). See LICENSE.
+[package]
+name = "world-tax"
+version = "0.5.1"
+rust-version.workspace = true
+edition.workspace = true
+license = "MIT"
+
+[lib]
+name = "world_tax"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+log = { workspace = true }
+rust_iso3166 = { workspace = true }
+thiserror = { workspace = true }
+strum = { workspace = true, features = ["derive"] }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+
+[dev-dependencies]
+rust_decimal_macros = { workspace = true }

@@ -58,7 +58,7 @@ jobs:
     env:
       METEROID_TEST_PG_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Free disk space
         run: |
           df -h
@@ -99,7 +99,7 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/rust-setup
         with:
           components: rustfmt
@@ -112,7 +112,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/rust-setup
         with:
           components: clippy

@@ -11,7 +11,7 @@ use meteroid_store::domain::outbox_event::{EventType, OutboxEvent, OutboxPgmqHea
 use meteroid_store::domain::pgmq::{
     BiAggregationEvent, BiCreditNoteFinalizedEvent, BiInvoiceFinalizedEvent,
     HubspotSyncRequestEvent, PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqMessage,
-    PgmqMessageNew, PgmqQueue, QuoteConversionRequestEvent,
+    PgmqMessageNew, PgmqQueue, QuoteConversionRequestEvent, VatValidationRequestEvent,
 };
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::pgmq::PgmqInterface;
@@ -91,6 +91,58 @@ impl PgmqOutboxDispatch {
         if !new_messages.is_empty() {
             self.store
                 .pgmq_send_batch(PgmqQueue::HubspotSync, new_messages)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+
+        Ok(())
+    }
+
+    /// Enqueue VIES verification for customers whose VAT number is present,
+    /// format-valid, and VIES-eligible. The worker re-reads status as the guard,
+    /// so unchanged/terminal numbers are skipped there — this only avoids
+    /// enqueuing obviously ineligible numbers.
+    pub(crate) async fn handle_vat_validation_out(&self, msgs: &[PgmqMessage]) -> PgmqResult<()> {
+        let mut new_messages = vec![];
+
+        for msg in msgs {
+            let out_headers: StoreResult<Option<OutboxPgmqHeaders>> =
+                msg.headers.as_ref().map(TryInto::try_into).transpose();
+            if let Ok(Some(out_headers)) = out_headers {
+                let event = match &out_headers.event_type {
+                    EventType::CustomerCreated => match msg.try_into() {
+                        Ok(OutboxEvent::CustomerCreated(evt)) => Some(evt),
+                        _ => None,
+                    },
+                    EventType::CustomerUpdated => match msg.try_into() {
+                        Ok(OutboxEvent::CustomerUpdated(evt)) => Some(evt),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+
+                if let Some(evt) = event
+                    && let Some(vat_number) = evt.vat_number.as_ref()
+                    && meteroid_tax::validation::validate_vat_number_format(vat_number)
+                    && meteroid_tax::vies::is_vies_eligible(vat_number)
+                {
+                    VatValidationRequestEvent {
+                        tenant_id: evt.tenant_id,
+                        customer_id: evt.customer_id,
+                        vat_number: vat_number.clone(),
+                        attempt: 0,
+                        revalidate: false,
+                    }
+                    .try_into()
+                    .map(|msg_new| new_messages.push(msg_new))
+                    .change_context(PgmqError::HandleMessages)?;
+                }
+            }
+        }
+
+        if !new_messages.is_empty() {
+            self.store
+                .pgmq_send_batch(PgmqQueue::VatValidation, new_messages)
                 .await
                 .change_context(PgmqError::HandleMessages)?;
         }
@@ -341,6 +393,7 @@ impl PgmqHandler for PgmqOutboxDispatch {
             self.handle_invoice_orchestration(msgs).boxed(),
             self.handle_quote_conversion(msgs).boxed(),
             self.handle_bi_aggregation(msgs).boxed(),
+            self.handle_vat_validation_out(msgs).boxed(),
         ];
 
         // Run the functions concurrently

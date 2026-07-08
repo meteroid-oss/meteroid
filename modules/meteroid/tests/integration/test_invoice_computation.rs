@@ -296,6 +296,7 @@ async fn create_french_b2b_customer(
         is_tax_exempt: false,
         vat_number_format_valid: true,
         connected_account_id: None,
+        vat_number_validation_status: None,
     };
 
     customer_row.insert(conn).await.unwrap();
@@ -546,6 +547,7 @@ async fn create_german_b2b_customer(
         is_tax_exempt: false,
         vat_number_format_valid: true,
         connected_account_id: None,
+        vat_number_validation_status: None,
     };
 
     customer_row.insert(conn).await.unwrap();
@@ -597,6 +599,7 @@ async fn create_customer_with_custom_tax_rate(
         is_tax_exempt: false,
         vat_number_format_valid: false,
         connected_account_id: None,
+        vat_number_validation_status: None,
     };
 
     customer_row.insert(conn).await.unwrap();

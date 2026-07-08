@@ -27,6 +27,16 @@ pub struct CustomerCustomTax {
 
 json_value_serde!(CustomerCustomTax);
 
+/// External (VIES) VAT validation state. See the `customer_vat_validation` migration.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, o2o)]
+#[map_owned(diesel_models::enums::CustomerVatValidationStatusEnum)]
+pub enum VatNumberValidationStatus {
+    Pending,
+    Valid,
+    Invalid,
+    Unavailable,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, o2o)]
 #[try_from_owned(CustomerRow, StoreErrorReport)]
 pub struct Customer {
@@ -57,6 +67,32 @@ pub struct Customer {
     pub custom_taxes: Vec<CustomerCustomTax>,
     pub vat_number_format_valid: bool,
     pub connected_account_id: Option<ConnectedAccountId>,
+    #[map(~.map(Into::into))]
+    pub vat_number_validation_status: Option<VatNumberValidationStatus>,
+    pub vat_number_checked_at: Option<NaiveDateTime>,
+    /// Evidence returned by VIES with the last definitive answer.
+    #[from(~.and_then(|v| serde_json::from_value(v).ok()))]
+    pub vat_number_vies_check: Option<meteroid_tax::ViesCheckData>,
+}
+
+impl Customer {
+    pub fn has_complete_billing_information(&self) -> bool {
+        let has_email = self
+            .billing_email
+            .as_ref()
+            .is_some_and(|email| !email.trim().is_empty());
+
+        let has_address = self.billing_address.as_ref().is_some_and(|address| {
+            let is_set =
+                |value: &Option<String>| value.as_ref().is_some_and(|v| !v.trim().is_empty());
+            is_set(&address.line1)
+                && is_set(&address.city)
+                && is_set(&address.zip_code)
+                && address.country.is_some()
+        });
+
+        has_email && has_address
+    }
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -115,10 +151,28 @@ pub struct CustomerNewWrapper {
     pub vat_number_format_valid: bool,
 }
 
+/// Initial external-validation status for a VAT number: `Pending` only when the
+/// number is format-valid and VIES can actually verify it, otherwise unset.
+pub(crate) fn initial_vies_status(
+    vat_number: Option<&str>,
+    format_valid: bool,
+) -> Option<diesel_models::enums::CustomerVatValidationStatusEnum> {
+    match vat_number {
+        Some(vat) if format_valid && meteroid_tax::vies::is_vies_eligible(vat) => {
+            Some(diesel_models::enums::CustomerVatValidationStatusEnum::Pending)
+        }
+        _ => None,
+    }
+}
+
 impl TryInto<CustomerRowNew> for CustomerNewWrapper {
     type Error = Report<StoreError>;
 
     fn try_into(self) -> Result<CustomerRowNew, Self::Error> {
+        let vat_number_validation_status = initial_vies_status(
+            self.inner.vat_number.as_deref(),
+            self.vat_number_format_valid,
+        );
         Ok(CustomerRowNew {
             id: CustomerId::new(),
             name: self.inner.name,
@@ -149,13 +203,14 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
             is_tax_exempt: self.inner.is_tax_exempt,
             vat_number_format_valid: self.vat_number_format_valid,
             connected_account_id: self.inner.connected_account_id,
+            vat_number_validation_status,
         })
     }
 }
 
 #[derive(Clone, Debug, o2o)]
 #[owned_try_into(CustomerRowPatch, StoreErrorReport)]
-#[ghosts(vat_number_format_valid: None)]
+#[ghosts(vat_number_format_valid: None, vat_number_validation_status: None, vat_number_checked_at: None, vat_number_vies_check: None)]
 pub struct CustomerPatch {
     pub id: CustomerId,
     pub name: Option<String>,
@@ -284,4 +339,102 @@ pub struct CustomerConnection {
     #[from(~.map(|v| v.into_iter().flatten().map(|t| t.into()).collect()))]
     pub supported_payment_types: Option<Vec<PaymentMethodTypeEnum>>,
     pub external_customer_id: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    fn customer_with(billing_email: Option<&str>, billing_address: Option<Address>) -> Customer {
+        Customer {
+            id: CustomerId::new(),
+            name: "Acme".to_string(),
+            created_at: chrono::Utc::now().naive_utc(),
+            updated_at: None,
+            archived_at: None,
+            tenant_id: TenantId::new(),
+            invoicing_entity_id: InvoicingEntityId::new(),
+            alias: None,
+            billing_email: billing_email.map(str::to_string),
+            phone: None,
+            balance_value_cents: 0,
+            currency: "EUR".to_string(),
+            billing_address,
+            shipping_address: None,
+            current_payment_method_id: None,
+            vat_number: None,
+            invoicing_emails: vec![],
+            conn_meta: None,
+            is_tax_exempt: false,
+            custom_taxes: vec![],
+            vat_number_format_valid: false,
+            connected_account_id: None,
+            vat_number_validation_status: None,
+            vat_number_checked_at: None,
+            vat_number_vies_check: None,
+        }
+    }
+
+    fn complete_address() -> Address {
+        Address {
+            line1: Some("1 Rue de la Paix".to_string()),
+            line2: None,
+            city: Some("Berlin".to_string()),
+            country: Some(CountryCode::from_str("DE").unwrap()),
+            state: None,
+            zip_code: Some("10115".to_string()),
+        }
+    }
+
+    #[test]
+    fn billing_information_complete_when_email_and_full_address_present() {
+        let customer = customer_with(Some("billing@acme.com"), Some(complete_address()));
+        assert!(customer.has_complete_billing_information());
+    }
+
+    #[test]
+    fn billing_information_incomplete_without_email() {
+        let customer = customer_with(None, Some(complete_address()));
+        assert!(!customer.has_complete_billing_information());
+
+        let blank_email = customer_with(Some("   "), Some(complete_address()));
+        assert!(!blank_email.has_complete_billing_information());
+    }
+
+    #[test]
+    fn billing_information_incomplete_without_address() {
+        let customer = customer_with(Some("billing@acme.com"), None);
+        assert!(!customer.has_complete_billing_information());
+    }
+
+    #[test]
+    fn billing_information_incomplete_with_partial_address() {
+        let missing_country = Address {
+            country: None,
+            ..complete_address()
+        };
+        assert!(
+            !customer_with(Some("billing@acme.com"), Some(missing_country))
+                .has_complete_billing_information()
+        );
+
+        let missing_zip = Address {
+            zip_code: None,
+            ..complete_address()
+        };
+        assert!(
+            !customer_with(Some("billing@acme.com"), Some(missing_zip))
+                .has_complete_billing_information()
+        );
+
+        let blank_city = Address {
+            city: Some("  ".to_string()),
+            ..complete_address()
+        };
+        assert!(
+            !customer_with(Some("billing@acme.com"), Some(blank_city))
+                .has_complete_billing_information()
+        );
+    }
 }

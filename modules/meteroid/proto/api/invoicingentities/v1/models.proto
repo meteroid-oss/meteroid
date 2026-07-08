@@ -26,6 +26,10 @@ message InvoicingEntity {
   string accounting_currency = 21;
   TaxResolver tax_resolver = 22;
   reserved 23; // consolidate_recurring_invoices, enterprise-only
+  reserved 24, 25; // portal_theme_mode, portal_roundness, enterprise-only
+  // Apply reverse charge only to VIES-verified VAT numbers (off = fail-open).
+  bool require_vies_valid_for_reverse_charge = 26;
+  bool require_billing_information = 27;
 }
 
 message InvoicingEntityPublic {
@@ -62,6 +66,9 @@ message InvoicingEntityData {
   optional string country = 20;
   optional TaxResolver tax_resolver = 21;
   reserved 22; // consolidate_recurring_invoices, enterprise-only
+  reserved 23, 24; // portal_theme_mode, portal_roundness, enterprise-only
+  optional bool require_vies_valid_for_reverse_charge = 25;
+  optional bool require_billing_information = 26;
 }
 
 enum TaxResolver {

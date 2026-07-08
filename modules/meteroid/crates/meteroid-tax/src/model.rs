@@ -20,6 +20,12 @@ pub struct CustomerCustomTaxRate {
 pub struct CustomerForTax {
     pub vat_number: Option<String>,
     pub vat_number_format_valid: bool,
+    /// Definitive VIES answer for `vat_number` if any (`Some(true)` = registered).
+    /// Pending/unavailable/never-checked numbers are `None`.
+    pub vat_number_vies_valid: Option<bool>,
+    /// Invoicing-entity policy: apply reverse charge (B2B) only once VIES has
+    /// confirmed the number. Off = fail-open on format validity alone.
+    pub require_vies_valid_for_reverse_charge: bool,
     pub custom_tax_rates: Vec<CustomerCustomTaxRate>,
     pub tax_exempt: bool,
     pub billing_address: Address,
@@ -151,4 +157,32 @@ pub enum VatNumberExternalValidationResult {
     Valid,
     Invalid,
     ServiceUnavailable,
+}
+
+/// Raw fields captured from a definitive VIES answer, kept as audit evidence
+/// for reverse-charge decisions (and to surface the registered identity).
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ViesCheckData {
+    pub request_date: Option<String>,
+    /// Consultation number; VIES only issues one for qualified (requester-
+    /// identified) checks, so this is usually absent.
+    pub request_identifier: Option<String>,
+    pub name: Option<String>,
+    pub address: Option<String>,
+}
+
+/// Outcome of a VIES call: the tri-state result plus, on a definitive answer,
+/// the evidence VIES returned alongside it.
+pub struct ViesValidation {
+    pub result: VatNumberExternalValidationResult,
+    pub check: Option<ViesCheckData>,
+}
+
+impl From<VatNumberExternalValidationResult> for ViesValidation {
+    fn from(result: VatNumberExternalValidationResult) -> Self {
+        Self {
+            result,
+            check: None,
+        }
+    }
 }
