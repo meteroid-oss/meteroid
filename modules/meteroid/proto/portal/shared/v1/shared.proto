@@ -29,8 +29,16 @@ message AddPaymentMethodResponse {
   api.customers.v1.CustomerPaymentMethod payment_method = 1;
 }
 
+message SetDefaultPaymentMethodRequest {
+  string payment_method_id = 1;
+}
+message SetDefaultPaymentMethodResponse {
+  api.customers.v1.Customer customer = 1;
+}
+
 service PortalSharedService {
   rpc UpdateCustomer(UpdateCustomerRequest) returns (UpdateCustomerResponse);
   rpc SetupIntent(SetupIntentRequest) returns (SetupIntentResponse);
   rpc AddPaymentMethod(AddPaymentMethodRequest) returns (AddPaymentMethodResponse);
+  rpc SetDefaultPaymentMethod(SetDefaultPaymentMethodRequest) returns (SetDefaultPaymentMethodResponse);
 }

@@ -31,6 +31,8 @@ pub mod invoicing_entities {
                 .unwrap_or(meteroid_store::domain::enums::TaxResolverEnum::None),
             require_vies_valid_for_reverse_charge: proto.require_vies_valid_for_reverse_charge,
             require_billing_information: proto.require_billing_information.unwrap_or(false),
+            portal_theme_mode: proto.portal_theme_mode,
+            portal_roundness: proto.portal_roundness,
         })
     }
 
@@ -86,6 +88,8 @@ pub mod invoicing_entities {
             tax_resolver: tax_resolver_server_to_domain(proto.tax_resolver),
             require_vies_valid_for_reverse_charge: proto.require_vies_valid_for_reverse_charge,
             require_billing_information: proto.require_billing_information,
+            portal_theme_mode: Some(proto.portal_theme_mode),
+            portal_roundness: Some(proto.portal_roundness),
         }
     }
 
@@ -115,6 +119,8 @@ pub mod invoicing_entities {
             tax_resolver: tax_resolver_domain_to_server(domain.tax_resolver).into(),
             require_vies_valid_for_reverse_charge: domain.require_vies_valid_for_reverse_charge,
             require_billing_information: domain.require_billing_information,
+            portal_theme_mode: domain.portal_theme_mode,
+            portal_roundness: domain.portal_roundness,
         }
     }
 

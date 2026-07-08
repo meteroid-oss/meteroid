@@ -20,4 +20,11 @@ message InvoiceForPayment {
   optional string footer_info = 11;
   optional string seller_vat_number = 12;
   optional api.customers.v1.Address seller_address = 13;
+  // Portal theme/branding from the invoicing entity (inheriting unset values
+  // from the tenant default entity), so the payment page themes like the portal.
+  optional string brand_color = 14;
+  // "light" | "dark".
+  optional string theme_mode = 15;
+  // "Sharp" | "Modern" | "Rounded".
+  optional string roundness = 16;
 }

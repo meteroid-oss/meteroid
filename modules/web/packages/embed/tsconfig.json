@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "lib": ["ES2018", "DOM"],
+    "module": "ESNext",
+    "target": "ES2018",
+    "moduleResolution": "bundler",
+    "ignoreDeprecations": "6.0",
+    "jsx": "react-jsx",
+    "strict": true,
+    "declaration": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src"],
+  "exclude": ["dist", "build", "node_modules"]
+}

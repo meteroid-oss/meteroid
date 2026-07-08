@@ -288,6 +288,8 @@ impl StoreInternal {
                 .require_vies_valid_for_reverse_charge
                 .unwrap_or(false),
             require_billing_information: invoicing_entity.require_billing_information,
+            portal_theme_mode: invoicing_entity.portal_theme_mode.clone(),
+            portal_roundness: invoicing_entity.portal_roundness.clone(),
         };
 
         let row: InvoicingEntityRow = entity.into();

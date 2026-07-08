@@ -76,6 +76,14 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             .await
             .map_err(Into::<PortalInvoiceApiError>::into)?;
 
+        let branding = crate::api::portal::branding::resolve_portal_branding(
+            &self.store,
+            tenant,
+            &invoicing_entity,
+        )
+        .await
+        .map_err(Into::<PortalInvoiceApiError>::into)?;
+
         let organization = self
             .store
             .get_organization_by_tenant_id(&tenant)
@@ -143,12 +151,7 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             .map(|v| v.0)
             .map_err(Into::<PortalInvoiceApiError>::into)?;
 
-        log::info!(
-            "logo_attachment_id: {:?}",
-            invoicing_entity.logo_attachment_id
-        );
-
-        let logo_url = if let Some(logo_attachment_id) = invoicing_entity.logo_attachment_id {
+        let logo_url = if let Some(logo_attachment_id) = branding.logo_attachment_id {
             self.object_store
                 .get_url(
                     logo_attachment_id,
@@ -160,8 +163,6 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
         } else {
             None
         };
-
-        log::info!("logo_url: {:?}", logo_url);
 
         // Only show bank account if bank transfer is enabled in the resolved config
         // For External subscriptions, bank_transfer_enabled is false so no fallback occurs
@@ -208,6 +209,9 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
                     state: invoicing_entity.state,
                     zip_code: invoicing_entity.zip_code,
                 }),
+                brand_color: branding.brand_color,
+                theme_mode: branding.theme_mode,
+                roundness: branding.roundness,
             }),
         }))
     }

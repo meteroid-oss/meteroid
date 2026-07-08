@@ -29,7 +29,14 @@ message Checkout {
   optional string card_connection_id = 17;
   optional string direct_debit_connection_id = 18;
   optional api.bankaccounts.v1.BankAccount bank_account = 19;
-  bool require_billing_information = 22;
+  // Portal theme/branding from the invoicing entity (inheriting unset values
+  // from the tenant default entity), so checkout themes like the portal.
+  optional string brand_color = 22;
+  // "light" | "dark".
+  optional string theme_mode = 23;
+  // "Sharp" | "Modern" | "Rounded".
+  optional string roundness = 24;
+  bool require_billing_information = 25;
 }
 
 message TaxBreakdownItem {
@@ -60,4 +67,11 @@ message SlotUpgradeCheckout {
   string currency = 10;
   optional string logo_url = 11;
   string trade_name = 12;
+  // Portal theme/branding from the invoicing entity (inheriting unset values
+  // from the tenant default entity), so the upgrade page themes like the portal.
+  optional string brand_color = 13;
+  // "light" | "dark".
+  optional string theme_mode = 14;
+  // "Sharp" | "Modern" | "Rounded".
+  optional string roundness = 15;
 }

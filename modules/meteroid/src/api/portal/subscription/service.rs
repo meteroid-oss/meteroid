@@ -19,6 +19,7 @@ use meteroid_store::domain::subscription_components::{SubscriptionComponent, Sub
 use meteroid_store::repositories::PlansInterface;
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::plan_version_add_ons::PlanVersionAddOnInterface;
+use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use std::collections::HashMap;
 use tonic::{Request, Response, Status};
@@ -113,6 +114,70 @@ fn map_proration_summary(
         proration_factor: summary.proration_factor,
         days_remaining: summary.days_remaining,
         days_in_period: summary.days_in_period,
+    }
+}
+
+/// Build a wire preview from an add-on amendment preview. The immediate figures
+/// come from the taxed adjustment invoice the apply path would issue (`None` for
+/// scheduled decreases — no charge now).
+fn map_amendment_quantity_preview(
+    ext: &meteroid_store::domain::subscription_amendment::AmendmentPreviewExtended,
+    immediate: bool,
+    effective_date: chrono::NaiveDate,
+    currency: String,
+) -> QuantityChangePreview {
+    let inv = ext.adjustment_invoice.as_ref();
+    QuantityChangePreview {
+        change_direction: map_change_direction(ext.change_direction),
+        effective_date: effective_date.as_proto(),
+        immediate,
+        currency,
+        immediate_subtotal_cents: inv.map(|i| i.subtotal).unwrap_or(0),
+        immediate_tax_cents: inv.map(|i| i.tax_amount).unwrap_or(0),
+        immediate_total_cents: inv.map(|i| i.total).unwrap_or(0),
+        immediate_amount_due_cents: inv.map(|i| i.amount_due).unwrap_or(0),
+        proration: ext.proration.as_ref().map(map_proration_summary),
+    }
+}
+
+/// Build a wire preview from a seat (slot) update preview. The immediate figures
+/// come from the same taxed invoice the apply path bills; decreases are scheduled
+/// to period end with no charge now.
+fn map_slot_quantity_preview(
+    preview: &meteroid_store::domain::slot_transactions::SlotUpdatePreview,
+    currency: String,
+) -> QuantityChangePreview {
+    let immediate = preview.delta > 0;
+    let inv = preview.adjustment_invoice.as_ref();
+    let direction = if preview.delta > 0 {
+        DomainChangeDirection::Upgrade
+    } else {
+        DomainChangeDirection::Downgrade
+    };
+    let proration = if immediate && preview.days_total > 0 {
+        let charge = inv.map(|i| i.subtotal).unwrap_or(0);
+        Some(ProrationSummary {
+            credits_total_cents: 0,
+            charges_total_cents: charge,
+            net_amount_cents: charge,
+            arrears_charge_cents: 0,
+            proration_factor: preview.days_remaining as f64 / preview.days_total as f64,
+            days_remaining: preview.days_remaining.max(0) as u32,
+            days_in_period: preview.days_total.max(0) as u32,
+        })
+    } else {
+        None
+    };
+    QuantityChangePreview {
+        change_direction: map_change_direction(direction),
+        effective_date: preview.effective_at.as_proto(),
+        immediate,
+        currency,
+        immediate_subtotal_cents: inv.map(|i| i.subtotal).unwrap_or(0),
+        immediate_tax_cents: inv.map(|i| i.tax_amount).unwrap_or(0),
+        immediate_total_cents: inv.map(|i| i.total).unwrap_or(0),
+        immediate_amount_due_cents: inv.map(|i| i.amount_due).unwrap_or(0),
+        proration,
     }
 }
 
@@ -639,6 +704,69 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
+    async fn cancel_subscription(
+        &self,
+        request: Request<CancelSubscriptionRequest>,
+    ) -> Result<Response<CancelSubscriptionResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let customer_id = request.portal_resource()?.customer()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(&inner.subscription_id)?;
+
+        // Verify ownership
+        let details = self
+            .store
+            .get_subscription_details(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        if details.subscription.customer_id != customer_id {
+            return Err(PortalSubscriptionApiError::Unauthorized.into());
+        }
+
+        let effective_at = if inner.immediate {
+            CancellationEffectiveAt::Date(chrono::Utc::now().date_naive())
+        } else {
+            CancellationEffectiveAt::EndOfBillingPeriod
+        };
+
+        self.services
+            .cancel_subscription(
+                common_domain::actor::Actor::Customer { id: customer_id },
+                subscription_id,
+                tenant_id,
+                inner.reason,
+                effective_at,
+            )
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        // Surface the resulting effective date and, for end-of-period
+        // cancellations, the scheduled event id so the customer can un-cancel.
+        let refreshed = self
+            .store
+            .get_subscription_details(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        let cancel_event = refreshed
+            .pending_events
+            .into_iter()
+            .find(|e| e.event_type == ScheduledEventTypeEnum::CancelSubscription);
+
+        let (effective_date, scheduled_event_id) = match cancel_event {
+            Some(e) => (e.scheduled_date.as_proto(), Some(e.id.to_string())),
+            None => (chrono::Utc::now().date_naive().as_proto(), None),
+        };
+
+        Ok(Response::new(CancelSubscriptionResponse {
+            effective_date,
+            scheduled_event_id,
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
     async fn get_upcoming_invoice(
         &self,
         request: Request<GetUpcomingInvoiceRequest>,
@@ -852,6 +980,14 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             return Err(PortalSubscriptionApiError::Unauthorized.into());
         }
 
+        // Gate self-service eligibility (status, plan rank, pending events).
+        if !self.can_self_serve(tenant_id, &details).await? {
+            return Err(PortalSubscriptionApiError::FailedPrecondition(
+                "Managed by your account team".to_string(),
+            )
+            .into());
+        }
+
         // Validate: plan_version_add_on exists
         let plan_version_add_ons = self
             .store
@@ -908,6 +1044,45 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 addon.name, max
             ))
             .into());
+        }
+
+        // Add-ons that bill nothing up front (free, or arrears/usage-billed) are
+        // attached immediately via an amendment — no checkout, no payment method
+        // required. Anything with an advance/one-time charge goes through checkout.
+        let resolved = self.resolve_addon_fee(&addon)?;
+        if !resolved.fee.has_upfront_charge() {
+            use meteroid_store::domain::subscription_add_ons::{
+                CreateSubscriptionAddOn, SubscriptionAddOnCustomization,
+            };
+            use meteroid_store::domain::subscription_amendment::{
+                AddOnChanges, ComponentChanges, SubscriptionAmendment,
+            };
+
+            let actor = common_domain::actor::Actor::Customer { id: customer_id };
+            let amendment = SubscriptionAmendment {
+                apply_mode: PlanChangeMode::Immediate,
+                component_changes: ComponentChanges::default(),
+                add_on_changes: AddOnChanges {
+                    added: vec![CreateSubscriptionAddOn {
+                        add_on_id: addon.id,
+                        customization: SubscriptionAddOnCustomization::None,
+                        quantity: 1,
+                    }],
+                    edited: vec![],
+                    removed: vec![],
+                },
+            };
+
+            self.services
+                .apply_amendment_immediate(actor, subscription_id, tenant_id, amendment)
+                .await
+                .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+            return Ok(Response::new(PurchaseAddOnResponse {
+                status: AddOnPurchaseStatus::AddonPurchaseCompleted.into(),
+                checkout_token: None,
+                add_on_name: Some(addon.name.clone()),
+            }));
         }
 
         if self.has_online_payment_config(&details) {
@@ -979,6 +1154,607 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             period_end: usage.period.end.as_proto(),
         }))
     }
+
+    #[tracing::instrument(skip_all)]
+    async fn list_adjustable_components(
+        &self,
+        request: Request<ListAdjustableComponentsRequest>,
+    ) -> Result<Response<ListAdjustableComponentsResponse>, Status> {
+        use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
+
+        let tenant_id = request.tenant()?;
+        let customer_id = request.portal_resource()?.customer()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(&inner.subscription_id)?;
+
+        let details = self
+            .store
+            .get_subscription_details(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        if details.subscription.customer_id != customer_id {
+            return Err(PortalSubscriptionApiError::Unauthorized.into());
+        }
+
+        let can_self_serve = self.can_self_serve(tenant_id, &details).await?;
+
+        let currency = details.subscription.currency.clone();
+
+        let mut components: Vec<AdjustableComponent> = Vec::new();
+        for component in &details.price_components {
+            let Some(price_component_id) = component.price_component_id else {
+                continue;
+            };
+            match &component.fee {
+                SubscriptionFee::Slot {
+                    unit,
+                    min_slots,
+                    max_slots,
+                    initial_slots,
+                    ..
+                } => {
+                    // Live slot count from the ledger; fall back to the fee's
+                    // initial_slots when no transactions exist yet.
+                    let current = self
+                        .store
+                        .get_active_slots_value(tenant_id, subscription_id, unit.clone(), None)
+                        .await
+                        .map(|v| v as i64)
+                        .unwrap_or(*initial_slots as i64);
+
+                    components.push(AdjustableComponent {
+                        component_id: price_component_id.as_proto(),
+                        name: component.name.clone(),
+                        kind: "seats".to_string(),
+                        current,
+                        min: min_slots.map(|m| m as i64),
+                        max: max_slots.map(|m| m as i64),
+                        unit: Some(unit.clone()),
+                        currency: currency.clone(),
+                        unit_fee: Some(map_fee(&component.fee, &component.period)),
+                    });
+                }
+                SubscriptionFee::Capacity { included, .. } => {
+                    // Capacity adjustment is listed for the UI but not yet
+                    // self-serviceable (see UpdateSeats). Surface current committed
+                    // capacity so a stepper can render.
+                    components.push(AdjustableComponent {
+                        component_id: price_component_id.as_proto(),
+                        name: component.name.clone(),
+                        kind: "capacity".to_string(),
+                        current: *included as i64,
+                        min: None,
+                        max: None,
+                        unit: None,
+                        currency: currency.clone(),
+                        unit_fee: Some(map_fee(&component.fee, &component.period)),
+                    });
+                }
+                _ => continue,
+            }
+        }
+
+        Ok(Response::new(ListAdjustableComponentsResponse {
+            components,
+            can_self_serve,
+            // Reserved for a future per-plan policy flag; downgrades are always
+            // allowed (deferred to period end) for now.
+            allow_downgrade: true,
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn update_add_on_quantity(
+        &self,
+        request: Request<UpdateAddOnQuantityRequest>,
+    ) -> Result<Response<UpdateAddOnQuantityResponse>, Status> {
+        use meteroid_store::domain::subscription_amendment::{
+            AddOnChanges, ComponentChanges, EditSubscriptionAddOn, SubscriptionAmendment,
+        };
+
+        let tenant_id = request.tenant()?;
+        let customer_id = request.portal_resource()?.customer()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(&inner.subscription_id)?;
+        let add_on_id = AddOnId::from_proto(&inner.add_on_id)?;
+        let target = inner.quantity;
+
+        let details = self
+            .store
+            .get_subscription_details(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        if details.subscription.customer_id != customer_id {
+            return Err(PortalSubscriptionApiError::Unauthorized.into());
+        }
+
+        // Gate self-service eligibility (status, plan rank, pending events).
+        if !self.can_self_serve(tenant_id, &details).await? {
+            return Err(PortalSubscriptionApiError::FailedPrecondition(
+                "Managed by your account team".to_string(),
+            )
+            .into());
+        }
+
+        // Find the live subscription add-on for this add_on_id.
+        let sub_add_on = details
+            .add_ons
+            .iter()
+            .find(|sa| sa.add_on_id == add_on_id)
+            .ok_or_else(|| {
+                PortalSubscriptionApiError::NotFound(format!(
+                    "Add-on {} not active on this subscription",
+                    add_on_id
+                ))
+            })?;
+
+        let current: u32 = sub_add_on.quantity.max(0) as u32;
+
+        // Bounds: 0 <= target <= max_instances.
+        let plan_version_add_ons = self
+            .store
+            .list_plan_version_add_ons(details.subscription.plan_version_id, tenant_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+        let max_instances = plan_version_add_ons
+            .iter()
+            .find(|p| p.add_on_id == add_on_id)
+            .and_then(|pva| pva.max_instances_per_subscription);
+        if let Some(max) = max_instances
+            && target as i32 > max
+        {
+            return Err(PortalSubscriptionApiError::InvalidArgument(format!(
+                "Quantity {} exceeds the maximum of {} for this add-on",
+                target, max
+            ))
+            .into());
+        }
+
+        if target == current {
+            return Err(PortalSubscriptionApiError::InvalidArgument(
+                "Quantity is unchanged".to_string(),
+            )
+            .into());
+        }
+
+        let actor = common_domain::actor::Actor::Customer { id: customer_id };
+
+        if target > current {
+            // Increase: apply immediately, prorated. The adjustment invoice is
+            // auto-collected per the subscription's payment config.
+            let amendment = SubscriptionAmendment {
+                apply_mode: PlanChangeMode::Immediate,
+                component_changes: ComponentChanges::default(),
+                add_on_changes: AddOnChanges {
+                    added: vec![],
+                    edited: vec![EditSubscriptionAddOn {
+                        subscription_add_on_id: sub_add_on.id,
+                        quantity: Some(target),
+                        customization: None,
+                    }],
+                    removed: vec![],
+                },
+            };
+
+            let result = self
+                .services
+                .apply_amendment_immediate(actor, subscription_id, tenant_id, amendment)
+                .await
+                .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+            Ok(Response::new(UpdateAddOnQuantityResponse {
+                status: AdjustmentStatus::AdjustmentCompleted.into(),
+                effective_date: Some(result.effective_date.as_proto()),
+                checkout_token: None,
+                scheduled_event_id: None,
+            }))
+        } else {
+            // Decrease / remove: always defer to period end (no charge).
+            let add_on_changes = if target == 0 {
+                AddOnChanges {
+                    added: vec![],
+                    edited: vec![],
+                    removed: vec![sub_add_on.id],
+                }
+            } else {
+                AddOnChanges {
+                    added: vec![],
+                    edited: vec![EditSubscriptionAddOn {
+                        subscription_add_on_id: sub_add_on.id,
+                        quantity: Some(target),
+                        customization: None,
+                    }],
+                    removed: vec![],
+                }
+            };
+
+            let amendment = SubscriptionAmendment {
+                apply_mode: PlanChangeMode::EndOfPeriod,
+                component_changes: ComponentChanges::default(),
+                add_on_changes,
+            };
+
+            let event = self
+                .services
+                .schedule_amendment(actor, subscription_id, tenant_id, amendment)
+                .await
+                .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+            Ok(Response::new(UpdateAddOnQuantityResponse {
+                status: AdjustmentStatus::AdjustmentScheduled.into(),
+                effective_date: Some(event.scheduled_time.date().as_proto()),
+                checkout_token: None,
+                scheduled_event_id: Some(event.id.to_string()),
+            }))
+        }
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn update_seats(
+        &self,
+        request: Request<UpdateSeatsRequest>,
+    ) -> Result<Response<UpdateSeatsResponse>, Status> {
+        use common_domain::ids::PriceComponentId;
+        use meteroid_store::domain::slot_transactions::SlotUpgradeBillingMode;
+        use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
+
+        let tenant_id = request.tenant()?;
+        let customer_id = request.portal_resource()?.customer()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(&inner.subscription_id)?;
+        let price_component_id = PriceComponentId::from_proto(&inner.component_id)?;
+        let target = inner.quantity;
+
+        let details = self
+            .store
+            .get_subscription_details(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        if details.subscription.customer_id != customer_id {
+            return Err(PortalSubscriptionApiError::Unauthorized.into());
+        }
+
+        if !self.can_self_serve(tenant_id, &details).await? {
+            return Err(PortalSubscriptionApiError::FailedPrecondition(
+                "Managed by your account team".to_string(),
+            )
+            .into());
+        }
+
+        // Locate the slot component and its bounds.
+        let component = details
+            .price_components
+            .iter()
+            .find(|c| c.price_component_id == Some(price_component_id))
+            .ok_or_else(|| {
+                PortalSubscriptionApiError::NotFound(format!(
+                    "Component {} not found on this subscription",
+                    price_component_id
+                ))
+            })?;
+
+        let (unit, min_slots, max_slots) = match &component.fee {
+            SubscriptionFee::Slot {
+                unit,
+                min_slots,
+                max_slots,
+                ..
+            } => (unit.clone(), *min_slots, *max_slots),
+            SubscriptionFee::Capacity { .. } => {
+                return Err(PortalSubscriptionApiError::FailedPrecondition(
+                    "Capacity adjustment is not available for self-service".to_string(),
+                )
+                .into());
+            }
+            _ => {
+                return Err(PortalSubscriptionApiError::InvalidArgument(format!(
+                    "Component {} is not a seat (slot) component",
+                    price_component_id
+                ))
+                .into());
+            }
+        };
+
+        // Bounds: min_slots <= target <= max_slots.
+        if let Some(min) = min_slots
+            && target < min
+        {
+            return Err(PortalSubscriptionApiError::InvalidArgument(format!(
+                "Quantity {} is below the minimum of {} seats",
+                target, min
+            ))
+            .into());
+        }
+        if let Some(max) = max_slots
+            && target > max
+        {
+            return Err(PortalSubscriptionApiError::InvalidArgument(format!(
+                "Quantity {} exceeds the maximum of {} seats",
+                target, max
+            ))
+            .into());
+        }
+
+        // Current live slot count.
+        let current = self
+            .store
+            .get_active_slots_value(tenant_id, subscription_id, unit, None)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)? as i64;
+
+        let delta = target as i64 - current;
+
+        if delta == 0 {
+            return Err(PortalSubscriptionApiError::InvalidArgument(
+                "Seat count is unchanged".to_string(),
+            )
+            .into());
+        }
+
+        let delta_i32 = i32::try_from(delta).map_err(|_| {
+            PortalSubscriptionApiError::InvalidArgument("Seat delta out of range".to_string())
+        })?;
+
+        if delta > 0 {
+            // Increase: applied immediately and billed on the prorated adjustment
+            // invoice (auto-charged to the saved method when online). We use the
+            // Optimistic mode for a smooth stepper UX — consistent with add-on
+            // increases — rather than bouncing the customer to a separate checkout.
+            self.services
+                .update_subscription_slots(
+                    tenant_id,
+                    subscription_id,
+                    price_component_id,
+                    delta_i32,
+                    SlotUpgradeBillingMode::Optimistic,
+                )
+                .await
+                .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+            Ok(Response::new(UpdateSeatsResponse {
+                status: AdjustmentStatus::AdjustmentCompleted.into(),
+                effective_date: Some(chrono::Utc::now().date_naive().as_proto()),
+                checkout_token: None,
+                scheduled_event_id: None,
+            }))
+        } else {
+            // Decrease: the service always defers to period end (no charge).
+            self.services
+                .update_subscription_slots(
+                    tenant_id,
+                    subscription_id,
+                    price_component_id,
+                    delta_i32,
+                    SlotUpgradeBillingMode::Optimistic,
+                )
+                .await
+                .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+            let effective_date = details
+                .subscription
+                .current_period_end
+                .unwrap_or_else(|| chrono::Utc::now().date_naive());
+
+            Ok(Response::new(UpdateSeatsResponse {
+                status: AdjustmentStatus::AdjustmentScheduled.into(),
+                effective_date: Some(effective_date.as_proto()),
+                checkout_token: None,
+                scheduled_event_id: None,
+            }))
+        }
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn preview_add_on_quantity(
+        &self,
+        request: Request<PreviewAddOnQuantityRequest>,
+    ) -> Result<Response<PreviewAddOnQuantityResponse>, Status> {
+        use meteroid_store::domain::subscription_amendment::{
+            AddOnChanges, ComponentChanges, EditSubscriptionAddOn, SubscriptionAmendment,
+        };
+
+        let tenant_id = request.tenant()?;
+        let customer_id = request.portal_resource()?.customer()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(&inner.subscription_id)?;
+        let add_on_id = AddOnId::from_proto(&inner.add_on_id)?;
+        let target = inner.quantity;
+
+        let details = self
+            .store
+            .get_subscription_details(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        if details.subscription.customer_id != customer_id {
+            return Err(PortalSubscriptionApiError::Unauthorized.into());
+        }
+        if !self.can_self_serve(tenant_id, &details).await? {
+            return Err(PortalSubscriptionApiError::FailedPrecondition(
+                "Managed by your account team".to_string(),
+            )
+            .into());
+        }
+
+        let sub_add_on = details
+            .add_ons
+            .iter()
+            .find(|sa| sa.add_on_id == add_on_id)
+            .ok_or_else(|| {
+                PortalSubscriptionApiError::NotFound(format!(
+                    "Add-on {} not active on this subscription",
+                    add_on_id
+                ))
+            })?;
+        let current: u32 = sub_add_on.quantity.max(0) as u32;
+
+        if target == current {
+            return Err(PortalSubscriptionApiError::InvalidArgument(
+                "Quantity is unchanged".to_string(),
+            )
+            .into());
+        }
+
+        let currency = details.subscription.currency.clone();
+        let period_end = details.subscription.current_period_end;
+
+        // Build the SAME amendment the apply route uses, so the preview matches the
+        // eventual charge exactly. Increases bill now (Immediate); decreases/removals
+        // defer to period end (EndOfPeriod, no charge now).
+        let (amendment, immediate, effective_date) = if target > current {
+            let amendment = SubscriptionAmendment {
+                apply_mode: PlanChangeMode::Immediate,
+                component_changes: ComponentChanges::default(),
+                add_on_changes: AddOnChanges {
+                    added: vec![],
+                    edited: vec![EditSubscriptionAddOn {
+                        subscription_add_on_id: sub_add_on.id,
+                        quantity: Some(target),
+                        customization: None,
+                    }],
+                    removed: vec![],
+                },
+            };
+            (amendment, true, chrono::Utc::now().date_naive())
+        } else {
+            let add_on_changes = if target == 0 {
+                AddOnChanges {
+                    added: vec![],
+                    edited: vec![],
+                    removed: vec![sub_add_on.id],
+                }
+            } else {
+                AddOnChanges {
+                    added: vec![],
+                    edited: vec![EditSubscriptionAddOn {
+                        subscription_add_on_id: sub_add_on.id,
+                        quantity: Some(target),
+                        customization: None,
+                    }],
+                    removed: vec![],
+                }
+            };
+            let amendment = SubscriptionAmendment {
+                apply_mode: PlanChangeMode::EndOfPeriod,
+                component_changes: ComponentChanges::default(),
+                add_on_changes,
+            };
+            let eff = period_end.unwrap_or_else(|| chrono::Utc::now().date_naive());
+            (amendment, false, eff)
+        };
+
+        let ext = self
+            .services
+            .preview_amendment(subscription_id, tenant_id, amendment)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        Ok(Response::new(PreviewAddOnQuantityResponse {
+            preview: Some(map_amendment_quantity_preview(
+                &ext,
+                immediate,
+                effective_date,
+                currency,
+            )),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn preview_seats(
+        &self,
+        request: Request<PreviewSeatsRequest>,
+    ) -> Result<Response<PreviewSeatsResponse>, Status> {
+        use common_domain::ids::PriceComponentId;
+        use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
+
+        let tenant_id = request.tenant()?;
+        let customer_id = request.portal_resource()?.customer()?;
+        let inner = request.into_inner();
+
+        let subscription_id = SubscriptionId::from_proto(&inner.subscription_id)?;
+        let price_component_id = PriceComponentId::from_proto(&inner.component_id)?;
+        let target = inner.quantity;
+
+        let details = self
+            .store
+            .get_subscription_details(tenant_id, subscription_id)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        if details.subscription.customer_id != customer_id {
+            return Err(PortalSubscriptionApiError::Unauthorized.into());
+        }
+        if !self.can_self_serve(tenant_id, &details).await? {
+            return Err(PortalSubscriptionApiError::FailedPrecondition(
+                "Managed by your account team".to_string(),
+            )
+            .into());
+        }
+
+        let component = details
+            .price_components
+            .iter()
+            .find(|c| c.price_component_id == Some(price_component_id))
+            .ok_or_else(|| {
+                PortalSubscriptionApiError::NotFound(format!(
+                    "Component {} not found on this subscription",
+                    price_component_id
+                ))
+            })?;
+
+        let unit = match &component.fee {
+            SubscriptionFee::Slot { unit, .. } => unit.clone(),
+            SubscriptionFee::Capacity { .. } => {
+                return Err(PortalSubscriptionApiError::FailedPrecondition(
+                    "Capacity adjustment is not available for self-service".to_string(),
+                )
+                .into());
+            }
+            _ => {
+                return Err(PortalSubscriptionApiError::InvalidArgument(format!(
+                    "Component {} is not a seat (slot) component",
+                    price_component_id
+                ))
+                .into());
+            }
+        };
+
+        let current = self
+            .store
+            .get_active_slots_value(tenant_id, subscription_id, unit, None)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)? as i64;
+
+        let delta = target as i64 - current;
+        if delta == 0 {
+            return Err(PortalSubscriptionApiError::InvalidArgument(
+                "Seat count is unchanged".to_string(),
+            )
+            .into());
+        }
+        let delta_i32 = i32::try_from(delta).map_err(|_| {
+            PortalSubscriptionApiError::InvalidArgument("Seat delta out of range".to_string())
+        })?;
+
+        let currency = details.subscription.currency.clone();
+
+        let preview = self
+            .services
+            .preview_slot_update(tenant_id, subscription_id, price_component_id, delta_i32)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        Ok(Response::new(PreviewSeatsResponse {
+            preview: Some(map_slot_quantity_preview(&preview, currency)),
+        }))
+    }
 }
 
 impl PortalSubscriptionServiceComponents {
@@ -997,6 +1773,51 @@ impl PortalSubscriptionServiceComponents {
             .unwrap_or_else(PaymentMethodsConfig::online);
 
         config.has_online_payment()
+    }
+
+    /// Whether the customer may self-serve quantity/seat adjustments on this
+    /// subscription: status Active/TrialActive, the plan has a self-service rank
+    /// (sales-led/custom plans are managed by the account team), and there is no
+    /// pending cancellation or plan-change scheduled.
+    async fn can_self_serve(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        details: &meteroid_store::domain::SubscriptionDetails,
+    ) -> Result<bool, Status> {
+        use meteroid_store::domain::SubscriptionStatusEnum;
+
+        let status_ok = matches!(
+            details.subscription.status,
+            SubscriptionStatusEnum::Active | SubscriptionStatusEnum::TrialActive
+        );
+        if !status_ok {
+            return Ok(false);
+        }
+
+        // A pending cancellation or plan change blocks further self-service edits.
+        let has_blocking_event = details.pending_events.iter().any(|e| {
+            matches!(
+                e.event_type,
+                ScheduledEventTypeEnum::CancelSubscription
+                    | ScheduledEventTypeEnum::ApplyPlanChange
+            )
+        });
+        if has_blocking_event {
+            return Ok(false);
+        }
+
+        // Sales-led/custom plans (no self-service rank) are managed by the account team.
+        let plan = self
+            .store
+            .get_plan(
+                details.subscription.plan_id,
+                tenant_id,
+                meteroid_store::domain::PlanVersionFilter::Active,
+            )
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
+
+        Ok(plan.plan.self_service_rank.is_some())
     }
 
     /// Creates a checkout session for add-on purchase and returns the appropriate response.
@@ -1067,22 +1888,12 @@ impl PortalSubscriptionServiceComponents {
         }))
     }
 
-    /// Directly adds an add-on to a subscription (no payment required).
-    /// Retained for potential admin/internal flows; self-service portal purchases
-    /// are gated behind an online payment method (see `purchase_add_on`).
-    #[allow(dead_code)]
-    async fn add_addon_directly(
+    /// Resolves an enriched add-on's subscription fee using its own eagerly-loaded
+    /// product/price, so callers can inspect the fee (e.g. whether it bills up front).
+    fn resolve_addon_fee(
         &self,
-        tenant_id: common_domain::ids::TenantId,
-        subscription_id: SubscriptionId,
         addon: &meteroid_store::domain::add_ons::AddOn,
-    ) -> Result<Response<PurchaseAddOnResponse>, tonic::Status> {
-        use meteroid_store::domain::subscription_add_ons::{
-            SubscriptionAddOnNew, SubscriptionAddOnNewInternal,
-        };
-        use meteroid_store::repositories::subscription_add_ons::SubscriptionAddOnInterface;
-
-        // Build products/prices maps from the enriched addon
+    ) -> Result<meteroid_store::domain::price_components::ResolvedFee, tonic::Status> {
         let mut products_map = HashMap::new();
         let mut prices_map = HashMap::new();
 
@@ -1110,34 +1921,9 @@ impl PortalSubscriptionServiceComponents {
             );
         }
 
-        let resolved = addon
+        addon
             .resolve_subscription_fee(&products_map, &prices_map, None)
-            .map_err(|e| PortalSubscriptionApiError::InvalidArgument(e.to_string()))?;
-
-        let new_addon = SubscriptionAddOnNew {
-            subscription_id,
-            internal: SubscriptionAddOnNewInternal {
-                add_on_id: addon.id,
-                name: addon.name.clone(),
-                period: resolved.period,
-                fee: resolved.fee,
-                product_id: Some(addon.product_id),
-                price_id: resolved.price_id,
-                quantity: 1,
-                effective_from: chrono::Utc::now().naive_utc().date(),
-            },
-        };
-
-        self.store
-            .insert_subscription_add_on(tenant_id, new_addon)
-            .await
-            .map_err(Into::<PortalSubscriptionApiError>::into)?;
-
-        Ok(Response::new(PurchaseAddOnResponse {
-            status: AddOnPurchaseStatus::AddonPurchaseCompleted.into(),
-            checkout_token: None,
-            add_on_name: Some(addon.name.clone()),
-        }))
+            .map_err(|e| PortalSubscriptionApiError::InvalidArgument(e.to_string()).into())
     }
 
     /// Creates a checkout session for plan change and returns the appropriate response.

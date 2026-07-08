@@ -55,6 +55,13 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
             .await
             .map_err(Into::<PortalCustomerApiError>::into)?;
 
+        let subscription_ids: Vec<_> = subscriptions.items.iter().map(|s| s.id).collect();
+        let pending_cancellations = self
+            .store
+            .list_pending_cancellations(tenant, &subscription_ids)
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+
         let active_subscriptions: Vec<SubscriptionSummary> = subscriptions
             .items
             .into_iter()
@@ -80,7 +87,8 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                     currency: s.currency,
                     trial_start: None, // TODO drop (status + next date)
                     trial_end: None,
-                    next_billing_date: s.current_period_end.as_proto(), // TODO next action (cancels, ends, renews)
+                    next_billing_date: s.current_period_end.as_proto(),
+                    pending_cancellation_date: pending_cancellations.get(&s.id).copied().as_proto(),
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -160,7 +168,16 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
             .await
             .map_err(Into::<PortalCustomerApiError>::into)?;
 
-        let invoicing_entity_logo_url = invoicing_entity
+        // Portal branding/theme is configured on the invoicing entity. Non-default
+        // entities inherit any unset value from the tenant's default entity.
+        let branding = crate::api::portal::branding::resolve_portal_branding(
+            &self.store,
+            tenant,
+            &invoicing_entity,
+        )
+        .await
+        .map_err(Into::<PortalCustomerApiError>::into)?;
+        let invoicing_entity_logo_url = branding
             .logo_attachment_id
             .as_ref()
             .map(|logo_id| format!("{}/files/v1/logo/{}", self.rest_api_external_url, logo_id));
@@ -175,7 +192,9 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                 direct_debit_connection_id: direct_debit_connection_id.map(|id| id.to_string()),
                 invoicing_entity_name: Some(invoicing_entity.legal_name),
                 invoicing_entity_logo_url,
-                invoicing_entity_brand_color: invoicing_entity.brand_color,
+                invoicing_entity_brand_color: branding.brand_color,
+                invoicing_entity_theme_mode: branding.theme_mode,
+                invoicing_entity_roundness: branding.roundness,
             }),
         }))
     }
