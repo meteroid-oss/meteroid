@@ -10,9 +10,9 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use rusty_money::{FormattableCurrency, iso};
 use typst::foundations::{Bytes, Dict, IntoValue};
-use typst::layout::PagedDocument;
 use typst::text::Font;
 use typst_as_lib::TypstEngine;
+use typst_layout::PagedDocument;
 
 static INVOICE_CORE: &str = include_str!("../templates/invoice.typ");
 static TEMPLATE_CORE: &str = include_str!("../templates/template.typ");

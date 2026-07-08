@@ -6,7 +6,7 @@ use crate::typst_render::TypstInvoiceRenderer;
 use async_trait::async_trait;
 use bytes::Bytes;
 use typst::foundations::Smart;
-use typst::layout::PagedDocument;
+use typst_layout::PagedDocument;
 use typst_pdf::{self, PdfOptions, PdfStandard, PdfStandards};
 
 fn generate_pdf_from_document(document: &PagedDocument) -> InvoicingResult<Bytes> {
@@ -21,6 +21,7 @@ fn generate_pdf_from_document(document: &PagedDocument) -> InvoicingResult<Bytes
         timestamp: None,
         ident: Smart::Auto,
         tagged: true,
+        ..Default::default()
     };
 
     let pdf = typst_pdf::pdf(document, &pdf_options).map_err(|e| {
