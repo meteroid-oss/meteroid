@@ -1,5 +1,14 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
-import { Badge, Button, Card, Form, InputFormField, Switch, TextareaFormField } from '@md/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  Form,
+  InputFormField,
+  Switch,
+  SwitchFormField,
+  TextareaFormField,
+} from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { toast } from 'sonner'
@@ -22,6 +31,7 @@ const invoiceDetailsSchema = z.object({
   invoiceFooterLegal: z.string().optional(),
   logoAttachmentId: z.string().optional(),
   brandColor: z.string().optional(),
+  requireBillingInformation: z.boolean().optional(),
 })
 
 export const InvoiceTab = () => {
@@ -56,6 +66,7 @@ export const InvoiceTab = () => {
         invoiceFooterLegal: currentEntity.invoiceFooterLegal || '',
         logoAttachmentId: currentEntity.logoAttachmentId || '',
         brandColor: currentEntity.brandColor || '',
+        requireBillingInformation: currentEntity.requireBillingInformation ?? false,
       })
     } else {
       methods.reset()
@@ -78,6 +89,7 @@ export const InvoiceTab = () => {
         invoiceNumberPattern: values.invoiceNumberPattern,
         logoAttachmentId: values.logoAttachmentId,
         netTerms: values.netTerms,
+        requireBillingInformation: values.requireBillingInformation,
       },
     })
   }
@@ -121,6 +133,14 @@ export const InvoiceTab = () => {
                 type="number"
                 placeholder="30"
                 containerClassName="col-span-3"
+              />
+
+              <SwitchFormField
+                name="requireBillingInformation"
+                control={methods.control}
+                label="Require billing information at checkout"
+                description="Customers must provide a billing email and a complete billing address (including country) before they can complete a checkout."
+                containerClassName="col-span-6"
               />
 
               {/* enterprise-only */}

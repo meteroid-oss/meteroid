@@ -287,6 +287,7 @@ impl StoreInternal {
             require_vies_valid_for_reverse_charge: invoicing_entity
                 .require_vies_valid_for_reverse_charge
                 .unwrap_or(false),
+            require_billing_information: invoicing_entity.require_billing_information,
         };
 
         let row: InvoicingEntityRow = entity.into();

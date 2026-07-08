@@ -1,11 +1,12 @@
 import { Code, ConnectError } from '@connectrpc/connect'
 import { useMutation } from '@connectrpc/connect-query'
-import { ArrowLeft } from 'lucide-react'
+import { AlertCircle, ArrowLeft } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { PaymentPanel } from '@/features/checkout/PaymentPanel'
 import { ReadonlyPaymentView } from '@/features/checkout/components/ReadonlyPaymentView'
+import { hasCompleteBillingInformation } from '@/features/checkout/utils/billingInfo'
 import { getCheckoutPaymentAvailability } from '@/features/checkout/utils/paymentAvailability'
 import { BillingInfo } from '@/features/customers/components/BillingInfo'
 import { BankTransferInfo } from '@/features/invoice-payment/components/BankTransferInfo'
@@ -28,7 +29,10 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
   planChangeContext,
   addonPurchaseContext,
 }) => {
-  const [isAddressEditing, setIsAddressEditing] = useState(false)
+  const [isAddressEditing, setIsAddressEditing] = useState(
+    initialCheckoutData.requireBillingInformation &&
+      !hasCompleteBillingInformation(initialCheckoutData.customer)
+  )
   const [couponCode, setCouponCode] = useState('')
   const [couponError, setCouponError] = useState<string | undefined>(undefined)
   const [isApplyingCoupon, setIsApplyingCoupon] = useState(false)
@@ -44,7 +48,11 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
     cardConnectionId,
     directDebitConnectionId,
     bankAccount,
+    requireBillingInformation,
   } = checkoutData
+
+  const billingBlocksPayment =
+    requireBillingInformation && !hasCompleteBillingInformation(customer)
 
   // Mutation to confirm the checkout using unified endpoint
   const confirmCheckoutMutation = useMutation(confirmCheckout, {
@@ -109,6 +117,11 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
   const handlePaymentSubmit = async (paymentMethodId: string) => {
     try {
       setCouponError(undefined)
+
+      if (billingBlocksPayment) {
+        setIsAddressEditing(true)
+        throw new Error('Please complete your billing information before continuing.')
+      }
 
       if (!subscription?.subscription?.currency) {
         throw new Error('Currency is not defined')
@@ -208,50 +221,65 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
               customer={customer}
               isEditing={isAddressEditing}
               setIsEditing={setIsAddressEditing}
+              required={requireBillingInformation}
+              onUpdated={updatedCustomer =>
+                setCheckoutData(prev => ({ ...prev, customer: updatedCustomer }))
+              }
             />
 
-            {/* Render based on payment availability */}
-            {paymentAvailability.type === 'readonly' && (
-              <ReadonlyPaymentView reason={paymentAvailability.reason} />
-            )}
-
-            {paymentAvailability.type === 'bank_only' && (
-              <BankTransferInfo
-                bankAccount={paymentAvailability.bankAccount}
-                invoiceNumber={subscription?.subscription?.planName}
-                customerName={customer?.name}
-              />
-            )}
-
-            {paymentAvailability.type === 'payment_form' && (
+            {billingBlocksPayment ? (
+              <div className="mt-6 p-3 bg-amber-50 text-amber-800 rounded-lg text-sm flex items-start">
+                <AlertCircle size={16} className="mr-2 mt-0.5 shrink-0" />
+                <span>
+                  Please provide your billing email and complete billing address above to continue.
+                </span>
+              </div>
+            ) : (
               <>
-                {/* Show payment panel if card or DD available */}
-                {(paymentAvailability.cardConnectionId ||
-                  paymentAvailability.directDebitConnectionId) && (
-                  <PaymentPanel
-                    customer={customer}
-                    paymentMethods={paymentMethods || []}
-                    currency={subscription.subscription.currency}
-                    totalAmount={formatCurrency(amountDue, subscription.subscription.currency)}
-                    onPaymentSubmit={handlePaymentSubmit}
-                    cardConnectionId={paymentAvailability.cardConnectionId}
-                    directDebitConnectionId={paymentAvailability.directDebitConnectionId}
+                {/* Render based on payment availability */}
+                {paymentAvailability.type === 'readonly' && (
+                  <ReadonlyPaymentView reason={paymentAvailability.reason} />
+                )}
+
+                {paymentAvailability.type === 'bank_only' && (
+                  <BankTransferInfo
+                    bankAccount={paymentAvailability.bankAccount}
+                    invoiceNumber={subscription?.subscription?.planName}
+                    customerName={customer?.name}
                   />
                 )}
 
-                {/* Show bank transfer as alternative if available */}
-                {paymentAvailability.bankAccount &&
-                  !paymentAvailability.cardConnectionId &&
-                  !paymentAvailability.directDebitConnectionId && (
-                    <div className="mt-6">
-                      <div className="text-center text-sm text-gray-500 mb-4">or</div>
-                      <BankTransferInfo
-                        bankAccount={paymentAvailability.bankAccount}
-                        invoiceNumber={subscription?.subscription?.planName}
-                        customerName={customer?.name}
+                {paymentAvailability.type === 'payment_form' && (
+                  <>
+                    {/* Show payment panel if card or DD available */}
+                    {(paymentAvailability.cardConnectionId ||
+                      paymentAvailability.directDebitConnectionId) && (
+                      <PaymentPanel
+                        customer={customer}
+                        paymentMethods={paymentMethods || []}
+                        currency={subscription.subscription.currency}
+                        totalAmount={formatCurrency(amountDue, subscription.subscription.currency)}
+                        onPaymentSubmit={handlePaymentSubmit}
+                        cardConnectionId={paymentAvailability.cardConnectionId}
+                        directDebitConnectionId={paymentAvailability.directDebitConnectionId}
                       />
-                    </div>
-                  )}
+                    )}
+
+                    {/* Show bank transfer as alternative if available */}
+                    {paymentAvailability.bankAccount &&
+                      !paymentAvailability.cardConnectionId &&
+                      !paymentAvailability.directDebitConnectionId && (
+                        <div className="mt-6">
+                          <div className="text-center text-sm text-gray-500 mb-4">or</div>
+                          <BankTransferInfo
+                            bankAccount={paymentAvailability.bankAccount}
+                            invoiceNumber={subscription?.subscription?.planName}
+                            customerName={customer?.name}
+                          />
+                        </div>
+                      )}
+                  </>
+                )}
               </>
             )}
           </div>

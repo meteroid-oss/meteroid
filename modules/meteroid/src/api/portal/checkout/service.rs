@@ -824,6 +824,7 @@ impl PortalCheckoutServiceComponents {
             card_connection_id: card_connection_id.map(|id| id.as_proto()),
             direct_debit_connection_id: direct_debit_connection_id.map(|id| id.as_proto()),
             bank_account,
+            require_billing_information: invoicing_entity.require_billing_information,
         })
     }
 

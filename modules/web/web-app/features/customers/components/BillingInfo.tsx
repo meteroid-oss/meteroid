@@ -9,16 +9,24 @@ import { getCheckout } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutSer
 import { updateCustomer } from '@/rpc/portal/shared/v1/shared-PortalSharedService_connectquery'
 
 import { BillingInfoCard } from './BillingInfoCard'
-import { BillingInfoForm, BillingInfoFormValues, billingInfoSchema } from './BillingInfoForm'
+import { BillingInfoForm, BillingInfoFormValues, makeBillingInfoSchema } from './BillingInfoForm'
 
 interface BillingInfoProps {
   customer: Customer
   isEditing: boolean
   setIsEditing: (isEditing: boolean) => void
+  required?: boolean
+  onUpdated?: (customer: Customer) => void
 }
 
 // TODO Where is this used, vs the other BillingInfo ?
-export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoProps) => {
+export const BillingInfo = ({
+  customer,
+  isEditing,
+  setIsEditing,
+  required = false,
+  onUpdated,
+}: BillingInfoProps) => {
   const queryClient = useQueryClient()
 
   const updateBillingInfoMut = useMutation(updateCustomer, {
@@ -30,6 +38,7 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
             cardinality: undefined
           })
         })
+        onUpdated?.(res.customer)
       }
 
       toast.success('Billing information updated successfully')
@@ -41,7 +50,7 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
   })
 
   const methods = useZodForm({
-    schema: billingInfoSchema,
+    schema: makeBillingInfoSchema(required),
     defaultValues: {
       name: customer.name || '',
       billingEmail: customer.billingEmail || '',

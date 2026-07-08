@@ -12,8 +12,9 @@ use crate::domain::scheduled_events::ScheduledEventNew;
 use crate::domain::subscriptions::PaymentMethodsConfig;
 use crate::domain::{
     CheckoutSession, CreateSubscription, CreateSubscriptionFromQuote, CreatedSubscription,
-    Customer, CustomerBuyCredits, DetailedInvoice, Invoice, InvoicingEntityProviderSensitive,
-    SetupIntent, Subscription, SubscriptionDetails, UpdateInvoiceParams,
+    Customer, CustomerBuyCredits, DetailedInvoice, Invoice, InvoicingEntity,
+    InvoicingEntityProviderSensitive, SetupIntent, Subscription, SubscriptionDetails,
+    UpdateInvoiceParams,
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::repositories::subscriptions::CancellationEffectiveAt;
@@ -28,13 +29,15 @@ use crate::utils::periods::calculate_advance_period_range;
 use chrono::Datelike;
 use chrono::{NaiveDate, Utc};
 use common_domain::ids::{
-    AppliedCouponId, BaseId, CheckoutSessionId, CustomerConnectionId, CustomerPaymentMethodId,
-    InvoiceId, PlanVersionId, SubscriptionId, TenantId,
+    AppliedCouponId, BaseId, CheckoutSessionId, CustomerConnectionId, CustomerId,
+    CustomerPaymentMethodId, InvoiceId, PlanVersionId, SubscriptionId, TenantId,
 };
 use diesel_models::applied_coupons::AppliedCouponRowNew;
 use diesel_models::checkout_sessions::CheckoutSessionRow;
 use diesel_models::coupons::CouponRow;
+use diesel_models::customers::CustomerRow;
 use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum as DbSubscriptionStatusEnum};
+use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::plans::PlanRow;
 use diesel_models::quotes::QuoteRow;
 use diesel_models::scheduled_events::ScheduledEventRowNew;
@@ -1115,6 +1118,39 @@ impl ServicesEdge {
         self.store.create_checkout_session(session).await
     }
 
+    /// Authoritative guard for the invoicing entity's `require_billing_information` setting.
+    async fn ensure_billing_information_if_required(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+    ) -> Result<(), StoreErrorReport> {
+        let customer: Customer = CustomerRow::find_by_id(conn, &customer_id, &tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .try_into()?;
+
+        let invoicing_entity: InvoicingEntity =
+            InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
+                conn,
+                customer.invoicing_entity_id,
+                tenant_id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into();
+
+        if invoicing_entity.require_billing_information
+            && !customer.has_complete_billing_information()
+        {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "Billing information is required to complete this checkout. Please provide a billing email and a complete billing address (including country).".to_string(),
+            )));
+        }
+
+        Ok(())
+    }
+
     /// For SelfServe checkout type :
     /// - Validates payment / charges customer FIRST
     /// - Only creates subscription if payment succeeds
@@ -1162,6 +1198,13 @@ impl ServicesEdge {
                             "Checkout session is not in a valid state for completion".to_string(),
                         )));
                     }
+
+                    self.ensure_billing_information_if_required(
+                        conn,
+                        tenant_id,
+                        session.customer_id,
+                    )
+                    .await?;
 
                     match session.checkout_type {
                         CheckoutType::SubscriptionActivation => {
