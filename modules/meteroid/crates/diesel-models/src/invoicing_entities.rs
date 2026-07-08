@@ -38,6 +38,7 @@ pub struct InvoicingEntityRow {
     pub tax_resolver: TaxResolverEnum,
     pub consolidate_recurring_invoices: bool,
     pub require_vies_valid_for_reverse_charge: bool,
+    pub require_billing_information: bool,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -64,6 +65,7 @@ pub struct InvoicingEntityRowPatch {
     pub tax_resolver: Option<TaxResolverEnum>,
     pub consolidate_recurring_invoices: Option<bool>,
     pub require_vies_valid_for_reverse_charge: Option<bool>,
+    pub require_billing_information: Option<bool>,
 }
 
 #[derive(Debug, AsChangeset)]

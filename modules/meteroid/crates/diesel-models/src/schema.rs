@@ -781,6 +781,7 @@ diesel::table! {
         tax_resolver -> TaxResolverEnum,
         consolidate_recurring_invoices -> Bool,
         require_vies_valid_for_reverse_charge -> Bool,
+        require_billing_information -> Bool,
     }
 }
 

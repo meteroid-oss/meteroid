@@ -75,6 +75,26 @@ pub struct Customer {
     pub vat_number_vies_check: Option<meteroid_tax::ViesCheckData>,
 }
 
+impl Customer {
+    pub fn has_complete_billing_information(&self) -> bool {
+        let has_email = self
+            .billing_email
+            .as_ref()
+            .is_some_and(|email| !email.trim().is_empty());
+
+        let has_address = self.billing_address.as_ref().is_some_and(|address| {
+            let is_set =
+                |value: &Option<String>| value.as_ref().is_some_and(|v| !v.trim().is_empty());
+            is_set(&address.line1)
+                && is_set(&address.city)
+                && is_set(&address.zip_code)
+                && address.country.is_some()
+        });
+
+        has_email && has_address
+    }
+}
+
 #[derive(Clone, Debug, o2o)]
 #[from_owned(CustomerBriefRow)]
 #[owned_into(CustomerBriefRow)]
@@ -319,4 +339,102 @@ pub struct CustomerConnection {
     #[from(~.map(|v| v.into_iter().flatten().map(|t| t.into()).collect()))]
     pub supported_payment_types: Option<Vec<PaymentMethodTypeEnum>>,
     pub external_customer_id: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    fn customer_with(billing_email: Option<&str>, billing_address: Option<Address>) -> Customer {
+        Customer {
+            id: CustomerId::new(),
+            name: "Acme".to_string(),
+            created_at: chrono::Utc::now().naive_utc(),
+            updated_at: None,
+            archived_at: None,
+            tenant_id: TenantId::new(),
+            invoicing_entity_id: InvoicingEntityId::new(),
+            alias: None,
+            billing_email: billing_email.map(str::to_string),
+            phone: None,
+            balance_value_cents: 0,
+            currency: "EUR".to_string(),
+            billing_address,
+            shipping_address: None,
+            current_payment_method_id: None,
+            vat_number: None,
+            invoicing_emails: vec![],
+            conn_meta: None,
+            is_tax_exempt: false,
+            custom_taxes: vec![],
+            vat_number_format_valid: false,
+            connected_account_id: None,
+            vat_number_validation_status: None,
+            vat_number_checked_at: None,
+            vat_number_vies_check: None,
+        }
+    }
+
+    fn complete_address() -> Address {
+        Address {
+            line1: Some("1 Rue de la Paix".to_string()),
+            line2: None,
+            city: Some("Berlin".to_string()),
+            country: Some(CountryCode::from_str("DE").unwrap()),
+            state: None,
+            zip_code: Some("10115".to_string()),
+        }
+    }
+
+    #[test]
+    fn billing_information_complete_when_email_and_full_address_present() {
+        let customer = customer_with(Some("billing@acme.com"), Some(complete_address()));
+        assert!(customer.has_complete_billing_information());
+    }
+
+    #[test]
+    fn billing_information_incomplete_without_email() {
+        let customer = customer_with(None, Some(complete_address()));
+        assert!(!customer.has_complete_billing_information());
+
+        let blank_email = customer_with(Some("   "), Some(complete_address()));
+        assert!(!blank_email.has_complete_billing_information());
+    }
+
+    #[test]
+    fn billing_information_incomplete_without_address() {
+        let customer = customer_with(Some("billing@acme.com"), None);
+        assert!(!customer.has_complete_billing_information());
+    }
+
+    #[test]
+    fn billing_information_incomplete_with_partial_address() {
+        let missing_country = Address {
+            country: None,
+            ..complete_address()
+        };
+        assert!(
+            !customer_with(Some("billing@acme.com"), Some(missing_country))
+                .has_complete_billing_information()
+        );
+
+        let missing_zip = Address {
+            zip_code: None,
+            ..complete_address()
+        };
+        assert!(
+            !customer_with(Some("billing@acme.com"), Some(missing_zip))
+                .has_complete_billing_information()
+        );
+
+        let blank_city = Address {
+            city: Some("  ".to_string()),
+            ..complete_address()
+        };
+        assert!(
+            !customer_with(Some("billing@acme.com"), Some(blank_city))
+                .has_complete_billing_information()
+        );
+    }
 }
