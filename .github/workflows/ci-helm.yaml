@@ -98,7 +98,7 @@ jobs:
           helm install meteroid "$CHART_DIR" \
             --namespace meteroid \
             --values k8s/ci/ci-values.yaml \
-            --wait --timeout 8m
+            --wait --timeout 10m
 
       - name: Verify rollouts
         run: |

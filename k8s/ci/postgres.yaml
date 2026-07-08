@@ -1,5 +1,7 @@
 # Ephemeral Postgres for the Helm chart smoke test (.github/workflows/ci-helm.yaml).
-# NOT for production: no persistence, trivial credentials, single replica.
+# Uses the meteroid-postgres image, which ships the `pgmq` extension the app's
+# boot migrations require (`CREATE EXTENSION pgmq`) — a vanilla postgres image
+# cannot run the migrations. NOT for production: no persistence, trivial creds.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,7 +20,8 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: postgres:16-alpine
+          image: ghcr.io/meteroid-oss/meteroid-postgres:18.3-standard
+          args: ["postgres", "-c", "wal_level=logical", "-c", "shared_preload_libraries=pg_stat_statements"]
           env:
             - name: POSTGRES_USER
               value: postgres
