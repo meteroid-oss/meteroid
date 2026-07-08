@@ -195,14 +195,14 @@ tracing-subscriber = { version = "0.3.18", features = ["registry", "tracing-log"
 typetag = "0.2.13"
 # this is transitive of typst-pdf, newer version fails the compilation https://github.com/meteroid-oss/meteroid/actions/runs/18858382946/job/54917356068
 subsetter = "=0.2.3"
-# ecow 0.2.7 adds extra AsRef<_> impls on EcoString, making `self.as_ref().repr()` in
-# typst-library 0.14.x ambiguous (E0282) under Rust 1.94. Pin to the last working release.
-ecow = "=0.2.6"
-typst = { version = "0.14.1" }
-typst-pdf = { version = "0.14.1" }
-typst-svg = { version = "0.14.1" }
-typst-as-lib = { version = "0.15.0", features = [] }
-derive_typst_intoval = { version = "0.6.0", features = [] }
+# pinned to match the ecow version used by typst-library 0.15.x
+ecow = "=0.3.0"
+typst = { version = "0.15.0" }
+typst-layout = { version = "0.15.0" }
+typst-pdf = { version = "0.15.0" }
+typst-svg = { version = "0.15.0" }
+typst-as-lib = { version = "0.16.0", features = [] }
+derive_typst_intoval = { version = "0.8.0", features = [] }
 unic-langid = "0.9"
 url = "2.5"
 urlencoding = "2.1"
