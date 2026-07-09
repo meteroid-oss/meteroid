@@ -6,7 +6,9 @@ use crate::domain::{
     SubscriptionFeeInterface, TaxBreakdownItem, TaxResolverEnum, VatNumberValidationStatus,
 };
 use chrono::NaiveDate;
-use common_domain::ids::{PriceComponentId, SubscriptionAddOnId, SubscriptionPriceComponentId};
+use common_domain::ids::{
+    PriceComponentId, ProductId, SubscriptionAddOnId, SubscriptionPriceComponentId, TaxCategoryId,
+};
 use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use diesel_models::subscription_components::SubscriptionComponentRow;
 use itertools::Itertools;
@@ -16,6 +18,8 @@ use std::collections::{HashMap, HashSet};
 use crate::domain::BillableMetric;
 use crate::errors::StoreError;
 use crate::repositories::accounting::AccountingInterface;
+use crate::repositories::products::ProductInterface;
+use crate::repositories::tax_categories::TaxCategoryInterface;
 use crate::repositories::customer_balance::convert_currency;
 use crate::services::Services;
 use crate::services::invoice_lines::component::ExistingLineKey;
@@ -564,11 +568,28 @@ impl Services {
                 .list_product_tax_configuration_by_product_ids_and_invoicing_entity_id_grouped(
                     &mut fresh_conn,
                     invoicing_entity.tenant_id,
-                    product_ids,
+                    product_ids.clone(),
                     invoicing_entity.id,
                 )
                 .await?
         };
+
+        // Resolve each line's tax category (the product's category, else the
+        // invoicing entity default) so the tax engine can price by category.
+        let product_categories: HashMap<ProductId, Option<TaxCategoryId>> = self
+            .store
+            .find_products_by_ids(&product_ids, invoicing_entity.tenant_id)
+            .await?
+            .into_iter()
+            .map(|p| (p.id, p.tax_category_id))
+            .collect();
+        let category_keys: HashMap<TaxCategoryId, String> = self
+            .store
+            .list_tax_categories(invoicing_entity.tenant_id)
+            .await?
+            .into_iter()
+            .map(|c| (c.id, c.key))
+            .collect();
 
         let invoice_lines_for_tax: Vec<meteroid_tax::LineItemForTax> = invoice_lines
             .iter()
@@ -596,10 +617,17 @@ impl Services {
                         })
                         .unwrap_or_default();
 
+                    let tax_category = line
+                        .product_id
+                        .and_then(|p| product_categories.get(&p).copied().flatten())
+                        .or(invoicing_entity.default_tax_category_id)
+                        .and_then(|id| category_keys.get(&id).cloned());
+
                     Some(meteroid_tax::LineItemForTax {
                         line_id: line.local_id.to_string(),
                         amount: total,
                         custom_taxes,
+                        tax_category,
                     })
                 } else {
                     // If the line amount is zero (or refund), we skip it

@@ -60,6 +60,12 @@ fn determine_tax_details(
 ) -> TaxDetails {
     use crate::model::TaxItem;
 
+    // A product classified as non-taxable yields no tax regardless of jurisdiction.
+    // (Category-driven reduced/zero rates are a per-engine extension from here.)
+    if item.tax_category.as_deref() == Some("nontaxable") {
+        return TaxDetails::Exempt(VatExemptionReason::TaxExempt);
+    }
+
     let invoicing_entity_country = match &invoicing_entity_address.country {
         Some(country) => country,
         None => return TaxDetails::Exempt(VatExemptionReason::NotRegistered),

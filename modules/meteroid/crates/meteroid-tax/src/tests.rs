@@ -23,6 +23,7 @@ mod tests {
             line_id: id.to_string(),
             amount,
             custom_taxes,
+            tax_category: None,
         }
     }
 
@@ -689,6 +690,7 @@ mod tests {
             line_id: "item1".to_string(),
             amount: 10000,
             custom_taxes: vec![],
+            tax_category: None,
         }];
 
         let result = engine
@@ -749,6 +751,7 @@ mod tests {
             line_id: "item1".to_string(),
             amount: 10000,
             custom_taxes: vec![],
+            tax_category: None,
         }];
 
         let result = engine
