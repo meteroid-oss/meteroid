@@ -70,6 +70,7 @@ global:
     # internalApiSecret: ""
     # secretsCryptkey: ""
     # svixJwtToken: ""
+    # svixOperationalWebhookSecret: ""  # optional, enables svix operational webhooks
     # oauthGoogle:
     #   clientId: ""
     #   clientSecret: ""
@@ -94,6 +95,9 @@ global:
     database: "meteroid"
     username: "meteroid"
     clusterName: "meteroid"
+
+  redis:
+    url: ""
 
 ingress:
   # Enable routing configuration (generates either Ingress or IngressRoute based on useIngressRoute)

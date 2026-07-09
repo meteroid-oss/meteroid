@@ -5,7 +5,9 @@ metadata:
   labels:
     {{- include "meteroid.webLabels" . | nindent 4 }}
 spec:
+  {{- if not .Values.web.autoscaling.enabled }}
   replicas: {{ .Values.web.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "meteroid.webSelectorLabels" . | nindent 6 }}
