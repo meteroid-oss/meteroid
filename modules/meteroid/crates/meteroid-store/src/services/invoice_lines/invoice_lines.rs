@@ -510,6 +510,15 @@ impl Services {
             None => return Ok((invoice_lines.clone(), Vec::new())),
         };
 
+        // Per-invoicing-entity tax provider selection.
+        // `tax_provider_id`, when set, points to a Tax-typed connector configuring an
+        // external provider (e.g. TaxJar) whose engine carries credentials/nexus.
+        // Built-in resolvers (None / Manual / MeteroidEuVat) need no credentials and
+        // are selected via `tax_resolver`.
+        // TODO(tax-provider): when `tax_provider_id` is set, load the connector and
+        // build the matching external `TaxEngine` here instead of the built-in below.
+        let _external_tax_provider_id = invoicing_entity.tax_provider_id;
+
         let tax_engine: Box<dyn TaxEngine + Send + Sync> = match invoicing_entity.tax_resolver {
             TaxResolverEnum::None => {
                 return Ok((invoice_lines.clone(), Vec::new()));

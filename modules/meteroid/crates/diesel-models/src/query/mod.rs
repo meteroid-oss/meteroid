@@ -1,4 +1,5 @@
 pub mod accounting;
+pub mod tax_categories;
 pub mod add_ons;
 pub mod advisory_lock;
 pub mod api_tokens;

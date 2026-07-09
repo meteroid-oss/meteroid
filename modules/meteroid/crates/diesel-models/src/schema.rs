@@ -784,6 +784,8 @@ diesel::table! {
         require_billing_information -> Bool,
         portal_theme_mode -> Nullable<Text>,
         portal_roundness -> Nullable<Text>,
+        default_tax_category_id -> Nullable<Uuid>,
+        tax_provider_id -> Nullable<Uuid>,
     }
 }
 
@@ -984,6 +986,7 @@ diesel::table! {
         fee_type -> FeeTypeEnum,
         fee_structure -> Jsonb,
         catalog -> Bool,
+        tax_category_id -> Nullable<Uuid>,
     }
 }
 
@@ -993,6 +996,18 @@ diesel::table! {
         invoicing_entity_id -> Uuid,
         product_code -> Nullable<Text>,
         ledger_account_code -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    tax_category (id) {
+        id -> Uuid,
+        tenant_id -> Nullable<Uuid>,
+        parent_id -> Nullable<Uuid>,
+        key -> Text,
+        name -> Text,
+        is_builtin -> Bool,
+        created_at -> Timestamp,
     }
 }
 
@@ -1475,6 +1490,7 @@ diesel::joinable!(product_custom_tax -> custom_tax (custom_tax_id));
 diesel::joinable!(product_custom_tax -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(product_custom_tax -> product (product_id));
 diesel::joinable!(product_family -> tenant (tenant_id));
+diesel::joinable!(tax_category -> tenant (tenant_id));
 diesel::joinable!(quote -> customer (customer_id));
 diesel::joinable!(quote -> invoice (converted_to_invoice_id));
 diesel::joinable!(quote -> plan_version (plan_version_id));
@@ -1576,6 +1592,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     subscription_add_on,
     subscription_component,
     subscription_event,
+    tax_category,
     tenant,
     user,
     webhook_in_event,

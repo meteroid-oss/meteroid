@@ -130,6 +130,7 @@ pub enum ConnectorTypeEnum {
     Accounting,
     Crm,
     PaymentProvider,
+    Tax,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,6 +148,7 @@ pub enum ConnectorProviderEnum {
     Mock,
     Gocardless,
     Stancer,
+    Taxjar,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 
 use crate::enums::FeeTypeEnum;
-use common_domain::ids::{ProductFamilyId, ProductId, TenantId};
+use common_domain::ids::{ProductFamilyId, ProductId, TaxCategoryId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
@@ -19,6 +19,7 @@ pub struct ProductRow {
     pub fee_type: FeeTypeEnum,
     pub fee_structure: serde_json::Value,
     pub catalog: bool,
+    pub tax_category_id: Option<TaxCategoryId>,
 }
 
 #[derive(Debug, Insertable)]
@@ -33,4 +34,5 @@ pub struct ProductRowNew {
     pub fee_type: FeeTypeEnum,
     pub fee_structure: serde_json::Value,
     pub catalog: bool,
+    pub tax_category_id: Option<TaxCategoryId>,
 }
