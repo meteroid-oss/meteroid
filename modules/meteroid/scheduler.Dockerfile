@@ -23,6 +23,7 @@ RUN apt-get update && \
     tar xvfz mold*.tar.gz && \
     mv mold*-linux/bin/* /usr/local/bin && \
     mv mold*-linux/libexec/* /usr/libexec && \
+    ln -sf /usr/local/bin/mold /usr/local/bin/ld.mold && \
     rm -rf mold*; \
     # Install protoc
     wget https://github.com/protocolbuffers/protobuf/releases/download/v${PROTO_VERSION}/protoc-${PROTO_VERSION}-linux-${PROTO_ARCH}.zip && \
@@ -32,6 +33,10 @@ RUN apt-get update && \
     # Cleanup
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
+
+# Link with mold. The .cargo/config.toml mold config is .dockerignored so it
+# never reaches the build; wire it here or these builds link with slow default ld.
+ENV RUSTFLAGS="-Clink-arg=-fuse-ld=mold"
 
 COPY --from=planner /opt/src/recipe.json recipe.json
 

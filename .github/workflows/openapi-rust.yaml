@@ -23,8 +23,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
+  # Trim debug info in CI only: faster codegen/linking, lighter cache.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
   openapi:
