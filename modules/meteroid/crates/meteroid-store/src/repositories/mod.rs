@@ -11,6 +11,7 @@ pub use tenants::TenantInterface;
 pub use users::UserInterface;
 
 pub mod accounting;
+pub mod tax_categories;
 pub mod bi;
 pub mod customers;
 pub mod invoices;

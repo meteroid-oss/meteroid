@@ -334,6 +334,8 @@ impl StoreInternal {
             require_billing_information: invoicing_entity.require_billing_information,
             portal_theme_mode: invoicing_entity.portal_theme_mode.clone(),
             portal_roundness: invoicing_entity.portal_roundness.clone(),
+            default_tax_category_id: None,
+            tax_provider_id: None,
         };
 
         let row: InvoicingEntityRow = entity.into();

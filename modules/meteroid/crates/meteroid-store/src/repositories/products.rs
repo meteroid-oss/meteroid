@@ -97,6 +97,7 @@ impl ProductInterface for Store {
             description: product.description,
             tenant_id: product.tenant_id,
             product_family_id: family.id,
+            tax_category_id: product.tax_category_id,
             fee_type: product.fee_type.into(),
             fee_structure: serde_json::to_value(&product.fee_structure).map_err(|e| {
                 Report::new(StoreError::SerdeError(

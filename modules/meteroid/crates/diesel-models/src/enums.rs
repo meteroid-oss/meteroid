@@ -152,6 +152,7 @@ pub enum ConnectorProviderEnum {
     Pennylane,
     Mock,
     Gocardless,
+    Taxjar,
 }
 
 impl ConnectorProviderEnum {
@@ -162,6 +163,7 @@ impl ConnectorProviderEnum {
             ConnectorProviderEnum::Pennylane => "pennylane",
             ConnectorProviderEnum::Mock => "mock",
             ConnectorProviderEnum::Gocardless => "gocardless",
+            ConnectorProviderEnum::Taxjar => "taxjar",
         }
     }
 }
@@ -173,6 +175,7 @@ pub enum ConnectorTypeEnum {
     PaymentProvider,
     Crm,
     Accounting,
+    Tax,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]

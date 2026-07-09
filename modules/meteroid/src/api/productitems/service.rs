@@ -53,6 +53,7 @@ impl ProductsService for ProductServiceComponents {
                     fee_type,
                     fee_structure,
                     catalog: req.catalog.unwrap_or(true),
+                    tax_category_id: None,
                 },
             )
             .await

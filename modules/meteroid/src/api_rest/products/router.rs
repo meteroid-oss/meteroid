@@ -154,6 +154,7 @@ pub(crate) async fn create_product(
                 fee_type,
                 fee_structure,
                 catalog: payload.catalog,
+                tax_category_id: None,
             },
         )
         .await
