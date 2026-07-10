@@ -1,4 +1,4 @@
-use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId};
+use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId, TaxCategoryId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::products::v1::{
     CreateProductRequest, CreateProductResponse, GetProductRequest, GetProductResponse,
@@ -53,7 +53,10 @@ impl ProductsService for ProductServiceComponents {
                     fee_type,
                     fee_structure,
                     catalog: req.catalog.unwrap_or(true),
-                    tax_category_id: None,
+                    tax_category_id: req
+                        .tax_category_id
+                        .map(TaxCategoryId::from_proto)
+                        .transpose()?,
                 },
             )
             .await
