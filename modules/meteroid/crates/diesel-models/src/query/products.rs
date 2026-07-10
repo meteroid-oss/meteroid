@@ -5,7 +5,7 @@ use crate::{DbResult, PgConn};
 
 use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use common_domain::ids::{ProductFamilyId, ProductId, TenantId};
+use common_domain::ids::{ProductFamilyId, ProductId, TaxCategoryId, TenantId};
 use diesel::{
     ExpressionMethods, JoinOnDsl, PgTextExpressionMethods, QueryDsl, SelectableHelper, debug_query,
 };
@@ -209,6 +209,7 @@ impl ProductRow {
         description: Option<String>,
         new_fee_type: crate::enums::FeeTypeEnum,
         new_fee_structure: serde_json::Value,
+        tax_category_id: Option<TaxCategoryId>,
     ) -> DbResult<ProductRow> {
         use crate::schema::product::dsl as p_dsl;
         use diesel_async::RunQueryDsl;
@@ -221,6 +222,7 @@ impl ProductRow {
                 p_dsl::description.eq(description),
                 p_dsl::fee_type.eq(new_fee_type),
                 p_dsl::fee_structure.eq(new_fee_structure),
+                p_dsl::tax_category_id.eq(tax_category_id),
                 p_dsl::updated_at.eq(diesel::dsl::now),
             ));
 
