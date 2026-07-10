@@ -5,11 +5,13 @@ use meteroid_grpc::meteroid::api::taxes::v1::taxes_service_server::TaxesService;
 use meteroid_grpc::meteroid::api::taxes::v1::{
     self as server, CreateCustomTaxRequest, CreateCustomTaxResponse, DeleteCustomTaxRequest,
     GetProductAccountingRequest, GetProductAccountingResponse, ListCustomTaxesRequest,
-    ListCustomTaxesResponse, UpdateCustomTaxRequest, UpdateCustomTaxResponse,
+    ListCustomTaxesResponse, ListTaxCategoriesRequest, ListTaxCategoriesResponse,
+    UpdateCustomTaxRequest, UpdateCustomTaxResponse,
     UpsertProductAccountingRequest, UpsertProductAccountingResponse, ValidateVatNumberRequest,
     ValidateVatNumberResponse,
 };
 use meteroid_store::repositories::accounting::AccountingInterface;
+use meteroid_store::repositories::tax_categories::TaxCategoryInterface;
 use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
@@ -202,6 +204,26 @@ impl TaxesService for TaxesServiceComponents {
             status: status as i32,
             company_name: None,
             company_address: None,
+        }))
+    }
+
+    async fn list_tax_categories(
+        &self,
+        request: Request<ListTaxCategoriesRequest>,
+    ) -> Result<Response<ListTaxCategoriesResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let categories = self
+            .store
+            .list_tax_categories(tenant_id)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(ListTaxCategoriesResponse {
+            tax_categories: categories
+                .into_iter()
+                .map(mapping::tax_category_to_server)
+                .collect(),
         }))
     }
 }

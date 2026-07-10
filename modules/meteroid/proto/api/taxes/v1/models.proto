@@ -10,6 +10,17 @@ message CustomTax {
   repeated TaxRule rules = 5;
 }
 
+// A provider-agnostic classification of what is sold. Built-in rows are global
+// (no tenant_id); tenant-custom categories carry a tenant_id.
+message TaxCategory {
+  string id = 1;
+  optional string tenant_id = 2;
+  optional string parent_id = 3;
+  string key = 4;
+  string name = 5;
+  bool is_builtin = 6;
+}
+
 message TaxRule {
   optional string country = 1;
   optional string region = 2;
