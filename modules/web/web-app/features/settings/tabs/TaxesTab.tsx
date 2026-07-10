@@ -46,6 +46,7 @@ import {
   createCustomTax,
   deleteCustomTax,
   listCustomTaxes,
+  listTaxCategories,
   updateCustomTax,
 } from '@/rpc/api/taxes/v1/taxes-TaxesService_connectquery'
 
@@ -143,6 +144,8 @@ export const TaxesTab = () => {
       enabled: !!invoiceEntityId,
     }
   )
+
+  const listTaxCategoriesQuery = useQuery(listTaxCategories, {})
 
   const methods = useZodForm({
     schema: taxSettingsSchema,
@@ -472,6 +475,46 @@ export const TaxesTab = () => {
           )}
         </Card>
       )}
+
+      {/* Tax Categories (provider-agnostic catalog) */}
+      <Card className="px-8 py-6 max-w-[950px] space-y-4">
+        <div>
+          <h3 className="font-medium text-lg">Tax categories</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Provider-agnostic categories a product can be classified with. The active tax provider
+            resolves each category to a rate; unclassified products fall back to the entity default.
+          </p>
+        </div>
+
+        {listTaxCategoriesQuery.isLoading ? (
+          <Loading />
+        ) : listTaxCategoriesQuery.data?.taxCategories?.length ? (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Key</TableHead>
+                <TableHead>Source</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {listTaxCategoriesQuery.data.taxCategories.map(cat => (
+                <TableRow key={cat.id}>
+                  <TableCell className="font-medium">{cat.name}</TableCell>
+                  <TableCell>
+                    <code className="text-xs">{cat.key}</code>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-sm">
+                    {cat.isBuiltin ? 'Built-in' : 'Custom'}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : (
+          <div className="text-center py-8 text-muted-foreground">No tax categories available.</div>
+        )}
+      </Card>
 
       {/* Custom Tax Dialog */}
       <Dialog open={customTaxDialogOpen} onOpenChange={setCustomTaxDialogOpen}>
