@@ -5,6 +5,7 @@ use meteroid_grpc::meteroid::api::taxes::v1 as server;
 use meteroid_store::domain::accounting::{
     CustomTax, CustomTaxNew, CustomTaxRule, ProductAccounting,
 };
+use meteroid_store::domain::tax_categories::TaxCategory;
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use tonic::Status;
@@ -88,5 +89,16 @@ pub fn product_accounting_to_server(value: ProductAccounting) -> server::Product
         invoicing_entity_id: value.invoicing_entity_id.as_proto(),
         product_code: value.product_code,
         ledger_account_code: value.ledger_account_code,
+    }
+}
+
+pub fn tax_category_to_server(value: TaxCategory) -> server::TaxCategory {
+    server::TaxCategory {
+        id: value.id.to_string(),
+        tenant_id: value.tenant_id.map(|t| t.to_string()),
+        parent_id: value.parent_id.map(|p| p.to_string()),
+        key: value.key,
+        name: value.name,
+        is_builtin: value.is_builtin,
     }
 }
