@@ -220,7 +220,7 @@ pub mod customer {
             ConnectorProviderEnum::Pennylane => ProtoConnectorProvider::Pennylane,
             ConnectorProviderEnum::Gocardless => ProtoConnectorProvider::Gocardless,
             ConnectorProviderEnum::Stancer => ProtoConnectorProvider::Stancer,
-            ConnectorProviderEnum::Taxjar => return None,
+            ConnectorProviderEnum::Kintsugi => return None,
             ConnectorProviderEnum::Mock => {
                 // Mock connector is for testing only - should never be returned via API
                 log::warn!(

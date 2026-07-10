@@ -153,7 +153,7 @@ pub enum ConnectorProviderEnum {
     Mock,
     Gocardless,
     Stancer,
-    Taxjar,
+    Kintsugi,
 }
 
 impl ConnectorProviderEnum {
@@ -165,7 +165,7 @@ impl ConnectorProviderEnum {
             ConnectorProviderEnum::Mock => "mock",
             ConnectorProviderEnum::Gocardless => "gocardless",
             ConnectorProviderEnum::Stancer => "stancer",
-            ConnectorProviderEnum::Taxjar => "taxjar",
+            ConnectorProviderEnum::Kintsugi => "kintsugi",
         }
     }
 }

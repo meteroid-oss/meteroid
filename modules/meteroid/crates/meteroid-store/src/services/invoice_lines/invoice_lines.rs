@@ -47,7 +47,7 @@ fn build_tax_engine(
 ) -> StoreResult<Option<Box<dyn TaxEngine + Send + Sync>>> {
     if invoicing_entity.tax_provider_id.is_some() {
         // TODO(tax-provider): load the Tax connector and match on its provider, e.g.
-        //   ConnectorProviderEnum::Taxjar => Ok(Some(Box::new(TaxjarEngine::new(cfg)?)))
+        //   ConnectorProviderEnum::Kintsugi => Ok(Some(Box::new(KintsugiEngine::new(cfg)?)))
         // No external tax engine is registered yet.
         return Err(Report::new(StoreError::InvalidArgument(
             "tax_provider_id is set but no external tax engine is registered".to_string(),

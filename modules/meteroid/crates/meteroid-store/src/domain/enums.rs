@@ -148,7 +148,7 @@ pub enum ConnectorProviderEnum {
     Mock,
     Gocardless,
     Stancer,
-    Taxjar,
+    Kintsugi,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
