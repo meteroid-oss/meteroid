@@ -33,6 +33,34 @@ use meteroid_tax::{ManualTaxEngine, MeteroidTaxEngine, TaxDetails, TaxEngine};
 
 impl Services {}
 
+/// Builds the tax engine for an invoicing entity — the single extension point for
+/// adding a tax provider.
+///
+/// Built-in resolvers (`Manual`, `MeteroidEuVat`) need no credentials and are chosen
+/// by `tax_resolver`. An external provider is configured as a `Tax`-typed connector
+/// referenced by `invoicing_entity.tax_provider_id`; to add one, load its connector
+/// (via the store, making this async) and return your `TaxEngine` from its provider.
+///
+/// `Ok(None)` means "apply no tax" (`tax_resolver = None`).
+fn build_tax_engine(
+    invoicing_entity: &InvoicingEntity,
+) -> StoreResult<Option<Box<dyn TaxEngine + Send + Sync>>> {
+    if invoicing_entity.tax_provider_id.is_some() {
+        // TODO(tax-provider): load the Tax connector and match on its provider, e.g.
+        //   ConnectorProviderEnum::Taxjar => Ok(Some(Box::new(TaxjarEngine::new(cfg)?)))
+        // No external tax engine is registered yet.
+        return Err(Report::new(StoreError::InvalidArgument(
+            "tax_provider_id is set but no external tax engine is registered".to_string(),
+        )));
+    }
+
+    Ok(match invoicing_entity.tax_resolver {
+        TaxResolverEnum::None => None,
+        TaxResolverEnum::Manual => Some(Box::new(ManualTaxEngine {})),
+        TaxResolverEnum::MeteroidEuVat => Some(Box::new(MeteroidTaxEngine {})),
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct ComputedInvoiceContent {
     pub invoice_lines: Vec<LineItem>,
@@ -514,21 +542,11 @@ impl Services {
             None => return Ok((invoice_lines.clone(), Vec::new())),
         };
 
-        // Per-invoicing-entity tax provider selection.
-        // `tax_provider_id`, when set, points to a Tax-typed connector configuring an
-        // external provider (e.g. TaxJar) whose engine carries credentials/nexus.
-        // Built-in resolvers (None / Manual / MeteroidEuVat) need no credentials and
-        // are selected via `tax_resolver`.
-        // TODO(tax-provider): when `tax_provider_id` is set, load the connector and
-        // build the matching external `TaxEngine` here instead of the built-in below.
-        let _external_tax_provider_id = invoicing_entity.tax_provider_id;
-
-        let tax_engine: Box<dyn TaxEngine + Send + Sync> = match invoicing_entity.tax_resolver {
-            TaxResolverEnum::None => {
-                return Ok((invoice_lines.clone(), Vec::new()));
-            }
-            TaxResolverEnum::Manual => Box::new(ManualTaxEngine {}),
-            TaxResolverEnum::MeteroidEuVat => Box::new(MeteroidTaxEngine {}),
+        // Select the tax engine for this invoicing entity (built-in or external
+        // provider). See `build_tax_engine` — the single place to add a provider.
+        let tax_engine = match build_tax_engine(invoicing_entity)? {
+            Some(engine) => engine,
+            None => return Ok((invoice_lines.clone(), Vec::new())),
         };
 
         let customer = meteroid_tax::CustomerForTax {
