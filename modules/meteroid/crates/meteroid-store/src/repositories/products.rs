@@ -10,7 +10,7 @@ use crate::domain::{
 };
 use crate::errors::StoreError;
 use crate::store::Store;
-use common_domain::ids::{BaseId, ProductFamilyId, ProductId, TenantId};
+use common_domain::ids::{BaseId, ProductFamilyId, ProductId, TaxCategoryId, TenantId};
 use diesel_models::prices::PriceRow;
 use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::products::{ProductRow, ProductRowNew};
@@ -25,6 +25,8 @@ pub struct ProductUpdate {
     pub description: Option<Option<String>>,
     pub fee_type: Option<FeeTypeEnum>,
     pub fee_structure: Option<FeeStructure>,
+    /// Patch: None leaves unchanged, Some(None) clears, Some(Some(id)) sets.
+    pub tax_category_id: Option<Option<TaxCategoryId>>,
 }
 
 #[async_trait::async_trait]
@@ -170,6 +172,11 @@ impl ProductInterface for Store {
                     None => existing.description.clone(),
                 };
 
+                let tax_category_id = match update.tax_category_id {
+                    Some(v) => v,
+                    None => existing.tax_category_id,
+                };
+
                 let fee_structure_json = match update.fee_structure {
                     Some(fs) => serde_json::to_value(&fs).map_err(|e| {
                         Report::new(StoreError::SerdeError(
@@ -188,6 +195,7 @@ impl ProductInterface for Store {
                     description,
                     existing.fee_type,
                     fee_structure_json,
+                    tax_category_id,
                 )
                 .await
                 .map_err(Into::<Report<StoreError>>::into)

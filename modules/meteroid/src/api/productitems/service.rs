@@ -93,6 +93,11 @@ impl ProductsService for ProductServiceComponents {
                     description: req.description.map(Some),
                     fee_type,
                     fee_structure,
+                    tax_category_id: match req.tax_category_id {
+                        None => None,
+                        Some(s) if s.is_empty() => Some(None),
+                        Some(s) => Some(Some(TaxCategoryId::from_proto(s)?)),
+                    },
                 },
             )
             .await

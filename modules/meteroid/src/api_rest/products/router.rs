@@ -211,6 +211,7 @@ pub(crate) async fn update_product(
                 description: payload.description,
                 fee_type,
                 fee_structure,
+                tax_category_id: None,
             },
         )
         .await

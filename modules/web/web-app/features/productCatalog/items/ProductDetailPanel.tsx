@@ -1,4 +1,4 @@
-import { skipToken } from '@connectrpc/connect-query'
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query'
 import {
   Badge,
   Separator,
@@ -14,7 +14,9 @@ import {
   TableHeader,
   TableRow,
 } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { ProductEntitlementsSection } from '@/features/productCatalog/items/ProductEntitlementsSection'
 import { useBasePath } from '@/hooks/useBasePath'
@@ -23,7 +25,8 @@ import { env } from '@/lib/env'
 import { feeTypeLabel, formatCadence, formatPricingSummary } from '@/lib/mapping/prices'
 import { FeeStructure_BillingType, FeeStructure_UsageModel } from '@/rpc/api/prices/v1/models_pb'
 import { listPricesByProduct } from '@/rpc/api/prices/v1/prices-PricesService_connectquery'
-import { getProduct } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
+import { getProduct, updateProduct } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
+import { listTaxCategories } from '@/rpc/api/taxes/v1/taxes-TaxesService_connectquery'
 import { parseAndFormatDate } from '@/utils/date'
 
 import { MatrixRowsSection } from './MatrixRowsSection'
@@ -72,6 +75,22 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
     productId ? { productId } : skipToken
   )
 
+  const queryClient = useQueryClient()
+  const taxCategoriesQuery = useQuery(listTaxCategories, {})
+  const updateProductMut = useMutation(updateProduct, {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: getProduct,
+          input: { productId: productId ?? '' },
+          cardinality: 'finite',
+        }),
+      })
+      toast.success('Tax category updated')
+    },
+    onError: e => toast.error(`Failed to update tax category: ${e.message}`),
+  })
+
   const product = productQuery.data?.product
   const metricName = productQuery.data?.metricName
   const currencies = productQuery.data?.currencies ?? []
@@ -113,6 +132,30 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
                     ) : (
                       <span className="text-muted-foreground">-</span>
                     )
+                  }
+                />
+                <DetailRow
+                  label="Tax category"
+                  value={
+                    <select
+                      className="text-sm bg-transparent border border-border rounded px-2 py-1"
+                      value={product.taxCategoryId ?? ''}
+                      disabled={updateProductMut.isPending}
+                      onChange={e =>
+                        updateProductMut.mutate({
+                          productId: product.id,
+                          name: product.name,
+                          taxCategoryId: e.target.value,
+                        })
+                      }
+                    >
+                      <option value="">— Entity default —</option>
+                      {(taxCategoriesQuery.data?.taxCategories ?? []).map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
                   }
                 />
                 {product.createdAt && (

@@ -26,6 +26,7 @@ message UpdateProductRequest {
   optional string description = 3;
   optional meteroid.api.prices.v1.FeeType fee_type = 4;
   optional meteroid.api.prices.v1.FeeStructure fee_structure = 5;
+  optional string tax_category_id = 6;
 }
 
 message UpdateProductResponse {
