@@ -13,6 +13,7 @@ message CreateProductRequest {
   meteroid.api.prices.v1.FeeType fee_type = 4;
   meteroid.api.prices.v1.FeeStructure fee_structure = 5;
   optional bool catalog = 6;
+  optional string tax_category_id = 7;
 }
 
 message CreateProductResponse {
