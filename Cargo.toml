@@ -80,7 +80,7 @@ dotenvy = "0.15.7"
 env_logger = "0.11.5"
 encoding_rs = "0.8"
 envconfig = "0.11.0"
-error-stack = "0.7.0"
+error-stack = "0.8.0"
 ed25519-dalek = { version = "2.1", default-features = false, features = ["pkcs8", "pem", "rand_core"] }
 educe = { version = "0.6.0", default-features = false, features = ["Default"] }
 fake = "5.1.0"
