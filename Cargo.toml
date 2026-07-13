@@ -82,7 +82,7 @@ encoding_rs = "0.8"
 envconfig = "0.11.0"
 error-stack = "0.7.0"
 ed25519-dalek = { version = "2.1", default-features = false, features = ["pkcs8", "pem", "rand_core"] }
-educe = { version = "0.6.0", default-features = false, features = ["Default"] }
+educe = { version = "0.7.4", default-features = false, features = ["Default"] }
 fake = "5.1.0"
 fastrand = "2.0.1"
 fixnum = { version = "0.9.3", default-features = false }
