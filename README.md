@@ -1,5 +1,3 @@
- 
-
 <div align="center">
 
 
@@ -48,11 +46,17 @@ It eliminates the gap between customer usage and billing, ensuring accuracy and 
 
 <br/>
 <div align="center">
- 
-  **We'd love your support or contribution! Leave a star ⭐ and join our Discord!**
-   
+
+**We'd love your support or contribution! Leave a star ⭐ and join our Discord!**
+
 </div>
 
+<div align="center">
+
+💡 **Just want to try it?** Skip the setup and spin up a free workspace
+on [Meteroid Cloud](https://app.meteroid.com/registration?source=github-readme-hero) — ready in seconds, no credit card.
+
+</div>
 
 ---
 
@@ -127,7 +131,6 @@ Meteroid is the complete monetization platform for modern SaaS. Key capabilities
   Monitor your revenue in real time and identify what's driving growth with actionable insights, without waiting
   for month-end exports. *(Coming soon)*
 
-
 ## For whom ?
 
 Whether you're product-led or sales-led, or running both motions at once,
@@ -135,10 +138,10 @@ Meteroid is your single source of truth for monetization.
 
 - **Product-led teams** that want to ship usage-based or complex or hybrid pricing from day one,
   without building custom billing infrastructure.
-  
+
 - **Sales-led teams** that need to close custom deals fast, automate quote-to-cash,
   and keep finance in sync with no manual handovers between sales and billing.
-  
+
 - **Engineering teams** that have been through the pain of building and maintaining a
   billing system from scratch.
 
@@ -162,6 +165,11 @@ SaaS industries.
 Please refer to the [contributing guide](CONTRIBUTING.md) for how to install Meteroid from sources.
 
 ## Deployment
+
+> ☁️ **Just testing?** Skip self-hosting entirely — spin up a free workspace on
+> [**Meteroid Cloud**](https://app.meteroid.com/registration?source=github-readme-deploy)
+> in seconds. No infra to run, no config, no credit card. Come back here when you're
+> ready to self-host in production.
 
 We provide a Docker Compose and a Helm Chart setup for easy self-hosting:
 
