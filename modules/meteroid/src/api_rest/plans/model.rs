@@ -35,12 +35,7 @@ pub struct PlanListRequest {
     pub order_by: Option<String>,
 }
 
-#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]
-pub struct ProductFamily {
-    #[serde(with = "string_serde")]
-    pub id: ProductFamilyId,
-    pub name: String,
-}
+pub use crate::api_rest::productfamilies::model::ProductFamily;
 
 #[derive(o2o, Clone, ToSchema, Deserialize_enum_str, Serialize_enum_str, Debug, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -169,6 +164,7 @@ pub struct UsagePlanFee {
 /// Extra recurring fee
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct ExtraRecurringPlanFee {
+    #[schema(value_type = String, format = "decimal")]
     pub unit_price: Decimal,
     pub quantity: u32,
     pub billing_type: BillingType,
@@ -178,6 +174,7 @@ pub struct ExtraRecurringPlanFee {
 /// One-time fee
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct OneTimePlanFee {
+    #[schema(value_type = String, format = "decimal")]
     pub unit_price: Decimal,
     pub quantity: u32,
 }
@@ -196,18 +193,22 @@ pub enum Fee {
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct TermRate {
     pub term: BillingPeriodEnum,
+    #[schema(value_type = String, format = "decimal")]
     pub price: Decimal,
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct CapacityThreshold {
     pub included_amount: u64,
+    #[schema(value_type = String, format = "decimal")]
     pub price: Decimal,
+    #[schema(value_type = String, format = "decimal")]
     pub per_unit_overage: Decimal,
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct PerUnitPlanPricing {
+    #[schema(value_type = String, format = "decimal")]
     pub rate: Decimal,
 }
 
@@ -226,6 +227,7 @@ pub struct VolumePlanPricing {
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct PackagePlanPricing {
     pub block_size: u64,
+    #[schema(value_type = String, format = "decimal")]
     pub rate: Decimal,
 }
 
@@ -245,22 +247,31 @@ pub enum UsagePricingModel {
     Matrix(MatrixPlanPricing),
 }
 
-#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+#[derive(o2o, Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+#[map_owned(meteroid_store::domain::price_components::TierRow)]
 pub struct TierRow {
     pub first_unit: u64,
+    #[schema(value_type = String, format = "decimal")]
     pub rate: Decimal,
+    #[schema(value_type = Option<String>, format = "decimal")]
     pub flat_fee: Option<Decimal>,
+    #[schema(value_type = Option<String>, format = "decimal")]
     pub flat_cap: Option<Decimal>,
 }
 
-#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+#[derive(o2o, Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+#[map_owned(meteroid_store::domain::price_components::MatrixRow)]
 pub struct MatrixRow {
+    #[map(~.into())]
     pub dimension1: MatrixDimension,
+    #[map(~.map(| x | x.into()))]
     pub dimension2: Option<MatrixDimension>,
+    #[schema(value_type = String, format = "decimal")]
     pub per_unit_price: Decimal,
 }
 
-#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+#[derive(o2o, Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+#[map_owned(meteroid_store::domain::price_components::MatrixDimension)]
 pub struct MatrixDimension {
     pub key: String,
     pub value: String,
