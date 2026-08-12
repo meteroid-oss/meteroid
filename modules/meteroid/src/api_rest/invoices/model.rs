@@ -1,7 +1,6 @@
 use crate::api_rest::currencies::model::Currency;
 use crate::api_rest::model::{PaginatedRequest, PaginationResponse};
 use chrono::{NaiveDate, NaiveDateTime};
-use common_domain::country::CountryCode;
 use common_domain::ids::{
     AliasOr, CustomerId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, SubscriptionId,
 };
@@ -192,15 +191,7 @@ pub struct CustomerDetails {
     pub snapshot_at: NaiveDateTime,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct Address {
-    pub line1: Option<String>,
-    pub line2: Option<String>,
-    pub city: Option<String>,
-    pub country: Option<CountryCode>,
-    pub state: Option<String>,
-    pub zip_code: Option<String>,
-}
+pub use crate::api_rest::addresses::model::Address;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CouponLineItem {

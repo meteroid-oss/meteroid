@@ -191,7 +191,10 @@ pub struct Subscription {
     pub payment_methods_config: Option<PaymentMethodsConfig>,
 }
 
+/// Coupon as embedded in subscription details — a subset of the `Coupon` resource
+/// returned by the coupons API.
 #[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
+#[schema(as = SubscriptionCoupon)]
 pub struct Coupon {
     #[serde(with = "string_serde")]
     pub id: CouponId,
@@ -520,35 +523,9 @@ impl From<SubscriptionFee> for meteroid_store::domain::subscription_components::
     }
 }
 
-#[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[map_owned(meteroid_store::domain::price_components::MatrixRow)]
-pub struct MatrixRow {
-    #[map(~.into())]
-    pub dimension1: MatrixDimension,
-    #[map(~.map(| x | x.into()))]
-    pub dimension2: Option<MatrixDimension>,
-    #[schema(value_type = String, format = "decimal")]
-    pub per_unit_price: rust_decimal::Decimal,
-}
-
-#[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[map_owned(meteroid_store::domain::price_components::MatrixDimension)]
-pub struct MatrixDimension {
-    pub key: String,
-    pub value: String,
-}
-
-#[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[map_owned(meteroid_store::domain::price_components::TierRow)]
-pub struct TierRow {
-    pub first_unit: u64,
-    #[schema(value_type = String, format = "decimal")]
-    pub rate: rust_decimal::Decimal,
-    #[schema(value_type = String, format = "decimal")]
-    pub flat_fee: Option<rust_decimal::Decimal>,
-    #[schema(value_type = String, format = "decimal")]
-    pub flat_cap: Option<rust_decimal::Decimal>,
-}
+// Pricing row types are shared with the plans API — re-exported so both surfaces emit a single
+// `TierRow` / `MatrixRow` OpenAPI schema instead of colliding definitions.
+pub use crate::api_rest::plans::model::{MatrixRow, TierRow};
 
 #[derive(o2o, Clone, ToSchema, Serialize, Deserialize, Debug)]
 #[map_owned(meteroid_store::domain::enums::BillingType)]

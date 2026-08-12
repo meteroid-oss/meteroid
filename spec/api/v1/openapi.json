@@ -6102,7 +6102,7 @@
             "$ref": "#/components/schemas/AppliedCoupon"
           },
           "coupon": {
-            "$ref": "#/components/schemas/Coupon"
+            "$ref": "#/components/schemas/SubscriptionCoupon"
           }
         }
       },
@@ -6691,10 +6691,12 @@
             "minimum": 0
           },
           "per_unit_overage": {
-            "type": "string"
+            "type": "string",
+            "format": "decimal"
           },
           "price": {
-            "type": "string"
+            "type": "string",
+            "format": "decimal"
           }
         }
       },
@@ -6911,17 +6913,33 @@
         "required": [
           "id",
           "code",
-          "description",
           "discount",
           "reusable",
-          "disabled"
+          "disabled",
+          "created_at",
+          "redemption_count",
+          "plan_ids"
         ],
         "properties": {
+          "archived_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "code": {
             "type": "string"
           },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
           "description": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "disabled": {
             "type": "boolean"
@@ -6939,11 +6957,21 @@
           "id": {
             "$ref": "#/components/schemas/CouponId"
           },
+          "plan_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanId"
+            }
+          },
           "recurring_value": {
             "type": [
               "integer",
               "null"
             ],
+            "format": "int32"
+          },
+          "redemption_count": {
+            "type": "integer",
             "format": "int32"
           },
           "redemption_limit": {
@@ -8489,6 +8517,22 @@
           "ent_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
+      "EntitlementProductRef": {
+        "type": "object",
+        "description": "Minimal reference to the product a feature belongs to.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ProductId"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "EntitlementValue": {
         "oneOf": [
           {
@@ -8684,7 +8728,8 @@
             "minimum": 0
           },
           "unit_price": {
-            "type": "string"
+            "type": "string",
+            "format": "decimal"
           }
         }
       },
@@ -8757,7 +8802,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ProductRef",
+                "$ref": "#/components/schemas/EntitlementProductRef",
                 "description": "Product this feature belongs to."
               }
             ]
@@ -8816,7 +8861,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ProductRef"
+                "$ref": "#/components/schemas/EntitlementProductRef"
               }
             ]
           }
@@ -10002,7 +10047,8 @@
             "minimum": 0
           },
           "unit_price": {
-            "type": "string"
+            "type": "string",
+            "format": "decimal"
           }
         }
       },
@@ -10089,7 +10135,8 @@
             "minimum": 0
           },
           "rate": {
-            "type": "string"
+            "type": "string",
+            "format": "decimal"
           }
         }
       },
@@ -10257,7 +10304,8 @@
         ],
         "properties": {
           "rate": {
-            "type": "string"
+            "type": "string",
+            "format": "decimal"
           }
         }
       },
@@ -11817,6 +11865,59 @@
           }
         }
       },
+      "SubscriptionCoupon": {
+        "type": "object",
+        "description": "Coupon as embedded in subscription details — a subset of the `Coupon` resource\nreturned by the coupons API.",
+        "required": [
+          "id",
+          "code",
+          "description",
+          "discount",
+          "reusable",
+          "disabled"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "discount": {
+            "$ref": "#/components/schemas/CouponDiscount"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "$ref": "#/components/schemas/CouponId"
+          },
+          "recurring_value": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "redemption_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "reusable": {
+            "type": "boolean"
+          }
+        }
+      },
       "SubscriptionCreateRequest": {
         "type": "object",
         "required": [
@@ -12457,7 +12558,8 @@
         ],
         "properties": {
           "price": {
-            "type": "string"
+            "type": "string",
+            "format": "decimal"
           },
           "term": {
             "$ref": "#/components/schemas/BillingPeriodEnum"
@@ -12468,9 +12570,7 @@
         "type": "object",
         "required": [
           "first_unit",
-          "rate",
-          "flat_fee",
-          "flat_cap"
+          "rate"
         ],
         "properties": {
           "first_unit": {
@@ -12479,11 +12579,17 @@
             "minimum": 0
           },
           "flat_cap": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "decimal"
           },
           "flat_fee": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "decimal"
           },
           "rate": {

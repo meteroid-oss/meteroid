@@ -298,7 +298,9 @@ pub struct Entitlement {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Minimal reference to the product a feature belongs to.
 #[derive(Serialize, Debug, Clone, ToSchema)]
+#[schema(as = EntitlementProductRef)]
 pub struct ProductRef {
     #[serde(serialize_with = "string_serde::serialize")]
     pub id: ProductId,
