@@ -28,10 +28,19 @@ fn build_limiter(rps: u32) -> GovernorLimiter {
 }
 
 pub fn new_svix(config: &SvixConfig) -> Option<Arc<Svix>> {
+    // An env var set to the empty string deserializes to `Some("")`, not `None`.
+    // Treating that as "configured" builds a client with no base URL, which fails
+    // every request with `UserAbsoluteUriRequired`. Blank means disabled.
     config
         .server_url
         .as_ref()
-        .zip(config.token.as_ref())
+        .filter(|url| !url.trim().is_empty())
+        .zip(
+            config
+                .token
+                .as_ref()
+                .filter(|t| !t.expose_secret().trim().is_empty()),
+        )
         .map(|(url, token)| {
             tracing::info!("Initializing Svix client with server URL: {}", url);
 
