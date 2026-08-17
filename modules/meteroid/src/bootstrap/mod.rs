@@ -15,13 +15,23 @@ pub async fn bootstrap_once(
     store: meteroid_store::Store,
     svix: Option<Arc<dyn SvixOps>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // register svix event types
+    // Register svix event types. Best-effort by design: the OpenAPI import
+    // endpoint (`POST /api/v1/event-type/import/openapi/`) is not implemented by
+    // the open-source svix-server and 404s there, so propagating this error makes
+    // the API unbootable for anyone self-hosting Svix. Event types are metadata
+    // for the portal's subscription picker only; svix-server accepts messages for
+    // unregistered event types (verified against v1.100.0: HTTP 202), so webhook
+    // delivery is unaffected when this fails.
     if let Some(svix) = svix {
-        svix.import_open_api_event_types(include_str!("../../../../spec/api/v1/openapi.json"))
+        let _ = svix
+            .import_open_api_event_types(include_str!("../../../../spec/api/v1/openapi.json"))
             .await
             .tap_err(|err| {
-                tracing::error!("Failed to import Svix event types: {}", err);
-            })?;
+                tracing::warn!(
+                    "Failed to import Svix event types (continuing; delivery unaffected): {}",
+                    err
+                );
+            });
     }
 
     // check if we need to setup historical rates
