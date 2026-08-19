@@ -9,9 +9,9 @@ The `Docker Build` GitHub Actions workflow builds the API, scheduler, metering A
 Images are published under `ghcr.io/tritondatacenter` with two deployable tags:
 
 - `triton-main` follows the latest successful branch build.
-- `sha-<full-commit-sha>` identifies one immutable source revision and is the recommended deployment and rollback tag.
+- `sha-<full-commit-sha>` identifies one source revision and is the recommended deployment and rollback tag. It is not content-immutable because rebuilding that revision can resolve newer base images; use manifest digests when byte-for-byte image identity is required.
 
-The workflow uses its GitHub token to publish packages. Docker Hub credentials are optional and only increase the unauthenticated pull limit for base images.
+The workflow uses its GitHub token to publish packages. Docker Hub credentials are optional; when configured, base-image pulls authenticate and use that account's Docker Hub quota.
 
 ## Deploy a build
 
@@ -36,7 +36,7 @@ docker compose --env-file .env up -d --wait
 docker compose ps
 ```
 
-To roll back, replace `METEROID_IMAGE_TAG` with the previous full-SHA tag and repeat the pull and startup commands. Database and object-store volumes are preserved by Compose.
+To roll back to a previous source revision, replace `METEROID_IMAGE_TAG` with its full-SHA tag and repeat the pull and startup commands. Database and object-store volumes are preserved by Compose.
 
 ## Validate deployment changes
 

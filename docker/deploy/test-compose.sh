@@ -6,6 +6,16 @@ deploy_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 compose_file="${deploy_dir}/docker-compose.yml"
 env_file="${deploy_dir}/.env.example"
 
+application_images() {
+  jq --raw-output \
+    '[
+      .services["meteroid-api"].image,
+      .services["meteroid-scheduler"].image,
+      .services["metering-api"].image,
+      .services["meteroid-web"].image
+    ] | sort | .[]'
+}
+
 rendered_config="$(
   docker compose \
     --file "${compose_file}" \
@@ -25,6 +35,21 @@ if [[ "${clickhouse_dependency}" != "service_completed_successfully" ]]; then
   exit 1
 fi
 
+actual_default_images="$(application_images <<<"${rendered_config}")"
+expected_default_images="$(printf '%s\n' \
+  ghcr.io/meteroid-oss/metering-api:latest \
+  ghcr.io/meteroid-oss/meteroid-api:latest \
+  ghcr.io/meteroid-oss/meteroid-scheduler:latest \
+  ghcr.io/meteroid-oss/meteroid-web:latest)"
+
+if [[ "${actual_default_images}" != "${expected_default_images}" ]]; then
+  echo "application images did not preserve the upstream defaults" >&2
+  diff \
+    <(printf '%s\n' "${expected_default_images}") \
+    <(printf '%s\n' "${actual_default_images}") >&2 || true
+  exit 1
+fi
+
 custom_config="$(
   METEROID_IMAGE_REGISTRY=ghcr.io/tritondatacenter \
     METEROID_IMAGE_TAG=sha-test \
@@ -35,16 +60,7 @@ custom_config="$(
       --format json
 )"
 
-actual_application_images="$(
-  jq --raw-output \
-    '[
-      .services["meteroid-api"].image,
-      .services["meteroid-scheduler"].image,
-      .services["metering-api"].image,
-      .services["meteroid-web"].image
-    ] | sort | .[]' \
-    <<<"${custom_config}"
-)"
+actual_application_images="$(application_images <<<"${custom_config}")"
 
 expected_application_images="$(printf '%s\n' \
   ghcr.io/tritondatacenter/metering-api:sha-test \
