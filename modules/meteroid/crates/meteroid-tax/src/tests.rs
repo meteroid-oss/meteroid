@@ -28,6 +28,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_nontaxable_category_overrides_taxable_customer() {
+        // A line classified as non-taxable yields no tax even where the customer is taxable.
+        let customer_tax = CustomerTax::CustomTaxRate(dec!(0.15));
+        let invoicing_entity_address = test_address("US", Some("CA"));
+        let line_items = vec![
+            LineItemForTax {
+                tax_category: Some(NONTAXABLE_CATEGORY_KEY.to_string()),
+                ..test_line_item("nontaxable", 10000, vec![])
+            },
+            test_line_item("taxable", 10000, vec![]),
+        ];
+
+        let result = shared::compute_tax(customer_tax, invoicing_entity_address, line_items)
+            .await
+            .unwrap();
+
+        match &result[0].tax_details {
+            TaxDetails::Exempt(VatExemptionReason::TaxExempt) => {}
+            other => panic!("Expected non-taxable line to be exempt, got {other:?}"),
+        }
+        match &result[1].tax_details {
+            TaxDetails::Tax { tax_amount, .. } => assert_eq!(*tax_amount, 1500),
+            other => panic!("Expected taxable line to be taxed, got {other:?}"),
+        }
+
+        let breakdown = shared::compute_breakdown_from_line_items(&result);
+        assert_eq!(breakdown.tax_amount, 1500);
+    }
+
+    #[tokio::test]
     async fn test_tax_exempt_customer() {
         // Customer is tax exempt
         let customer_tax = CustomerTax::Exempt;

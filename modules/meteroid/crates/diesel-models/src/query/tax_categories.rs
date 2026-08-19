@@ -7,7 +7,10 @@ use error_stack::ResultExt;
 
 impl TaxCategoryRow {
     /// Built-in (global, tenant_id NULL) categories plus this tenant's own.
-    pub async fn list_available(conn: &mut PgConn, tenant_id: TenantId) -> DbResult<Vec<TaxCategoryRow>> {
+    pub async fn list_available(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+    ) -> DbResult<Vec<TaxCategoryRow>> {
         use crate::schema::tax_category::dsl as tc;
         use diesel_async::RunQueryDsl;
 

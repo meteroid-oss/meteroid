@@ -6,9 +6,8 @@ use meteroid_grpc::meteroid::api::taxes::v1::{
     self as server, CreateCustomTaxRequest, CreateCustomTaxResponse, DeleteCustomTaxRequest,
     GetProductAccountingRequest, GetProductAccountingResponse, ListCustomTaxesRequest,
     ListCustomTaxesResponse, ListTaxCategoriesRequest, ListTaxCategoriesResponse,
-    UpdateCustomTaxRequest, UpdateCustomTaxResponse,
-    UpsertProductAccountingRequest, UpsertProductAccountingResponse, ValidateVatNumberRequest,
-    ValidateVatNumberResponse,
+    UpdateCustomTaxRequest, UpdateCustomTaxResponse, UpsertProductAccountingRequest,
+    UpsertProductAccountingResponse, ValidateVatNumberRequest, ValidateVatNumberResponse,
 };
 use meteroid_store::repositories::accounting::AccountingInterface;
 use meteroid_store::repositories::tax_categories::TaxCategoryInterface;

@@ -18,9 +18,9 @@ use std::collections::{HashMap, HashSet};
 use crate::domain::BillableMetric;
 use crate::errors::StoreError;
 use crate::repositories::accounting::AccountingInterface;
+use crate::repositories::customer_balance::convert_currency;
 use crate::repositories::products::ProductInterface;
 use crate::repositories::tax_categories::TaxCategoryInterface;
-use crate::repositories::customer_balance::convert_currency;
 use crate::services::Services;
 use crate::services::invoice_lines::component::ExistingLineKey;
 use crate::services::invoice_lines::discount::calculate_coupons_discount;
@@ -580,18 +580,6 @@ impl Services {
             .filter_map(|line| line.product_id)
             .collect::<Vec<_>>();
 
-        let product_taxes = {
-            let mut fresh_conn = self.store.get_conn().await?;
-            self.store
-                .list_product_tax_configuration_by_product_ids_and_invoicing_entity_id_grouped(
-                    &mut fresh_conn,
-                    invoicing_entity.tenant_id,
-                    product_ids.clone(),
-                    invoicing_entity.id,
-                )
-                .await?
-        };
-
         // Resolve each line's tax category (the product's category, else the
         // invoicing entity default) so the tax engine can price by category.
         let product_categories: HashMap<ProductId, Option<TaxCategoryId>> = self
@@ -601,6 +589,18 @@ impl Services {
             .into_iter()
             .map(|p| (p.id, p.tax_category_id))
             .collect();
+
+        let product_taxes = {
+            let mut fresh_conn = self.store.get_conn().await?;
+            self.store
+                .list_product_tax_configuration_by_product_ids_and_invoicing_entity_id_grouped(
+                    &mut fresh_conn,
+                    invoicing_entity.tenant_id,
+                    product_ids,
+                    invoicing_entity.id,
+                )
+                .await?
+        };
         let category_keys: HashMap<TaxCategoryId, String> = self
             .store
             .list_tax_categories(invoicing_entity.tenant_id)

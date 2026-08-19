@@ -107,6 +107,9 @@ pub struct LineItemForTax {
     pub tax_category: Option<String>,
 }
 
+/// Key of the built-in tax category that never yields tax, seeded in `tax_category`.
+pub const NONTAXABLE_CATEGORY_KEY: &str = "nontaxable";
+
 #[derive(Debug, Clone)]
 pub struct LineItemWithTax {
     pub line_id: String,

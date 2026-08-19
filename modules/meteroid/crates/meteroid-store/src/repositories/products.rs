@@ -13,7 +13,7 @@ use crate::store::Store;
 use common_domain::ids::{BaseId, ProductFamilyId, ProductId, TaxCategoryId, TenantId};
 use diesel_models::prices::PriceRow;
 use diesel_models::product_families::ProductFamilyRow;
-use diesel_models::products::{ProductRow, ProductRowNew};
+use diesel_models::products::{ProductRow, ProductRowNew, ProductRowPatch};
 use error_stack::Report;
 use scoped_futures::ScopedFutureExt;
 
@@ -166,37 +166,27 @@ impl ProductInterface for Store {
                     }
                 }
 
-                let name = update.name.unwrap_or(existing.name.clone());
-                let description = match update.description {
-                    Some(d) => d,
-                    None => existing.description.clone(),
-                };
+                let fee_structure = update
+                    .fee_structure
+                    .map(|fs| {
+                        serde_json::to_value(&fs).map_err(|e| {
+                            Report::new(StoreError::SerdeError(
+                                "Failed to serialize fee_structure".to_string(),
+                                e,
+                            ))
+                        })
+                    })
+                    .transpose()?;
 
-                let tax_category_id = match update.tax_category_id {
-                    Some(v) => v,
-                    None => existing.tax_category_id,
-                };
-
-                let fee_structure_json = match update.fee_structure {
-                    Some(fs) => serde_json::to_value(&fs).map_err(|e| {
-                        Report::new(StoreError::SerdeError(
-                            "Failed to serialize fee_structure".to_string(),
-                            e,
-                        ))
-                    })?,
-                    None => existing.fee_structure.clone(),
-                };
-
-                let product: Product = ProductRow::update_fee_structure(
-                    conn,
-                    update.id,
-                    update.tenant_id,
-                    name,
-                    description,
-                    existing.fee_type,
-                    fee_structure_json,
-                    tax_category_id,
-                )
+                let product: Product = ProductRowPatch {
+                    id: update.id,
+                    tenant_id: update.tenant_id,
+                    name: update.name,
+                    description: update.description,
+                    fee_structure,
+                    tax_category_id: update.tax_category_id,
+                }
+                .patch(conn)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)
                 .and_then(|row| row.try_into())?;

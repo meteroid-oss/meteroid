@@ -11,11 +11,11 @@ pub use tenants::TenantInterface;
 pub use users::UserInterface;
 
 pub mod accounting;
-pub mod tax_categories;
 pub mod bi;
 pub mod customers;
 pub mod invoices;
 pub mod plans;
+pub mod tax_categories;
 pub mod tenants;
 
 pub mod add_ons;

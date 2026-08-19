@@ -48,6 +48,7 @@ async fn test_products_basic() {
                 )),
             }),
             catalog: None,
+            tax_category_id: None,
         })
         .await
         .unwrap()
