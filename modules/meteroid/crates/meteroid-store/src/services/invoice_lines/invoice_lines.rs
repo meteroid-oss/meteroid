@@ -601,13 +601,19 @@ impl Services {
                 )
                 .await?
         };
-        let category_keys: HashMap<TaxCategoryId, String> = self
-            .store
-            .list_tax_categories(invoicing_entity.tenant_id)
-            .await?
-            .into_iter()
-            .map(|c| (c.id, c.key))
-            .collect();
+        // Only worth a lookup when at least one line actually resolves to a category.
+        let any_category = invoicing_entity.default_tax_category_id.is_some()
+            || product_categories.values().any(Option::is_some);
+        let category_keys: HashMap<TaxCategoryId, String> = if any_category {
+            self.store
+                .list_tax_categories(invoicing_entity.tenant_id)
+                .await?
+                .into_iter()
+                .map(|c| (c.id, c.key))
+                .collect()
+        } else {
+            HashMap::new()
+        };
 
         let invoice_lines_for_tax: Vec<meteroid_tax::LineItemForTax> = invoice_lines
             .iter()
