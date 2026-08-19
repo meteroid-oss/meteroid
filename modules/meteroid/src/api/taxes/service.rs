@@ -58,6 +58,7 @@ impl TaxesService for TaxesServiceComponents {
             invoicing_entity_id,
             name: custom_tax.name,
             tax_code: custom_tax.tax_code,
+            tax_category_id: mapping::tax_category_id_from_server(custom_tax.tax_category_id)?,
             rules: custom_tax
                 .rules
                 .into_iter()

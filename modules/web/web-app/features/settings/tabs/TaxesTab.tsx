@@ -60,6 +60,7 @@ const taxSettingsSchema = z.object({
 const customTaxSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   taxCode: z.string().min(1, 'Tax code is required'),
+  taxCategoryId: z.string().optional(),
   rules: z
     .array(
       z.object({
@@ -147,6 +148,10 @@ export const TaxesTab = () => {
 
   const listTaxCategoriesQuery = useQuery(listTaxCategories, {})
 
+  const categoryNameById = new Map(
+    (listTaxCategoriesQuery.data?.taxCategories ?? []).map(c => [c.id, c.name])
+  )
+
   const methods = useZodForm({
     schema: taxSettingsSchema,
   })
@@ -157,6 +162,7 @@ export const TaxesTab = () => {
     defaultValues: {
       name: '',
       taxCode: '',
+      taxCategoryId: '',
       rules: [{ country: '', region: '', rate: '' }],
     },
   })
@@ -284,6 +290,7 @@ export const TaxesTab = () => {
           invoicingEntityId: invoiceEntityId,
           name: values.name,
           taxCode: values.taxCode,
+          taxCategoryId: values.taxCategoryId || undefined,
           rules: taxRules,
         }),
       })
@@ -293,6 +300,7 @@ export const TaxesTab = () => {
           invoicingEntityId: invoiceEntityId,
           name: values.name,
           taxCode: values.taxCode,
+          taxCategoryId: values.taxCategoryId || undefined,
           rules: taxRules,
         }),
       })
@@ -304,6 +312,7 @@ export const TaxesTab = () => {
     customTaxMethods.reset({
       name: tax.name,
       taxCode: tax.taxCode,
+      taxCategoryId: tax.taxCategoryId ?? '',
       rules: tax.rules.map(rule => ({
         country: rule.country || '',
         region: rule.region || '',
@@ -408,6 +417,7 @@ export const TaxesTab = () => {
                 customTaxMethods.reset({
                   name: '',
                   taxCode: '',
+                  taxCategoryId: '',
                   rules: [{ country: '', region: '', rate: '' }],
                 })
                 setCustomTaxDialogOpen(true)
@@ -427,6 +437,7 @@ export const TaxesTab = () => {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Tax Code</TableHead>
+                  <TableHead>Category</TableHead>
                   <TableHead>Rules</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -436,6 +447,9 @@ export const TaxesTab = () => {
                   <TableRow key={tax.id}>
                     <TableCell className="font-medium">{tax.name}</TableCell>
                     <TableCell>{tax.taxCode}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {categoryNameById.get(tax.taxCategoryId ?? '') ?? '—'}
+                    </TableCell>
                     <TableCell>
                       <div className="space-y-1">
                         {tax.rules.map((rule, idx) => (
@@ -481,8 +495,9 @@ export const TaxesTab = () => {
         <div>
           <h3 className="font-medium text-lg">Tax categories</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Provider-agnostic categories a product can be classified with. The active tax provider
-            resolves each category to a rate; unclassified products fall back to the entity default.
+            Provider-agnostic categories a product can be classified with. A custom tax above can
+            target a category to apply its rates to every product in it; an external tax provider
+            resolves the category itself. Unclassified products fall back to the entity default.
           </p>
         </div>
 
@@ -541,6 +556,28 @@ export const TaxesTab = () => {
                 placeholder="e.g., VAT_EU, SALES_US"
                 control={customTaxMethods.control}
               />
+
+              <div className="space-y-1">
+                <label className="text-sm font-medium" htmlFor="custom-tax-category">
+                  Tax category
+                </label>
+                <select
+                  id="custom-tax-category"
+                  className="w-full text-sm bg-transparent border border-border rounded px-2 py-2"
+                  {...customTaxMethods.register('taxCategoryId')}
+                >
+                  <option value="">Products linked to this tax only</option>
+                  {(listTaxCategoriesQuery.data?.taxCategories ?? []).map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Pick a category to apply these rates to every product classified with it, instead
+                  of wiring the tax product by product.
+                </p>
+              </div>
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">Tax Rules</label>

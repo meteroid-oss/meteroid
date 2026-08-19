@@ -4,7 +4,7 @@ use crate::domain::accounting::{
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store};
-use common_domain::ids::{CustomTaxId, InvoicingEntityId, ProductId, TenantId};
+use common_domain::ids::{CustomTaxId, InvoicingEntityId, ProductId, TaxCategoryId, TenantId};
 use diesel_models::accounting::{CustomTaxRow, ProductAccountingRow, ProductAccountingWithTaxRow};
 use error_stack::Report;
 use std::collections::HashMap;
@@ -41,6 +41,15 @@ pub trait AccountingInterface {
         product_ids: Vec<ProductId>,
         invoicing_entity_id: InvoicingEntityId,
     ) -> StoreResult<Vec<ProductAccountingWithTaxes>>;
+
+    /// Custom taxes that target one of these categories, keyed by category.
+    async fn list_custom_taxes_by_categories(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        invoicing_entity_id: InvoicingEntityId,
+        category_ids: &[TaxCategoryId],
+    ) -> StoreResult<HashMap<TaxCategoryId, Vec<CustomTax>>>;
 }
 
 #[async_trait::async_trait]
@@ -161,5 +170,36 @@ impl AccountingInterface for Store {
         }
 
         Ok(grouped.into_values().collect())
+    }
+
+    async fn list_custom_taxes_by_categories(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        invoicing_entity_id: InvoicingEntityId,
+        category_ids: &[TaxCategoryId],
+    ) -> StoreResult<HashMap<TaxCategoryId, Vec<CustomTax>>> {
+        let rows = CustomTaxRow::list_by_invoicing_entity_and_categories(
+            conn,
+            invoicing_entity_id,
+            tenant_id,
+            category_ids,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let mut grouped: HashMap<TaxCategoryId, Vec<CustomTax>> = HashMap::new();
+
+        for row in rows {
+            let Some(category_id) = row.tax_category_id else {
+                continue;
+            };
+            grouped
+                .entry(category_id)
+                .or_default()
+                .push(row.try_into()?);
+        }
+
+        Ok(grouped)
     }
 }
