@@ -28,16 +28,27 @@ impl TaxCategoryRow {
             .into_db_result()
     }
 
-    pub async fn get_by_id(conn: &mut PgConn, id: TaxCategoryId) -> DbResult<TaxCategoryRow> {
+    /// Whether the category exists and is usable by this tenant (built-in or its own).
+    pub async fn is_available_for_tenant(
+        conn: &mut PgConn,
+        id: TaxCategoryId,
+        tenant_id: TenantId,
+    ) -> DbResult<bool> {
         use crate::schema::tax_category::dsl as tc;
         use diesel_async::RunQueryDsl;
 
-        tc::tax_category
-            .filter(tc::id.eq(id))
-            .select(TaxCategoryRow::as_select())
-            .first(conn)
+        let query = diesel::select(diesel::dsl::exists(
+            tc::tax_category
+                .filter(tc::id.eq(id))
+                .filter(tc::tenant_id.is_null().or(tc::tenant_id.eq(tenant_id))),
+        ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
             .await
-            .attach("Error while fetching tax category by id")
+            .attach("Error while checking tax category availability")
             .into_db_result()
     }
 }

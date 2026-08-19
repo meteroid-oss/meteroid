@@ -94,9 +94,9 @@ pub fn product_accounting_to_server(value: ProductAccounting) -> server::Product
 
 pub fn tax_category_to_server(value: TaxCategory) -> server::TaxCategory {
     server::TaxCategory {
-        id: value.id.to_string(),
-        tenant_id: value.tenant_id.map(|t| t.to_string()),
-        parent_id: value.parent_id.map(|p| p.to_string()),
+        id: value.id.as_proto(),
+        tenant_id: value.tenant_id.map(|t| t.as_proto()),
+        parent_id: value.parent_id.map(|p| p.as_proto()),
         key: value.key,
         name: value.name,
         is_builtin: value.is_builtin,

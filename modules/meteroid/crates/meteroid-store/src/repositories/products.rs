@@ -14,8 +14,32 @@ use common_domain::ids::{BaseId, ProductFamilyId, ProductId, TaxCategoryId, Tena
 use diesel_models::prices::PriceRow;
 use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::products::{ProductRow, ProductRowNew, ProductRowPatch};
+use diesel_models::tax_categories::TaxCategoryRow;
 use error_stack::Report;
 use scoped_futures::ScopedFutureExt;
+
+/// A product may only reference a category the tenant can see (built-in, or its own).
+async fn validate_tax_category(
+    conn: &mut diesel_models::PgConn,
+    tax_category_id: Option<TaxCategoryId>,
+    tenant_id: TenantId,
+) -> StoreResult<()> {
+    let Some(id) = tax_category_id else {
+        return Ok(());
+    };
+
+    let available = TaxCategoryRow::is_available_for_tenant(conn, id, tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+    if available {
+        Ok(())
+    } else {
+        Err(Report::new(StoreError::InvalidArgument(format!(
+            "Unknown tax category: {id}"
+        ))))
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct ProductUpdate {
@@ -93,6 +117,8 @@ impl ProductInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
+        validate_tax_category(&mut conn, product.tax_category_id, product.tenant_id).await?;
+
         let insertable: ProductRowNew = ProductRowNew {
             id: ProductId::new(),
             name: product.name,
@@ -165,6 +191,9 @@ impl ProductInterface for Store {
                         )));
                     }
                 }
+
+                validate_tax_category(conn, update.tax_category_id.flatten(), update.tenant_id)
+                    .await?;
 
                 let fee_structure = update
                     .fee_structure
