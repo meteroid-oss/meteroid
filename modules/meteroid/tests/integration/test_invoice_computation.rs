@@ -697,7 +697,8 @@ async fn test_compute_invoice_with_tax_category_custom_tax(
             .unwrap();
     }
 
-    // 10% for the invoicing entity's country (FR), targeting the SaaS category.
+    // 10% (rates are fractions) for the invoicing entity's country (FR),
+    // targeting the SaaS category.
     store
         .insert_custom_tax(
             TENANT_ID,
@@ -709,7 +710,7 @@ async fn test_compute_invoice_with_tax_category_custom_tax(
                 rules: vec![CustomTaxRule {
                     country: Some(CountryCode::from_str("FR").unwrap()),
                     region: None,
-                    rate: dec!(10),
+                    rate: dec!(0.10),
                 }],
             },
         )

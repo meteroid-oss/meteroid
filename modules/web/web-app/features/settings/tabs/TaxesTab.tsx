@@ -72,6 +72,17 @@ const customTaxSchema = z.object({
     .min(1, 'At least one tax rule is required'),
 })
 
+// Rates are stored as fractions (0.2 = 20%); the form and the table speak percent.
+const rateToPercent = (rate: string) => {
+  const n = Number(rate)
+  return Number.isFinite(n) ? String(Number((n * 100).toFixed(6))) : rate
+}
+
+const percentToRate = (percent: string) => {
+  const n = Number(percent)
+  return Number.isFinite(n) ? String(Number((n / 100).toFixed(8))) : percent
+}
+
 const TaxRuleRow = ({
   index,
   control,
@@ -279,7 +290,7 @@ export const TaxesTab = () => {
         create(TaxRuleSchema, {
           country: rule.country || undefined,
           region: rule.region || undefined,
-          rate: rule.rate,
+          rate: percentToRate(rule.rate),
         })
     )
 
@@ -316,7 +327,7 @@ export const TaxesTab = () => {
       rules: tax.rules.map(rule => ({
         country: rule.country || '',
         region: rule.region || '',
-        rate: rule.rate,
+        rate: rateToPercent(rule.rate),
       })),
     })
     setCustomTaxDialogOpen(true)
@@ -455,7 +466,7 @@ export const TaxesTab = () => {
                         {tax.rules.map((rule, idx) => (
                           <div key={idx} className="text-sm">
                             {rule.country || 'All countries'}
-                            {rule.region && ` - ${rule.region}`}: {rule.rate}%
+                            {rule.region && ` - ${rule.region}`}: {rateToPercent(rule.rate)}%
                           </div>
                         ))}
                       </div>
