@@ -134,7 +134,7 @@ services:
   ### Meteroid Application Services
 
   meteroid-api:
-    image: ghcr.io/meteroid-oss/meteroid-api:latest
+    image: ${METEROID_IMAGE_REGISTRY:-ghcr.io/meteroid-oss}/meteroid-api:${METEROID_IMAGE_TAG:-latest}
     depends_on:
       meteroid-db:
         condition: service_healthy
@@ -187,7 +187,7 @@ services:
     logging: *logging
 
   meteroid-scheduler:
-    image: ghcr.io/meteroid-oss/meteroid-scheduler:latest
+    image: ${METEROID_IMAGE_REGISTRY:-ghcr.io/meteroid-oss}/meteroid-scheduler:${METEROID_IMAGE_TAG:-latest}
     depends_on:
       meteroid-db:
         condition: service_healthy
@@ -230,7 +230,7 @@ services:
     logging: *logging
 
   metering-api:
-    image: ghcr.io/meteroid-oss/metering-api:latest
+    image: ${METEROID_IMAGE_REGISTRY:-ghcr.io/meteroid-oss}/metering-api:${METEROID_IMAGE_TAG:-latest}
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -259,7 +259,7 @@ services:
     logging: *logging
 
   meteroid-web:
-    image: ghcr.io/meteroid-oss/meteroid-web:latest
+    image: ${METEROID_IMAGE_REGISTRY:-ghcr.io/meteroid-oss}/meteroid-web:${METEROID_IMAGE_TAG:-latest}
     depends_on:
       meteroid-api:
         condition: service_healthy
