@@ -1,4 +1,4 @@
-use common_domain::ids::{CustomTaxId, InvoicingEntityId, ProductId};
+use common_domain::ids::{CustomTaxId, InvoicingEntityId, ProductId, TaxCategoryId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Clone, Debug, Identifiable, Queryable, Selectable, Insertable)]
@@ -10,6 +10,8 @@ pub struct CustomTaxRow {
     pub name: String,
     pub tax_code: String,
     pub rules: serde_json::Value,
+    /// When set, the tax applies to every line resolving to this category.
+    pub tax_category_id: Option<TaxCategoryId>,
 }
 
 #[derive(Clone, Debug, Identifiable, Queryable, Selectable, Insertable)]

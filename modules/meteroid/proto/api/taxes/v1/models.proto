@@ -8,6 +8,8 @@ message CustomTax {
   string name = 3;
   string tax_code = 4;
   repeated TaxRule rules = 5;
+  // When set, the tax applies to every line resolving to this category.
+  optional string tax_category_id = 6;
 }
 
 // A provider-agnostic classification of what is sold. Built-in rows are global
@@ -32,6 +34,7 @@ message CustomTaxNew {
   string name = 2;
   string tax_code = 3;
   repeated TaxRule rules = 4;
+  optional string tax_category_id = 5;
 }
 
 message ProductAccounting {

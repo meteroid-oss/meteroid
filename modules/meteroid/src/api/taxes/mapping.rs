@@ -1,6 +1,6 @@
 use crate::api::shared::conversions::ProtoConv;
 use common_domain::country::CountryCode;
-use common_domain::ids::{InvoicingEntityId, ProductId};
+use common_domain::ids::{InvoicingEntityId, ProductId, TaxCategoryId};
 use meteroid_grpc::meteroid::api::taxes::v1 as server;
 use meteroid_store::domain::accounting::{
     CustomTax, CustomTaxNew, CustomTaxRule, ProductAccounting,
@@ -15,12 +15,22 @@ pub fn custom_tax_new_from_server(value: server::CustomTaxNew) -> Result<CustomT
         invoicing_entity_id: InvoicingEntityId::from_proto(value.invoicing_entity_id)?,
         name: value.name,
         tax_code: value.tax_code,
+        tax_category_id: tax_category_id_from_server(value.tax_category_id)?,
         rules: value
             .rules
             .into_iter()
             .map(tax_rule_from_server)
             .collect::<Result<Vec<_>, _>>()?,
     })
+}
+
+/// An absent or empty id means "no category" — the tax stays product-wired.
+pub fn tax_category_id_from_server(value: Option<String>) -> Result<Option<TaxCategoryId>, Status> {
+    match value {
+        None => Ok(None),
+        Some(s) if s.is_empty() => Ok(None),
+        Some(s) => Ok(Some(TaxCategoryId::from_proto(s)?)),
+    }
 }
 
 pub fn tax_rule_from_server(value: server::TaxRule) -> Result<CustomTaxRule, Status> {
@@ -56,10 +66,11 @@ pub fn tax_rule_from_server(value: server::TaxRule) -> Result<CustomTaxRule, Sta
 
 pub fn custom_tax_to_server(value: CustomTax) -> server::CustomTax {
     server::CustomTax {
-        id: value.id.to_string(),
-        invoicing_entity_id: value.invoicing_entity_id.to_string(),
+        id: value.id.as_proto(),
+        invoicing_entity_id: value.invoicing_entity_id.as_proto(),
         name: value.name,
         tax_code: value.tax_code,
+        tax_category_id: value.tax_category_id.map(|id| id.as_proto()),
         rules: value.rules.into_iter().map(tax_rule_to_server).collect(),
     }
 }

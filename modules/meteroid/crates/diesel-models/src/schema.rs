@@ -522,6 +522,7 @@ diesel::table! {
         name -> Text,
         tax_code -> Text,
         rules -> Jsonb,
+        tax_category_id -> Nullable<Uuid>,
     }
 }
 

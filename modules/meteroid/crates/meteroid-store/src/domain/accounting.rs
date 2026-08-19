@@ -1,7 +1,7 @@
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
 use common_domain::country::CountryCode;
-use common_domain::ids::{BaseId, CustomTaxId, InvoicingEntityId, ProductId};
+use common_domain::ids::{BaseId, CustomTaxId, InvoicingEntityId, ProductId, TaxCategoryId};
 use diesel_models::accounting::{CustomTaxRow, ProductAccountingRow};
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
@@ -13,6 +13,9 @@ pub struct CustomTax {
     pub invoicing_entity_id: InvoicingEntityId,
     pub name: String,
     pub tax_code: String,
+    /// When set, the tax applies to every line resolving to this category,
+    /// on top of any product explicitly linked to it.
+    pub tax_category_id: Option<TaxCategoryId>,
     #[from(serde_json::from_value(~).map_err(| e | {
     StoreError::SerdeError("Failed to deserialize rules".to_string(), e)
     }) ?)]
@@ -43,6 +46,7 @@ pub struct CustomTaxNew {
     pub invoicing_entity_id: InvoicingEntityId,
     pub name: String,
     pub tax_code: String,
+    pub tax_category_id: Option<TaxCategoryId>,
     #[into(serde_json::to_value(& ~).map_err(| e | {
     StoreError::SerdeError("Failed to serialize rules".to_string(), e)
     }) ?)]
