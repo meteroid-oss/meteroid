@@ -62,7 +62,7 @@ fn determine_tax_details(
 
     // A product classified as non-taxable yields no tax regardless of jurisdiction.
     // (Category-driven reduced/zero rates are a per-engine extension from here.)
-    if item.tax_category.as_deref() == Some("nontaxable") {
+    if item.tax_category.as_deref() == Some(crate::model::NONTAXABLE_CATEGORY_KEY) {
         return TaxDetails::Exempt(VatExemptionReason::TaxExempt);
     }
 

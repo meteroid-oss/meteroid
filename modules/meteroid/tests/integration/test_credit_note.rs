@@ -2040,6 +2040,7 @@ async fn create_plan_with_4_components(
                 )
                 .unwrap(),
                 catalog: true,
+                tax_category_id: None,
             }
             .insert(tx)
             .await?;

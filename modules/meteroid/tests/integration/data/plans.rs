@@ -321,6 +321,7 @@ fn product(
         fee_type,
         fee_structure: serde_json::to_value(&fee_structure).unwrap(),
         catalog: true,
+        tax_category_id: None,
     }
 }
 
