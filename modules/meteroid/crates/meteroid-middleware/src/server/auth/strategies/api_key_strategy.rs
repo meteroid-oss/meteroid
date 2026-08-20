@@ -1,14 +1,11 @@
-use cached::proc_macro::cached;
-use common_domain::ids::{ApiTokenId, OrganizationId, TenantId};
 use common_grpc::GrpcServiceMethod;
 use common_grpc::middleware::common::auth::API_KEY_HEADER;
-use common_grpc::middleware::server::auth::api_token_validator::ApiTokenValidator;
-use common_grpc::middleware::server::auth::{AuthenticatedState, TenantEnv};
+use common_grpc::middleware::server::auth::AuthenticatedState;
 use http::HeaderMap;
 use meteroid_store::Store;
-use meteroid_store::domain::TenantEnvironmentEnum;
-use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use tonic::Status;
+
+use crate::server::auth::api_key::{ApiKeyAuthError, verify_api_key};
 
 const FORBIDDEN_SERVICES: [&str; 5] = [
     "meteroid.api.organizations.v1.OrganizationsService",
@@ -17,36 +14,6 @@ const FORBIDDEN_SERVICES: [&str; 5] = [
     "meteroid.api.tenants.v1.TenantsService",
     "meteroid.api.instance.v1.InstanceService",
 ];
-
-#[cached(
-    result = true,
-    size = 100,
-    time = 120, // 2 min
-    key = "ApiTokenId",
-    convert = r#"{ *api_key_id }"#
-)]
-async fn validate_api_token_by_id_cached(
-    store: &Store,
-    validator: &ApiTokenValidator,
-    api_key_id: &ApiTokenId,
-) -> Result<(OrganizationId, TenantId, TenantEnv), Status> {
-    let res = store
-        .get_api_token_by_id_for_validation(api_key_id)
-        .await
-        .map_err(|_| Status::unauthenticated("Failed to retrieve api key"))?;
-
-    validator
-        .validate_hash(&res.hash)
-        .map_err(|_| Status::unauthenticated("Invalid API key"))?;
-
-    let tenant_env = if res.environment == TenantEnvironmentEnum::Production {
-        TenantEnv::Production
-    } else {
-        TenantEnv::NonProduction
-    };
-
-    Ok((res.organization_id, res.tenant_id, tenant_env))
-}
 
 pub async fn validate_api_key(
     header_map: &HeaderMap,
@@ -63,20 +30,17 @@ pub async fn validate_api_key(
         .to_str()
         .map_err(|_| Status::unauthenticated("Invalid API key"))?;
 
-    let validator = ApiTokenValidator::parse_api_key(api_key)
-        .map_err(|_| Status::unauthenticated("Invalid API key format."))?;
-
-    let id = ApiTokenId::from_const(validator.extract_identifier().map_err(|_| {
-        Status::unauthenticated("Invalid API key format. Failed to extract identifier")
-    })?);
-
-    let (organization_id, tenant_id, tenant_env) =
-        validate_api_token_by_id_cached(store, &validator, &id).await?;
+    let verified = verify_api_key(api_key, store)
+        .await
+        .map_err(|err| match err {
+            ApiKeyAuthError::Malformed => Status::unauthenticated("Invalid API key format."),
+            ApiKeyAuthError::Unauthorized => Status::unauthenticated("Invalid API key"),
+        })?;
 
     Ok(AuthenticatedState::ApiKey {
-        id,
-        tenant_id,
-        organization_id,
-        tenant_env,
+        id: verified.id,
+        tenant_id: verified.tenant_id,
+        organization_id: verified.organization_id,
+        tenant_env: verified.tenant_env,
     })
 }

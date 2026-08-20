@@ -331,7 +331,7 @@ pub enum AuthorizedState {
     Shared(AuthorizedAsPortalUser),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum TenantEnv {
     Production,
     NonProduction,

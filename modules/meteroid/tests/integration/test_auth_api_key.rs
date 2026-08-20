@@ -60,6 +60,44 @@ async fn test_api_key() {
     assert!(customers_response.is_ok());
     assert_eq!(customers_response.unwrap().into_inner().customers.len(), 0);
 
+    // The valid call above warmed the authorization cache. A forged secret carrying the same
+    // token id must still be rejected, on both transports.
+    let forged = forge_same_id_key(api_token_response.api_key.as_str());
+    assert_ne!(forged, api_token_response.api_key);
+
+    let svc = build_tower_svc(&setup.channel, forged.as_str());
+    let customers_svc = CustomersServiceClient::new(svc.clone());
+    let customers_response = list_customers(customers_svc).await;
+
+    assert_eq!(
+        customers_response.map_err(|e| e.code()).unwrap_err(),
+        Code::Unauthenticated,
+        "grpc: forged secret reused the warm cache entry of a valid token id"
+    );
+
+    let rest = reqwest::Client::new();
+    let customers_url = format!("{}/api/v1/customers", setup.config.rest_api_external_url);
+
+    let ok = rest
+        .get(&customers_url)
+        .bearer_auth(api_token_response.api_key.as_str())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), reqwest::StatusCode::OK);
+
+    let forged_response = rest
+        .get(&customers_url)
+        .bearer_auth(forged.as_str())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        forged_response.status(),
+        reqwest::StatusCode::UNAUTHORIZED,
+        "rest: forged secret reused the warm cache entry of a valid token id"
+    );
+
     // teardown
     // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await;
 }
@@ -122,6 +160,25 @@ pub(crate) async fn generate_api_key(channel: &Channel) -> CreateApiTokenRespons
         .await
         .unwrap()
         .into_inner()
+}
+
+/// Rebuilds an API key with the same token id but a different secret, mimicking an attacker who
+/// learned a token id and is guessing at the secret.
+fn forge_same_id_key(api_key: &str) -> String {
+    let (prefixed_secret, id) = api_key
+        .rsplit_once('/')
+        .expect("api key carries an id part");
+    let (prefix, secret) = prefixed_secret
+        .rsplit_once('_')
+        .expect("api key carries an environment prefix");
+
+    // Same length and alphabet as the real secret so that only its value differs.
+    let forged_secret: String = secret
+        .chars()
+        .map(|c| if c == 'a' { 'b' } else { 'a' })
+        .collect();
+
+    format!("{prefix}_{forged_secret}/{id}")
 }
 
 fn build_tower_svc(
