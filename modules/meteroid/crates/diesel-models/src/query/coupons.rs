@@ -295,8 +295,12 @@ impl CouponStatusRowPatch {
     pub async fn patch(&self, conn: &mut PgConn) -> DbResult<CouponRow> {
         use crate::schema::coupon::dsl as c_dsl;
 
+        // `tenant_id` is part of the declared primary key, so AsChangeset leaves it out of the
+        // SET list entirely. Without this predicate the statement matches by id alone and one
+        // tenant can archive or re-enable another tenant's coupon.
         let query = diesel::update(c_dsl::coupon)
             .filter(c_dsl::id.eq(self.id))
+            .filter(c_dsl::tenant_id.eq(self.tenant_id))
             .set(self);
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
