@@ -12,7 +12,7 @@ use super::types::{AdapterCommon, WebhookAdapter};
 use crate::adapters::types::ParsedRequest;
 use axum::response::IntoResponse;
 use common_domain::actor::Actor;
-use common_domain::ids::{BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId};
+use common_domain::ids::{BaseId, CustomerConnectionId, CustomerPaymentMethodId};
 use error_stack::ResultExt;
 use meteroid_store::Store;
 use meteroid_store::domain::{CustomerPaymentMethodNew, PaymentIntent};
@@ -24,7 +24,9 @@ use stripe_client::webhook::event_type;
 
 use meteroid_store::adapters::payment_service_providers::{PaymentProvider, PaymentProviderError};
 use meteroid_store::domain::connectors::Connector;
+use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::CustomersInterface;
+use meteroid_store::repositories::customer_connection::CustomerConnectionInterface;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
 
 static STRIPE: std::sync::OnceLock<Stripe> = std::sync::OnceLock::new();
@@ -140,14 +142,20 @@ impl Stripe {
         let connection_id = CustomerConnectionId::parse_base62(connection_id)
             .change_context(errors::AdapterWebhookError::InvalidMetadata)?;
 
-        let customer_id = data.metadata.get("meteroid.customer_id").ok_or(
-            errors::AdapterWebhookError::MissingMetadata("meteroid.customer_id".to_string()),
-        )?;
-
-        let customer_id = CustomerId::parse_base62(customer_id)
+        // Resolve the connection under the signing connector's tenant and take the customer from
+        // that row. The metadata is provider-supplied, so trusting its customer id would let one
+        // tenant attach a payment method against another tenant's customer.
+        let connection = store
+            .get_connection_by_id(&connector.tenant_id, &connection_id)
+            .await
             .change_context(errors::AdapterWebhookError::InvalidMetadata)?;
 
-        // we need to refetch the connection to get the tenant id
+        if connection.connector_id != connector.id {
+            return Err(Report::new(errors::AdapterWebhookError::InvalidMetadata)
+                .attach("setup intent names a connection belonging to another connector"));
+        }
+
+        let customer_id = connection.customer_id;
 
         let payment_method =
             data.payment_method
@@ -217,7 +225,7 @@ impl Stripe {
         &self,
         parsed: Event,
         data: PaymentIntent,
-        _connector: &Connector,
+        connector: &Connector,
         store: Store,
     ) -> Result<bool, Report<errors::AdapterWebhookError>> {
         let event_type_clone = parsed.event_type.clone();
@@ -233,14 +241,41 @@ impl Stripe {
 
         log::info!("Processing webhook event type: {event_type_clone}");
 
+        // The tenant here comes from provider metadata, which is only as trustworthy as the
+        // connector whose secret signed this event. Without this check any tenant could settle
+        // another tenant's transaction by naming it in a webhook signed with their own secret.
+        if data.tenant_id != connector.tenant_id {
+            return Err(Report::new(errors::AdapterWebhookError::InvalidMetadata)
+                .attach("payment intent names a tenant other than the signing connector's"));
+        }
+
+        let tenant_id = connector.tenant_id;
+
         // we fetch the related transaction then we consolidate the transaction with the new intent event
         store
             .transaction(|conn| {
                 let store = store.clone();
                 async move {
                     let inserted_transaction = store
-                        .get_payment_tx_by_id_for_update(conn, data.transaction_id, data.tenant_id)
+                        .get_payment_tx_by_id_for_update(conn, data.transaction_id, tenant_id)
                         .await?;
+
+                    // The provider reports its own amount and currency. A settlement that does
+                    // not match what Meteroid asked for must not close out the transaction.
+                    if inserted_transaction.amount != data.amount_requested
+                        || !inserted_transaction
+                            .currency
+                            .eq_ignore_ascii_case(&data.currency)
+                    {
+                        return Err(Report::new(StoreError::InvalidArgument(format!(
+                            "payment intent does not match transaction {}: expected {} {}, got {} {}",
+                            inserted_transaction.id,
+                            inserted_transaction.amount,
+                            inserted_transaction.currency,
+                            data.amount_requested,
+                            data.currency,
+                        ))));
+                    }
 
                     store
                         .consolidate_intent_and_transaction_tx(
