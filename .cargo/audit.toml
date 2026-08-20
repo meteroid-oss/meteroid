@@ -2,7 +2,10 @@
 # quick-xml <0.41 DoS (RUSTSEC-2026-0194/0195). Only reachable via trusted XML
 # (object_store cloud API responses, typst-bundled themes/CSL styles). No
 # object_store/plist/citationberg release depends on quick-xml >=0.41 yet; drop these when one does.
+# rkyv 0.7 (RUSTSEC-2026-0235) reaches Cargo.lock only through rust_decimal's optional `rkyv`
+# feature, which nothing here enables; `cargo tree -e normal -i rkyv` finds no path to it.
 ignore = [
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
+    "RUSTSEC-2026-0235",
 ]
