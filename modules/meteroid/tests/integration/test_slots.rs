@@ -1,5 +1,6 @@
 use chrono::{NaiveDate, NaiveTime};
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -145,6 +146,24 @@ async fn test_optimistic_upgrade(services: &Services, store: &Store) {
     let line_item = &invoice.line_items[0];
     assert_eq!(line_item.quantity, Some(Decimal::from(5)));
     assert!(line_item.is_prorated, "Line item should be prorated");
+
+    // The customer is quoted `prorated_amount` before confirming, so the invoice must bill
+    // exactly that. Scaling it by the seat delta a second time charged delta squared.
+    let quoted_cents = (result.prorated_amount.unwrap() * Decimal::from(100))
+        .round()
+        .to_i64()
+        .unwrap();
+    assert_eq!(
+        line_item.amount_subtotal, quoted_cents,
+        "invoiced subtotal disagrees with the amount quoted to the customer"
+    );
+
+    // 5 seats at $10 for a whole period. A mid-period prorated upgrade can never exceed that.
+    assert!(
+        line_item.amount_subtotal <= 5 * 10 * 100,
+        "prorated upgrade billed more than a full period: {}",
+        line_item.amount_subtotal
+    );
 
     let count = store
         .get_active_slots_value(TENANT_ID, subscription_id, SLOT_UNIT.to_string(), None)

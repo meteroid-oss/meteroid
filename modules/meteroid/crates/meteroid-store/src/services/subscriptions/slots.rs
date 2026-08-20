@@ -179,6 +179,8 @@ impl Services {
         delta: i32,
         unit_rate: &Decimal,
     ) -> StoreResult<Decimal> {
+        // Returns the total for the whole `delta`, already multiplied by it.
+
         let full_period = Period {
             start: period_start,
             end: period_end,
@@ -386,7 +388,7 @@ impl Services {
         price_component_id: PriceComponentId,
         delta: i32,
         unit_name: &str,
-        prorated_amount: Decimal,
+        prorated_total_amount: Decimal,
         start_date: chrono::NaiveDate,
         end_date: chrono::NaiveDate,
     ) -> StoreResult<InvoiceId> {
@@ -397,7 +399,7 @@ impl Services {
             price_component_id,
             delta,
             unit_name,
-            prorated_amount,
+            prorated_total_amount,
             start_date,
             end_date,
             false,
@@ -413,7 +415,7 @@ impl Services {
         price_component_id: PriceComponentId,
         delta: i32,
         unit_name: &str,
-        prorated_amount: Decimal,
+        prorated_total_amount: Decimal,
         start_date: chrono::NaiveDate,
         end_date: chrono::NaiveDate,
     ) -> StoreResult<InvoiceId> {
@@ -424,7 +426,7 @@ impl Services {
             price_component_id,
             delta,
             unit_name,
-            prorated_amount,
+            prorated_total_amount,
             start_date,
             end_date,
             true,
@@ -440,7 +442,8 @@ impl Services {
         price_component_id: PriceComponentId,
         delta: i32,
         unit_name: &str,
-        prorated_amount: Decimal,
+        // Prorated charge for the whole `delta`, not a per-unit rate.
+        prorated_total_amount: Decimal,
         start_date: chrono::NaiveDate,
         end_date: chrono::NaiveDate,
         respect_auto_advance: bool,
@@ -464,10 +467,20 @@ impl Services {
             StoreError::ValueNotFound(format!("Currency {} not found", subscription.currency))
         })?;
 
+        if delta <= 0 {
+            return Err(StoreError::InvalidArgument(format!(
+                "Slot upgrade invoice requires a positive delta, got {delta}"
+            ))
+            .into());
+        }
+
         let delta_decimal = Decimal::from_i32(delta).ok_or_else(|| {
             StoreError::InvalidArgument(format!("Invalid delta value: {}", delta))
         })?;
-        let amount_subtotal = (delta_decimal * prorated_amount)
+
+        // `calculate_slot_upgrade_amount` already multiplied by `delta`. Scaling again here
+        // billed delta squared and disagreed with the figure `preview_slot_update` shows.
+        let amount_subtotal = prorated_total_amount
             .to_subunit_opt(currency.precision)
             .ok_or_else(|| {
                 StoreError::InvalidArgument(format!(
@@ -476,13 +489,18 @@ impl Services {
                 ))
             })?;
 
+        // Display only. `amount_subtotal` is authoritative, so sub-cent drift against
+        // `quantity * unit_price` is expected.
+        let unit_price =
+            (prorated_total_amount / delta_decimal).round_dp(currency.precision as u32);
+
         let line_item = LineItem {
             local_id: LocalId::no_prefix(),
             name: format!("{} {} upgrade", delta, unit_name),
             start_date,
             end_date,
             quantity: Decimal::from_i32(delta),
-            unit_price: Some(prorated_amount),
+            unit_price: Some(unit_price),
             tax_rate: Decimal::ZERO,
             taxable_amount: amount_subtotal,
             tax_amount: 0,
