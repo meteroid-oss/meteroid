@@ -1,6 +1,7 @@
 pub mod adapters;
 pub mod constants;
 pub mod crypt;
+pub mod crypt_migration;
 pub mod domain;
 pub mod errors;
 pub mod jwt_claims;

@@ -11,10 +11,36 @@ const BASE_CURRENCY: &str = "USD";
 const BASE_DATE: chrono::NaiveDate =
     chrono::NaiveDate::from_ymd_opt(2025, 1, 1).expect("Invalid base date constant in bootstrap");
 
+/// Rewrites secrets still stored under the key-derived nonce, before anything serves traffic.
+///
+/// Fails closed: a value that will not authenticate must stop the boot rather than let the
+/// process run against a half-migrated table. Idempotent, so every entry point can call it.
+pub async fn migrate_secrets(
+    store: &meteroid_store::Store,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let migrated = meteroid_store::crypt_migration::migrate_legacy_secrets(store).await?;
+
+    if migrated.is_empty() {
+        tracing::info!("Secret envelope migration: no legacy values remain");
+    } else {
+        tracing::warn!(
+            "Secret envelope migration rewrote {} connector and {} oauth verifier secrets. \
+             Rotate the affected provider credentials: re-encryption stops future nonce reuse \
+             but does not un-expose values already readable in an older database snapshot.",
+            migrated.connectors,
+            migrated.oauth_verifiers
+        );
+    }
+
+    Ok(())
+}
+
 pub async fn bootstrap_once(
     store: meteroid_store::Store,
     svix: Option<Arc<dyn SvixOps>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    migrate_secrets(&store).await?;
+
     // Register svix event types. Best-effort by design: the OpenAPI import
     // endpoint (`POST /api/v1/event-type/import/openapi/`) is not implemented by
     // the open-source svix-server and 404s there, so propagating this error makes

@@ -79,6 +79,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let svix_wiring = wire_svix(&config.svix, fred_client);
 
+    bootstrap::migrate_secrets(&store).await?;
+
     // Scheduler doesn't host the op-webhook route, just verify Redis.
     bootstrap::verify_svix_setup(&config.svix, "", None, redis_available).await;
 

@@ -138,3 +138,54 @@ impl ConnectorRowPatch {
             .into_db_result()
     }
 }
+
+/// Secret-envelope maintenance: used by the startup migration that rewrites ciphertext written
+/// under the old key-derived-nonce scheme.
+impl ConnectorRow {
+    /// Locks every connector whose `sensitive` value does not carry `envelope_prefix`.
+    ///
+    /// `envelope_prefix` is a compile-time constant containing no LIKE wildcards, so it is
+    /// interpolated into the pattern without escaping.
+    pub async fn lock_legacy_sensitive(
+        conn: &mut PgConn,
+        envelope_prefix: &str,
+    ) -> DbResult<Vec<(ConnectorId, Option<String>)>> {
+        use crate::schema::connector::dsl as c_dsl;
+        use diesel::TextExpressionMethods;
+        use diesel_async::RunQueryDsl;
+
+        let query = c_dsl::connector
+            .filter(c_dsl::sensitive.is_not_null())
+            .filter(c_dsl::sensitive.not_like(format!("{envelope_prefix}%")))
+            .select((c_dsl::id, c_dsl::sensitive))
+            .order(c_dsl::id.asc())
+            .for_update();
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while locking legacy connector secrets")
+            .into_db_result()
+    }
+
+    pub async fn set_sensitive(
+        conn: &mut PgConn,
+        id: ConnectorId,
+        sensitive: &str,
+    ) -> DbResult<usize> {
+        use crate::schema::connector::dsl as c_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(c_dsl::connector)
+            .filter(c_dsl::id.eq(id))
+            .set(c_dsl::sensitive.eq(sensitive));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while rewriting connector secret")
+            .into_db_result()
+    }
+}

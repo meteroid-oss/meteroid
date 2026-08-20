@@ -57,3 +57,48 @@ impl OauthVerifierRow {
             .into_db_result()
     }
 }
+
+/// Secret-envelope maintenance: see `ConnectorRow::lock_legacy_sensitive`.
+impl OauthVerifierRow {
+    pub async fn lock_legacy_pkce_verifiers(
+        conn: &mut PgConn,
+        envelope_prefix: &str,
+    ) -> DbResult<Vec<(uuid::Uuid, String)>> {
+        use crate::schema::oauth_verifier::dsl as ov_dsl;
+        use diesel::{QueryDsl, TextExpressionMethods};
+        use diesel_async::RunQueryDsl;
+
+        let query = ov_dsl::oauth_verifier
+            .filter(ov_dsl::pkce_verifier.not_like(format!("{envelope_prefix}%")))
+            .select((ov_dsl::id, ov_dsl::pkce_verifier))
+            .order(ov_dsl::id.asc())
+            .for_update();
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while locking legacy oauth verifiers")
+            .into_db_result()
+    }
+
+    pub async fn set_pkce_verifier(
+        conn: &mut PgConn,
+        id: uuid::Uuid,
+        pkce_verifier: &str,
+    ) -> DbResult<usize> {
+        use crate::schema::oauth_verifier::dsl as ov_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(ov_dsl::oauth_verifier)
+            .filter(ov_dsl::id.eq(id))
+            .set(ov_dsl::pkce_verifier.eq(pkce_verifier));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while rewriting oauth verifier")
+            .into_db_result()
+    }
+}
