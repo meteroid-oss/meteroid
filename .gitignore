@@ -75,3 +75,6 @@ k8s/*/values.*.yaml
 ## Temporary
 sdk
 docs
+
+# Isolated feature worktrees
+.worktrees/
