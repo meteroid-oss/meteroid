@@ -64,6 +64,14 @@ impl WebhookAdapter for Stripe {
 
         let secret = security.expose_secret();
 
+        // hmac accepts an empty key, which would make every forged signature verifiable.
+        if secret.is_empty() {
+            return Err(
+                Report::new(errors::AdapterWebhookError::SignatureVerificationFailed)
+                    .attach("connector has no webhook secret configured"),
+            );
+        }
+
         StripeWebhook::validate_signature(
             &String::from_utf8_lossy(&request.raw_body),
             &sig,

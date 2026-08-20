@@ -19,6 +19,22 @@ use std::sync::Arc;
 use stripe_client::client::StripeClient;
 
 const ALIAS: &str = "stripe-webhook-test";
+const WEBHOOK_SECRET: &str = "whsec_test_secret";
+
+/// Builds the `Stripe-Signature` header Stripe would send for `body`.
+fn stripe_signature(body: &[u8]) -> String {
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::Sha256;
+
+    let timestamp = chrono::Utc::now().timestamp();
+    let mut mac = Hmac::<Sha256>::new_from_slice(WEBHOOK_SECRET.as_bytes()).unwrap();
+    mac.update(format!("{timestamp}.{}", String::from_utf8_lossy(body)).as_bytes());
+
+    format!(
+        "t={timestamp},v1={}",
+        hex::encode(mac.finalize().into_bytes())
+    )
+}
 
 /// End-to-end inbound webhook flow: the HTTP handler accepts an unsigned Stripe
 /// `payment_intent.succeeded`, dedupes a duplicate delivery, and the WebhookIn
@@ -31,7 +47,7 @@ async fn test_webhook_in_ingest_dedup_and_worker() {
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
-    // A Stripe connector with no sensitive data (signature verification skipped),
+    // A Stripe connector carrying a webhook secret; the route rejects unsigned deliveries,
     // plus a payment awaiting the provider's confirmation.
     let connector_id = ConnectorId::new();
     let checkout_session_id = CheckoutSessionId::new();
@@ -45,7 +61,16 @@ async fn test_webhook_in_ingest_dedup_and_worker() {
             connector_type: ConnectorTypeEnum::PaymentProvider,
             provider: ConnectorProviderEnum::Stripe,
             data: None,
-            sensitive: None,
+            sensitive: Some(
+                meteroid_store::domain::connectors::ProviderSensitiveData::Stripe(
+                    meteroid_store::domain::connectors::StripeSensitiveData {
+                        api_secret_key: "sk_test_webhook".to_string(),
+                        webhook_secret: WEBHOOK_SECRET.to_string(),
+                    },
+                )
+                .encrypt(&setup.store.settings.crypt_key)
+                .unwrap(),
+            ),
         }
         .insert(&mut conn)
         .await
@@ -136,11 +161,34 @@ async fn test_webhook_in_ingest_dedup_and_worker() {
         "{}/webhooks/v1/{}/{}",
         setup.config.rest_api_external_url, TENANT_ID, ALIAS
     );
-    let post = || client.post(&url).json(&body).send();
+    let raw_body = serde_json::to_vec(&body).unwrap();
+    let signature = stripe_signature(&raw_body);
+    let post = || {
+        client
+            .post(&url)
+            .header("Stripe-Signature", signature.clone())
+            .header("content-type", "application/json")
+            .body(raw_body.clone())
+            .send()
+    };
 
     // First delivery, then a duplicate; both are acked.
     assert_eq!(post().await.unwrap().status(), reqwest::StatusCode::OK);
     assert_eq!(post().await.unwrap().status(), reqwest::StatusCode::OK);
+
+    // The same body without a valid signature must be rejected outright.
+    let unsigned = client
+        .post(&url)
+        .header("content-type", "application/json")
+        .body(raw_body.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_ne!(
+        unsigned.status(),
+        reqwest::StatusCode::OK,
+        "unsigned webhook delivery was accepted"
+    );
 
     // Peek the queue (vt = 0 leaves the message visible for the worker): the
     // duplicate was deduped, so exactly one message is enqueued.

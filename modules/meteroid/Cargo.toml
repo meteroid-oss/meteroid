@@ -114,6 +114,7 @@ nonzero = "0.2.0"
 
 [dev-dependencies]
 chacha20poly1305 = { workspace = true }
+hmac = { workspace = true }
 rstest = { workspace = true }
 testcontainers = { workspace = true }
 tokio-util = { workspace = true }

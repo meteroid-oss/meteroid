@@ -91,15 +91,18 @@ async fn handler(
     };
 
     // Verify the signature before persisting anything, so unauthenticated callers
-    // can never write to storage or the database.
-    if let Some(ProviderSensitiveData::Stripe(sensitive_data)) = &connector.sensitive {
-        adapter
-            .verify_webhook(
-                &parsed_request,
-                &SecretString::from(sensitive_data.webhook_secret.as_str()),
-            )
-            .await?;
-    }
+    // can never write to storage or the database. This route is public, so a connector
+    // without usable secret material must reject rather than skip the check.
+    let Some(ProviderSensitiveData::Stripe(sensitive_data)) = &connector.sensitive else {
+        bail!(errors::AdapterWebhookError::SignatureVerificationFailed);
+    };
+
+    adapter
+        .verify_webhook(
+            &parsed_request,
+            &SecretString::from(sensitive_data.webhook_secret.as_str()),
+        )
+        .await?;
 
     // Archive the raw body; the worker re-reads it from object storage to process.
     let prefix = Prefix::WebhookArchive {

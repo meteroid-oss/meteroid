@@ -149,6 +149,15 @@ impl ConnectorsInterface for Store {
         stripe_data: StripeSensitiveData,
         stripe_account_id: String,
     ) -> StoreResult<ConnectorMeta> {
+        // The inbound webhook route is public and its only trust boundary is this secret, so a
+        // connector stored without one would make that route forgeable. Validated here rather
+        // than in the API layer so every caller of the store inherits the guard.
+        if !stripe_data.webhook_secret.starts_with("whsec_") {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "Stripe webhook secret is required and must start with `whsec_`".to_string(),
+            )));
+        }
+
         let row: ConnectorRowNew = ConnectorNew {
             tenant_id,
             alias: alias.clone(),
