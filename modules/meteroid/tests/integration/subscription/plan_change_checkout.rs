@@ -1476,3 +1476,63 @@ async fn test_plan_change_checkout_partial_credits_on_upgrade(#[future] test_env
         "payment transaction should be for amount_due (2239), not total (4900)"
     );
 }
+
+// =============================================================================
+// PAYMENT METHOD OWNERSHIP
+// =============================================================================
+
+/// A checkout session must not be payable with another customer's stored card.
+///
+/// The method id is caller-supplied, so tenant-only scoping let any customer of a tenant
+/// charge any other customer of that tenant.
+#[rstest]
+#[tokio::test]
+async fn test_checkout_rejects_another_customers_payment_method(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID)
+        .start_date(start_date)
+        .on_start()
+        .trial_days(14)
+        .auto_charge()
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.customer_id, CUST_UBER_ID);
+
+    let session = env
+        .services()
+        .create_plan_change_checkout_session(
+            TENANT_ID,
+            sub_id,
+            PLAN_VERSION_STARTER_ID,
+            sub.customer_id,
+            None,
+            change_date,
+        )
+        .await
+        .expect("create_plan_change_checkout_session failed");
+
+    let result = env
+        .services()
+        .complete_checkout(
+            TENANT_ID,
+            session.id,
+            CUST_SPOTIFY_PAYMENT_METHOD_ID,
+            3900,
+            "EUR".to_string(),
+            None,
+        )
+        .await;
+
+    assert!(
+        result.is_err(),
+        "checkout charged a payment method belonging to a different customer"
+    );
+}

@@ -8,7 +8,7 @@ use crate::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::services::Services;
 use crate::store::PgConn;
 use common_domain::ids::{
-    BaseId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, TenantId,
+    BaseId, CustomerId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, TenantId,
 };
 use diesel_models::customer_connection::CustomerConnectionDetailsRow;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
@@ -131,6 +131,7 @@ impl Services {
             .create_payment_intent(
                 conn,
                 &tenant_id,
+                &invoice.invoice.customer_id,
                 &payment_method_id,
                 &inserted_transaction.id,
                 inserted_transaction.amount as u64,
@@ -156,14 +157,20 @@ impl Services {
         &self,
         conn: &mut PgConn,
         tenant_id: &TenantId,
+        customer_id: &CustomerId,
         payment_method_id: &CustomerPaymentMethodId,
         transaction_id: &PaymentTransactionId,
         amount: u64,
         currency: String,
     ) -> StoreResult<PaymentIntent> {
-        let method = CustomerPaymentMethodRow::get_by_id(conn, tenant_id, payment_method_id)
-            .await
-            .map_err(|err| StoreError::DatabaseError(err.error))?;
+        let method = CustomerPaymentMethodRow::get_by_id_for_customer(
+            conn,
+            tenant_id,
+            customer_id,
+            payment_method_id,
+        )
+        .await
+        .map_err(|err| StoreError::DatabaseError(err.error))?;
 
         let connection =
             CustomerConnectionDetailsRow::get_by_id(conn, tenant_id, &method.connection_id)

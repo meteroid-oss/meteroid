@@ -4,7 +4,8 @@ use crate::errors::StoreError;
 use crate::services::Services;
 use crate::store::PgConn;
 use common_domain::ids::{
-    BaseId, CheckoutSessionId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, TenantId,
+    BaseId, CheckoutSessionId, CustomerId, CustomerPaymentMethodId, InvoiceId,
+    PaymentTransactionId, TenantId,
 };
 use diesel_models::customer_connection::CustomerConnectionDetailsRow;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
@@ -29,6 +30,7 @@ impl Services {
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
+        customer_id: CustomerId,
         payment_method_id: CustomerPaymentMethodId,
         amount: i64,
         currency: String,
@@ -42,9 +44,14 @@ impl Services {
             )));
         }
 
-        let method = CustomerPaymentMethodRow::get_by_id(conn, &tenant_id, &payment_method_id)
-            .await
-            .map_err(|err| StoreError::DatabaseError(err.error))?;
+        let method = CustomerPaymentMethodRow::get_by_id_for_customer(
+            conn,
+            &tenant_id,
+            &customer_id,
+            &payment_method_id,
+        )
+        .await
+        .map_err(|err| StoreError::DatabaseError(err.error))?;
 
         let connection =
             CustomerConnectionDetailsRow::get_by_id(conn, &tenant_id, &method.connection_id)

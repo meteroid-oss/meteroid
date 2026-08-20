@@ -123,9 +123,10 @@ impl Services {
                 // No payment needed, just validate payment method and finalize
                 if draft_invoice.amount_due == 0 {
                     // Validate the payment method exists (it's already saved on the customer)
-                    let _payment_method = diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
+                    let _payment_method = diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id_for_customer(
                         conn,
                         &tenant_id,
+                        &subscription.subscription.customer_id,
                         &payment_method_id,
                     )
                     .await

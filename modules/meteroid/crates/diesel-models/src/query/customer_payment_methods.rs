@@ -33,6 +33,35 @@ impl CustomerPaymentMethodRow {
             .into_db_result()
     }
 
+    /// Resolves a payment method that must belong to `customer_id_param`.
+    ///
+    /// Every charge path takes the method id from a request, so tenant scoping alone lets one
+    /// customer of a tenant charge another customer's stored card. Prefer this over `get_by_id`
+    /// wherever the payer is known.
+    pub async fn get_by_id_for_customer(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+        customer_id_param: &CustomerId,
+        payment_method_id_param: &CustomerPaymentMethodId,
+    ) -> DbResult<CustomerPaymentMethodRow> {
+        use crate::schema::customer_payment_method::dsl as cpm_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = cpm_dsl::customer_payment_method
+            .filter(cpm_dsl::id.eq(payment_method_id_param))
+            .filter(cpm_dsl::tenant_id.eq(tenant_id_param))
+            .filter(cpm_dsl::customer_id.eq(customer_id_param))
+            .filter(cpm_dsl::archived_at.is_null())
+            .select(CustomerPaymentMethodRow::as_select());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while finding customer payment method by id for customer")
+            .into_db_result()
+    }
+
     pub async fn get_by_id(
         conn: &mut PgConn,
         tenant_id_param: &TenantId,

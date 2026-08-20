@@ -274,9 +274,10 @@ impl ServicesEdge {
             // Billing will happen when the trial ends via process_cycles.
             // Validate the payment method exists (it's already saved on the customer)
             let _payment_method =
-                diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
+                diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id_for_customer(
                     conn,
                     &tenant_id,
+                    &subscription.customer_id,
                     &payment_method_id,
                 )
                 .await
@@ -1416,9 +1417,10 @@ impl ServicesEdge {
 
         let charge_result = if is_free_trial || amount_due <= 0 {
             let _method =
-                diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
+                diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id_for_customer(
                     conn,
                     &tenant_id,
+                    &session.customer_id,
                     &payment_method_id,
                 )
                 .await
@@ -1444,6 +1446,7 @@ impl ServicesEdge {
                 .charge_payment_method_directly(
                     conn,
                     tenant_id,
+                    session.customer_id,
                     payment_method_id,
                     amount_due,
                     currency.clone(),
@@ -1970,6 +1973,7 @@ impl ServicesEdge {
             .charge_payment_method_directly(
                 conn,
                 tenant_id,
+                session.customer_id,
                 payment_method_id,
                 charge_amount,
                 currency.clone(),
@@ -2176,6 +2180,7 @@ impl ServicesEdge {
                 .charge_payment_method_directly(
                     conn,
                     tenant_id,
+                    session.customer_id,
                     payment_method_id,
                     charge_amount,
                     currency,
@@ -2350,6 +2355,7 @@ impl ServicesEdge {
                         .charge_payment_method_directly(
                             conn,
                             tenant_id,
+                            session.customer_id,
                             payment_method_id,
                             amount_due,
                             currency,
