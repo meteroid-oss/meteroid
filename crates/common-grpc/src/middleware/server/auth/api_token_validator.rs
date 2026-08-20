@@ -1,6 +1,5 @@
 use anyhow::anyhow;
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
-use common_domain::ids::ApiTokenId;
 use sha2::{Digest, Sha256};
 
 /// Domain separator, so this digest can never be confused with another SHA-256 use.
@@ -57,7 +56,7 @@ impl ApiTokenValidator {
     /// Built from the decoded id rather than its textual form so that equivalent base62
     /// encodings share one cache entry, and length-framed so that no two distinct
     /// id/secret pairs can produce the same digest.
-    pub fn credential_fingerprint(&self, id: &ApiTokenId) -> CredentialFingerprint {
+    pub fn credential_fingerprint(&self, id: &uuid::Uuid) -> CredentialFingerprint {
         let secret = self.hash_part.as_bytes();
 
         let mut hasher = Sha256::new();
@@ -82,6 +81,7 @@ impl ApiTokenValidator {
 
 #[cfg(test)]
 mod tests {
+    use common_domain::ids::ApiTokenId;
     use uuid::Uuid;
 
     use super::*;

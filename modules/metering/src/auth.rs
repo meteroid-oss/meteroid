@@ -3,7 +3,9 @@ use common_grpc::middleware::common::auth::API_KEY_HEADER;
 
 use cached::proc_macro::cached;
 use common_grpc::middleware::client::LayeredClientService;
-use common_grpc::middleware::server::auth::api_token_validator::ApiTokenValidator;
+use common_grpc::middleware::server::auth::api_token_validator::{
+    ApiTokenValidator, CredentialFingerprint,
+};
 use futures::TryFutureExt;
 use futures::future::BoxFuture;
 use hyper::{HeaderMap, Request, Response, StatusCode};
@@ -143,12 +145,16 @@ where
     }
 }
 
+/// Keyed by a digest of the whole credential rather than by token id, so a warm entry can only
+/// ever authorize the exact secret that already passed Argon2 verification. Ingestion is the
+/// highest-volume path, so the cache is sized to survive a flood of forged secrets without
+/// evicting legitimate entries.
 #[cached(
     result = true,
-    size = 100,
+    size = 10000,
     time = 120, // 2 min
-    key = "Uuid",
-    convert = r#"{ *api_key_id }"#
+    key = "CredentialFingerprint",
+    convert = r#"{ validator.credential_fingerprint(api_key_id) }"#
 )]
 async fn validate_api_token_by_id_cached(
     internal_client: &InternalServiceClient<LayeredClientService>,
