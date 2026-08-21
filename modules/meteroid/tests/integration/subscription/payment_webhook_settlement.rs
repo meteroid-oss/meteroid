@@ -30,7 +30,7 @@ use meteroid_store::repositories::payment_transactions::PaymentTransactionInterf
 use meteroid_store::repositories::pgmq::PgmqInterface;
 
 use common_domain::ids::{BaseId, InvoiceId, PaymentTransactionId};
-use common_domain::pgmq::{MessageReadQty, MessageReadVtSec};
+use common_domain::pgmq::{MessageId, MessageReadQty, MessageReadVtSec};
 
 /// The mock Connector domain object, matching what `seed_mock_payment_provider`
 /// writes. The dispatcher only reads `tenant_id`/`provider` from it; the
@@ -781,7 +781,10 @@ async fn test_chargeback_cancelled_restores_settlement_and_recloses_invoice(
 /// (vt=0), so calling before/after an action yields exactly what that action
 /// emitted.
 async fn payment_tx_saved_count(env: &TestEnv, tx_id: PaymentTransactionId) -> usize {
-    let msgs = env
+    // The outbox dispatcher fans out to `webhook_out` by reference: each message
+    // only carries the archived `outbox_event` msg id in its headers, so resolve
+    // the bodies from the archive before matching.
+    let outbox_ids: Vec<MessageId> = env
         .store()
         .pgmq_read(
             PgmqQueue::WebhookOut,
@@ -789,9 +792,18 @@ async fn payment_tx_saved_count(env: &TestEnv, tx_id: PaymentTransactionId) -> u
             MessageReadVtSec(0),
         )
         .await
-        .expect("read webhook_out queue");
+        .expect("read webhook_out queue")
+        .into_iter()
+        .filter_map(|m| m.headers)
+        .filter_map(|h| h.0.get("outbox_msg_id").and_then(|v| v.as_i64()))
+        .map(MessageId)
+        .collect();
 
-    msgs.into_iter()
+    env.store()
+        .pgmq_list_archived(PgmqQueue::OutboxEvent, outbox_ids)
+        .await
+        .expect("read archived outbox events")
+        .into_iter()
         .filter_map(|m| m.message)
         .filter_map(|m| serde_json::from_value::<OutboxEvent>(m.0).ok())
         .filter(|e| {

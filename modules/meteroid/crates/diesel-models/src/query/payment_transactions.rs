@@ -91,12 +91,14 @@ impl PaymentTransactionRow {
     ///
     /// An invoice matching this must never be re-charged, merged into a
     /// consolidated parent, or have its lines mutated — all three would act on
-    /// an amount the provider is already moving money against. Settled
-    /// amounts are netted of refunds, mirroring
-    /// [`InvoiceRow::recompute_amount_due_from_settled_payments`]: a partial
-    /// refund reopens a balance that must stay collectible, so a
-    /// Settled-but-partially-refunded payment stops owning the invoice once
-    /// its net amount no longer covers the total.
+    /// an amount the provider is already moving money against. The collectible
+    /// total is computed exactly as
+    /// [`InvoiceRow::recompute_amount_due_from_settled_payments`]: settled
+    /// amounts are netted of refunds and finalized DebtCancellation credit
+    /// notes reduce what is owed, so a partial refund reopens a balance that
+    /// must stay collectible while a debt-cancelled invoice is treated as
+    /// covered — a Settled payment stops owning the invoice once its net amount
+    /// no longer covers `total - applied_credits - cancelled_debts`.
     ///
     /// [`InvoiceRow::recompute_amount_due_from_settled_payments`]: crate::invoices::InvoiceRow::recompute_amount_due_from_settled_payments
     pub async fn exists_live_for_invoice(
@@ -104,6 +106,7 @@ impl PaymentTransactionRow {
         inv_uid: InvoiceId,
         tenant_uid: TenantId,
     ) -> DbResult<bool> {
+        use crate::schema::credit_note::dsl as cn_dsl;
         use crate::schema::invoice::dsl as i_dsl;
         use crate::schema::payment_transaction::dsl as pt_dsl;
         use diesel::dsl::{exists, select};
@@ -151,6 +154,23 @@ impl PaymentTransactionRow {
             return Ok(false);
         }
 
+        // Finalized DebtCancellation credit notes reduce what is owed, mirroring
+        // recompute_amount_due_from_settled_payments; net them out here or a
+        // debt-cancelled invoice a settled payment already covers is misreported
+        // as unowned.
+        let cancelled_debts: Vec<i64> = cn_dsl::credit_note
+            .filter(cn_dsl::invoice_id.eq(inv_uid))
+            .filter(cn_dsl::tenant_id.eq(tenant_uid))
+            .filter(cn_dsl::credit_type.eq(crate::enums::CreditTypeEnum::DebtCancellation))
+            .filter(cn_dsl::status.eq(crate::enums::CreditNoteStatus::Finalized))
+            .select(cn_dsl::total)
+            .load(conn)
+            .await
+            .attach("Error while summing debt-cancellation credit notes")
+            .into_db_result()?;
+        // Credit-note totals are stored negative.
+        let cancelled_sum: i64 = cancelled_debts.iter().map(|t| t.abs()).sum();
+
         let (total, applied_credits): (i64, i64) = i_dsl::invoice
             .filter(i_dsl::id.eq(inv_uid))
             .filter(i_dsl::tenant_id.eq(tenant_uid))
@@ -160,7 +180,7 @@ impl PaymentTransactionRow {
             .attach("Error while loading invoice total for live-payment check")
             .into_db_result()?;
 
-        Ok(settled_net >= total - applied_credits)
+        Ok(settled_net >= total - applied_credits - cancelled_sum)
     }
 
     /// Number of attempts against this invoice that ended without collecting anything.
