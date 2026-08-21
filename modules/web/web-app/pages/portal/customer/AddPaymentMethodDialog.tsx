@@ -1,14 +1,21 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { Button, Dialog, DialogContent, DialogHeader, DialogTitle } from '@md/ui'
 import { Elements, useElements, useStripe } from '@stripe/react-stripe-js'
-import { loadStripe } from '@stripe/stripe-js/pure'
-import { AlertCircle, Building, CreditCard } from 'lucide-react'
-import { useState } from 'react'
+import { AlertCircle, Building, CreditCard, ExternalLink } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 
 import { PaymentForm } from '@/features/checkout/components/PaymentForm'
 import { buildStripeAppearance } from '@/features/checkout/stripeAppearance'
+import { getStripePromise } from '@/features/checkout/stripeClient'
+import {
+  consumeGocardlessReturn,
+  gocardlessErrorMessage,
+  gocardlessReturnUrl,
+} from '@/features/checkout/utils/gocardlessReturn'
 import { useQuery } from '@/lib/connectrpc'
 import { usePortalConfig } from '@/pages/portal/experience/PortalThemeProvider'
+import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import { ConnectionTypeEnum } from '@/rpc/portal/shared/v1/models_pb'
 import {
   addPaymentMethod,
@@ -167,8 +174,27 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
   const hasDirectDebit = !!directDebitConnectionId
   const hasBoth = hasCard && hasDirectDebit && cardConnectionId !== directDebitConnectionId
 
-  // Fetch setup intent for the active connection
+  // GoCardless redirects the customer back to this page; the server threads the
+  // page URL through as return_to (minus stale gocardless_* params).
   const activeConnectionId = activeTab === 'card' ? cardConnectionId : directDebitConnectionId
+
+  const returnUrl = gocardlessReturnUrl()
+
+  // A GoCardless mandate authorisation redirects back here as a full page load
+  // (the dialog is closed). Detect the outcome and surface it: toast + refetch
+  // on success, error toast otherwise. Runs once — the params are stripped.
+  const onSuccessRef = useRef(onSuccess)
+  onSuccessRef.current = onSuccess
+  useEffect(() => {
+    const ret = consumeGocardlessReturn()
+    if (!ret) return
+    if (ret.status === 'ok') {
+      toast.success('Direct debit mandate authorised.')
+      onSuccessRef.current?.()
+    } else {
+      toast.error(gocardlessErrorMessage(ret))
+    }
+  }, [])
 
   const setupIntentQuery = useQuery(
     setupIntent,
@@ -176,14 +202,17 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
       connectionId: activeConnectionId!,
       connectionType:
         activeTab === 'card' ? ConnectionTypeEnum.CARD : ConnectionTypeEnum.DIRECT_DEBIT,
+      returnUrl,
     },
     { enabled: open && !!activeConnectionId }
   )
 
-  // Extract clientSecret and publishableKey from the setupIntent response
-  const clientSecret = setupIntentQuery.data?.setupIntent?.intentSecret
-  const stripePublishableKey = setupIntentQuery.data?.setupIntent?.providerPublicKey
-  const connectionId = setupIntentQuery.data?.setupIntent?.connectionId
+  const intent = setupIntentQuery.data?.setupIntent
+  const intentSecret = intent?.intentSecret
+  const provider = intent?.provider
+  const stripePublishableKey = intent?.providerPublicKey
+  const connectionId = intent?.connectionId
+  const isHostedRedirect = provider === ConnectorProviderEnum.GOCARDLESS
 
   const handleSuccess = () => {
     onOpenChange(false)
@@ -245,20 +274,47 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
 
           {!setupIntentQuery.isLoading &&
             (setupIntentQuery.isError ||
-              !clientSecret ||
-              !stripePublishableKey ||
-              !connectionId) && (
+              !intentSecret ||
+              !connectionId ||
+              (!isHostedRedirect && !stripePublishableKey)) && (
               <div className="p-6 text-center text-sm text-red-600">
                 Unable to initialize payment system. Please try again later.
               </div>
             )}
 
-          {/* Payment form */}
-          {clientSecret && stripePublishableKey && connectionId && (
+          {/* GoCardless hosted-redirect branch: the backend put the BRF
+              authorisation_url in intentSecret. No SDK to mount; we render
+              a redirect button. */}
+          {intentSecret && connectionId && isHostedRedirect && (
+            <div className="p-2">
+              <p className="text-sm text-muted-foreground mb-4">
+                You&apos;ll be redirected to GoCardless to authorise a direct-debit mandate. Once
+                you confirm, you&apos;ll be sent back here.
+              </p>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" onClick={handleCancel}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    window.location.href = intentSecret
+                  }}
+                >
+                  <ExternalLink size={14} className="mr-2" />
+                  Continue to GoCardless
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Stripe embedded flow */}
+          {intentSecret && stripePublishableKey && connectionId && !isHostedRedirect && (
             <Elements
-              stripe={loadStripe(stripePublishableKey)}
+              key={intentSecret}
+              stripe={getStripePromise(stripePublishableKey)}
               options={{
-                clientSecret,
+                clientSecret: intentSecret,
                 appearance: stripeAppearance,
               }}
             >

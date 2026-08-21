@@ -1,17 +1,17 @@
-use crate::adapters::types::ParsedRequest;
-use crate::{adapters::types::WebhookAdapter, errors};
 use axum::{
-    body::Body,
+    body::{Body, Bytes},
     extract::{Path, State},
     http::Request,
     response::{IntoResponse, Response},
 };
 
 use crate::api_rest::AppState;
+use crate::errors;
 use crate::services::storage::Prefix;
 use common_domain::ids::{BaseId, TenantId};
 use error_stack::{Report, ResultExt, bail};
-use meteroid_store::domain::connectors::ProviderSensitiveData;
+use meteroid_store::adapters::payment::initialize_payment_connector;
+use meteroid_store::domain::connectors::{Connector, ProviderSensitiveData};
 use meteroid_store::domain::enums::ConnectorProviderEnum;
 use meteroid_store::domain::webhooks::WebhookInEventNew;
 use meteroid_store::repositories::connectors::ConnectorsInterface;
@@ -31,12 +31,23 @@ pub async fn axum_handler(
     match handler(tenant_id, connection_alias, req, app_state).await {
         Ok(r) => r.into_response(),
         Err(e) => {
-            log::error!("Error handling webhook: {e}");
+            if matches!(
+                e.current_context(),
+                errors::AdapterWebhookError::UnknownEndpointId
+            ) {
+                log::warn!("Webhook received for unregistered endpoint: {e}");
+            } else {
+                log::error!("Error handling webhook: {e}");
+            }
             e.current_context().clone().into_response()
         }
     }
 }
 
+/// Verify → archive → enqueue, then ack 200. The event is processed
+/// asynchronously by the `webhook_in` worker (dequeue → parse → dispatch),
+/// which retries on failure via pgmq. Verifying before any write means an
+/// unauthenticated caller can never write to storage or the database.
 async fn handler(
     tenant_id: TenantId,
     connection_alias: String,
@@ -53,19 +64,14 @@ async fn handler(
         .await
         .change_context(errors::AdapterWebhookError::UnknownEndpointId)?;
 
-    // - get adapter (reject unsupported providers before doing any work)
-    let adapter = match connector.provider {
-        ConnectorProviderEnum::Stripe => app_state.stripe_adapter.clone(),
-        ConnectorProviderEnum::Hubspot => bail!(errors::AdapterWebhookError::ProviderNotSupported(
-            "hubspot".to_owned(),
-        )),
-        ConnectorProviderEnum::Pennylane => bail!(
-            errors::AdapterWebhookError::ProviderNotSupported("pennylane".to_owned(),)
-        ),
-        ConnectorProviderEnum::Mock => bail!(errors::AdapterWebhookError::ProviderNotSupported(
-            "mock".to_owned(),
-        )),
-    };
+    // Resolve the multi-provider connector impl (reject unsupported providers
+    // before doing any work).
+    let connector_impl = initialize_payment_connector(&connector).map_err(|_| {
+        Report::new(errors::AdapterWebhookError::ProviderNotSupported(format!(
+            "{:?}",
+            connector.provider
+        )))
+    })?;
 
     // The signature is verified over the raw bytes, so the whole body is buffered
     // before the caller is authenticated. Cap it to avoid buffering unbounded
@@ -75,79 +81,134 @@ async fn handler(
         .await
         .change_context(errors::AdapterWebhookError::PayloadTooLarge)?;
 
-    let headers = parts.headers.clone();
-    let method = parts.method;
-    let query_params = parts.uri.query().map(String::from);
-
-    let json_body: serde_json::Value = serde_json::from_slice(&bytes)
-        .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
-
-    let parsed_request = ParsedRequest {
-        method,
-        headers,
-        raw_body: bytes.clone(),
-        json_body,
-        query_params,
-    };
+    let headers = parts.headers;
+    let raw_body = bytes.to_vec();
 
     // Verify the signature before persisting anything, so unauthenticated callers
     // can never write to storage or the database.
-    if let Some(ProviderSensitiveData::Stripe(sensitive_data)) = &connector.sensitive {
-        adapter
-            .verify_webhook(
-                &parsed_request,
-                &SecretString::from(sensitive_data.webhook_secret.as_str()),
-            )
-            .await?;
-    }
+    let secret = webhook_secret(&connector)?;
+    connector_impl
+        .verify_signature(&connector, &raw_body, &headers, &secret)
+        .map_err(|_| Report::new(errors::AdapterWebhookError::SignatureVerificationFailed))?;
 
-    // Archive the raw body; the worker re-reads it from object storage to process.
-    let prefix = Prefix::WebhookArchive {
-        connection_alias: connection_alias.clone(),
-        tenant_id,
-    };
+    // Signature is verified over the original raw body above. Now split the
+    // payload into ingest units: for batching providers (GoCardless) one unit
+    // per inner event, keyed by the event's own `EV...` id, so the
+    // (provider_config_id, event_id) unique index dedups each event and a poison
+    // event lands in its own pgmq message (it can't block its siblings). Other
+    // providers (Stripe) ingest as a single unit keyed by the top-level id.
+    let units = split_ingest_units(connector.provider, &raw_body, bytes)?;
 
-    let uid = app_state
-        .object_store
-        .store(bytes, prefix.clone())
-        .await
-        .change_context(errors::AdapterWebhookError::ObjectStoreUnreachable)?;
-
-    let key = format!("{}/{}", prefix.to_path_string(), uid);
-
-    // Provider event id (e.g. Stripe `evt_...`), used to dedup repeated deliveries.
-    let event_id = parsed_request
-        .json_body
-        .get("id")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    // Persist the audit row and enqueue it in one transaction; a duplicate
-    // delivery (same event id) is skipped and returns false.
-    let enqueued = app_state
-        .services
-        .ingest_webhook_in_event(
-            WebhookInEventNew {
-                id: uid.as_uuid(),
-                received_at,
-                attempts: 0,
-                action: None,
-                key,
-                error: None,
-                provider_config_id: connector.id.as_uuid(),
-                event_id,
-                processed_at: None,
-            },
+    for unit in units {
+        // Archive the unit's body; the worker re-reads it from object storage.
+        let prefix = Prefix::WebhookArchive {
+            connection_alias: connection_alias.clone(),
             tenant_id,
-        )
-        .await
-        .change_context(errors::AdapterWebhookError::DatabaseError)?;
+        };
 
-    if !enqueued {
-        log::info!("Duplicate webhook ignored (tenant {tenant_id}, connection {connection_alias})");
+        let uid = app_state
+            .object_store
+            .store(unit.body, prefix.clone())
+            .await
+            .change_context(errors::AdapterWebhookError::ObjectStoreUnreachable)?;
+
+        let key = format!("{}/{}", prefix.to_path_string(), uid);
+
+        // Persist the audit row and enqueue it in one transaction; a duplicate
+        // delivery (same provider event id) is skipped and returns false.
+        let enqueued = app_state
+            .services
+            .ingest_webhook_in_event(
+                WebhookInEventNew {
+                    id: uid.as_uuid(),
+                    received_at,
+                    attempts: 0,
+                    action: None,
+                    key,
+                    error: None,
+                    provider_config_id: connector.id.as_uuid(),
+                    event_id: unit.event_id,
+                    processed_at: None,
+                },
+                tenant_id,
+            )
+            .await
+            .change_context(errors::AdapterWebhookError::DatabaseError)?;
+
+        if !enqueued {
+            log::info!(
+                "Duplicate webhook event ignored (tenant {tenant_id}, connection {connection_alias})"
+            );
+        }
     }
 
     // Ack only after the event is durably stored and queued; it is processed
     // asynchronously by the webhook_in worker.
-    Ok(adapter.get_optimistic_webhook_response())
+    Ok((axum::http::StatusCode::OK, "OK").into_response())
+}
+
+/// One inbound webhook, ready to archive + enqueue: its dedup key (the provider
+/// event id) and the body the worker will later parse.
+struct IngestUnit {
+    event_id: Option<String>,
+    body: Bytes,
+}
+
+/// Split a verified payload into per-event ingest units. GoCardless delivers a
+/// `{"events":[...]}` batch with no top-level id, so each inner event becomes
+/// its own unit keyed by the event's `EV...` id — this makes the DB dedup index
+/// fire per event and isolates a poison event into its own pgmq message. Every
+/// other provider ingests as a single unit whose dedup key is the top-level id.
+fn split_ingest_units(
+    provider: ConnectorProviderEnum,
+    raw_body: &[u8],
+    full_body: Bytes,
+) -> Result<Vec<IngestUnit>, Report<errors::AdapterWebhookError>> {
+    let json: serde_json::Value = serde_json::from_slice(raw_body)
+        .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
+
+    if provider == ConnectorProviderEnum::Gocardless
+        && let Some(events) = json.get("events").and_then(|v| v.as_array())
+    {
+        let mut units = Vec::with_capacity(events.len());
+        for ev in events {
+            let event_id = ev.get("id").and_then(|v| v.as_str()).map(str::to_string);
+            let slice = serde_json::json!({ "events": [ev] });
+            let body = serde_json::to_vec(&slice)
+                .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
+            units.push(IngestUnit {
+                event_id,
+                body: Bytes::from(body),
+            });
+        }
+        return Ok(units);
+    }
+
+    let event_id = json.get("id").and_then(|v| v.as_str()).map(str::to_string);
+    Ok(vec![IngestUnit {
+        event_id,
+        body: full_body,
+    }])
+}
+
+/// Pull the webhook signing secret out of the connector's sensitive blob.
+/// One arm per provider variant: each provider stores the secret under its
+/// own struct field. Unknown provider variants yield `SignatureNotFound` —
+/// the connector should not have reached this code path if it can't sign.
+fn webhook_secret(
+    connector: &Connector,
+) -> Result<SecretString, Report<errors::AdapterWebhookError>> {
+    match &connector.sensitive {
+        Some(ProviderSensitiveData::Stripe(data)) => {
+            Ok(SecretString::from(data.webhook_secret.clone()))
+        }
+        Some(ProviderSensitiveData::Gocardless(data)) => {
+            Ok(SecretString::from(data.webhook_secret.clone()))
+        }
+        Some(_) => bail!(errors::AdapterWebhookError::ProviderNotSupported(format!(
+            "{:?}",
+            connector.provider
+        ))),
+        None => bail!(errors::AdapterWebhookError::SignatureNotFound),
+    }
 }

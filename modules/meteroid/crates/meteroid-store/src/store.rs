@@ -32,6 +32,11 @@ pub struct Settings {
     pub jwt_secret: secrecy::SecretString,
     pub multi_organization_enabled: bool,
     pub public_url: String,
+    /// External base URL of the REST API (e.g. `http://127.0.0.1:8080`). Used
+    /// for callback/return URLs handed to third parties that must hit the
+    /// backend REST endpoints directly rather than the frontend `public_url`
+    /// (e.g. the GoCardless Billing Request Flow return URL).
+    pub rest_api_external_url: String,
     pub mailer_enabled: bool,
     pub domains_whitelist: Vec<String>,
     pub billing_default_plan_id: Option<PlanId>,
@@ -61,6 +66,7 @@ pub struct StoreConfig {
     pub multi_organization_enabled: bool,
     pub mailer_enabled: bool,
     pub public_url: String,
+    pub rest_api_external_url: String,
     pub eventbus: Arc<dyn EventBus<Event>>,
     pub mailer: Arc<dyn MailerService>,
     pub oauth: OauthServices,
@@ -155,6 +161,7 @@ impl Store {
                 jwt_secret: config.jwt_secret,
                 multi_organization_enabled: config.multi_organization_enabled,
                 public_url: config.public_url,
+                rest_api_external_url: config.rest_api_external_url,
                 mailer_enabled: config.mailer_enabled,
                 domains_whitelist: config.domains_whitelist,
                 billing_default_plan_id: config.billing_default_plan_id,

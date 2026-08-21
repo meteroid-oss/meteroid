@@ -47,6 +47,7 @@ pub fn mocked_config(
         },
         jwt_secret: "secret".to_string().into(),
         multi_organization_enabled: false,
+        reconciliation_enabled: false,
         secrets_crypt_key: CryptKey("00000000000000000000000000000000".to_string().into()),
         openexchangerates_api_key: None,
         svix: SvixConfig {

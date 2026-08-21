@@ -1,0 +1,21 @@
+{
+  "events": [
+    {
+      "id": "EV000TEST0BRQF01",
+      "created_at": "2026-07-19T14:00:00.000Z",
+      "resource_type": "billing_requests",
+      "action": "fulfilled",
+      "links": {
+        "billing_request": "BRQ000TEST0001",
+        "customer": "CU000TEST0001",
+        "mandate_request_mandate": "MD000TEST00003"
+      },
+      "details": {
+        "origin": "gocardless",
+        "cause": "billing_request_fulfilled",
+        "description": "This billing request has been fulfilled, and the resources have been created."
+      },
+      "metadata": {}
+    }
+  ]
+}

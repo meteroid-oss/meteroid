@@ -1,4 +1,5 @@
 use crate::StoreResult;
+use crate::adapters::payment::initialize_payment_connector;
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::invoicing_entities::InvoicingEntity;
 use crate::domain::{
@@ -6,6 +7,7 @@ use crate::domain::{
     InvoicingEntityProvidersPatch, TaxResolverEnum,
 };
 use crate::errors::StoreError;
+use crate::repositories::connectors::ConnectorsInterface;
 use crate::store::{PgConn, Store, StoreInternal};
 use common_domain::country::CountryCode;
 use common_domain::ids::{BaseId, InvoicingEntityId, OrganizationId, TenantId};
@@ -205,6 +207,48 @@ impl InvoicingEntityInterface for Store {
         tenant_id: TenantId,
     ) -> StoreResult<InvoicingEntityProviders> {
         let mut conn = self.get_conn().await?;
+
+        // Enforce provider capabilities before persisting: a connector assigned
+        // to a slot must actually support that payment rail. Otherwise the
+        // misconfiguration is invisible until a customer tries to pay and the
+        // charge/mandate fails at the provider (e.g. GoCardless has no card
+        // support, so it must never land in the card slot).
+        for (slot, requires_cards, label) in [
+            (invoicing_entity.card_provider_id, true, "card payments"),
+            (
+                invoicing_entity.direct_debit_provider_id,
+                false,
+                "direct debit",
+            ),
+        ] {
+            if let Some(Some(connector_id)) = slot {
+                let connector = self
+                    .get_connector_with_data(connector_id, tenant_id)
+                    .await?;
+                let capabilities = initialize_payment_connector(&connector)
+                    .map_err(|_| {
+                        Report::new(StoreError::InvalidArgument(format!(
+                            "{:?} is not a payment provider",
+                            connector.provider
+                        )))
+                    })?
+                    .capabilities()
+                    .clone();
+
+                let supported = if requires_cards {
+                    capabilities.supports_cards
+                } else {
+                    capabilities.supports_mandates
+                };
+
+                if !supported {
+                    return Err(Report::new(StoreError::InvalidArgument(format!(
+                        "{:?} does not support {label} and cannot be assigned to that slot",
+                        connector.provider
+                    ))));
+                }
+            }
+        }
 
         let row: InvoicingEntityRowProvidersPatch = invoicing_entity.into();
 

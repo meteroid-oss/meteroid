@@ -1,5 +1,8 @@
+import { Code, ConnectError } from '@connectrpc/connect'
 import { Skeleton } from '@md/ui'
 import { AlertCircle } from 'lucide-react'
+import { useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import CheckoutFlow from '@/features/checkout/CheckoutFlow'
 import { useQuery } from '@/lib/connectrpc'
@@ -8,6 +11,8 @@ import { useForceTheme } from 'providers/ThemeProvider'
 
 export const PortalCheckout = () => {
   useForceTheme('light')
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
   // Use the unified GetCheckout endpoint - token is passed via authorization header
   const checkoutQuery = useQuery(getCheckout, {})
@@ -18,6 +23,31 @@ export const PortalCheckout = () => {
   const addonPurchaseContext = checkoutQuery.data?.addonPurchaseContext
   const error = checkoutQuery.error
   const isLoading = checkoutQuery.isLoading
+
+  // A completed session is a SUCCESS, not an error: the webhook can finish the
+  // checkout before (or during) the customer's redirect back — common for the
+  // direct-debit flow, where activation is webhook-driven — in which case this
+  // first GetCheckout races and fails. Send them to the success page instead of
+  // the generic error. A `gocardless_status=ok` return means the direct-debit
+  // payment is submitted (settling later), so mark it "processing".
+  const sessionCompleted =
+    error instanceof ConnectError &&
+    error.code === Code.FailedPrecondition &&
+    error.message.toLowerCase().includes('already been completed')
+
+  useEffect(() => {
+    if (!sessionCompleted) return
+    const params = new URLSearchParams()
+    const returnUrl = searchParams.get('return_url')
+    if (returnUrl) params.set('return_url', returnUrl)
+    if (searchParams.get('gocardless_status') === 'ok') params.set('status', 'processing')
+    navigate(`success?${params.toString()}`, { replace: true })
+  }, [sessionCompleted, navigate, searchParams])
+
+  if (sessionCompleted) {
+    // Redirecting to success; avoid flashing the error panel.
+    return null
+  }
 
   if (error) {
     return (

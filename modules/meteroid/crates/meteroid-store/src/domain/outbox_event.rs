@@ -578,6 +578,9 @@ pub struct CreditNoteEvent {
 #[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[map_owned(PaymentTransaction)]
+// next_action is transient on PaymentTransaction and intentionally not carried
+// on the persisted event; default it when mapping back.
+#[ghosts(next_action: {None})]
 pub struct PaymentTransactionEvent {
     #[ghost(EventId::new())]
     pub id: EventId,
@@ -597,6 +600,10 @@ pub struct PaymentTransactionEvent {
     pub error_type: Option<String>,
     pub receipt_pdf_id: Option<StoredDocumentId>,
     pub pending_plan_version_id: Option<PlanVersionId>,
+    // Default so events serialized before this field existed still decode
+    // (in-flight queue messages across a deploy).
+    #[serde(default)]
+    pub amount_refunded: i64,
 }
 
 #[skip_serializing_none]

@@ -2,7 +2,12 @@
 # quick-xml <0.41 DoS (RUSTSEC-2026-0194/0195). Only reachable via trusted XML
 # (object_store cloud API responses, typst-bundled themes/CSL styles). No
 # object_store/plist/citationberg release depends on quick-xml >=0.41 yet; drop these when one does.
+#
+# rkyv 0.7 OOB read (RUSTSEC-2026-0235). Optional dep of rust_decimal, whose
+# rkyv feature we never enable, so the code is never compiled. rust_decimal
+# 1.42.1 pins rkyv ^0.7 (can't reach the fixed 0.8.17); drop when it moves to 0.8.
 ignore = [
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
+    "RUSTSEC-2026-0235",
 ]

@@ -3,7 +3,11 @@ import { RefreshCwIcon } from 'lucide-react'
 import { PaymentMethodDisplay } from '@/features/invoices/PaymentMethodDisplay'
 import { TransactionStatusBadge } from '@/features/invoices/TransactionStatusBadge'
 import { amountFormat } from '@/features/invoices/amountFormat'
-import { Transaction, Transaction_PaymentTypeEnum } from '@/rpc/api/invoices/v1/models_pb'
+import {
+  Transaction,
+  Transaction_PaymentStatusEnum,
+  Transaction_PaymentTypeEnum,
+} from '@/rpc/api/invoices/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
 
 interface TransactionListProps {
@@ -42,9 +46,13 @@ export const TransactionList = ({ transactions, currency, isLoading }: Transacti
                 )}
               </div>
               <div className="text-[11px] text-muted-foreground mt-1  ">
-                {transaction.processedAt
-                  ? parseAndFormatDate(transaction.processedAt)
-                  : 'Pending processing'}
+                {transaction.status === Transaction_PaymentStatusEnum.FAILED
+                  ? transaction.error || 'Failed'
+                  : transaction.status === Transaction_PaymentStatusEnum.CANCELLED
+                    ? 'Cancelled'
+                    : transaction.processedAt
+                      ? parseAndFormatDate(transaction.processedAt)
+                      : 'Pending processing'}
               </div>
             </div>
             <div className="text-right">

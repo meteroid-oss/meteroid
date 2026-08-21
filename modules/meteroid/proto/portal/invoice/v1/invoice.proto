@@ -22,6 +22,8 @@ message ConfirmInvoicePaymentRequest {
 
 message ConfirmInvoicePaymentResponse {
   api.invoices.v1.Transaction transaction = 1;
+  // Present when the customer must complete 3DS/SCA before the payment settles.
+  optional api.invoices.v1.PaymentActionRequired next_action = 2;
 }
 
 service PortalInvoiceService {

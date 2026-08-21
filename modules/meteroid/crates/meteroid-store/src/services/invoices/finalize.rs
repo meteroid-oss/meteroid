@@ -51,6 +51,18 @@ impl Services {
         // A consolidated child is billed via its parent; finalizing it too would double-bill.
         invoice.ensure_not_consolidated_child("finalize")?;
 
+        // Finalization is reachable concurrently from checkout acceptance, the settlement
+        // handler and scheduled events. Re-running it on an already-finalized invoice would
+        // rewrite its lines (`update_lines` has no status filter), re-apply credit/balance
+        // deductions, burn an invoice number and emit a duplicate `invoice.finalized`.
+        // The FOR UPDATE above serializes racing finalizers onto this check.
+        if !invoice.can_edit() {
+            return InvoiceRow::find_detailed_by_id(conn, tenant_id, id)
+                .await
+                .map_err(Into::into)
+                .and_then(std::convert::TryInto::try_into);
+        }
+
         let patch = self
             .build_invoice_lines_patch(
                 conn,

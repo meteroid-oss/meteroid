@@ -36,6 +36,8 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
         return 'Unpaid'
       case InvoicePaymentStatus.ERRORED:
         return 'Errored'
+      case InvoicePaymentStatus.PROCESSING:
+        return 'Processing'
       default:
         return 'Unpaid'
     }
@@ -51,6 +53,8 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
         return 'bg-red-50 text-red-700'
       case InvoicePaymentStatus.ERRORED:
         return 'bg-red-50 text-red-700'
+      case InvoicePaymentStatus.PROCESSING:
+        return 'bg-blue-50 text-blue-700'
       default:
         return 'bg-gray-50 text-gray-700'
     }

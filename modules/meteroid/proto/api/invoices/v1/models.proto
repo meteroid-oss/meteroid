@@ -18,6 +18,8 @@ enum InvoicePaymentStatus {
   PARTIALLY_PAID = 1;
   PAID = 2;
   ERRORED = 3;
+  // Accepted by the provider, awaiting settlement (async direct debit).
+  PROCESSING = 4;
 }
 
 message Invoice {
@@ -215,12 +217,31 @@ message Transaction {
     SETTLED = 2;
     CANCELLED = 3;
     FAILED = 4;
+    REFUNDED = 5;
   }
 
   enum PaymentTypeEnum {
     PAYMENT = 0;
     REFUND = 1;
   }
+}
+
+// Customer authentication required to complete a charge (3DS / SCA). Returned
+// on a confirm response when the customer must act before the payment settles.
+message PaymentActionRequired {
+  oneof action {
+    // Open this provider-hosted URL in the browser.
+    string redirect_to_url = 1;
+    // Complete client-side with the provider SDK (Stripe.js handleNextAction).
+    SdkAction use_sdk = 2;
+  }
+}
+
+message SdkAction {
+  string intent_id = 1;
+  string publishable_key = 2;
+  // PaymentIntent client secret. Transient — never persisted server-side.
+  string client_secret = 3;
 }
 
 message PaymentMethodInfo {

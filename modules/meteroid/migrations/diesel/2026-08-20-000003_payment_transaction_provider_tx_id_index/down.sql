@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_payment_transaction_provider_tx_id;

@@ -1,4 +1,3 @@
-use crate::adapters::stripe::Stripe;
 use crate::services::credit_note_rendering::CreditNotePdfRenderingService;
 use crate::services::invoice_rendering::PdfRenderingService;
 use crate::services::storage::ObjectStoreService;
@@ -286,15 +285,9 @@ pub async fn run_webhook_in(
     store: Arc<Store>,
     services: Arc<Services>,
     object_store: Arc<dyn ObjectStoreService>,
-    stripe_adapter: Arc<Stripe>,
 ) {
     let queue = PgmqQueue::WebhookIn;
-    let processor = Arc::new(WebhookIn::new(
-        services,
-        store.clone(),
-        object_store,
-        stripe_adapter,
-    ));
+    let processor = Arc::new(WebhookIn::new(services, store.clone(), object_store));
 
     run(ProcessorConfig {
         name: processor_name("WebhookIn"),
@@ -315,15 +308,9 @@ pub async fn run_once_webhook_in(
     store: Arc<Store>,
     services: Arc<Services>,
     object_store: Arc<dyn ObjectStoreService>,
-    stripe_adapter: Arc<Stripe>,
 ) {
     let queue = PgmqQueue::WebhookIn;
-    let processor = Arc::new(WebhookIn::new(
-        services,
-        store.clone(),
-        object_store,
-        stripe_adapter,
-    ));
+    let processor = Arc::new(WebhookIn::new(services, store.clone(), object_store));
     let _ = crate::workers::pgmq::processor::run_once(
         queue,
         processor,

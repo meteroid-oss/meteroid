@@ -12,6 +12,7 @@ use common_domain::ids::{InvoiceId, TenantId};
 use common_utils::decimals::ToSubunit;
 use diesel_models::PgConn;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowPatch};
+use diesel_models::payments::PaymentTransactionRow;
 use error_stack::bail;
 use rust_decimal::Decimal;
 use scoped_futures::ScopedFutureExt;
@@ -80,6 +81,15 @@ impl Services {
             ));
         }
         invoice.ensure_not_consolidated_child("edit")?;
+
+        // Editing amounts under a live charge would desync the invoice from the money the
+        // provider is already moving: on settlement the invoice lands PartiallyPaid or
+        // overpaid depending on which way the edit went.
+        if PaymentTransactionRow::exists_live_for_invoice(conn, id, tenant_id).await? {
+            bail!(StoreError::InvalidArgument(
+                "Cannot edit an invoice with a payment in progress".into(),
+            ));
+        }
 
         let invoice = self
             .prepare_invoice_update(invoice, tenant_id, params)

@@ -220,6 +220,12 @@ pub struct PaymentRequestEvent {
     pub tenant_id: TenantId,
     pub invoice_id: InvoiceId,
     pub payment_method_id: CustomerPaymentMethodId,
+    /// Provider-idempotency seed carried on the payload: a redelivery after a rolled-back
+    /// charge reuses it so the provider dedupes instead of double-charging, while a fresh
+    /// seed per enqueue keeps dunning rungs distinct (a per-invoice seed would dedupe rung 2
+    /// onto rung 1). `serde(default)` lets pre-seed messages decode to `None`.
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
 }
 
 impl PaymentRequestEvent {
@@ -232,6 +238,7 @@ impl PaymentRequestEvent {
             tenant_id,
             invoice_id,
             payment_method_id,
+            idempotency_key: Some(Uuid::now_v7().to_string()),
         }
     }
 
@@ -606,5 +613,64 @@ mod tests {
 
         let decoded: Result<WebhookInProcessEvent, _> = (&pgmq_msg).try_into();
         assert!(decoded.is_err());
+    }
+
+    fn payment_request_event() -> PaymentRequestEvent {
+        use common_domain::ids::BaseId;
+        PaymentRequestEvent::new(
+            TenantId::new(),
+            InvoiceId::new(),
+            CustomerPaymentMethodId::new(),
+        )
+    }
+
+    /// The seed exists and survives the pgmq encode/decode a redelivery goes through.
+    /// This is the double-charge guard: the redelivered attempt reuses the same seed,
+    /// so the provider idempotency key is identical and the charge is deduped, not repeated.
+    #[test]
+    fn payment_request_event_pgmq_roundtrip_preserves_idempotency_key() {
+        let event = payment_request_event();
+        let seed = event.idempotency_key.clone();
+        assert!(seed.is_some(), "new() must mint an idempotency seed");
+
+        let msg_new: PgmqMessageNew = event.try_into().expect("encode to PgmqMessageNew");
+        let pgmq_msg = PgmqMessage {
+            msg_id: MessageId(1),
+            message: msg_new.message,
+            headers: msg_new.headers,
+            read_ct: ReadCt(0),
+            enqueued_at: epoch(),
+        };
+
+        let decoded: PaymentRequestEvent = (&pgmq_msg).try_into().expect("decode from PgmqMessage");
+        assert_eq!(decoded.idempotency_key, seed);
+    }
+
+    /// Each enqueue mints a fresh seed, so successive dunning rungs get distinct provider
+    /// keys — a per-invoice seed would make rung 2 dedupe onto rung 1's failure and never
+    /// re-present.
+    #[test]
+    fn payment_request_event_new_mints_a_distinct_seed_each_time() {
+        assert_ne!(
+            payment_request_event().idempotency_key,
+            payment_request_event().idempotency_key
+        );
+    }
+
+    /// A message enqueued before the seed field existed (its payload omits `idempotency_key`)
+    /// still decodes — to `None`, which falls back to the per-transaction key. Without the
+    /// `serde(default)` this would fail to deserialize and dead-letter in-flight messages.
+    #[test]
+    fn payment_request_event_decodes_legacy_payload_without_seed() {
+        let mut value: serde_json::Value =
+            (&payment_request_event()).try_into().expect("serialize");
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("idempotency_key")
+            .expect("seed was present before removal");
+
+        let decoded: PaymentRequestEvent = (&value).try_into().expect("decode legacy payload");
+        assert_eq!(decoded.idempotency_key, None);
     }
 }

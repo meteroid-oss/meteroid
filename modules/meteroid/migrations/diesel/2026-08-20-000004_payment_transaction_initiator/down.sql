@@ -1,0 +1,1 @@
+ALTER TABLE payment_transaction DROP COLUMN initiated_by_customer_id;

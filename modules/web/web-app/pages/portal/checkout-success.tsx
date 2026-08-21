@@ -8,6 +8,10 @@ export const PortalCheckoutSuccess = () => {
   useForceTheme('light')
   const [searchParams] = useSearchParams()
   const returnUrl = searchParams.get('return_url')
+  // Direct debit is submitted at checkout but settles days later, so the payment
+  // isn't "successful" yet — the subscription is active and the payment is
+  // processing. Card checkouts settle inline and stay on the default wording.
+  const processing = searchParams.get('status') === 'processing'
   const [countdown, setCountdown] = useState(3)
 
   useEffect(() => {
@@ -28,10 +32,12 @@ export const PortalCheckoutSuccess = () => {
   }, [returnUrl])
 
   return (
-    <div className="h-full w-full bg-[#00000002]">
-      <div className="flex flex-col items-center justify-center h-full max-w-md mx-auto px-6 py-12 text-center">
+    <div className="min-h-screen w-full bg-[#00000002] flex flex-col items-center justify-center px-6 py-12 text-center">
+      <div className="w-full max-w-md flex flex-col items-center">
         <CheckCircle className="h-12 w-12 text-success mb-4 " />
-        <h2 className="text-md font-semibold text-gray-800 mb-2">Payment Successful!</h2>
+        <h2 className="text-md font-semibold text-gray-800 mb-2">
+          {processing ? "You're all set!" : 'Payment successful!'}
+        </h2>
         {returnUrl ? (
           <div className="text-gray-800 text-sm">
             <div className="flex items-center justify-center gap-2">
@@ -44,7 +50,9 @@ export const PortalCheckoutSuccess = () => {
           </div>
         ) : (
           <p className="text-gray-800 text-sm">
-            Thank you for your payment. You can now safely close this tab.
+            {processing
+              ? 'Your subscription is confirmed. Your first payment is being processed and will be collected shortly. You can safely close this tab.'
+              : 'Thank you for your payment. You can now safely close this tab.'}
           </p>
         )}
       </div>

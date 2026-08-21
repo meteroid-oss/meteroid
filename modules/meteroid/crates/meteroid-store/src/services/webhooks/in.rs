@@ -57,11 +57,17 @@ impl ServicesEdge {
             .map_err(Into::into)
     }
 
-    pub async fn mark_webhook_in_processed(&self, event_uid: Uuid) -> StoreResult<()> {
+    /// Pass `error` to keep a forensic record of events discarded as
+    /// non-retryable while still marking the delivery processed.
+    pub async fn mark_webhook_in_processed(
+        &self,
+        event_uid: Uuid,
+        error: Option<String>,
+    ) -> StoreResult<()> {
         let mut conn = self.store.get_conn().await?;
         let processed_at = chrono::Utc::now().naive_utc();
 
-        WebhookInEventRow::mark_processed(&mut conn, event_uid, processed_at)
+        WebhookInEventRow::mark_processed(&mut conn, event_uid, processed_at, error)
             .await
             .map_err(Into::into)
     }

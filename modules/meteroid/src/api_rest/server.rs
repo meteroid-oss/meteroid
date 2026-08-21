@@ -1,4 +1,3 @@
-use crate::adapters::stripe::Stripe;
 use crate::api_rest::AppState;
 use crate::api_rest::api_routes;
 use crate::api_rest::error::{ErrorCode, RestErrorResponse};
@@ -31,7 +30,6 @@ use utoipa_scalar::{Scalar, Servable as ScalarServable};
 pub async fn start_rest_server(
     config: Config,
     object_store: Arc<dyn ObjectStoreService>,
-    stripe_adapter: Arc<Stripe>,
     store: Store,
     services: Services,
     ready: Arc<std::sync::atomic::AtomicBool>,
@@ -43,7 +41,6 @@ pub async fn start_rest_server(
     start_rest_server_with_listener(
         config,
         object_store,
-        stripe_adapter,
         store,
         services,
         ready,
@@ -57,7 +54,6 @@ pub async fn start_rest_server(
 pub async fn start_rest_server_with_listener(
     config: Config,
     object_store: Arc<dyn ObjectStoreService>,
-    stripe_adapter: Arc<Stripe>,
     store: Store,
     services: Services,
     ready: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -68,7 +64,6 @@ pub async fn start_rest_server_with_listener(
         object_store,
         store: store.clone(),
         services,
-        stripe_adapter,
         jwt_secret: config.jwt_secret,
         portal_url: config.public_url, // TODO separate portal URL from public URL
         ready,
@@ -109,6 +104,7 @@ pub async fn start_rest_server_with_listener(
         //todo add "/api" to path and merge with api_routes
         .nest("/files", crate::api_rest::files::file_routes())
         .nest("/webhooks", crate::api_rest::webhooks::webhook_in_routes())
+        .merge(crate::api_rest::gocardless::gocardless_routes())
         .merge(crate::api_rest::oauth::oauth_routes())
         .merge(api_router)
         .fallback(handler_404)

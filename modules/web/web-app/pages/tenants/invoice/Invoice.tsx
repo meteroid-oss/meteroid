@@ -86,6 +86,7 @@ import { useTypedParams } from '@/utils/params'
 
 import { InvoiceConfirmationDialog } from './InvoiceConfirmationDialog'
 import { InvoiceEditForm } from './InvoiceEditForm'
+import { SharePaymentLinkDialog } from './SharePaymentLinkDialog'
 
 export const Invoice = () => {
   const { invoiceId } = useTypedParams<{ invoiceId: string }>()
@@ -204,6 +205,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
   const isExpress = useIsExpressOrganization()
   const [isEditMode, setIsEditMode] = useState(false)
   const [isAddPaymentDialogOpen, setIsAddPaymentDialogOpen] = useState(false)
+  const [paymentLinkUrl, setPaymentLinkUrl] = useState<string | null>(null)
   const [isMarkAsPaidDialogOpen, setIsMarkAsPaidDialogOpen] = useState(false)
 
   const refresh = useMutation(refreshInvoiceData, {
@@ -211,8 +213,8 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
       await queryClient.invalidateQueries({
         queryKey: createConnectQueryKey({
           schema: getInvoice,
-          cardinality: undefined
-        })
+          cardinality: undefined,
+        }),
       })
     },
   })
@@ -226,7 +228,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         queryKey: createConnectQueryKey({
           schema: listInvoices,
           input: {},
-          cardinality: 'finite'
+          cardinality: 'finite',
         }),
       })
       // Navigate back to the invoices list after successful deletion
@@ -244,7 +246,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         queryKey: createConnectQueryKey({
           schema: getInvoice,
           input: { id: invoice?.id ?? '' },
-          cardinality: 'finite'
+          cardinality: 'finite',
         }),
       })
     },
@@ -261,7 +263,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
           queryKey: createConnectQueryKey({
             schema: getInvoice,
             input: { id: invoice?.id ?? '' },
-            cardinality: 'finite'
+            cardinality: 'finite',
           }),
         }),
         queryClient.invalidateQueries({
@@ -272,7 +274,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
               invoiceId: invoice?.id ?? '',
             },
 
-            cardinality: 'finite'
+            cardinality: 'finite',
           }),
         }),
       ])
@@ -289,7 +291,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         queryKey: createConnectQueryKey({
           schema: getInvoice,
           input: { id: invoice?.id ?? '' },
-          cardinality: 'finite'
+          cardinality: 'finite',
         }),
       })
     },
@@ -301,10 +303,11 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
   const paymentTokenMutation = useMutation(generateInvoicePaymentToken, {
     onSuccess: data => {
       const paymentUrl = `${window.location.origin}/portal/invoice-payment?token=${data.token}`
-      window.open(paymentUrl, '_blank')
+      setPaymentLinkUrl(paymentUrl)
     },
     onError: error => {
       console.error('Failed to generate payment token:', error)
+      toast.error('Failed to generate payment link')
     },
   })
 
@@ -377,8 +380,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
     .filter(cn => cn.status === CreditNoteStatus.FINALIZED)
     .reduce((sum, cn) => sum + Math.abs(Number(cn.total)), 0)
   const hasChildInvoice = Boolean(invoice.childInvoiceId)
-  const canCreateCorrectedInvoice =
-    totalCredited >= Number(invoice.total) && !hasChildInvoice
+  const canCreateCorrectedInvoice = totalCredited >= Number(invoice.total) && !hasChildInvoice
 
   const createCorrectedInvoiceMutation = useMutation(createCorrectedInvoice, {
     onSuccess: data => {
@@ -413,13 +415,13 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
             queryKey: createConnectQueryKey({
               schema: getInvoice,
               input: { id: invoiceId },
-              cardinality: 'finite'
+              cardinality: 'finite',
             }),
           })
         }}
         onSuccess={() => setIsEditMode(false)}
       />
-    );
+    )
   }
 
   return (
@@ -517,226 +519,232 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
               )}
             </div>
             {!invoice.consolidatedIntoInvoiceId && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="secondary" size="sm" hasIcon>
-                  Actions
-                  <ChevronDown className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {!isExpress && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem onClick={() => setIsEditMode(true)} disabled={!canEdit}>
-                          <Edit size="16" className="mr-2" />
-                          Edit Invoice
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {!canEdit && <TooltipContent>Only draft invoices can be edited</TooltipContent>}
-                  </Tooltip>
-                )}
-                {!isExpress && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem
-                          onClick={doRefresh}
-                          disabled={!canRefresh || refresh.isPending}
-                        >
-                          <RefreshCcw
-                            size="16"
-                            className={cn(refresh.isPending && 'animate-spin', 'mr-2')}
-                          />
-                          Refresh
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {!canRefresh && (
-                      <TooltipContent>
-                        {!isDraft
-                          ? 'Only draft invoices can be refreshed'
-                          : 'Manual invoices cannot be refreshed'}
-                      </TooltipContent>
-                    )}
-                  </Tooltip>
-                )}
-                {invoice.paymentStatus !== InvoicePaymentStatus.PAID &&
-                  Number(invoice.amountDue) > 0 && (
-                    <DropdownMenuItem
-                      onClick={handlePayOnline}
-                      disabled={paymentTokenMutation.isPending}
-                    >
-                      <ExternalLink size="16" className="mr-2" />
-                      Share Payment Link
-                    </DropdownMenuItem>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="secondary" size="sm" hasIcon>
+                    Actions
+                    <ChevronDown className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {!isExpress && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem onClick={() => setIsEditMode(true)} disabled={!canEdit}>
+                            <Edit size="16" className="mr-2" />
+                            Edit Invoice
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {!canEdit && (
+                        <TooltipContent>Only draft invoices can be edited</TooltipContent>
+                      )}
+                    </Tooltip>
                   )}
-                {!isExpress &&
-                  invoice.status === InvoiceStatus.FINALIZED &&
-                  Number(invoice.amountDue) > 0 && (
-                    <DropdownMenuItem onClick={() => setIsMarkAsPaidDialogOpen(true)}>
-                      <CheckCircleIcon size="16" className="mr-2" />
-                      Mark as Paid
-                    </DropdownMenuItem>
+                  {!isExpress && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem
+                            onClick={doRefresh}
+                            disabled={!canRefresh || refresh.isPending}
+                          >
+                            <RefreshCcw
+                              size="16"
+                              className={cn(refresh.isPending && 'animate-spin', 'mr-2')}
+                            />
+                            Refresh
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {!canRefresh && (
+                        <TooltipContent>
+                          {!isDraft
+                            ? 'Only draft invoices can be refreshed'
+                            : 'Manual invoices cannot be refreshed'}
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
                   )}
-                {!isExpress && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem
-                          disabled={!canFinalize}
-                          onClick={() => setShowFinalizeConfirmation(true)}
-                        >
-                          <CheckCircleIcon size="16" className="mr-2" />
-                          Finalize & Send
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {!canFinalize && (
-                      <TooltipContent>Only draft invoices can be finalized</TooltipContent>
-                    )}
-                  </Tooltip>
-                )}
-                {!isExpress && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem
-                          disabled={!canSendToPennylane}
-                          onClick={() => setShowSyncPennylaneModal(true)}
-                        >
-                          <FolderSyncIcon size="16" className="mr-2" />
-                          Sync to Pennylane
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {!canSendToPennylane && (
-                      <TooltipContent>Pennylane integration not connected</TooltipContent>
-                    )}
-                  </Tooltip>
-                )}
-                {!isExpress && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem
-                          disabled={!canCreateCreditNote}
-                          onClick={() => setShowCreateCreditNoteDialog(true)}
-                        >
-                          <FileText size="16" className="mr-2" />
-                          Create Credit Note
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {!canCreateCreditNote && (
-                      <TooltipContent>Only finalized invoices can have credit notes</TooltipContent>
-                    )}
-                  </Tooltip>
-                )}
-                {!isExpress && totalCredited > 0 && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem
-                          disabled={
-                            !canCreateCorrectedInvoice || createCorrectedInvoiceMutation.isPending
-                          }
-                          onClick={handleCreateCorrectedInvoice}
-                        >
-                          <FilePlus2 size="16" className="mr-2" />
-                          Create Corrected Invoice
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {hasChildInvoice && (
-                      <TooltipContent>
-                        A corrected invoice already exists for this invoice
-                      </TooltipContent>
-                    )}
-                  </Tooltip>
-                )}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <DropdownMenuItem disabled={!invoice.pdfDocumentId}>
-                        <a
-                          href={invoice.pdfDocumentId ? pdf_url : '#'}
-                          download={`invoice_${invoice.invoiceNumber}.pdf`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center gap-2"
-                        >
-                          <Download size="16" />
-                          Download PDF
-                        </a>
+                  {invoice.paymentStatus !== InvoicePaymentStatus.PAID &&
+                    Number(invoice.amountDue) > 0 && (
+                      <DropdownMenuItem
+                        onClick={handlePayOnline}
+                        disabled={paymentTokenMutation.isPending}
+                      >
+                        <ExternalLink size="16" className="mr-2" />
+                        Share Payment Link
                       </DropdownMenuItem>
-                    </span>
-                  </TooltipTrigger>
-                  {!invoice.pdfDocumentId && <TooltipContent>PDF not yet generated</TooltipContent>}
-                </Tooltip>
-                {!isExpress && (
+                    )}
+                  {!isExpress &&
+                    invoice.status === InvoiceStatus.FINALIZED &&
+                    Number(invoice.amountDue) > 0 && (
+                      <DropdownMenuItem onClick={() => setIsMarkAsPaidDialogOpen(true)}>
+                        <CheckCircleIcon size="16" className="mr-2" />
+                        Mark as Paid
+                      </DropdownMenuItem>
+                    )}
+                  {!isExpress && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem
+                            disabled={!canFinalize}
+                            onClick={() => setShowFinalizeConfirmation(true)}
+                          >
+                            <CheckCircleIcon size="16" className="mr-2" />
+                            Finalize & Send
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {!canFinalize && (
+                        <TooltipContent>Only draft invoices can be finalized</TooltipContent>
+                      )}
+                    </Tooltip>
+                  )}
+                  {!isExpress && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem
+                            disabled={!canSendToPennylane}
+                            onClick={() => setShowSyncPennylaneModal(true)}
+                          >
+                            <FolderSyncIcon size="16" className="mr-2" />
+                            Sync to Pennylane
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {!canSendToPennylane && (
+                        <TooltipContent>Pennylane integration not connected</TooltipContent>
+                      )}
+                    </Tooltip>
+                  )}
+                  {!isExpress && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem
+                            disabled={!canCreateCreditNote}
+                            onClick={() => setShowCreateCreditNoteDialog(true)}
+                          >
+                            <FileText size="16" className="mr-2" />
+                            Create Credit Note
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {!canCreateCreditNote && (
+                        <TooltipContent>
+                          Only finalized invoices can have credit notes
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  )}
+                  {!isExpress && totalCredited > 0 && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem
+                            disabled={
+                              !canCreateCorrectedInvoice || createCorrectedInvoiceMutation.isPending
+                            }
+                            onClick={handleCreateCorrectedInvoice}
+                          >
+                            <FilePlus2 size="16" className="mr-2" />
+                            Create Corrected Invoice
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {hasChildInvoice && (
+                        <TooltipContent>
+                          A corrected invoice already exists for this invoice
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  )}
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span>
-                        <DropdownMenuItem
-                          disabled={!canDelete}
-                          onClick={() => setShowDeleteConfirmation(true)}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <Trash2 size="16" className="mr-2" />
-                          Delete
+                        <DropdownMenuItem disabled={!invoice.pdfDocumentId}>
+                          <a
+                            href={invoice.pdfDocumentId ? pdf_url : '#'}
+                            download={`invoice_${invoice.invoiceNumber}.pdf`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-2"
+                          >
+                            <Download size="16" />
+                            Download PDF
+                          </a>
                         </DropdownMenuItem>
                       </span>
                     </TooltipTrigger>
-                    {!canDelete && (
-                      <TooltipContent>Only draft invoices can be deleted</TooltipContent>
+                    {!invoice.pdfDocumentId && (
+                      <TooltipContent>PDF not yet generated</TooltipContent>
                     )}
                   </Tooltip>
-                )}
-                {!isExpress && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem
-                          disabled={!canVoid}
-                          onClick={() => setShowVoidConfirmation(true)}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <BanIcon size="16" className="mr-2" />
-                          Void
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {!canVoid && (
-                      <TooltipContent>Only finalized invoices can be voided</TooltipContent>
-                    )}
-                  </Tooltip>
-                )}
-                {!isExpress && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem
-                          disabled={!canMarkAsUncollectible}
-                          onClick={() => setShowMarkAsUncollectibleConfirmation(true)}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <FileX2Icon size="16" className="mr-2" />
-                          Mark As Uncollectible
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {!canMarkAsUncollectible && (
-                      <TooltipContent>
-                        Only finalized invoices can be marked as uncollectible
-                      </TooltipContent>
-                    )}
-                  </Tooltip>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  {!isExpress && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem
+                            disabled={!canDelete}
+                            onClick={() => setShowDeleteConfirmation(true)}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <Trash2 size="16" className="mr-2" />
+                            Delete
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {!canDelete && (
+                        <TooltipContent>Only draft invoices can be deleted</TooltipContent>
+                      )}
+                    </Tooltip>
+                  )}
+                  {!isExpress && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem
+                            disabled={!canVoid}
+                            onClick={() => setShowVoidConfirmation(true)}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <BanIcon size="16" className="mr-2" />
+                            Void
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {!canVoid && (
+                        <TooltipContent>Only finalized invoices can be voided</TooltipContent>
+                      )}
+                    </Tooltip>
+                  )}
+                  {!isExpress && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <DropdownMenuItem
+                            disabled={!canMarkAsUncollectible}
+                            onClick={() => setShowMarkAsUncollectibleConfirmation(true)}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <FileX2Icon size="16" className="mr-2" />
+                            Mark As Uncollectible
+                          </DropdownMenuItem>
+                        </span>
+                      </TooltipTrigger>
+                      {!canMarkAsUncollectible && (
+                        <TooltipContent>
+                          Only finalized invoices can be marked as uncollectible
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </div>
 
@@ -850,7 +858,12 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
             <div className="text-[15px] font-medium">Payment Information</div>
             <FlexDetails
               title="Payment Status"
-              value={<PaymentStatusBadge status={invoice.paymentStatus} />}
+              value={
+                <PaymentStatusBadge
+                  status={invoice.paymentStatus}
+                  transactions={invoice.transactions}
+                />
+              }
             />
             <FlexDetails
               title="Amount Due"
@@ -899,6 +912,8 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
             currency={invoice.currency}
             totalAmount={(Number(invoice.amountDue) / 100).toFixed(2)}
           />
+
+          <SharePaymentLinkDialog url={paymentLinkUrl} onClose={() => setPaymentLinkUrl(null)} />
 
           {invoice.memo && (
             <>
@@ -1029,9 +1044,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
           {invoice.consolidatedIntoInvoiceId ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
               <FileText size={32} className="opacity-50" />
-              <div className="text-sm font-medium text-foreground">
-                No standalone document
-              </div>
+              <div className="text-sm font-medium text-foreground">No standalone document</div>
               <div className="max-w-sm text-[13px]">
                 This is an internal per-subscription record that was merged into{' '}
                 {invoice.consolidatedIntoInvoiceNumber ?? 'a consolidated invoice'}. The customer

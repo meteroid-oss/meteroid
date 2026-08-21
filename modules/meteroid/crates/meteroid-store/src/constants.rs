@@ -53,3 +53,10 @@ impl Currencies {
         Self::resolve_currency(currency).map(|c| c.precision)
     }
 }
+
+/// Postgres session advisory-lock keys used for cross-replica leader election.
+/// Keys are global to the database, so every worker needs its own.
+pub mod advisory_lock_keys {
+    /// Payment reconciliation worker leader (provider polling).
+    pub const RECONCILIATION_LEADER: i64 = 92_000_007;
+}

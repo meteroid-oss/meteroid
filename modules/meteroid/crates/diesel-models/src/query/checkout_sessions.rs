@@ -123,6 +123,36 @@ impl CheckoutSessionRow {
 
     /// Mark a checkout session as awaiting payment (for async payment methods).
     /// Optionally links to a subscription if it was created (SalesLed flow).
+    /// Persist the coupons a hosted-checkout payment was priced with, so the
+    /// deferred materialization (on `billing_requests.fulfilled`) rebuilds the
+    /// subscription with the SAME coupons the first-payment amount was computed
+    /// from — otherwise the in-flight amount check would reject the webhook.
+    pub async fn set_coupons(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: CheckoutSessionId,
+        coupon_code: Option<String>,
+        coupon_ids: Vec<Option<common_domain::ids::CouponId>>,
+    ) -> DbResult<CheckoutSessionRow> {
+        use crate::schema::checkout_session::dsl as cs_dsl;
+
+        let query = diesel::update(cs_dsl::checkout_session)
+            .filter(cs_dsl::id.eq(id))
+            .filter(cs_dsl::tenant_id.eq(tenant_id))
+            .set((
+                cs_dsl::coupon_code.eq(coupon_code),
+                cs_dsl::coupon_ids.eq(coupon_ids),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while persisting checkout session coupons")
+            .into_db_result()
+    }
+
     pub async fn mark_awaiting_payment(
         conn: &mut PgConn,
         tenant_id: TenantId,

@@ -60,8 +60,32 @@ message ConfirmCheckoutResponse {
   // Subscription ID - present when status is COMPLETED, absent when AWAITING_PAYMENT
   optional string subscription_id = 2;
   ConfirmCheckoutStatus status = 3;
+  // Present when the customer must complete 3DS/SCA before the payment settles.
+  optional api.invoices.v1.PaymentActionRequired next_action = 4;
 }
 
+
+// InitiateHostedCheckout - works with CheckoutSession token.
+// Starts a hosted-redirect (GoCardless) checkout that sets up the mandate AND
+// collects the first payment in a single hosted flow. Returns a transaction with
+// a redirect next_action the client follows to the provider-hosted page.
+message InitiateHostedCheckoutRequest {
+  // The direct-debit customer connection to set up the mandate on.
+  string connection_id = 1;
+  // Client-displayed total, validated against the server-computed amount.
+  uint64 displayed_amount = 2;
+  string displayed_currency = 3;
+  optional string coupon_code = 4;
+  // Customer's desired post-flow page (same-origin; reflected into the return URL).
+  optional string return_url = 5;
+}
+
+message InitiateHostedCheckoutResponse {
+  // The Pending checkout transaction anchoring the hosted flow.
+  optional api.invoices.v1.Transaction transaction = 1;
+  // Redirect the customer to the provider-hosted authorisation page.
+  api.invoices.v1.PaymentActionRequired next_action = 2;
+}
 
 message GetSlotUpgradeCheckoutRequest {
   string subscription_id = 1;
@@ -85,12 +109,15 @@ message ConfirmSlotUpgradeCheckoutRequest {
 message ConfirmSlotUpgradeCheckoutResponse {
   api.invoices.v1.Transaction transaction = 1;
   uint32 new_slot_count = 2;
+  // Present when the customer must complete 3DS/SCA before the payment settles.
+  optional api.invoices.v1.PaymentActionRequired next_action = 3;
 }
 
 service PortalCheckoutService {
   // Checkout endpoints (use CheckoutSession token)
   rpc GetCheckout(GetCheckoutRequest) returns (GetCheckoutResponse) {}
   rpc ConfirmCheckout(ConfirmCheckoutRequest) returns (ConfirmCheckoutResponse) {}
+  rpc InitiateHostedCheckout(InitiateHostedCheckoutRequest) returns (InitiateHostedCheckoutResponse) {}
 
   // Slot upgrade endpoints (use CustomerPortal token)
   rpc GetSlotUpgradeCheckout(GetSlotUpgradeCheckoutRequest) returns (GetSlotUpgradeCheckoutResponse) {}

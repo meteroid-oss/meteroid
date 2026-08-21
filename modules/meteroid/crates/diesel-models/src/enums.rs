@@ -126,6 +126,10 @@ pub enum InvoicePaymentStatus {
     PartiallyPaid,
     Paid,
     Errored,
+    /// A payment has been accepted by the provider but has not settled yet
+    /// (delayed-notification rails: SEPA/ACH/BACS direct debit). Money is moving;
+    /// the invoice must not be re-charged nor chased by dunning.
+    Processing,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
@@ -147,6 +151,7 @@ pub enum ConnectorProviderEnum {
     Hubspot,
     Pennylane,
     Mock,
+    Gocardless,
 }
 
 impl ConnectorProviderEnum {
@@ -156,6 +161,7 @@ impl ConnectorProviderEnum {
             ConnectorProviderEnum::Hubspot => "hubspot",
             ConnectorProviderEnum::Pennylane => "pennylane",
             ConnectorProviderEnum::Mock => "mock",
+            ConnectorProviderEnum::Gocardless => "gocardless",
         }
     }
 }
@@ -218,6 +224,8 @@ pub enum PaymentStatusEnum {
     Settled,
     Cancelled,
     Failed,
+    /// Settled then fully clawed back (refund, chargeback, or lost dispute).
+    Refunded,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]

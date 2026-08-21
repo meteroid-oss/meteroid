@@ -1,4 +1,5 @@
 pub mod connectors {
+    use crate::api::connectors::error::ConnectorApiError;
     use crate::api::shared::conversions::ProtoConv;
     use meteroid_grpc::meteroid::api::connectors::v1 as server;
     use meteroid_grpc::meteroid::api::connectors::v1::HubspotConnectorData;
@@ -14,6 +15,9 @@ pub mod connectors {
             server::ConnectorProviderEnum::Hubspot => domain_enum::ConnectorProviderEnum::Hubspot,
             server::ConnectorProviderEnum::Pennylane => {
                 domain_enum::ConnectorProviderEnum::Pennylane
+            }
+            server::ConnectorProviderEnum::Gocardless => {
+                domain_enum::ConnectorProviderEnum::Gocardless
             }
         }
     }
@@ -32,6 +36,9 @@ pub mod connectors {
             }
             domain_enum::ConnectorProviderEnum::Pennylane => {
                 Some(server::ConnectorProviderEnum::Pennylane)
+            }
+            domain_enum::ConnectorProviderEnum::Gocardless => {
+                Some(server::ConnectorProviderEnum::Gocardless)
             }
             domain_enum::ConnectorProviderEnum::Mock => {
                 // Mock connector is for testing only - should never be returned via API
@@ -108,6 +115,10 @@ pub mod connectors {
                 }),
                 // Mock is for testing only, no data exposed in API
                 ProviderData::Mock(_) => None,
+                // GoCardless public data not yet exposed via proto. The
+                // connector still works end-to-end; the proto enumeration
+                // layer just hasn't been regenerated to know about it.
+                ProviderData::Gocardless(_) => None,
             }),
         })
     }
@@ -116,7 +127,58 @@ pub mod connectors {
         domain::StripeSensitiveData {
             api_secret_key: value.api_secret_key.clone(),
             webhook_secret: value.webhook_secret.clone(),
+            // Set when we auto-register an endpoint via WebhookOps; left None
+            // when the customer pasted the secret manually.
+            webhook_endpoint_id: None,
         }
+    }
+
+    /// Split the proto `GoCardlessConnector` payload into the (public,
+    /// sensitive) domain pair the connectors repository expects. The proto
+    /// flattens everything into one message; we partition by what should be
+    /// encrypted at rest (access_token + webhook_secret) vs. what shows up
+    /// in the dashboard (creditor_id, environment).
+    ///
+    /// Validates the credentials are present and `environment` is exactly one
+    /// of the two values the frontend sends; anything else is rejected rather
+    /// than silently coerced.
+    pub fn gocardless_data_to_domain(
+        value: &server::GoCardlessConnector,
+    ) -> Result<
+        (
+            domain::GocardlessPublicData,
+            domain::GocardlessSensitiveData,
+        ),
+        ConnectorApiError,
+    > {
+        if value.access_token.trim().is_empty() {
+            return Err(ConnectorApiError::InvalidArgument(
+                "GoCardless access_token must not be empty".to_string(),
+            ));
+        }
+        if value.webhook_secret.trim().is_empty() {
+            return Err(ConnectorApiError::InvalidArgument(
+                "GoCardless webhook_secret must not be empty".to_string(),
+            ));
+        }
+        let environment = match value.environment.as_str() {
+            "sandbox" | "live" => value.environment.clone(),
+            other => {
+                return Err(ConnectorApiError::InvalidArgument(format!(
+                    "GoCardless environment must be \"sandbox\" or \"live\", got {other:?}"
+                )));
+            }
+        };
+        Ok((
+            domain::GocardlessPublicData {
+                creditor_id: value.creditor_id.clone(),
+                environment,
+            },
+            domain::GocardlessSensitiveData {
+                access_token: value.access_token.clone(),
+                webhook_secret: value.webhook_secret.clone(),
+            },
+        ))
     }
 
     pub fn connection_metadata_to_server(value: &ConnectionMeta) -> server::ConnectionMetadata {

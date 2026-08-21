@@ -3,7 +3,9 @@ use crate::api::portal::checkout::PortalCheckoutServiceComponents;
 use crate::api::portal::checkout::error::PortalCheckoutApiError;
 use crate::api::shared::conversions::ProtoConv;
 use crate::services::storage::Prefix;
-use common_domain::ids::{AppliedCouponId, BaseId, CustomerPaymentMethodId, TenantId};
+use common_domain::ids::{
+    AppliedCouponId, BaseId, CustomerConnectionId, CustomerPaymentMethodId, TenantId,
+};
 use common_grpc::middleware::server::auth::{RequestExt, ResourceAccess};
 use common_utils::decimals::ToSubunit;
 use common_utils::integers::ToNonNegativeU64;
@@ -13,13 +15,15 @@ use meteroid_grpc::meteroid::portal::checkout::v1::{
     AddOnPurchaseCheckoutContext, AppliedCoupon, Checkout, CheckoutType, ConfirmCheckoutRequest,
     ConfirmCheckoutResponse, ConfirmCheckoutStatus, ConfirmSlotUpgradeCheckoutRequest,
     ConfirmSlotUpgradeCheckoutResponse, GetCheckoutRequest, GetCheckoutResponse,
-    GetSlotUpgradeCheckoutRequest, GetSlotUpgradeCheckoutResponse, PlanChangeCheckoutContext,
-    SlotUpgradeCheckout, TaxBreakdownItem,
+    GetSlotUpgradeCheckoutRequest, GetSlotUpgradeCheckoutResponse, InitiateHostedCheckoutRequest,
+    InitiateHostedCheckoutResponse, PlanChangeCheckoutContext, SlotUpgradeCheckout,
+    TaxBreakdownItem,
 };
 use meteroid_store::constants::Currencies;
 use meteroid_store::domain::SubscriptionFeeInterface;
 use meteroid_store::domain::checkout_sessions::{
-    CheckoutCompletionResult, CheckoutType as DomainCheckoutType,
+    CheckoutCompletionResult, CheckoutSession as DomainCheckoutSession,
+    CheckoutType as DomainCheckoutType,
 };
 use meteroid_store::domain::subscription_coupons::{
     AppliedCoupon as DomainAppliedCoupon, AppliedCouponDetailed,
@@ -80,281 +84,23 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             ));
         }
 
-        let (subscription_details, proto_checkout_type, plan_change_context) = match session
-            .checkout_type
-        {
-            DomainCheckoutType::SubscriptionActivation => {
-                let subscription_id = session.subscription_id.ok_or_else(|| {
-                    Status::internal("Session has no linked subscription for activation flow")
-                })?;
-
-                let mut sub_details = self
-                    .store
-                    .get_subscription_details(tenant, subscription_id)
-                    .await
-                    .map_err(Into::<PortalCheckoutApiError>::into)?;
-
-                if let Some(ref code) = coupon_code {
-                    let preview_coupon = self
-                        .validate_and_create_preview_coupon(code, tenant, &sub_details)
-                        .await?;
-                    sub_details.applied_coupons.push(preview_coupon);
-                }
-
-                (sub_details, CheckoutType::SubscriptionActivation, None)
-            }
-            DomainCheckoutType::SelfServe => {
-                let sub_details = self
-                    .services
-                    .build_preview_subscription_details(&session, tenant, coupon_code.as_deref())
-                    .await
-                    .map_err(Into::<PortalCheckoutApiError>::into)?;
-
-                tracing::info!(
-                    "SelfServe preview subscription: period={:?}, billing_start={:?}, current_period_start={}, current_period_end={:?}, pending_checkout={}, cycle_index={:?}, components_count={}",
-                    sub_details.subscription.period,
-                    sub_details.subscription.billing_start_date,
-                    sub_details.subscription.current_period_start,
-                    sub_details.subscription.current_period_end,
-                    sub_details.subscription.pending_checkout,
-                    sub_details.subscription.cycle_index,
-                    sub_details.price_components.len()
-                );
-
-                for (i, comp) in sub_details.price_components.iter().enumerate() {
-                    tracing::info!(
-                        "  Component[{}]: name={}, period={:?}, fee={:?}",
-                        i,
-                        comp.name,
-                        comp.period,
-                        comp.fee
-                    );
-                }
-
-                (sub_details, CheckoutType::SelfServe, None)
-            }
-            DomainCheckoutType::PlanChange => {
-                let subscription_id = session.subscription_id.ok_or_else(|| {
-                    Status::internal("Session has no linked subscription for plan change flow")
-                })?;
-
-                let sub_details = self
-                    .store
-                    .get_subscription_details(tenant, subscription_id)
-                    .await
-                    .map_err(Into::<PortalCheckoutApiError>::into)?;
-
-                let new_plan_version_id = session.plan_version_id;
-
-                let target_plan = self
-                    .store
-                    .get_plan_by_version_id(new_plan_version_id, tenant)
-                    .await
-                    .map_err(Into::<PortalCheckoutApiError>::into)?;
-
-                let change_date = session.change_date.ok_or_else(|| {
-                    Status::internal("PlanChange checkout session missing change_date")
-                })?;
-
-                let preview = self
-                    .services
-                    .preview_plan_change(
-                        subscription_id,
-                        tenant,
-                        new_plan_version_id,
-                        vec![],
-                        Some(
-                            meteroid_store::domain::subscription_changes::PlanChangeMode::Immediate,
-                        ),
-                    )
-                    .await
-                    .map_err(Into::<PortalCheckoutApiError>::into)?;
-
-                let ctx = PlanChangeCheckoutContext {
-                    current_plan_name: sub_details.subscription.plan_name.clone(),
-                    new_plan_name: target_plan.plan.name.clone(),
-                    effective_date: preview.preview.effective_date.as_proto(),
-                    net_amount_cents: preview.proration.as_ref().map(|p| p.net_amount_cents),
-                    credits_total_cents: preview.proration.as_ref().map(|p| p.credits_total_cents),
-                    charges_total_cents: preview.proration.as_ref().map(|p| p.charges_total_cents),
-                };
-
-                let invoice_content = self
-                    .services
-                    .compute_plan_change_checkout_invoice(
-                        subscription_id,
-                        tenant,
-                        new_plan_version_id,
-                        change_date,
-                    )
-                    .await
-                    .map_err(Into::<PortalCheckoutApiError>::into)?;
-
-                let checkout = self
-                    .build_checkout_response(tenant, sub_details.clone(), invoice_content)
-                    .await?;
-
-                return Ok(Response::new(GetCheckoutResponse {
-                    checkout: Some(checkout),
-                    checkout_type: CheckoutType::PlanChange as i32,
-                    plan_change_context: Some(ctx),
-                    addon_purchase_context: None,
-                }));
-            }
-            DomainCheckoutType::AddonPurchase => {
-                let subscription_id = session.subscription_id.ok_or_else(|| {
-                    Status::internal("Session has no linked subscription for addon purchase flow")
-                })?;
-
-                let sub_details = self
-                    .store
-                    .get_subscription_details_minimal(tenant, subscription_id)
-                    .await
-                    .map_err(Into::<PortalCheckoutApiError>::into)?;
-
-                let create_add_ons = session.add_ons.as_ref().ok_or_else(|| {
-                    Status::internal("AddonPurchase checkout session has no add_ons")
-                })?;
-
-                // Resolve addon fees and compute prorated charge
-                let addon_ids: Vec<_> =
-                    create_add_ons.add_ons.iter().map(|a| a.add_on_id).collect();
-                let addons = self
-                    .store
-                    .list_add_ons_by_ids(tenant, addon_ids)
-                    .await
-                    .map_err(Into::<PortalCheckoutApiError>::into)?;
-
-                let addon_name = addons.first().map(|a| a.name.clone()).unwrap_or_default();
-
-                // Build shared products/prices maps for resolution
-                let mut products_map = std::collections::HashMap::new();
-                let mut prices_map = std::collections::HashMap::new();
-                for addon in &addons {
-                    if let Some(price) = &addon.price {
-                        prices_map.insert(addon.price_id, price.clone());
-                    }
-                    if let Some(fee_structure) = &addon.fee_structure {
-                        products_map.insert(
-                            addon.product_id,
-                            meteroid_store::domain::Product {
-                                id: addon.product_id,
-                                name: addon.name.clone(),
-                                description: None,
-                                created_at: addon.created_at,
-                                updated_at: None,
-                                archived_at: None,
-                                tenant_id: addon.tenant_id,
-                                product_family_id: common_domain::ids::ProductFamilyId::from(
-                                    uuid::Uuid::nil(),
-                                ),
-                                fee_type: addon
-                                    .fee_type
-                                    .unwrap_or(meteroid_store::domain::enums::FeeTypeEnum::Rate),
-                                fee_structure: fee_structure.clone(),
-                                catalog: false,
-                            },
-                        );
-                    }
-                }
-
-                let now = chrono::Utc::now().date_naive();
-
-                let mut sub_details = sub_details;
-
-                for (cs_ao, addon) in create_add_ons.add_ons.iter().zip(addons.iter()) {
-                    let resolved = addon
-                        .resolve_customized(&products_map, &prices_map, &cs_ao.customization)
-                        .map_err(|e| {
-                            Status::internal(format!("Failed to resolve add-on: {}", e))
-                        })?;
-
-                    sub_details.add_ons.push(
-                        meteroid_store::domain::subscription_add_ons::SubscriptionAddOn {
-                            id: common_domain::ids::SubscriptionAddOnId::new(),
-                            subscription_id,
-                            add_on_id: addon.id,
-                            name: resolved.name,
-                            period: resolved.period,
-                            fee: resolved.fee,
-                            created_at: chrono::Utc::now().naive_utc(),
-                            product_id: resolved.product_id,
-                            price_id: resolved.price_id,
-                            quantity: cs_ao.quantity,
-                            effective_from: chrono::Utc::now().naive_utc().date(),
-                            effective_to: None,
-                            lineage_id: None,
-                            added_by_amendment: false,
-                        },
-                    );
-                }
-
-                // Override billing_start_date and cycle_index so that compute_invoice
-                // treats the addon as a first-period item starting now, producing a
-                // prorated advance line (from now to period_end).
-                sub_details.subscription.billing_start_date = Some(now);
-                sub_details.subscription.cycle_index = Some(0);
-
-                let invoice_content = self
-                    .services
-                    .compute_invoice(&now, &sub_details, None)
-                    .await
-                    .change_context(StoreError::InvoiceComputationError)
-                    .map_err(Into::<PortalCheckoutApiError>::into)?;
-
-                let ctx = AddOnPurchaseCheckoutContext {
-                    add_on_name: addon_name,
-                    prorated_amount_cents: invoice_content.total,
-                };
-
-                let checkout = self
-                    .build_checkout_response(tenant, sub_details, invoice_content)
-                    .await?;
-
-                return Ok(Response::new(GetCheckoutResponse {
-                    checkout: Some(checkout),
-                    checkout_type: CheckoutType::AddonPurchase as i32,
-                    plan_change_context: None,
-                    addon_purchase_context: Some(ctx),
-                }));
-            }
-        };
-
-        let invoice_content = self
-            .services
-            .compute_invoice(
-                &subscription_details.subscription.current_period_start,
-                &subscription_details,
-                None,
-            )
-            .await
-            .change_context(StoreError::InvoiceComputationError)
-            .map_err(Into::<PortalCheckoutApiError>::into)?;
-
-        tracing::info!(
-            "Invoice content: invoice_lines_count={}, subtotal={}, total={}",
-            invoice_content.invoice_lines.len(),
-            invoice_content.subtotal,
-            invoice_content.total
-        );
-
-        let checkout = self
-            .build_checkout_response(tenant, subscription_details.clone(), invoice_content)
+        let computation = self
+            .compute_checkout_invoice(&session, tenant, coupon_code)
             .await?;
 
-        tracing::info!(
-            "Checkout response: payment_methods_count={}, card_connection_id={:?}, direct_debit_connection_id={:?}, bank_account={:?}",
-            checkout.payment_methods.len(),
-            checkout.card_connection_id,
-            checkout.direct_debit_connection_id,
-            checkout.bank_account.is_some()
-        );
+        let checkout = self
+            .build_checkout_response(
+                tenant,
+                computation.subscription_details,
+                computation.invoice_content,
+            )
+            .await?;
 
         Ok(Response::new(GetCheckoutResponse {
             checkout: Some(checkout),
-            checkout_type: proto_checkout_type as i32,
-            plan_change_context,
-            addon_purchase_context: None,
+            checkout_type: computation.checkout_type as i32,
+            plan_change_context: computation.plan_change_context,
+            addon_purchase_context: computation.addon_purchase_context,
         }))
     }
 
@@ -393,7 +139,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .await
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
-        let (subscription_id, transaction, status) = match result {
+        let (subscription_id, transaction, status, next_action) = match result {
             CheckoutCompletionResult::Completed {
                 subscription_id,
                 transaction,
@@ -401,11 +147,16 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 Some(subscription_id.as_proto()),
                 transaction,
                 ConfirmCheckoutStatus::Completed,
+                None,
             ),
-            CheckoutCompletionResult::AwaitingPayment { transaction } => (
+            CheckoutCompletionResult::AwaitingPayment {
+                transaction,
+                next_action,
+            } => (
                 None,
                 Some(transaction),
                 ConfirmCheckoutStatus::AwaitingPayment,
+                next_action,
             ),
         };
 
@@ -414,7 +165,109 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 .map(crate::api::invoices::mapping::transactions::domain_to_server),
             subscription_id,
             status: status as i32,
+            next_action: next_action
+                .map(crate::api::invoices::mapping::payment_action::domain_to_server),
         }))
+    }
+
+    /// InitiateHostedCheckout - works with CheckoutSession tokens only.
+    /// Starts a hosted-redirect (GoCardless) flow that authorises the mandate AND
+    /// collects the server-computed first payment in one Billing Request.
+    #[tracing::instrument(skip_all)]
+    async fn initiate_hosted_checkout(
+        &self,
+        request: Request<InitiateHostedCheckoutRequest>,
+    ) -> Result<Response<InitiateHostedCheckoutResponse>, Status> {
+        let tenant = request.tenant()?;
+        let portal_resource = request.portal_resource()?;
+        let inner = request.into_inner();
+
+        // Only accept CheckoutSession tokens
+        let session_id = match portal_resource.resource_access {
+            ResourceAccess::CheckoutSession(id) => id,
+            _ => {
+                return Err(Status::invalid_argument(
+                    "Invalid token type. Expected CheckoutSession token.",
+                ));
+            }
+        };
+
+        let connection_id = CustomerConnectionId::from_proto(inner.connection_id)?;
+
+        let session = self
+            .store
+            .get_checkout_session(tenant, session_id)
+            .await
+            .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+        if session.is_expired() {
+            return Err(Status::failed_precondition("Checkout session has expired"));
+        }
+
+        if session.is_completed() {
+            return Err(Status::failed_precondition(
+                "Checkout session has already been completed",
+            ));
+        }
+
+        // Authoritative server-side amount — the client figure is only checked
+        // against it, never charged. Keep the coupon to hand to initiate so it's
+        // persisted on the session and re-applied at fulfillment (else the amount
+        // computed here with the coupon won't match the invoice built later).
+        let coupon_code = inner.coupon_code.clone();
+        let computation = self
+            .compute_checkout_invoice(&session, tenant, inner.coupon_code)
+            .await?;
+        let amount_due = computation.invoice_content.amount_due.to_non_negative_u64();
+        let currency = computation
+            .subscription_details
+            .subscription
+            .currency
+            .clone();
+
+        if inner.displayed_amount != amount_due || inner.displayed_currency != currency {
+            return Err(Status::failed_precondition(
+                "The checkout total has changed. Please refresh the page and retry.",
+            ));
+        }
+
+        let result = self
+            .services
+            .initiate_hosted_checkout(
+                tenant,
+                session_id,
+                connection_id,
+                amount_due as i64,
+                currency,
+                coupon_code,
+                inner.return_url,
+            )
+            .await
+            .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+        match result {
+            CheckoutCompletionResult::AwaitingPayment {
+                transaction,
+                next_action,
+            } => {
+                let next_action = next_action.ok_or_else(|| {
+                    Status::internal("Hosted checkout returned no redirect action")
+                })?;
+                Ok(Response::new(InitiateHostedCheckoutResponse {
+                    transaction: Some(
+                        crate::api::invoices::mapping::transactions::domain_to_server(transaction),
+                    ),
+                    next_action: Some(
+                        crate::api::invoices::mapping::payment_action::domain_to_server(
+                            next_action,
+                        ),
+                    ),
+                }))
+            }
+            CheckoutCompletionResult::Completed { .. } => Err(Status::internal(
+                "Hosted checkout unexpectedly completed synchronously",
+            )),
+        }
     }
 
     #[tracing::instrument(skip_all)]
@@ -543,17 +396,13 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .map(|v| v.0)
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
-        let logo_url = if let Some(logo_attachment_id) = branding.logo_attachment_id {
-            self.object_store
-                .get_url(
-                    logo_attachment_id,
-                    Prefix::ImageLogo,
-                    Duration::from_secs(3600 * 24),
-                )
+        let logo_url = match branding.logo_attachment_id {
+            Some(id) => self
+                .object_store
+                .get_url(id, Prefix::ImageLogo, Duration::from_secs(3600 * 24))
                 .await
-                .map_err(Into::<PortalCheckoutApiError>::into)?
-        } else {
-            None
+                .map_err(Into::<PortalCheckoutApiError>::into)?,
+            None => None,
         };
 
         let prorated_amount_subunits = result
@@ -683,7 +532,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             )));
         }
 
-        let (transaction, new_slot_count) = self
+        let (transaction, new_slot_count, next_action) = self
             .services
             .complete_slot_upgrade_checkout(
                 tenant,
@@ -701,11 +550,283 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 crate::api::invoices::mapping::transactions::domain_to_server(transaction),
             ),
             new_slot_count: new_slot_count as u32,
+            next_action: next_action
+                .map(crate::api::invoices::mapping::payment_action::domain_to_server),
         }))
     }
 }
 
 impl PortalCheckoutServiceComponents {
+    /// Computes the authoritative first-invoice content for a checkout session,
+    /// per checkout_type. Shared by `get_checkout` (full checkout response) and
+    /// `initiate_hosted_checkout` (server-side amount/currency validation).
+    async fn compute_checkout_invoice(
+        &self,
+        session: &DomainCheckoutSession,
+        tenant: TenantId,
+        coupon_code: Option<String>,
+    ) -> Result<CheckoutInvoiceComputation, Status> {
+        let (subscription_details, proto_checkout_type, plan_change_context) = match &session
+            .checkout_type
+        {
+            DomainCheckoutType::SubscriptionActivation => {
+                let subscription_id = session.subscription_id.ok_or_else(|| {
+                    Status::internal("Session has no linked subscription for activation flow")
+                })?;
+
+                let mut sub_details = self
+                    .store
+                    .get_subscription_details(tenant, subscription_id)
+                    .await
+                    .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                if let Some(ref code) = coupon_code {
+                    let preview_coupon = self
+                        .validate_and_create_preview_coupon(code, tenant, &sub_details)
+                        .await?;
+                    sub_details.applied_coupons.push(preview_coupon);
+                }
+
+                (sub_details, CheckoutType::SubscriptionActivation, None)
+            }
+            DomainCheckoutType::SelfServe => {
+                let sub_details = self
+                    .services
+                    .build_preview_subscription_details(session, tenant, coupon_code.as_deref())
+                    .await
+                    .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                tracing::info!(
+                    "SelfServe preview subscription: period={:?}, billing_start={:?}, current_period_start={}, current_period_end={:?}, pending_checkout={}, cycle_index={:?}, components_count={}",
+                    sub_details.subscription.period,
+                    sub_details.subscription.billing_start_date,
+                    sub_details.subscription.current_period_start,
+                    sub_details.subscription.current_period_end,
+                    sub_details.subscription.pending_checkout,
+                    sub_details.subscription.cycle_index,
+                    sub_details.price_components.len()
+                );
+
+                for (i, comp) in sub_details.price_components.iter().enumerate() {
+                    tracing::info!(
+                        "  Component[{}]: name={}, period={:?}, fee={:?}",
+                        i,
+                        comp.name,
+                        comp.period,
+                        comp.fee
+                    );
+                }
+
+                (sub_details, CheckoutType::SelfServe, None)
+            }
+            DomainCheckoutType::PlanChange => {
+                let subscription_id = session.subscription_id.ok_or_else(|| {
+                    Status::internal("Session has no linked subscription for plan change flow")
+                })?;
+
+                let sub_details = self
+                    .store
+                    .get_subscription_details(tenant, subscription_id)
+                    .await
+                    .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                let new_plan_version_id = session.plan_version_id;
+
+                let target_plan = self
+                    .store
+                    .get_plan_by_version_id(new_plan_version_id, tenant)
+                    .await
+                    .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                let change_date = session.change_date.ok_or_else(|| {
+                    Status::internal("PlanChange checkout session missing change_date")
+                })?;
+
+                let preview = self
+                    .services
+                    .preview_plan_change(
+                        subscription_id,
+                        tenant,
+                        new_plan_version_id,
+                        vec![],
+                        Some(
+                            meteroid_store::domain::subscription_changes::PlanChangeMode::Immediate,
+                        ),
+                    )
+                    .await
+                    .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                let ctx = PlanChangeCheckoutContext {
+                    current_plan_name: sub_details.subscription.plan_name.clone(),
+                    new_plan_name: target_plan.plan.name.clone(),
+                    effective_date: preview.preview.effective_date.as_proto(),
+                    net_amount_cents: preview.proration.as_ref().map(|p| p.net_amount_cents),
+                    credits_total_cents: preview.proration.as_ref().map(|p| p.credits_total_cents),
+                    charges_total_cents: preview.proration.as_ref().map(|p| p.charges_total_cents),
+                };
+
+                let invoice_content = self
+                    .services
+                    .compute_plan_change_checkout_invoice(
+                        subscription_id,
+                        tenant,
+                        new_plan_version_id,
+                        change_date,
+                    )
+                    .await
+                    .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                return Ok(CheckoutInvoiceComputation {
+                    subscription_details: sub_details,
+                    invoice_content,
+                    checkout_type: CheckoutType::PlanChange,
+                    plan_change_context: Some(ctx),
+                    addon_purchase_context: None,
+                });
+            }
+            DomainCheckoutType::AddonPurchase => {
+                let subscription_id = session.subscription_id.ok_or_else(|| {
+                    Status::internal("Session has no linked subscription for addon purchase flow")
+                })?;
+
+                let sub_details = self
+                    .store
+                    .get_subscription_details_minimal(tenant, subscription_id)
+                    .await
+                    .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                let create_add_ons = session.add_ons.as_ref().ok_or_else(|| {
+                    Status::internal("AddonPurchase checkout session has no add_ons")
+                })?;
+
+                // Resolve addon fees and compute prorated charge
+                let addon_ids: Vec<_> =
+                    create_add_ons.add_ons.iter().map(|a| a.add_on_id).collect();
+                let addons = self
+                    .store
+                    .list_add_ons_by_ids(tenant, addon_ids)
+                    .await
+                    .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                let addon_name = addons.first().map(|a| a.name.clone()).unwrap_or_default();
+
+                // Build shared products/prices maps for resolution
+                let mut products_map = std::collections::HashMap::new();
+                let mut prices_map = std::collections::HashMap::new();
+                for addon in &addons {
+                    if let Some(price) = &addon.price {
+                        prices_map.insert(addon.price_id, price.clone());
+                    }
+                    if let Some(fee_structure) = &addon.fee_structure {
+                        products_map.insert(
+                            addon.product_id,
+                            meteroid_store::domain::Product {
+                                id: addon.product_id,
+                                name: addon.name.clone(),
+                                description: None,
+                                created_at: addon.created_at,
+                                updated_at: None,
+                                archived_at: None,
+                                tenant_id: addon.tenant_id,
+                                product_family_id: common_domain::ids::ProductFamilyId::from(
+                                    uuid::Uuid::nil(),
+                                ),
+                                fee_type: addon
+                                    .fee_type
+                                    .unwrap_or(meteroid_store::domain::enums::FeeTypeEnum::Rate),
+                                fee_structure: fee_structure.clone(),
+                                catalog: false,
+                            },
+                        );
+                    }
+                }
+
+                let now = chrono::Utc::now().date_naive();
+
+                let mut sub_details = sub_details;
+
+                for (cs_ao, addon) in create_add_ons.add_ons.iter().zip(addons.iter()) {
+                    let resolved = addon
+                        .resolve_customized(&products_map, &prices_map, &cs_ao.customization)
+                        .map_err(|e| {
+                            Status::internal(format!("Failed to resolve add-on: {}", e))
+                        })?;
+
+                    sub_details.add_ons.push(
+                        meteroid_store::domain::subscription_add_ons::SubscriptionAddOn {
+                            id: common_domain::ids::SubscriptionAddOnId::new(),
+                            subscription_id,
+                            add_on_id: addon.id,
+                            name: resolved.name,
+                            period: resolved.period,
+                            fee: resolved.fee,
+                            created_at: chrono::Utc::now().naive_utc(),
+                            product_id: resolved.product_id,
+                            price_id: resolved.price_id,
+                            quantity: cs_ao.quantity,
+                            effective_from: chrono::Utc::now().naive_utc().date(),
+                            effective_to: None,
+                            lineage_id: None,
+                            added_by_amendment: false,
+                        },
+                    );
+                }
+
+                // Override billing_start_date and cycle_index so that compute_invoice
+                // treats the addon as a first-period item starting now, producing a
+                // prorated advance line (from now to period_end).
+                sub_details.subscription.billing_start_date = Some(now);
+                sub_details.subscription.cycle_index = Some(0);
+
+                let invoice_content = self
+                    .services
+                    .compute_invoice(&now, &sub_details, None)
+                    .await
+                    .change_context(StoreError::InvoiceComputationError)
+                    .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+                let ctx = AddOnPurchaseCheckoutContext {
+                    add_on_name: addon_name,
+                    prorated_amount_cents: invoice_content.total,
+                };
+
+                return Ok(CheckoutInvoiceComputation {
+                    subscription_details: sub_details,
+                    invoice_content,
+                    checkout_type: CheckoutType::AddonPurchase,
+                    plan_change_context: None,
+                    addon_purchase_context: Some(ctx),
+                });
+            }
+        };
+
+        let invoice_content = self
+            .services
+            .compute_invoice(
+                &subscription_details.subscription.current_period_start,
+                &subscription_details,
+                None,
+            )
+            .await
+            .change_context(StoreError::InvoiceComputationError)
+            .map_err(Into::<PortalCheckoutApiError>::into)?;
+
+        tracing::info!(
+            "Invoice content: invoice_lines_count={}, subtotal={}, total={}",
+            invoice_content.invoice_lines.len(),
+            invoice_content.subtotal,
+            invoice_content.total
+        );
+
+        Ok(CheckoutInvoiceComputation {
+            subscription_details,
+            invoice_content,
+            checkout_type: proto_checkout_type,
+            plan_change_context,
+            addon_purchase_context: None,
+        })
+    }
+
     /// Builds the Checkout response from subscription details and invoice content.
     async fn build_checkout_response(
         &self,
@@ -780,17 +901,13 @@ impl PortalCheckoutServiceComponents {
             .map(|v| v.0)
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
-        let logo_url = if let Some(logo_attachment_id) = branding.logo_attachment_id {
-            self.object_store
-                .get_url(
-                    logo_attachment_id,
-                    Prefix::ImageLogo,
-                    Duration::from_secs(7 * 86400),
-                )
+        let logo_url = match branding.logo_attachment_id {
+            Some(id) => self
+                .object_store
+                .get_url(id, Prefix::ImageLogo, Duration::from_secs(7 * 86400))
                 .await
-                .map_err(Into::<PortalCheckoutApiError>::into)?
-        } else {
-            None
+                .map_err(Into::<PortalCheckoutApiError>::into)?,
+            None => None,
         };
 
         let invoice_lines = crate::api::invoices::mapping::invoices::domain_invoice_lines_to_server(
@@ -892,4 +1009,14 @@ impl PortalCheckoutServiceComponents {
             applied_coupon: preview_applied,
         })
     }
+}
+
+/// The per-checkout-type first-invoice computation shared by `get_checkout`
+/// and `initiate_hosted_checkout`.
+struct CheckoutInvoiceComputation {
+    subscription_details: SubscriptionDetails,
+    invoice_content: meteroid_store::services::invoice_lines::invoice_lines::ComputedInvoiceContent,
+    checkout_type: CheckoutType,
+    plan_change_context: Option<PlanChangeCheckoutContext>,
+    addon_purchase_context: Option<AddOnPurchaseCheckoutContext>,
 }

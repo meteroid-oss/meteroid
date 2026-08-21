@@ -555,7 +555,7 @@ impl Services {
     /// start) or on an adjustment invoice from an earlier immediate amendment in
     /// the same period (an item that was *added* mid-period). Both are searched,
     /// and a separate credit note is issued against each source invoice that has
-    /// matched lines. Paid / partially-paid invoices use `CreditToBalance` (the
+    /// matched lines. Paid / partially-paid / payment-in-flight invoices use `CreditToBalance` (the
     /// credit lands on the customer balance); otherwise `DebtCancellation` reduces
     /// what is owed. Returns an empty vec when there is nothing billed in advance
     /// to refund (e.g. arrears billing).
@@ -621,11 +621,23 @@ impl Services {
                 continue;
             }
             let invoice = invoice_by_id[&invoice_id];
-            let credit_type = match invoice.payment_status {
-                InvoicePaymentStatus::Paid | InvoicePaymentStatus::PartiallyPaid => {
-                    CreditType::CreditToBalance
-                }
-                _ => CreditType::DebtCancellation,
+            // Money already collected OR in flight (accepted debit, pending charge)
+            // lands in full, so credit the balance; only a genuinely uncollected
+            // invoice can have its debt cancelled. (If the in-flight debit later
+            // fails the invoice reopens for its full total, so the customer still
+            // owes it and the credit nets against it — no money is lost either way.)
+            let collected_or_in_flight = matches!(
+                invoice.payment_status,
+                InvoicePaymentStatus::Paid | InvoicePaymentStatus::PartiallyPaid
+            )
+                || crate::repositories::credit_notes::invoice_payment_in_flight(
+                    conn, tenant_id, invoice,
+                )
+                .await?;
+            let credit_type = if collected_or_in_flight {
+                CreditType::CreditToBalance
+            } else {
+                CreditType::DebtCancellation
             };
 
             let credit_note = create_user_credit_note_tx(

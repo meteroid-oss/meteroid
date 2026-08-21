@@ -182,7 +182,11 @@ const PlanEmbed = ({ overview }: { overview: CustomerPortalOverview }) => {
         <CenterState
           title="No active plan"
           hint="There's no active subscription on this account yet."
-          action={<PButton size="sm" onClick={() => requestNavigate('subscriptions')}>Manage billing</PButton>}
+          action={
+            <PButton size="sm" onClick={() => requestNavigate('subscriptions')}>
+              Manage billing
+            </PButton>
+          }
         />
       </Card>
     )
@@ -190,7 +194,14 @@ const PlanEmbed = ({ overview }: { overview: CustomerPortalOverview }) => {
 
   return (
     <Card pad={20} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}
+      >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
           <Eyebrow>Current plan</Eyebrow>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -341,7 +352,11 @@ const SubscriptionEmbed = () => {
 
   const sub = query.data?.subscription
   if (!sub) {
-    return <Card><CenterState title="Subscription not found" hint="It may have been removed." /></Card>
+    return (
+      <Card>
+        <CenterState title="Subscription not found" hint="It may have been removed." />
+      </Card>
+    )
   }
 
   const headline = feeLabel(sub.headlineFee, sub.currency)
@@ -350,7 +365,14 @@ const SubscriptionEmbed = () => {
 
   return (
     <Card pad={20} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}
+      >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
           <Eyebrow>Subscription</Eyebrow>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -399,6 +421,8 @@ const invoiceBadge = (invoice: InvoiceSummary): StatusBadge => {
       return { label: 'Partially paid', tone: 'warn' }
     case InvoicePaymentStatus.ERRORED:
       return { label: 'Errored', tone: 'danger' }
+    case InvoicePaymentStatus.PROCESSING:
+      return { label: 'Processing', tone: 'warn' }
     case InvoicePaymentStatus.UNPAID:
     default:
       return { label: 'Unpaid', tone: 'warn' }
@@ -666,7 +690,12 @@ const PoweredBy = () => (
       href="https://meteroid.com/?utm_source=portal-embed"
       target="_blank"
       rel="noopener noreferrer"
-      style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--mtp-text-2)', textDecoration: 'none' }}
+      style={{
+        fontSize: 11.5,
+        fontWeight: 600,
+        color: 'var(--mtp-text-2)',
+        textDecoration: 'none',
+      }}
     >
       Meteroid
     </a>

@@ -18,7 +18,7 @@ static USER_AGENT: &str = concat!(
     env!("CARGO_PKG_VERSION")
 );
 
-static API_VERSION: &str = "2022-11-15";
+pub(crate) static API_VERSION: &str = "2026-04-22.dahlia";
 
 #[derive(Debug, Clone)]
 pub struct StripeClient {
@@ -136,8 +136,23 @@ impl StripeClient {
 
         let request_builder = self
             .create_init_request(Method::POST, url, secret_key, Some(idempotency_key))
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
             .body(body);
 
+        self.execute(request_builder, retry_strategy)
+    }
+
+    pub(crate) fn delete<T: DeserializeOwned + Send + 'static>(
+        &self,
+        path: &str,
+        secret_key: &SecretString,
+        retry_strategy: RetryStrategy,
+    ) -> Response<T> {
+        let url = self.url(path);
+        let request_builder = self.create_init_request(Method::DELETE, url, secret_key, None);
         self.execute(request_builder, retry_strategy)
     }
 

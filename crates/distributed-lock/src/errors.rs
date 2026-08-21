@@ -7,3 +7,9 @@ pub enum LockError {
     #[error("Failed to release lock")]
     ReleaseError,
 }
+
+#[derive(Error, Debug)]
+pub enum LeaderError {
+    #[error("Leader election failed: {0}")]
+    Election(String),
+}

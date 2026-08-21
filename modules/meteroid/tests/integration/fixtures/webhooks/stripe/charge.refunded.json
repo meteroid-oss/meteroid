@@ -1,0 +1,67 @@
+{
+  "id": "evt_test_charge_refunded_1",
+  "object": "event",
+  "api_version": "2023-10-16",
+  "created": 1721728700,
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": {
+    "id": "req_test_129",
+    "idempotency_key": null
+  },
+  "type": "charge.refunded",
+  "data": {
+    "object": {
+      "id": "ch_test_refund_1",
+      "object": "charge",
+      "amount": 10000,
+      "amount_captured": 10000,
+      "amount_refunded": 5000,
+      "currency": "usd",
+      "customer": "cus_test_129",
+      "disputed": false,
+      "livemode": false,
+      "paid": true,
+      "payment_intent": "pi_test_129",
+      "refunded": false,
+      "status": "succeeded",
+      "created": 1721728690,
+      "refunds": {
+        "object": "list",
+        "data": [
+          {
+            "id": "re_test_1",
+            "object": "refund",
+            "amount": 3000,
+            "balance_transaction": "txn_test_re_1",
+            "charge": "ch_test_refund_1",
+            "created": 1721728695,
+            "currency": "usd",
+            "metadata": {},
+            "payment_intent": "pi_test_129",
+            "reason": "requested_by_customer",
+            "receipt_number": null,
+            "status": "succeeded"
+          },
+          {
+            "id": "re_test_2",
+            "object": "refund",
+            "amount": 2000,
+            "balance_transaction": "txn_test_re_2",
+            "charge": "ch_test_refund_1",
+            "created": 1721728700,
+            "currency": "usd",
+            "metadata": {},
+            "payment_intent": "pi_test_129",
+            "reason": "requested_by_customer",
+            "receipt_number": null,
+            "status": "succeeded"
+          }
+        ],
+        "has_more": false,
+        "total_count": 2,
+        "url": "/v1/charges/ch_test_refund_1/refunds"
+      }
+    }
+  }
+}

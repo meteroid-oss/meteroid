@@ -870,6 +870,10 @@ diesel::table! {
         receipt_pdf_id -> Nullable<Uuid>,
         checkout_session_id -> Nullable<Uuid>,
         pending_plan_version_id -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+        next_action -> Nullable<Jsonb>,
+        amount_refunded -> Int8,
+        initiated_by_customer_id -> Nullable<Uuid>,
     }
 }
 

@@ -1,4 +1,4 @@
-import { Ban, CheckCircle, Clock, XCircle } from 'lucide-react'
+import { Ban, CheckCircle, Clock, RotateCcw, XCircle } from 'lucide-react'
 
 import { CardBrandLogo } from '@/features/checkout/components/CardBrandLogo'
 import { TransactionStatusBadge } from '@/features/invoices/TransactionStatusBadge'
@@ -95,29 +95,32 @@ export const PaymentMethodBadge: React.FC<{
 }
 
 function getStatusConfig(status: Transaction_PaymentStatusEnum) {
-  const configs: Record<Transaction_PaymentStatusEnum, { icon: React.ReactNode; color: string }> =
-    {
-      [Transaction_PaymentStatusEnum.READY]: {
-        icon: <Clock className="h-5 w-5" />,
-        color: 'text-blue-600',
-      },
-      [Transaction_PaymentStatusEnum.PENDING]: {
-        icon: <Clock className="h-5 w-5" />,
-        color: 'text-yellow-600',
-      },
-      [Transaction_PaymentStatusEnum.SETTLED]: {
-        icon: <CheckCircle className="h-5 w-5" />,
-        color: 'text-green-600',
-      },
-      [Transaction_PaymentStatusEnum.CANCELLED]: {
-        icon: <Ban className="h-5 w-5" />,
-        color: 'text-gray-500',
-      },
-      [Transaction_PaymentStatusEnum.FAILED]: {
-        icon: <XCircle className="h-5 w-5" />,
-        color: 'text-red-600',
-      },
-    }
+  const configs: Record<Transaction_PaymentStatusEnum, { icon: React.ReactNode; color: string }> = {
+    [Transaction_PaymentStatusEnum.READY]: {
+      icon: <Clock className="h-5 w-5" />,
+      color: 'text-blue-600',
+    },
+    [Transaction_PaymentStatusEnum.PENDING]: {
+      icon: <Clock className="h-5 w-5" />,
+      color: 'text-yellow-600',
+    },
+    [Transaction_PaymentStatusEnum.SETTLED]: {
+      icon: <CheckCircle className="h-5 w-5" />,
+      color: 'text-green-600',
+    },
+    [Transaction_PaymentStatusEnum.CANCELLED]: {
+      icon: <Ban className="h-5 w-5" />,
+      color: 'text-gray-500',
+    },
+    [Transaction_PaymentStatusEnum.FAILED]: {
+      icon: <XCircle className="h-5 w-5" />,
+      color: 'text-red-600',
+    },
+    [Transaction_PaymentStatusEnum.REFUNDED]: {
+      icon: <RotateCcw className="h-5 w-5" />,
+      color: 'text-orange-600',
+    },
+  }
 
   return configs[status] || configs[Transaction_PaymentStatusEnum.PENDING]
 }

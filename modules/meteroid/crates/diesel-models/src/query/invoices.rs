@@ -649,6 +649,91 @@ impl InvoiceRow {
             .into_db_result()
     }
 
+    /// Idempotently recompute `amount_due` as `max(0, total - applied_credits -
+    /// Σ finalized debt-cancellation credit notes - Σ net settled payment
+    /// transactions)`, where each settled payment contributes
+    /// `amount - amount_refunded`. Unlike [`apply_transaction`], which blindly
+    /// subtracts a single amount, this is safe under queue redelivery: re-running
+    /// the same settlement is a no-op (the settled transaction is already summed)
+    /// and `amount_due` can never be driven negative. It also reopens an invoice
+    /// idempotently when a payment is reversed — a fully clawed-back transaction
+    /// leaves `Settled` (status Refunded) and drops out of the sum, while a
+    /// partial refund stays Settled but nets its `amount_refunded` out here. The
+    /// caller must have locked the invoice row (SELECT FOR UPDATE) and the
+    /// transaction state must already be persisted before invoking this.
+    pub async fn recompute_amount_due_from_settled_payments(
+        conn: &mut PgConn,
+        id: InvoiceId,
+        tenant_id: TenantId,
+    ) -> DbResult<InvoiceRow> {
+        use crate::schema::credit_note::dsl as cn_dsl;
+        use crate::schema::invoice::dsl as i_dsl;
+        use crate::schema::payment_transaction::dsl as pt_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let settled_amounts: Vec<(i64, i64)> = pt_dsl::payment_transaction
+            .filter(pt_dsl::invoice_id.eq(id))
+            .filter(pt_dsl::tenant_id.eq(tenant_id))
+            .filter(pt_dsl::status.eq(crate::enums::PaymentStatusEnum::Settled))
+            .filter(pt_dsl::payment_type.eq(crate::enums::PaymentTypeEnum::Payment))
+            .select((pt_dsl::amount, pt_dsl::amount_refunded))
+            .load(conn)
+            .await
+            .attach("Error while summing settled payments")
+            .into_db_result()?;
+        let settled_sum: i64 = settled_amounts
+            .iter()
+            .map(|(amount, refunded)| amount - refunded)
+            .sum();
+
+        // Finalized DebtCancellation credit notes reduce what is owed (they were
+        // applied via `apply_transaction` at finalization); keep them netted out
+        // here or a later settlement silently re-bills the cancelled debt.
+        let cancelled_debts: Vec<i64> = cn_dsl::credit_note
+            .filter(cn_dsl::invoice_id.eq(id))
+            .filter(cn_dsl::tenant_id.eq(tenant_id))
+            .filter(cn_dsl::credit_type.eq(crate::enums::CreditTypeEnum::DebtCancellation))
+            .filter(cn_dsl::status.eq(crate::enums::CreditNoteStatus::Finalized))
+            .select(cn_dsl::total)
+            .load(conn)
+            .await
+            .attach("Error while summing debt-cancellation credit notes")
+            .into_db_result()?;
+        // Credit-note totals are stored negative.
+        let cancelled_sum: i64 = cancelled_debts.iter().map(|t| t.abs()).sum();
+
+        let (total, applied_credits): (i64, i64) = i_dsl::invoice
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .select((i_dsl::total, i_dsl::applied_credits))
+            .first(conn)
+            .await
+            .attach("Error while loading invoice total")
+            .into_db_result()?;
+
+        // Mirror the canonical amount_due formula (max(0, total - applied_credits))
+        // before netting settled payments, so a reopened invoice never re-bills
+        // credits that are still consumed.
+        let new_amount_due = (total - applied_credits - cancelled_sum - settled_sum).max(0);
+        let now = chrono::Utc::now().naive_utc();
+
+        let query = diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .set((
+                i_dsl::updated_at.eq(now),
+                i_dsl::amount_due.eq(new_amount_due),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while recomputing invoice amount due")
+            .into_db_result()
+    }
+
     pub async fn save_invoice_documents(
         conn: &mut PgConn,
         id: InvoiceId,
@@ -838,7 +923,9 @@ impl InvoiceRow {
         param_net_terms: i32,
     ) -> DbResult<Vec<InvoiceRow>> {
         use crate::enums::InvoiceType;
+        use crate::query::payment_transactions::LIVE_PAYMENT_STATUSES;
         use crate::schema::invoice::dsl as i_dsl;
+        use crate::schema::payment_transaction::dsl as pt_dsl;
         use diesel_async::RunQueryDsl;
 
         let query = i_dsl::invoice
@@ -858,6 +945,16 @@ impl InvoiceRow {
             .filter(i_dsl::subscription_id.is_not_null())
             .filter(i_dsl::parent_invoice_id.is_null())
             .filter(i_dsl::consolidated_into_invoice_id.is_null())
+            // A draft with a live payment attached is owned by a payment flow (checkout
+            // acceptance, card 3DS). Merging it would bill the same period twice — once via
+            // the consolidated parent, once when the in-flight charge settles — and strand
+            // the settlement, which cannot finalize a consolidated child.
+            .filter(diesel::dsl::not(diesel::dsl::exists(
+                pt_dsl::payment_transaction
+                    .filter(pt_dsl::invoice_id.eq(i_dsl::id.nullable()))
+                    .filter(pt_dsl::tenant_id.eq(param_tenant_id))
+                    .filter(pt_dsl::status.eq_any(LIVE_PAYMENT_STATUSES)),
+            )))
             .order_by(i_dsl::id.asc())
             .for_update();
 

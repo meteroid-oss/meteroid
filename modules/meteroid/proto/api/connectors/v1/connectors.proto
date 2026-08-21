@@ -6,6 +6,12 @@ import "api/connectors/v1/models.proto";
 
 message ConnectStripeRequest {
   StripeConnector data = 1;
+  // When set AND `data.webhook_secret` is empty, the server auto-creates a
+  // Stripe webhook endpoint at this URL via Stripe's API and stores the
+  // returned signing secret on the connector. The frontend constructs the
+  // URL from its own public REST API base so different deployment envs
+  // (sandbox / live / on-prem) work without extra backend config.
+  optional string auto_register_webhook_url = 2;
 }
 
 message ConnectStripeResponse {
@@ -51,6 +57,14 @@ message ConnectPennylaneResponse {
   string auth_url = 1;
 }
 
+message ConnectGoCardlessRequest {
+  GoCardlessConnector data = 1;
+}
+
+message ConnectGoCardlessResponse {
+  Connector connector = 1;
+}
+
 service ConnectorsService {
   rpc ListConnectors(ListConnectorsRequest) returns (ListConnectorsResponse) {}
   rpc DisconnectConnector(DisconnectConnectorRequest) returns (DisconnectConnectorResponse) {}
@@ -60,4 +74,5 @@ service ConnectorsService {
   rpc UpdateHubspotConnector(UpdateHubspotConnectorRequest) returns (UpdateHubspotConnectorResponse) {}
 
   rpc ConnectPennylane(ConnectPennylaneRequest) returns (ConnectPennylaneResponse) {}
+  rpc ConnectGoCardless(ConnectGoCardlessRequest) returns (ConnectGoCardlessResponse) {}
 }

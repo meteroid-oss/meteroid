@@ -7,6 +7,7 @@ enum ConnectorProviderEnum {
   STRIPE = 0;
   HUBSPOT = 1;
   PENNYLANE = 2;
+  GOCARDLESS = 3;
 }
 
 enum ConnectorTypeEnum {
@@ -45,6 +46,20 @@ message HubspotConnectorData {
 
 message PennylaneConnectorData {
   string external_company_id = 1;
+}
+
+// GoCardless connector. Mandate-based bank-debit provider; merchants manage
+// webhook endpoints in the GoCardless dashboard (the API doesn't expose
+// programmatic endpoint creation), so we ask for the signing secret
+// directly. `creditor_id` is required when the access token has access to
+// multiple creditors; optional otherwise. `environment` selects sandbox vs
+// live API base URLs.
+message GoCardlessConnector {
+  string alias = 1;
+  string access_token = 2;
+  string webhook_secret = 3;
+  optional string creditor_id = 4;
+  string environment = 5;  // "sandbox" or "live"
 }
 
 message ConnectionMetadata {

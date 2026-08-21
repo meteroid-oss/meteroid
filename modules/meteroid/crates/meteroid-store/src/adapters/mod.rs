@@ -1,1 +1,1 @@
-pub mod payment_service_providers;
+pub mod payment;

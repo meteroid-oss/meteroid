@@ -4,6 +4,7 @@ pub mod crypt;
 pub mod domain;
 pub mod errors;
 pub mod jwt_claims;
+pub mod leader;
 pub mod repositories;
 pub mod services;
 pub mod store;

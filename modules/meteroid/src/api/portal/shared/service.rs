@@ -6,12 +6,14 @@ use crate::api::customers::mapping::customer::{
 use crate::api::portal::shared::PortalSharedServiceComponents;
 use crate::api::portal::shared::error::PortalSharedApiError;
 use common_domain::actor::Actor;
-use common_domain::ids::{BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId};
+use common_domain::ids::{
+    BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, InvoiceId,
+};
 use common_grpc::middleware::server::auth::{AuthorizedAsPortalUser, RequestExt};
 use error_stack::ResultExt;
 use meteroid_grpc::meteroid::portal::shared::v1::portal_shared_service_server::PortalSharedService;
 use meteroid_grpc::meteroid::portal::shared::v1::*;
-use meteroid_store::adapters::payment_service_providers::initialize_payment_provider;
+use meteroid_store::adapters::payment::initialize_payment_connector;
 use meteroid_store::domain::{CustomerPatch, CustomerPaymentMethodNew};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::InvoiceInterface;
@@ -153,9 +155,41 @@ impl PortalSharedService for PortalSharedServiceComponents {
             .into());
         };
 
+        // Optional: when the setup is paying a specific invoice, the invoice id
+        // is stored in the mandate metadata so hosted-redirect providers can
+        // charge the invoice once the mandate exists.
+        let invoice_id = InvoiceId::from_proto_opt(inner.invoice_id)?;
+
+        // The invoice id is client-supplied and is later charged off-session by
+        // the `billing_requests.fulfilled` webhook, so it MUST be verified to
+        // belong to the resolved customer here — otherwise customer A could set
+        // up their mandate to pay (and mark Paid) customer B's invoice in the
+        // same tenant. The webhook has no auth context to re-check this.
+        if let Some(invoice_id) = invoice_id {
+            let invoice = self
+                .store
+                .get_invoice_by_id(tenant, invoice_id)
+                .await
+                .map_err(Into::<PortalSharedApiError>::into)?;
+            if invoice.customer_id != customer_id {
+                return Err(PortalSharedApiError::InvalidArgument(
+                    "Invoice does not belong to the resolved customer".to_string(),
+                )
+                .into());
+            }
+        }
+
+        // For hosted-redirect providers (GoCardless) the frontend supplies
+        // its desired post-redirect URL; embedded providers ignore it. We
+        // pass it through verbatim — the adapter decides whether to use it.
         let intent = self
             .services
-            .create_setup_intent(&tenant, &customer_connection_id) // connection_type
+            .create_setup_intent(
+                &tenant,
+                &customer_connection_id,
+                invoice_id,
+                inner.return_url,
+            )
             .await
             .map_err(Into::<PortalSharedApiError>::into)?;
 
@@ -213,12 +247,12 @@ impl PortalSharedService for PortalSharedServiceComponents {
             .await
             .map_err(Into::<PortalSharedApiError>::into)?;
 
-        let provider = initialize_payment_provider(&connector)
+        let connector_impl = initialize_payment_connector(&connector)
             .change_context(StoreError::PaymentProviderError)
             .map_err(Into::<PortalSharedApiError>::into)?;
 
-        let method = provider
-            .get_payment_method_from_provider(
+        let method = connector_impl
+            .fetch_payment_method(
                 &connector,
                 &external_payment_method_id,
                 &connection.external_customer_id,

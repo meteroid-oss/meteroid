@@ -1,4 +1,3 @@
-use crate::adapters::stripe::Stripe;
 use crate::config::Config;
 use crate::services::credit_note_rendering::CreditNotePdfRenderingService;
 use crate::services::currency_rates::CurrencyRatesService;
@@ -59,9 +58,6 @@ pub async fn spawn_workers(
 ) {
     let hubspot_client = Arc::new(HubspotClient::default());
     let pennylane_client = Arc::new(PennylaneClient::default());
-    let stripe_adapter = Arc::new(Stripe {
-        client: Arc::new(stripe_client::client::StripeClient::new()),
-    });
 
     // TODO add config to only spawn some
     let mut join_set = tokio::task::JoinSet::new();
@@ -148,9 +144,8 @@ pub async fn spawn_workers(
         let store = store.clone();
         let services = services.clone();
         let object_store_service = object_store_service.clone();
-        let stripe_adapter = stripe_adapter.clone();
         join_set.spawn(async move {
-            processors::run_webhook_in(store, services, object_store_service, stripe_adapter).await;
+            processors::run_webhook_in(store, services, object_store_service).await;
         });
     }
     {
@@ -225,6 +220,27 @@ pub async fn spawn_workers(
 
             let worker = Arc::new(worker);
             worker.run().await;
+        });
+    }
+
+    {
+        use meteroid_store::constants::advisory_lock_keys;
+        use meteroid_store::leader::PgLeaderElection;
+
+        let store = store.clone();
+        let services = services.clone();
+        // Provider polling must run on a single replica, otherwise a fleet of N
+        // replicas issues N x the polling against a rate-limited provider API.
+        let elector = Arc::new(PgLeaderElection::new(
+            store.pool.clone(),
+            advisory_lock_keys::RECONCILIATION_LEADER,
+        ));
+        let enabled = config.reconciliation_enabled;
+        join_set.spawn(async move {
+            misc::reconciliation_worker::run_reconciliation_worker(
+                store, services, elector, enabled,
+            )
+            .await;
         });
     }
 

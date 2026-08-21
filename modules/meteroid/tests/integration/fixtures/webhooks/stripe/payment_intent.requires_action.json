@@ -1,0 +1,48 @@
+{
+  "id": "evt_test_pi_requires_action_1",
+  "object": "event",
+  "api_version": "2023-10-16",
+  "created": 1721728200,
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": {
+    "id": "req_test_125",
+    "idempotency_key": null
+  },
+  "type": "payment_intent.requires_action",
+  "data": {
+    "object": {
+      "id": "pi_test_125",
+      "object": "payment_intent",
+      "amount": 15000,
+      "amount_capturable": 0,
+      "amount_received": 0,
+      "currency": "eur",
+      "status": "requires_action",
+      "capture_method": "automatic",
+      "confirmation_method": "automatic",
+      "client_secret": "pi_test_125_secret_ghi",
+      "customer": "cus_test_125",
+      "description": null,
+      "latest_charge": null,
+      "last_payment_error": null,
+      "livemode": false,
+      "metadata": {
+        "meteroid.tenant_id": "tenant_test_125",
+        "meteroid.transaction_id": "txn_test_125"
+      },
+      "next_action": {
+        "type": "redirect_to_url",
+        "redirect_to_url": {
+          "url": "https://hooks.stripe.com/redirect/authenticate/src_test_abc?client_secret=src_client_secret_test_abc",
+          "return_url": "https://example.com/checkout/return"
+        }
+      },
+      "payment_method": "pm_test_card_3ds",
+      "payment_method_types": [
+        "card"
+      ],
+      "created": 1721728190
+    }
+  }
+}

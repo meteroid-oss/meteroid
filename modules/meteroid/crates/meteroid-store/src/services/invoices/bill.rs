@@ -1,5 +1,6 @@
 use crate::StoreResult;
 use crate::domain::entity_activity::Actor;
+use crate::domain::payment_transactions::PaymentTransaction;
 use crate::domain::scheduled_events::{ScheduledEventData, ScheduledEventNew};
 use crate::domain::{Customer, DetailedInvoice, Invoice, PaymentStatusEnum, SubscriptionDetails};
 use crate::errors::StoreError;
@@ -11,7 +12,10 @@ use chrono::NaiveTime;
 use common_domain::ids::{
     CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, SubscriptionId, TenantId,
 };
+use diesel_models::customer_connection::CustomerConnectionDetailsRow;
+use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
 use diesel_models::customers::CustomerRow;
+use diesel_models::enums::{ConnectorProviderEnum, PaymentMethodTypeEnum};
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use error_stack::Report;
@@ -35,6 +39,18 @@ pub enum InvoiceBillingMode {
         /// Used for async payments where the transaction was created before the invoice.
         existing_transaction_id: Option<PaymentTransactionId>,
     },
+    /// A hosted-checkout first payment that the provider has ACCEPTED but not yet
+    /// settled: the mandate is signed and the debit submitted (GoCardless combined
+    /// mandate+payment Billing Request), so the sale is contractual and the
+    /// subscription activates now, but the funds land days later by webhook.
+    /// Finalizes the invoice as `Processing` and links the pre-created Pending
+    /// transaction; `amount_due` stays full until the settlement webhook flips it
+    /// to `Paid` via `on_invoice_payment_settled`.
+    AcceptedInFlight {
+        existing_transaction_id: PaymentTransactionId,
+        amount: i64,
+        currency: String,
+    },
 }
 
 /// When consolidation is enabled, the recurring renewal finalization is floored to at least this
@@ -47,7 +63,54 @@ pub enum InvoiceBillingMode {
 /// standalone. The durable fix is a single per-(customer, date) finalization trigger.
 const CONSOLIDATION_MIN_GRACE_HOURS: i32 = 1;
 
+/// True when the provider has accepted a debit that settles later — the direct-debit
+/// analogue of a card authorization.
+///
+/// Keyed on the rail: Stripe SEPA/ACH are as asynchronous as GoCardless, and a card is
+/// synchronous through either. A GoCardless mandate is a direct debit whatever its
+/// scheme (becs, pad, autogiro… are stored as `Other`), so that provider is async on its
+/// own. `next_action` present means the customer still has to do something (3DS), so
+/// nothing has been accepted yet.
+fn is_accepted_async_debit(
+    transaction: &PaymentTransaction,
+    method_type: &PaymentMethodTypeEnum,
+    provider: &ConnectorProviderEnum,
+) -> bool {
+    transaction.status == PaymentStatusEnum::Pending
+        && transaction.next_action.is_none()
+        && (matches!(
+            method_type,
+            PaymentMethodTypeEnum::DirectDebitSepa
+                | PaymentMethodTypeEnum::DirectDebitAch
+                | PaymentMethodTypeEnum::DirectDebitBacs
+        ) || matches!(provider, ConnectorProviderEnum::Gocardless))
+}
+
 impl Services {
+    /// [`is_accepted_async_debit`] for a saved method: resolves the connector behind
+    /// the method's connection so the rail check can account for the provider.
+    pub(in crate::services) async fn accepted_async_debit(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        transaction: &PaymentTransaction,
+        method: &CustomerPaymentMethodRow,
+    ) -> StoreResult<bool> {
+        // Cheap pre-check: only a Pending, action-free charge can qualify.
+        if transaction.status != PaymentStatusEnum::Pending || transaction.next_action.is_some() {
+            return Ok(false);
+        }
+        let connection =
+            CustomerConnectionDetailsRow::get_by_id(conn, &tenant_id, &method.connection_id)
+                .await
+                .map_err(|e| StoreError::DatabaseError(e.error))?;
+        Ok(is_accepted_async_debit(
+            transaction,
+            &method.payment_method_type,
+            &connection.connector.provider,
+        ))
+    }
+
     pub(in crate::services) async fn bill_subscription_tx(
         &self,
         conn: &mut PgConn,
@@ -99,6 +162,50 @@ impl Services {
             return Ok(None);
         };
 
+        // A prior run may have already settled this period: create_subscription_draft_invoice
+        // returns the existing recurring invoice for the date, which can be terminal (Finalized or
+        // Closed). Idempotent for the scheduler modes — nothing left to bill, and finalizing again
+        // would bail on `!can_edit()` — so return it as-is.
+        //
+        // NOT idempotent for the payment-carrying modes: they arrive with money already collected
+        // (`AlreadyPaid`) or a confirmation to check before charging (`FinalizeAfterPayment`), and
+        // skipping their arm would drop the transaction link and complete the checkout as if it had
+        // been recorded. A terminal invoice there is an inconsistent state, so it must be loud.
+        if !draft_invoice.can_edit() {
+            return match &mode {
+                InvoiceBillingMode::AwaitGracePeriodIfApplicable
+                | InvoiceBillingMode::Immediate => {
+                    self.as_detailed_invoice(draft_invoice, customer).map(Some)
+                }
+                InvoiceBillingMode::FinalizeAfterPayment { .. } => {
+                    Err(Report::new(StoreError::CheckoutError).attach(format!(
+                        "Cannot bill payment against invoice {} in terminal status {:?}",
+                        draft_invoice.id, draft_invoice.status
+                    )))
+                }
+                // Already collected: name the PSP charge, since it is now captured with no
+                // transaction row anywhere and an operator has to reconcile it by hand.
+                InvoiceBillingMode::AlreadyPaid { charge_result, .. } => {
+                    Err(Report::new(StoreError::CheckoutError).attach(format!(
+                        "Collected charge {} cannot be recorded against invoice {} in terminal status {:?}",
+                        charge_result.payment_intent.external_id,
+                        draft_invoice.id,
+                        draft_invoice.status
+                    )))
+                }
+                // Accepted debit in flight: the provider already created the
+                // payment, so a terminal draft here would strand it unlinked.
+                InvoiceBillingMode::AcceptedInFlight { existing_transaction_id, .. } => {
+                    Err(Report::new(StoreError::CheckoutError).attach(format!(
+                        "In-flight charge (tx {}) cannot be recorded against invoice {} in terminal status {:?}",
+                        existing_transaction_id,
+                        draft_invoice.id,
+                        draft_invoice.status
+                    )))
+                }
+            };
+        }
+
         let mut transactions = vec![];
 
         match mode {
@@ -119,18 +226,17 @@ impl Services {
                     )));
                 }
 
-                // Handle zero amount case (e.g., 100% coupon discount)
-                // No payment needed, just validate payment method and finalize
-                if draft_invoice.amount_due == 0 {
-                    // Validate the payment method exists (it's already saved on the customer)
-                    let _payment_method = diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
-                        conn,
-                        &tenant_id,
-                        &payment_method_id,
-                    )
-                    .await
-                    .map_err(|e| StoreError::DatabaseError(e.error))?;
+                // Also validates the method exists (it's already saved on the customer).
+                // The rail decides whether settlement is synchronous, so it is needed on
+                // both the zero-amount and the charged path.
+                let payment_method =
+                    CustomerPaymentMethodRow::get_by_id(conn, &tenant_id, &payment_method_id)
+                        .await
+                        .map_err(|e| StoreError::DatabaseError(e.error))?;
 
+                // Handle zero amount case (e.g., 100% coupon discount)
+                // No payment needed, just finalize
+                if draft_invoice.amount_due == 0 {
                     // Finalize the invoice
                     self.finalize_invoice_tx(
                         conn,
@@ -155,21 +261,43 @@ impl Services {
                     // Get the updated invoice and return with no transactions
                     let updated_invoice =
                         InvoiceRow::find_detailed_by_id(conn, tenant_id, draft_invoice.id).await?;
+                    let detailed = DetailedInvoice::try_from(updated_invoice)?;
 
-                    return Ok(Some(
-                        DetailedInvoice::try_from(updated_invoice)?.with_transactions(vec![]),
-                    ));
+                    // A zero-amount invoice is paid the moment it is finalized. Emit the same
+                    // event as every other paid path, else webhooks-out and `on_invoice_paid`
+                    // never learn about 100%-coupon checkouts.
+                    self.store
+                        .internal
+                        .record_outbox_batch_tx(
+                            conn,
+                            tenant_id,
+                            &Actor::System,
+                            vec![crate::domain::outbox_event::OutboxEvent::invoice_paid(
+                                (&detailed.invoice).into(),
+                            )],
+                        )
+                        .await?;
+
+                    return Ok(Some(detailed.with_transactions(vec![])));
                 }
 
-                // We trigger the payment synchronously but don't finalize the invoice yet, it will be done via the webhook
-                let res = self
+                // Carry next_action on the transaction so the on-session caller
+                // can surface 3DS; the invoice is finalized via the webhook once
+                // payment settles.
+                let (mut res, next_action) = self
                     .process_invoice_payment_tx(
                         conn,
                         tenant_id,
                         draft_invoice.id,
                         payment_method_id,
+                        // FinalizeAfterPayment is only constructed by checkout
+                        // completion: customer-initiated and on-session.
+                        true,
+                        true,
+                        None,
                     )
                     .await?;
+                res.next_action = next_action;
 
                 transactions.push(res.clone());
 
@@ -185,8 +313,36 @@ impl Services {
                         &Some(subscription),
                     )
                     .await?;
+                } else if self
+                    .accepted_async_debit(conn, tenant_id, &res, &payment_method)
+                    .await?
+                {
+                    // Delayed-notification rail: the mandate is signed and the debit is
+                    // submitted, so the amounts are contractual even though the funds take
+                    // days to arrive. Finalize now — document state must not encode payment
+                    // state — and record that money is moving so neither the auto-charge
+                    // orchestration nor dunning touches this invoice.
+                    self.finalize_invoice_tx(
+                        conn,
+                        &Actor::System,
+                        draft_invoice.id,
+                        tenant_id,
+                        false, // amounts are fixed under the in-flight charge
+                        &Some(subscription),
+                    )
+                    .await?;
+
+                    InvoiceRow::apply_payment_status(
+                        conn,
+                        draft_invoice.id,
+                        tenant_id,
+                        diesel_models::enums::InvoicePaymentStatus::Processing,
+                        None,
+                    )
+                    .await?;
                 } else {
-                    // we return the draft invoice, it will be finalized later via the webhook
+                    // Card 3DS (Pending with a next_action), or a non-terminal state we
+                    // can't call accepted. Leave it draft; the webhook finalizes on settle.
                     return self
                         .as_detailed_invoice(draft_invoice, customer)
                         .map(|d| d.with_transactions(transactions))
@@ -343,6 +499,61 @@ impl Services {
                         )
                         .await?;
                 }
+            }
+            InvoiceBillingMode::AcceptedInFlight {
+                existing_transaction_id,
+                amount,
+                currency,
+            } => {
+                if draft_invoice.currency != currency {
+                    return Err(Report::new(StoreError::CheckoutError)
+                        .attach("Currency mismatch between invoice and in-flight payment"));
+                }
+
+                // Allow 1 subunit tolerance for rounding.
+                if (draft_invoice.amount_due - amount).abs() > 1 {
+                    return Err(Report::new(StoreError::CheckoutError).attach(format!(
+                        "Amount mismatch: invoice {} vs in-flight payment {}",
+                        draft_invoice.amount_due, amount
+                    )));
+                }
+
+                // Link the pre-created Pending transaction to the invoice so the
+                // settlement webhook (`payments.confirmed`) routes through
+                // `on_invoice_payment_settled` and flips Processing → Paid.
+                let transaction = self
+                    .link_transaction_to_invoice(
+                        conn,
+                        tenant_id,
+                        existing_transaction_id,
+                        draft_invoice.id,
+                    )
+                    .await?;
+                transactions.push(transaction);
+
+                // Amounts are contractual under the accepted debit — finalize now;
+                // document state must not encode payment state.
+                self.finalize_invoice_tx(
+                    conn,
+                    &Actor::System,
+                    draft_invoice.id,
+                    tenant_id,
+                    false,
+                    &Some(subscription.clone()),
+                )
+                .await?;
+
+                // Processing (not Paid) and NO apply_transaction: the funds are in
+                // flight, so amount_due stays full until real settlement. This also
+                // fences the invoice off from auto-charge and dunning.
+                InvoiceRow::apply_payment_status(
+                    conn,
+                    draft_invoice.id,
+                    tenant_id,
+                    diesel_models::enums::InvoicePaymentStatus::Processing,
+                    None,
+                )
+                .await?;
             }
         }
 

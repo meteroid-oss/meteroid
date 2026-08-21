@@ -583,6 +583,22 @@ async fn revert_credit_note_from_invoice_tx(
     Ok(())
 }
 
+/// True when money is already moving toward this invoice: an accepted async debit
+/// (`Processing`) or any live Pending/Ready payment attempt. Such a charge collects
+/// the full amount, so debt can no longer be cancelled — only credited back.
+pub(crate) async fn invoice_payment_in_flight(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    invoice: &Invoice,
+) -> StoreResult<bool> {
+    if invoice.payment_status == InvoicePaymentStatus::Processing {
+        return Ok(true);
+    }
+    PaymentTransactionRow::exists_live_for_invoice(conn, invoice.id, tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)
+}
+
 /// User-facing create path: loads the invoice, validates status + credit type invariants,
 /// and delegates to the shared `create_credit_note_tx`. Used by both `create_credit_note`
 /// (draft) and `create_and_finalize_credit_note` (interactive).
@@ -606,11 +622,20 @@ pub(crate) async fn create_user_credit_note_tx(
         ));
     }
 
+    let payment_in_flight = invoice_payment_in_flight(conn, tenant_id, &invoice).await?;
+
     match params.credit_type {
         CreditType::DebtCancellation => {
             if invoice.amount_due <= 0 {
                 bail!(StoreError::InvalidArgument(
                     "DebtCancellation credit notes can only be created for invoices with an outstanding balance".to_string()
+                ));
+            }
+            // A submitted debit/charge collects the full amount regardless of
+            // what we cancel; the overpayment would then be silently clamped away.
+            if payment_in_flight {
+                bail!(StoreError::InvalidArgument(
+                    "DebtCancellation credit notes cannot be created while a payment is in flight; use CreditToBalance".to_string()
                 ));
             }
         }
@@ -628,9 +653,10 @@ pub(crate) async fn create_user_credit_note_tx(
             if !matches!(
                 invoice.payment_status,
                 InvoicePaymentStatus::Paid | InvoicePaymentStatus::PartiallyPaid
-            ) {
+            ) && !payment_in_flight
+            {
                 bail!(StoreError::InvalidArgument(
-                    "CreditToBalance credit notes can only be created for paid or partially paid invoices".to_string()
+                    "CreditToBalance credit notes can only be created for paid or partially paid invoices, or while a payment is in flight".to_string()
                 ));
             }
         }

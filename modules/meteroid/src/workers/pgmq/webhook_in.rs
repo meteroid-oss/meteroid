@@ -1,12 +1,9 @@
-use crate::adapters::stripe::Stripe;
-use crate::adapters::types::{ParsedRequest, WebhookAdapter};
 use crate::services::storage::{ObjectStoreService, Prefix};
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
 use crate::workers::pgmq::processor::{HandleResult, PgmqHandler};
 use common_domain::ids::{ConnectorId, StoredDocumentId};
 use error_stack::{Report, ResultExt};
-use meteroid_store::domain::enums::ConnectorProviderEnum;
 use meteroid_store::domain::pgmq::{PgmqMessage, WebhookInProcessEvent};
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::{Services, Store};
@@ -19,7 +16,6 @@ pub struct WebhookIn {
     services: Arc<Services>,
     store: Arc<Store>,
     object_store: Arc<dyn ObjectStoreService>,
-    stripe_adapter: Arc<Stripe>,
 }
 
 impl WebhookIn {
@@ -27,13 +23,11 @@ impl WebhookIn {
         services: Arc<Services>,
         store: Arc<Store>,
         object_store: Arc<dyn ObjectStoreService>,
-        stripe_adapter: Arc<Stripe>,
     ) -> Self {
         Self {
             services,
             store,
             object_store,
-            stripe_adapter,
         }
     }
 
@@ -56,14 +50,6 @@ impl WebhookIn {
             .await
             .change_context(PgmqError::HandleMessages)?;
 
-        let adapter = match connector.provider {
-            ConnectorProviderEnum::Stripe => self.stripe_adapter.clone(),
-            other => {
-                return Err(Report::new(PgmqError::HandleMessages)
-                    .attach(format!("Unsupported inbound webhook provider: {other:?}")));
-            }
-        };
-
         // Re-read the verified raw body from object storage. The row id is the
         // object-store uid, and the prefix is rebuilt from the connector alias.
         let prefix = Prefix::WebhookArchive {
@@ -77,30 +63,62 @@ impl WebhookIn {
             .await
             .change_context(PgmqError::HandleMessages)?;
 
-        let json_body: serde_json::Value =
-            serde_json::from_slice(bytes.as_ref()).change_context(PgmqError::HandleMessages)?;
+        let connector_impl =
+            meteroid_store::adapters::payment::initialize_payment_connector(&connector)
+                .change_context(PgmqError::HandleMessages)?;
 
-        // Signature was already verified at ingest, so headers are not needed here.
-        let parsed = ParsedRequest {
-            method: axum::http::Method::POST,
-            headers: axum::http::header::HeaderMap::new(),
-            raw_body: bytes,
-            json_body,
-            query_params: None,
-        };
-
-        adapter
-            .process_webhook_event(&parsed, &connector, (*self.store).clone())
-            .await
+        // Signature was already verified at ingest, so empty headers are fine here.
+        let events = connector_impl
+            .parse_events(&connector, bytes.as_ref(), &axum::http::HeaderMap::new())
             .change_context(PgmqError::HandleMessages)?;
 
+        let mut discarded: Vec<String> = Vec::new();
+        for event in events {
+            let event_id = event.provider_event_id.clone();
+            let result = crate::api_rest::webhooks::event_handler::handle_normalized_event(
+                event,
+                &connector,
+                connector_impl.as_ref(),
+                (*self.store).clone(),
+                self.services.as_ref(),
+            )
+            .await;
+
+            if let Err(err) = result {
+                if is_transient(err.current_context()) {
+                    // A DB write or provider fetch failed transiently; propagate
+                    // so pgmq retries this message.
+                    return Err(err).change_context(PgmqError::HandleMessages);
+                }
+                // Not ours / permanently un-processable (bad metadata, unknown
+                // event). Ack it so a poison event never blocks the queue, and
+                // record why on the audit row for forensics.
+                log::warn!("Acking non-retryable webhook event {event_id}: {err:?}");
+                discarded.push(format!("discarded non-retryable event {event_id}: {err:?}"));
+            }
+        }
+
         self.services
-            .mark_webhook_in_processed(ev.webhook_in_event_id)
+            .mark_webhook_in_processed(
+                ev.webhook_in_event_id,
+                (!discarded.is_empty()).then(|| discarded.join("\n")),
+            )
             .await
             .change_context(PgmqError::HandleMessages)?;
 
         Ok(())
     }
+}
+
+/// Only genuinely transient failures (DB / provider fetch) warrant a pgmq retry.
+/// Everything else — unknown events, bad metadata, events that aren't ours — is
+/// acked as a no-op so it can't wedge the queue on endless retries.
+fn is_transient(err: &crate::errors::AdapterWebhookError) -> bool {
+    use crate::errors::AdapterWebhookError as E;
+    matches!(
+        err,
+        E::ProviderError | E::StoreError | E::DatabaseError | E::ObjectStoreUnreachable
+    )
 }
 
 #[async_trait::async_trait]

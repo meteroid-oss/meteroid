@@ -87,6 +87,35 @@ pub async fn update_mock_payment_provider_fail(pool: &PgPool, fail_payment_inten
     .expect("Failed to update mock payment provider");
 }
 
+/// Sets the mock payment provider's `charge_behavior`, controlling what
+/// `charge_off_session` returns: "succeeded" (default), "pending" (async
+/// settlement, e.g. SEPA/ACH), "requires_action" (3DS/SCA), or "failed".
+pub async fn set_mock_charge_behavior(pool: &PgPool, charge_behavior: &str) {
+    use diesel_models::connectors::ConnectorRowPatch;
+
+    let mut conn = pool
+        .get()
+        .await
+        .expect("couldn't get db connection from pool");
+
+    let mock_data = serde_json::json!({
+        "Mock": {
+            "fail_payment_intent": false,
+            "fail_setup_intent": false,
+            "charge_behavior": charge_behavior
+        }
+    });
+
+    ConnectorRowPatch {
+        id: ids::MOCK_CONNECTOR_ID,
+        data: Some(Some(mock_data)),
+        sensitive: None,
+    }
+    .patch(&mut conn, ids::TENANT_ID)
+    .await
+    .expect("Failed to set mock charge behavior");
+}
+
 /// Seeds a second mock payment provider connector for testing provider switching.
 pub async fn run_mock_payment_provider_2_seed(pool: &PgPool) {
     let mut conn = pool
@@ -277,6 +306,42 @@ pub async fn create_customer_payment_method(
             card_last4: Some("4242".to_string()),
             card_exp_month: Some(12),
             card_exp_year: Some(2030),
+        }
+        .upsert(tx)
+        .await?;
+
+        Ok::<(), DatabaseErrorContainer>(())
+    })
+    .await
+    .unwrap();
+}
+
+/// Creates a SEPA direct debit payment method, i.e. one whose charges settle days later.
+pub async fn create_customer_sepa_payment_method(
+    pool: &PgPool,
+    customer_id: common_domain::ids::CustomerId,
+    connection_id: common_domain::ids::CustomerConnectionId,
+    payment_method_id: common_domain::ids::CustomerPaymentMethodId,
+    external_payment_method_id: &str,
+) {
+    let mut conn = pool
+        .get()
+        .await
+        .expect("couldn't get db connection from pool");
+
+    conn.transaction(async |tx| {
+        CustomerPaymentMethodRowNew {
+            id: payment_method_id,
+            tenant_id: ids::TENANT_ID,
+            customer_id,
+            connection_id,
+            external_payment_method_id: external_payment_method_id.to_string(),
+            payment_method_type: PaymentMethodTypeEnum::DirectDebitSepa,
+            account_number_hint: Some("1234".to_string()),
+            card_brand: None,
+            card_last4: None,
+            card_exp_month: None,
+            card_exp_year: None,
         }
         .upsert(tx)
         .await?;

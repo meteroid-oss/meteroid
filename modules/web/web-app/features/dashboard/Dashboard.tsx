@@ -73,7 +73,7 @@ export const Dashboard = () => {
                   </div>
                 </div>
                 <Button variant="primary" size="sm" hasIcon asChild>
-                  <Link to="settings?tab=merchant">
+                  <Link to="settings/merchant">
                     <SettingsIcon size={14} />
                     Configure
                   </Link>

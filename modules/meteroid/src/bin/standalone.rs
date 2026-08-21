@@ -7,7 +7,6 @@ use tokio::signal;
 
 use common_build_info::BuildInfo;
 use common_logging::telemetry;
-use meteroid::adapters::stripe::Stripe;
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::config::Config;
 use meteroid::eventbus::setup_eventbus_handlers;
@@ -104,13 +103,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Ok::<(), Box<dyn Error>>(())
     };
 
-    let stripe = Arc::new(StripeClient::new());
-    let stripe_adapter = Arc::new(Stripe { client: stripe });
-
     let rest_server = meteroid::api_rest::server::start_rest_server(
         config.clone(),
         object_store_service.clone(),
-        stripe_adapter.clone(),
         store.clone(),
         services.clone(),
         ready.clone(),

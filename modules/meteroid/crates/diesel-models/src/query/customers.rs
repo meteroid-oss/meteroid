@@ -7,7 +7,9 @@ use crate::extend::connection_metadata;
 use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{AliasOr, BaseId, ConnectorId, CustomerId, TenantId};
+use common_domain::ids::{
+    AliasOr, BaseId, ConnectorId, CustomerId, CustomerPaymentMethodId, TenantId,
+};
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, OptionalExtension, PgSortExpressionMethods,
     PgTextExpressionMethods, QueryDsl, SelectableHelper, debug_query,
@@ -472,6 +474,30 @@ impl CustomerRow {
             .execute(conn)
             .await
             .attach("Error while archiving customer")
+            .into_db_result()
+    }
+
+    /// Null out `current_payment_method_id` on any customer still pointing at
+    /// a detached method, so payment resolution stops retrying a dead mandate.
+    pub async fn clear_current_payment_method(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        payment_method_id: &CustomerPaymentMethodId,
+    ) -> DbResult<usize> {
+        use crate::schema::customer::dsl as c_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(c_dsl::customer)
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .filter(c_dsl::current_payment_method_id.eq(payment_method_id))
+            .set(c_dsl::current_payment_method_id.eq(None::<CustomerPaymentMethodId>));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while clearing customer current payment method")
             .into_db_result()
     }
 

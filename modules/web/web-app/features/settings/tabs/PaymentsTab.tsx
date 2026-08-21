@@ -1,4 +1,4 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   Button,
   Card,
@@ -36,9 +36,32 @@ const paymentMethodsSchema = z.object({
   bankAccountId: z.string().optional(),
 })
 
+// Client-side mirror of each provider's payment-rail capabilities (see the
+// backend `ConnectorCapabilities`). Used to keep providers out of slots they
+// can't serve — e.g. GoCardless has no card support, so it must not appear in
+// the card-provider dropdown. Add an entry per provider as the list grows; the
+// backend enforces the same rule authoritatively, so an unmapped provider stays
+// selectable (and is validated server-side) rather than silently disappearing.
+type PaymentRail = 'card' | 'directDebit'
+
+const PROVIDER_CAPABILITIES: Partial<Record<ConnectorProviderEnum, Record<PaymentRail, boolean>>> =
+  {
+    [ConnectorProviderEnum.STRIPE]: { card: true, directDebit: true },
+    [ConnectorProviderEnum.GOCARDLESS]: { card: false, directDebit: true },
+  }
+
+const providerSupports = (provider: ConnectorProviderEnum, rail: PaymentRail): boolean =>
+  PROVIDER_CAPABILITIES[provider]?.[rail] ?? true
+
 interface PaymentMethodsFormProps {
   invoiceEntityId: string
-  providersData: { cardProvider?: { id: string }; directDebitProvider?: { id: string }; bankAccount?: { id: string } } | undefined
+  providersData:
+    | {
+        cardProvider?: { id: string }
+        directDebitProvider?: { id: string }
+        bankAccount?: { id: string }
+      }
+    | undefined
   paymentProviders: { id: string; alias: string; provider: ConnectorProviderEnum }[]
   bankAccounts: { id: string; name: string; currency: string; displayName: string }[]
 }
@@ -56,8 +79,8 @@ const PaymentMethodsForm = ({
       queryClient.invalidateQueries({
         queryKey: createConnectQueryKey({
           schema: getInvoicingEntityProviders,
-          cardinality: undefined
-        })
+          cardinality: undefined,
+        }),
       })
       toast.success('Payment methods updated')
     },
@@ -71,6 +94,12 @@ const PaymentMethodsForm = ({
       bankAccountId: providersData?.bankAccount?.id || 'none',
     },
   })
+
+  // Only offer providers that can actually serve each rail (see PROVIDER_CAPABILITIES).
+  const cardProviders = paymentProviders.filter(p => providerSupports(p.provider, 'card'))
+  const directDebitProviders = paymentProviders.filter(p =>
+    providerSupports(p.provider, 'directDebit')
+  )
 
   const onSubmit = async (values: z.infer<typeof paymentMethodsSchema>) => {
     await updateInvoicingEntityMut.mutateAsync({
@@ -126,9 +155,9 @@ const PaymentMethodsForm = ({
                         <SelectValue placeholder="Select a provider" />
                       </SelectTrigger>
                       <SelectContent>
-                        {paymentProviders.length === 0 ? <SelectEmpty /> : null}
+                        {cardProviders.length === 0 ? <SelectEmpty /> : null}
                         <SelectItem value="none">None</SelectItem>
-                        {paymentProviders.map(provider => (
+                        {cardProviders.map(provider => (
                           <SelectItem key={provider.id} value={provider.id}>
                             <div className="flex items-center">
                               <div className="w-5 h-5 rounded flex items-center justify-center mr-2">
@@ -168,9 +197,9 @@ const PaymentMethodsForm = ({
                         <SelectValue placeholder="Select a provider" />
                       </SelectTrigger>
                       <SelectContent>
-                        {paymentProviders.length === 0 ? <SelectEmpty /> : null}
+                        {directDebitProviders.length === 0 ? <SelectEmpty /> : null}
                         <SelectItem value="none">None</SelectItem>
-                        {paymentProviders.map(provider => (
+                        {directDebitProviders.map(provider => (
                           <SelectItem key={provider.id} value={provider.id}>
                             <div className="flex items-center">
                               <div className="w-5 h-5 rounded flex items-center justify-center mr-2">

@@ -27,4 +27,10 @@ message InvoiceForPayment {
   optional string theme_mode = 15;
   // "Sharp" | "Modern" | "Rounded".
   optional string roundness = 16;
+  // Set when a configured payment method could not be offered because its
+  // provider connection failed to set up (e.g. GoCardless needs a customer
+  // email). Lets the payment page explain why the method is missing instead of
+  // it silently disappearing. Recomputed each load, so it clears once fixed.
+  optional string card_unavailable_reason = 17;
+  optional string direct_debit_unavailable_reason = 18;
 }

@@ -110,6 +110,8 @@ pub enum InvoicePaymentStatus {
     PartiallyPaid,
     Paid,
     Errored,
+    /// Payment accepted by the provider, not yet settled (async direct debit).
+    Processing,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
@@ -143,6 +145,7 @@ pub enum ConnectorProviderEnum {
     Stripe,
     Pennylane,
     Mock,
+    Gocardless,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -164,6 +167,7 @@ pub enum PaymentStatusEnum {
     Settled,
     Cancelled,
     Failed,
+    Refunded, // settled then fully clawed back (refund, chargeback, lost dispute)
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

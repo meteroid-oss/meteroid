@@ -9,14 +9,8 @@ use meteroid_store::errors::StoreError;
 pub enum AdapterWebhookError {
     #[error("Endpoint is not registered")]
     UnknownEndpointId,
-    #[error("Endpoint id is not valid")]
-    InvalidEndpointId,
-    #[error("Unknown provider : {0}")]
-    UnknownProvider(String),
     #[error("Provider not supported : {0}")]
     ProviderNotSupported(String),
-    #[error("Unauthorized request")]
-    Unauthorized,
     #[error("Failed to decode body")]
     BodyDecodingFailed,
     #[error("Webhook payload too large")]
@@ -39,17 +33,13 @@ pub enum AdapterWebhookError {
     ProviderError,
     #[error("Error in store")]
     StoreError,
-    // DuplicateRequest,
 }
 
 impl IntoResponse for AdapterWebhookError {
     fn into_response(self) -> Response {
         let status = match self {
             AdapterWebhookError::UnknownEndpointId => StatusCode::NOT_FOUND,
-            AdapterWebhookError::InvalidEndpointId => StatusCode::NOT_FOUND,
-            AdapterWebhookError::UnknownProvider(_) => StatusCode::NOT_FOUND,
             AdapterWebhookError::ProviderNotSupported(_) => StatusCode::NOT_IMPLEMENTED,
-            AdapterWebhookError::Unauthorized => StatusCode::UNAUTHORIZED,
             AdapterWebhookError::BodyDecodingFailed => StatusCode::BAD_REQUEST,
             AdapterWebhookError::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             AdapterWebhookError::EventTypeNotSupported(_) => StatusCode::BAD_REQUEST,

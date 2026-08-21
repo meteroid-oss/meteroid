@@ -101,10 +101,28 @@ async fn process_event(store: &Store, services: &Services, event: OutboxEvent) -
                 .change_context(PgmqError::HandleMessages)?;
         }
         OutboxEvent::PaymentTransactionSaved(event)
-            if event.status == PaymentStatusEnum::Settled =>
+            if event.status == PaymentStatusEnum::Settled && event.amount_refunded == 0 =>
         {
             services
                 .on_payment_transaction_settled(*event)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+        // Belt-and-suspenders: a Failed/Cancelled payment carrying `refunded_at`
+        // means settled funds were clawed back without the synchronous reversal
+        // path running — reverse the invoice. No current path emits this shape
+        // (consolidate rejects Settled→Failed as out-of-order; webhook reversals
+        // via `reverse_transaction_tx` keep status Refunded / Settled and already
+        // did their invoice work synchronously, falling through to the no-op arm).
+        OutboxEvent::PaymentTransactionSaved(event)
+            if event.refunded_at.is_some()
+                && matches!(
+                    event.status,
+                    PaymentStatusEnum::Failed | PaymentStatusEnum::Cancelled
+                ) =>
+        {
+            services
+                .on_payment_transaction_reversed(*event)
                 .await
                 .change_context(PgmqError::HandleMessages)?;
         }
@@ -120,8 +138,30 @@ async fn process_event(store: &Store, services: &Services, event: OutboxEvent) -
                 .await
                 .change_context(PgmqError::HandleMessages)?;
         }
-        // OutboxEvent::PaymentTransactionSaved(event) if event.status == PaymentStatusEnum::Failed or Cancelled ?
-        // => notify customer if failed, delete draft/checkout invoice, automated payment retry
+        // A payment attempt that ended without collecting anything. Distinct from the
+        // reversal arm above: no `refunded_at` means no money ever moved, so the invoice
+        // goes back into collection and onto the dunning ladder rather than being reopened.
+        OutboxEvent::PaymentTransactionSaved(event)
+            if matches!(
+                event.status,
+                PaymentStatusEnum::Failed | PaymentStatusEnum::Cancelled
+            ) && event.refunded_at.is_none() =>
+        {
+            services
+                .on_payment_transaction_failed(*event)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+        // Any other payment-transaction event (Ready, or a Pending intermediate state)
+        // needs no orchestration. Ack it — returning Err here would dead-letter routine
+        // lifecycle transitions after the retry budget.
+        OutboxEvent::PaymentTransactionSaved(event) => {
+            log::debug!(
+                "No invoice-orchestration action for payment transaction {} (status {:?})",
+                event.payment_transaction_id,
+                event.status
+            );
+        }
         //
         // OutboxEvent::PaymentReceiptGenerated(event) =>  {
         //     // we can send the email. Check if the invoice is paid first

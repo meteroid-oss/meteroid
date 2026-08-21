@@ -123,6 +123,8 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
         let direct_debit_connection_id = resolved.direct_debit_connection_id;
         let bank_transfer_enabled = resolved.bank_transfer_enabled;
         let bank_account_id_override = resolved.bank_account_id;
+        let card_unavailable_reason = resolved.card_unavailable_reason.clone();
+        let direct_debit_unavailable_reason = resolved.direct_debit_unavailable_reason.clone();
 
         // Fetch customer payment methods and filter to only those usable with resolved connections
         let customer_methods = self
@@ -212,6 +214,8 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
                 brand_color: branding.brand_color,
                 theme_mode: branding.theme_mode,
                 roundness: branding.roundness,
+                card_unavailable_reason,
+                direct_debit_unavailable_reason,
             }),
         }))
     }
@@ -267,9 +271,9 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             ));
         }
 
-        let transaction = self
+        let (transaction, next_action) = self
             .services
-            .complete_invoice_payment(tenant, invoice_id, payment_method_id)
+            .complete_invoice_payment(tenant, invoice_id, payment_method_id, true, None)
             .await
             .map_err(Into::<PortalInvoiceApiError>::into)?;
 
@@ -277,6 +281,8 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             transaction: Some(
                 crate::api::invoices::mapping::transactions::domain_to_server(transaction),
             ),
+            next_action: next_action
+                .map(crate::api::invoices::mapping::payment_action::domain_to_server),
         }))
     }
 }

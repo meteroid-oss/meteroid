@@ -16,6 +16,16 @@ message UpdateCustomerResponse {
 message SetupIntentRequest {
   optional string connection_id = 1;
   ConnectionTypeEnum connection_type = 2;
+  // For hosted-redirect providers (GoCardless): where the provider should
+  // redirect the customer's browser after the hosted flow completes. The
+  // backend forwards this verbatim to the provider. Ignored for embedded
+  // providers (Stripe).
+  optional string return_url = 3;
+  // When the setup is initiated to pay a specific invoice (invoice-payment
+  // page), the invoice id. For hosted-redirect providers the charge can only
+  // happen after the mandate exists, so the return handler uses this to charge
+  // the invoice once setup completes. Absent for plain "add a payment method".
+  optional string invoice_id = 4;
 }
 message SetupIntentResponse {
   SetupIntent setup_intent = 1;

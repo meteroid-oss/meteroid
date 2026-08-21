@@ -435,7 +435,13 @@ async fn test_migrate_external_to_card_enables_checkout(#[future] test_env: Test
     // === Phase 3: Customer pays via card checkout ===
     let invoice_id = invoices[0].id;
     env.services()
-        .complete_invoice_payment(TENANT_ID, invoice_id, CUST_UBER_PAYMENT_METHOD_ID)
+        .complete_invoice_payment(
+            TENANT_ID,
+            invoice_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            false,
+            None,
+        )
         .await
         .expect("Failed to pay invoice");
     env.run_outbox_and_orchestration().await;
@@ -521,7 +527,13 @@ async fn test_charge_auto_without_card_invoice_unpaid(#[future] test_env: TestEn
     // Pay both invoices
     for invoice in &invoices {
         env.services()
-            .complete_invoice_payment(TENANT_ID, invoice.id, CUST_UBER_PAYMENT_METHOD_ID)
+            .complete_invoice_payment(
+                TENANT_ID,
+                invoice.id,
+                CUST_UBER_PAYMENT_METHOD_ID,
+                false,
+                None,
+            )
             .await
             .expect("Failed to pay");
     }

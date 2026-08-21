@@ -113,6 +113,18 @@ impl Services {
                 .resolve_payment_method_for_subscription(tenant_id, subscription_id)
                 .await?;
 
+            // A payment already owns this invoice — an async debit accepted at checkout, or a
+            // settlement whose Paid status hasn't been applied yet. Enqueueing another charge
+            // would be rejected downstream by the pending-transaction guard in
+            // `process_invoice_payment_tx`, dead-lettering the message after its retry budget.
+            if self
+                .store
+                .invoice_has_live_payment(tenant_id, invoice.id)
+                .await?
+            {
+                return Ok(());
+            }
+
             match (
                 subscription_payment_method,
                 subscription.charge_automatically,
