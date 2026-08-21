@@ -1,0 +1,62 @@
+{
+  "id": "evt_test_pm_attached_1",
+  "object": "event",
+  "api_version": "2023-10-16",
+  "created": 1721728500,
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": {
+    "id": "req_test_128",
+    "idempotency_key": null
+  },
+  "type": "payment_method.attached",
+  "data": {
+    "object": {
+      "id": "pm_test_card_attach_1",
+      "object": "payment_method",
+      "allow_redisplay": "always",
+      "billing_details": {
+        "address": {
+          "city": null,
+          "country": "US",
+          "line1": null,
+          "line2": null,
+          "postal_code": "94103",
+          "state": null
+        },
+        "email": "jenny.rosen@example.com",
+        "name": "Jenny Rosen",
+        "phone": null
+      },
+      "card": {
+        "brand": "visa",
+        "checks": {
+          "address_line1_check": null,
+          "address_postal_code_check": "pass",
+          "cvc_check": "pass"
+        },
+        "country": "US",
+        "exp_month": 4,
+        "exp_year": 2028,
+        "fingerprint": "fp_test_visa_attach",
+        "funding": "credit",
+        "last4": "4242",
+        "networks": {
+          "available": [
+            "visa"
+          ],
+          "preferred": null
+        },
+        "three_d_secure_usage": {
+          "supported": true
+        },
+        "wallet": null
+      },
+      "created": 1721728490,
+      "customer": "cus_test_128",
+      "livemode": false,
+      "metadata": {},
+      "type": "card"
+    }
+  }
+}

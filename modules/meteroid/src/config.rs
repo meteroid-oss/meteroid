@@ -64,6 +64,12 @@ pub struct Config {
     #[envconfig(from = "ENABLE_MULTI_ORGANIZATION", default = "false")]
     pub multi_organization_enabled: bool,
 
+    // Kill switch for the payment reconciliation worker (polls providers for
+    // stuck-Pending transactions). On by default; a single elected replica runs
+    // it, set false to stop it entirely.
+    #[envconfig(from = "RECONCILIATION_ENABLED", default = "true")]
+    pub reconciliation_enabled: bool,
+
     #[envconfig(
         from = "SECRETS_CRYPT_KEY",
         default = "00000000000000000000000000000000"

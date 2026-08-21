@@ -48,6 +48,7 @@ pub mod invoices {
             }
             domain::enums::InvoicePaymentStatus::Errored => InvoicePaymentStatus::Errored,
             domain::enums::InvoicePaymentStatus::Unpaid => InvoicePaymentStatus::Unpaid,
+            domain::enums::InvoicePaymentStatus::Processing => InvoicePaymentStatus::Processing,
         }
     }
 
@@ -315,6 +316,7 @@ pub mod transactions {
             domain::enums::PaymentStatusEnum::Settled => PaymentStatusEnum::Settled,
             domain::enums::PaymentStatusEnum::Cancelled => PaymentStatusEnum::Cancelled,
             domain::enums::PaymentStatusEnum::Failed => PaymentStatusEnum::Failed,
+            domain::enums::PaymentStatusEnum::Refunded => PaymentStatusEnum::Refunded,
         }
     }
 
@@ -373,5 +375,34 @@ pub mod transactions {
             payment_method_type: method_type_domain_to_server(m.payment_method_type).into(),
         });
         tx
+    }
+}
+
+pub mod payment_action {
+    use meteroid_grpc::meteroid::api::invoices::v1::{
+        PaymentActionRequired, SdkAction, payment_action_required::Action,
+    };
+    use meteroid_store::domain::payment_transactions::PaymentNextAction;
+    use secrecy::ExposeSecret;
+
+    pub fn domain_to_server(value: PaymentNextAction) -> PaymentActionRequired {
+        let action = match value {
+            PaymentNextAction::RedirectToUrl { url } => Action::RedirectToUrl(url),
+            PaymentNextAction::UseSdk {
+                intent_id,
+                publishable_key,
+                client_secret,
+            } => Action::UseSdk(SdkAction {
+                intent_id,
+                publishable_key,
+                // Exposed only here, at the transient response boundary.
+                client_secret: client_secret
+                    .map(|s| s.expose_secret().to_string())
+                    .unwrap_or_default(),
+            }),
+        };
+        PaymentActionRequired {
+            action: Some(action),
+        }
     }
 }

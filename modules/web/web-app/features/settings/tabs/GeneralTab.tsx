@@ -64,7 +64,7 @@ export const GeneralTab = () => {
         toast.success('Updated successfully !')
 
         if (hasChanged) {
-          navigate(`/${organizationSlug}/${newSlug}/settings`, { replace: true })
+          navigate(`/${organizationSlug}/${newSlug}/settings/general`, { replace: true })
         }
       }
     },

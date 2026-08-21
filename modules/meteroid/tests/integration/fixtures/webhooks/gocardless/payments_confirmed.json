@@ -1,0 +1,26 @@
+{
+  "events": [
+    {
+      "id": "EV000TEST0CONF01",
+      "created_at": "2026-07-14T02:00:00.000Z",
+      "resource_type": "payments",
+      "action": "confirmed",
+      "links": {
+        "payment": "PM000TEST00001",
+        "mandate": "MD000TEST00001",
+        "creditor": "CR000TEST0001",
+        "organisation": "OR000TEST0001"
+      },
+      "details": {
+        "origin": "bank",
+        "cause": "payment_confirmed",
+        "description": "Payment confirmed by the customer's bank."
+      },
+      "metadata": {},
+      "resource_metadata": {
+        "meteroid.tenant_id": "tenant_test_gc01",
+        "meteroid.transaction_id": "txn_test_gc01"
+      }
+    }
+  ]
+}

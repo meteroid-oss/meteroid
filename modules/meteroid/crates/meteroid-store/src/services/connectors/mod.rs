@@ -1,1 +1,2 @@
+mod gocardless;
 mod stripe;

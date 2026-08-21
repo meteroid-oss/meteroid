@@ -7,11 +7,13 @@
 //! - Payment failures
 
 use chrono::NaiveDate;
+use meteroid_store::services::CheckoutPaymentOutcome;
 use rstest::rstest;
 
 use crate::data::ids::*;
 use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
 use diesel_models::enums::CycleActionEnum;
+use meteroid_store::domain::enums::{InvoiceStatusEnum, PaymentStatusEnum};
 
 // =============================================================================
 // CHECKOUT FROM PENDING ACTIVATION
@@ -40,7 +42,7 @@ async fn test_checkout_from_pending_activates_subscription(#[future] test_env: T
 
     // Complete checkout
     let mut conn = env.conn().await;
-    let (transaction, is_pending) = env
+    let (transaction, payment_outcome) = env
         .services()
         .complete_subscription_checkout_tx(
             &mut conn,
@@ -55,7 +57,11 @@ async fn test_checkout_from_pending_activates_subscription(#[future] test_env: T
         .expect("Checkout should succeed");
 
     assert!(transaction.is_some(), "Should have payment transaction");
-    assert!(!is_pending, "Payment should not be pending");
+    assert_eq!(
+        payment_outcome,
+        CheckoutPaymentOutcome::Settled,
+        "Card payment should settle inline"
+    );
 
     // Verify Active state
     let sub = env.get_subscription(sub_id).await;
@@ -210,7 +216,7 @@ async fn test_checkout_after_trial_expired_reactivates(#[future] test_env: TestE
 
     // Complete checkout after expiry
     let mut conn = env.conn().await;
-    let (transaction, is_pending) = env
+    let (transaction, payment_outcome) = env
         .services()
         .complete_subscription_checkout_tx(
             &mut conn,
@@ -225,7 +231,7 @@ async fn test_checkout_after_trial_expired_reactivates(#[future] test_env: TestE
         .expect("Checkout should succeed");
 
     assert!(transaction.is_some(), "Should have payment");
-    assert!(!is_pending);
+    assert_eq!(payment_outcome, CheckoutPaymentOutcome::Settled);
 
     // Verify reactivated
     let sub = env.get_subscription(sub_id).await;
@@ -428,7 +434,7 @@ async fn test_oncheckout_free_trial_checkout_after_expiry(#[future] test_env: Te
 
     // Complete checkout after expiry
     let mut conn = env.conn().await;
-    let (transaction, is_pending) = env
+    let (transaction, payment_outcome) = env
         .services()
         .complete_subscription_checkout_tx(
             &mut conn,
@@ -443,7 +449,11 @@ async fn test_oncheckout_free_trial_checkout_after_expiry(#[future] test_env: Te
         .expect("Checkout should succeed");
 
     assert!(transaction.is_some(), "Should have payment transaction");
-    assert!(!is_pending, "Payment should not be pending");
+    assert_eq!(
+        payment_outcome,
+        CheckoutPaymentOutcome::Settled,
+        "Card payment should settle inline"
+    );
 
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
@@ -535,4 +545,124 @@ async fn test_oncheckout_payment_failure_at_checkout(#[future] test_env: TestEnv
             "No invoice should be paid after failed checkout"
         );
     }
+}
+
+// =============================================================================
+// ASYNC RAILS (SEPA/ACH/BACS DIRECT DEBIT)
+// =============================================================================
+
+/// A direct debit accepted by the provider is a completed sale even though the funds
+/// take days to arrive: the invoice becomes a real document and the customer gets
+/// access immediately, with the money marked as in flight.
+#[rstest]
+#[tokio::test]
+async fn test_checkout_with_accepted_direct_debit_finalizes_and_activates(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    env.seed_payments().await;
+    env.seed_uber_sepa_payment_method().await;
+
+    // Direct debit never settles inline.
+    env.set_mock_charge_behavior("pending").await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID) // $35/month
+        .on_checkout()
+        .no_trial()
+        .auto_charge()
+        .create(env.services())
+        .await;
+
+    let mut conn = env.conn().await;
+    let (transaction, payment_outcome) = env
+        .services()
+        .complete_subscription_checkout_tx(
+            &mut conn,
+            TENANT_ID,
+            sub_id,
+            CUST_UBER_SEPA_METHOD_ID,
+            3500,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("Checkout should succeed on an accepted debit");
+    drop(conn);
+
+    assert_eq!(
+        payment_outcome,
+        CheckoutPaymentOutcome::AcceptedInFlight,
+        "An accepted debit is neither settled nor awaiting customer action"
+    );
+    let transaction = transaction.expect("Should have payment transaction");
+    assert_eq!(transaction.status, PaymentStatusEnum::Pending);
+
+    // The document is contractual now — not held hostage to the bank's clearing time.
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .is_finalized_processing()
+        .has_total(3500);
+
+    // And the customer has what they paid for.
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .is_active()
+        .has_pending_checkout(false);
+}
+
+/// Card 3DS must be untouched by the async-rail change: an unauthenticated charge is
+/// not an accepted one, so nothing is finalized or activated.
+#[rstest]
+#[tokio::test]
+async fn test_checkout_with_card_requiring_action_stays_draft(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+
+    env.set_mock_charge_behavior("requires_action").await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+        .on_checkout()
+        .no_trial()
+        .auto_charge()
+        .create(env.services())
+        .await;
+
+    let mut conn = env.conn().await;
+    let (_transaction, payment_outcome) = env
+        .services()
+        .complete_subscription_checkout_tx(
+            &mut conn,
+            TENANT_ID,
+            sub_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            3500,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("Checkout should return awaiting-action rather than failing");
+    drop(conn);
+
+    assert_eq!(
+        payment_outcome,
+        CheckoutPaymentOutcome::AwaitingCustomerAction,
+        "3DS is not acceptance"
+    );
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices
+        .assert()
+        .invoice_at(0)
+        .has_status(InvoiceStatusEnum::Draft);
+
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .is_pending_activation();
 }

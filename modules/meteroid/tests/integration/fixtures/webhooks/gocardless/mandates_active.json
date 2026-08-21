@@ -1,0 +1,26 @@
+{
+  "events": [
+    {
+      "id": "EV000TEST0MDAC01",
+      "created_at": "2026-07-15T08:00:00.000Z",
+      "resource_type": "mandates",
+      "action": "active",
+      "links": {
+        "mandate": "MD000TEST00002",
+        "customer": "CU000TEST0001",
+        "organisation": "OR000TEST0001"
+      },
+      "details": {
+        "origin": "gocardless",
+        "cause": "mandate_activated",
+        "scheme": "sepa_core"
+      },
+      "metadata": {},
+      "resource_metadata": {
+        "meteroid.tenant_id": "tenant_test_gc01",
+        "meteroid.connection_id": "conn_test_gc01",
+        "meteroid.customer_id": "cust_test_gc01"
+      }
+    }
+  ]
+}

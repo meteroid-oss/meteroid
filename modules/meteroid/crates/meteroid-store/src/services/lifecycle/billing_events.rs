@@ -1,15 +1,22 @@
 use crate::StoreResult;
 use crate::domain::ScheduledEventTypeEnum;
+use crate::domain::customer_payment_methods::ResolvedPaymentMethod;
+use crate::domain::pgmq::{PaymentRequestEvent, PgmqMessageNew, PgmqQueue};
 use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventData};
 use crate::domain::slot_transactions::SlotTransactionNewInternal;
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
+use crate::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
+use crate::repositories::pgmq::PgmqInterface;
 use crate::services::Services;
 use crate::store::PgConn;
 use crate::utils::errors::format_error_chain;
 use chrono::{Duration, NaiveDateTime, Utc};
-use diesel_models::enums::{SubscriptionEventType, SubscriptionStatusEnum};
+use diesel_models::enums::{InvoiceStatusEnum, SubscriptionEventType, SubscriptionStatusEnum};
+use diesel_models::invoices::InvoiceRow;
+use diesel_models::payments::PaymentTransactionRow;
 use diesel_models::scheduled_events::ScheduledEventRow;
+use error_stack::Report;
 use futures::stream::StreamExt;
 use scoped_futures::ScopedFutureExt;
 
@@ -194,12 +201,62 @@ impl Services {
         Ok(())
     }
 
+    /// Dunning: re-attempt collection on an invoice whose previous payment failed.
+    ///
+    /// Enqueues onto the same durable payment path as an automatic first charge rather
+    /// than charging inline, so a provider outage retries through pgmq instead of failing
+    /// the scheduled event. The next rung of the ladder is scheduled by the failure
+    /// handler when this attempt fails in turn.
     async fn process_retry_payment(
         &self,
-        _conn: &mut PgConn,
-        _event: &ScheduledEvent,
+        conn: &mut PgConn,
+        event: &ScheduledEvent,
     ) -> StoreResult<()> {
-        // TODO
+        let ScheduledEventData::RetryPayment { invoice_id } = event.event_data else {
+            log::error!(
+                "Unexpected event data for type RetryPayment: {:?}, event_id={}",
+                event.event_data,
+                event.id
+            );
+            return Ok(());
+        };
+
+        let invoice = InvoiceRow::find_by_id(conn, event.tenant_id, invoice_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        // Collected, written off, or cancelled between scheduling and now.
+        if invoice.status != InvoiceStatusEnum::Finalized || invoice.amount_due <= 0 {
+            return Ok(());
+        }
+
+        // Someone got there first (portal payment, manual charge, or a racing retry).
+        if PaymentTransactionRow::exists_live_for_invoice(conn, invoice_id, event.tenant_id).await?
+        {
+            return Ok(());
+        }
+
+        let ResolvedPaymentMethod::CustomerPaymentMethod(payment_method_id) = self
+            .store
+            .resolve_payment_method_for_subscription(event.tenant_id, event.subscription_id)
+            .await?
+        else {
+            // No automatic method (never configured, or the mandate was revoked). Nothing
+            // to retry against — the invoice stays in collection for the portal.
+            log::info!(
+                "No automatic payment method for invoice {}; stopping dunning",
+                invoice_id
+            );
+            return Ok(());
+        };
+
+        let msg: PgmqMessageNew =
+            PaymentRequestEvent::new(event.tenant_id, invoice_id, payment_method_id).try_into()?;
+
+        self.store
+            .pgmq_send_batch_tx(conn, PgmqQueue::PaymentRequest, vec![msg])
+            .await?;
+
         Ok(())
     }
 

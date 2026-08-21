@@ -93,6 +93,8 @@ export const ManageConnectionsModal = ({
         return 'Hubspot'
       case ConnectorProviderEnum.PENNYLANE:
         return 'Pennylane'
+      case ConnectorProviderEnum.GOCARDLESS:
+        return 'GoCardless'
       default:
         return 'Unknown'
     }
@@ -173,10 +175,10 @@ export const ManageConnectionsModal = ({
                 <Separator />
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label className="text-sm font-medium">
+                    <Label className="text-sm font-medium">{connector.alias}</Label>
+                    <div className="text-xs text-muted-foreground">
                       {getProviderName(connector.provider)}
-                    </Label>
-                    <div className="text-xs text-muted-foreground">{connector.alias}</div>
+                    </div>
                   </div>
                   {hasExistingConnection && (
                     <Button

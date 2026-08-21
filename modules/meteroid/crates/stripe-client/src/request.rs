@@ -3,9 +3,7 @@ use std::time::Duration;
 
 #[derive(Clone, Debug)]
 pub enum RetryStrategy {
-    /// No retries
     NoRetry,
-    /// Run it with given params.
     Retry(RetryParams),
 }
 
@@ -60,17 +58,14 @@ pub enum Outcome {
 
 #[derive(Clone, Debug)]
 pub struct RetryParams {
-    /// max number of retries.
     pub count: u32,
-    /// back-off Strategy
     pub backoff: Backoff,
 }
 
 #[derive(Clone, Debug)]
 pub enum Backoff {
-    /// fixed delays between retries
     Fixed(Duration),
-    /// exponential delays between retries with initial duration
+    /// Exponential delays growing from the given initial duration.
     Exponential(Duration),
 }
 

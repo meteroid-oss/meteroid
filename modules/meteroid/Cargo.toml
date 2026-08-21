@@ -84,6 +84,7 @@ typetag = { workspace = true }
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 image = { workspace = true }
 meteroid-store.workspace = true
+distributed-lock.workspace = true
 meteroid-invoicing.workspace = true
 meteroid-mailer.workspace = true
 rand.workspace = true
@@ -113,6 +114,7 @@ fred = { workspace = true }
 nonzero = "0.2.0"
 
 [dev-dependencies]
+hmac-sha256.workspace = true
 rstest = { workspace = true }
 testcontainers = { workspace = true }
 tokio-util = { workspace = true }

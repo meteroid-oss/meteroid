@@ -4,7 +4,7 @@ use thiserror::Error;
 
 use crate::errors::ObjectStoreError;
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
-use meteroid_store::adapters::payment_service_providers::PaymentProviderError;
+use meteroid_store::adapters::payment::ConnectorError;
 use meteroid_store::errors::StoreError;
 
 #[derive(Debug, Error, ErrorAsTonic)]
@@ -43,7 +43,7 @@ impl From<Report<StoreError>> for PortalInvoiceApiError {
             StoreError::PaymentProviderError => {
                 let provider_error = value
                     .frames()
-                    .find_map(|f| f.downcast_ref::<PaymentProviderError>());
+                    .find_map(|f| f.downcast_ref::<ConnectorError>());
                 match provider_error {
                     Some(e) => Self::InternalError(e.to_string()),
                     None => Self::InternalError(

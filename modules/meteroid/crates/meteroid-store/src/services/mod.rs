@@ -36,6 +36,7 @@ mod webhooks;
 use crate::domain::{PaymentTransaction, Subscription};
 pub use crate::domain::{SlotUpgradeBillingMode, UpdateSlotsResult};
 use crate::store::PgConn;
+pub use edge::CheckoutPaymentOutcome;
 pub use invoices::{CustomerDetailsUpdate, InvoiceBillingMode};
 pub use lifecycle::CycleTransitionResult;
 pub use quotes::QuoteConversionResult;
@@ -167,7 +168,11 @@ impl ServicesEdge {
         delta: i32,
         payment_method_id: common_domain::ids::CustomerPaymentMethodId,
         at_ts: Option<chrono::NaiveDateTime>,
-    ) -> StoreResult<(crate::domain::PaymentTransaction, i32)> {
+    ) -> StoreResult<(
+        crate::domain::PaymentTransaction,
+        i32,
+        Option<crate::domain::payment_transactions::PaymentNextAction>,
+    )> {
         self.services
             .complete_slot_upgrade_checkout(
                 tenant_id,

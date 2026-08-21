@@ -687,9 +687,10 @@ pub(crate) struct AddonPurchaseInvoiceResult {
 }
 
 impl Services {
-    /// Computes prorated invoice content for an addon purchase.
-    /// Sets billing_start_date=now and cycle_index=0 on a minimal subscription snapshot
-    /// so that compute_invoice produces line items for the new addons only.
+    /// Computes prorated invoice content for an addon purchase, prorated from `as_of`
+    /// (today for an interactive checkout; the original charge date when an async
+    /// payment materializes later). Sets billing_start_date=as_of and cycle_index=0 on
+    /// a minimal subscription snapshot so compute_invoice yields the new addons only.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn compute_addon_purchase_invoice(
         &self,
@@ -700,8 +701,9 @@ impl Services {
         addons: &[AddOn],
         products_by_id: &HashMap<ProductId, Product>,
         prices_by_id: &HashMap<PriceId, Price>,
+        as_of: chrono::NaiveDate,
     ) -> Result<AddonPurchaseInvoiceResult, StoreErrorReport> {
-        let now = Utc::now().date_naive();
+        let now = as_of;
 
         let mut addon_details = self
             .store

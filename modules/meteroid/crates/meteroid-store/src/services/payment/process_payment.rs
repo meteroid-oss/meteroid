@@ -1,8 +1,10 @@
 use crate::StoreResult;
-use crate::adapters::payment_service_providers::initialize_payment_provider;
+use crate::adapters::payment::bridge::payment_intent_from_outcome;
+use crate::adapters::payment::initialize_payment_connector;
+use crate::adapters::payment::model::{ChargeRequest, IdempotencyKey};
 use crate::domain::connectors::Connector;
 use crate::domain::entity_activity::Actor;
-use crate::domain::payment_transactions::{PaymentIntent, PaymentTransaction};
+use crate::domain::payment_transactions::{PaymentIntent, PaymentNextAction, PaymentTransaction};
 use crate::errors::StoreError;
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::services::Services;
@@ -24,13 +26,24 @@ const PAYMENT_PROVIDER_TIMEOUT: Duration = Duration::from_secs(45);
 
 impl Services {
     /// Creates a payment intent and the associated payment transaction.
+    #[allow(clippy::too_many_arguments)]
     pub(in crate::services) async fn process_invoice_payment_tx(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         payment_method_id: CustomerPaymentMethodId,
-    ) -> StoreResult<PaymentTransaction> {
+        // True when a customer triggered this payment (portal), so the settled
+        // payment is attributed to them; false for system auto-charges.
+        customer_initiated: bool,
+        on_session: bool,
+        // Stable, caller-supplied seed for the provider idempotency key. When
+        // set, a retry that mints a fresh transaction id still reuses the SAME
+        // provider key, so the provider dedupes instead of double-charging. Only
+        // the webhook-driven off-session invoice charge (which can be retried by
+        // pgmq) passes this; interactive callers pass None (per-transaction key).
+        idempotency_ref: Option<String>,
+    ) -> StoreResult<(PaymentTransaction, Option<PaymentNextAction>)> {
         // Get the invoice
         let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
             .await
@@ -73,7 +86,9 @@ impl Services {
 
         // Calculate total of active payments (pending/ready/settled) to prevent over-payment.
         // This check, combined with SELECT FOR UPDATE on the invoice, ensures atomicity
-        // in a distributed environment.
+        // in a distributed environment. Refunds are netted out (mirroring
+        // `recompute_amount_due_from_settled_payments`) so a partially refunded
+        // settlement doesn't block collecting the reopened balance.
         let active_payment_sum: i64 = existing_transactions
             .iter()
             .filter(|tx| {
@@ -84,7 +99,7 @@ impl Services {
                         | PaymentStatusEnum::Settled
                 )
             })
-            .map(|tx| tx.transaction.amount)
+            .map(|tx| tx.transaction.amount - tx.transaction.amount_refunded)
             .sum();
 
         // Prevent payment if invoice is already fully covered
@@ -104,7 +119,19 @@ impl Services {
             ))));
         }
 
-        // Create a payment transaction
+        // Persist the Pending row BEFORE the external charge so the provider
+        // idempotency key `charge:{id}` is derived from a row that already exists:
+        // a retry that reuses this id can never double-charge.
+        //
+        // Residual window: this insert shares the surrounding DB transaction. When
+        // the invoice is created in that same (uncommitted) transaction — the
+        // checkout `FinalizeAfterPayment` path — a fresh connection can't see it
+        // (FK invisible), so the row genuinely can't be committed ahead of the
+        // charge. If the surrounding transaction later rolls back after the charge
+        // succeeded, the row is lost; recovery is via the provider webhook /
+        // reconciliation (which re-drive from the provider's own record). A retry
+        // through this function mints a NEW id only if the row did not survive —
+        // that is the uncovered window, bounded to a crash between charge and commit.
         let transaction = PaymentTransactionRowNew {
             id: PaymentTransactionId::new(),
             tenant_id,
@@ -119,6 +146,8 @@ impl Services {
             processed_at: None,
             checkout_session_id: None,
             pending_plan_version_id: None,
+            next_action: None,
+            initiated_by_customer_id: customer_initiated.then_some(invoice.invoice.customer_id),
         };
 
         let inserted_transaction = transaction
@@ -135,8 +164,14 @@ impl Services {
                 &inserted_transaction.id,
                 inserted_transaction.amount as u64,
                 inserted_transaction.currency.clone(),
+                on_session,
+                idempotency_ref.as_deref(),
             )
             .await?;
+
+        // Transient next_action (carries the client secret) — surfaced to the
+        // on-session caller so the portal can complete 3DS; never persisted.
+        let next_action = payment_intent.next_action.clone();
 
         // Consolidate the transaction
         let tx = self
@@ -149,9 +184,10 @@ impl Services {
             )
             .await?;
 
-        Ok(tx)
+        Ok((tx, next_action))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_payment_intent(
         &self,
         conn: &mut PgConn,
@@ -160,6 +196,8 @@ impl Services {
         transaction_id: &PaymentTransactionId,
         amount: u64,
         currency: String,
+        on_session: bool,
+        idempotency_ref: Option<&str>,
     ) -> StoreResult<PaymentIntent> {
         let method = CustomerPaymentMethodRow::get_by_id(conn, tenant_id, payment_method_id)
             .await
@@ -172,20 +210,33 @@ impl Services {
 
         let connector = Connector::from_row(&self.store.settings.crypt_key, connection.connector)?;
 
-        let provider = initialize_payment_provider(&connector)
+        let connector_impl = initialize_payment_connector(&connector)
             .change_context(StoreError::PaymentProviderError)?;
 
-        let payment_intent = tokio::time::timeout(
+        // Provider idempotency key. Default: the transaction id, so the client's
+        // own internal retries within this attempt dedupe. When the caller passes
+        // a stable `idempotency_ref` (the webhook charge does — see below), use
+        // that instead: it survives a full DB-transaction rollback + pgmq retry,
+        // where a fresh transaction id would NOT, and lets the provider dedupe a
+        // charge it already processed rather than creating a second one.
+        let idempotency_key = match idempotency_ref {
+            Some(seed) => IdempotencyKey::new(format!("charge:{seed}")),
+            None => IdempotencyKey::new(format!("charge:{}", transaction_id.as_base62())),
+        };
+        let request = ChargeRequest {
+            transaction_id: *transaction_id,
+            customer_external_id: &connection.external_customer_id,
+            payment_method_external_id: &method.external_payment_method_id,
+            payment_method_type: method.payment_method_type.clone().into(),
+            amount_minor: amount as i64,
+            currency: &currency,
+            idempotency_key,
+            on_session,
+        };
+
+        let outcome = tokio::time::timeout(
             PAYMENT_PROVIDER_TIMEOUT,
-            provider.create_payment_intent_in_provider(
-                &connector,
-                transaction_id,
-                &connection.external_customer_id,
-                &method.external_payment_method_id,
-                &method.payment_method_type.into(),
-                amount as i64,
-                &currency,
-            ),
+            connector_impl.charge_off_session(&connector, request),
         )
         .await
         .map_err(|_| {
@@ -194,6 +245,12 @@ impl Services {
         })?
         .change_context_lazy(|| StoreError::PaymentProviderError)?;
 
-        Ok(payment_intent)
+        Ok(payment_intent_from_outcome(
+            outcome,
+            *transaction_id,
+            *tenant_id,
+            amount as i64,
+            currency,
+        ))
     }
 }

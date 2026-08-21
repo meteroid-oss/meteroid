@@ -48,7 +48,13 @@ export function getCheckoutPaymentAvailability(config: {
   directDebitConnectionId?: string
   bankAccount?: BankAccount
 }): PaymentAvailability {
-  const { subscriptionStatus, checkoutType, cardConnectionId, directDebitConnectionId, bankAccount } = config
+  const {
+    subscriptionStatus,
+    checkoutType,
+    cardConnectionId,
+    directDebitConnectionId,
+    bankAccount,
+  } = config
 
   // For plan changes and addon purchases, the subscription is expected to be active — skip the active check
   if (
@@ -155,6 +161,15 @@ export function getInvoicePaymentAvailability(config: {
     }
   }
 
+  // A payment was accepted by the provider and is awaiting settlement
+  if (paymentStatus === InvoicePaymentStatus.PROCESSING) {
+    return {
+      type: 'readonly',
+      reason: 'pending_payment',
+      displayTransactions: true,
+    }
+  }
+
   // Check for pending transactions
   if (transactions && transactions.length > 0) {
     const hasPendingTransaction = transactions.some(
@@ -212,4 +227,3 @@ export function getInvoicePaymentAvailability(config: {
     bankAccount,
   }
 }
- 

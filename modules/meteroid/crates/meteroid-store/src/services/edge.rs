@@ -1,13 +1,15 @@
 #![allow(clippy::too_many_arguments)]
 use crate::StoreResult;
-use crate::domain::checkout_sessions::{CheckoutCompletionResult, CheckoutType};
+use crate::domain::checkout_sessions::{
+    CheckoutCompletionResult, CheckoutSessionStatus, CheckoutType,
+};
 use crate::domain::entity_activity::Actor;
 use crate::domain::enums::{BillingPeriodEnum, PaymentStatusEnum};
 use crate::domain::outbox_event::{
     InvoiceEvent, InvoicePdfGeneratedEvent, OutboxEvent, PaymentTransactionEvent,
     QuoteConvertedEvent,
 };
-use crate::domain::payment_transactions::PaymentTransaction;
+use crate::domain::payment_transactions::{PaymentNextAction, PaymentTransaction};
 use crate::domain::scheduled_events::ScheduledEventNew;
 use crate::domain::subscriptions::PaymentMethodsConfig;
 use crate::domain::{
@@ -101,12 +103,16 @@ impl ServicesEdge {
         &self,
         tenant_id: &TenantId,
         customer_connection_id: &CustomerConnectionId,
+        invoice_id: Option<InvoiceId>,
+        return_url: Option<String>,
     ) -> StoreResult<SetupIntent> {
         self.services
             .create_setup_intent(
                 &mut self.get_conn().await?,
                 tenant_id,
                 customer_connection_id,
+                invoice_id,
+                return_url,
             )
             .await
     }
@@ -116,6 +122,7 @@ impl ServicesEdge {
         tenant_id: &TenantId,
         customer_connection_id: &CustomerConnectionId,
         connection_type: crate::domain::ConnectionTypeEnum,
+        return_url: Option<String>,
     ) -> StoreResult<SetupIntent> {
         self.services
             .create_setup_intent_for_type(
@@ -123,10 +130,90 @@ impl ServicesEdge {
                 tenant_id,
                 customer_connection_id,
                 connection_type,
+                return_url,
             )
             .await
     }
 
+    /// Complete a GoCardless Billing Request Flow after the customer returns
+    /// from the hosted authorisation URL. See
+    /// [`crate::services::payment::gocardless_return`] for the full design.
+    pub async fn complete_gocardless_setup(
+        &self,
+        connection_id: CustomerConnectionId,
+        billing_request_id: String,
+    ) -> StoreResult<crate::domain::CustomerPaymentMethod> {
+        self.services
+            .complete_gocardless_setup(connection_id, billing_request_id)
+            .await
+    }
+
+    /// Reconcile a single pending payment transaction against the provider.
+    /// Used by the periodic reconciliation worker.
+    pub async fn reconcile_pending_transaction(
+        &self,
+        transaction_id: common_domain::ids::PaymentTransactionId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        self.services
+            .reconcile_pending_transaction(transaction_id, tenant_id)
+            .await
+    }
+
+    /// List up to `limit` payment transactions that have been Pending
+    /// (with a recorded `provider_transaction_id`) for longer than the
+    /// caller-supplied threshold. The reconciliation worker uses this to
+    /// find candidates to poll. Returns oldest-first.
+    ///
+    /// Returns lightweight projections to keep the worker decoupled from
+    /// `diesel-models`.
+    pub async fn list_pending_payment_transactions(
+        &self,
+        older_than: chrono::DateTime<chrono::Utc>,
+        limit: i64,
+    ) -> StoreResult<Vec<PendingTransactionRef>> {
+        let mut conn = self.get_conn().await?;
+        let rows = diesel_models::payments::PaymentTransactionRow::list_pending_with_provider_id(
+            &mut conn, older_than, limit,
+        )
+        .await
+        .map_err(|err| StoreError::DatabaseError(err.error))?;
+        Ok(rows
+            .into_iter()
+            .map(|r| PendingTransactionRef {
+                id: r.id,
+                tenant_id: r.tenant_id,
+                created_at: r.created_at,
+            })
+            .collect())
+    }
+}
+
+/// How a checkout payment resolved, which decides what the customer gets now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckoutPaymentOutcome {
+    /// Funds captured inline (card), or nothing to charge. Checkout is done.
+    Settled,
+    /// Delayed-notification rail: the mandate is signed and the debit submitted, so the
+    /// sale is final and the subscription activates now, but the funds land days later.
+    /// Checkout is done; the invoice carries `payment_status = Processing` until then.
+    AcceptedInFlight,
+    /// The customer still has to do something (card 3DS). Nothing is activated and the
+    /// invoice stays draft until the webhook reports settlement.
+    AwaitingCustomerAction,
+}
+
+/// Lightweight projection of a `PaymentTransactionRow` for the reconciliation
+/// worker. Kept outside `diesel_models` so the worker (which lives in
+/// `meteroid`, not `meteroid-store`) doesn't have to depend on the DB layer.
+#[derive(Debug, Clone)]
+pub struct PendingTransactionRef {
+    pub id: common_domain::ids::PaymentTransactionId,
+    pub tenant_id: TenantId,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl ServicesEdge {
     pub async fn refresh_invoice_data(
         &self,
         invoice_id: InvoiceId,
@@ -185,12 +272,9 @@ impl ServicesEdge {
     /// - Returns (None, false)
     ///
     /// For paid subscriptions or paid trials:
-    /// - Creates and finalizes an invoice (or draft if payment is pending)
+    /// - Creates and finalizes an invoice (or draft if the customer still has to act)
     /// - Processes payment
-    /// - Returns (Some(PaymentTransaction), is_pending)
-    ///
-    /// The `is_pending` flag indicates if the payment is still pending (async payment method).
-    /// Caller should handle this by marking the checkout session as AwaitingPayment.
+    /// - Returns the transaction (if any) and how the payment resolved
     pub async fn complete_subscription_checkout_tx(
         &self,
         conn: &mut PgConn,
@@ -200,7 +284,7 @@ impl ServicesEdge {
         total_amount_confirmation: u64,
         currency_confirmation: String,
         coupon_code: Option<String>,
-    ) -> Result<(Option<PaymentTransaction>, bool), StoreErrorReport> {
+    ) -> Result<(Option<PaymentTransaction>, CheckoutPaymentOutcome), StoreErrorReport> {
         let subscription_row =
             SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
                 .await
@@ -296,7 +380,7 @@ impl ServicesEdge {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-            Ok((None, false))
+            Ok((None, CheckoutPaymentOutcome::Settled))
         } else {
             let maybe_invoice = self
                 .services
@@ -319,15 +403,28 @@ impl ServicesEdge {
             // path: no payment, just activate. The client must have confirmed a zero amount.
             let (payment_transaction, current_period_start) = match maybe_invoice {
                 Some(detailed_invoice) => {
+                    // Billing finalizes the invoice when the charge settled inline (card) or
+                    // when an async debit was accepted by the provider. Either way the sale is
+                    // done and the customer gets access now; a still-draft invoice means the
+                    // customer has an action outstanding (card 3DS).
+                    let payment_accepted = !detailed_invoice.invoice.can_edit();
+                    let invoice_date = detailed_invoice.invoice.invoice_date;
                     let payment_transaction = detailed_invoice.transactions.into_iter().next();
 
                     // Handle payment status explicitly.
                     if let Some(ref txn) = payment_transaction {
                         match txn.status {
+                            PaymentStatusEnum::Pending if !payment_accepted => {
+                                // Card 3DS: the customer still has to authenticate.
+                                // Activation happens via the webhook once it settles.
+                                return Ok((
+                                    payment_transaction,
+                                    CheckoutPaymentOutcome::AwaitingCustomerAction,
+                                ));
+                            }
                             PaymentStatusEnum::Pending => {
-                                // Payment is pending (e.g., async payment method like SEPA).
-                                // Return early; activation happens via webhook.
-                                return Ok((payment_transaction, true));
+                                // Accepted async debit — activate below. The settle handler's
+                                // activation is a no-op then (guarded on `activated_at`).
                             }
                             PaymentStatusEnum::Settled => {
                                 // Payment succeeded, proceed with activation below.
@@ -345,10 +442,15 @@ impl ServicesEdge {
                                 return Err(Report::new(StoreError::CheckoutError)
                                     .attach("Payment was not processed correctly"));
                             }
+                            PaymentStatusEnum::Refunded => {
+                                // A just-charged checkout payment can't already be reversed.
+                                return Err(Report::new(StoreError::CheckoutError)
+                                    .attach("Payment was reversed during checkout"));
+                            }
                         }
                     }
 
-                    (payment_transaction, detailed_invoice.invoice.invoice_date)
+                    (payment_transaction, invoice_date)
                 }
                 None => {
                     if total_amount_confirmation != 0 {
@@ -425,7 +527,13 @@ impl ServicesEdge {
             }
 
             // Return transaction if any (None for zero amount case)
-            Ok((payment_transaction, false))
+            let outcome = match payment_transaction {
+                Some(ref txn) if txn.status == PaymentStatusEnum::Pending => {
+                    CheckoutPaymentOutcome::AcceptedInFlight
+                }
+                _ => CheckoutPaymentOutcome::Settled,
+            };
+            Ok((payment_transaction, outcome))
         }
     }
 
@@ -434,12 +542,27 @@ impl ServicesEdge {
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         payment_method_id: CustomerPaymentMethodId,
-    ) -> StoreResult<PaymentTransaction> {
+        on_session: bool,
+        // Stable provider-idempotency seed; see `process_invoice_payment_tx`.
+        // The webhook off-session charge passes one so a pgmq retry can't
+        // double-charge; interactive callers pass None.
+        idempotency_ref: Option<String>,
+    ) -> StoreResult<(PaymentTransaction, Option<PaymentNextAction>)> {
         self.store
             .transaction(|conn| {
                 async move {
                     self.services
-                        .process_invoice_payment_tx(conn, tenant_id, invoice_id, payment_method_id)
+                        .process_invoice_payment_tx(
+                            conn,
+                            tenant_id,
+                            invoice_id,
+                            payment_method_id,
+                            // Both edge callers (portal pay + mandate-setup
+                            // webhook charge) act on the customer's behalf.
+                            true,
+                            on_session,
+                            idempotency_ref,
+                        )
                         .await
                 }
                 .scope_boxed()
@@ -1013,6 +1136,42 @@ impl ServicesEdge {
         self.services.on_payment_transaction_settled(event).await
     }
 
+    pub async fn on_payment_transaction_failed(
+        &self,
+        event: PaymentTransactionEvent,
+    ) -> StoreResult<()> {
+        self.services.on_payment_transaction_failed(event).await
+    }
+
+    pub async fn on_payment_transaction_reversed(
+        &self,
+        event: PaymentTransactionEvent,
+    ) -> StoreResult<()> {
+        self.services.on_payment_transaction_reversed(event).await
+    }
+
+    /// GoCardless `billing_requests.fulfilled` for a combined mandate+payment
+    /// CHECKOUT Billing Request: bind the created payment to the Pending checkout
+    /// transaction and materialize the subscription/invoice in-flight.
+    pub async fn on_hosted_checkout_fulfilled(
+        &self,
+        tenant_id: TenantId,
+        checkout_session_id: CheckoutSessionId,
+        payment_method_id: CustomerPaymentMethodId,
+        provider_payment_id: Option<String>,
+        processed_at: Option<chrono::NaiveDateTime>,
+    ) -> StoreResult<()> {
+        self.services
+            .on_hosted_checkout_fulfilled(
+                tenant_id,
+                checkout_session_id,
+                payment_method_id,
+                provider_payment_id,
+                processed_at,
+            )
+            .await
+    }
+
     pub async fn finalize_invoice(
         &self,
         actor: Actor,
@@ -1151,15 +1310,204 @@ impl ServicesEdge {
         Ok(())
     }
 
-    /// For SelfServe checkout type :
-    /// - Validates payment / charges customer FIRST
-    /// - Only creates subscription if payment succeeds
-    /// - Marks session completed
-    ///
-    /// For SubscriptionActivation checkout type:
-    /// - Uses the linked subscription (already created via OnCheckout)
-    /// - Processes payment (activates the subscription)
-    /// - Marks session completed
+    /// Start a hosted GoCardless checkout: one combined mandate+payment Billing
+    /// Request + a Pending checkout tx, returning `AwaitingPayment` + a
+    /// `RedirectToUrl`. `billing_requests.fulfilled` materializes the sub in-flight.
+    pub async fn initiate_hosted_checkout(
+        &self,
+        tenant_id: TenantId,
+        checkout_session_id: CheckoutSessionId,
+        connection_id: common_domain::ids::CustomerConnectionId,
+        amount_minor: i64,
+        currency: String,
+        coupon_code: Option<String>,
+        return_url: Option<String>,
+    ) -> Result<CheckoutCompletionResult, StoreErrorReport> {
+        use crate::domain::payment_transactions::PaymentNextAction;
+
+        if amount_minor <= 0 {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "Hosted checkout requires a positive first-payment amount".to_string(),
+            )));
+        }
+
+        let result = self
+            .store
+            .transaction(|conn| {
+                async move {
+                    let session: CheckoutSession = CheckoutSessionRow::get_by_id_for_update(
+                        conn,
+                        tenant_id,
+                        checkout_session_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+                    .into();
+
+                    if !session.can_complete() {
+                        if session.is_completed() {
+                            return Err(Report::new(StoreError::InvalidArgument(
+                                "Checkout session has already been completed".to_string(),
+                            )));
+                        }
+                        if session.is_expired() {
+                            return Err(Report::new(StoreError::InvalidArgument(
+                                "Checkout session has expired".to_string(),
+                            )));
+                        }
+                        return Err(Report::new(StoreError::InvalidArgument(
+                            "Checkout session is not in a valid state for completion".to_string(),
+                        )));
+                    }
+
+                    // One attempt: if a hosted attempt is already in flight (session
+                    // AwaitingPayment with a live Pending checkout tx), return it and
+                    // its stored redirect instead of minting a second Billing Request.
+                    // The session row is FOR UPDATE, so concurrent clicks serialize.
+                    if session.status == CheckoutSessionStatus::AwaitingPayment
+                        && let Some((transaction, next_action)) = self
+                            .services
+                            .find_active_checkout_transaction(conn, tenant_id, checkout_session_id)
+                            .await?
+                    {
+                        return Ok(CheckoutCompletionResult::AwaitingPayment {
+                            transaction,
+                            next_action,
+                        });
+                    }
+
+                    // Persist the coupons this payment is priced with onto the
+                    // session, so the deferred materialization on
+                    // `billing_requests.fulfilled` rebuilds the subscription with
+                    // the SAME coupons the amount was computed from. Without this a
+                    // coupon applied only at the pay step (never persisted) would be
+                    // dropped at fulfillment and the in-flight amount check would
+                    // reject the webhook. Resolved the same way the settled path
+                    // resolves them, so both phases agree.
+                    let effective_coupon_code = coupon_code.or(session.coupon_code.clone());
+                    let resolved_coupon_ids = self
+                        .services
+                        .resolve_coupon_ids_for_checkout_tx(
+                            conn,
+                            tenant_id,
+                            &session,
+                            effective_coupon_code.clone(),
+                        )
+                        .await?;
+                    // Same gate as the synchronous confirm: the fulfilled webhook persists
+                    // the subscription with coupon validation SKIPPED, so an expired /
+                    // exhausted / wrong-currency coupon must be refused here, up front.
+                    let _locked_coupons = self
+                        .services
+                        .lock_and_validate_coupons_for_checkout(
+                            conn,
+                            tenant_id,
+                            session.customer_id,
+                            &resolved_coupon_ids,
+                            &currency,
+                        )
+                        .await?;
+                    CheckoutSessionRow::set_coupons(
+                        conn,
+                        tenant_id,
+                        checkout_session_id,
+                        effective_coupon_code,
+                        resolved_coupon_ids.into_iter().map(Some).collect(),
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                    let transaction_id = common_domain::ids::PaymentTransactionId::new();
+
+                    // Combined mandate+payment Billing Request. The amount rides in
+                    // the payment_request; the checkout session id in the BR/mandate
+                    // metadata; our transaction id in the payment_request metadata so
+                    // the payments.* webhooks resolve straight to this row.
+                    let checkout_ctx = crate::adapters::payment::model::HostedCheckoutContext {
+                        tenant_id: tenant_id.as_base62(),
+                        checkout_session_id: checkout_session_id.as_base62(),
+                        transaction_id: transaction_id.as_base62(),
+                        amount_minor,
+                        currency: currency.clone(),
+                    };
+
+                    let setup_intent = self
+                        .services
+                        .create_hosted_checkout_intent(
+                            conn,
+                            &tenant_id,
+                            &connection_id,
+                            checkout_ctx,
+                            return_url,
+                        )
+                        .await?;
+
+                    // For GoCardless the hosted authorisation URL rides in
+                    // `client_secret`; drive the browser redirect through the same
+                    // RedirectToUrl next_action the frontend already handles.
+                    let next_action = PaymentNextAction::RedirectToUrl {
+                        url: setup_intent.client_secret.clone(),
+                    };
+                    let next_action_json = serde_json::to_value(&next_action).ok();
+
+                    // Anchor the hosted flow with a Pending checkout transaction.
+                    // `provider_transaction_id` is left None until fulfillment sets
+                    // it to the created payment id (so reconciliation doesn't probe a
+                    // Billing Request id as if it were a payment). `next_action`
+                    // persists the redirect so a re-click re-hydrates it.
+                    let row = diesel_models::payments::PaymentTransactionRowNew {
+                        id: transaction_id,
+                        tenant_id,
+                        invoice_id: None,
+                        provider_transaction_id: None,
+                        amount: amount_minor,
+                        currency,
+                        payment_method_id: None,
+                        status: diesel_models::enums::PaymentStatusEnum::Pending,
+                        payment_type: diesel_models::enums::PaymentTypeEnum::Payment,
+                        error_type: None,
+                        processed_at: None,
+                        checkout_session_id: Some(checkout_session_id),
+                        pending_plan_version_id: None,
+                        next_action: next_action_json,
+                        initiated_by_customer_id: Some(session.customer_id),
+                    };
+
+                    let inserted = row
+                        .insert(conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    CheckoutSessionRow::mark_awaiting_payment(
+                        conn,
+                        tenant_id,
+                        checkout_session_id,
+                        session.subscription_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                    let mut transaction: crate::domain::PaymentTransaction = inserted.into();
+                    transaction.next_action = Some(next_action.clone());
+
+                    Ok(CheckoutCompletionResult::AwaitingPayment {
+                        transaction,
+                        next_action: Some(next_action),
+                    })
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        Ok(result)
+    }
+
+    /// Complete a checkout with a saved method: SelfServe charges first and only
+    /// then creates the subscription; SubscriptionActivation activates the
+    /// pre-created one. Both charge, then mark the session completed.
+    /// Complete a checkout with a saved method: SelfServe charges first and only
+    /// then creates the subscription; SubscriptionActivation activates the
+    /// pre-created one. Both charge, then mark the session completed.
     pub async fn complete_checkout(
         &self,
         tenant_id: TenantId,
@@ -1205,6 +1553,26 @@ impl ServicesEdge {
                         session.customer_id,
                     )
                     .await?;
+
+                    // Idempotency guard against a double charge. `can_complete()` allows
+                    // re-completion from AwaitingPayment (retry after a failed attempt), but a
+                    // charge still in flight (3DS `RequiresAction`→Pending is the common card
+                    // case) means an existing non-terminal transaction is already at the
+                    // provider. Re-charging would mint a fresh id → fresh `charge:{id}`
+                    // idempotency key → a real second charge, later orphaned. Return the
+                    // existing transaction (and its stored next_action) instead. The session
+                    // row is locked FOR UPDATE above, so concurrent submits serialize here.
+                    if session.status == CheckoutSessionStatus::AwaitingPayment
+                        && let Some((transaction, next_action)) = self
+                            .services
+                            .find_active_checkout_transaction(conn, tenant_id, checkout_session_id)
+                            .await?
+                    {
+                        return Ok(CheckoutCompletionResult::AwaitingPayment {
+                            transaction,
+                            next_action,
+                        });
+                    }
 
                     match session.checkout_type {
                         CheckoutType::SubscriptionActivation => {
@@ -1266,9 +1634,127 @@ impl ServicesEdge {
                 }
                 .scope_boxed()
             })
-            .await?;
+            .await;
 
-        Ok(result)
+        // Tx unwound → session lock released. Record a declined charge now (fresh
+        // conn) so it survives the rollback and the failed-payment webhook resolves.
+        // No-op unless the error carries the decline attachment.
+        let result = match result {
+            Ok(result) => result,
+            Err(e) => {
+                self.services
+                    .persist_declined_checkout_charge(tenant_id, checkout_session_id, &e)
+                    .await;
+                return Err(e);
+            }
+        };
+
+        Ok(self
+            .activate_accepted_checkout_debit_in_flight(tenant_id, checkout_session_id, result)
+            .await)
+    }
+
+    /// Activate-at-acceptance for a checkout paid with an EXISTING direct-debit
+    /// mandate (SelfServe / PlanChange / AddonPurchase charge-first paths). The
+    /// charge came back Pending with no customer action, i.e. the provider accepted
+    /// the debit — so, like the activation path and the hosted flow, materialize the
+    /// subscription now (invoice `Processing`, tx linked) rather than only at
+    /// settlement days later. Runs after the checkout tx committed: the
+    /// materialization opens its own tx and needs the session lock released.
+    ///
+    /// Card is never affected (a pending card charge is either 3DS — `next_action`
+    /// set — or not an accepted debit rail). On any failure the original
+    /// `AwaitingPayment` is returned unchanged and the settlement webhook
+    /// materializes it later, exactly as before.
+    async fn activate_accepted_checkout_debit_in_flight(
+        &self,
+        tenant_id: TenantId,
+        checkout_session_id: CheckoutSessionId,
+        result: CheckoutCompletionResult,
+    ) -> CheckoutCompletionResult {
+        let CheckoutCompletionResult::AwaitingPayment {
+            transaction,
+            next_action: None,
+        } = &result
+        else {
+            return result;
+        };
+        // Only the charge-first paths (tx not yet linked to an invoice); the
+        // activation path decides acceptance inline, inside its own tx.
+        if transaction.invoice_id.is_some() || transaction.status != PaymentStatusEnum::Pending {
+            return result;
+        }
+        let Some(payment_method_id) = transaction.payment_method_id else {
+            return result;
+        };
+
+        let accepted = async {
+            let mut conn = self.store.get_conn().await?;
+            let method =
+                diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
+                    &mut conn,
+                    &tenant_id,
+                    &payment_method_id,
+                )
+                .await
+                .map_err(|e| StoreError::DatabaseError(e.error))?;
+            self.services
+                .accepted_async_debit(&mut conn, tenant_id, transaction, &method)
+                .await
+        }
+        .await;
+        match accepted {
+            Ok(true) => {}
+            Ok(false) => return result,
+            Err(e) => {
+                log::warn!(
+                    "Could not classify checkout charge {} for session {}; deferring to settlement: {e:?}",
+                    transaction.id,
+                    checkout_session_id
+                );
+                return result;
+            }
+        }
+
+        let event: crate::domain::outbox_event::PaymentTransactionEvent =
+            transaction.clone().into();
+        if let Err(e) = self
+            .services
+            .on_checkout_payment_accepted_in_flight(event, checkout_session_id)
+            .await
+        {
+            log::error!(
+                "Accepted debit {} for checkout session {} could not be materialized in-flight; deferring to settlement: {e:?}",
+                transaction.id,
+                checkout_session_id
+            );
+            return result;
+        }
+
+        // Materialized: the session now carries the subscription it completed.
+        let subscription_id = async {
+            let mut conn = self.store.get_conn().await?;
+            let session: CheckoutSession =
+                CheckoutSessionRow::get_by_id(&mut conn, tenant_id, checkout_session_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+                    .into();
+            Ok::<_, Report<StoreError>>(session.subscription_id)
+        }
+        .await;
+        match subscription_id {
+            Ok(Some(subscription_id)) => CheckoutCompletionResult::Completed {
+                subscription_id,
+                transaction: Some(transaction.clone()),
+            },
+            other => {
+                log::warn!(
+                    "Checkout session {} materialized in-flight but its subscription could not be read back ({other:?}); reporting AwaitingPayment",
+                    checkout_session_id
+                );
+                result
+            }
+        }
     }
 
     /// Completes checkout for SubscriptionActivation type.
@@ -1292,7 +1778,7 @@ impl ServicesEdge {
 
         let coupon_for_checkout = coupon_code.or(session.coupon_code.clone());
 
-        let (payment_transaction, is_pending) = self
+        let (payment_transaction, outcome) = self
             .complete_subscription_checkout_tx(
                 conn,
                 tenant_id,
@@ -1304,7 +1790,27 @@ impl ServicesEdge {
             )
             .await?;
 
-        if is_pending {
+        // Both non-settled outcomes leave a transaction whose fate is decided by a webhook.
+        // This path's charge is linked to the invoice, so the transaction doesn't carry the
+        // checkout_session_id. Tag it so a re-completion's idempotency guard
+        // (complete_checkout) finds it and returns instead of re-charging. Keep the in-memory
+        // `transaction` (with its transient next_action) for the response; only the persisted
+        // row needs the tag.
+        if outcome != CheckoutPaymentOutcome::Settled
+            && let Some(ref transaction) = payment_transaction
+            && transaction.checkout_session_id.is_none()
+        {
+            diesel_models::payments::PaymentTransactionRow::set_checkout_session_id(
+                conn,
+                transaction.id,
+                tenant_id,
+                checkout_session_id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        }
+
+        if outcome == CheckoutPaymentOutcome::AwaitingCustomerAction {
             CheckoutSessionRow::mark_awaiting_payment(
                 conn,
                 tenant_id,
@@ -1314,12 +1820,16 @@ impl ServicesEdge {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
+            let transaction = payment_transaction.ok_or_else(|| {
+                Report::new(StoreError::InvalidArgument(
+                    "Pending payment must have transaction".to_string(),
+                ))
+            })?;
+            let next_action = transaction.next_action.clone();
+
             Ok(CheckoutCompletionResult::AwaitingPayment {
-                transaction: payment_transaction.ok_or_else(|| {
-                    Report::new(StoreError::InvalidArgument(
-                        "Pending payment must have transaction".to_string(),
-                    ))
-                })?,
+                transaction,
+                next_action,
             })
         } else {
             CheckoutSessionRow::mark_completed(
@@ -1465,7 +1975,10 @@ impl ServicesEdge {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-                return Ok(CheckoutCompletionResult::AwaitingPayment { transaction });
+                return Ok(CheckoutCompletionResult::AwaitingPayment {
+                    transaction,
+                    next_action: result.payment_intent.next_action.clone(),
+                });
             }
 
             Some(result)
@@ -1925,6 +2438,8 @@ impl ServicesEdge {
                 &addons,
                 &products_by_id,
                 &prices_by_id,
+                // Interactive: priced today, like the checkout preview.
+                Utc::now().date_naive(),
             )
             .await?;
 
@@ -2065,7 +2580,10 @@ impl ServicesEdge {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-            Ok(CheckoutCompletionResult::AwaitingPayment { transaction })
+            Ok(CheckoutCompletionResult::AwaitingPayment {
+                transaction,
+                next_action: charge_result.payment_intent.next_action.clone(),
+            })
         }
     }
 
@@ -2294,7 +2812,10 @@ impl ServicesEdge {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-                Ok(CheckoutCompletionResult::AwaitingPayment { transaction })
+                Ok(CheckoutCompletionResult::AwaitingPayment {
+                    transaction,
+                    next_action: charge_result.payment_intent.next_action.clone(),
+                })
             }
         } else {
             // Normal plan change: use proration
@@ -2428,7 +2949,10 @@ impl ServicesEdge {
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
-                        Ok(CheckoutCompletionResult::AwaitingPayment { transaction })
+                        Ok(CheckoutCompletionResult::AwaitingPayment {
+                            transaction,
+                            next_action: charge_result.payment_intent.next_action.clone(),
+                        })
                     }
                 } else {
                     // Credits cover the full upgrade cost — no payment needed

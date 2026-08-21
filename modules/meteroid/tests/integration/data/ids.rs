@@ -244,6 +244,9 @@ pub const CUST_SPOTIFY_PAYMENT_METHOD_ID: CustomerPaymentMethodId =
     CustomerPaymentMethodId::from_const(uuid!("019438e0-0011-7000-8000-000000000001"));
 pub const CUST_UBER_PAYMENT_METHOD_2_ID: CustomerPaymentMethodId =
     CustomerPaymentMethodId::from_const(uuid!("019438e0-0032-7000-8000-000000000001"));
+/// SEPA direct debit — a delayed-notification rail, unlike the card methods above.
+pub const CUST_UBER_SEPA_METHOD_ID: CustomerPaymentMethodId =
+    CustomerPaymentMethodId::from_const(uuid!("019438e0-0033-7000-8000-000000000001"));
 
 pub const TEST_BANK_ACCOUNT_ID: BankAccountId =
     BankAccountId::from_const(uuid!("019438e0-0033-7000-8000-000000000001"));

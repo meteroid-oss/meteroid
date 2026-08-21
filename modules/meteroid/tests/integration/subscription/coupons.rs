@@ -8,6 +8,7 @@
 //! - Multi-cycle billing with coupons
 
 use chrono::NaiveDate;
+use meteroid_store::services::CheckoutPaymentOutcome;
 use rstest::rstest;
 use rust_decimal::Decimal;
 
@@ -1304,7 +1305,7 @@ async fn test_100_percent_coupon_checkout_succeeds(#[future] test_env: TestEnv) 
 
     // Complete checkout with zero amount (100% discount)
     let mut conn = env.conn().await;
-    let (transaction, is_pending) = env
+    let (transaction, payment_outcome) = env
         .services()
         .complete_subscription_checkout_tx(
             &mut conn,
@@ -1323,7 +1324,7 @@ async fn test_100_percent_coupon_checkout_succeeds(#[future] test_env: TestEnv) 
         transaction.is_none(),
         "No payment transaction for zero amount checkout"
     );
-    assert!(!is_pending, "Should not be pending");
+    assert_eq!(payment_outcome, CheckoutPaymentOutcome::Settled);
 
     // After checkout: Active with invoice
     let sub = env.get_subscription(sub_id).await;
@@ -1374,7 +1375,7 @@ async fn test_100_percent_coupon_with_paid_trial_checkout(#[future] test_env: Te
 
     // Complete checkout with zero amount
     let mut conn = env.conn().await;
-    let (transaction, is_pending) = env
+    let (transaction, payment_outcome) = env
         .services()
         .complete_subscription_checkout_tx(
             &mut conn,
@@ -1389,7 +1390,7 @@ async fn test_100_percent_coupon_with_paid_trial_checkout(#[future] test_env: Te
         .expect("Checkout with 100% coupon should succeed");
 
     assert!(transaction.is_none(), "No payment for zero amount");
-    assert!(!is_pending);
+    assert_eq!(payment_outcome, CheckoutPaymentOutcome::Settled);
 
     // After checkout: TrialActive (paid trial goes to TrialActive)
     let sub = env.get_subscription(sub_id).await;

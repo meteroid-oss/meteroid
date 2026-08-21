@@ -1,0 +1,42 @@
+{
+  "id": "evt_test_pi_succeeded_1",
+  "object": "event",
+  "api_version": "2023-10-16",
+  "created": 1721728000,
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": {
+    "id": "req_test_123",
+    "idempotency_key": "idem_test_123"
+  },
+  "type": "payment_intent.succeeded",
+  "data": {
+    "object": {
+      "id": "pi_test_123",
+      "object": "payment_intent",
+      "amount": 10000,
+      "amount_capturable": 0,
+      "amount_received": 10000,
+      "currency": "usd",
+      "status": "succeeded",
+      "capture_method": "automatic",
+      "confirmation_method": "automatic",
+      "client_secret": "pi_test_123_secret_abc",
+      "customer": "cus_test_123",
+      "description": null,
+      "latest_charge": "ch_test_123",
+      "last_payment_error": null,
+      "livemode": false,
+      "metadata": {
+        "meteroid.tenant_id": "tenant_test_123",
+        "meteroid.transaction_id": "txn_test_123"
+      },
+      "next_action": null,
+      "payment_method": "pm_test_card_visa",
+      "payment_method_types": [
+        "card"
+      ],
+      "created": 1721727990
+    }
+  }
+}

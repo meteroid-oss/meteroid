@@ -1,20 +1,121 @@
 import { Skeleton } from '@md/ui'
 import { AlertCircle } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 
+import {
+  consumeGocardlessPreAttempt,
+  consumeGocardlessReturn,
+  gocardlessErrorMessage,
+} from '@/features/checkout/utils/gocardlessReturn'
 import InvoicePaymentFlow from '@/features/invoice-payment/InvoicePaymentFlow'
 import { useQuery } from '@/lib/connectrpc'
+import {
+  InvoicePaymentStatus,
+  Transaction_PaymentStatusEnum,
+} from '@/rpc/api/invoices/v1/models_pb'
 import { getInvoicePayment } from '@/rpc/portal/invoice/v1/invoice-PortalInvoiceService_connectquery'
 import { useTypedParams } from '@/utils/params'
 import { useForceTheme } from 'providers/ThemeProvider'
+
+// The mandate + charge are created by the `billing_requests.fulfilled` webhook,
+// which can lag the redirect (or fail); poll until the charge reaches a
+// terminal state, capped so a webhook that never lands doesn't poll forever.
+const GOCARDLESS_POLL_MS = 3000
+const GOCARDLESS_POLL_TIMEOUT_MS = 5 * 60 * 1000
 
 export const PortalInvoicePayment = () => {
   useForceTheme('light')
 
   const invoiceId = useTypedParams<{ invoiceId: string }>().invoiceId
 
-  const invoicePaymentQuery = useQuery(getInvoicePayment, {
-    invoiceId,
-  })
+  // Read the GoCardless return outcome exactly once (it strips the params so a
+  // reload/Back doesn't replay it). `ok` = authorised → the mandate + charge are
+  // created by the webhook, so we show "processing" and poll until the charge
+  // resolves. Anything else (abandoned/failed) surfaces as an error and
+  // leaves the payment form available. Browser "back" never hits our return
+  // handler, so there's no param and the form just shows — no false "processing".
+  // Lazy initializer so it runs exactly once (a re-render must not re-read and
+  // null it out — the params are stripped on the first call).
+  const [gcReturn] = useState(() => consumeGocardlessReturn())
+  // 'processing' → awaiting the webhook-driven charge (readonly view + poll);
+  // 'failed' → the charge failed: back to the pay form with an error banner;
+  // 'timed_out' → nothing landed within the cap: readonly "check back later".
+  const [gcPhase, setGcPhase] = useState<'processing' | 'failed' | 'timed_out' | null>(
+    gcReturn?.status === 'ok' ? 'processing' : null
+  )
+  // Transactions already FAILED the first time we see the invoice belong to
+  // earlier attempts and must not resolve this return as a failure.
+  const staleFailedTxIdsRef = useRef<Set<string> | null>(null)
+
+  const invoicePaymentQuery = useQuery(
+    getInvoicePayment,
+    { invoiceId },
+    {
+      refetchInterval: query => {
+        if (gcPhase !== 'processing') return false
+        const inv = query.state.data?.invoice?.invoice
+        // Keep polling while a transaction is merely PENDING — it can still
+        // flip to FAILED; only a paid/processing invoice is truly resolved.
+        const resolved =
+          inv?.paymentStatus === InvoicePaymentStatus.PAID ||
+          inv?.paymentStatus === InvoicePaymentStatus.PROCESSING
+        return resolved ? false : GOCARDLESS_POLL_MS
+      },
+    }
+  )
+
+  const polledInvoice = invoicePaymentQuery.data?.invoice?.invoice
+
+  useEffect(() => {
+    if (gcPhase !== 'processing' || !polledInvoice) return
+
+    const transactions = polledInvoice.transactions ?? []
+    let staleFailedTxIds = staleFailedTxIdsRef.current
+    if (staleFailedTxIds === null) {
+      // Prefer the snapshot captured *before* leaving for GoCardless: it can't
+      // include the new charge, so a charge that fails before this first poll
+      // resolves is still correctly seen as newly failed. Fall back to the
+      // first-poll failures when there's no snapshot (e.g. a reloaded tab).
+      staleFailedTxIds =
+        (invoiceId ? consumeGocardlessPreAttempt(invoiceId) : null) ??
+        new Set(
+          transactions.filter(t => t.status === Transaction_PaymentStatusEnum.FAILED).map(t => t.id)
+        )
+      staleFailedTxIdsRef.current = staleFailedTxIds
+    }
+
+    if (
+      polledInvoice.paymentStatus === InvoicePaymentStatus.PAID ||
+      polledInvoice.paymentStatus === InvoicePaymentStatus.PROCESSING
+    ) {
+      setGcPhase(null)
+      return
+    }
+
+    const newlyFailed = transactions.some(
+      t => t.status === Transaction_PaymentStatusEnum.FAILED && !staleFailedTxIds.has(t.id)
+    )
+    if (newlyFailed) {
+      setGcPhase('failed')
+    }
+  }, [gcPhase, polledInvoice])
+
+  useEffect(() => {
+    if (gcPhase !== 'processing') return
+    const timer = setTimeout(() => setGcPhase('timed_out'), GOCARDLESS_POLL_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [gcPhase])
+
+  // 'timed_out' keeps the readonly "payment in progress / check back later"
+  // view (poll stopped) rather than re-offering the form — the charge may
+  // still land and paying again could double-charge.
+  const gocardlessProcessing = gcPhase === 'processing' || gcPhase === 'timed_out'
+  const gocardlessError =
+    gcReturn && gcReturn.status !== 'ok'
+      ? gocardlessErrorMessage(gcReturn)
+      : gcPhase === 'failed'
+        ? 'Your direct debit payment could not be completed. Please try again or use a different payment method.'
+        : null
 
   const data = invoicePaymentQuery.data?.invoice
   const error = invoicePaymentQuery.error
@@ -44,7 +145,11 @@ export const PortalInvoicePayment = () => {
             <Skeleton height={44} />
           </>
         ) : (
-          <InvoicePaymentFlow invoicePaymentData={data} />
+          <InvoicePaymentFlow
+            invoicePaymentData={data}
+            gocardlessProcessing={gocardlessProcessing}
+            gocardlessError={gocardlessError}
+          />
         )}
       </div>
     </div>

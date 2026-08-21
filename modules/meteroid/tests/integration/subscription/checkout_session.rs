@@ -13,7 +13,7 @@ use rstest::rstest;
 
 use crate::data::ids::*;
 use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, test_env};
-use diesel_models::enums::CycleActionEnum;
+use diesel_models::enums::{CycleActionEnum, PaymentStatusEnum};
 use meteroid_store::domain::CreateCheckoutSession;
 use meteroid_store::domain::checkout_sessions::{CheckoutCompletionResult, CheckoutType};
 use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
@@ -793,4 +793,73 @@ async fn test_checkout_session_100_percent_coupon(#[future] test_env: TestEnv) {
         .with_context("Second invoice with 100% coupon")
         .has_total(0)
         .has_coupons_count(1);
+}
+
+/// A declined charge during checkout must NOT create a subscription, but MUST
+/// leave one committed `Failed` transaction linked to the session (audit + webhook
+/// target) — and must return promptly rather than deadlock on the session lock.
+#[rstest]
+#[tokio::test]
+async fn test_checkout_declined_charge_persists_failed_transaction(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+    env.set_mock_payment_failure(true).await; // charge is declined
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 15).unwrap();
+
+    let session = env
+        .store()
+        .create_checkout_session(CreateCheckoutSession {
+            tenant_id: TENANT_ID,
+            customer_id: CUST_UBER_ID,
+            plan_version_id: PLAN_VERSION_PAID_TRIAL_ID, // $99/month, charges at checkout
+            billing_start_date: Some(start_date),
+            billing_day_anchor: Some(15),
+            net_terms: None,
+            trial_duration_days: Some(7),
+            end_date: None,
+            auto_advance_invoices: true,
+            charge_automatically: true,
+            invoice_memo: None,
+            invoice_threshold: None,
+            purchase_order: None,
+            payment_methods_config: None,
+            components: None,
+            add_ons: None,
+            coupon_code: None,
+            coupon_ids: vec![],
+            expires_in_hours: Some(24),
+            metadata: None,
+            checkout_type: CheckoutType::SelfServe,
+            subscription_id: None,
+            change_date: None,
+        })
+        .await
+        .expect("Failed to create checkout session");
+
+    // Bound the call: a hang here is the FOR UPDATE/FK deadlock regression.
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        env.services().complete_checkout(
+            TENANT_ID,
+            session.id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            9900,
+            "EUR".to_string(),
+            None,
+        ),
+    )
+    .await
+    .expect("complete_checkout must return, not hang (deadlock regression)");
+
+    assert!(result.is_err(), "declined charge must fail the checkout");
+
+    let txs = env.get_transactions_by_checkout_session(session.id).await;
+    assert_eq!(txs.len(), 1, "exactly one failed transaction recorded");
+    let tx = &txs[0];
+    assert_eq!(tx.status, PaymentStatusEnum::Failed);
+    assert_eq!(tx.amount, 9900);
+    assert_eq!(tx.currency, "EUR");
+    assert_eq!(tx.checkout_session_id, Some(session.id));
+    assert!(tx.error_type.is_some(), "decline reason recorded");
 }

@@ -1,0 +1,26 @@
+{
+  "events": [
+    {
+      "id": "EV000TESTHCBRF01",
+      "created_at": "2026-08-01T10:00:00.000Z",
+      "resource_type": "billing_requests",
+      "action": "fulfilled",
+      "links": {
+        "billing_request": "BRQ000HOSTED0001",
+        "customer": "CU000TEST0001",
+        "mandate_request_mandate": "MD000HOSTED0001",
+        "payment_request_payment": "PM_HOSTED_CK_001"
+      },
+      "details": {
+        "origin": "gocardless",
+        "cause": "billing_request_fulfilled",
+        "description": "This billing request has been fulfilled, and the resources have been created."
+      },
+      "metadata": {
+        "meteroid.customer_id": "{{CUSTOMER_ID}}",
+        "meteroid.connection_id": "{{CONNECTION_ID}}",
+        "meteroid.checkout_session_id": "{{CHECKOUT_SESSION_ID}}"
+      }
+    }
+  ]
+}

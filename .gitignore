@@ -63,7 +63,10 @@ yarn-error.log*
 # misc
 .DS_Store
 *.pem
-.claude
+# Ignore local Claude config but track shared team agents and skills
+.claude/*
+!.claude/agents/
+!.claude/skills/
 .serena
 
 *.key

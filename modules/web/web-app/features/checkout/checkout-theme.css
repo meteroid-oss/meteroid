@@ -1,0 +1,77 @@
+/* Scoped theming for the checkout / invoice-payment RIGHT (interactive) panel.
+   Only the right pane is themed; the left summary stays light. Everything is
+   namespaced under .mtp-checkout-pane[data-mtp-theme="dark"] (the class and the
+   attribute live on the SAME element) so it never touches the left summary or
+   the host app.
+
+   The pane sets the --mtp-* variables (via buildTokens inline style); these
+   rules pull the reused @md/ui primitives (Input/Button/Card), which otherwise
+   read the host app tokens, onto the portal tokens so they stay readable. */
+
+.mtp-checkout-pane[data-mtp-theme='dark'] input,
+.mtp-checkout-pane[data-mtp-theme='dark'] textarea,
+.mtp-checkout-pane[data-mtp-theme='dark'] select,
+.mtp-checkout-pane[data-mtp-theme='dark'] [role='combobox'] {
+  background-color: var(--mtp-surface);
+  border-color: var(--mtp-border);
+  color: var(--mtp-text);
+}
+
+.mtp-checkout-pane[data-mtp-theme='dark'] input::placeholder,
+.mtp-checkout-pane[data-mtp-theme='dark'] textarea::placeholder {
+  color: var(--mtp-text-3);
+}
+
+.mtp-checkout-pane[data-mtp-theme='dark'] input:focus,
+.mtp-checkout-pane[data-mtp-theme='dark'] textarea:focus,
+.mtp-checkout-pane[data-mtp-theme='dark'] select:focus {
+  border-color: var(--mtp-border-2);
+}
+
+/* The reused billing-info card ships border-less for the host app; give it a
+   themed border inside the pane (both modes) to match the invoice-payment card. */
+.mtp-checkout-pane .bg-accent {
+  border: 1px solid var(--mtp-border);
+}
+
+/* Reused @md/ui card surfaces (e.g. the billing-info card uses <Card
+   variant="accent">) read the host-app tokens and would render light-on-dark;
+   remap their surfaces and text onto the portal tokens. */
+.mtp-checkout-pane[data-mtp-theme='dark'] .bg-accent,
+.mtp-checkout-pane[data-mtp-theme='dark'] .bg-card,
+.mtp-checkout-pane[data-mtp-theme='dark'] .bg-popover {
+  background-color: var(--mtp-surface);
+}
+
+.mtp-checkout-pane[data-mtp-theme='dark'] .text-accent-foreground,
+.mtp-checkout-pane[data-mtp-theme='dark'] .text-card-foreground {
+  color: var(--mtp-text);
+}
+
+.mtp-checkout-pane[data-mtp-theme='dark'] .text-muted-foreground {
+  color: var(--mtp-text-2);
+}
+
+/* Some reused payment components (bank-transfer details, read-only payment
+   states) use literal Tailwind grays/white that don't follow the theme; remap
+   the ones that appear in the pane so they stay readable in dark mode. Only the
+   dark pane is affected — on the light pane these read fine as-is. */
+.mtp-checkout-pane[data-mtp-theme='dark'] .bg-white {
+  background-color: var(--mtp-surface);
+}
+.mtp-checkout-pane[data-mtp-theme='dark'] .text-gray-900 {
+  color: var(--mtp-text);
+}
+.mtp-checkout-pane[data-mtp-theme='dark'] .text-gray-700,
+.mtp-checkout-pane[data-mtp-theme='dark'] .hover\:text-gray-700:hover {
+  color: var(--mtp-text);
+}
+.mtp-checkout-pane[data-mtp-theme='dark'] .text-gray-600,
+.mtp-checkout-pane[data-mtp-theme='dark'] .text-gray-500 {
+  color: var(--mtp-text-2);
+}
+.mtp-checkout-pane[data-mtp-theme='dark'] .border-gray-200,
+.mtp-checkout-pane[data-mtp-theme='dark'] .border-b,
+.mtp-checkout-pane[data-mtp-theme='dark'] .border-t {
+  border-color: var(--mtp-border);
+}

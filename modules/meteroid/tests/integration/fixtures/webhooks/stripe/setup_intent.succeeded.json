@@ -1,0 +1,50 @@
+{
+  "id": "evt_test_seti_succeeded_1",
+  "object": "event",
+  "api_version": "2023-10-16",
+  "created": 1721728400,
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": {
+    "id": "req_test_127",
+    "idempotency_key": null
+  },
+  "type": "setup_intent.succeeded",
+  "data": {
+    "object": {
+      "id": "seti_test_127",
+      "object": "setup_intent",
+      "application": null,
+      "cancellation_reason": null,
+      "client_secret": "seti_test_127_secret_mno",
+      "created": 1721728390,
+      "customer": "cus_test_127",
+      "description": null,
+      "flow_directions": null,
+      "last_setup_error": null,
+      "latest_attempt": "setatt_test_127",
+      "livemode": false,
+      "mandate": null,
+      "metadata": {
+        "meteroid.tenant_id": "tenant_test_127",
+        "meteroid.connection_id": "conn_test_127"
+      },
+      "next_action": null,
+      "on_behalf_of": null,
+      "payment_method": "pm_test_card_visa2",
+      "payment_method_options": {
+        "card": {
+          "mandate_options": null,
+          "network": null,
+          "request_three_d_secure": "automatic"
+        }
+      },
+      "payment_method_types": [
+        "card"
+      ],
+      "single_use_mandate": null,
+      "status": "succeeded",
+      "usage": "off_session"
+    }
+  }
+}

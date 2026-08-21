@@ -7,6 +7,7 @@ import { NotImplemented } from '@/features/NotImplemented'
 import { MrrReport } from '@/features/reports/charts/MrrReport'
 import { RevenueReport } from '@/features/reports/charts/RevenueReport'
 import { EditHubspotIntegrationModal } from '@/features/settings/integrations/EditHubspotIntegrationModal'
+import { GoCardlessIntegrationModal } from '@/features/settings/integrations/GoCardlessIntegration'
 import { HubspotIntegrationModal } from '@/features/settings/integrations/HubspotIntegration'
 import { PennylaneIntegrationModal } from '@/features/settings/integrations/PennylaneIntegration'
 import { StripeIntegrationModal } from '@/features/settings/integrations/StripeIntegration'
@@ -46,6 +47,10 @@ export const tenantRoutes: RouteObject = {
         {
           path: 'add-stripe',
           element: <StripeIntegrationModal />,
+        },
+        {
+          path: 'add-gocardless',
+          element: <GoCardlessIntegrationModal />,
         },
         {
           path: 'connect-pennylane',

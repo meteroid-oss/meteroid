@@ -9344,7 +9344,8 @@
           "UNPAID",
           "PARTIALLY_PAID",
           "PAID",
-          "ERRORED"
+          "ERRORED",
+          "PROCESSING"
         ]
       },
       "InvoiceStatus": {
@@ -10233,7 +10234,8 @@
           "PENDING",
           "SETTLED",
           "CANCELLED",
-          "FAILED"
+          "FAILED",
+          "REFUNDED"
         ]
       },
       "PaymentTransactionId": {

@@ -8,6 +8,7 @@
 //! Ported from test_subscription_lifecycle.rs
 
 use chrono::NaiveDate;
+use meteroid_store::services::CheckoutPaymentOutcome;
 use rstest::rstest;
 
 use crate::data::ids::*;
@@ -267,7 +268,7 @@ async fn test_renewal_after_paid_trial(#[future] test_env: TestEnv) {
 
     // === Phase 2: Complete checkout with full payment ===
     let mut conn = env.conn().await;
-    let (transaction, is_pending) = env
+    let (transaction, payment_outcome) = env
         .services()
         .complete_subscription_checkout_tx(
             &mut conn,
@@ -285,7 +286,11 @@ async fn test_renewal_after_paid_trial(#[future] test_env: TestEnv) {
         transaction.is_some(),
         "Should have payment transaction for paid trial"
     );
-    assert!(!is_pending, "Payment should not be pending");
+    assert_eq!(
+        payment_outcome,
+        CheckoutPaymentOutcome::Settled,
+        "Card payment should settle inline"
+    );
 
     // After checkout: TrialActive with 1 invoice
     let sub = env.get_subscription(sub_id).await;
@@ -425,7 +430,7 @@ async fn test_renewal_after_trial_expired_reactivation(#[future] test_env: TestE
 
     // === Phase 3: Complete checkout after expiry → Active ===
     let mut conn = env.conn().await;
-    let (transaction, is_pending) = env
+    let (transaction, payment_outcome) = env
         .services()
         .complete_subscription_checkout_tx(
             &mut conn,
@@ -440,7 +445,11 @@ async fn test_renewal_after_trial_expired_reactivation(#[future] test_env: TestE
         .expect("Checkout should succeed");
 
     assert!(transaction.is_some(), "Should have payment transaction");
-    assert!(!is_pending, "Payment should not be pending");
+    assert_eq!(
+        payment_outcome,
+        CheckoutPaymentOutcome::Settled,
+        "Card payment should settle inline"
+    );
 
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
@@ -635,7 +644,13 @@ async fn test_onstart_no_trial_auto_charge_with_payment_method(#[future] test_en
     // Process outbox events to trigger payment collection.
     // TODO improve the run_outbox_and_orchestration to run the full pipeline
     env.services()
-        .complete_invoice_payment(TENANT_ID, invoices[0].id, CUST_UBER_PAYMENT_METHOD_ID)
+        .complete_invoice_payment(
+            TENANT_ID,
+            invoices[0].id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            false,
+            None,
+        )
         .await
         .unwrap();
     env.run_outbox_and_orchestration().await;
@@ -849,7 +864,7 @@ async fn test_oncheckout_no_trial_full_flow(#[future] test_env: TestEnv) {
 
     // === Phase 2: Complete checkout ===
     let mut conn = env.conn().await;
-    let (transaction, is_pending) = env
+    let (transaction, payment_outcome) = env
         .services()
         .complete_subscription_checkout_tx(
             &mut conn,
@@ -864,7 +879,11 @@ async fn test_oncheckout_no_trial_full_flow(#[future] test_env: TestEnv) {
         .expect("Checkout should succeed");
 
     assert!(transaction.is_some(), "Should have payment transaction");
-    assert!(!is_pending, "Payment should not be pending");
+    assert_eq!(
+        payment_outcome,
+        CheckoutPaymentOutcome::Settled,
+        "Card payment should settle inline"
+    );
 
     // === Phase 3: Verify Active state ===
     let sub = env.get_subscription(sub_id).await;

@@ -109,6 +109,7 @@ fn map_payment_status_enum_to_rest(status: domain::enums::PaymentStatusEnum) -> 
         domain::enums::PaymentStatusEnum::Settled => PaymentStatusEnum::Settled,
         domain::enums::PaymentStatusEnum::Cancelled => PaymentStatusEnum::Cancelled,
         domain::enums::PaymentStatusEnum::Failed => PaymentStatusEnum::Failed,
+        domain::enums::PaymentStatusEnum::Refunded => PaymentStatusEnum::Refunded,
     }
 }
 
@@ -125,6 +126,7 @@ fn map_payment_status_to_rest(status: domain::enums::InvoicePaymentStatus) -> In
         domain::enums::InvoicePaymentStatus::PartiallyPaid => InvoicePaymentStatus::PartiallyPaid,
         domain::enums::InvoicePaymentStatus::Paid => InvoicePaymentStatus::Paid,
         domain::enums::InvoicePaymentStatus::Errored => InvoicePaymentStatus::Errored,
+        domain::enums::InvoicePaymentStatus::Processing => InvoicePaymentStatus::Processing,
     }
 }
 

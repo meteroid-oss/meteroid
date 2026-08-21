@@ -58,10 +58,13 @@ impl WebhookInEventRow {
             .into_db_result()
     }
 
+    /// `error` carries the discard reason when non-retryable events were acked
+    /// while processing (forensics); `None` clears any earlier retry error.
     pub async fn mark_processed(
         conn: &mut PgConn,
         event_uid: Uuid,
         processed_at: NaiveDateTime,
+        error: Option<String>,
     ) -> DbResult<()> {
         use crate::schema::webhook_in_event::dsl as wi_dsl;
         use diesel_async::RunQueryDsl;
@@ -70,7 +73,7 @@ impl WebhookInEventRow {
             .filter(wi_dsl::id.eq(event_uid))
             .set((
                 wi_dsl::processed_at.eq(Some(processed_at)),
-                wi_dsl::error.eq(None::<String>),
+                wi_dsl::error.eq(error),
             ))
             .execute(conn)
             .await

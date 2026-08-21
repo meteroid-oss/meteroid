@@ -1,7 +1,7 @@
 import { timestampDate } from '@bufbuild/protobuf/wkt'
 import { useMutation } from '@connectrpc/connect-query'
 import { Button, Card, Flex, Separator, Skeleton } from '@md/ui'
-import { ChevronDown, ExternalLink, Plus } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ExternalLink, Plus } from 'lucide-react'
 import { Fragment, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -14,6 +14,7 @@ import { PaymentMethodsCard } from '@/features/customers/cards/PaymentMethodsCar
 import { SubscriptionsCard } from '@/features/customers/cards/SubscriptionsCard'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { EditCustomerModal } from '@/features/customers/cards/customer/EditCustomerModal'
+import { getPaymentRoutingWarnings } from '@/features/customers/cards/paymentRoutingWarnings'
 import { VatValidationBadge } from '@/features/customers/components/BillingInfoCard'
 import { CustomerInvoiceModal } from '@/features/customers/modals/CustomerInvoiceModal'
 import { ManageConnectionsModal } from '@/features/customers/modals/ManageConnectionsModal'
@@ -21,15 +22,21 @@ import { EffectiveEntitlementsCard } from '@/features/entitlements/customer/Effe
 import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
+import { useTenant } from '@/hooks/useTenant'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 import { formatCurrency, rateToPercent } from '@/lib/utils/numbers'
+import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
   generateCustomerPortalToken,
   getCustomerById,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import { getInvoicingEntity } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
+import {
+  getInvoicingEntity,
+  getInvoicingEntityProviders,
+} from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
+import { TenantEnvironmentEnum } from '@/rpc/api/tenants/v1/models_pb'
 import { useTypedParams } from '@/utils/params'
 
 export const Customer = () => {
@@ -37,6 +44,8 @@ export const Customer = () => {
   const navigate = useNavigate()
   const basePath = useBasePath()
   const isExpress = useIsExpressOrganization()
+  const { tenant } = useTenant()
+  const isSandbox = tenant?.environment !== TenantEnvironmentEnum.PRODUCTION
 
   const [editPanelVisible, setEditPanelVisible] = useState(false)
   const [createInvoiceVisible, setCreateInvoiceVisible] = useState(false)
@@ -52,6 +61,14 @@ export const Customer = () => {
   )
 
   const data = customerQuery.data?.customer
+
+  // Connector aliases (the user-facing connector names) to label each external
+  // customer connection by its actual connector rather than a hardcoded
+  // provider string.
+  const connectorsQuery = useQuery(listConnectors, {})
+  const connectorAliasById = new Map(
+    connectorsQuery.data?.connectors.map(c => [c.id, c.alias]) ?? []
+  )
 
   const portalTokenMutation = useMutation(generateCustomerPortalToken, {
     onSuccess: data => {
@@ -73,6 +90,19 @@ export const Customer = () => {
     },
     { enabled: Boolean(data?.invoicingEntityId) }
   )
+
+  // Providers configured on the customer's invoicing entity, used to warn when
+  // the customer's data would fail a provider's setup (e.g. GoCardless country).
+  const invoicingEntityProvidersQuery = useQuery(
+    getInvoicingEntityProviders,
+    { id: data?.invoicingEntityId ?? '' },
+    { enabled: Boolean(data?.invoicingEntityId) }
+  )
+
+  const routingWarnings =
+    data && invoicingEntityProvidersQuery.data
+      ? getPaymentRoutingWarnings(data, invoicingEntityProvidersQuery.data)
+      : []
 
   const isLoading = customerQuery.isLoading || invoicingEntityQuery.isLoading
 
@@ -128,7 +158,9 @@ export const Customer = () => {
                     <Flex
                       align="center"
                       className="gap-1 text-sm cursor-pointer hover:text-primary"
-                      onClick={() => navigate(`${basePath}/invoices/create?customerId=${customerId}`)}
+                      onClick={() =>
+                        navigate(`${basePath}/invoices/create?customerId=${customerId}`)
+                      }
                     >
                       <Plus size={10} /> New invoice
                     </Flex>
@@ -280,16 +312,21 @@ export const Customer = () => {
                   </Flex>
                   <FlexDetails title="Alias (External ID)" value={data.alias} />
                   {data.customerConnections?.map(connection => {
-                    const providerName = getProviderName(connection.connectorProvider)
+                    // Prefer the connector's own name (alias); fall back to the
+                    // provider display name if the connector isn't loaded yet.
+                    const connectorName =
+                      connectorAliasById.get(connection.connectorId) ||
+                      getProviderName(connection.connectorProvider)
                     const externalLink = getProviderLink(
                       connection.connectorProvider,
                       connection.externalCustomerId,
-                      connection.externalCompanyId
+                      connection.externalCompanyId,
+                      isSandbox
                     )
                     return (
                       <FlexDetails
                         key={connection.id}
-                        title={`${providerName} ID`}
+                        title={`${connectorName} ID`}
                         value={connection.externalCustomerId}
                         externalLink={externalLink}
                       />
@@ -303,6 +340,20 @@ export const Customer = () => {
                     paymentMethods={data.paymentMethods ?? []}
                     currentPaymentMethodId={data.currentPaymentMethodId}
                   />
+                  {routingWarnings.map((warning, i) => (
+                    <div
+                      key={i}
+                      className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs"
+                    >
+                      <AlertTriangle size={14} className="mt-0.5 shrink-0 text-warning" />
+                      <div>
+                        <span className="font-medium">
+                          {warning.rail} ({warning.providerAlias}):
+                        </span>{' '}
+                        <span className="text-muted-foreground">{warning.message}</span>
+                      </div>
+                    </div>
+                  ))}
                 </Flex>
                 <Separator className="-my-3" />
                 <Flex direction="column" className="gap-2 p-6">
@@ -391,6 +442,8 @@ const getProviderName = (provider: ConnectorProviderEnum | undefined): string =>
       return 'Hubspot'
     case ConnectorProviderEnum.PENNYLANE:
       return 'Pennylane'
+    case ConnectorProviderEnum.GOCARDLESS:
+      return 'GoCardless'
     default:
       return 'Unknown'
   }
@@ -399,7 +452,8 @@ const getProviderName = (provider: ConnectorProviderEnum | undefined): string =>
 const getProviderLink = (
   provider: ConnectorProviderEnum | undefined,
   externalId: string,
-  externalCompanyId?: string
+  externalCompanyId?: string,
+  isSandbox?: boolean
 ): string | undefined => {
   // Return external links for providers that support it
   switch (provider) {
@@ -413,6 +467,8 @@ const getProviderLink = (
       return externalCompanyId
         ? `https://app.pennylane.com/companies/${externalCompanyId}/thirdparties/customers?id=${externalId}`
         : undefined
+    case ConnectorProviderEnum.GOCARDLESS:
+      return `https://manage${isSandbox ? '-sandbox' : ''}.gocardless.com/customers/${externalId}`
     default:
       return undefined
   }

@@ -2,6 +2,7 @@
 //! Connections are created on-demand at checkout time, not at subscription creation.
 
 use crate::StoreResult;
+use crate::adapters::payment::error::ConnectorError;
 use crate::domain::connectors::Connector;
 use crate::domain::enums::PaymentMethodTypeEnum;
 use crate::domain::subscriptions::PaymentMethodsConfig;
@@ -24,6 +25,13 @@ pub struct ResolvedPaymentMethods {
     pub card_enabled: bool,
     pub direct_debit_enabled: bool,
     pub bank_transfer_enabled: bool,
+    /// Set when a method is configured but its provider connection could not be
+    /// established (e.g. GoCardless rejected `create_customer` for a customer
+    /// with no email). Surfaced to the payment page so the customer sees *why*
+    /// the method is missing instead of it silently vanishing. Recomputed each
+    /// load, so it clears itself once the underlying data is fixed.
+    pub card_unavailable_reason: Option<String>,
+    pub direct_debit_unavailable_reason: Option<String>,
 }
 
 impl ResolvedPaymentMethods {
@@ -132,16 +140,22 @@ impl Services {
 
         let mut card_connection_id = None;
         let mut direct_debit_connection_id = None;
+        let mut card_unavailable_reason = None;
+        let mut direct_debit_unavailable_reason = None;
 
         if card_enabled && let Some(provider) = invoicing_entity_providers.card_provider.as_ref() {
-            card_connection_id = self
-                .get_or_create_connection_for_provider(
+            // A provider failure here (e.g. GoCardless rejecting `create_customer`)
+            // must NEVER crash the checkout / invoice-payment page. Degrade the
+            // affected method to "unavailable" and let the other providers render.
+            (card_connection_id, card_unavailable_reason) = self
+                .resolve_connection_or_degrade(
                     conn,
                     customer,
                     provider,
                     &existing_connections,
+                    "card",
                 )
-                .await?;
+                .await;
         }
 
         if direct_debit_enabled
@@ -155,14 +169,15 @@ impl Services {
             {
                 direct_debit_connection_id = card_connection_id;
             } else {
-                direct_debit_connection_id = self
-                    .get_or_create_connection_for_provider(
+                (direct_debit_connection_id, direct_debit_unavailable_reason) = self
+                    .resolve_connection_or_degrade(
                         conn,
                         customer,
                         provider,
                         &existing_connections,
+                        "direct_debit",
                     )
-                    .await?;
+                    .await;
             }
         }
 
@@ -173,6 +188,8 @@ impl Services {
             card_enabled,
             direct_debit_enabled,
             bank_transfer_enabled: false,
+            card_unavailable_reason,
+            direct_debit_unavailable_reason,
         })
     }
 
@@ -195,7 +212,41 @@ impl Services {
             card_enabled: false,
             direct_debit_enabled: false,
             bank_transfer_enabled: bank_account_id.is_some(),
+            card_unavailable_reason: None,
+            direct_debit_unavailable_reason: None,
         })
+    }
+
+    /// Wraps [`Self::get_or_create_connection_for_provider`] so a single
+    /// provider's failure degrades that payment method to "unavailable" instead
+    /// of failing the whole payment-page load. The error is logged with enough
+    /// context (customer, provider, method slot) to debug, then swallowed —
+    /// the customer still sees the invoice and any working payment methods.
+    async fn resolve_connection_or_degrade(
+        &self,
+        conn: &mut PgConn,
+        customer: &Customer,
+        provider: &Connector,
+        existing_connections: &[CustomerConnectionRow],
+        method_slot: &str,
+    ) -> (Option<CustomerConnectionId>, Option<String>) {
+        match self
+            .get_or_create_connection_for_provider(conn, customer, provider, existing_connections)
+            .await
+        {
+            Ok(connection_id) => (connection_id, None),
+            Err(err) => {
+                // Full technical detail (provider, request_id, stack) goes to the
+                // logs; a trimmed, customer-safe reason goes to the UI.
+                log::error!(
+                    "Payment method '{method_slot}' unavailable for customer {} via {:?} connector {}: {err:?}",
+                    customer.id.as_base62(),
+                    provider.provider,
+                    provider.id.as_base62(),
+                );
+                (None, Some(customer_facing_reason(&err)))
+            }
+        }
     }
 
     async fn get_or_create_connection_for_provider(
@@ -205,7 +256,8 @@ impl Services {
         provider: &Connector,
         existing_connections: &[CustomerConnectionRow],
     ) -> StoreResult<Option<CustomerConnectionId>> {
-        use crate::adapters::payment_service_providers::initialize_payment_provider;
+        use crate::adapters::payment::initialize_payment_connector;
+        use crate::adapters::payment::model::{CreateCustomerRequest, IdempotencyKey};
 
         if let Some(existing) = existing_connections
             .iter()
@@ -214,12 +266,22 @@ impl Services {
             return Ok(Some(existing.id));
         }
 
-        let payment_provider = initialize_payment_provider(provider)
+        let connector_impl = initialize_payment_connector(provider)
             .change_context(StoreError::PaymentProviderError)?;
 
-        let external_id = tokio::time::timeout(
+        // Idempotency: customer × provider. Retry after a network blip
+        // returns the original external customer rather than creating a duplicate.
+        let request = CreateCustomerRequest {
+            idempotency_key: IdempotencyKey::new(format!(
+                "customer:{}:{}",
+                customer.id.as_base62(),
+                provider.id.as_base62()
+            )),
+        };
+
+        let external_ref = tokio::time::timeout(
             PAYMENT_PROVIDER_TIMEOUT,
-            payment_provider.create_customer_in_provider(customer, provider),
+            connector_impl.create_customer(provider, customer, request),
         )
         .await
         .map_err(|_| {
@@ -227,6 +289,8 @@ impl Services {
                 .attach("Payment provider request timed out")
         })?
         .change_context(StoreError::PaymentProviderError)?;
+
+        let external_id = external_ref.external_id;
 
         let new_connection = CustomerConnectionRow {
             id: CustomerConnectionId::new(),
@@ -242,5 +306,59 @@ impl Services {
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
         Ok(Some(inserted.id))
+    }
+}
+
+/// Extract a concise, customer-safe reason from a connection-setup failure.
+/// The provider's own error usually carries the actionable detail (e.g. an
+/// "email is required" validation message); we surface that while stripping
+/// internal noise (the `ConnectorError` variant prefix and the `request_id`).
+fn customer_facing_reason(err: &Report<StoreError>) -> String {
+    match err.downcast_ref::<ConnectorError>() {
+        Some(connector_err) => clean_reason(&connector_err.to_string()),
+        // Non-provider failures (timeout, DB) shouldn't leak internals.
+        None => {
+            "This payment method is temporarily unavailable. Please try again later.".to_string()
+        }
+    }
+}
+
+fn clean_reason(msg: &str) -> String {
+    // Drop the internal request_id parenthetical if present.
+    let msg = msg
+        .split_once(" (request_id=")
+        .map(|(head, _)| head)
+        .unwrap_or(msg);
+
+    // Drop the internal `ConnectorError` variant prefix.
+    for prefix in [
+        "Customer operation failed: ",
+        "Mandate setup failed: ",
+        "Charge failed: ",
+    ] {
+        if let Some(rest) = msg.strip_prefix(prefix) {
+            return rest.trim().to_string();
+        }
+    }
+
+    msg.trim().to_string()
+}
+
+#[cfg(test)]
+mod reason_tests {
+    use super::clean_reason;
+
+    #[test]
+    fn strips_variant_prefix_and_request_id() {
+        let raw = "Customer operation failed: gocardless rejected: Validation failed [email: is required] (request_id=REQ0123)";
+        assert_eq!(
+            clean_reason(raw),
+            "gocardless rejected: Validation failed [email: is required]"
+        );
+    }
+
+    #[test]
+    fn leaves_plain_message_untouched() {
+        assert_eq!(clean_reason("something broke"), "something broke");
     }
 }

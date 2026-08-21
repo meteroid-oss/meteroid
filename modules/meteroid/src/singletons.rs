@@ -27,6 +27,7 @@ pub async fn get_store() -> &'static Store {
                 multi_organization_enabled: config.multi_organization_enabled,
                 mailer_enabled: config.mailer_enabled(),
                 public_url: config.public_url.clone(),
+                rest_api_external_url: config.rest_api_external_url.clone(),
                 eventbus: create_eventbus_memory(),
                 mailer,
                 oauth,

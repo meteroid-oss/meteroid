@@ -145,6 +145,7 @@ pub enum PaymentStatusEnum {
     Settled,
     Cancelled,
     Failed,
+    Refunded,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -178,6 +179,7 @@ pub enum InvoicePaymentStatus {
     PartiallyPaid,
     Paid,
     Errored,
+    Processing,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

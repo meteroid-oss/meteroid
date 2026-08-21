@@ -1,6 +1,5 @@
 use crate::helpers;
 use backon::{ConstantBuilder, Retryable};
-use meteroid::adapters::stripe::Stripe;
 use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_noop, setup_eventbus_handlers};
 use meteroid::migrations;
@@ -202,6 +201,7 @@ async fn start_meteroid_from_config(
         multi_organization_enabled: config.multi_organization_enabled,
         mailer_enabled: config.mailer_enabled(),
         public_url: config.public_url.clone(),
+        rest_api_external_url: config.rest_api_external_url.clone(),
         eventbus: create_eventbus_noop(),
         mailer: mailer.clone(),
         oauth: meteroid_oauth::service::OauthServices::new(OauthConfig::dummy()),
@@ -230,15 +230,11 @@ async fn start_meteroid_from_config(
         Arc::new(meteroid::services::svix_cache::NoopSvixEndpointCache),
     );
 
-    let stripe = Arc::new(StripeClient::new());
-    let stripe_adapter = Arc::new(Stripe { client: stripe });
-
     let object_store = in_memory_object_store();
     let ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
     let rest_server = meteroid::api_rest::server::start_rest_server_with_listener(
         config.clone(),
         object_store.clone(),
-        stripe_adapter,
         store.clone(),
         services.clone(),
         ready,

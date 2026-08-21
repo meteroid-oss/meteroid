@@ -379,6 +379,14 @@ impl<'a> InvoiceAssert<'a> {
             .has_payment_status(InvoicePaymentStatus::Paid)
     }
 
+    /// Shorthand: Assert invoice is finalized with a payment accepted but not yet settled
+    /// (async direct debit).
+    #[allow(dead_code, clippy::wrong_self_convention)]
+    pub fn is_finalized_processing(self) -> Self {
+        self.has_status(InvoiceStatusEnum::Finalized)
+            .has_payment_status(InvoicePaymentStatus::Processing)
+    }
+
     /// Assert the invoice subtotal (before discounts).
     #[allow(dead_code)]
     pub fn has_subtotal(self, expected: i64) -> Self {

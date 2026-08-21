@@ -47,6 +47,7 @@ import {
   getChunkStatusConfig,
   getStatusConfig,
 } from '@/features/batch-jobs/statusConfig'
+import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 import {
@@ -73,18 +74,25 @@ interface BatchJobDetailProps {
   onBack?: () => void
 }
 
-const BackToJobs: FunctionComponent<{ onBack?: () => void }> = ({ onBack }) =>
-  onBack ? (
-    <Button variant="ghost" size="sm" onClick={onBack}>
-      <ArrowLeftIcon size={14} className="mr-1" /> Back to jobs
-    </Button>
-  ) : (
+const BackToJobs: FunctionComponent<{ onBack?: () => void }> = ({ onBack }) => {
+  const basePath = useBasePath()
+
+  if (onBack) {
+    return (
+      <Button variant="ghost" size="sm" onClick={onBack}>
+        <ArrowLeftIcon size={14} className="mr-1" /> Back to jobs
+      </Button>
+    )
+  }
+
+  return (
     <Button variant="ghost" size="sm" asChild>
-      <Link to="..?tab=batch-jobs">
+      <Link to={`${basePath}/settings/batch-jobs`}>
         <ArrowLeftIcon size={14} className="mr-1" /> Back to jobs
       </Link>
     </Button>
   )
+}
 
 export const BatchJobDetail: FunctionComponent<BatchJobDetailProps> = ({ jobId, onBack }) => {
   const queryClient = useQueryClient()
@@ -132,7 +140,7 @@ export const BatchJobDetail: FunctionComponent<BatchJobDetailProps> = ({ jobId, 
         queryKey: createConnectQueryKey({
           schema: getBatchJob,
           input: { jobId: jobId },
-          cardinality: 'finite'
+          cardinality: 'finite',
         }),
       })
       toast.success('Job cancelled')
@@ -147,10 +155,12 @@ export const BatchJobDetail: FunctionComponent<BatchJobDetailProps> = ({ jobId, 
     onSuccess: async res => {
       await new Promise(resolve => setTimeout(resolve, 1000))
 
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: getBatchJob.parent,
-        cardinality: undefined
-      }) })
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: getBatchJob.parent,
+          cardinality: undefined,
+        }),
+      })
       hasRetried.current = true
       toast.success(`Retrying ${res.retriedChunks} batch(es)`)
     },

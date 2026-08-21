@@ -1,5 +1,6 @@
 pub mod accounting;
 pub mod add_ons;
+pub mod advisory_lock;
 pub mod api_tokens;
 pub mod applied_coupons;
 pub mod bank_accounts;

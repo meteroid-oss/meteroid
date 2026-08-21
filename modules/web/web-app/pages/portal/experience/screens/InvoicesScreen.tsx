@@ -6,15 +6,7 @@ import { InvoicePaymentStatus, InvoiceStatus } from '@/rpc/api/invoices/v1/model
 
 import { date, money } from '../format'
 import { usePortalToken, useInvoices } from '../hooks'
-import {
-  CenterState,
-  LinkButton,
-  Mono,
-  PanelCard,
-  PButton,
-  Pill,
-  Spinner,
-} from '../primitives'
+import { CenterState, LinkButton, Mono, PanelCard, PButton, Pill, Spinner } from '../primitives'
 
 import type { StatusBadge } from '../format'
 import type { InvoiceSummary } from '@/rpc/portal/customer/v1/models_pb'
@@ -33,6 +25,8 @@ const invoiceBadge = (invoice: InvoiceSummary): StatusBadge => {
       return { label: 'Partially paid', tone: 'warn' }
     case InvoicePaymentStatus.ERRORED:
       return { label: 'Errored', tone: 'danger' }
+    case InvoicePaymentStatus.PROCESSING:
+      return { label: 'Processing', tone: 'warn' }
     case InvoicePaymentStatus.UNPAID:
     default:
       return { label: 'Unpaid', tone: 'warn' }

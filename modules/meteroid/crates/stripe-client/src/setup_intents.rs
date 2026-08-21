@@ -27,6 +27,12 @@ pub struct StripeMandateRequest {
     mandate_type: StripeMandateType,
 }
 
+impl StripeMandateRequest {
+    pub fn new(mandate_type: StripeMandateType) -> Self {
+        Self { mandate_type }
+    }
+}
+
 #[derive(Eq, PartialEq, Serialize, Clone, Debug, Copy)]
 #[serde(rename_all = "snake_case")]
 pub enum StripePaymentMethodType {
@@ -39,15 +45,12 @@ pub enum StripePaymentMethodType {
     Card,
 }
 
-// setup intents are used to create a payment method that can be used to create a payment intent
 #[skip_serializing_none]
 #[derive(Clone, Debug, Serialize)]
 pub struct CreateSetupIntent {
     pub customer: Option<String>,
     #[serde(flatten)]
     pub setup_mandate_details: Option<StripeMandateRequest>,
-    // payment_method_options : should we allow more customization here ?
-    // livemode
     pub payment_method_types: Option<Vec<StripePaymentMethodType>>,
     pub usage: Option<CreateSetupIntentUsage>,
     pub metadata: HashMap<String, String>,
@@ -71,6 +74,14 @@ pub struct SetupIntent {
     pub status: String,
     pub usage: String,
     pub metadata: HashMap<String, String>,
+    /// Same shape as PaymentIntent's `next_action` — populated when the
+    /// status is `requires_action` (3DS / microdeposit verification / etc).
+    #[serde(default)]
+    pub next_action: Option<crate::payment_intents::StripeNextAction>,
+    /// Stripe sends this as a nested object; opaque JSON is sufficient for
+    /// our portal display purposes.
+    #[serde(default)]
+    pub last_setup_error: Option<serde_json::Value>,
 }
 
 #[async_trait::async_trait]
