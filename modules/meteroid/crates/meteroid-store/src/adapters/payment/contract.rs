@@ -274,10 +274,9 @@ mod tests {
         assert_eq!(caps.mandate_setup_mode, MandateSetupMode::HostedRedirect);
     }
 
-    /// The hosted-checkout pending-intent sweeper keys off this capability:
-    /// only `PollingRequired` providers persist the intent id at initiation
-    /// and get swept; `WebhookBacked` providers must never be swept (their
-    /// webhook is the lost-return backstop).
+    /// The pending-intent sweeper keys off this capability: only
+    /// `PollingRequired` providers persist the intent id and get swept;
+    /// `WebhookBacked` providers must never be swept.
     #[test]
     fn hosted_setup_completion_matches_webhook_reality() {
         assert_eq!(
@@ -303,9 +302,8 @@ mod tests {
         );
     }
 
-    /// Stancer has no webhook mechanism whatsoever: registration must return
-    /// Unsupported and signature verification must reject unconditionally
-    /// (there is no legitimate signer).
+    /// Stancer has no webhook mechanism: registration must return Unsupported
+    /// and signature verification must reject unconditionally.
     #[tokio::test]
     async fn stancer_register_webhook_is_unsupported() {
         let connector = Connector {

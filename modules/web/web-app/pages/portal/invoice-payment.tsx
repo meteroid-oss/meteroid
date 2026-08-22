@@ -17,11 +17,9 @@ import { getInvoicePayment } from '@/rpc/portal/invoice/v1/invoice-PortalInvoice
 import { useTypedParams } from '@/utils/params'
 import { useForceTheme } from 'providers/ThemeProvider'
 
-// After an `ok` hosted-flow return the charge is created backend-side —
-// by the `billing_requests.fulfilled` webhook for GoCardless (which can lag
-// the redirect, or fail), by the return handler itself for Stancer; poll until
-// the charge reaches a terminal state, capped so a charge that never lands
-// doesn't poll forever.
+// After an `ok` hosted-flow return the charge is created backend-side (and
+// can lag the redirect): poll until it reaches a terminal state, capped so a
+// charge that never lands doesn't poll forever.
 const HOSTED_POLL_MS = 3000
 const HOSTED_POLL_TIMEOUT_MS = 5 * 60 * 1000
 
@@ -30,15 +28,11 @@ export const PortalInvoicePayment = () => {
 
   const invoiceId = useTypedParams<{ invoiceId: string }>().invoiceId
 
-  // Read the hosted-flow return outcome exactly once (it strips the params so a
-  // reload/Back doesn't replay it). `ok` = the mandate/card is saved and the
-  // charge is created backend-side, so we show "processing" and poll until it
-  // resolves. Anything else (abandoned / failed / Stancer payment_failed or
-  // processing) surfaces as an error and leaves the payment form available.
-  // Browser "back" never hits our return handler, so there's no param and the
-  // form just shows — no false "processing". Lazy initializer so it runs
-  // exactly once (a re-render must not re-read and null it out — the params
-  // are stripped on the first call).
+  // Read the hosted-flow return outcome exactly once (it strips the params so
+  // a reload/Back doesn't replay it): `ok` shows "processing" and polls;
+  // anything else surfaces as an error with the pay form available. Lazy
+  // initializer so a re-render can't re-read and null it out — the params are
+  // stripped on the first call.
   const [hostedRet] = useState(() => consumeHostedReturn())
   // 'processing' → awaiting the backend-created charge (readonly view + poll);
   // 'failed' → the charge failed: back to the pay form with an error banner;
@@ -75,9 +69,8 @@ export const PortalInvoicePayment = () => {
     const transactions = polledInvoice.transactions ?? []
     let staleFailedTxIds = staleFailedTxIdsRef.current
     if (staleFailedTxIds === null) {
-      // Prefer the snapshot captured *before* leaving for the hosted flow: it
-      // can't include the new charge, so a charge that fails before this first
-      // poll resolves is still correctly seen as newly failed. Fall back to the
+      // Prefer the pre-departure snapshot: it can't include the new charge,
+      // so an early failure is still seen as newly failed. Fall back to the
       // first-poll failures when there's no snapshot (e.g. a reloaded tab).
       staleFailedTxIds =
         (invoiceId ? consumeHostedPreAttempt(invoiceId) : null) ??

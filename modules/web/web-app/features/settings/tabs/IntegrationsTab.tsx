@@ -71,10 +71,9 @@ export const BrandIcon = ({
   </svg>
 )
 
-// Stancer's logo (from https://docs.stancer.com/favicon.svg) is a full
-// gradient mark, not a flat single-color path like the simple-icons ones
-// above, so it's inlined directly rather than going through BrandIcon.
-// Gradient/filter ids are prefixed to avoid colliding with other ids in the DOM.
+// Stancer's logo is a full gradient mark, not a flat single-color path, so
+// it's inlined rather than going through BrandIcon; ids are prefixed to
+// avoid DOM collisions.
 export const StancerLogo = ({ className }: { className?: string }) => (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 104 104" className={className}>
     <defs>

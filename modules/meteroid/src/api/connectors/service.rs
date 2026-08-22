@@ -256,11 +256,9 @@ impl ConnectorsService for ConnectorsServiceComponents {
         }))
     }
 
-    /// Register a Stancer merchant account. Stancer has no dedicated
-    /// "verify key" endpoint — `GET /v2/ping` is the lightest call that fails
-    /// on a bad/revoked secret key, so we ping before persisting. No webhook
-    /// registration or secret: Stancer has no webhook mechanism at all;
-    /// settlement resolves through the reconciliation worker.
+    /// Register a Stancer merchant account. `GET /v2/ping` is the lightest
+    /// call that fails on a bad/revoked secret key, so we ping before
+    /// persisting. No webhook registration: Stancer has no webhook mechanism.
     async fn connect_stancer(
         &self,
         request: Request<ConnectStancerRequest>,

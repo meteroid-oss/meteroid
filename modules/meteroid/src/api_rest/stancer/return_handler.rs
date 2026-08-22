@@ -1,27 +1,10 @@
-//! Customer return-URL handler for the Stancer hosted card page.
-//!
-//! When `MandateOps::initiate_mandate_setup` creates the Stancer payment
-//! intent, the `return_url` we hand to Stancer is shaped like:
-//!
-//!   `{rest_api_url}/v1/portal/stancer/return?connection={cid}&dest={dest}&intent={pi_…}`
-//!
-//! (`intent` is PATCHed on by the adapter once the intent id exists.) The
-//! hosted page auto-redirects the customer here after the card is entered.
-//!
-//! Unlike GoCardless — whose completion is webhook-driven and whose return
-//! handler only classifies — Stancer has NO webhooks, so this handler IS the
-//! completion + money path: it calls `Services::complete_hosted_setup`,
-//! which finalizes the intent (ownership-checked — the endpoint is
-//! unauthenticated), saves the card, and runs the fail-closed first payment
-//! (invoice charge / checkout activation). Then it bounces the customer back
-//! to their original page (`dest`) with a `stancer_status` marker.
-//!
-//! Provider boundary: this route stays provider-named (each provider's return
-//! URL is its own thin route — it owns the query shape and redirect markers),
-//! but ALL completion logic lives in the generic capability-gated
-//! `complete_hosted_setup` routine. A future webhook-less
-//! (`HostedSetupCompletion::PollingRequired`) provider adds its own thin
-//! return route here and delegates to that same routine.
+//! Customer return-URL handler for the Stancer hosted card page:
+//! `{rest_api_url}/v1/portal/stancer/return?connection={cid}&dest={dest}&intent={pi_…}`.
+//! Stancer has NO webhooks, so this handler IS the completion + money path:
+//! `complete_hosted_setup` finalizes the intent (ownership-checked — the
+//! endpoint is unauthenticated), saves the card, runs the fail-closed first
+//! payment, then bounces the customer back to `dest` with a `stancer_status`
+//! marker. The route is provider-named; all completion logic is generic.
 
 use crate::api_rest::AppState;
 use axum::extract::{Query, State};
@@ -32,22 +15,18 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct ReturnQuery {
-    /// Globally-unique v7 UUID (base62) identifying the customer connection.
-    /// Attacker-supplied; `complete_hosted_setup` ownership-checks the
-    /// intent's metadata against it before attaching or charging anything.
+    /// Customer connection id (base62). Attacker-supplied;
+    /// `complete_hosted_setup` ownership-checks the intent's metadata against it.
     pub connection: String,
-    /// The Stancer payment intent id (`pi_…`) to complete, baked into the
-    /// return URL by the adapter at setup time.
+    /// The Stancer payment intent id to complete, baked into the return URL.
     pub intent: Option<String>,
-    /// The customer's original page (e.g. the invoice-payment URL, which
-    /// carries its own auth token). We bounce them back here. Validated
-    /// against the portal origin before use, to prevent an open redirect.
+    /// The customer's original page to bounce back to. Validated against the
+    /// portal origin to prevent an open redirect.
     pub dest: Option<String>,
 }
 
-/// Allowlist for the intent id before we hand it to the completion service:
-/// Stancer ids are short alphanumeric tokens (`pi_…`, `paym_…`); anything
-/// outside this class is refused up-front.
+/// Allowlist for the intent id: Stancer ids are short alphanumeric tokens;
+/// anything outside this class is refused up-front.
 fn valid_intent_id(raw: &str) -> bool {
     !raw.is_empty()
         && raw.len() <= 64
@@ -88,21 +67,13 @@ pub async fn handle(Query(q): Query<ReturnQuery>, State(app_state): State<AppSta
         }
     };
 
-    // Completion is the money path here (no webhook backstop): finalize the
-    // intent, save the card, and run the fail-closed first payment.
     let outcome = app_state
         .services
         .complete_hosted_setup(connection_id, intent_id)
         .await;
 
-    // Outcome vocabulary the frontend consumes from the redirect:
-    //   ok             — card saved; any named invoice charge / checkout
-    //                    activation was initiated.
-    //   processing     — the intent has no card yet; refresh to retry.
-    //   payment_failed — card saved, but the first charge was declined; offer
-    //                    a retry with the saved card.
-    //   failed         — the hosted flow ended without a saved card, or an
-    //                    internal error occurred.
+    // Redirect vocabulary the frontend consumes: ok / processing /
+    // payment_failed (card saved, charge declined) / failed.
     match outcome {
         Ok(HostedSetupOutcome::MethodSaved(_)) => {
             log::info!("Stancer setup completed for connection {connection_id}: method saved");
@@ -128,9 +99,8 @@ pub async fn handle(Query(q): Query<ReturnQuery>, State(app_state): State<AppSta
             log::info!(
                 "Stancer setup for connection {connection_id}: card saved, first charge declined ({code:?})"
             );
-            // The provider decline code is NOT reflected into the URL — it is
-            // provider-controlled text; the page re-fetches details over the
-            // authenticated API instead.
+            // The decline code is NOT reflected into the URL (provider-controlled
+            // text); the page re-fetches details over the authenticated API.
             redirect_back(&dest, &[("stancer_status", "payment_failed")])
         }
         Ok(HostedSetupOutcome::SetupFailed) => {
@@ -138,10 +108,9 @@ pub async fn handle(Query(q): Query<ReturnQuery>, State(app_state): State<AppSta
             redirect_back(&dest, &[("stancer_status", "failed")])
         }
         Ok(HostedSetupOutcome::HeldForReview { .. }) => {
-            // Money WAS captured but could not be reconciled onto the checkout
-            // transaction (mismatch / cancelled-row race). The store already
-            // logged the manual-review error; the customer must not be told to
-            // retry (a retry would double-charge) — surface as processing.
+            // Money WAS captured but could not be reconciled. The customer
+            // must not be told to retry (a retry would double-charge) —
+            // surface as processing.
             log::error!(
                 "Stancer setup for connection {connection_id}: captured payment held for manual review"
             );
@@ -160,12 +129,9 @@ pub async fn handle(Query(q): Query<ReturnQuery>, State(app_state): State<AppSta
     }
 }
 
-/// Resolve the post-completion destination. Only honour a caller-supplied `dest`
-/// if it points at our own portal origin (open-redirect defense); otherwise fall
-/// back to the customer portal root. A bare `starts_with(portal)` is NOT enough:
-/// `https://portal.acme.com.evil.com/…` has the origin as a prefix. We require
-/// the prefix to end at an origin boundary (end-of-string, or the next char
-/// begins the path/query/fragment).
+/// Open-redirect defense: only honour a `dest` on our own portal origin. A
+/// bare `starts_with(portal)` is NOT enough (`https://portal.acme.com.evil.com/…`)
+/// — the prefix must end at an origin boundary (end, or path/query/fragment).
 fn safe_dest(app_state: &AppState, dest: Option<&str>) -> String {
     let portal = app_state.portal_url.trim_end_matches('/');
     let same_origin = |d: &str| {
@@ -182,8 +148,7 @@ fn safe_dest(app_state: &AppState, dest: Option<&str>) -> String {
     }
 }
 
-/// Append `key=value` params to `dest`, respecting whether it already has a
-/// query string. Values here are our own controlled tokens.
+/// Append `key=value` params to `dest`. Values are our own controlled tokens.
 fn redirect_back(dest: &str, params: &[(&str, &str)]) -> Response {
     let mut url = dest.to_string();
     let mut has_query = dest.contains('?');

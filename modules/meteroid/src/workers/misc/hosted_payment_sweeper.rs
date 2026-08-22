@@ -1,25 +1,11 @@
 //! Hosted-payment pending-intent sweeper — the lost-return backstop for
-//! providers whose hosted setup completes by polling (capability
-//! `HostedSetupCompletion::PollingRequired`), unified over hosted CHECKOUTS
-//! and hosted INVOICE payments.
-//!
-//! Why this exists. Such a provider's hosted flow captures the REAL amount
-//! in-flow on the hosted page and has NO webhook mechanism: the only
-//! completion signal is the customer's return redirect. A customer who pays
-//! and then closes the tab (or loses the redirect) has had money captured
-//! while the pre-created payment transaction stays Pending, the subscription
-//! never activates / the invoice never closes. Webhook-backed providers
-//! (GoCardless) get this backstop from their webhook
-//! (`billing_requests.fulfilled`) and never persist a sweepable intent id;
-//! for polling providers this worker is it.
-//!
-//! Each sweep re-runs the SAME completion routine the return handler uses
-//! (`Services::sweep_hosted_payment` →
-//! `complete_hosted_setup_with_attempts`): it reads the intent, records a
-//! captured payment and materializes the checkout / settles the invoice —
-//! never charges — and past a max age closes out abandoned attempts (cancels
-//! the intent + pending transaction, expires a checkout session). Return
-//! handler and sweeper are mutually idempotent, so both may run.
+//! `PollingRequired` providers (no webhooks: the return redirect is the only
+//! completion signal). A customer who pays then closes the tab has had money
+//! captured while the pre-created transaction stays Pending; each sweep
+//! re-runs the SAME completion routine as the return handler
+//! (`Services::sweep_hosted_payment`): records a captured payment and
+//! materializes/settles — never charges — and past a max age closes out
+//! abandoned attempts. Return handler and sweeper are mutually idempotent.
 
 use chrono::{DateTime, Utc};
 use common_domain::ids::PaymentTransactionId;
@@ -30,37 +16,28 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// How long after initiation before an attempt is swept. The return redirect
-/// normally completes within seconds; the grace avoids polling intents whose
-/// customer is still typing on the hosted page.
+/// Grace before an attempt is swept (the customer may still be typing).
 const AWAITING_GRACE: Duration = Duration::from_secs(15 * 60);
 
-/// Past this age with no captured payment the attempt is closed out (pending
-/// transaction cancelled, checkout session expired). Comfortably beyond the
-/// 24h checkout-session TTL, so a hosted page cannot plausibly still capture
-/// money afterwards.
+/// Close-out cutoff — comfortably beyond the 24h checkout-session TTL, so a
+/// hosted page cannot plausibly still capture money afterwards.
 const ABANDONED_MAX_AGE: Duration = Duration::from_secs(48 * 60 * 60);
 
 /// Provider polling budget per sweep.
 const BATCH_SIZE: i64 = 25;
 
-/// Consecutive per-attempt completion errors before the attempt is called out
-/// as poisoned (log-loud, every subsequent pass). The rotation cursor already
-/// keeps a poisoned attempt from blocking the queue; this makes it impossible
-/// to miss in the logs.
+/// Consecutive per-attempt errors before the attempt is called out as poisoned.
 const POISONED_ERROR_THRESHOLD: u32 = 3;
 
-/// How often the worker sweeps. There is no webhook racing us, so this is the
-/// recovery latency for a lost return.
+/// With no webhook racing us, this is the recovery latency for a lost return.
 const POLL_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 /// Backoff between attempts to (re)acquire leadership.
 const LEADER_RETRY_SLEEP: Duration = Duration::from_secs(15);
 
-/// Single-replica provider polling, like the reconciliation worker: leadership
-/// via a Postgres advisory lock; completion is idempotent, so a brief overlap
-/// during re-election is harmless. Shares the reconciliation kill switch (both
-/// are provider-polling settlement backstops).
+/// Single-replica provider polling via a Postgres advisory lock; completion
+/// is idempotent, so a brief overlap during re-election is harmless. Shares
+/// the reconciliation kill switch.
 pub async fn run_hosted_payment_sweeper(
     services: Arc<Services>,
     elector: Arc<dyn LeaderElection>,
@@ -114,13 +91,10 @@ pub async fn run_hosted_payment_sweeper(
     }
 }
 
-/// Cross-pass sweep state: a keyset cursor that rotates through ALL pending
-/// attempts across passes (so a wall of old-but-alive attempts can never
-/// starve recovery of a newer paid-but-lost capture behind the `LIMIT`
-/// window), plus per-attempt consecutive-error counts so a poisoned attempt
-/// (e.g. a disconnected connector) is surfaced log-loud instead of silently
-/// retried forever. Purely in-memory: a restart only restarts the rotation
-/// from the oldest attempt, which is safe (every operation is idempotent).
+/// Cross-pass sweep state: a keyset cursor rotating through ALL pending
+/// attempts (so old-but-alive attempts never starve newer ones), plus
+/// consecutive-error counts to surface poisoned attempts. Purely in-memory:
+/// a restart only restarts the rotation (every operation is idempotent).
 #[derive(Debug, Default)]
 struct SweepRotation {
     cursor: Option<(DateTime<Utc>, PaymentTransactionId)>,
@@ -129,9 +103,8 @@ struct SweepRotation {
 }
 
 impl SweepRotation {
-    /// Advance the cursor past a processed batch; `batch_len < limit` means
-    /// the rotation reached the end — wrap to the oldest and drop error
-    /// counts for attempts that no longer exist (completed/closed out).
+    /// `batch_len < limit` means the rotation reached the end — wrap to the
+    /// oldest and drop error counts for attempts that no longer exist.
     fn advance(
         &mut self,
         last_key: Option<(DateTime<Utc>, PaymentTransactionId)>,
@@ -184,8 +157,7 @@ async fn sweep(
     let mut completed = 0usize;
     let mut expired = 0usize;
     for item in items {
-        // Per-attempt isolation: one erroring attempt must never abort the
-        // batch or wedge the sweeper — log, count, and move on.
+        // One erroring attempt must never abort the batch — log, count, move on.
         match services.sweep_hosted_payment(&item, abandoned_before).await {
             Ok(HostedPaymentSweepOutcome::Completed) => {
                 log::info!(
@@ -241,9 +213,8 @@ mod tests {
         (Utc::now(), id)
     }
 
-    /// The cursor rotates: a full batch advances past its last row (the next
-    /// pass scans DIFFERENT attempts instead of re-hitting the same oldest
-    /// window), and a short batch wraps back to the oldest.
+    /// A full batch advances past its last row; a short batch wraps back to
+    /// the oldest.
     #[test]
     fn rotation_cursor_advances_and_wraps() {
         let mut rotation = SweepRotation::default();
@@ -264,16 +235,14 @@ mod tests {
         assert!(rotation.cursor.is_none());
     }
 
-    /// Consecutive errors accumulate to the poison threshold, a success
-    /// resets the count, and a full wrap prunes counts for attempts that
-    /// vanished (completed by the return handler between passes).
+    /// Errors accumulate to the poison threshold, a success resets the count,
+    /// and a full wrap prunes counts for attempts that vanished.
     #[test]
     fn poison_counting_and_pruning() {
         let mut rotation = SweepRotation::default();
         let poisoned = PaymentTransactionId::new();
         let vanished = PaymentTransactionId::new();
 
-        // Consecutive errors reach the poison threshold.
         let mut last = 0;
         for _ in 0..POISONED_ERROR_THRESHOLD {
             last = rotation.record_error(poisoned);

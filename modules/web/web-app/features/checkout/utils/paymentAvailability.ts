@@ -38,9 +38,8 @@ export type PaymentAvailability =
       displayTransactions?: boolean
     }
   | {
-      // An abandoned provider-hosted payment attempt (Stancer): the backend
-      // resumes the SAME intent, so the customer may continue instead of
-      // being stuck on the readonly "payment in progress" view.
+      // Abandoned hosted attempt: the backend resumes the SAME intent, so the
+      // customer may continue instead of a readonly "payment in progress" view.
       type: 'resumable_hosted_payment'
       connectionId: string
       displayTransactions?: boolean

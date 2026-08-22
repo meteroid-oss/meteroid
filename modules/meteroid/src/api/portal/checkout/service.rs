@@ -172,12 +172,9 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
 
     /// InitiateHostedCheckout - works with CheckoutSession tokens only.
     /// Starts a hosted-redirect flow (GoCardless, Stancer) for the
-    /// server-computed first payment. Both collect the payment in the hosted
-    /// flow itself: GoCardless authorises the mandate AND collects the payment
-    /// in one Billing Request; Stancer's hosted page saves the card and
-    /// captures the first payment in-flow on a capturing payment intent — the
-    /// return handler (or the pending-intent sweeper on a lost return) records
-    /// that captured payment, it never charges again.
+    /// server-computed first payment, collected in the hosted flow itself —
+    /// the return handler (or the sweeper on a lost return) records the
+    /// captured payment, it never charges again.
     #[tracing::instrument(skip_all)]
     async fn initiate_hosted_checkout(
         &self,

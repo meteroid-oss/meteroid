@@ -37,16 +37,13 @@ fn customer_idempotency(
 /// Maximum time to wait for payment provider API calls.
 const PAYMENT_PROVIDER_TIMEOUT: Duration = Duration::from_secs(45);
 
-/// Result of trying to cancel a superseded/abandoned hosted-checkout intent
-/// at the provider.
+/// Result of trying to cancel a superseded/abandoned hosted intent at the provider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::services) enum CancelPendingIntentOutcome {
-    /// The intent is dead at the provider (canceled / already terminal /
-    /// nonexistent); a replacement may be minted or the session expired.
+    /// The intent is certainly dead; a replacement may be minted.
     Cancelled,
-    /// The provider refused to cancel — a payment is underway or captured on
-    /// the intent. It MUST be adopted (run through completion), never
-    /// replaced or orphaned.
+    /// The provider refused — a payment is underway or captured. The intent
+    /// MUST be adopted (run through completion), never replaced or orphaned.
     NotCancelable,
 }
 
@@ -314,14 +311,10 @@ impl Services {
         .await
     }
 
-    /// Set up a mandate for a hosted checkout. Both GoCardless (combined
-    /// Billing Request) and Stancer (capturing payment intent) collect the
-    /// first payment in the same hosted flow.
-    /// Returns the intent carrying the provider intent id (`intent_id`) and the
-    /// hosted `authorisation_url` (in `client_secret`). The caller pre-creates the
-    /// Pending checkout transaction whose id is in `checkout.transaction_id`.
-    /// The DirectDebit connection type passed here is remapped to Card for
-    /// card-rail providers (Stancer) inside `create_setup_intent_internal`.
+    /// Set up a mandate for a hosted checkout (first payment collected in the
+    /// same hosted flow). Returns the provider intent id and the hosted
+    /// `authorisation_url` (in `client_secret`); the caller pre-creates the
+    /// Pending checkout transaction named by `checkout.transaction_id`.
     pub(in crate::services) async fn create_hosted_checkout_intent(
         &self,
         conn: &mut PgConn,
@@ -343,13 +336,10 @@ impl Services {
         .await
     }
 
-    /// Cancel a previously issued hosted-checkout setup intent at the provider
-    /// so it can never capture money after being superseded or its session
-    /// expired. `Cancelled` means the intent is certainly dead;
-    /// `NotCancelable` means the provider refused (a payment is underway or
-    /// captured on it) — the caller must NOT mint a replacement and must
-    /// route the intent through the completion path instead. Transport /
-    /// configuration errors propagate as `Err` (retry later; nothing minted).
+    /// Cancel a superseded/expired hosted setup intent at the provider so it
+    /// can never capture money afterwards. On `NotCancelable` the caller must
+    /// NOT mint a replacement — route the intent through completion instead.
+    /// Transport/configuration errors propagate as `Err` (nothing minted).
     pub(in crate::services) async fn cancel_pending_hosted_intent(
         &self,
         conn: &mut PgConn,
@@ -394,12 +384,9 @@ impl Services {
     }
 
     /// Create a setup intent, optionally tied to an invoice this setup pays.
-    ///
-    /// Invoice + in-flow-capturing (PollingRequired, i.e. Stancer) provider:
-    /// side-effect-free — the panel fetches this on render, so it returns only
-    /// a provider descriptor (empty intent/secret) and never pre-creates a
-    /// transaction or mints a capturable intent; only the explicit pay action
-    /// ([`Self::initiate_hosted_invoice_payment`]) does.
+    /// Invoice + in-flow-capturing provider: side-effect-free — the panel
+    /// fetches this on render, so it returns only a provider descriptor; only
+    /// the explicit pay action mints a capturable intent.
     pub(in crate::services) async fn create_setup_intent(
         &self,
         tenant_id: &TenantId,
@@ -465,9 +452,8 @@ impl Services {
         // combined mandate+payment Billing Request). Mutually exclusive with
         // `invoice_id`.
         checkout: Option<crate::adapters::payment::model::HostedCheckoutContext>,
-        // When set, this is an in-flow hosted INVOICE payment (PollingRequired
-        // providers only): the hosted page captures the invoice's amount_due
-        // together with the card save. `invoice_id` names the same invoice.
+        // In-flow hosted INVOICE payment (PollingRequired providers only): the
+        // hosted page captures `amount_due` together with the card save.
         invoice_payment: Option<crate::adapters::payment::model::HostedInvoicePaymentContext>,
         return_url: Option<String>,
     ) -> StoreResult<SetupIntent> {
@@ -489,12 +475,9 @@ impl Services {
 
         let connector = Connector::from_row(&self.store.settings.crypt_key, connection.connector)?;
 
-        // Hosted checkout is for hosted-redirect providers only (Mock is
-        // admitted as the integration-test stand-in); other providers would
-        // silently ignore the ctx and return a non-URL secret. Both collect
-        // the first payment in-flow: GoCardless via a combined mandate+payment
-        // BR, Stancer via a capturing payment intent (recorded by the return
-        // handler / pending-intent sweeper — never re-charged).
+        // Hosted checkout is for hosted-redirect providers only (Mock is the
+        // integration-test stand-in); other providers would silently ignore
+        // the ctx and return a non-URL secret.
         if checkout.is_some()
             && !matches!(
                 connector.provider,
@@ -508,11 +491,9 @@ impl Services {
             )));
         }
 
-        // In-flow invoice capture is exclusively for webhook-less
-        // (PollingRequired) providers: their return handler / sweeper records
-        // the captured payment. Webhook-backed providers must keep the
-        // 0-amount save + post-mandate webhook charge, or the capture would
-        // race the webhook's off-session charge into a double-charge.
+        // In-flow invoice capture is exclusively for webhook-less providers:
+        // on a webhook-backed provider the capture would race the webhook's
+        // off-session charge into a double-charge.
         if invoice_payment.is_some()
             && !crate::adapters::payment::provider_capabilities(&connector.provider).is_some_and(
                 |caps| {
@@ -528,8 +509,7 @@ impl Services {
         }
 
         // The hosted-checkout entry point passes DirectDebit (GoCardless's
-        // rail); Stancer is card-only, so a Stancer hosted checkout sets up a
-        // card instead.
+        // rail); Stancer is card-only, so it sets up a card instead.
         let requested_connection_type = if checkout.is_some()
             && connector.provider == crate::domain::enums::ConnectorProviderEnum::Stancer
         {
@@ -618,11 +598,9 @@ impl Services {
         // value for both `redirect_uri` and `exit_uri`, so an abandoned flow
         // lands on the handler too (without a `billing_request`), and the
         // handler treats that as "abandoned".
-        // Stancer's return handler follows the same shape at
-        // `/v1/portal/stancer/return`; unlike GoCardless (webhook-driven) the
-        // return handler IS the completion path, and the adapter additionally
-        // PATCHes the intent's own id onto this URL (`&intent=pi_…`) once the
-        // intent exists.
+        // Stancer follows the same shape at `/v1/portal/stancer/return`, but
+        // there the return handler IS the completion path (no webhooks); the
+        // adapter PATCHes the intent's own id onto this URL once it exists.
         let handler_path = match connector.provider {
             crate::domain::enums::ConnectorProviderEnum::Gocardless => {
                 Some("v1/portal/gocardless/return")
@@ -674,8 +652,6 @@ impl Services {
             // Present for a hosted checkout: adds a `payment_request` so the first
             // payment is collected in the same hosted flow as the mandate.
             checkout,
-            // Present for an in-flow hosted invoice payment: the intent
-            // captures the invoice's amount_due on the hosted page.
             invoice_payment,
             currency: Some(customer_currency),
         };

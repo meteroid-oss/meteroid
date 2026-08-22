@@ -1,37 +1,15 @@
 //! Hosted-setup completion — the server-side completion path for providers
 //! whose hosted-redirect setup has NO webhook backstop
 //! ([`crate::adapters::payment::HostedSetupCompletion::PollingRequired`]).
-//! Webhook-backed providers
-//! (GoCardless: `billing_requests.fulfilled`) complete through their webhook;
-//! here the return redirect (and the sweeper re-running this same routine) IS
-//! the money path:
-//!
-//! 1. Look up the connection (by id) and its connector / tenant.
-//! 2. `MandateOps::complete_mandate_setup` on the provider adapter — reads the
-//!    intent, requires a saved payment method (retrying briefly: the redirect
-//!    can beat the intent's own update), fetches the method snapshot.
-//! 3. Ownership-check the intent metadata (unauthenticated endpoint,
-//!    attacker-supplied ids) — fail closed.
-//! 4. Upsert the card as a [`CustomerPaymentMethod`], set as default.
-//! 5. First payment:
-//!    - Invoice setup (`meteroid.invoice_id` + `meteroid.transaction_id`):
-//!      the hosted page captured the invoice's REAL `amount_due` in-flow, so
-//!      the snapshot carries `payment_request_payment`. That captured payment
-//!      is the SINGLE charge: we record its id on the pre-created invoice
-//!      transaction and settle it — never a second server-initiated charge.
-//!      (Legacy 0-amount invoice intents — no `meteroid.transaction_id` —
-//!      keep the old fail-closed off-session charge.)
-//!    - Hosted CHECKOUT (`meteroid.checkout_session_id`): the hosted page
-//!      captured the REAL first-payment amount in-flow, so the snapshot carries
-//!      `payment_request_payment`. That captured payment is the SINGLE charge:
-//!      we record its id on the pre-created checkout transaction and
-//!      materialize via `on_hosted_checkout_fulfilled` — never a second
-//!      server-initiated charge. (Snapshots without a captured payment — legacy
-//!      0-amount checkout intents still in flight across a deploy — keep the
-//!      old fail-closed off-session charge.)
-//!
-//!    Either way the lost-return backstop is the pending-intent sweeper
-//!    ([`super::hosted_payment_sweep`]), which runs this same completion.
+//! The return redirect (and the sweeper re-running this same routine) IS the
+//! money path: complete the intent on the adapter, ownership-check its
+//! metadata (unauthenticated endpoint — fail closed), upsert the card as
+//! default, then handle the first payment. For invoice and checkout intents
+//! the hosted page captured the REAL amount in-flow: that captured payment is
+//! the SINGLE charge — its id is recorded on the pre-created transaction and
+//! settled/materialized from, never a second server-initiated charge. Legacy
+//! 0-amount intents keep the old fail-closed off-session charge. Lost returns
+//! are backstopped by the pending-intent sweeper ([`super::hosted_payment_sweep`]).
 
 use crate::StoreResult;
 use crate::adapters::payment::error::ConnectorError;
@@ -59,58 +37,42 @@ use error_stack::{Report, ResultExt};
 use scoped_futures::ScopedFutureExt;
 use std::time::Duration;
 
-/// Maximum time to wait for payment provider API calls (mirrors the other
-/// payment services).
 const PAYMENT_PROVIDER_TIMEOUT: Duration = Duration::from_secs(45);
 
-/// §7(g): the customer's redirect can beat the intent's own `.card` update.
-/// Retry completion a few times before surfacing "processing" — there is no
-/// webhook behind this to catch up later, only the customer refreshing.
+/// The customer's redirect can beat the intent's own `.card` update — retry
+/// briefly before surfacing "processing" (no webhook catches up later).
 const COMPLETE_ATTEMPTS: u32 = 3;
 const COMPLETE_RETRY_DELAY: Duration = Duration::from_secs(2);
 
-/// Customer-facing outcome of a hosted-setup return, mapped by the provider's
-/// REST return handler onto its redirect status markers. System failures (DB
-/// down, provider transport) stay `Err`.
+/// Customer-facing outcome of a hosted-setup return. System failures stay `Err`.
 #[derive(Debug)]
 pub enum HostedSetupOutcome {
     /// Card saved and set as default; the intent named no invoice/checkout.
     MethodSaved(CustomerPaymentMethod),
-    /// Card saved and the named invoice's payment is in hand: the in-flow
-    /// captured payment was recorded/settled, a legacy charge was initiated,
-    /// or the invoice was already covered (a benign duplicate visit).
+    /// Card saved and the named invoice's payment is in hand.
     InvoiceCharged(CustomerPaymentMethod),
-    /// Card saved and the checkout's first payment was accepted; the
-    /// subscription is materialized (in-flight or settled).
+    /// Card saved and the checkout's first payment accepted; subscription materialized.
     CheckoutActivated(CustomerPaymentMethod),
-    /// Card saved, but the follow-up first charge was declined. The customer
-    /// can retry from the invoice/checkout page with the saved card.
+    /// Card saved but the first charge was declined; retryable with the saved card.
     PaymentFailed {
         payment_method: CustomerPaymentMethod,
         code: Option<String>,
     },
-    /// The intent has no saved payment method yet after retries — still
-    /// processing at the provider; the customer can refresh (this endpoint is
-    /// idempotent).
+    /// Intent has no saved method after retries; a refresh re-runs this (idempotent).
     Processing,
-    /// The hosted flow ended without a saved card (cancelled / unpaid / the
-    /// intent doesn't exist).
+    /// Hosted flow ended without a saved card (cancelled/unpaid/nonexistent intent).
     SetupFailed,
-    /// Card saved and money WAS captured at the provider, but the captured payment
-    /// does not reconcile with the checkout transaction (amount/currency
-    /// mismatch, or the transaction was concurrently cancelled). Nothing was
-    /// settled or materialized; the transaction is held and an operator must
-    /// review. Never expired by the sweeper — captured money is never
-    /// cancelled away.
+    /// Money WAS captured but does not reconcile with the transaction. Nothing
+    /// settled; operator review required. Never expired by the sweeper —
+    /// captured money is never cancelled away.
     HeldForReview {
         payment_method: CustomerPaymentMethod,
     },
 }
 
 impl Services {
-    /// Release the pending-intent marker of a FINISHED attempt (settled AND,
-    /// for a checkout, materialized) so it stops being swept and is never
-    /// adoptable. Predicated on the observed intent id; already-cleared no-ops.
+    /// Release the pending-intent marker of a FINISHED attempt so it stops
+    /// being swept and is never adoptable. Predicated on the observed intent id.
     async fn release_hosted_intent_marker(
         &self,
         tenant_id: common_domain::ids::TenantId,
@@ -130,17 +92,10 @@ impl Services {
         Ok(())
     }
 
-    /// Finalize a hosted setup intent after the customer returns from the
-    /// provider's hosted page, then perform the fail-closed first payment.
-    /// Only for [`HostedSetupCompletion::PollingRequired`] providers — each
-    /// such provider exposes its own thin REST return route delegating here.
-    ///
-    /// Idempotent: re-visits re-read the intent, upsert the same method, and
-    /// the charge paths dedupe (invoice: pending/over-payment guards; checkout:
-    /// provider `unique_id` on the stable transaction id + materialization
-    /// no-ops). Unauthenticated and `connection_id`/`intent_id` are
-    /// attacker-supplied, so the intent metadata is ownership-checked before
-    /// anything is attached or charged.
+    /// Finalize a hosted setup intent after the customer returns, then perform
+    /// the fail-closed first payment. Idempotent across re-visits.
+    /// Unauthenticated, attacker-supplied ids: the intent metadata is
+    /// ownership-checked before anything is attached or charged.
     pub async fn complete_hosted_setup(
         &self,
         connection_id: CustomerConnectionId,
@@ -151,8 +106,7 @@ impl Services {
     }
 
     /// [`Self::complete_hosted_setup`] with an explicit `.card`-timing retry
-    /// budget: the return handler retries briefly (the customer is waiting on
-    /// the redirect); the sweeper passes 1 (it re-runs on its own schedule).
+    /// budget: the return handler retries briefly; the sweeper passes 1.
     pub(crate) async fn complete_hosted_setup_with_attempts(
         &self,
         connection_id: CustomerConnectionId,
@@ -171,9 +125,8 @@ impl Services {
         let connector =
             Connector::from_row(&self.store.settings.crypt_key, connection_row.connector)?;
 
-        // Polled completion only: webhook-backed providers complete through
-        // their webhook (and never persist a sweepable intent id) — refuse to
-        // run this money path against any of their connections.
+        // Webhook-backed providers complete through their webhook and never
+        // persist a sweepable intent id — refuse to run this money path for them.
         let polling_required = crate::adapters::payment::provider_capabilities(&connector.provider)
             .is_some_and(|caps| {
                 caps.hosted_setup_completion == HostedSetupCompletion::PollingRequired
@@ -190,7 +143,6 @@ impl Services {
         let connector_impl = initialize_payment_connector(&connector)
             .change_context(StoreError::PaymentProviderError)?;
 
-        // ── complete the intent (with the .card-timing retry) ───────────
         let mut snapshot = None;
         let complete_attempts = complete_attempts.max(1);
         for attempt in 1..=complete_attempts {
@@ -223,9 +175,8 @@ impl Services {
                         );
                         return Ok(HostedSetupOutcome::Processing);
                     }
-                    // Terminal setup failure (cancelled/unpaid/nonexistent
-                    // intent) → customer-facing "failed"; anything else
-                    // (transport, config) is a system error.
+                    // Terminal setup failure → customer-facing "failed";
+                    // anything else (transport, config) is a system error.
                     return if matches!(report.current_context(), ConnectorError::MandateSetup(_)) {
                         log::info!(
                             "hosted setup for intent {intent_id} did not complete: {report:?}"
@@ -261,17 +212,13 @@ impl Services {
 
         let invoice_to_charge = snapshot.meteroid_invoice_id.clone();
         let checkout_session_to_complete = snapshot.meteroid_checkout_session_id.clone();
-        // In-flow capture: the hosted page already collected the checkout's
-        // first payment on the intent; this is its id. Present ⇒ record it,
-        // NEVER charge again.
+        // In-flow capture: present ⇒ record it, NEVER charge again.
         let captured_payment_id = snapshot.payment_request_payment.clone();
-        // The intent's OWN pre-created transaction (`meteroid.transaction_id`):
-        // the capture is recorded onto this row, never onto "the latest" for
-        // the session, which can belong to a newer attempt.
+        // The intent's OWN pre-created transaction — the capture is recorded
+        // onto this row, never "the latest" (which can be a newer attempt).
         let intent_transaction_id = snapshot.meteroid_transaction_id.clone();
         let external_payment_method_id = snapshot.external_payment_method_id.clone();
 
-        // ── persist the card + set as default ───────────────────────────
         let payment_method = self
             .store
             .upsert_payment_method(CustomerPaymentMethodNew {
@@ -311,7 +258,6 @@ impl Services {
             .patch_customer(Actor::System, tenant_id, patch)
             .await?;
 
-        // ── first payment ───────────────────────────────────────────────
         if let Some(invoice_id_str) = invoice_to_charge {
             self.settle_invoice_after_hosted_setup(
                 tenant_id,
@@ -343,15 +289,9 @@ impl Services {
     }
 
     /// Settle (or, legacy-only, charge) the invoice the setup was made for.
-    ///
-    /// In-flow intents (stamped with `meteroid.transaction_id`) captured the
-    /// invoice's `amount_due` on the hosted page: the captured payment is
-    /// recorded onto the pre-created invoice transaction and settled — the
-    /// captured path always returns BEFORE any off-session charge, and an
-    /// in-flow intent with no captured payment yet reports `Processing`
-    /// rather than charging (charging would double-collect once the capture
-    /// lands). Only legacy 0-amount intents (no stamped transaction id) keep
-    /// the fail-closed off-session charge.
+    /// An in-flow intent's captured payment is recorded and settled — never
+    /// followed by an off-session charge (double-collect). Only legacy
+    /// 0-amount intents keep the fail-closed off-session charge.
     #[allow(clippy::too_many_arguments)]
     async fn settle_invoice_after_hosted_setup(
         &self,
@@ -376,10 +316,8 @@ impl Services {
             }
         };
 
-        // Defense-in-depth: the invoice id was read back from provider
-        // metadata (no auth context). Re-verify it belongs to this customer so
-        // stale/tampered metadata can never move money across the customer
-        // boundary. (The API boundary validated it at intent creation too.)
+        // The invoice id was read back from provider metadata (no auth
+        // context): re-verify it belongs to this customer before moving money.
         let invoice = self.store.get_invoice_by_id(tenant_id, invoice_id).await?;
         if invoice.customer_id != customer_id {
             log::error!(
@@ -401,9 +339,8 @@ impl Services {
                     .await
             }
             InvoiceSetupSettlement::AwaitCapture => {
-                // In-flow intent, card saved, but the intent's `.payment` link
-                // has not surfaced yet. NEVER charge here — the hosted capture
-                // may still land; the sweeper / a refresh re-runs completion.
+                // NEVER charge here — the hosted capture may still land;
+                // the sweeper / a refresh re-runs completion.
                 log::info!(
                     "hosted invoice setup for invoice {invoice_id}: in-flow intent has no \
                      captured payment yet; reporting processing"
@@ -411,8 +348,6 @@ impl Services {
                 Ok(HostedSetupOutcome::Processing)
             }
             InvoiceSetupSettlement::HoldUnmappedCapture => {
-                // Money captured at the provider but the intent carries no
-                // transaction id to record it onto — never charge, never drop.
                 log::error!(
                     "hosted invoice setup for invoice {invoice_id}: captured payment {:?} on an \
                      intent without meteroid.transaction_id; manual review required",
@@ -440,8 +375,7 @@ impl Services {
                     .map_err(|err| StoreError::DatabaseError(err.error))?;
                 drop(conn);
                 if row.invoice_id != Some(invoice_id) {
-                    // Metadata inconsistency (the tx exists but belongs
-                    // elsewhere): never move money across it.
+                    // The tx exists but belongs elsewhere: never move money across it.
                     log::error!(
                         "hosted invoice setup for invoice {invoice_id}: intent transaction {} \
                          belongs to invoice {:?}; manual review required",
@@ -467,8 +401,7 @@ impl Services {
                             row.provider_transaction_id
                         );
                     }
-                    // Settled = finished for an invoice attempt: release any
-                    // marker a reconcile-settled row may still carry.
+                    // Release any marker a reconcile-settled row may still carry.
                     self.release_hosted_intent_marker(tenant_id, &row).await?;
                     return Ok(HostedSetupOutcome::InvoiceCharged(payment_method));
                 }
@@ -478,9 +411,8 @@ impl Services {
                         | diesel_models::enums::PaymentStatusEnum::Cancelled
                 ) {
                     if row.provider_transaction_id.as_deref() != Some(payment_id.as_str()) {
-                        // Late return after the sweeper closed the attempt out,
-                        // with money captured under a different (or no) payment
-                        // id: surface for manual review/refund.
+                        // Late return after the sweeper closed the attempt, with
+                        // money captured under a different id: manual review/refund.
                         log::error!(
                             "hosted invoice setup for invoice {invoice_id}: captured payment \
                              {payment_id} arrived for terminal transaction {} ({:?}, provider id \
@@ -511,12 +443,8 @@ impl Services {
         }
     }
 
-    /// In-flow capture settlement for a hosted INVOICE payment: the hosted
-    /// page already collected the invoice's `amount_due` (`payment_id`);
-    /// settle FROM it — never charge. Mirrors
-    /// [`Self::record_captured_checkout_payment`] without the checkout
-    /// materialization: settling the invoice transaction drives the invoice
-    /// Paid pipeline through the settlement outbox event.
+    /// Settle the invoice FROM the in-flow captured payment — never charge;
+    /// settling drives the invoice Paid pipeline via the settlement outbox event.
     #[allow(clippy::too_many_arguments)]
     async fn record_captured_invoice_payment(
         &self,
@@ -613,10 +541,8 @@ impl Services {
                 let final_tx = self
                     .consolidate_hosted_intent(tenant_id, row.id, intent, Some(payment_method.id))
                     .await?;
-                // The consolidation state machine skips terminal rows: if the
-                // sweeper cancelled this transaction between our read and the
-                // lock, nothing was settled — never report success over a
-                // cancelled row; hold for review (money IS captured).
+                // Consolidation skips terminal rows: if the sweeper cancelled
+                // this tx meanwhile, nothing settled — hold (money IS captured).
                 if final_tx.status != crate::domain::PaymentStatusEnum::Settled {
                     log::error!(
                         "hosted invoice payment for invoice {invoice_id}: captured payment \
@@ -645,8 +571,7 @@ impl Services {
                 Ok(HostedSetupOutcome::HeldForReview { payment_method })
             }
             CapturedPaymentResolution::RecordPending => {
-                // Bind the payment id + method; the reconcile worker polls the
-                // still-Pending tx (it now has a provider id) to settlement.
+                // Bind id + method; reconcile polls the still-Pending tx to settlement.
                 let intent = PaymentIntent {
                     external_id: payment_id,
                     transaction_id: row.id,
@@ -666,11 +591,8 @@ impl Services {
         }
     }
 
-    /// Charge the invoice the setup was made for. Mirrors the GoCardless
-    /// `billing_requests.fulfilled` webhook charge, but synchronously on the
-    /// return path (a polling-completed provider has no webhook to drive it).
-    /// LEGACY 0-amount intents only — in-flow intents record the hosted
-    /// capture instead and must never reach this.
+    /// LEGACY 0-amount intents only: charge synchronously on the return path.
+    /// In-flow intents record the hosted capture and must never reach this.
     async fn charge_invoice_after_hosted_setup(
         &self,
         tenant_id: common_domain::ids::TenantId,
@@ -690,12 +612,10 @@ impl Services {
                         payment_method_id,
                         // Customer-initiated: they just completed the hosted flow.
                         true,
-                        // Off-session posture: no further customer action is
-                        // required — the hosted page already ran any 3DS.
+                        // Off-session: the hosted page already ran any 3DS.
                         false,
-                        // No explicit ref needed: invoice charges derive a
-                        // stable (method, invoice, attempt) key centrally in
-                        // `create_payment_intent`, shared with dunning/renewal.
+                        // No explicit ref: invoice charges derive a stable
+                        // (method, invoice, attempt) key in `create_payment_intent`.
                         None,
                     )
                     .await
@@ -729,9 +649,7 @@ impl Services {
                     Ok(HostedSetupOutcome::InvoiceCharged(payment_method))
                 }
             },
-            // Terminal-but-benign on a duplicate visit: a payment is already
-            // pending / sufficient / would over-pay (PaymentError), or the
-            // invoice is non-payable (BillingError). Nothing to recover.
+            // Benign duplicate visit: already pending/sufficient/non-payable.
             Err(e)
                 if matches!(
                     e.current_context(),
@@ -749,21 +667,12 @@ impl Services {
         }
     }
 
-    /// Complete the checkout against the pre-created Pending transaction
-    /// (minted by `initiate_hosted_checkout`) and materialize the subscription.
-    ///
-    /// In-flow capture (`captured_payment_id` present — the hosted page
-    /// collected the real amount): record that payment id on the transaction
-    /// and drive `on_hosted_checkout_fulfilled`, mirroring the GoCardless
-    /// `billing_requests.fulfilled` checkout branch. The hosted capture is the
-    /// SINGLE charge — no server-initiated charge exists on this path, so a
-    /// re-visit (or the sweeper racing this handler) only re-records the same
-    /// id (no-op) and re-runs the idempotent materialization.
-    ///
-    /// Legacy 0-amount intents (created before in-flow capture shipped, still
-    /// in flight across the deploy) carry no captured payment: they keep the
-    /// fail-closed off-session charge, anchored on the stable transaction id
-    /// (the provider's dedup key) so a re-visit can never double-charge.
+    /// Complete the checkout against the pre-created Pending transaction and
+    /// materialize the subscription. The in-flow captured payment is the
+    /// SINGLE charge: record its id and drive `on_hosted_checkout_fulfilled`
+    /// (re-visits / the racing sweeper re-run idempotently). Legacy 0-amount
+    /// intents keep the fail-closed off-session charge, anchored on the stable
+    /// transaction id so a re-visit can never double-charge.
     #[allow(clippy::too_many_arguments)]
     async fn activate_checkout_after_hosted_setup(
         &self,
@@ -792,8 +701,7 @@ impl Services {
             }
         };
 
-        // Defense-in-depth: verify the session belongs to this customer before
-        // charging / materializing anything against it.
+        // Verify the session belongs to this customer before moving money.
         let session = self
             .store
             .get_checkout_session(tenant_id, checkout_session_id)
@@ -810,12 +718,9 @@ impl Services {
         }
 
         let mut conn = self.store.get_conn().await?;
-        // Resolve the intent's OWN pre-created transaction by the
-        // `meteroid.transaction_id` it was stamped with. A checkout retry
-        // mints a new intent + transaction; "latest for the session" would
-        // record THIS intent's capture onto the wrong (newer) row. The
-        // latest-row fallback exists only for legacy intents created before
-        // the id was stamped.
+        // Resolve the intent's OWN transaction via its stamped id: "latest for
+        // the session" could record onto the wrong (newer) row after a retry.
+        // The latest-row fallback exists only for legacy unstamped intents.
         let row = match &intent_transaction_id {
             Some(tx_id_str) => {
                 let Ok(tx_id) = common_domain::ids::PaymentTransactionId::parse_base62(tx_id_str)
@@ -830,8 +735,7 @@ impl Services {
                     .await
                     .map_err(|err| StoreError::DatabaseError(err.error))?;
                 if row.checkout_session_id != Some(checkout_session_id) {
-                    // Metadata inconsistency (the tx exists but belongs
-                    // elsewhere): never move money across it.
+                    // The tx exists but belongs elsewhere: never move money across it.
                     log::error!(
                         "hosted checkout session {checkout_session_id}: intent transaction {} \
                          belongs to session {:?}; manual review required",
@@ -861,9 +765,7 @@ impl Services {
             }
         };
         let Some(row) = row else {
-            // The hosted flow is only ever started via initiate_hosted_checkout,
-            // which pre-creates this row. Card is saved; the customer can still
-            // confirm on the checkout page with the saved method.
+            // initiate_hosted_checkout pre-creates this row; card stays saved.
             log::warn!(
                 "hosted checkout return for session {checkout_session_id}: no checkout transaction found; card saved only"
             );
@@ -875,8 +777,7 @@ impl Services {
         if row.invoice_id.is_some()
             || row.status == diesel_models::enums::PaymentStatusEnum::Settled
         {
-            // Symmetric with the terminal branch below: an incoming captured
-            // payment that is NOT the one recorded on the row is a SECOND
+            // A captured payment that is NOT the recorded one is a SECOND
             // capture at the provider — never drop it silently.
             if let Some(payment_id) = &captured_payment_id
                 && row.provider_transaction_id.as_deref() != Some(payment_id.as_str())
@@ -904,8 +805,7 @@ impl Services {
                 row.processed_at,
             )
             .await?;
-            // Settled + materialized = finished; an in-flight row keeps its
-            // marker until settlement resolves.
+            // Settled + materialized = finished; in-flight rows keep the marker.
             if row.status == diesel_models::enums::PaymentStatusEnum::Settled {
                 self.release_hosted_intent_marker(tenant_id, &row).await?;
             }
@@ -917,16 +817,11 @@ impl Services {
                 | diesel_models::enums::PaymentStatusEnum::Cancelled
                 | diesel_models::enums::PaymentStatusEnum::Refunded
         ) {
-            // A previous attempt's charge was declined (or the sweeper
-            // cancelled an abandoned attempt); the checkout page lets the
-            // customer retry with the (now saved) card.
             if let Some(payment_id) = &captured_payment_id
                 && row.provider_transaction_id.as_deref() != Some(payment_id.as_str())
             {
-                // Money captured at the provider but our transaction is terminal
-                // under a DIFFERENT (or no) payment id — a late return after
-                // the sweeper expired the attempt. Never silently drop
-                // captured funds: surface for manual review/refund.
+                // Money captured but the tx is terminal under a different id —
+                // late return after sweeper expiry. Never drop captured funds.
                 log::error!(
                     "hosted checkout session {checkout_session_id}: captured payment {payment_id} \
                      arrived for terminal transaction {} ({:?}, provider id {:?}); manual review \
@@ -958,10 +853,8 @@ impl Services {
         }
 
         // ── legacy 0-amount intent: the fail-closed first charge ────────
-        // The idempotency key rides on the stable, already-committed checkout
-        // transaction id: a re-visit that races the consolidation below dedupes
-        // at the provider (the adapter adopts the existing payment on a
-        // unique_id conflict).
+        // The idempotency key rides on the stable checkout transaction id, so a
+        // racing re-visit dedupes at the provider (unique_id conflict → adopt).
         let outcome = tokio::time::timeout(
             PAYMENT_PROVIDER_TIMEOUT,
             connector_impl.charge_off_session(
@@ -974,9 +867,7 @@ impl Services {
                     amount_minor: row.amount,
                     currency: &row.currency,
                     idempotency_key: IdempotencyKey::new(format!("charge:{}", row.id.as_base62())),
-                    // The customer is present, but the off-session
-                    // charge never requires further action (3DS already ran on
-                    // the hosted page).
+                    // Off-session: 3DS already ran on the hosted page.
                     on_session: false,
                 },
             ),
@@ -1000,8 +891,6 @@ impl Services {
         let provider_payment_id = Some(intent.external_id.clone()).filter(|s| !s.is_empty());
         let processed_at = intent.processed_at;
 
-        // Consolidate through the shared settlement pipeline (records the
-        // provider id, applies the state machine).
         let transaction_id = row.id;
         let store = self.store.clone();
         self.store
@@ -1040,9 +929,7 @@ impl Services {
                 })
             }
             _ => {
-                // Accepted (Pending/Settled): bind method + payment to the tx
-                // and materialize the subscription (Processing in-flight, or
-                // Paid if the charge settled synchronously). Idempotent.
+                // Accepted (Pending/Settled): bind method + payment, materialize.
                 self.on_hosted_checkout_fulfilled(
                     tenant_id,
                     checkout_session_id,
@@ -1051,9 +938,7 @@ impl Services {
                     processed_at,
                 )
                 .await?;
-                // Synchronously settled + materialized: finished — release the
-                // marker (legacy intents may still carry one). An in-flight
-                // charge keeps it until settlement resolves.
+                // Settled ⇒ finished — release the marker; in-flight keeps it.
                 if charge_status == PaymentStatusEnum::Settled {
                     self.release_hosted_intent_marker(tenant_id, &row).await?;
                 }
@@ -1062,19 +947,10 @@ impl Services {
         }
     }
 
-    /// In-flow capture completion: the hosted page already collected the
-    /// checkout's first payment (`payment_id`); settle FROM it — never charge.
-    /// Fetches the payment's authoritative status, then:
-    /// - settled → consolidate the pre-created transaction to Settled and
-    ///   materialize Paid;
-    /// - still capturing → record the id and materialize in-flight
-    ///   (Processing); the reconcile worker polls it to settlement;
-    /// - declined/cancelled → consolidate the failure so the checkout page
-    ///   offers a retry with the saved card.
-    ///
-    /// Idempotent with itself and with the sweeper: consolidation skips
-    /// terminal rows, re-recording the same payment id is a no-op patch, and
-    /// `on_hosted_checkout_fulfilled` no-ops once the tx is materialized.
+    /// Settle the checkout FROM the in-flow captured payment — never charge.
+    /// Settled → consolidate + materialize Paid; still capturing → record the
+    /// id, materialize Processing, reconcile later; declined/cancelled →
+    /// consolidate the failure for a retry. Idempotent with the sweeper.
     #[allow(clippy::too_many_arguments)]
     async fn record_captured_checkout_payment(
         &self,
@@ -1101,9 +977,8 @@ impl Services {
         .change_context(StoreError::PaymentProviderError)?;
 
         if matches!(&remote, RemoteTransactionStatus::Unknown) {
-            // The id came from the intent itself; a 404 is an account/env
-            // mismatch, not a lost payment. Still record it (the reconcile
-            // worker will log loudly and hold the row Pending for review).
+            // The id came from the intent itself: a 404 is an env mismatch,
+            // not a lost payment — record it and let reconcile hold it.
             log::error!(
                 "hosted checkout session {checkout_session_id}: intent-captured payment \
                  {payment_id} not found at provider; recording for manual review"
@@ -1174,10 +1049,8 @@ impl Services {
                 let final_tx = self
                     .consolidate_hosted_checkout_intent(tenant_id, row.id, intent)
                     .await?;
-                // The consolidation state machine skips terminal rows: if the
-                // sweeper cancelled this transaction between our read and the
-                // lock, nothing was settled — never report activation over a
-                // cancelled row; hold for review (money IS captured).
+                // Consolidation skips terminal rows: if the sweeper cancelled
+                // this tx meanwhile, nothing settled — hold (money IS captured).
                 if final_tx.status != crate::domain::PaymentStatusEnum::Settled {
                     log::error!(
                         "hosted checkout session {checkout_session_id}: captured payment \
@@ -1188,8 +1061,7 @@ impl Services {
                     );
                     return Ok(HostedSetupOutcome::HeldForReview { payment_method });
                 }
-                // Row is now Settled → materializes straight to Paid. The
-                // marker is released only AFTER materialization succeeds: a
+                // Marker released only AFTER materialization succeeds: a
                 // failure here leaves the Settled row sweepable for retry.
                 self.on_hosted_checkout_fulfilled(
                     tenant_id,
@@ -1206,11 +1078,8 @@ impl Services {
                 amount_received_minor,
                 remote_currency,
             } => {
-                // The provider's captured figures do not match the transaction
-                // this capture was minted for. NEVER settle a differing
-                // amount/currency silently — hold the row (still Pending, no
-                // provider id bound so reconciliation cannot settle it either)
-                // and demand review.
+                // Captured figures don't match the transaction: NEVER settle a
+                // differing amount/currency — hold for review.
                 log::error!(
                     "hosted checkout session {checkout_session_id}: captured payment \
                      {payment_id} reports {amount_received_minor} {remote_currency} but \
@@ -1222,9 +1091,7 @@ impl Services {
                 Ok(HostedSetupOutcome::HeldForReview { payment_method })
             }
             CapturedPaymentResolution::RecordPending => {
-                // Bind the payment id + method and materialize in-flight
-                // (invoice Processing); the reconcile worker polls the still-
-                // Pending tx (it now has a provider id) until capture resolves.
+                // Record id + method, materialize in-flight; reconcile polls to settlement.
                 self.on_hosted_checkout_fulfilled(
                     tenant_id,
                     checkout_session_id,
@@ -1238,11 +1105,9 @@ impl Services {
         }
     }
 
-    /// Run one provider-derived state through the shared settlement pipeline,
-    /// with the row locked. The state machine inside skips terminal rows, so a
-    /// duplicate run (return handler racing the sweeper) is a no-op. Returns
-    /// the transaction's FINAL state so callers can verify the transition
-    /// actually applied (a concurrently-cancelled row stays cancelled).
+    /// Run one provider-derived state through the shared settlement pipeline
+    /// with the row locked. Terminal rows are skipped, so duplicate runs are
+    /// no-ops; returns the FINAL state so callers can verify the transition applied.
     async fn consolidate_hosted_checkout_intent(
         &self,
         tenant_id: common_domain::ids::TenantId,
@@ -1273,13 +1138,9 @@ impl Services {
     }
 
     /// [`Self::consolidate_hosted_checkout_intent`], additionally binding the
-    /// just-saved payment method (and consuming the stored redirect) onto the
-    /// row inside the same locked transaction. Used by the invoice in-flow
-    /// path, which has no `on_hosted_checkout_fulfilled` to do the binding.
-    /// Idempotent: re-binding the same method / re-clearing next_action are
-    /// no-op patches. On Settled the pending-intent marker is released in the
-    /// same transaction as the settle (an invoice attempt is finished at
-    /// settlement); declined rows keep it (watched until close-out).
+    /// just-saved payment method inside the same locked transaction (used by
+    /// the invoice in-flow path). On Settled the pending-intent marker is
+    /// released in the same transaction; declined rows keep it until close-out.
     async fn consolidate_hosted_intent(
         &self,
         tenant_id: common_domain::ids::TenantId,
@@ -1302,8 +1163,7 @@ impl Services {
                         PaymentTransactionRowPatch {
                             id: existing.id,
                             payment_method_id: Some(Some(method_id)),
-                            // Redirect consumed — the customer is back (or the
-                            // sweeper recovered the capture).
+                            // Redirect consumed — the customer is back.
                             next_action: Some(None),
                             ..Default::default()
                         }
@@ -1335,26 +1195,19 @@ impl Services {
     }
 }
 
-/// How an in-flow hosted INVOICE setup settles, decided PURELY from the intent
-/// evidence: whether it is an in-flow intent (stamped `meteroid.transaction_id`)
-/// and whether it carries a captured payment. The money invariant this encodes:
-/// an in-flow intent NEVER reaches the off-session charge (its hosted capture
-/// is the single charge — charging on top would double-collect), and a
-/// captured payment that cannot be mapped onto its transaction is held, never
-/// re-charged or dropped.
+/// How a hosted INVOICE setup settles, decided purely from the intent
+/// evidence. Invariant: an in-flow intent NEVER reaches the off-session
+/// charge (its hosted capture is the single charge), and an unmappable
+/// captured payment is held, never re-charged or dropped.
 #[derive(Debug, PartialEq)]
 enum InvoiceSetupSettlement {
-    /// In-flow intent with a captured payment: record it onto the pre-created
-    /// invoice transaction and settle from it.
+    /// In-flow intent with a captured payment: record and settle from it.
     RecordCapture,
-    /// In-flow intent, card saved, but no captured payment surfaced yet:
-    /// report Processing and let a refresh / the sweeper re-run — NEVER charge.
+    /// In-flow intent, no capture surfaced yet: report Processing — NEVER charge.
     AwaitCapture,
-    /// Captured payment on an intent without a transaction id: unmappable
-    /// money — hold for manual review.
+    /// Capture without a transaction id: unmappable money — hold for review.
     HoldUnmappedCapture,
-    /// Legacy 0-amount intent (no transaction id, no capture): the fail-closed
-    /// off-session charge.
+    /// Legacy 0-amount intent: the fail-closed off-session charge.
     LegacyOffSessionCharge,
 }
 
@@ -1367,18 +1220,16 @@ fn invoice_setup_settlement(in_flow: bool, has_captured_payment: bool) -> Invoic
     }
 }
 
-/// How an in-flow-captured checkout payment resolves, from the provider's
+/// How an in-flow-captured payment resolves, from the provider's
 /// authoritative status. Pure so the money-path decision table is testable.
 #[derive(Debug, PartialEq)]
 enum CapturedPaymentResolution {
-    /// Funds settled at the provider AND the settled figures match the local
-    /// transaction: consolidate Settled, materialize Paid.
+    /// Settled at the provider AND figures match: consolidate Settled, materialize Paid.
     SettleNow {
         amount_received_minor: i64,
         processed_at: chrono::NaiveDateTime,
     },
-    /// Capture still in flight (or the id 404s — env mismatch, held for
-    /// review): record the id, materialize Processing, reconcile later.
+    /// Capture in flight (or the id 404s): record the id, reconcile later.
     RecordPending,
     /// Declined at the provider: consolidate Failed, offer retry.
     Declined {
@@ -1387,9 +1238,8 @@ enum CapturedPaymentResolution {
     },
     /// Cancelled at the provider: consolidate Cancelled, offer retry.
     Cancelled,
-    /// Funds settled at the provider but the amount or currency does NOT
-    /// match the local transaction: never settle a differing figure — hold
-    /// the transaction and demand manual review.
+    /// Settled but the amount or currency does NOT match the local
+    /// transaction: never settle a differing figure — hold for manual review.
     HoldMismatch {
         amount_received_minor: i64,
         remote_currency: String,
@@ -1438,11 +1288,8 @@ mod tests {
     use super::*;
     use crate::adapters::payment::model::{DeclineKind, RemoteTransactionStatus};
 
-    /// The in-flow decision table: a captured payment is ONLY ever recorded /
-    /// consolidated — settled money materializes Paid, an in-flight capture is
-    /// recorded and left to reconciliation, and a decline surfaces as a
-    /// failure. There is no resolution that triggers a new charge: the hosted
-    /// capture is the single charge on this path.
+    /// No resolution ever triggers a new charge: the hosted capture is the
+    /// single charge on this path.
     #[test]
     fn captured_payment_resolution_table() {
         let processed_at = chrono::Utc::now().naive_utc();
@@ -1465,8 +1312,7 @@ mod tests {
             resolve_captured_payment(RemoteTransactionStatus::Pending, 4_200, "EUR"),
             CapturedPaymentResolution::RecordPending
         );
-        // A 404 on an id the intent itself carried is an env mismatch, never a
-        // reason to drop or re-charge: record it and hold for review.
+        // A 404 on an intent-carried id is an env mismatch: record, never re-charge.
         assert_eq!(
             resolve_captured_payment(RemoteTransactionStatus::Unknown, 4_200, "EUR"),
             CapturedPaymentResolution::RecordPending
@@ -1492,11 +1338,8 @@ mod tests {
         );
     }
 
-    /// A settled remote payment whose amount OR currency differs from the
-    /// local checkout transaction must NEVER settle — it resolves to
-    /// `HoldMismatch` (held for manual review), not `SettleNow`. Currency
-    /// comparison is case-insensitive (some providers report lowercase codes,
-    /// rows store uppercase) so a matching payment is never falsely held.
+    /// A settled payment whose amount OR currency differs must NEVER settle;
+    /// currency comparison is case-insensitive so a match is never falsely held.
     #[test]
     fn captured_payment_amount_currency_mismatch_is_held() {
         let processed_at = chrono::Utc::now().naive_utc();
@@ -1550,12 +1393,8 @@ mod tests {
         );
     }
 
-    /// The invoice-hosted settlement dispatch. The double-charge invariant:
-    /// an in-flow intent (stamped `meteroid.transaction_id`) can NEVER select
-    /// the legacy off-session charge — with a captured payment it records it,
-    /// without one it waits (the capture may still land at the provider); and
-    /// captured money that cannot be mapped onto its transaction is held for
-    /// review, never re-charged or dropped.
+    /// An in-flow intent (stamped transaction id) can NEVER select the legacy
+    /// off-session charge; unmappable captured money is held, never re-charged.
     #[test]
     fn invoice_setup_settlement_never_charges_in_flow() {
         assert_eq!(

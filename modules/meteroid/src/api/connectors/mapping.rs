@@ -130,10 +130,9 @@ pub mod connectors {
         })
     }
 
-    /// Maps the proto `StancerConnector` payload to the sensitive domain
-    /// struct. Stancer has no public data — the secret key is the whole
-    /// configuration (mode rides on the key prefix). Rejects an empty key
-    /// rather than persisting an unusable connector.
+    /// Stancer has no public data — the secret key is the whole configuration
+    /// (mode rides on the key prefix). Rejects an empty key rather than
+    /// persisting an unusable connector.
     pub fn stancer_data_to_domain(
         value: &server::StancerConnector,
     ) -> Result<domain::StancerSensitiveData, ConnectorApiError> {

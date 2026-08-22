@@ -579,8 +579,7 @@ pub struct CreditNoteEvent {
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[map_owned(PaymentTransaction)]
 // next_action is transient and the pending hosted-intent marker is internal
-// lifecycle bookkeeping — neither is carried on the persisted event; default
-// them when mapping back.
+// bookkeeping — neither is carried on the persisted event.
 #[ghosts(next_action: {None}, pending_provider_intent_id: {None}, pending_connection_id: {None})]
 pub struct PaymentTransactionEvent {
     #[ghost(EventId::new())]

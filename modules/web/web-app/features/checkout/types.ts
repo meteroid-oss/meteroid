@@ -46,9 +46,8 @@ export interface PaymentPanelProps {
   onPaymentSubmit: (paymentMethodId: string) => Promise<void>
   /**
    * Invoice being paid, when this panel is used from the invoice-payment page.
-   * Threaded into the setup intent so hosted-redirect providers (GoCardless,
-   * Stancer) can charge the invoice after the mandate/card is created. Absent
-   * for checkout.
+   * Threaded into the setup intent so hosted-redirect providers can charge
+   * the invoice after the mandate/card is created. Absent for checkout.
    */
   invoiceId?: string
   /**
@@ -67,20 +66,15 @@ export interface PaymentPanelProps {
   onPaymentMethodAttached?: () => void
   /**
    * Checkout-only (no invoiceId): starts a provider-hosted checkout flow via
-   * InitiateHostedCheckout, then redirects (never resolves). GoCardless
-   * authorises the mandate AND collects the first payment in one hosted step;
-   * Stancer saves the card on its hosted page and the server-side return
-   * handler runs the first charge. When set and no method is saved, the
-   * matching tab renders a single pay button.
+   * InitiateHostedCheckout, then redirects (never resolves). When set and no
+   * method is saved, the matching tab renders a single pay button.
    */
   onHostedCheckout?: (connectionId: string) => Promise<void>
   /**
    * Invoice-payment page only (with invoiceId): starts the provider-hosted
-   * invoice payment via the explicit InitiateHostedInvoicePayment RPC, then
-   * redirects (never resolves). The pay CLICK is what pre-creates the invoice
-   * transaction and mints the capturing intent — rendering the page never
-   * does (the on-mount SetupIntent is a provider descriptor only for
-   * hosted-redirect card providers like Stancer).
+   * invoice payment via InitiateHostedInvoicePayment, then redirects (never
+   * resolves). The pay CLICK is what pre-creates the transaction and mints
+   * the capturing intent — rendering the page never does.
    */
   onHostedInvoicePayment?: (connectionId: string) => Promise<void>
 }

@@ -151,15 +151,11 @@ pub async fn run_mock_payment_provider_2_seed(pool: &PgPool) {
 
 /// Seeds a Stancer connector as the invoicing entity's card provider.
 ///
-/// Unlike the Mock provider, `StancerClient` makes real HTTP calls — there is
-/// no in-memory fake behind `ConnectorProviderEnum::Stancer`. This seed (and
-/// `run_customer_payment_methods_stancer_seed` below) exist to test the
-/// provider-agnostic config-resolution/connection-reuse logic around a
-/// Stancer connector without ever reaching the network: as long as a
-/// `CustomerConnection` row already exists for this connector, resolution
-/// never calls `CustomerOps::create_customer`. Do NOT use this seed in a test
-/// that exercises a from-scratch connection (that path always calls the real
-/// provider) or an actual charge (`PaymentOps::charge_off_session`).
+/// `StancerClient` makes real HTTP calls — no in-memory fake exists. As long
+/// as a `CustomerConnection` row already exists, resolution never calls
+/// `CustomerOps::create_customer`, so tests stay offline. Do NOT use this
+/// seed in a test that exercises a from-scratch connection or an actual
+/// charge — both hit the real Stancer API.
 pub async fn run_stancer_provider_seed(pool: &PgPool) {
     let mut conn = pool
         .get()
@@ -167,9 +163,8 @@ pub async fn run_stancer_provider_seed(pool: &PgPool) {
         .expect("couldn't get db connection from pool");
 
     conn.transaction(async |tx| {
-        // No `sensitive` ciphertext: nothing in these tests decrypts it, and
-        // a fake secret key would need to be validly encrypted to round-trip
-        // through `Connector::from_row` at all.
+        // No `sensitive` ciphertext: a fake secret key would need to be
+        // validly encrypted to round-trip through `Connector::from_row`.
         ConnectorRowNew {
             id: ids::STANCER_CONNECTOR_ID,
             tenant_id: ids::TENANT_ID,

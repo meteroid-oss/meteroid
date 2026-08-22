@@ -250,11 +250,9 @@ pub async fn spawn_workers(
 
         let store = store.clone();
         let services = services.clone();
-        // Lost-return backstop for hosted checkouts AND hosted invoice
-        // payments on providers with no webhook (capability
-        // `HostedSetupCompletion::PollingRequired`), whose payment was
-        // captured in-flow. Single replica (provider
-        // polling), same kill switch as reconciliation.
+        // Lost-return backstop for hosted in-flow captures on webhook-less
+        // (`PollingRequired`) providers. Single replica, same kill switch as
+        // reconciliation.
         let elector = Arc::new(PgLeaderElection::new(
             store.pool.clone(),
             advisory_lock_keys::HOSTED_PAYMENT_SWEEP_LEADER,

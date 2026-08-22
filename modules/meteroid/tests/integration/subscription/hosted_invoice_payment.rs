@@ -32,10 +32,8 @@ async fn finalized_unpaid_invoice(env: &TestEnv) -> common_domain::ids::InvoiceI
     invoices[0].id
 }
 
-// =============================================================================
-// Finding 1: the on-render SetupIntent for a Stancer card connection + invoice
-// is a pure provider DESCRIPTOR — no transaction, no intent, no network.
-// =============================================================================
+// The on-render SetupIntent for a Stancer card connection + invoice is a pure
+// provider DESCRIPTOR — no transaction, no intent, no network.
 
 #[rstest]
 #[tokio::test]
@@ -117,13 +115,9 @@ async fn test_invoice_setup_intent_is_side_effect_free_for_stancer(#[future] tes
     assert_eq!(tx.status, PaymentStatusEnum::Settled);
 }
 
-// =============================================================================
-// Single-intent resume: while a hosted attempt is still Pending (marker +
-// stored redirect), re-initiating returns the SAME intent/redirect and mints
-// nothing new — the portal's "Continue payment" button relies on this. A
-// Pending attempt WITHOUT the marker (off-session charge in flight) refuses a
-// second initiation instead.
-// =============================================================================
+// Single-intent resume: while a hosted attempt is still Pending, re-initiating
+// returns the SAME intent/redirect and mints nothing new; a Pending attempt
+// WITHOUT the marker (off-session charge in flight) refuses a second initiation.
 
 async fn insert_invoice_tx(
     env: &TestEnv,
@@ -251,11 +245,9 @@ async fn test_pending_attempt_without_marker_refuses_reinitiation(#[future] test
     );
 }
 
-// =============================================================================
-// Finding 2: the sweeper scan must include a Settled row that still carries
-// its pending-intent marker (settled-but-unmaterialized checkout), and only
-// releasing the marker drops it out.
-// =============================================================================
+// The sweeper scan must include a Settled row that still carries its
+// pending-intent marker (settled-but-unmaterialized), and only releasing the
+// marker drops it out.
 
 async fn insert_marked_tx(
     env: &TestEnv,

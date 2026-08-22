@@ -60,7 +60,6 @@ impl StancerClient {
         self.execute(request_builder, retry_strategy)
     }
 
-    /// Make a `GET` request with query parameters (list/search endpoints).
     pub(crate) fn get_with_query<T: DeserializeOwned + Send + 'static>(
         &self,
         path: &str,
@@ -74,8 +73,7 @@ impl StancerClient {
         self.execute(request_builder, retry_strategy)
     }
 
-    /// Make a `POST` request with a JSON body — Stancer's API is plain JSON,
-    /// unlike Stripe's form-encoded bodies.
+    /// Stancer's API takes plain JSON bodies, unlike Stripe's form encoding.
     pub(crate) fn post_json<T: DeserializeOwned + Send + 'static, B: Serialize>(
         &self,
         path: &str,
@@ -92,8 +90,7 @@ impl StancerClient {
         self.execute(request_builder, retry_strategy)
     }
 
-    /// Make a `DELETE` request (Stancer returns the deleted/canceled resource
-    /// as a JSON body, e.g. `DELETE /v2/payment_intents/{id}`).
+    /// Stancer returns the deleted/canceled resource as a JSON body.
     pub(crate) fn delete<T: DeserializeOwned + Send + 'static>(
         &self,
         path: &str,
@@ -105,7 +102,6 @@ impl StancerClient {
         self.execute(request_builder, retry_strategy)
     }
 
-    /// Make a `PATCH` request with a JSON body (partial resource update).
     pub(crate) fn patch_json<T: DeserializeOwned + Send + 'static, B: Serialize>(
         &self,
         path: &str,
@@ -131,8 +127,7 @@ impl StancerClient {
         self.client
             .request(method, url)
             .headers(self.default_headers())
-            // Stancer authenticates via HTTP Basic Auth: the secret key as
-            // username, no password.
+            // HTTP Basic Auth: the secret key as username, no password.
             .basic_auth(secret_key.expose_secret(), None::<&str>)
     }
 

@@ -29,9 +29,8 @@ export const hubspotIntegrationSchema = z.object({
   autoSync: z.boolean().default(true),
 })
 
-// Stancer: card provider, hosted payment page. A single secret key is the only
-// credential — the key prefix selects the environment (`stest_` test /
-// `sprod_` live), there is no publishable key and no webhook mechanism.
+// Stancer: a single secret key is the only credential — the prefix selects
+// the environment; no publishable key, no webhook mechanism.
 export const stancerIntegrationSchema = z.object({
   alias: z
     .string()

@@ -27,9 +27,8 @@ import { TransactionList } from './components/TransactionList'
 import { InvoicePaymentData } from './types'
 
 interface Props extends InvoicePaymentData {
-  /** Customer just completed a hosted flow (GoCardless mandate / Stancer card):
-   *  the backend attaches the method and charges this invoice, so show
-   *  "processing" instead of the pay form. */
+  /** Customer just completed a hosted flow: the backend attaches the method
+   *  and charges this invoice, so show "processing" instead of the pay form. */
   hostedProcessing?: boolean
   /** Non-success hosted-flow return (abandoned/failed/declined): shown above
    *  the still-available pay form so the customer can retry. */
@@ -85,9 +84,9 @@ const InvoicePaymentFlow: React.FC<Props> = ({
 
   const initiateHostedInvoicePaymentMutation = useMutation(initiateHostedInvoicePayment)
 
-  // Explicit pay CLICK for hosted-redirect card providers (Stancer): the RPC
-  // pre-creates the invoice transaction, mints the capturing intent and
-  // returns the redirect we follow. Never called on render.
+  // Explicit pay CLICK for hosted-redirect card providers: the RPC pre-creates
+  // the transaction, mints the capturing intent and returns the redirect we
+  // follow. Never called on render.
   const handleHostedInvoicePayment = async (connectionId: string) => {
     if (!invoice?.currency) {
       throw new Error('Currency is not defined')
@@ -158,12 +157,10 @@ const InvoicePaymentFlow: React.FC<Props> = ({
     }
   }
 
-  // NB: the hosted-flow return outcome is read ONCE by the parent page and
-  // passed in as `hostedProcessing` / `hostedError`. The invoice charge itself
-  // is created backend-side (GoCardless: the `billing_requests.fulfilled`
-  // webhook; Stancer: the return handler), so on `ok` we only show
-  // "processing" and the page polls until the transaction appears — we never
-  // confirm the payment from the return.
+  // The hosted-flow return outcome is read ONCE by the parent page and passed
+  // in as `hostedProcessing` / `hostedError`. The charge is created
+  // backend-side, so on `ok` we only show "processing" and the page polls —
+  // we never confirm the payment from the return.
 
   if (!invoice || !customer) {
     return <div className="p-8 text-center">Loading invoice payment information...</div>
@@ -179,15 +176,12 @@ const InvoicePaymentFlow: React.FC<Props> = ({
     transactions: invoice.transactions,
   })
 
-  // Just returned from a hosted flow: the charge is created backend-side, so
-  // the pending transaction may not be visible yet (the page polls for it —
-  // see the invoice-payment page). Until it lands, show the "processing" state
-  // instead of the payment form, so the customer isn't invited to pay again on
-  // a payment they just authorised. Once the transaction appears, this is
-  // already `readonly` on its own.
-  // The resumable state is coerced too: right after authorising on the hosted
-  // page the Pending tx still carries its marker, and inviting the customer to
-  // "continue" a payment they just completed would be wrong.
+  // Just returned from a hosted flow: the backend-created charge may not be
+  // visible yet. Until it lands, show "processing" instead of the payment
+  // form, so the customer isn't invited to pay again on a payment they just
+  // authorised.
+  // The resumable state is coerced too: inviting the customer to "continue" a
+  // payment they just completed would be wrong.
   const paymentAvailability =
     hostedProcessing &&
     (baseAvailability.type === 'payment_form' ||

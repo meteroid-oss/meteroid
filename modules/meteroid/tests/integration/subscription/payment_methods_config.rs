@@ -1402,19 +1402,12 @@ async fn test_provider_switch_creates_connection_from_scratch(#[future] test_env
     );
 }
 
-// =============================================================================
-// STANCER PROVIDER (config-resolution logic only — see `seed_stancer_payments`
-// doc comment for why every Stancer scenario here pre-seeds its connection.
-// Unlike Mock, `StancerClient` makes real HTTP calls, so these tests only
-// cover the same provider-agnostic reuse/resolution logic already exercised
-// above for Mock — never a from-scratch connection or an actual charge,
-// since both of those would hit the real Stancer API.)
-// =============================================================================
+// STANCER PROVIDER — config-resolution logic only. `StancerClient` makes real
+// HTTP calls (no in-memory fake), so every scenario pre-seeds its connection
+// and never exercises a from-scratch connection or an actual charge.
 
-/// Verify a Stancer connector is resolved as the card provider like any
-/// other `ConnectorProviderEnum` variant would be — same assertions as the
-/// "inherit" case in `test_resolution_inherit_vs_override_vs_external`,
-/// just with Stancer instead of Mock behind the connector.
+/// A Stancer connector resolves as the card provider like any other
+/// `ConnectorProviderEnum` variant would.
 #[rstest]
 #[tokio::test]
 async fn test_resolution_with_stancer_provider(#[future] test_env: TestEnv) {
@@ -1458,11 +1451,9 @@ async fn test_resolution_with_stancer_provider(#[future] test_env: TestEnv) {
     );
 }
 
-/// Verify repeated resolution reuses the pre-seeded Stancer connection
-/// instead of creating a new one. This also serves as a regression guard:
-/// if resolution ever stopped finding the existing connection, it would
-/// fall through to `CustomerOps::create_customer` and attempt a real network
-/// call to Stancer's API, which would fail/hang in this offline test suite.
+/// Repeated resolution reuses the pre-seeded Stancer connection. Regression
+/// guard: falling through to `CustomerOps::create_customer` would attempt a
+/// real network call and fail/hang in this offline suite.
 #[rstest]
 #[tokio::test]
 async fn test_connection_reuse_stancer_provider(#[future] test_env: TestEnv) {

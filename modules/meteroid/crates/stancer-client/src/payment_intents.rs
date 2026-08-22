@@ -6,19 +6,13 @@ use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use std::collections::HashMap;
 
-/// Stancer has no client-side tokenization library (unlike Stripe.js): the
-/// only PCI-safe way to collect a card is this hosted-page flow. The
-/// response's `url` is embedded in an iframe on Meteroid's frontend; the
-/// customer types their card directly into Stancer's page at that origin,
-/// so raw card data never transits Meteroid's frontend or backend.
+/// Stancer has no client-side tokenization library: the hosted-page flow is
+/// the only PCI-safe way to collect a card — the customer types it directly
+/// into Stancer's page at `url`, so raw card data never transits Meteroid.
 ///
-/// For a pure "save this card" step (no charge), use `amount: 0` and
-/// `capture: false` — confirmed accepted by the API shape. Whether a real
-/// card network processes a genuine $0 authorization to completion is
-/// unverified without a live browser + real card test; if that turns out
-/// to be rejected in practice, fall back to a nominal amount with
-/// `capture: false` followed by canceling the resulting payment so no
-/// funds settle.
+/// A pure "save this card" step (no charge) uses `amount: 0` and
+/// `capture: false` — accepted by the API shape, though a genuine $0 network
+/// authorization is unverified without a live card test.
 #[skip_serializing_none]
 #[derive(Debug, Serialize)]
 pub struct CreatePaymentIntent {
@@ -77,18 +71,15 @@ pub enum PaymentIntentStatus {
     Captured,
     Canceled,
     Unpaid,
-    /// Any unmodeled status. Must never fail the intent parse (that would
-    /// wedge completion and close-out); consumers treat it as
-    /// not-yet-complete / not-cancelable, never as done.
+    /// Any unmodeled status. Must never fail the intent parse; consumers
+    /// treat it as not-yet-complete / not-cancelable, never as done.
     #[serde(other)]
     Unknown,
 }
 
-/// Partial update of a payment intent (`PATCH /v2/payment_intents/{id}`,
-/// spec `PaymentIntentUpdate`). Only the fields Meteroid needs are modeled;
-/// omitted fields are left untouched by the API. The port uses it to bake
-/// the intent's own id into `return_url` after creation (the id is only
-/// known once the intent exists).
+/// `PATCH /v2/payment_intents/{id}`: omitted fields are left untouched.
+/// Used to bake the intent's own id into `return_url` after creation (the id
+/// is only known once the intent exists).
 #[skip_serializing_none]
 #[derive(Debug, Default, Serialize)]
 pub struct UpdatePaymentIntent {
@@ -139,11 +130,9 @@ impl StancerClient {
         .await
     }
 
-    /// Cancel a payment intent so its hosted page can never capture money.
-    /// `DELETE /v2/payment_intents/{id}` is the spec's cancellation route (the
-    /// `PaymentIntentUpdate` PATCH schema has no `status` field); a 200 returns
-    /// the intent, whose status set includes `canceled`. A 422 means the intent
-    /// is not cancelable in its current state (e.g. already captured).
+    /// Cancel a payment intent so its hosted page can never capture money —
+    /// the spec's only cancellation route (PATCH has no `status` field). A 422
+    /// means not cancelable in its current state (e.g. already captured).
     pub async fn delete_payment_intent(
         &self,
         payment_intent_id: &str,
@@ -179,9 +168,8 @@ mod tests {
         )
     }
 
-    /// A status value this client does not model must deserialize to
-    /// `Unknown`, never fail the whole intent parse (which would wedge
-    /// completion and close-out of every in-flight attempt).
+    /// An unmodeled status must deserialize to `Unknown`, never fail the
+    /// whole intent parse (which would wedge every in-flight attempt).
     #[test]
     fn unknown_intent_status_deserializes_to_unknown() {
         let intent: StancerPaymentIntent =

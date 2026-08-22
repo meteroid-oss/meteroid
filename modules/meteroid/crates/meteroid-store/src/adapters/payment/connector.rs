@@ -36,18 +36,15 @@ pub struct ConnectorCapabilities {
     pub hosted_setup_completion: HostedSetupCompletion,
 }
 
-/// How the outcome of a hosted setup flow (mandate/card save, in-flow checkout
-/// payment) is delivered to us once the customer finishes on the provider's
-/// hosted page.
+/// How the outcome of a hosted setup flow is delivered once the customer
+/// finishes on the provider's hosted page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostedSetupCompletion {
-    /// A webhook is the backstop (e.g. `billing_requests.fulfilled`): a lost
-    /// return redirect still completes, so no intent id is persisted and the
-    /// pending-intent sweeper never polls this provider.
+    /// A webhook is the backstop: a lost return still completes, so no intent
+    /// id is persisted and the sweeper never polls this provider.
     WebhookBacked,
     /// No webhook exists: the return redirect is the only push signal, so the
-    /// pending intent id is persisted at initiation and the hosted-checkout
-    /// sweeper polls it as the lost-return backstop.
+    /// intent id is persisted and the sweeper polls it as the lost-return backstop.
     PollingRequired,
 }
 
@@ -110,14 +107,10 @@ pub trait MandateOps: Send + Sync {
     ) -> Result<PaymentMethodSnapshot, Report<ConnectorError>>;
 
     /// Cancel a previously issued setup intent so its hosted flow can never
-    /// complete (and, for capturing checkout intents, never collect money).
-    /// Called before a superseded hosted-checkout intent is replaced and when
-    /// an abandoned session is expired. `Ok(())` MUST mean the intent is dead
-    /// at the provider (canceled, already terminal, or nonexistent); an intent
-    /// that may still capture — or already captured — money MUST be `Err`.
-    /// Default: no-op for providers with a webhook backstop (a late payment on
-    /// a stale GoCardless Billing Request still lands via
-    /// `billing_requests.fulfilled`) or client-side completion (Stripe).
+    /// complete or collect money. `Ok(())` MUST mean the intent is dead at the
+    /// provider; an intent that may still capture — or already captured —
+    /// money MUST be `Err`. Default: no-op for providers with a webhook
+    /// backstop or client-side completion.
     async fn cancel_mandate_setup(
         &self,
         _connector: &Connector,

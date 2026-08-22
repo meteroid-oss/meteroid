@@ -16,12 +16,9 @@ import {
 } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 
 /**
- * Connect a Stancer merchant account.
- *
- * Single step, unlike Stripe/GoCardless: the secret key is the only credential.
- * Its prefix selects the environment (`stest_` test / `sprod_` live) — there is
- * no environment toggle — and Stancer has no webhooks, so no endpoint setup.
- * The backend validates the key against the Stancer API before persisting.
+ * Connect a Stancer merchant account. Single step: the secret key is the only
+ * credential (its prefix selects test/live) and Stancer has no webhooks. The
+ * backend validates the key against the Stancer API before persisting.
  */
 export const StancerIntegrationModal = () => {
   const closeModal = useDismissRouteModal()
@@ -60,8 +57,7 @@ export const StancerIntegrationModal = () => {
         },
       })
       toast.success('Connected!')
-      // Offer to route card payments through the new connector; fall back to
-      // closing if the response somehow lacks the connector id.
+      // Offer to route card payments through the new connector.
       if (res.connector?.id) {
         setConnected({ id: res.connector.id, alias: res.connector.alias })
       } else {

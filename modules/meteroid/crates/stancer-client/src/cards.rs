@@ -4,11 +4,9 @@ use crate::request::RetryStrategy;
 use secrecy::SecretString;
 use serde::Deserialize;
 
-/// Read-only: cards are only ever created via the payment_intents hosted
-/// page (see `payment_intents.rs`), never by Meteroid submitting raw card
-/// data. This is used to fetch display metadata (brand/last4/expiry) for a
-/// `card_xxx` id right after it's saved, before any `/v2/payments/` charge
-/// has happened to surface that data another way.
+/// Read-only: cards are only ever created via the hosted page, never by
+/// Meteroid submitting raw card data. Used to fetch display metadata
+/// (brand/last4/expiry) for a freshly saved `card_xxx` id.
 #[derive(Clone, Debug, Deserialize)]
 pub struct StancerCard {
     pub id: String,

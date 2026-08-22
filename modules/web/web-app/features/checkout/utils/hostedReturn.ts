@@ -1,19 +1,10 @@
 /**
- * Return-URL contract shared by the hosted-redirect payment providers.
- *
- * GoCardless (direct debit) and Stancer (card) both send the customer to a
- * provider-hosted page and bounce them back through a server-side return
- * handler, which redirects to the original page with a `<provider>_status`
- * (and sometimes `<provider>_error`) query param. The outcome vocabularies
- * differ because the money paths differ:
- *
- * - GoCardless: `ok | failed | abandoned`. Completion is webhook-driven; `ok`
- *   only means the mandate was authorised.
- * - Stancer: `ok | processing | payment_failed | failed`. There is no webhook —
- *   the return handler IS the completion path. `ok` = card saved (and any
- *   first charge initiated); `payment_failed` = card saved but the first
- *   charge was declined (retry with the saved card); `processing` = the card
- *   isn't confirmed yet (the flow is idempotent — retrying is safe).
+ * Return-URL contract of the hosted-redirect providers: the server-side return
+ * handler redirects back with `<provider>_status` (and sometimes
+ * `<provider>_error`). GoCardless: `ok | failed | abandoned` (webhook-driven;
+ * `ok` only means the mandate was authorised). Stancer: `ok | processing |
+ * payment_failed | failed` (no webhook — the return handler IS the completion
+ * path; `payment_failed` = card saved but the first charge declined).
  */
 
 export type HostedReturnProvider = 'gocardless' | 'stancer'
@@ -34,11 +25,9 @@ const isStancerOutcome = (v: string | null): v is StancerOutcome =>
 const RETURN_PARAMS = ['gocardless_status', 'gocardless_error', 'stancer_status', 'stancer_error']
 
 /**
- * Read the hosted-flow return outcome from the current URL and strip every
- * `gocardless_*` / `stancer_*` param (via replaceState) so a reload or Back
- * navigation doesn't replay it. Returns null when there's no outcome to handle.
- *
- * The portal `?token=` and every other param are preserved.
+ * Read the hosted-flow return outcome from the current URL and strip the
+ * provider params (via replaceState) so a reload doesn't replay it. The
+ * portal `?token=` and every other param are preserved.
  */
 export const consumeHostedReturn = (): HostedReturn | null => {
   if (typeof window === 'undefined') return null
@@ -64,10 +53,8 @@ export const consumeHostedReturn = (): HostedReturn | null => {
 }
 
 /**
- * The current page URL to hand a hosted-redirect setup/checkout as its return
- * target, with any stale `gocardless_*` / `stancer_*` params removed so they
- * don't accumulate across retries. Keeps the portal `?token=` so the customer
- * returns authenticated.
+ * The current page URL as a hosted-redirect return target, with stale
+ * provider params removed. Keeps the portal `?token=`.
  */
 export const hostedReturnUrl = (): string | undefined => {
   if (typeof window === 'undefined') return undefined
@@ -77,21 +64,16 @@ export const hostedReturnUrl = (): string | undefined => {
 }
 
 const PRE_ATTEMPT_KEY = (invoiceId: string) => `hosted_pre_attempt_failed:${invoiceId}`
-// A departure older than this can't belong to the flow the user just
-// completed, so we ignore it rather than let a stale snapshot suppress a real
-// failure on a much later, unrelated visit.
+// An older departure is ignored so a stale snapshot can't suppress a real
+// failure on a later, unrelated visit.
 const PRE_ATTEMPT_TTL_MS = 60 * 60 * 1000
 
 /**
  * Record which transactions were already FAILED *before* the customer leaves
- * for a provider-hosted flow, so the return handler can tell a genuinely new
- * charge failure apart from those pre-existing attempts.
- *
- * Seeding the stale set from the first poll after return is racy: if the
- * backend creates and fails the new charge before that poll resolves, the
- * fresh failure would be mistaken for a pre-existing one. This snapshot is
- * captured before the charge can exist, so it's race-free. Keyed by invoice;
- * the latest departure wins.
+ * for a hosted flow, so a genuinely new charge failure can be told apart from
+ * pre-existing attempts. Seeding from the first poll after return is racy
+ * (the backend can create and fail the new charge first); this snapshot is
+ * captured before the charge can exist, so it's race-free.
  */
 export const stashHostedPreAttempt = (invoiceId: string, failedTxIds: string[]): void => {
   if (typeof window === 'undefined') return
@@ -106,9 +88,8 @@ export const stashHostedPreAttempt = (invoiceId: string, failedTxIds: string[]):
 }
 
 /**
- * Read and clear the pre-departure failed-transaction snapshot for an invoice.
- * Returns null when there's no (fresh) snapshot, so the caller falls back to
- * seeding from the first polled invoice.
+ * Read and clear the pre-departure snapshot; null when there's no fresh one
+ * (the caller falls back to seeding from the first polled invoice).
  */
 export const consumeHostedPreAttempt = (invoiceId: string): Set<string> | null => {
   if (typeof window === 'undefined') return null

@@ -32,9 +32,8 @@ import { SubscriptionSummary } from './components/SubscriptionSummary'
 import { CheckoutFlowProps } from './types'
 
 // After a hosted flow returns `ok`, the backend materializes the subscription
-// — from the `billing_requests.fulfilled` webhook for GoCardless (which can
-// lag the redirect), synchronously in the return handler for Stancer — so
-// poll the checkout until it reports the session completed.
+// (GoCardless: webhook, which can lag the redirect; Stancer: the return
+// handler) — poll the checkout until the session reports completed.
 const HOSTED_ACTIVATION_POLL_MS = 3000
 const HOSTED_ACTIVATION_TIMEOUT_MS = 2 * 60 * 1000
 
@@ -226,10 +225,8 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
     }
   }
 
-  // Hosted checkout (GoCardless mandate+payment Billing Request, or Stancer
-  // hosted card page): ONE explicit customer action. The RPC validates the
-  // displayed amount server-side and returns a redirect next_action we follow
-  // (the completeNextAction redirect never resolves).
+  // Hosted checkout: ONE explicit customer action. The RPC validates the
+  // displayed amount server-side and returns a redirect next_action we follow.
   const handleHostedCheckout = async (connectionId: string) => {
     setCouponError(undefined)
 
@@ -258,15 +255,11 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
     await completeNextAction(res.nextAction)
   }
 
-  // Handle the hosted-checkout return once, on mount. On `ok` the mandate/card
-  // is saved and the first payment submitted; activation is entirely
-  // backend-driven (GoCardless: `billing_requests.fulfilled` webhook; Stancer:
-  // the return handler itself), so we only OBSERVE: poll the checkout until
-  // the subscription is active or the session reports completed, then navigate
-  // to success. On any other outcome (abandoned / failed / Stancer
-  // payment_failed or processing) show the inline error and keep the payment
-  // form usable — a fresh page load already refetched the checkout, so a card
-  // saved by a declined first charge is offered for retry.
+  // Handle the hosted-checkout return once, on mount. On `ok` activation is
+  // entirely backend-driven, so we only OBSERVE: poll until the session
+  // reports completed, then navigate to success. On any other outcome show
+  // the inline error and keep the payment form usable — a card saved by a
+  // declined first charge is offered for retry.
   useEffect(() => {
     const ret = hostedReturn
     if (!ret) return

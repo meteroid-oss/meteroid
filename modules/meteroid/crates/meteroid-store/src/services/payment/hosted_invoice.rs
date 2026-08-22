@@ -1,25 +1,11 @@
 //! In-flow hosted INVOICE payment initiation for webhook-less
-//! ([`HostedSetupCompletion::PollingRequired`]) providers — Stancer.
-//!
-//! Mirrors `initiate_hosted_checkout`: BEFORE the redirect, a committed
-//! Pending invoice `payment_transaction` is pre-created for the invoice's
-//! `amount_due`, and the provider intent is minted with `capture: true` for
-//! that amount, metadata naming the invoice AND the transaction. The hosted
-//! page shows and captures the REAL amount — the single charge. The intent id
-//! and connection are stored on the transaction, so the pending-intent
-//! sweeper ([`super::hosted_payment_sweep`]) recovers a captured payment when
-//! the return redirect is lost. The return handler / sweeper record the
-//! capture onto this exact transaction (`meteroid.transaction_id`) — they
-//! never charge.
-//!
-//! Single-intent discipline (same as checkout): re-initiation for the same
-//! invoice first cancels the stored prior intent at the provider; an intent
-//! that cannot be cancelled (payment underway/captured) is ADOPTED through the
-//! completion routine instead of replaced, so at most ONE capturable intent
-//! exists per invoice at any time.
-//!
-//! [`HostedSetupCompletion::PollingRequired`]:
-//!     crate::adapters::payment::HostedSetupCompletion::PollingRequired
+//! (`PollingRequired`) providers. Mirrors `initiate_hosted_checkout`: a
+//! committed Pending transaction is pre-created for `amount_due` and the
+//! intent minted with `capture: true`, metadata naming the invoice AND the
+//! transaction — the hosted capture is the single charge. Single-intent
+//! discipline: re-initiation first cancels the stored prior intent; an
+//! uncancelable one is ADOPTED through completion instead of replaced, so at
+//! most ONE capturable intent exists per invoice at any time.
 
 use crate::StoreResult;
 use crate::domain::SetupIntent;
@@ -36,9 +22,8 @@ use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionRowNew};
 use error_stack::Report;
 use scoped_futures::ScopedFutureExt;
 
-/// Outcome of one initiation transaction pass: either the hosted intent to
-/// redirect to, or an instruction to ADOPT the invoice's prior provider
-/// intent (it has a payment underway/captured and cannot be cancelled).
+/// One initiation pass: either the hosted intent to redirect to, or an
+/// instruction to ADOPT the invoice's uncancelable prior intent.
 enum HostedInvoiceInitiation {
     Intent(Box<SetupIntent>),
     AdoptPriorIntent {
@@ -48,16 +33,12 @@ enum HostedInvoiceInitiation {
 }
 
 impl Services {
-    /// Start (or resume) an in-flow hosted payment for `invoice_id`:
-    /// pre-create the committed Pending invoice transaction, mint the
-    /// capturing intent for `amount_due`, store the intent id on the
-    /// transaction, and return the hosted redirect as a [`SetupIntent`]
-    /// (`client_secret` carries the hosted page URL).
-    ///
-    /// Idempotent re-entry: while a hosted attempt is still Pending, the SAME
-    /// stored intent/redirect is returned instead of minting a second
-    /// capturable intent. The invoice row is locked FOR UPDATE, serializing
-    /// concurrent initiations and the sweeper's close-out.
+    /// Start (or resume) an in-flow hosted payment for `invoice_id`; the
+    /// returned [`SetupIntent`]'s `client_secret` carries the hosted page URL.
+    /// While a hosted attempt is still Pending, the SAME stored
+    /// intent/redirect is returned instead of minting a second capturable
+    /// intent. The invoice row is locked FOR UPDATE, serializing concurrent
+    /// initiations and the sweeper's close-out.
     pub(in crate::services) async fn initiate_hosted_invoice_payment(
         &self,
         tenant_id: TenantId,
@@ -66,7 +47,7 @@ impl Services {
         return_url: Option<String>,
     ) -> StoreResult<SetupIntent> {
         // At most twice: once more after an adoption resolves the prior
-        // attempt as declined/dead, so the customer still gets a fresh page.
+        // attempt as declined/dead.
         for adoption_attempt in 0..2u8 {
             let return_url = return_url.clone();
 
@@ -96,9 +77,8 @@ impl Services {
                                 .attach("Invoice has no amount due"));
                         }
 
-                        // The connection is caller-supplied: it must belong to
-                        // the invoice's customer or the capture would bind a
-                        // payment across the customer boundary.
+                        // Caller-supplied connection: must belong to the
+                        // invoice's customer (customer boundary).
                         let connection = CustomerConnectionDetailsRow::get_by_id(
                             conn,
                             &tenant_id,
@@ -121,9 +101,8 @@ impl Services {
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
-                        // One attempt at a time: a hosted attempt still in
-                        // flight is RETURNED (same intent, same redirect); any
-                        // other in-flight payment refuses a second attempt.
+                        // One attempt at a time: an in-flight hosted attempt is
+                        // RETURNED; any other in-flight payment refuses a second.
                         if let Some(pending) = existing
                             .iter()
                             .find(|tx| tx.transaction.status == PaymentStatusEnum::Pending)
@@ -180,11 +159,9 @@ impl Services {
                             ))));
                         }
 
-                        // Single-intent discipline: cancel the invoice's prior
-                        // stored intent (necessarily on a terminal attempt —
-                        // no Pending row exists) BEFORE minting a replacement;
-                        // adopt it when the provider refuses (payment underway
-                        // or captured on it).
+                        // Single-intent discipline: cancel the prior stored
+                        // intent BEFORE minting a replacement; adopt it when
+                        // the provider refuses (payment underway/captured).
                         if let Some(prior) = PaymentTransactionRow::latest_with_pending_intent_by_invoice_id(
                             conn, invoice_id, tenant_id,
                         )
@@ -254,12 +231,9 @@ impl Services {
                             url: setup_intent.client_secret.clone(),
                         };
 
-                        // Pre-create the committed Pending invoice transaction
-                        // the hosted capture will be recorded onto, carrying
-                        // the intent id so the sweeper can recover a
-                        // lost-return capture (this path only runs for
-                        // PollingRequired providers — webhook-backed ones
-                        // never reach it and are never swept).
+                        // Pre-create the committed Pending transaction the
+                        // hosted capture is recorded onto, carrying the intent
+                        // id so the sweeper can recover a lost-return capture.
                         let row = PaymentTransactionRowNew {
                             id: transaction_id,
                             tenant_id,
@@ -298,10 +272,9 @@ impl Services {
                 } => (connection_id, intent_id),
             };
 
-            // Adoption: the prior intent has a payment underway/captured — run
-            // it through the SAME completion routine the return handler and
-            // sweeper use (records the captured payment onto its transaction,
-            // never charges) instead of minting a second capturable intent.
+            // Adoption: run the uncancelable prior intent through the SAME
+            // completion routine (records, never charges) instead of minting
+            // a second capturable intent.
             log::warn!(
                 "hosted invoice payment for invoice {invoice_id}: prior intent {prior_intent} is \
                  not cancelable; adopting it through completion instead of re-minting"
@@ -312,8 +285,7 @@ impl Services {
 
             match setup_outcome {
                 HostedSetupOutcome::InvoiceCharged(_) => {
-                    // The prior attempt's captured payment covers this invoice
-                    // — never show a new hosted page over recovered money.
+                    // Never show a new hosted page over recovered money.
                     return Err(Report::new(StoreError::InvalidArgument(
                         "A previous payment for this invoice was recovered and is being \
                          finalized; please refresh the page."
@@ -330,8 +302,8 @@ impl Services {
                 HostedSetupOutcome::PaymentFailed { .. } | HostedSetupOutcome::SetupFailed
                     if adoption_attempt == 0 =>
                 {
-                    // The prior attempt resolved as declined/dead; the intent
-                    // should now be cancelable — loop once to mint fresh.
+                    // Resolved as declined/dead: now cancelable — loop once to
+                    // mint fresh.
                     continue;
                 }
                 HostedSetupOutcome::Processing => {
@@ -355,8 +327,7 @@ impl Services {
             }
         }
 
-        // Unreachable: the second iteration either returns a result or errors
-        // out of the adoption match above.
+        // Unreachable: the second iteration always returns or errors above.
         Err(Report::new(StoreError::InvalidArgument(
             "Unable to start a hosted payment for this invoice; please retry later.".to_string(),
         )))

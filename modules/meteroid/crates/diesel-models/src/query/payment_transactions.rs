@@ -403,13 +403,11 @@ impl PaymentTransactionRowPatch {
 }
 
 impl PaymentTransactionRow {
-    /// Cancel a transaction ONLY while it is still awaiting (Pending/Ready),
-    /// in one status-predicated statement. Returns the number of rows updated:
-    /// 0 means a concurrent writer (e.g. the Stancer return handler settling a
-    /// captured payment) progressed the row first — the caller MUST treat that
-    /// as "already progressed" and never as a completed cancellation. This is
-    /// the guard `PaymentTransactionRowPatch::patch` (id+tenant only) lacks:
-    /// an unguarded patch would clobber a concurrently-settled row.
+    /// Cancel a transaction ONLY while still awaiting (Pending/Ready), in one
+    /// status-predicated statement. 0 rows updated means a concurrent writer
+    /// progressed the row first — the caller MUST treat that as "already
+    /// progressed", never as a completed cancellation (an unguarded patch
+    /// would clobber a concurrently-settled row).
     pub async fn cancel_if_awaiting(
         conn: &mut PgConn,
         tenant_uid: TenantId,
@@ -541,11 +539,9 @@ impl PaymentTransactionRow {
 
     /// Sweeper scan (all tenants): transactions still carrying a hosted
     /// pending-intent id, created before `older_than`. Failed/Cancelled rows
-    /// stay watched (their hosted page can still capture on a retry) until
-    /// close-out; Settled rows stay until completion releases the marker, so
-    /// a settled-but-unmaterialized checkout keeps being retried. Only
-    /// Refunded is excluded (reversal handling owns it). Keyset-ordered on
-    /// `(created_at, id)` ascending; `after` continues strictly past that key.
+    /// stay watched (their hosted page can still capture on a retry) and
+    /// Settled rows stay until the marker is released; only Refunded is
+    /// excluded. Keyset-ordered on `(created_at, id)`; `after` pages onward.
     pub async fn list_sweepable_with_pending_intent(
         conn: &mut PgConn,
         older_than: chrono::DateTime<chrono::Utc>,
@@ -591,10 +587,8 @@ impl PaymentTransactionRow {
     }
 
     /// Clear the hosted pending-intent marker, but only while the row still
-    /// carries exactly `intent_id` (the caller's evidence). Returns the number
-    /// of rows updated: 0 means the marker changed concurrently (a newer
-    /// attempt re-initiated) and the caller must not treat the intent as
-    /// closed out.
+    /// carries exactly `intent_id`. 0 rows updated means the marker changed
+    /// concurrently — the caller must not treat the intent as closed out.
     pub async fn clear_pending_intent_if_matches(
         conn: &mut PgConn,
         tenant_uid: TenantId,
@@ -621,9 +615,8 @@ impl PaymentTransactionRow {
             .into_db_result()
     }
 
-    /// Clear the hosted pending-intent marker for one row without the
-    /// intent-id predicate — safe because the marker is write-once per row.
-    /// Used under the row lock when only the domain tx (no marker) is in hand.
+    /// Clear the marker without the intent-id predicate — safe because the
+    /// marker is write-once per row. Used under the row lock.
     pub async fn clear_pending_intent(
         conn: &mut PgConn,
         tenant_uid: TenantId,
@@ -649,10 +642,9 @@ impl PaymentTransactionRow {
             .into_db_result()
     }
 
-    /// The most recent transaction for an invoice that still carries a hosted
-    /// pending-intent id, at ANY status. Backs the single-intent discipline of
-    /// hosted invoice payments: re-initiation cancels (or adopts) this intent
-    /// before minting a replacement.
+    /// Most recent transaction for an invoice still carrying a hosted
+    /// pending-intent id, at ANY status. Backs the single-intent discipline:
+    /// re-initiation cancels (or adopts) this intent before minting a replacement.
     pub async fn latest_with_pending_intent_by_invoice_id(
         conn: &mut PgConn,
         inv_uid: InvoiceId,
@@ -678,10 +670,8 @@ impl PaymentTransactionRow {
             .into_db_result()
     }
 
-    /// The most recent transaction for a checkout session that still carries
-    /// a hosted pending-intent id, at ANY status. Backs the single-intent
-    /// discipline of hosted checkouts: re-initiation cancels (or adopts) this
-    /// intent before minting a replacement — deliberately NOT "the latest
+    /// Most recent transaction for a checkout session still carrying a hosted
+    /// pending-intent id, at ANY status — deliberately NOT "the latest
     /// transaction", since an intermediate saved-card attempt (no marker)
     /// must not hide a still-live prior capturable intent.
     pub async fn latest_with_pending_intent_by_checkout_session_id(

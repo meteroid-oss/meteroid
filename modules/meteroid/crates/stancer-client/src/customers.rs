@@ -14,9 +14,8 @@ pub struct CreateCustomer {
     pub date_birth: Option<String>,
     pub legal_id: Option<String>,
     pub country: Option<String>,
-    /// Correlates the Stancer customer back to a Meteroid entity — Stancer's
-    /// customer resource has no free-form metadata map, this is the only
-    /// available slot (≤36 chars, unique).
+    /// Correlates back to a Meteroid entity — the customer resource has no
+    /// metadata map, this is the only slot (≤36 chars, unique).
     pub external_id: Option<String>,
     pub billing_address: Option<String>,
     pub shipping_address: Option<String>,
@@ -62,11 +61,9 @@ impl StancerClient {
         .await
     }
 
-    /// `GET /v2/customers/?external_id=…` — resolve the Stancer customer that
-    /// carries a given (unique) `external_id`. Used to recover from a retried
-    /// `create_customer` whose unique external_id already exists: the conflict
-    /// means the customer was created on an earlier attempt — look it up
-    /// instead of failing.
+    /// `GET /v2/customers/?external_id=…` — used to recover from a retried
+    /// `create_customer` whose unique external_id already exists: look the
+    /// earlier-created customer up instead of failing.
     pub async fn list_customers_by_external_id(
         &self,
         external_id: &str,

@@ -236,14 +236,13 @@ impl Services {
         // where a fresh transaction id would NOT, and lets the provider dedupe a
         // charge it already processed rather than creating a second one.
         //
-        // Stancer override: no webhook exists and reconciliation only polls rows
-        // that exist locally, so a rollback after an accepted charge orphans the
-        // provider payment — and no caller-supplied ref covers cross-path retries
-        // (return handler vs. dunning/renewal). EVERY Stancer invoice charge
-        // therefore derives its key from committed state only — (method, invoice,
-        // #prior committed attempts) — so any retry of the same attempt reuses the
-        // key (adapter adopts the existing payment) while a genuine new attempt
-        // after a committed decline gets a fresh one.
+        // Stancer override: no webhook exists and reconciliation only polls
+        // locally-known rows, so a rollback after an accepted charge would
+        // orphan the provider payment. EVERY Stancer invoice charge derives
+        // its key from committed state only — (method, invoice, #prior
+        // committed attempts) — so any retry of the same attempt reuses the
+        // key (adapter adopts) while a new attempt after a committed decline
+        // gets a fresh one.
         let idempotency_key =
             if connector.provider == crate::domain::enums::ConnectorProviderEnum::Stancer {
                 IdempotencyKey::new(format!(
@@ -314,9 +313,7 @@ mod tests {
     use common_domain::ids::{BaseId, CustomerPaymentMethodId, InvoiceId};
 
     /// The double-charge guard: two invocations for the same invoice+method
-    /// (e.g. the Stancer return-handler charge, then a pgmq redelivery after a
-    /// rolled-back attempt) derive the SAME seed — Stancer's `unique_id`
-    /// unicity then dedupes instead of charging a second time.
+    /// derive the SAME seed — Stancer's `unique_id` unicity then dedupes.
     #[test]
     fn stancer_seed_is_stable_across_invocations() {
         let method = CustomerPaymentMethodId::new();

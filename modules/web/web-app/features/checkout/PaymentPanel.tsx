@@ -110,10 +110,9 @@ const SavedMethodRow: React.FC<{
   )
 }
 
-/** Saved-method panel for hosted-redirect providers: charge the reusable
- *  saved method off-session. "Add new" opens the hosted flow via a pre-built
- *  URL (`addNewUrl`) or a click-driven initiation (`onAddNew` — the hosted
- *  intent must only be minted by the click, never on render). */
+/** Saved-method panel for hosted-redirect providers: charge the saved method
+ *  off-session. "Add new" opens the hosted flow via `addNewUrl` or `onAddNew`
+ *  (the hosted intent must only be minted by the click, never on render). */
 const SavedMandatePanel: React.FC<{
   methods: CustomerPaymentMethod[]
   customer?: PaymentPanelProps['customer']
@@ -548,28 +547,23 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
   const hasBoth =
     hasCard && hasDirectDebit && props.cardConnectionId !== props.directDebitConnectionId
 
-  // Saved methods usable on the active tab. A GoCardless mandate or a Stancer
-  // saved card here means we can charge it off-session — no need to send the
-  // customer through the hosted flow again (that's only for setting up a *new*
-  // method).
+  // Saved methods usable on the active tab: chargeable off-session, so the
+  // hosted flow is only needed for setting up a *new* method.
   const savedMethodsForTab = props.paymentMethods.filter(
     m => tabForMethodType(m.paymentMethodType) === activeTab
   )
 
-  // Hosted-redirect providers build their redirect_uri server-side; the desired
-  // post-flow page (this URL, minus any stale gocardless_*/stancer_* params)
-  // rides along as the return target.
+  // Hosted-redirect providers build their redirect_uri server-side; this URL
+  // (minus stale provider params) rides along as the return target.
   const activeConnectionId =
     activeTab === 'card' ? props.cardConnectionId : props.directDebitConnectionId
 
   const returnUrl = useMemo(() => hostedReturnUrl(), [])
 
-  // Hosted-checkout direct debit (checkout page, no saved mandate): ONE explicit
-  // action that authorises the mandate and pays the first invoice in a single
-  // hosted flow. No setup intent is fetched — that pre-created a (mandate-only)
-  // Billing Request on every panel render. Card-rail providers can't take this
-  // shortcut: the setup intent is what reveals whether the card connection is
-  // Stripe (embedded) or Stancer (hosted), so the card tab always fetches it.
+  // Hosted-checkout direct debit: ONE explicit action; no setup intent is
+  // fetched (that pre-created a Billing Request on every render). Card rails
+  // can't take this shortcut: the setup intent is what reveals whether the
+  // card connection is Stripe (embedded) or Stancer (hosted).
   const hostedCheckoutDD =
     activeTab === 'directDebit' &&
     !props.invoiceId &&
@@ -639,9 +633,8 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
       )
     }
 
-    // Stancer + invoice: the setup intent is a provider descriptor only.
-    // Initiation is click-driven via InitiateHostedInvoicePayment — rendering
-    // never mints a payment intent or transaction.
+    // Stancer + invoice: the setup intent is a provider descriptor only —
+    // rendering never mints a payment intent; initiation is click-driven.
     if (
       provider === ConnectorProviderEnum.STANCER &&
       props.invoiceId &&
@@ -719,14 +712,13 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
       )
     }
 
-    // Stancer flow: card provider, hosted-redirect like GoCardless — no
-    // embedded SDK. `intentSecret` carries the hosted payment-page URL
-    // (`providerPublicKey` is empty). The server-side return handler saves the
-    // card, runs any first charge, and redirects back with a stancer_status.
+    // Stancer flow: hosted-redirect card provider, no embedded SDK.
+    // `intentSecret` carries the hosted payment-page URL; the server-side
+    // return handler saves the card, runs any first charge, and redirects
+    // back with a stancer_status.
     if (provider === ConnectorProviderEnum.STANCER) {
-      // Saved-card reuse: a saved Stancer card is a reusable off-session token,
-      // so charge it directly — the hosted redirect is only for saving a new
-      // (or an additional) card.
+      // A saved Stancer card is a reusable off-session token: charge it
+      // directly — the hosted redirect is only for saving a new card.
       if (savedMethodsForTab.length > 0) {
         return (
           <SavedMandatePanel
@@ -739,10 +731,9 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
           />
         )
       }
-      // Checkout page, no saved card: go through InitiateHostedCheckout so the
-      // session rides in the intent metadata and the return handler can charge
-      // and activate the checkout — the plain setup intent would only save the
-      // card. One explicit action, server-validated amount.
+      // Checkout page, no saved card: InitiateHostedCheckout puts the session
+      // in the intent metadata so the return handler can charge and activate
+      // it — the plain setup intent would only save the card.
       if (!props.invoiceId && props.onHostedCheckout && connectionId) {
         return (
           <HostedCheckoutPanel
@@ -754,8 +745,7 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
           />
         )
       }
-      // Plain method setup (no invoice, no checkout): 0-amount card save on
-      // the hosted page.
+      // Plain method setup: 0-amount card save on the hosted page.
       return (
         <HostedRedirectPanel
           authorisationUrl={intentSecret}
@@ -895,10 +885,8 @@ const HostedRedirectPanel: React.FC<{
 
 /**
  * Checkout panel for a hosted-redirect provider with no saved method: one
- * explicit action. The click calls the InitiateHostedCheckout RPC and follows
- * its redirect next_action to the hosted authorisation page. GoCardless
- * authorises the mandate and collects the first payment in one hosted step;
- * Stancer saves the card and the server-side return handler runs the charge.
+ * explicit click calls the InitiateHostedCheckout RPC and follows its
+ * redirect next_action to the hosted authorisation page.
  */
 const HostedCheckoutPanel: React.FC<{
   totalAmount: string

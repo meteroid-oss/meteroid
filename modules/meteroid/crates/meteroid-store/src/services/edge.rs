@@ -47,10 +47,9 @@ use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::{Report, ResultExt};
 use scoped_futures::ScopedFutureExt;
 
-/// Outcome of one `initiate_hosted_checkout` transaction pass: either a
-/// customer-facing result, or an instruction to ADOPT the session's prior
-/// provider intent (it has a payment underway/captured and cannot be
-/// cancelled, so it must be completed — never replaced or orphaned).
+/// One `initiate_hosted_checkout` pass: either a customer-facing result, or
+/// an instruction to ADOPT the session's uncancelable prior intent (it must
+/// be completed — never replaced or orphaned).
 enum HostedCheckoutInitiation {
     Result(Box<CheckoutCompletionResult>),
     AdoptPriorIntent {
@@ -169,9 +168,8 @@ impl ServicesEdge {
             .await
     }
 
-    /// Complete a hosted-page setup for a polling-completed provider after the
-    /// customer returns from the hosted page, then run the fail-closed first
-    /// payment (invoice charge / checkout activation). See
+    /// Complete a hosted-page setup for a polling-completed provider, then
+    /// run the fail-closed first payment. See
     /// [`crate::services::payment::hosted_setup`] for the full design.
     pub async fn complete_hosted_setup(
         &self,
@@ -197,9 +195,7 @@ impl ServicesEdge {
 
     /// List up to `limit` hosted payment attempts (checkout AND invoice)
     /// still carrying an in-flow pending intent, initiated before
-    /// `older_than`. The pending-intent sweeper polls these; only webhook-less
-    /// (`PollingRequired`) providers persist the intent id on the transaction,
-    /// so only their attempts are listed.
+    /// `older_than`, for the pending-intent sweeper.
     pub async fn list_pending_hosted_payments(
         &self,
         older_than: chrono::DateTime<chrono::Utc>,
@@ -1377,13 +1373,10 @@ impl ServicesEdge {
         Ok(())
     }
 
-    /// Start a hosted-redirect checkout: a hosted mandate-setup flow + a Pending
-    /// checkout tx, returning `AwaitingPayment` + a `RedirectToUrl`.
-    /// Hosted-redirect providers collect the first payment in the same hosted
-    /// flow. WebhookBacked ones (GoCardless: combined mandate+payment Billing
-    /// Request) materialize via their webhook (`billing_requests.fulfilled`);
-    /// PollingRequired ones (Stancer: a capturing payment intent) materialize
-    /// via the return handler / pending-intent sweeper — they have no webhooks.
+    /// Start a hosted-redirect checkout: a hosted mandate-setup flow + a
+    /// Pending checkout tx, returning `AwaitingPayment` + a `RedirectToUrl`.
+    /// WebhookBacked providers materialize via their webhook, PollingRequired
+    /// ones via the return handler / pending-intent sweeper.
     pub async fn initiate_hosted_checkout(
         &self,
         tenant_id: TenantId,
@@ -1404,12 +1397,10 @@ impl ServicesEdge {
             )));
         }
 
-        // Single-intent discipline: minting a replacement intent first cancels
-        // the stored prior one at the provider; if the prior intent cannot be
-        // cancelled (a payment is underway or captured on it) it is ADOPTED —
-        // run through the completion path — instead of replaced. The loop runs
-        // at most twice: once more after an adoption resolves the prior
-        // attempt as failed/dead, so the customer still gets a fresh page.
+        // Single-intent discipline: minting a replacement first cancels the
+        // stored prior intent; an uncancelable one (payment underway/captured)
+        // is ADOPTED through completion instead of replaced. At most two
+        // passes: once more after an adoption resolves the prior attempt as dead.
         for adoption_attempt in 0..2u8 {
             let currency = currency.clone();
             let coupon_code = coupon_code.clone();
@@ -1462,16 +1453,11 @@ impl ServicesEdge {
                         )));
                     }
 
-                    // At most ONE capturable intent per session: a prior
-                    // intent stored on the latest attempt's transaction (only
-                    // stored by webhook-less PollingRequired providers,
-                    // capturing in-flow) is cancelled at the provider BEFORE a
-                    // replacement is minted, so it can never capture money as
-                    // an orphan the sweeper no longer watches. A not-cancelable
-                    // intent (payment underway or captured) is adopted outside
-                    // this transaction. (No Pending attempt exists here — the
-                    // active-transaction guard above returned it — so the
-                    // prior attempt is terminal.)
+                    // At most ONE capturable intent per session: the prior
+                    // stored intent is cancelled BEFORE a replacement is
+                    // minted, so it can never capture money as an unwatched
+                    // orphan; a not-cancelable one is adopted outside this
+                    // transaction.
                     let prior_tx =
                         diesel_models::payments::PaymentTransactionRow::latest_with_pending_intent_by_checkout_session_id(
                             conn,
@@ -1585,14 +1571,10 @@ impl ServicesEdge {
                         )
                         .await?;
 
-                    // A PollingRequired provider captures the first payment
-                    // in-flow on the hosted page and has NO webhooks: persist
-                    // the intent id on the pending transaction inserted below
-                    // (atomically with it) so the pending-intent sweeper can
-                    // recover a captured payment if the customer never
-                    // returns. WebhookBacked providers (GoCardless) never
-                    // persist it — their webhook (`billing_requests.fulfilled`)
-                    // is the backstop — so they are never swept.
+                    // PollingRequired providers capture in-flow with NO
+                    // webhooks: persist the intent id atomically with the
+                    // pending transaction so the sweeper can recover a lost
+                    // return. WebhookBacked providers are never swept.
                     let polling_required =
                         crate::adapters::payment::provider_capabilities(&setup_intent.provider)
                             .is_some_and(|caps| {
@@ -1671,10 +1653,9 @@ impl ServicesEdge {
                 } => (connection_id, intent_id),
             };
 
-            // Adoption: the prior intent has a payment underway/captured — run
-            // it through the SAME completion routine the return handler and
-            // sweeper use (records the captured payment onto its transaction,
-            // never charges) instead of minting a second capturable intent.
+            // Adoption: run the uncancelable prior intent through the SAME
+            // completion routine (records, never charges) instead of minting
+            // a second capturable intent.
             log::warn!(
                 "hosted checkout session {checkout_session_id}: prior intent {prior_intent} is \
                  not cancelable; adopting it through completion instead of re-minting"
@@ -1686,8 +1667,7 @@ impl ServicesEdge {
 
             match setup_outcome {
                 HostedSetupOutcome::CheckoutActivated(_) => {
-                    // The prior attempt's captured payment completed this
-                    // checkout — report it rather than a new hosted page.
+                    // Report the completed checkout rather than a new hosted page.
                     return self
                         .hosted_checkout_result_after_adoption(tenant_id, checkout_session_id)
                         .await;
@@ -1702,8 +1682,8 @@ impl ServicesEdge {
                 HostedSetupOutcome::PaymentFailed { .. } | HostedSetupOutcome::SetupFailed
                     if adoption_attempt == 0 =>
                 {
-                    // The prior attempt resolved as declined/dead; the intent
-                    // should now be cancelable — loop once to mint fresh.
+                    // Resolved as declined/dead: now cancelable — loop once to
+                    // mint fresh.
                     continue;
                 }
                 HostedSetupOutcome::Processing => {
@@ -1727,8 +1707,7 @@ impl ServicesEdge {
             }
         }
 
-        // Unreachable: the second iteration either returns a result or errors
-        // out of the adoption match above.
+        // Unreachable: the second iteration always returns or errors above.
         Err(Report::new(StoreError::InvalidArgument(
             "Unable to start a hosted payment for this checkout; please retry later.".to_string(),
         )))
@@ -1766,9 +1745,8 @@ impl ServicesEdge {
             });
         }
 
-        // Captured payment recorded, materialization still settling: no new
-        // page must be shown (the money already moved) — have the customer
-        // refresh into the completed state instead.
+        // Captured payment recorded, materialization still settling: money
+        // already moved — never show a new page; have the customer refresh.
         Err(Report::new(StoreError::InvalidArgument(
             "A previous payment for this checkout was recovered and is being finalized; please \
              refresh the page."

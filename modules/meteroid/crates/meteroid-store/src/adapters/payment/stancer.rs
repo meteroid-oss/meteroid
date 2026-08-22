@@ -1,24 +1,16 @@
-//! Stancer connector. Card provider with a hosted-page capture flow: mandate
-//! setup creates a payment intent, redirects the customer to the hosted page
-//! (Stancer has no client-side tokenization SDK), and completes server-side on
-//! the return redirect. Two postures:
-//!
-//! - Plain add-payment-method: 0-amount, `capture: false` — card save only,
-//!   never a charge.
-//! - Hosted CHECKOUT (`request.checkout` set) and hosted INVOICE payment
-//!   (`request.invoice_payment` set): the intent carries the REAL amount
-//!   (first payment / invoice `amount_due`) with `capture: true`, so the
-//!   hosted page shows and captures it in-flow (mirroring GoCardless's
-//!   combined mandate+payment Billing Request). The captured payment id
-//!   surfaces as `PaymentMethodSnapshot.payment_request_payment`; the return
-//!   handler and the pending-intent sweeper record it — there is NO
-//!   server-initiated charge for these paths.
+//! Stancer connector. Card provider with a hosted-page capture flow (no
+//! client-side tokenization SDK): mandate setup creates a payment intent,
+//! redirects to the hosted page, and completes server-side on the return
+//! redirect. Plain add-payment-method is 0-amount `capture: false` (card save
+//! only); hosted CHECKOUT / hosted INVOICE payment intents carry the REAL
+//! amount with `capture: true`, captured in-flow on the hosted page — the id
+//! surfaces as `PaymentMethodSnapshot.payment_request_payment` and there is NO
+//! server-initiated charge for those paths.
 //!
 //! Stancer has **no webhook mechanism at all** (OpenAPI-verified): settlement
 //! is asynchronous (`to_capture`/`capture_sent` → `captured`, nothing pushed)
-//! and resolves through the generic reconciliation worker via
-//! [`ReconcileOps::fetch_transaction_status`]. Mandate completion surfaces
-//! through the return-URL redirect, not a webhook.
+//! and resolves through the reconciliation worker; mandate completion surfaces
+//! through the return-URL redirect.
 
 use super::connector::{
     ConnectorCapabilities, ConnectorIdentity, CustomerOps, HostedSetupCompletion, MandateOps,
@@ -53,46 +45,37 @@ use std::sync::OnceLock;
 
 pub(super) const STANCER_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
     supports_cards: true,
-    // The saved `card_…` token is a reusable off-session instrument charged
-    // via `POST /v2/payments/` — a card mandate in this contract's vocabulary.
+    // The saved card token is a reusable off-session instrument (a "mandate").
     supports_mandates: true,
-    // `refund()` is not implemented (returns Unsupported) — refunds are not
-    // wired into the billing layer for any provider yet. Flip together with
-    // the implementation.
+    // `refund()` returns Unsupported — refunds are not wired into the billing
+    // layer for any provider yet.
     supports_refunds: false,
     supports_partial_refunds: false,
     // The hosted page runs the 3DS challenge (`threeds: required` on the
     // intent). Off-session charges omit `auth` → no 3DS (MIT posture).
     supports_3ds: true,
-    // `GET /v2/disputes/` exists but there is no push channel and no dispute
-    // lifecycle handling in v1.
     supports_disputes: false,
     // No webhook mechanism at all (spec-verified) — nothing to register.
     supports_self_webhook_registration: false,
-    // A charge lands as `to_capture`/`capture_sent` and resolves to `captured`
-    // later with nothing pushed; the reconcile worker is the settlement path.
+    // Charges land as `to_capture`/`capture_sent`; reconcile settles them.
     asynchronous_settlement: true,
     supported_payment_methods: &[PaymentMethodTypeEnum::Card],
     mandate_setup_mode: MandateSetupMode::HostedRedirect,
-    // Moot — Stancer has no webhooks and `verify_signature` always rejects —
-    // but the capability contract requires a value > 0. GoCardless's value,
-    // surfaced for contract honesty only.
+    // Moot (no webhooks, verify_signature always rejects) but the capability
+    // contract requires a value > 0.
     webhook_replay_tolerance_secs: 3600,
-    // No webhooks ⇒ the return redirect is the only push signal; the hosted
-    // checkout sweeper polls persisted pending intents as the lost-return
-    // backstop.
+    // The return redirect is the only push signal; the sweeper polls persisted
+    // pending intents as the lost-return backstop.
     hosted_setup_completion: HostedSetupCompletion::PollingRequired,
 };
 
-/// Currencies Stancer accepts on payments and payment intents. Anything else
-/// must be rejected up-front with a clear error instead of a provider 4xx.
+/// Currencies Stancer accepts; anything else is rejected up-front.
 const SUPPORTED_CURRENCIES: &[&str] = &[
     "eur", "aud", "cad", "chf", "dkk", "gbp", "nok", "pln", "sek", "usd",
 ];
 
-/// Stancer connector. One API base for test and live — the mode rides on the
-/// secret key prefix (`stest_…` / `sprod_…`) — so a single client singleton
-/// serves all tenants with one connection pool.
+/// One API base for test and live — the mode rides on the secret key prefix
+/// (`stest_…` / `sprod_…`) — so a single client singleton serves all tenants.
 #[derive(Debug, Clone, Copy)]
 pub struct StancerConnector;
 
@@ -124,10 +107,9 @@ impl ConnectorIdentity for StancerConnector {
 
 #[async_trait]
 impl CustomerOps for StancerConnector {
-    /// `POST /v2/customers/`. Stancer customers have no metadata map; the
-    /// unique `external_id` (≤36 chars) carries our customer id and doubles as
-    /// the idempotency mechanism: a retried create conflicts on it, which we
-    /// resolve by looking the existing customer up instead of failing.
+    /// Stancer customers have no metadata map; the unique `external_id`
+    /// carries our customer id and doubles as the idempotency mechanism: a
+    /// retried create conflicts on it and resolves by lookup instead of failing.
     async fn create_customer(
         &self,
         connector: &Connector,
@@ -139,12 +121,8 @@ impl CustomerOps for StancerConnector {
 
         let external_id = customer.id.as_base62();
 
-        // Send only what Stancer requires (a reachable identifier — email or
-        // mobile) plus our correlation id. `name` and a mobile-alongside-email
-        // are dropped: they're optional, add provider-side validation surface
-        // (mobile is capped at 16 chars and format-checked), and have no bearing
-        // on charging a saved card. Mobile is used only as a fallback identifier
-        // when there is no email, normalized and dropped if it still won't fit.
+        // Send only what Stancer requires (email or mobile) plus our
+        // correlation id; mobile is a fallback when there is no email.
         let email = customer.billing_email.clone();
         let mobile = if email.is_none() {
             normalize_stancer_mobile(customer.phone.as_deref())
@@ -170,9 +148,8 @@ impl CustomerOps for StancerConnector {
                 external_id: created.id,
                 provider_request_id: None,
             }),
-            // A 4xx can be a unique-external_id conflict from a retried create.
-            // Treat "a customer with our external_id already exists" as success
-            // (look it up); surface the original error otherwise.
+            // A 4xx can be a unique-external_id conflict from a retried
+            // create: reuse the existing customer, else surface the original error.
             Err(StancerError::Stancer(req_err))
                 if req_err.http_status >= 400 && req_err.http_status < 500 =>
             {
@@ -200,8 +177,7 @@ impl CustomerOps for StancerConnector {
                             StancerError::Stancer(req_err),
                         ))
                     }
-                    // Lookup itself failed (404-on-empty-list included): no
-                    // existing customer to reuse — surface the create error.
+                    // Lookup failed: nothing to reuse — surface the create error.
                     Err(_) => Err(map_stancer_error(
                         StancerOp::Customer,
                         StancerError::Stancer(req_err),
@@ -215,19 +191,11 @@ impl CustomerOps for StancerConnector {
 
 #[async_trait]
 impl MandateOps for StancerConnector {
-    /// Create the hosted-page payment intent. Non-checkout setups are 0-amount
-    /// `capture: false` (pure card save, never a charge); a hosted CHECKOUT
-    /// captures the real first-payment amount in-flow (`capture: true`) so the
-    /// hosted page shows and collects it — see [`setup_intent_posture`]. The
-    /// hosted page URL comes back on the intent; a follow-up PATCH bakes the
-    /// intent's own id into `return_url` so the return handler can complete
-    /// without a webhook (the id is only known after creation).
-    ///
-    /// No idempotency field exists on intent creation (`unique_id` is
-    /// payments-only); a duplicate intent from a retry is harmless — for the
-    /// checkout posture the customer is only ever redirected to ONE hosted
-    /// page (the one whose URL we return), so a duplicate intent is never
-    /// paid, it just idles.
+    /// Create the hosted-page payment intent — see [`setup_intent_posture`]
+    /// for the amount/capture split. A follow-up PATCH bakes the intent's own
+    /// id into `return_url` so the return handler can complete without a
+    /// webhook. No idempotency field exists on intent creation; a duplicate
+    /// intent from a retry is harmless (only ONE hosted page is ever shown).
     async fn initiate_mandate_setup(
         &self,
         connector: &Connector,
@@ -246,9 +214,8 @@ impl MandateOps for StancerConnector {
             )));
         }
 
-        // `return_url` is required even for iframe embedding (the hosted page
-        // refuses to be framed without it) and is our only completion signal —
-        // Stancer has no webhooks.
+        // `return_url` is required even for iframe embedding and is our only
+        // completion signal — Stancer has no webhooks.
         let return_url = request.return_url.clone().ok_or_else(|| {
             Report::new(ConnectorError::MandateSetup(
                 "Stancer mandate setup requires a return_url (hosted redirect is the only flow)"
@@ -256,8 +223,8 @@ impl MandateOps for StancerConnector {
             ))
         })?;
 
-        // Real customer/checkout/invoice currency — never a hardcoded default.
-        // Even for the 0-amount save posture Stancer still validates it.
+        // Real customer/checkout/invoice currency — never a hardcoded
+        // default; Stancer validates it even for the 0-amount save posture.
         let currency = request
             .checkout
             .as_ref()
@@ -299,10 +266,8 @@ impl MandateOps for StancerConnector {
             .await
             .map_err(|e| map_stancer_error(StancerOp::Mandate, e))?;
 
-        // Bake the intent id into the return URL so the (unauthenticated)
-        // return handler knows which intent to complete. Must succeed: without
-        // it the return handler cannot finish the setup and there is no
-        // webhook fallback.
+        // Must succeed: without the intent id in the return URL the return
+        // handler cannot finish the setup and there is no webhook fallback.
         let sep = if return_url.contains('?') { '&' } else { '?' };
         let final_return_url = format!("{return_url}{sep}intent={}", intent.id);
         let updated = client
@@ -340,13 +305,10 @@ impl MandateOps for StancerConnector {
         Ok(snapshot_from_card(card, &HashMap::new(), None))
     }
 
-    /// Server-side completion driven by the return-URL redirect (there is no
-    /// webhook). The intent's `.card` is the authoritative "done" signal —
-    /// live-verified; `status` is NOT keyed on because its terminal value for
-    /// a 0-amount flow is unobserved. `.card` absent + `canceled`/`unpaid` →
-    /// failed; `.card` absent otherwise → not complete yet (the redirect can
-    /// beat the intent's own update — the caller retries briefly, detected via
-    /// the [`HostedSetupPending`] attachment).
+    /// Server-side completion driven by the return-URL redirect. The intent's
+    /// `.card` is the authoritative "done" signal (`status` is NOT keyed on —
+    /// its terminal value for a 0-amount flow is unobserved). `.card` absent +
+    /// dead intent → failed; absent otherwise → retryable ([`HostedSetupPending`]).
     async fn complete_mandate_setup(
         &self,
         connector: &Connector,
@@ -364,8 +326,7 @@ impl MandateOps for StancerConnector {
             Some(card_id) => card_id.clone(),
             None => {
                 // Only a certainly-dead intent is terminal; anything else —
-                // including an Unknown (unmodeled) status — is "not complete
-                // yet" and stays retryable.
+                // Unknown included — stays retryable.
                 return if intent_is_terminally_dead(&intent.status) {
                     Err(Report::new(ConnectorError::MandateSetup(format!(
                         "Stancer payment intent {intent_id} ended {:?} with no saved card",
@@ -387,22 +348,16 @@ impl MandateOps for StancerConnector {
             .map_err(|e| map_stancer_error(StancerOp::Mandate, e))?;
 
         let metadata = intent.metadata.clone().unwrap_or_default();
-        // `.payment` is only populated when the intent carried an amount:
-        // None for the fail-closed 0-amount postures, and the in-flow-captured
-        // first payment for a hosted CHECKOUT — the completion side records it
-        // instead of charging (same contract as GoCardless's combined BR).
+        // `.payment` is only populated when the intent carried an amount — the
+        // in-flow-captured payment, which completion records instead of charging.
         Ok(snapshot_from_card(card, &metadata, intent.payment.clone()))
     }
 
-    /// `DELETE /v2/payment_intents/{id}` — the spec's cancellation route (the
-    /// `PaymentIntentUpdate` PATCH schema carries no `status`, so PATCHing to
-    /// `canceled` is not possible; the status enum does include `canceled`).
-    ///
-    /// `Ok(())` only when the intent is certainly dead: DELETE succeeded, the
-    /// id doesn't exist (404), or a follow-up read shows a terminal
-    /// `canceled`/`unpaid` intent. Any intent that still could — or did —
-    /// capture money is `Err`, so callers fail closed (a superseded checkout
-    /// intent is never silently orphaned while live).
+    /// `DELETE /v2/payment_intents/{id}` — the spec's only cancellation route
+    /// (the PATCH schema carries no `status`). `Ok(())` only when the intent
+    /// is certainly dead (DELETE ok, 404, or a follow-up read shows
+    /// `canceled`/`unpaid`). Any intent that still could — or did — capture
+    /// money is `Err`, so callers fail closed instead of orphaning it.
     async fn cancel_mandate_setup(
         &self,
         connector: &Connector,
@@ -417,9 +372,8 @@ impl MandateOps for StancerConnector {
             Err(StancerError::Stancer(req_err))
                 if req_err.http_status >= 400 && req_err.http_status < 500 =>
             {
-                // Not cancelable in its current state — read it to decide
-                // whether it is already terminally dead (idempotent cancel) or
-                // still live / captured (must be surfaced, never ignored).
+                // Not cancelable in its current state — read it to decide:
+                // already dead (idempotent cancel) or still live/captured (surface).
                 let intent = client
                     .get_payment_intent(intent_id, &secret_key)
                     .await
@@ -427,7 +381,7 @@ impl MandateOps for StancerConnector {
                 if intent_is_terminally_dead(&intent.status) {
                     Ok(())
                 } else {
-                    // Includes Unknown: unproven-dead fails closed as
+                    // Unknown included: unproven-dead fails closed as
                     // not-cancelable, so the caller adopts instead of orphaning.
                     Err(Report::new(ConnectorError::MandateSetup(format!(
                         "Stancer payment intent {intent_id} is not cancelable \
@@ -444,15 +398,10 @@ impl MandateOps for StancerConnector {
 #[async_trait]
 impl PaymentOps for StancerConnector {
     /// `POST /v2/payments/` against the saved card. `auth` is omitted entirely
-    /// — omission is what skips 3DS for an off-session charge (`auth: false`
-    /// is rejected by validation; live-verified). Never returns
-    /// `RequiresAction`.
-    ///
-    /// Idempotency: `unique_id` (unicity-checked, ≤36 chars) is Stancer's only
-    /// dedup mechanism on this endpoint; it is derived from the caller's
-    /// `idempotency_key` (see [`stancer_unique_id`]) so a stable key survives
-    /// a DB rollback + retry and the provider dedupes instead of charging
-    /// twice. (`order_id` is the non-unique cousin — never used for dedup.)
+    /// — omission is what skips 3DS off-session (`auth: false` is rejected;
+    /// live-verified). Never returns `RequiresAction`. `unique_id` (derived
+    /// via [`stancer_unique_id`]) is Stancer's only dedup mechanism here, so a
+    /// DB rollback + retry dedupes at the provider instead of charging twice.
     async fn charge_off_session(
         &self,
         connector: &Connector,
@@ -484,12 +433,8 @@ impl PaymentOps for StancerConnector {
 
         match result {
             Ok(payment) => Ok(payment_to_outcome(payment, request.amount_minor)),
-            // A 4xx can be the `unique_id` unicity check rejecting a retry of a
-            // charge that already went through (e.g. the first attempt's
-            // response was lost). Resolve by looking the payment up by its
-            // unique_id and reporting ITS state — the provider-side dedup hit
-            // the retry contract promises. Surface the original error when no
-            // such payment exists.
+            // A 4xx can be the unicity check rejecting a retry of a charge
+            // that went through: look it up by unique_id and report ITS state.
             Err(StancerError::Stancer(req_err))
                 if req_err.http_status >= 400 && req_err.http_status < 500 =>
             {
@@ -555,8 +500,7 @@ impl RefundOps for StancerConnector {
 #[async_trait]
 impl ReconcileOps for StancerConnector {
     /// With no webhooks this is THE settlement path, not just a safety net:
-    /// the reconcile worker polls every Pending Stancer transaction until
-    /// `to_capture`/`capture_sent` resolves to a terminal status.
+    /// the reconcile worker polls every Pending transaction to resolution.
     async fn fetch_transaction_status(
         &self,
         connector: &Connector,
@@ -614,10 +558,8 @@ impl WebhookOps for StancerConnector {
         }))
     }
 
-    /// No legitimate Stancer webhook exists, so any signed payload claiming to
-    /// be one is rejected unconditionally. (In practice unreachable: the
-    /// webhook router bails `ProviderNotSupported` before verification because
-    /// Stancer connectors have no webhook secret.)
+    /// No legitimate Stancer webhook exists, so any payload claiming to be
+    /// one is rejected unconditionally.
     fn verify_signature(
         &self,
         _connector: &Connector,
@@ -642,9 +584,8 @@ impl WebhookOps for StancerConnector {
 
 // ── helpers ────────────────────────────────────────────────────────
 
-/// Whether a payment intent is CERTAINLY dead (can never save a card or
-/// capture again). Anything unproven — including the `Unknown` catch-all for
-/// unmodeled statuses — is NOT dead: not-complete-yet / not-cancelable.
+/// Whether an intent is CERTAINLY dead (can never save a card or capture
+/// again). Anything unproven — `Unknown` included — is NOT dead.
 fn intent_is_terminally_dead(status: &PaymentIntentStatus) -> bool {
     matches!(
         status,
@@ -652,11 +593,9 @@ fn intent_is_terminally_dead(status: &PaymentIntentStatus) -> bool {
     )
 }
 
-/// `(amount, capture)` for the hosted setup intent. A hosted CHECKOUT captures
-/// the REAL first-payment amount in-flow, and a hosted INVOICE payment
-/// captures the invoice's `amount_due` in-flow (single charge, shown on the
-/// hosted page); only the plain add-payment-method setup is a pure 0-amount
-/// card save. Checkout and invoice contexts are mutually exclusive.
+/// `(amount, capture)` for the hosted setup intent. Checkout and invoice
+/// contexts capture the REAL amount in-flow (mutually exclusive); only the
+/// plain add-payment-method setup is a pure 0-amount card save.
 fn setup_intent_posture(
     checkout: Option<&super::model::HostedCheckoutContext>,
     invoice_payment: Option<&super::model::HostedInvoicePaymentContext>,
@@ -681,11 +620,8 @@ fn setup_intent_posture(
     }
 }
 
-/// Intent metadata: our correlation ids, plus exactly one of the invoice this
-/// setup pays or the checkout session it completes — either way with the
-/// pre-created transaction the capture must be recorded onto (in-flow paths).
-/// Recovered on return / by the sweeper to drive the invoice settlement or
-/// the checkout materialization. Mutually exclusive.
+/// Correlation ids, plus exactly one of the invoice or checkout context with
+/// the pre-created transaction the capture must be recorded onto.
 fn setup_intent_metadata(
     connector: &Connector,
     connection: &CustomerConnection,
@@ -706,8 +642,6 @@ fn setup_intent_metadata(
         ),
     ]);
     if let Some(invoice_payment) = &request.invoice_payment {
-        // In-flow invoice payment: name the invoice AND the pre-created
-        // transaction so completion records the capture onto that exact row.
         metadata.insert(
             "meteroid.invoice_id".to_string(),
             invoice_payment.invoice_id.clone(),
@@ -717,8 +651,8 @@ fn setup_intent_metadata(
             invoice_payment.transaction_id.clone(),
         );
     } else if let Some(invoice_id) = &request.invoice_id {
-        // Legacy 0-amount invoice setup (no in-flow capture): invoice only —
-        // completion falls back to the fail-closed off-session charge.
+        // Legacy 0-amount invoice setup: invoice only — completion falls back
+        // to the fail-closed off-session charge.
         metadata.insert("meteroid.invoice_id".to_string(), invoice_id.clone());
     } else if let Some(checkout) = &request.checkout {
         metadata.insert(
@@ -745,9 +679,8 @@ fn extract_secret_key(connector: &Connector) -> Result<SecretString, Report<Conn
     }
 }
 
-/// Derive Stancer's `unique_id` (unicity-checked, ≤36 chars) from the
-/// caller's idempotency key: verbatim when it fits, else a stable 32-hex-char
-/// sha256 prefix. Never raw truncation — distinct keys must never collide.
+/// Caller's idempotency key → Stancer `unique_id` (≤36 chars): verbatim when
+/// it fits, else a stable sha256 prefix — never raw truncation (collisions).
 fn stancer_unique_id(key: &str) -> String {
     if key.len() <= 36 {
         key.to_string()
@@ -758,8 +691,7 @@ fn stancer_unique_id(key: &str) -> String {
     }
 }
 
-/// Validate + normalize a currency against Stancer's supported set. Returns
-/// the lowercase code Stancer expects, or a clear caller-facing message.
+/// Returns the lowercase code Stancer expects, or a clear caller-facing message.
 fn validate_currency(currency: &str) -> Result<String, String> {
     let lower = currency.to_ascii_lowercase();
     if SUPPORTED_CURRENCIES.contains(&lower.as_str()) {
@@ -772,8 +704,7 @@ fn validate_currency(currency: &str) -> Result<String, String> {
     }
 }
 
-/// Build the normalized snapshot from a fetched card + the intent metadata
-/// that names our ids (cards themselves carry no metadata).
+/// Snapshot from a fetched card + intent metadata (cards carry no metadata).
 fn snapshot_from_card(
     card: stancer_client::cards::StancerCard,
     metadata: &HashMap<String, String>,
@@ -796,8 +727,7 @@ fn snapshot_from_card(
     }
 }
 
-/// Map an ISO-8583-style network response code (`"00"` = approved) to the
-/// normalized decline category. Best-effort; unmapped codes fall to `Other`.
+/// ISO-8583-style network response code (`"00"` = approved) → decline category.
 fn decline_kind_for(response: Option<&str>) -> DeclineKind {
     match response {
         Some("51") => DeclineKind::InsufficientFunds,
@@ -821,15 +751,13 @@ fn payment_to_outcome(payment: StancerPayment, amount_minor: i64) -> ChargeOutco
             | StancerPaymentStatus::CaptureSent,
         ) => ChargeOutcome::Succeeded(ChargeReceipt {
             external_id: id,
-            // The create response is authoritative for the requested amount;
-            // no separate settled figure exists.
+            // No separate settled figure exists on the create response.
             amount_received_minor: amount_minor,
             processed_at: chrono::Utc::now().naive_utc(),
             provider_request_id: None,
         }),
-        // `authorized` = not-yet-executed (can still expire/cancel); `Authorize`/
-        // `Capture` are request-side transients; `Unknown` is unmodeled — never
-        // fabricate success/failure, let reconcile re-poll until a modeled status.
+        // `authorized` can still expire/cancel; `Unknown` is unmodeled — never
+        // fabricate success/failure, let reconcile re-poll to a modeled status.
         Some(
             StancerPaymentStatus::Authorize
             | StancerPaymentStatus::Authorized
@@ -911,9 +839,8 @@ fn remote_status_from_payment(payment: StancerPayment) -> RemoteTransactionStatu
     }
 }
 
-/// Which Stancer operation produced an error, so a 4xx maps to the right
-/// semantic `ConnectorError` variant instead of everything reading as a
-/// failed charge.
+/// Which operation produced an error, so a 4xx maps to the right semantic
+/// `ConnectorError` variant instead of everything reading as a failed charge.
 #[derive(Clone, Copy, Debug)]
 enum StancerOp {
     Customer,
@@ -940,28 +867,24 @@ fn map_stancer_error(op: StancerOp, e: StancerError) -> Report<ConnectorError> {
         StancerError::Stancer(req_err) if req_err.http_status >= 500 => Report::new(
             ConnectorError::Transport(format!("stancer 5xx ({}): {req_err}", req_err.http_status)),
         ),
-        // Rejected credentials are a tenant configuration problem, NEVER a
-        // logical per-resource failure: a `MandateSetup` here would read as a
-        // terminal setup failure and let the sweeper expire every awaiting
-        // checkout over a mere key rotation. Surface as `Configuration` so
-        // callers hold/retry instead.
+        // Rejected credentials are a configuration problem, NEVER a logical
+        // failure: `MandateSetup` here would read as terminal and let the
+        // sweeper expire every awaiting checkout over a mere key rotation.
         StancerError::Stancer(req_err) if matches!(req_err.http_status, 401 | 403) => {
             Report::new(ConnectorError::Configuration(format!(
                 "stancer rejected credentials ({}): {req_err}",
                 req_err.http_status
             )))
         }
-        // Throttling / request timeout: transient, retryable — not a state of
-        // the resource being operated on.
+        // Throttling / request timeout: transient, retryable.
         StancerError::Stancer(req_err) if matches!(req_err.http_status, 408 | 429) => {
             Report::new(ConnectorError::Transport(format!(
                 "stancer transient ({}): {req_err}",
                 req_err.http_status
             )))
         }
-        // Remaining 4xx (404 / 400 / 422): a genuine validation/state error on
-        // the resource itself — not retryable. The FastAPI-style `detail[]`
-        // items carry the actionable per-field reasons.
+        // Remaining 4xx: a genuine validation/state error on the resource
+        // itself — not retryable.
         StancerError::Stancer(req_err) => Report::new(op.logical_error(format!(
             "stancer rejected ({}): {req_err}",
             req_err.http_status
@@ -972,11 +895,9 @@ fn map_stancer_error(op: StancerOp, e: StancerError) -> Report<ConnectorError> {
     }
 }
 
-/// Stancer's `mobile` is capped at 16 characters and format-validated. We only
-/// use it as a fallback reachable identifier when the customer has no email, so
-/// strip whitespace (a spaced number can exceed 16 chars unstripped) and drop it
-/// entirely if it still doesn't fit — never fail customer creation over an
-/// optional contact field.
+/// Stancer's `mobile` is capped at 16 chars and format-validated: strip
+/// whitespace and drop it entirely if it still doesn't fit — never fail
+/// customer creation over an optional contact field.
 fn normalize_stancer_mobile(phone: Option<&str>) -> Option<String> {
     let cleaned: String = phone?.chars().filter(|c| !c.is_whitespace()).collect();
     (!cleaned.is_empty() && cleaned.chars().count() <= 16).then_some(cleaned)
@@ -997,7 +918,6 @@ mod tests {
             normalize_stancer_mobile(Some("+00 0 00 00 00 00")),
             Some("+00000000000".to_string())
         );
-        // Already-compact number passes through.
         assert_eq!(
             normalize_stancer_mobile(Some("+00000000000")),
             Some("+00000000000".to_string())
@@ -1039,10 +959,8 @@ mod tests {
         }
     }
 
-    /// An unmodeled (`Unknown`) intent status must never wedge the flows that
-    /// key on intent liveness: completion treats it as not-yet-complete
-    /// (retryable), close-out as not-cancelable (adopt, never orphan). Only
-    /// `canceled`/`unpaid` are provably dead.
+    /// An unmodeled (`Unknown`) status is retryable / not-cancelable, never
+    /// dead; only `canceled`/`unpaid` are provably dead.
     #[test]
     fn unknown_intent_status_is_not_terminally_dead() {
         assert!(!intent_is_terminally_dead(&PaymentIntentStatus::Unknown));
@@ -1063,8 +981,6 @@ mod tests {
         assert!(intent_is_terminally_dead(&PaymentIntentStatus::Unpaid));
     }
 
-    /// Capability honesty: card-only, no webhooks of any kind, no refunds yet,
-    /// async settlement through reconciliation, hosted-redirect setup.
     #[test]
     fn capabilities_match_provider_reality() {
         let connector = StancerConnector::new();
@@ -1084,8 +1000,7 @@ mod tests {
         );
     }
 
-    /// `captured` is the only synchronous success; `disputed` means funds were
-    /// captured (dispute lifecycle out of scope) so it is also a success.
+    /// `disputed` means funds were captured, so it counts as a success.
     #[test]
     fn payment_to_outcome_success_states() {
         match payment_to_outcome(
@@ -1118,10 +1033,7 @@ mod tests {
         }
     }
 
-    /// The normal initial states of an accepted async charge — a missing
-    /// status, the transient `authorize`/`capture`, and any unmodeled status —
-    /// are all Pending (reconciliation resolves them; an unknown status must
-    /// never be fabricated into a success or failure).
+    /// Unmodeled statuses must never be fabricated into a success or failure.
     #[test]
     fn payment_to_outcome_pending_states() {
         for status in [
@@ -1141,8 +1053,7 @@ mod tests {
         }
     }
 
-    /// Declines are terminal (`retryable: false`) and carry the ISO-8583
-    /// network code; `canceled` is distinct from a decline.
+    /// Declines are terminal and carry the network code; `canceled` is distinct.
     #[test]
     fn payment_to_outcome_terminal_states() {
         match payment_to_outcome(
@@ -1192,8 +1103,6 @@ mod tests {
         assert_eq!(decline_kind_for(None), DeclineKind::Other);
     }
 
-    /// Reconciliation status table mirrors the charge table; `disputed` still
-    /// reads as settled money.
     #[test]
     fn remote_status_table() {
         assert!(matches!(
@@ -1248,19 +1157,15 @@ mod tests {
         }
     }
 
-    /// The provider `unique_id` must derive from the caller's idempotency
-    /// key — NOT the per-attempt transaction id — deterministically: the same
-    /// stable key always yields the same ≤36-char unique_id, so a retry after
-    /// a DB rollback dedupes at Stancer instead of double-charging.
+    /// The same stable key must always yield the same ≤36-char unique_id, so
+    /// a retry after a DB rollback dedupes at Stancer instead of double-charging.
     #[test]
     fn unique_id_is_stable_and_bounded() {
-        // A short key passes verbatim (incl. the 36-char boundary).
         assert_eq!(stancer_unique_id("charge:abc123"), "charge:abc123");
         let exactly_36 = "x".repeat(36);
         assert_eq!(stancer_unique_id(&exactly_36), exactly_36);
 
-        // A long key (e.g. `charge:stancer-charge:{method}:{invoice}:{n}`)
-        // maps to a stable hashed token, never raw truncation.
+        // A long key maps to a stable hashed token, never raw truncation.
         let long_key = "charge:stancer-charge:6nR9DFeSRvUsdBkyugTQvC:2XkD9chDvUnQ3PZg4dKMxK:0";
         assert!(long_key.len() > 36);
         let first = stancer_unique_id(long_key);
@@ -1280,9 +1185,8 @@ mod tests {
         assert_ne!(first, stancer_unique_id(sibling));
     }
 
-    /// Two `ChargeRequest`s carrying the same stable idempotency key derive
-    /// the same provider unique_id even with different transaction ids — the
-    /// rollback-retry contract `create_payment_intent` relies on.
+    /// The same stable idempotency key derives the same provider unique_id
+    /// even with different transaction ids — the rollback-retry contract.
     #[test]
     fn charge_requests_with_same_key_share_a_unique_id() {
         use super::super::model::IdempotencyKey;
@@ -1308,13 +1212,9 @@ mod tests {
         );
     }
 
-    /// Auth failures (401/403) are a tenant CONFIGURATION problem, never a
-    /// logical per-resource failure: mapping them to `MandateSetup` would make
-    /// the completion loop report a terminal `SetupFailed` — and the sweeper
-    /// would then `Expire` every awaiting checkout — over a mere credentials
-    /// problem. They must map to `Configuration` (an `Err` the callers
-    /// hold/retry), while genuine state errors (404/422) stay logical and
-    /// transient ones (408/429, 5xx) stay `Transport`.
+    /// 401/403 must map to `Configuration`, never `MandateSetup` (terminal
+    /// `SetupFailed` would let the sweeper expire every awaiting checkout over
+    /// a key rotation); 404/422 stay logical; 408/429/5xx stay `Transport`.
     #[test]
     fn auth_errors_are_configuration_not_terminal_setup_failure() {
         use stancer_client::error::RequestError;
@@ -1363,9 +1263,6 @@ mod tests {
         ));
     }
 
-    /// The real customer/invoice currency must pass; anything outside
-    /// Stancer's set must fail with a clear message, and codes normalize to
-    /// the lowercase form Stancer expects.
     #[test]
     fn currency_validation() {
         assert_eq!(validate_currency("EUR").as_deref(), Ok("eur"));
@@ -1375,9 +1272,8 @@ mod tests {
         assert!(validate_currency("BRL").is_err());
     }
 
-    /// Completion metadata recovery: the ids we wrote on the intent at
-    /// creation must round-trip into the snapshot for the ownership check and
-    /// the post-completion charge / checkout activation.
+    /// Intent metadata must round-trip into the snapshot for the ownership
+    /// check and post-completion settlement.
     #[test]
     fn snapshot_recovers_intent_metadata() {
         let card = stancer_client::cards::StancerCard {
@@ -1410,8 +1306,7 @@ mod tests {
         assert!(snapshot.meteroid_checkout_session_id.is_none());
     }
 
-    /// No webhook exists, so no signature can ever verify and no payload can
-    /// ever parse — both must reject, never panic.
+    /// No signature can ever verify, no payload can ever parse — never panic.
     #[test]
     fn webhooks_always_reject() {
         let connector = test_connector();
@@ -1462,13 +1357,8 @@ mod tests {
         ));
     }
 
-    /// A hosted CHECKOUT intent must carry the REAL first-payment amount with
-    /// `capture: true`, and a hosted INVOICE payment intent the invoice's
-    /// `amount_due` with `capture: true` (the hosted page shows and captures
-    /// it in-flow — the single charge); only the plain add-payment-method
-    /// setup stays a 0-amount, `capture: false` card save. A non-positive
-    /// amount, or both contexts at once, must be refused before any provider
-    /// call.
+    /// Checkout/invoice intents carry the REAL amount with `capture: true`;
+    /// only the plain add-payment-method setup stays a 0-amount card save.
     #[test]
     fn setup_intent_posture_captures_real_amount() {
         use super::super::model::{HostedCheckoutContext, HostedInvoicePaymentContext};
@@ -1482,8 +1372,8 @@ mod tests {
         };
         assert_eq!(setup_intent_posture(Some(&ctx), None), Ok((12_345, true)));
 
-        // In-flow invoice payment: the invoice's amount_due, capture: true —
-        // never a 0-amount save (that would show "0,00 €" and skip the charge).
+        // Never a 0-amount save for an invoice payment (that would show
+        // "0,00 €" and skip the charge).
         let invoice_ctx = HostedInvoicePaymentContext {
             invoice_id: "invB62".into(),
             transaction_id: "txB62".into(),
@@ -1495,7 +1385,6 @@ mod tests {
             Ok((6_789, true))
         );
 
-        // Plain add-payment-method stays a 0-amount card save.
         assert_eq!(setup_intent_posture(None, None), Ok((0, false)));
 
         // Never create a capturing intent for a non-positive amount.
@@ -1519,11 +1408,8 @@ mod tests {
         assert!(setup_intent_posture(Some(&ctx), Some(&invoice_ctx)).is_err());
     }
 
-    /// Checkout intent metadata must name the checkout session AND the
-    /// pre-created transaction (so completion resolves both), never an
-    /// invoice; the in-flow invoice posture names the invoice AND the
-    /// pre-created transaction; the legacy invoice posture names the invoice
-    /// only. Correlation ids always ride.
+    /// Checkout metadata names the session AND transaction; in-flow invoice
+    /// the invoice AND transaction; legacy invoice the invoice only.
     #[test]
     fn setup_intent_metadata_carries_the_right_ids() {
         use super::super::model::{
@@ -1587,7 +1473,6 @@ mod tests {
         );
         assert!(!metadata.contains_key("meteroid.invoice_id"));
 
-        // In-flow invoice payment: invoice AND transaction ids, no session.
         let in_flow_invoice_request = base_request(
             Some("invB62".into()),
             None,
@@ -1609,8 +1494,8 @@ mod tests {
         );
         assert!(!metadata.contains_key("meteroid.checkout_session_id"));
 
-        // Legacy 0-amount invoice setup: invoice only, no transaction id —
-        // completion keys the off-session fallback on its absence.
+        // Legacy setup carries no transaction id — completion keys the
+        // off-session fallback on its absence.
         let invoice_request = base_request(Some("invB62".into()), None, None);
         let metadata = setup_intent_metadata(&connector, &connection, &invoice_request);
         assert_eq!(

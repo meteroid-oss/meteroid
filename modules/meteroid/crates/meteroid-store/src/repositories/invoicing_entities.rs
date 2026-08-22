@@ -238,10 +238,9 @@ impl InvoicingEntityInterface for Store {
                 let supported = if requires_cards {
                     capabilities.supports_cards
                 } else {
-                    // "Supports direct debit" means an actual DD rail, not just
-                    // mandates: a card-only provider (Stancer) also has
-                    // supports_mandates (a saved card is a reusable mandate)
-                    // but must never land in the direct-debit slot.
+                    // "Supports direct debit" means an actual DD rail: a
+                    // card-only provider also has supports_mandates (a saved
+                    // card is a reusable mandate) but must never land here.
                     capabilities.supported_payment_methods.iter().any(|m| {
                         matches!(
                             m,

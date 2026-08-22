@@ -178,10 +178,9 @@ impl CheckoutSessionRow {
             .into_db_result()
     }
 
-    /// Expire ONE session, only from a non-terminal state (Created /
-    /// AwaitingPayment). Returns the number of rows updated (0 when the
-    /// session already reached a terminal state — the guard for races with a
-    /// concurrent completion).
+    /// Expire ONE session, only from a non-terminal state. 0 rows updated
+    /// means it already reached a terminal state — the guard for races with a
+    /// concurrent completion.
     pub async fn mark_expired_single(
         conn: &mut PgConn,
         tenant_id: TenantId,

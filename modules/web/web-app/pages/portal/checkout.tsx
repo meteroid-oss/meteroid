@@ -27,12 +27,10 @@ export const PortalCheckout = () => {
   const isHostedReturn =
     searchParams.get('stancer_status') === 'ok' || searchParams.get('gocardless_status') === 'ok'
 
-  // A completed session is a SUCCESS, not an error: the backend can finish the
-  // checkout before (or during) the customer's redirect back — the GoCardless
-  // webhook races the redirect, and the Stancer return handler activates the
-  // session before it — in which case this first GetCheckout fails. Send them
-  // to the success page instead of the generic error. An `ok` hosted return
-  // means the payment is submitted (settling later), so mark it "processing".
+  // A completed session is a SUCCESS, not an error: the backend can finish
+  // the checkout before (or during) the redirect back, in which case this
+  // first GetCheckout fails — send them to the success page. An `ok` hosted
+  // return means the payment is submitted (settling later): "processing".
   const sessionCompleted =
     error instanceof ConnectError &&
     error.code === Code.FailedPrecondition &&

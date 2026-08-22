@@ -174,9 +174,8 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
   const hasDirectDebit = !!directDebitConnectionId
   const hasBoth = hasCard && hasDirectDebit && cardConnectionId !== directDebitConnectionId
 
-  // Hosted-redirect providers (GoCardless, Stancer) redirect the customer back
-  // to this page; the server threads the page URL through as the return target
-  // (minus stale gocardless_*/stancer_* params).
+  // Hosted-redirect providers bounce back to this page; the server threads
+  // the page URL through as the return target (minus stale provider params).
   const activeConnectionId = activeTab === 'card' ? cardConnectionId : directDebitConnectionId
 
   const returnUrl = hostedReturnUrl()

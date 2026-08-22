@@ -40,11 +40,9 @@ message StripeConnector {
   string webhook_secret = 6;
 }
 
-// Stancer card connector. Unlike Stripe there is no separate publishable
-// key — the secret key alone authenticates every call, including creating
-// the hosted card-capture page. Test vs live mode rides on the key prefix
-// (`stest_…` / `sprod_…`); there is no environment toggle. Stancer has no
-// webhook mechanism, so no webhook secret either.
+// Stancer card connector. The secret key alone authenticates every call;
+// test vs live mode rides on the key prefix (`stest_…` / `sprod_…`). No
+// webhook mechanism, so no webhook secret.
 message StancerConnector {
   string alias = 1;
   string api_secret_key = 2;

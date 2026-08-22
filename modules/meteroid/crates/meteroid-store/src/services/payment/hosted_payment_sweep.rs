@@ -1,37 +1,16 @@
-//! Pending-intent sweeper for hosted in-flow captures on
-//! [`HostedSetupCompletion::PollingRequired`] providers — the lost-return
-//! backstop, unified over hosted CHECKOUTS and hosted INVOICE payments. The
-//! hosted page captures the REAL amount in-flow; a customer who pays but
-//! never returns (closed tab, lost redirect) has had money captured at the
-//! provider while the pre-created `payment_transaction` stays Pending (and
-//! the subscription never activates / the invoice never closes). These
-//! providers have NO webhooks (webhook-backed ones get this backstop from
-//! their webhook, e.g. `billing_requests.fulfilled`), so a worker
-//! periodically re-runs the SAME completion routine the return handler uses
-//! ([`Services::complete_hosted_setup_with_attempts`]) for every transaction
-//! that still carries a pending intent id. Only `PollingRequired` initiations
-//! persist `pending_provider_intent_id` on the transaction, so only their
-//! attempts ever appear here. Completion dispatches by the intent's own
-//! metadata, which mirrors the transaction's linkage: a checkout transaction
-//! activates the checkout, an invoice transaction settles the invoice.
+//! Pending-intent sweeper for hosted in-flow captures on `PollingRequired`
+//! providers (no webhooks) — the lost-return backstop over hosted CHECKOUTS
+//! and INVOICE payments: a customer who pays but never returns has had money
+//! captured while the pre-created transaction stays Pending, so a worker
+//! re-runs the SAME completion routine as the return handler for every
+//! transaction still carrying a pending intent id.
 //!
-//! [`HostedSetupCompletion::PollingRequired`]:
-//!     crate::adapters::payment::HostedSetupCompletion::PollingRequired
-//!
-//! Both paths are mutually idempotent: completion re-reads the intent,
-//! upserting the method and re-recording the same captured payment id are
-//! no-ops, and settlement/materialization serialize on the transaction row
-//! (FOR UPDATE) and no-op once terminal. The sweeper never charges — it only
-//! records what the hosted page captured, or closes out an abandoned attempt
-//! (cancelling its provider intent first so the hosted page can never capture
-//! afterwards). Declined attempts (transaction Failed) STAY in the scan until
-//! the abandonment cutoff: their hosted page can still capture on a retry, so
-//! the intent is watched until close-out cancels it and clears the marker.
-//!
-//! Marker lifecycle: completion releases `pending_provider_intent_id` only
-//! once the attempt is finished (invoice: settled; checkout: settled AND
-//! materialized). The scan includes Settled-with-marker rows, so a checkout
-//! whose materialization failed after the settle commit is re-swept.
+//! The sweeper never charges — it only records what the hosted page captured,
+//! or closes out an abandoned attempt (cancelling its provider intent FIRST
+//! so its hosted page can never capture afterwards). Declined attempts stay
+//! in the scan until the abandonment cutoff (their page can still capture on
+//! a retry); the marker is released only once the attempt is finished, so a
+//! settled-but-unmaterialized checkout is re-swept.
 
 use crate::StoreResult;
 use crate::errors::StoreError;
@@ -47,10 +26,9 @@ use diesel_models::payments::PaymentTransactionRow;
 use error_stack::Report;
 use scoped_futures::ScopedFutureExt;
 
-/// One hosted payment attempt awaiting completion, as listed for the sweeper.
-/// Lightweight projection so the worker (in `meteroid`, not `meteroid-store`)
+/// One hosted payment attempt awaiting completion, projected so the worker
 /// stays decoupled from `diesel-models`. Exactly one of
-/// `checkout_session_id` / `invoice_id` is set (the transaction's linkage).
+/// `checkout_session_id` / `invoice_id` is set.
 #[derive(Debug, Clone)]
 pub struct PendingHostedPaymentRef {
     pub tenant_id: TenantId,
@@ -65,43 +43,33 @@ pub struct PendingHostedPaymentRef {
 /// What one sweep pass did for one attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostedPaymentSweepOutcome {
-    /// The captured payment was recorded and the checkout materialized /
-    /// invoice settlement driven.
+    /// Captured payment recorded; checkout materialized / invoice settled.
     Completed,
-    /// The captured payment was declined; the attempt is left for the customer
-    /// to retry (until the abandonment cutoff closes it).
+    /// Captured payment declined; left for a retry until the abandonment cutoff.
     Declined,
     /// Nothing to record yet; re-checked on the next sweep.
     StillPending,
-    /// Abandoned past the cutoff with no captured payment: the intent was
-    /// cancelled, the pending transaction cancelled (or its marker cleared),
-    /// and a checkout session marked expired.
+    /// Abandoned past the cutoff with no captured payment: intent cancelled,
+    /// transaction cancelled (or marker cleared), checkout session expired.
     Expired,
 }
 
-/// Pure decision for one sweep pass, over the completion outcome and whether
-/// the attempt is past the abandonment cutoff. Kept free of IO so the
-/// money-path table is testable: only a completed attempt short-circuits;
-/// nothing here ever initiates a charge.
+/// Pure decision for one sweep pass, kept free of IO so the money-path table
+/// is testable. Nothing here ever initiates a charge.
 pub(crate) fn sweep_action(
     outcome: &HostedSetupOutcome,
     past_abandon_cutoff: bool,
 ) -> HostedPaymentSweepOutcome {
     match outcome {
         HostedSetupOutcome::CheckoutActivated(_) => HostedPaymentSweepOutcome::Completed,
-        // Invoice attempt: the captured payment was recorded/settled (or the
-        // invoice is already covered) — the money path is closed.
         HostedSetupOutcome::InvoiceCharged(_) => HostedPaymentSweepOutcome::Completed,
-        // Captured money that could not be reconciled (amount/currency
-        // mismatch, cancelled-row race): NEVER expired away, regardless of
-        // age — completion logs the manual-review error every pass.
+        // Captured money that could not be reconciled: NEVER expired away,
+        // regardless of age — completion logs the manual-review error every pass.
         HostedSetupOutcome::HeldForReview { .. } => HostedPaymentSweepOutcome::StillPending,
         HostedSetupOutcome::PaymentFailed { .. } if !past_abandon_cutoff => {
             HostedPaymentSweepOutcome::Declined
         }
-        // Processing / SetupFailed: the intent has no card / no captured
-        // payment. MethodSaved: metadata did not resolve to this attempt
-        // (logged inside completion). All of these — and a declined attempt —
+        // Processing / SetupFailed / MethodSaved — and a declined attempt —
         // close out once past the cutoff.
         _ if past_abandon_cutoff => HostedPaymentSweepOutcome::Expired,
         _ => HostedPaymentSweepOutcome::StillPending,
@@ -109,12 +77,10 @@ pub(crate) fn sweep_action(
 }
 
 impl Services {
-    /// List up to `limit` hosted payment attempts (all tenants) still carrying
-    /// a pending intent id, initiated before `older_than`. Keyset-ordered
-    /// (`created_at, id` ascending): pass the last item of the previous batch
-    /// as `after` to page onward, `None` to start from the oldest. The worker
-    /// rotates the cursor across passes so a wall of old-but-alive attempts
-    /// can never starve newer ones.
+    /// List up to `limit` attempts (all tenants) still carrying a pending
+    /// intent id, initiated before `older_than`. Keyset-ordered on
+    /// `(created_at, id)`; the worker rotates the `after` cursor across passes
+    /// so a wall of old-but-alive attempts can never starve newer ones.
     pub async fn list_pending_hosted_payments(
         &self,
         older_than: DateTime<Utc>,
@@ -134,8 +100,8 @@ impl Services {
                 let (Some(intent_id), Some(connection_id)) =
                     (row.pending_provider_intent_id, row.pending_connection_id)
                 else {
-                    // The initiation writes both atomically; half-written data
-                    // is a bug, not sweepable work.
+                    // Initiation writes both atomically; half-written data is
+                    // a bug, not sweepable work.
                     log::error!(
                         "payment transaction {} has a pending intent without a connection id; skipping",
                         row.id
@@ -164,16 +130,14 @@ impl Services {
     }
 
     /// Sweep one attempt: run the SAME completion routine as the return
-    /// handler (fetch the intent; if it carries a captured payment, record it
-    /// and settle/materialize — never charge), then close out abandoned
-    /// attempts past `abandoned_before`.
+    /// handler (record a captured payment — never charge), then close out
+    /// abandoned attempts past `abandoned_before`.
     pub async fn sweep_hosted_payment(
         &self,
         item: &PendingHostedPaymentRef,
         abandoned_before: DateTime<Utc>,
     ) -> StoreResult<HostedPaymentSweepOutcome> {
-        // Single attempt: unlike the return handler no customer is waiting on
-        // a redirect, and the next sweep is the retry.
+        // Single attempt: no customer is waiting; the next sweep is the retry.
         let outcome = self
             .complete_hosted_setup_with_attempts(item.connection_id, item.intent_id.clone(), 1)
             .await?;
@@ -181,9 +145,8 @@ impl Services {
         let past_cutoff = item.created_at < abandoned_before;
         let action = sweep_action(&outcome, past_cutoff);
         if action == HostedPaymentSweepOutcome::Expired {
-            // The close-out can abort (a concurrent completion won a race, or
-            // the intent turned out to be uncancelable): report the truth —
-            // the attempt is still pending, not expired.
+            // The close-out can abort (lost race, uncancelable intent):
+            // report the truth — still pending, not expired.
             if !self.close_out_abandoned_hosted_payment(item).await? {
                 return Ok(HostedPaymentSweepOutcome::StillPending);
             }
@@ -191,18 +154,11 @@ impl Services {
         Ok(action)
     }
 
-    /// Close out an abandoned hosted attempt: cancel the provider intent (so
-    /// its hosted page can never capture money afterwards), cancel the
-    /// pre-created transaction — via a status-predicated update that only
-    /// fires while it is still Pending/Ready and whose affected-row count is
-    /// verified, so a concurrently-settled transaction is never clobbered and
-    /// captured money is NEVER cancelled away — or, for an already-terminal
-    /// (declined) attempt, clear its pending-intent marker; and for a
-    /// checkout, mark the session expired. The anchor row (checkout session /
-    /// invoice+customer) is locked FOR UPDATE, serializing against a
-    /// concurrent completion or re-initiation; losing any race aborts the
-    /// close-out (the attempt is left for completion to own).
-    /// Returns whether the attempt was actually closed out.
+    /// Close out an abandoned attempt: cancel the provider intent, cancel the
+    /// transaction via a status-predicated update — a concurrently-settled row
+    /// is never clobbered, captured money is NEVER cancelled away — or clear
+    /// the marker of an already-terminal one; expire a checkout session. The
+    /// anchor row is locked FOR UPDATE; losing any race aborts the close-out.
     async fn close_out_abandoned_hosted_payment(
         &self,
         item: &PendingHostedPaymentRef,
@@ -231,16 +187,14 @@ impl Services {
                                 diesel_models::enums::CheckoutSessionStatusEnum::Created
                                     | diesel_models::enums::CheckoutSessionStatusEnum::AwaitingPayment
                             ) {
-                                // Completed/expired/cancelled since we looked:
-                                // no-op.
+                                // Completed/expired/cancelled since we looked.
                                 return Ok(false);
                             }
                             Some(session_id)
                         }
                         (None, Some(inv_id)) => {
                             // Locks customer then invoice — serializes with
-                            // `initiate_hosted_invoice_payment` and the
-                            // settlement pipeline.
+                            // initiation and the settlement pipeline.
                             InvoiceRow::select_for_update_by_id(conn, tenant_id, inv_id)
                                 .await
                                 .map_err(Into::<Report<StoreError>>::into)?;
@@ -258,9 +212,7 @@ impl Services {
                             .map_err(Into::<Report<StoreError>>::into)?;
 
                     // The attempt re-initiated onto a NEWER intent since this
-                    // sweep item was listed (supersede clears the marker under
-                    // the same anchor lock): this pass judged a stale intent —
-                    // never close out on stale evidence.
+                    // item was listed: never close out on stale evidence.
                     if row.pending_provider_intent_id.as_deref() != Some(swept_intent_id.as_str())
                     {
                         log::info!(
@@ -292,8 +244,7 @@ impl Services {
 
                     // Kill the intent at the provider FIRST: a closed-out
                     // attempt must never leave a live hosted page that can
-                    // still capture. Not-cancelable (a payment is underway or
-                    // captured) means completion owns this attempt — abort.
+                    // still capture. Not-cancelable means completion owns it.
                     match self
                         .cancel_pending_hosted_intent(
                             conn,
@@ -332,10 +283,8 @@ impl Services {
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
                         if cancelled == 0 {
-                            // The return handler settled (or otherwise
-                            // progressed) the row between our read and the
-                            // guarded update: settlement won — do NOT close
-                            // the attempt out over it.
+                            // The row progressed between our read and the
+                            // guarded update: settlement won — do NOT close out.
                             log::warn!(
                                 "not closing out hosted payment transaction {transaction_id}: \
                                  progressed concurrently; leaving it to completion"
@@ -343,9 +292,8 @@ impl Services {
                             return Ok(false);
                         }
                     } else {
-                        // Declined (Failed/Cancelled) attempt past the cutoff:
-                        // the intent is now dead at the provider — clear the
-                        // marker so the sweeper stops watching it.
+                        // Declined attempt past the cutoff: the intent is now
+                        // dead at the provider — stop watching it.
                         let cleared = PaymentTransactionRow::clear_pending_intent_if_matches(
                             conn,
                             tenant_id,
@@ -409,17 +357,14 @@ mod tests {
         }
     }
 
-    /// The sweep decision table, covering BOTH linkages. Invariants: a
-    /// completed attempt (checkout activated OR invoice settled/recorded) is
-    /// final regardless of age (never expired away); nothing but the
-    /// abandonment cutoff can close an attempt out; and no branch initiates a
-    /// charge — the sweeper only records or closes out.
+    /// Invariants: a completed attempt is final regardless of age (never
+    /// expired away); only the abandonment cutoff closes an attempt out; no
+    /// branch initiates a charge.
     #[test]
     fn sweep_action_table() {
         let activated = HostedSetupOutcome::CheckoutActivated(method());
-        // A completed checkout is Completed even past the cutoff (the race
-        // where the customer pays just before the sweep must converge on the
-        // captured payment, never on an expiry).
+        // Even past the cutoff, a payment just before the sweep must converge
+        // on the captured payment, never on an expiry.
         assert_eq!(
             sweep_action(&activated, false),
             HostedPaymentSweepOutcome::Completed
@@ -429,9 +374,6 @@ mod tests {
             HostedPaymentSweepOutcome::Completed
         );
 
-        // Invoice linkage: a recorded/settled capture (or already-covered
-        // invoice) is equally final — the unified sweeper treats both
-        // completions identically.
         let invoice_settled = HostedSetupOutcome::InvoiceCharged(method());
         assert_eq!(
             sweep_action(&invoice_settled, false),
@@ -446,8 +388,7 @@ mod tests {
             payment_method: method(),
             code: Some("51".into()),
         };
-        // Declined: leave the attempt for a saved-card retry, until the
-        // cutoff closes it out.
+        // Declined: left for a saved-card retry until the cutoff.
         assert_eq!(
             sweep_action(&declined, false),
             HostedPaymentSweepOutcome::Declined
@@ -475,8 +416,6 @@ mod tests {
             HostedPaymentSweepOutcome::Expired
         );
 
-        // Metadata resolved to something that isn't this attempt — logged by
-        // completion; the sweeper just waits it out then closes.
         assert_eq!(
             sweep_action(&HostedSetupOutcome::MethodSaved(method()), false),
             HostedPaymentSweepOutcome::StillPending
@@ -486,9 +425,8 @@ mod tests {
             HostedPaymentSweepOutcome::Expired
         );
 
-        // Captured-but-unreconciled money (amount/currency mismatch or a
-        // cancelled-row race) is NEVER expired away — not even past the
-        // cutoff. Expiring would cancel the transaction under captured funds.
+        // Captured-but-unreconciled money is NEVER expired away — expiring
+        // would cancel the transaction under captured funds.
         let held = HostedSetupOutcome::HeldForReview {
             payment_method: method(),
         };
