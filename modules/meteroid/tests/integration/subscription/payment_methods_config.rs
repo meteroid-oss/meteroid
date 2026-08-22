@@ -1401,3 +1401,99 @@ async fn test_provider_switch_creates_connection_from_scratch(#[future] test_env
         "Resolved connection should be the newly created one"
     );
 }
+
+// STANCER PROVIDER — config-resolution logic only. `StancerClient` makes real
+// HTTP calls (no in-memory fake), so every scenario pre-seeds its connection
+// and never exercises a from-scratch connection or an actual charge.
+
+/// A Stancer connector resolves as the card provider like any other
+/// `ConnectorProviderEnum` variant would.
+#[rstest]
+#[tokio::test]
+async fn test_resolution_with_stancer_provider(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_stancer_payments().await;
+
+    let customer = env
+        .store()
+        .find_customer_by_id(CUST_UBER_ID, TENANT_ID)
+        .await
+        .expect("Failed to get customer");
+
+    let resolved = env
+        .services()
+        .resolve_subscription_payment_methods(TENANT_ID, None, &customer)
+        .await
+        .expect("Failed to resolve payment methods for Stancer provider");
+
+    assert!(
+        resolved.card_connection_id.is_some(),
+        "Should resolve the pre-seeded Stancer connection"
+    );
+    assert!(resolved.card_enabled, "Card should be enabled");
+    assert!(
+        resolved.has_online_payment(),
+        "Should have online payment available via Stancer"
+    );
+
+    let connections = env.get_customer_connections(CUST_UBER_ID).await;
+    let stancer_connection = connections
+        .iter()
+        .find(|c| c.connector_id == STANCER_CONNECTOR_ID);
+    assert!(
+        stancer_connection.is_some(),
+        "Pre-seeded Stancer connection should be present"
+    );
+    assert_eq!(
+        resolved.card_connection_id,
+        stancer_connection.map(|c| c.id),
+        "Resolved connection should be the pre-seeded Stancer one"
+    );
+}
+
+/// Repeated resolution reuses the pre-seeded Stancer connection. Regression
+/// guard: falling through to `CustomerOps::create_customer` would attempt a
+/// real network call and fail/hang in this offline suite.
+#[rstest]
+#[tokio::test]
+async fn test_connection_reuse_stancer_provider(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_stancer_payments().await;
+
+    let customer = env
+        .store()
+        .find_customer_by_id(CUST_UBER_ID, TENANT_ID)
+        .await
+        .expect("customer");
+
+    let initial_connections = env.get_customer_connections(CUST_UBER_ID).await;
+    let initial_count = initial_connections.len();
+    assert!(
+        initial_count > 0,
+        "Should have at least one connection from seed"
+    );
+
+    let resolved1 = env
+        .services()
+        .resolve_subscription_payment_methods(TENANT_ID, None, &customer)
+        .await
+        .expect("resolve 1");
+
+    let resolved2 = env
+        .services()
+        .resolve_subscription_payment_methods(TENANT_ID, None, &customer)
+        .await
+        .expect("resolve 2");
+
+    assert_eq!(
+        resolved1.card_connection_id, resolved2.card_connection_id,
+        "Should reuse the same Stancer connection"
+    );
+
+    let final_connections = env.get_customer_connections(CUST_UBER_ID).await;
+    assert_eq!(
+        initial_count,
+        final_connections.len(),
+        "Should not create a duplicate connection (which would require a real Stancer API call)"
+    );
+}

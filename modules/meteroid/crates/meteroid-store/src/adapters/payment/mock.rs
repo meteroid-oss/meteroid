@@ -2,8 +2,8 @@
 //! [`Connector`], so each test can configure success or failure scenarios.
 
 use super::connector::{
-    ConnectorCapabilities, ConnectorIdentity, CustomerOps, MandateOps, MandateSetupMode,
-    PaymentOps, ReconcileOps, RefundOps, WebhookOps,
+    ConnectorCapabilities, ConnectorIdentity, CustomerOps, HostedSetupCompletion, MandateOps,
+    MandateSetupMode, PaymentOps, ReconcileOps, RefundOps, WebhookOps,
 };
 use super::error::ConnectorError;
 use super::events::{
@@ -28,7 +28,7 @@ use http::HeaderMap;
 use secrecy::SecretString;
 use uuid::Uuid;
 
-const MOCK_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
+pub(super) const MOCK_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
     supports_cards: true,
     supports_mandates: true,
     supports_refunds: true,
@@ -46,6 +46,9 @@ const MOCK_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
     ],
     mandate_setup_mode: MandateSetupMode::EmbeddedClientSecret,
     webhook_replay_tolerance_secs: 300,
+    // Mock stands in for webhook-driven providers in integration tests; hosted
+    // checkouts complete without pending-intent persistence, as before.
+    hosted_setup_completion: HostedSetupCompletion::WebhookBacked,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -132,6 +135,7 @@ impl MandateOps for MockConnector {
             meteroid_customer_id: None,
             meteroid_invoice_id: None,
             meteroid_checkout_session_id: None,
+            meteroid_transaction_id: None,
             payment_request_payment: None,
         })
     }
@@ -153,6 +157,7 @@ impl MandateOps for MockConnector {
             meteroid_customer_id: None,
             meteroid_invoice_id: None,
             meteroid_checkout_session_id: None,
+            meteroid_transaction_id: None,
             payment_request_payment: None,
         })
     }

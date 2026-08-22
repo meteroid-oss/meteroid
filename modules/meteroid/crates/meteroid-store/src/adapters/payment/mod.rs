@@ -15,18 +15,20 @@ pub mod factory;
 pub mod gocardless;
 pub mod mock;
 pub mod model;
+pub mod stancer;
 pub mod stripe;
 
-pub use factory::initialize_payment_connector;
+pub use factory::{initialize_payment_connector, provider_capabilities};
 pub use gocardless::GoCardlessConnector;
 pub use mock::MockConnector;
+pub use stancer::StancerConnector;
 pub use stripe::StripeConnector;
 
 pub use connector::{
-    ConnectorCapabilities, ConnectorIdentity, CustomerOps, MandateOps, MandateSetupMode,
-    PaymentConnector, PaymentOps, ReconcileOps, RefundOps, WebhookOps,
+    ConnectorCapabilities, ConnectorIdentity, CustomerOps, HostedSetupCompletion, MandateOps,
+    MandateSetupMode, PaymentConnector, PaymentOps, ReconcileOps, RefundOps, WebhookOps,
 };
-pub use error::ConnectorError;
+pub use error::{ConnectorError, HostedSetupPending};
 pub use events::{
     DisputeEvent, NormalizedEventKind, NormalizedEventSubscription, NormalizedWebhookEvent,
     PaymentFailedEvent, PaymentMethodAttachedEvent, PaymentMethodDetachedEvent,

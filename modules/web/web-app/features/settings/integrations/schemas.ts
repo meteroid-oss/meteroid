@@ -29,6 +29,19 @@ export const hubspotIntegrationSchema = z.object({
   autoSync: z.boolean().default(true),
 })
 
+// Stancer: a single secret key is the only credential — the prefix selects
+// the environment; no publishable key, no webhook mechanism.
+export const stancerIntegrationSchema = z.object({
+  alias: z
+    .string()
+    .min(1, 'Name is required')
+    .regex(/^[a-z0-9-]+$/, 'Only lowercase letters, numbers, and hyphens allowed'),
+  apiSecretKey: z
+    .string()
+    .min(1, 'Secret key is required')
+    .regex(/^s(test|prod)_/, 'Should start with stest_ or sprod_'),
+})
+
 // GoCardless: bank-debit provider, mandate-based off-session charging.
 // Unlike Stripe there's no auto-registration of webhook endpoints (GoCardless
 // only exposes endpoint management via dashboard), so we always ask for the

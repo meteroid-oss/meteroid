@@ -73,6 +73,7 @@ common-domain = { workspace = true, features = ["utoipa", "tonic"] }
 common-eventbus = { workspace = true }
 common-utils = { workspace = true, features = ["error-stack-conv"] }
 stripe-client = { path = "crates/stripe-client" }
+stancer-client = { workspace = true }
 object_store = { workspace = true, features = ["aws", "azure", "gcp", "http", "fs"] }
 bytes.workspace = true
 async-trait.workspace = true

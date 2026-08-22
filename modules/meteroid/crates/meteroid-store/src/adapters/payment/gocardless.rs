@@ -6,8 +6,8 @@
 //! unsupported.
 
 use super::connector::{
-    ConnectorCapabilities, ConnectorIdentity, CustomerOps, MandateOps, MandateSetupMode,
-    PaymentOps, ReconcileOps, RefundOps, WebhookOps,
+    ConnectorCapabilities, ConnectorIdentity, CustomerOps, HostedSetupCompletion, MandateOps,
+    MandateSetupMode, PaymentOps, ReconcileOps, RefundOps, WebhookOps,
 };
 use super::error::ConnectorError;
 use super::events::{
@@ -47,7 +47,7 @@ use secrecy::SecretString;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-const GOCARDLESS_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
+pub(super) const GOCARDLESS_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
     supports_cards: false,
     supports_mandates: true,
     // `refund()` is not implemented yet (returns Unsupported); advertising the
@@ -72,6 +72,9 @@ const GOCARDLESS_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
     // event into its own audit row keyed by the event's `EV...` id. Value
     // surfaced for capability honesty.
     webhook_replay_tolerance_secs: 3600,
+    // `billing_requests.fulfilled` completes a hosted setup even when the
+    // return redirect is lost — no pending-intent persistence or sweep.
+    hosted_setup_completion: HostedSetupCompletion::WebhookBacked,
 };
 
 /// GoCardless connector. Live + sandbox clients are static singletons so all
@@ -572,7 +575,11 @@ impl ReconcileOps for GoCardlessConnector {
 
         let result = client.get_payment(external_transaction_id, &token).await;
         match result {
-            Ok(payment) => Ok(remote_status_from_payment(payment.status, payment.amount)),
+            Ok(payment) => Ok(remote_status_from_payment(
+                payment.status,
+                payment.amount,
+                payment.currency,
+            )),
             Err(GoCardlessError::Api(req_err)) if req_err.http_status == 404 => {
                 Ok(RemoteTransactionStatus::Unknown)
             }
@@ -744,6 +751,7 @@ fn snapshot_from_mandate(
         meteroid_customer_id: metadata.get("meteroid.customer_id").cloned(),
         meteroid_invoice_id: metadata.get("meteroid.invoice_id").cloned(),
         meteroid_checkout_session_id: metadata.get("meteroid.checkout_session_id").cloned(),
+        meteroid_transaction_id: metadata.get("meteroid.transaction_id").cloned(),
         payment_request_payment,
     }
 }
@@ -799,10 +807,15 @@ fn payment_to_outcome(id: String, status: PaymentStatus, amount_minor: i64) -> C
     }
 }
 
-fn remote_status_from_payment(status: PaymentStatus, amount: i64) -> RemoteTransactionStatus {
+fn remote_status_from_payment(
+    status: PaymentStatus,
+    amount: i64,
+    currency: String,
+) -> RemoteTransactionStatus {
     match status {
         PaymentStatus::Confirmed | PaymentStatus::PaidOut => RemoteTransactionStatus::Succeeded {
             amount_received_minor: amount,
+            currency,
             processed_at: chrono::Utc::now().naive_utc(),
         },
         PaymentStatus::PendingCustomerApproval

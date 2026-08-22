@@ -59,4 +59,7 @@ impl Currencies {
 pub mod advisory_lock_keys {
     /// Payment reconciliation worker leader (provider polling).
     pub const RECONCILIATION_LEADER: i64 = 92_000_007;
+    /// Hosted-checkout pending-intent sweeper leader (provider polling, for
+    /// connectors whose hosted setup completion is `PollingRequired`).
+    pub const HOSTED_PAYMENT_SWEEP_LEADER: i64 = 92_000_008;
 }

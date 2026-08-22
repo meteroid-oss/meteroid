@@ -3,12 +3,13 @@ use crate::api::invoices::mapping;
 use crate::api::portal::invoice::PortalInvoiceServiceComponents;
 use crate::api::portal::invoice::error::PortalInvoiceApiError;
 use crate::services::storage::Prefix;
-use common_domain::ids::{CustomerPaymentMethodId, InvoiceId};
+use common_domain::ids::{CustomerConnectionId, CustomerPaymentMethodId, InvoiceId};
 
 use common_grpc::middleware::server::auth::{RequestExt, ResourceAccess};
 use meteroid_grpc::meteroid::portal::invoice::v1::portal_invoice_service_server::PortalInvoiceService;
 use meteroid_grpc::meteroid::portal::invoice::v1::*;
 use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
+use meteroid_store::repositories::customer_connection::CustomerConnectionInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
@@ -283,6 +284,88 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             ),
             next_action: next_action
                 .map(crate::api::invoices::mapping::payment_action::domain_to_server),
+        }))
+    }
+
+    /// Explicit PAY action for in-flow hosted invoice payments (Stancer); the
+    /// on-render SetupIntent call is side-effect-free for these providers.
+    #[tracing::instrument(skip_all)]
+    async fn initiate_hosted_invoice_payment(
+        &self,
+        request: Request<InitiateHostedInvoicePaymentRequest>,
+    ) -> Result<Response<InitiateHostedInvoicePaymentResponse>, Status> {
+        let tenant = request.tenant()?;
+        let resource = request.portal_resource()?;
+        let inner = request.into_inner();
+
+        let (invoice_id, customer_id) = match resource.resource_access {
+            ResourceAccess::InvoicePortal(id) => Ok((id, None)),
+            ResourceAccess::CustomerPortal(id) => {
+                let invoice_id = InvoiceId::from_proto_opt(inner.invoice_id)?
+                    .ok_or(Status::invalid_argument("Missing invoice ID in request"))?;
+                Ok((invoice_id, Some(id)))
+            }
+            _ => Err(Status::invalid_argument(
+                "Resource is not an invoice or customer portal.",
+            )),
+        }?;
+
+        let invoice = self
+            .store
+            .get_invoice_by_id(tenant, invoice_id)
+            .await
+            .map_err(Into::<PortalInvoiceApiError>::into)?;
+
+        if let Some(customer_id) = customer_id
+            && invoice.customer_id != customer_id
+        {
+            return Err(Status::permission_denied(
+                "Invoice does not belong to the specified customer.",
+            ));
+        }
+
+        // The connection is client-supplied: it must belong to the invoice's
+        // customer (the service re-checks this inside its transaction too).
+        let connection_id = CustomerConnectionId::from_proto(inner.connection_id)?;
+        let connection = self
+            .store
+            .get_connection_by_id(&tenant, &connection_id)
+            .await
+            .map_err(Into::<PortalInvoiceApiError>::into)?;
+        if connection.customer_id != invoice.customer_id {
+            return Err(Status::permission_denied(
+                "Connection does not belong to the invoice's customer.",
+            ));
+        }
+
+        // The customer confirms the figure shown on the pay button; the charge
+        // itself always uses the server-side amount_due.
+        if invoice.currency != inner.displayed_currency {
+            return Err(Status::invalid_argument(
+                "Displayed currency does not match invoice currency.",
+            ));
+        }
+        if invoice.amount_due != inner.displayed_amount as i64 {
+            return Err(Status::invalid_argument(
+                "Displayed amount does not match invoice amount due.",
+            ));
+        }
+
+        let intent = self
+            .services
+            .initiate_hosted_invoice_payment(tenant, connection_id, invoice_id, inner.return_url)
+            .await
+            .map_err(Into::<PortalInvoiceApiError>::into)?;
+
+        let next_action =
+            meteroid_store::domain::payment_transactions::PaymentNextAction::RedirectToUrl {
+                url: intent.client_secret,
+            };
+
+        Ok(Response::new(InitiateHostedInvoicePaymentResponse {
+            next_action: Some(
+                crate::api::invoices::mapping::payment_action::domain_to_server(next_action),
+            ),
         }))
     }
 }

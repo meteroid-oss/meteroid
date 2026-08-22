@@ -9,10 +9,10 @@ import { PaymentForm } from '@/features/checkout/components/PaymentForm'
 import { buildStripeAppearance } from '@/features/checkout/stripeAppearance'
 import { getStripePromise } from '@/features/checkout/stripeClient'
 import {
-  consumeGocardlessReturn,
-  gocardlessErrorMessage,
-  gocardlessReturnUrl,
-} from '@/features/checkout/utils/gocardlessReturn'
+  consumeHostedReturn,
+  hostedReturnErrorMessage,
+  hostedReturnUrl,
+} from '@/features/checkout/utils/hostedReturn'
 import { useQuery } from '@/lib/connectrpc'
 import { usePortalConfig } from '@/pages/portal/experience/PortalThemeProvider'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
@@ -174,25 +174,25 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
   const hasDirectDebit = !!directDebitConnectionId
   const hasBoth = hasCard && hasDirectDebit && cardConnectionId !== directDebitConnectionId
 
-  // GoCardless redirects the customer back to this page; the server threads the
-  // page URL through as return_to (minus stale gocardless_* params).
+  // Hosted-redirect providers bounce back to this page; the server threads
+  // the page URL through as the return target (minus stale provider params).
   const activeConnectionId = activeTab === 'card' ? cardConnectionId : directDebitConnectionId
 
-  const returnUrl = gocardlessReturnUrl()
+  const returnUrl = hostedReturnUrl()
 
-  // A GoCardless mandate authorisation redirects back here as a full page load
-  // (the dialog is closed). Detect the outcome and surface it: toast + refetch
+  // A hosted authorisation flow redirects back here as a full page load (the
+  // dialog is closed). Detect the outcome and surface it: toast + refetch
   // on success, error toast otherwise. Runs once — the params are stripped.
   const onSuccessRef = useRef(onSuccess)
   onSuccessRef.current = onSuccess
   useEffect(() => {
-    const ret = consumeGocardlessReturn()
+    const ret = consumeHostedReturn()
     if (!ret) return
     if (ret.status === 'ok') {
-      toast.success('Direct debit mandate authorised.')
+      toast.success(ret.provider === 'stancer' ? 'Card saved.' : 'Direct debit mandate authorised.')
       onSuccessRef.current?.()
     } else {
-      toast.error(gocardlessErrorMessage(ret))
+      toast.error(hostedReturnErrorMessage(ret))
     }
   }, [])
 
@@ -212,7 +212,9 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
   const provider = intent?.provider
   const stripePublishableKey = intent?.providerPublicKey
   const connectionId = intent?.connectionId
-  const isHostedRedirect = provider === ConnectorProviderEnum.GOCARDLESS
+  const isHostedRedirect =
+    provider === ConnectorProviderEnum.GOCARDLESS || provider === ConnectorProviderEnum.STANCER
+  const hostedProviderLabel = provider === ConnectorProviderEnum.STANCER ? 'Stancer' : 'GoCardless'
 
   const handleSuccess = () => {
     onOpenChange(false)
@@ -282,14 +284,15 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
               </div>
             )}
 
-          {/* GoCardless hosted-redirect branch: the backend put the BRF
-              authorisation_url in intentSecret. No SDK to mount; we render
-              a redirect button. */}
+          {/* Hosted-redirect branch (GoCardless mandate / Stancer card): the
+              backend put the hosted authorisation URL in intentSecret. No SDK
+              to mount; we render a redirect button. */}
           {intentSecret && connectionId && isHostedRedirect && (
             <div className="p-2">
               <p className="text-sm text-muted-foreground mb-4">
-                You&apos;ll be redirected to GoCardless to authorise a direct-debit mandate. Once
-                you confirm, you&apos;ll be sent back here.
+                {provider === ConnectorProviderEnum.STANCER
+                  ? "You'll be redirected to Stancer's secure page to enter your card details. Once you confirm, you'll be sent back here."
+                  : "You'll be redirected to GoCardless to authorise a direct-debit mandate. Once you confirm, you'll be sent back here."}
               </p>
               <div className="flex justify-end gap-2 pt-2">
                 <Button type="button" variant="outline" onClick={handleCancel}>
@@ -302,7 +305,7 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
                   }}
                 >
                   <ExternalLink size={14} className="mr-2" />
-                  Continue to GoCardless
+                  Continue to {hostedProviderLabel}
                 </Button>
               </div>
             </div>

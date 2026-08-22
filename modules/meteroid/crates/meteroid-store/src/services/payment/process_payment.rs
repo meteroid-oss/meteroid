@@ -42,6 +42,8 @@ impl Services {
         // provider key, so the provider dedupes instead of double-charging. Only
         // the webhook-driven off-session invoice charge (which can be retried by
         // pgmq) passes this; interactive callers pass None (per-transaction key).
+        // Ignored for Stancer connections, which always derive a stable
+        // invoice-scoped key — see `create_payment_intent`.
         idempotency_ref: Option<String>,
     ) -> StoreResult<(PaymentTransaction, Option<PaymentNextAction>)> {
         // Get the invoice
@@ -119,6 +121,12 @@ impl Services {
             ))));
         }
 
+        // Committed prior attempts (never the uncommitted row inserted below):
+        // seeds the per-attempt component of the Stancer idempotency key in
+        // `create_payment_intent`. Rollback-stable — a retry after a rolled-back
+        // charge recomputes the same value and dedupes at the provider.
+        let prior_invoice_attempts = existing_transactions.len();
+
         // Persist the Pending row BEFORE the external charge so the provider
         // idempotency key `charge:{id}` is derived from a row that already exists:
         // a retry that reuses this id can never double-charge.
@@ -132,6 +140,8 @@ impl Services {
         // reconciliation (which re-drive from the provider's own record). A retry
         // through this function mints a NEW id only if the row did not survive —
         // that is the uncovered window, bounded to a crash between charge and commit.
+        // For Stancer (no webhook, reconcile polls local rows only) that window is
+        // closed instead by the invoice-derived key in `create_payment_intent`.
         let transaction = PaymentTransactionRowNew {
             id: PaymentTransactionId::new(),
             tenant_id,
@@ -148,6 +158,8 @@ impl Services {
             pending_plan_version_id: None,
             next_action: None,
             initiated_by_customer_id: customer_initiated.then_some(invoice.invoice.customer_id),
+            pending_provider_intent_id: None,
+            pending_connection_id: None,
         };
 
         let inserted_transaction = transaction
@@ -160,12 +172,14 @@ impl Services {
             .create_payment_intent(
                 conn,
                 &tenant_id,
+                &invoice_id,
                 &payment_method_id,
                 &inserted_transaction.id,
                 inserted_transaction.amount as u64,
                 inserted_transaction.currency.clone(),
                 on_session,
                 idempotency_ref.as_deref(),
+                prior_invoice_attempts,
             )
             .await?;
 
@@ -192,12 +206,14 @@ impl Services {
         &self,
         conn: &mut PgConn,
         tenant_id: &TenantId,
+        invoice_id: &InvoiceId,
         payment_method_id: &CustomerPaymentMethodId,
         transaction_id: &PaymentTransactionId,
         amount: u64,
         currency: String,
         on_session: bool,
         idempotency_ref: Option<&str>,
+        prior_invoice_attempts: usize,
     ) -> StoreResult<PaymentIntent> {
         let method = CustomerPaymentMethodRow::get_by_id(conn, tenant_id, payment_method_id)
             .await
@@ -219,10 +235,30 @@ impl Services {
         // that instead: it survives a full DB-transaction rollback + pgmq retry,
         // where a fresh transaction id would NOT, and lets the provider dedupe a
         // charge it already processed rather than creating a second one.
-        let idempotency_key = match idempotency_ref {
-            Some(seed) => IdempotencyKey::new(format!("charge:{seed}")),
-            None => IdempotencyKey::new(format!("charge:{}", transaction_id.as_base62())),
-        };
+        //
+        // Stancer override: no webhook exists and reconciliation only polls
+        // locally-known rows, so a rollback after an accepted charge would
+        // orphan the provider payment. EVERY Stancer invoice charge derives
+        // its key from committed state only — (method, invoice, #prior
+        // committed attempts) — so any retry of the same attempt reuses the
+        // key (adapter adopts) while a new attempt after a committed decline
+        // gets a fresh one.
+        let idempotency_key =
+            if connector.provider == crate::domain::enums::ConnectorProviderEnum::Stancer {
+                IdempotencyKey::new(format!(
+                    "charge:{}",
+                    stancer_invoice_idempotency_seed(
+                        payment_method_id,
+                        invoice_id,
+                        prior_invoice_attempts
+                    )
+                ))
+            } else {
+                match idempotency_ref {
+                    Some(seed) => IdempotencyKey::new(format!("charge:{seed}")),
+                    None => IdempotencyKey::new(format!("charge:{}", transaction_id.as_base62())),
+                }
+            };
         let request = ChargeRequest {
             transaction_id: *transaction_id,
             customer_external_id: &connection.external_customer_id,
@@ -252,5 +288,67 @@ impl Services {
             amount as i64,
             currency,
         ))
+    }
+}
+
+/// Stable provider-idempotency seed for a Stancer invoice charge. Derived
+/// exclusively from committed state — never the per-attempt transaction id —
+/// so the return-handler first charge and any later retry/renewal of the same
+/// (invoice, method, attempt) reuse the SAME provider key and Stancer dedupes.
+fn stancer_invoice_idempotency_seed(
+    payment_method_id: &CustomerPaymentMethodId,
+    invoice_id: &InvoiceId,
+    prior_invoice_attempts: usize,
+) -> String {
+    format!(
+        "stancer-charge:{}:{}:{prior_invoice_attempts}",
+        payment_method_id.as_base62(),
+        invoice_id.as_base62(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stancer_invoice_idempotency_seed;
+    use common_domain::ids::{BaseId, CustomerPaymentMethodId, InvoiceId};
+
+    /// The double-charge guard: two invocations for the same invoice+method
+    /// derive the SAME seed — Stancer's `unique_id` unicity then dedupes.
+    #[test]
+    fn stancer_seed_is_stable_across_invocations() {
+        let method = CustomerPaymentMethodId::new();
+        let invoice = InvoiceId::new();
+
+        let first = stancer_invoice_idempotency_seed(&method, &invoice, 0);
+        let second = stancer_invoice_idempotency_seed(&method, &invoice, 0);
+        assert_eq!(first, second);
+        assert_eq!(
+            first,
+            format!(
+                "stancer-charge:{}:{}:0",
+                method.as_base62(),
+                invoice.as_base62()
+            )
+        );
+    }
+
+    /// A genuinely new attempt (after a COMMITTED failed one) must get a fresh
+    /// seed, or dunning could never retry a declined Stancer charge; different
+    /// invoices/methods must never share a seed.
+    #[test]
+    fn stancer_seed_distinguishes_attempts_and_targets() {
+        let method = CustomerPaymentMethodId::new();
+        let invoice = InvoiceId::new();
+
+        let base = stancer_invoice_idempotency_seed(&method, &invoice, 0);
+        assert_ne!(base, stancer_invoice_idempotency_seed(&method, &invoice, 1));
+        assert_ne!(
+            base,
+            stancer_invoice_idempotency_seed(&CustomerPaymentMethodId::new(), &invoice, 0)
+        );
+        assert_ne!(
+            base,
+            stancer_invoice_idempotency_seed(&method, &InvoiceId::new(), 0)
+        );
     }
 }

@@ -48,7 +48,16 @@ export const InvoicePdfDownload: React.FC<InvoicePdfDownloadProps> = ({
             </p>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={handleDownload}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleDownload}
+          style={{
+            background: 'var(--mtp-surface)',
+            color: 'var(--mtp-text)',
+            borderColor: 'var(--mtp-border)',
+          }}
+        >
           <Download className="h-4 w-4 mr-2" />
           Download
         </Button>

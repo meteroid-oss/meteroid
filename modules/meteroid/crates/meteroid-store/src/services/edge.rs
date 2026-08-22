@@ -47,6 +47,17 @@ use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::{Report, ResultExt};
 use scoped_futures::ScopedFutureExt;
 
+/// One `initiate_hosted_checkout` pass: either a customer-facing result, or
+/// an instruction to ADOPT the session's uncancelable prior intent (it must
+/// be completed — never replaced or orphaned).
+enum HostedCheckoutInitiation {
+    Result(Box<CheckoutCompletionResult>),
+    AdoptPriorIntent {
+        connection_id: CustomerConnectionId,
+        intent_id: String,
+    },
+}
+
 impl ServicesEdge {
     async fn get_conn(&self) -> StoreResult<PgConn> {
         self.services.store.get_conn().await
@@ -107,13 +118,7 @@ impl ServicesEdge {
         return_url: Option<String>,
     ) -> StoreResult<SetupIntent> {
         self.services
-            .create_setup_intent(
-                &mut self.get_conn().await?,
-                tenant_id,
-                customer_connection_id,
-                invoice_id,
-                return_url,
-            )
+            .create_setup_intent(tenant_id, customer_connection_id, invoice_id, return_url)
             .await
     }
 
@@ -135,6 +140,21 @@ impl ServicesEdge {
             .await
     }
 
+    /// Explicit pay action for an in-flow hosted invoice payment (Stancer):
+    /// pre-creates the Pending invoice tx, mints the capturing intent and
+    /// returns the redirect in `client_secret`. Pay-click only, never on render.
+    pub async fn initiate_hosted_invoice_payment(
+        &self,
+        tenant_id: TenantId,
+        connection_id: CustomerConnectionId,
+        invoice_id: InvoiceId,
+        return_url: Option<String>,
+    ) -> StoreResult<SetupIntent> {
+        self.services
+            .initiate_hosted_invoice_payment(tenant_id, connection_id, invoice_id, return_url)
+            .await
+    }
+
     /// Complete a GoCardless Billing Request Flow after the customer returns
     /// from the hosted authorisation URL. See
     /// [`crate::services::payment::gocardless_return`] for the full design.
@@ -148,6 +168,19 @@ impl ServicesEdge {
             .await
     }
 
+    /// Complete a hosted-page setup for a polling-completed provider, then
+    /// run the fail-closed first payment. See
+    /// [`crate::services::payment::hosted_setup`] for the full design.
+    pub async fn complete_hosted_setup(
+        &self,
+        connection_id: CustomerConnectionId,
+        intent_id: String,
+    ) -> StoreResult<crate::services::HostedSetupOutcome> {
+        self.services
+            .complete_hosted_setup(connection_id, intent_id)
+            .await
+    }
+
     /// Reconcile a single pending payment transaction against the provider.
     /// Used by the periodic reconciliation worker.
     pub async fn reconcile_pending_transaction(
@@ -157,6 +190,36 @@ impl ServicesEdge {
     ) -> StoreResult<()> {
         self.services
             .reconcile_pending_transaction(transaction_id, tenant_id)
+            .await
+    }
+
+    /// List up to `limit` hosted payment attempts (checkout AND invoice)
+    /// still carrying an in-flow pending intent, initiated before
+    /// `older_than`, for the pending-intent sweeper.
+    pub async fn list_pending_hosted_payments(
+        &self,
+        older_than: chrono::DateTime<chrono::Utc>,
+        after: Option<(
+            chrono::DateTime<chrono::Utc>,
+            common_domain::ids::PaymentTransactionId,
+        )>,
+        limit: i64,
+    ) -> StoreResult<Vec<crate::services::PendingHostedPaymentRef>> {
+        self.services
+            .list_pending_hosted_payments(older_than, after, limit)
+            .await
+    }
+
+    /// Sweep one hosted payment attempt: re-run the return handler's
+    /// completion (records a captured payment, never charges), closing out
+    /// attempts abandoned before `abandoned_before`.
+    pub async fn sweep_hosted_payment(
+        &self,
+        item: &crate::services::PendingHostedPaymentRef,
+        abandoned_before: chrono::DateTime<chrono::Utc>,
+    ) -> StoreResult<crate::services::HostedPaymentSweepOutcome> {
+        self.services
+            .sweep_hosted_payment(item, abandoned_before)
             .await
     }
 
@@ -1310,9 +1373,10 @@ impl ServicesEdge {
         Ok(())
     }
 
-    /// Start a hosted GoCardless checkout: one combined mandate+payment Billing
-    /// Request + a Pending checkout tx, returning `AwaitingPayment` + a
-    /// `RedirectToUrl`. `billing_requests.fulfilled` materializes the sub in-flight.
+    /// Start a hosted-redirect checkout: a hosted mandate-setup flow + a
+    /// Pending checkout tx, returning `AwaitingPayment` + a `RedirectToUrl`.
+    /// WebhookBacked providers materialize via their webhook, PollingRequired
+    /// ones via the return handler / pending-intent sweeper.
     pub async fn initiate_hosted_checkout(
         &self,
         tenant_id: TenantId,
@@ -1324,6 +1388,8 @@ impl ServicesEdge {
         return_url: Option<String>,
     ) -> Result<CheckoutCompletionResult, StoreErrorReport> {
         use crate::domain::payment_transactions::PaymentNextAction;
+        use crate::services::payment::hosted_setup::HostedSetupOutcome;
+        use crate::services::payment::method::CancelPendingIntentOutcome;
 
         if amount_minor <= 0 {
             return Err(Report::new(StoreError::InvalidArgument(
@@ -1331,9 +1397,18 @@ impl ServicesEdge {
             )));
         }
 
-        let result = self
-            .store
-            .transaction(|conn| {
+        // Single-intent discipline: minting a replacement first cancels the
+        // stored prior intent; an uncancelable one (payment underway/captured)
+        // is ADOPTED through completion instead of replaced. At most two
+        // passes: once more after an adoption resolves the prior attempt as dead.
+        for adoption_attempt in 0..2u8 {
+            let currency = currency.clone();
+            let coupon_code = coupon_code.clone();
+            let return_url = return_url.clone();
+
+            let outcome = self
+                .store
+                .transaction(|conn| {
                 async move {
                     let session: CheckoutSession = CheckoutSessionRow::get_by_id_for_update(
                         conn,
@@ -1370,10 +1445,64 @@ impl ServicesEdge {
                             .find_active_checkout_transaction(conn, tenant_id, checkout_session_id)
                             .await?
                     {
-                        return Ok(CheckoutCompletionResult::AwaitingPayment {
-                            transaction,
-                            next_action,
-                        });
+                        return Ok(HostedCheckoutInitiation::Result(Box::new(
+                            CheckoutCompletionResult::AwaitingPayment {
+                                transaction,
+                                next_action,
+                            },
+                        )));
+                    }
+
+                    // At most ONE capturable intent per session: the prior
+                    // stored intent is cancelled BEFORE a replacement is
+                    // minted, so it can never capture money as an unwatched
+                    // orphan; a not-cancelable one is adopted outside this
+                    // transaction.
+                    let prior_tx =
+                        diesel_models::payments::PaymentTransactionRow::latest_with_pending_intent_by_checkout_session_id(
+                            conn,
+                            checkout_session_id,
+                            tenant_id,
+                        )
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                    if let Some(prior_tx) = prior_tx
+                        && let Some(prior_intent) = prior_tx.pending_provider_intent_id.clone()
+                    {
+                        let prior_connection =
+                            prior_tx.pending_connection_id.unwrap_or(connection_id);
+                        match self
+                            .services
+                            .cancel_pending_hosted_intent(
+                                conn,
+                                &tenant_id,
+                                &prior_connection,
+                                &prior_intent,
+                            )
+                            .await?
+                        {
+                            CancelPendingIntentOutcome::Cancelled => {
+                                // Dead at the provider: stop sweeping it.
+                                diesel_models::payments::PaymentTransactionRow::clear_pending_intent_if_matches(
+                                    conn,
+                                    tenant_id,
+                                    prior_tx.id,
+                                    &prior_intent,
+                                )
+                                .await
+                                .map_err(Into::<Report<StoreError>>::into)?;
+                                log::info!(
+                                    "cancelled superseded hosted-checkout intent {prior_intent} \
+                                     for session {checkout_session_id}"
+                                );
+                            }
+                            CancelPendingIntentOutcome::NotCancelable => {
+                                return Ok(HostedCheckoutInitiation::AdoptPriorIntent {
+                                    connection_id: prior_connection,
+                                    intent_id: prior_intent,
+                                });
+                            }
+                        }
                     }
 
                     // Persist the coupons this payment is priced with onto the
@@ -1442,6 +1571,17 @@ impl ServicesEdge {
                         )
                         .await?;
 
+                    // PollingRequired providers capture in-flow with NO
+                    // webhooks: persist the intent id atomically with the
+                    // pending transaction so the sweeper can recover a lost
+                    // return. WebhookBacked providers are never swept.
+                    let polling_required =
+                        crate::adapters::payment::provider_capabilities(&setup_intent.provider)
+                            .is_some_and(|caps| {
+                                caps.hosted_setup_completion
+                                    == crate::adapters::payment::HostedSetupCompletion::PollingRequired
+                            });
+
                     // For GoCardless the hosted authorisation URL rides in
                     // `client_secret`; drive the browser redirect through the same
                     // RedirectToUrl next_action the frontend already handles.
@@ -1471,6 +1611,10 @@ impl ServicesEdge {
                         pending_plan_version_id: None,
                         next_action: next_action_json,
                         initiated_by_customer_id: Some(session.customer_id),
+                        pending_provider_intent_id: polling_required
+                            .then(|| setup_intent.intent_id.clone()),
+                        pending_connection_id: polling_required
+                            .then_some(setup_intent.connection_id),
                     };
 
                     let inserted = row
@@ -1490,16 +1634,124 @@ impl ServicesEdge {
                     let mut transaction: crate::domain::PaymentTransaction = inserted.into();
                     transaction.next_action = Some(next_action.clone());
 
-                    Ok(CheckoutCompletionResult::AwaitingPayment {
-                        transaction,
-                        next_action: Some(next_action),
-                    })
+                    Ok(HostedCheckoutInitiation::Result(Box::new(
+                        CheckoutCompletionResult::AwaitingPayment {
+                            transaction,
+                            next_action: Some(next_action),
+                        },
+                    )))
                 }
                 .scope_boxed()
             })
             .await?;
 
-        Ok(result)
+            let (prior_connection, prior_intent) = match outcome {
+                HostedCheckoutInitiation::Result(result) => return Ok(*result),
+                HostedCheckoutInitiation::AdoptPriorIntent {
+                    connection_id,
+                    intent_id,
+                } => (connection_id, intent_id),
+            };
+
+            // Adoption: run the uncancelable prior intent through the SAME
+            // completion routine (records, never charges) instead of minting
+            // a second capturable intent.
+            log::warn!(
+                "hosted checkout session {checkout_session_id}: prior intent {prior_intent} is \
+                 not cancelable; adopting it through completion instead of re-minting"
+            );
+            let setup_outcome = self
+                .services
+                .complete_hosted_setup_with_attempts(prior_connection, prior_intent.clone(), 1)
+                .await?;
+
+            match setup_outcome {
+                HostedSetupOutcome::CheckoutActivated(_) => {
+                    // Report the completed checkout rather than a new hosted page.
+                    return self
+                        .hosted_checkout_result_after_adoption(tenant_id, checkout_session_id)
+                        .await;
+                }
+                HostedSetupOutcome::HeldForReview { .. } => {
+                    return Err(Report::new(StoreError::InvalidArgument(
+                        "A previous payment on this checkout requires manual review; please \
+                         contact support before retrying."
+                            .to_string(),
+                    )));
+                }
+                HostedSetupOutcome::PaymentFailed { .. } | HostedSetupOutcome::SetupFailed
+                    if adoption_attempt == 0 =>
+                {
+                    // Resolved as declined/dead: now cancelable — loop once to
+                    // mint fresh.
+                    continue;
+                }
+                HostedSetupOutcome::Processing => {
+                    return Err(Report::new(StoreError::InvalidArgument(
+                        "A payment for this checkout is still being processed; please retry \
+                         shortly."
+                            .to_string(),
+                    )));
+                }
+                other => {
+                    log::error!(
+                        "hosted checkout session {checkout_session_id}: adopted intent \
+                         {prior_intent} resolved as {other:?}; refusing to mint a replacement"
+                    );
+                    return Err(Report::new(StoreError::InvalidArgument(
+                        "Unable to start a new hosted payment for this checkout; please retry \
+                         later or contact support."
+                            .to_string(),
+                    )));
+                }
+            }
+        }
+
+        // Unreachable: the second iteration always returns or errors above.
+        Err(Report::new(StoreError::InvalidArgument(
+            "Unable to start a hosted payment for this checkout; please retry later.".to_string(),
+        )))
+    }
+
+    /// After an adopted prior intent activated the checkout, report the
+    /// session's actual state instead of a fresh hosted page.
+    async fn hosted_checkout_result_after_adoption(
+        &self,
+        tenant_id: TenantId,
+        checkout_session_id: CheckoutSessionId,
+    ) -> Result<CheckoutCompletionResult, StoreErrorReport> {
+        let mut conn = self.get_conn().await?;
+        let session: CheckoutSession =
+            CheckoutSessionRow::get_by_id(&mut conn, tenant_id, checkout_session_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into();
+
+        if session.status == CheckoutSessionStatus::Completed
+            && let Some(subscription_id) = session.subscription_id
+        {
+            let transaction =
+                diesel_models::payments::PaymentTransactionRow::get_latest_by_checkout_session_id(
+                    &mut conn,
+                    checkout_session_id,
+                    tenant_id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .map(Into::<PaymentTransaction>::into);
+            return Ok(CheckoutCompletionResult::Completed {
+                subscription_id,
+                transaction,
+            });
+        }
+
+        // Captured payment recorded, materialization still settling: money
+        // already moved — never show a new page; have the customer refresh.
+        Err(Report::new(StoreError::InvalidArgument(
+            "A previous payment for this checkout was recovered and is being finalized; please \
+             refresh the page."
+                .to_string(),
+        )))
     }
 
     /// Complete a checkout with a saved method: SelfServe charges first and only

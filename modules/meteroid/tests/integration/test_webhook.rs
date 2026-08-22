@@ -110,6 +110,8 @@ async fn test_webhook_in_ingest_dedup_and_worker() {
             pending_plan_version_id: None,
             next_action: None,
             initiated_by_customer_id: None,
+            pending_provider_intent_id: None,
+            pending_connection_id: None,
         }
         .insert(&mut conn)
         .await
@@ -307,6 +309,8 @@ async fn insert_pending_gc_tx(
         pending_plan_version_id: None,
         next_action: None,
         initiated_by_customer_id: None,
+        pending_provider_intent_id: None,
+        pending_connection_id: None,
     }
     .insert(&mut conn)
     .await

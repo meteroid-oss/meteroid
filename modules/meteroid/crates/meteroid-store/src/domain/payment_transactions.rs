@@ -3,8 +3,8 @@ use chrono::NaiveDateTime;
 
 use crate::domain::CustomerPaymentMethod;
 use common_domain::ids::{
-    CheckoutSessionId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, PlanVersionId,
-    StoredDocumentId, TenantId,
+    CheckoutSessionId, CustomerConnectionId, CustomerPaymentMethodId, InvoiceId,
+    PaymentTransactionId, PlanVersionId, StoredDocumentId, TenantId,
 };
 use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionWithMethodRow};
 use o2o::o2o;
@@ -78,6 +78,11 @@ pub struct PaymentTransaction {
     pub receipt_pdf_id: Option<StoredDocumentId>,
     pub checkout_session_id: Option<CheckoutSessionId>,
     pub pending_plan_version_id: Option<PlanVersionId>,
+    /// Hosted in-flow-capture intent at the provider (Stancer). While the row
+    /// is Pending, its presence marks the attempt as resumable: re-initiating
+    /// on `pending_connection_id` rehydrates the SAME intent/redirect.
+    pub pending_provider_intent_id: Option<String>,
+    pub pending_connection_id: Option<CustomerConnectionId>,
     /// Cumulative amount clawed back on a still-Settled transaction (partial
     /// refunds); a full claw-back flips `status` to Refunded instead.
     pub amount_refunded: i64,

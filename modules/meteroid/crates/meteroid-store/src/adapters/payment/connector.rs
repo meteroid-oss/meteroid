@@ -31,6 +31,21 @@ pub struct ConnectorCapabilities {
     pub mandate_setup_mode: MandateSetupMode,
     /// Max webhook signature age accepted, in seconds; older payloads are rejected as replays.
     pub webhook_replay_tolerance_secs: u32,
+    /// How a hosted-redirect setup's completion reaches us. Drives whether the
+    /// hosted-checkout pending-intent id is persisted and swept.
+    pub hosted_setup_completion: HostedSetupCompletion,
+}
+
+/// How the outcome of a hosted setup flow is delivered once the customer
+/// finishes on the provider's hosted page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostedSetupCompletion {
+    /// A webhook is the backstop: a lost return still completes, so no intent
+    /// id is persisted and the sweeper never polls this provider.
+    WebhookBacked,
+    /// No webhook exists: the return redirect is the only push signal, so the
+    /// intent id is persisted and the sweeper polls it as the lost-return backstop.
+    PollingRequired,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,6 +105,19 @@ pub trait MandateOps: Send + Sync {
         connector: &Connector,
         intent_id: &str,
     ) -> Result<PaymentMethodSnapshot, Report<ConnectorError>>;
+
+    /// Cancel a previously issued setup intent so its hosted flow can never
+    /// complete or collect money. `Ok(())` MUST mean the intent is dead at the
+    /// provider; an intent that may still capture — or already captured —
+    /// money MUST be `Err`. Default: no-op for providers with a webhook
+    /// backstop or client-side completion.
+    async fn cancel_mandate_setup(
+        &self,
+        _connector: &Connector,
+        _intent_id: &str,
+    ) -> Result<(), Report<ConnectorError>> {
+        Ok(())
+    }
 }
 
 /// `Ok(ChargeOutcome::Failed)` is terminal (provider refused). `Err` is unknown

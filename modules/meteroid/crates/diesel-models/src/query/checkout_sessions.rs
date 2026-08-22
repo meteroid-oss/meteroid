@@ -178,6 +178,35 @@ impl CheckoutSessionRow {
             .into_db_result()
     }
 
+    /// Expire ONE session, only from a non-terminal state. 0 rows updated
+    /// means it already reached a terminal state — the guard for races with a
+    /// concurrent completion.
+    pub async fn mark_expired_single(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: CheckoutSessionId,
+    ) -> DbResult<usize> {
+        use crate::schema::checkout_session::dsl as cs_dsl;
+
+        let query = diesel::update(cs_dsl::checkout_session)
+            .filter(cs_dsl::id.eq(id))
+            .filter(cs_dsl::tenant_id.eq(tenant_id))
+            .filter(
+                cs_dsl::status
+                    .eq(CheckoutSessionStatusEnum::Created)
+                    .or(cs_dsl::status.eq(CheckoutSessionStatusEnum::AwaitingPayment)),
+            )
+            .set(cs_dsl::status.eq(CheckoutSessionStatusEnum::Expired));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while expiring checkout session")
+            .into_db_result()
+    }
+
     pub async fn mark_expired_batch(conn: &mut PgConn, now: DateTime<Utc>) -> DbResult<usize> {
         use crate::schema::checkout_session::dsl as cs_dsl;
 

@@ -97,6 +97,8 @@ impl Services {
                         pending_plan_version_id: None,
                         next_action: None,
                         initiated_by_customer_id: None,
+                        pending_provider_intent_id: None,
+                        pending_connection_id: None,
                     };
 
                     let inserted_transaction = transaction_new
@@ -198,6 +200,8 @@ impl Services {
                         pending_plan_version_id: None,
                         next_action: None,
                         initiated_by_customer_id: None,
+                        pending_provider_intent_id: None,
+                        pending_connection_id: None,
                     };
 
                     let inserted_transaction = transaction_new

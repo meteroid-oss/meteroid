@@ -1,6 +1,5 @@
 import { Code, ConnectError } from '@connectrpc/connect'
-import { Skeleton } from '@md/ui'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, Loader2 } from 'lucide-react'
 import { useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
@@ -23,13 +22,15 @@ export const PortalCheckout = () => {
   const addonPurchaseContext = checkoutQuery.data?.addonPurchaseContext
   const error = checkoutQuery.error
   const isLoading = checkoutQuery.isLoading
+  // On the return leg from a hosted provider the URL carries `<provider>_status`;
+  // show "confirming your payment" rather than a generic loader while we resolve.
+  const isHostedReturn =
+    searchParams.get('stancer_status') === 'ok' || searchParams.get('gocardless_status') === 'ok'
 
-  // A completed session is a SUCCESS, not an error: the webhook can finish the
-  // checkout before (or during) the customer's redirect back — common for the
-  // direct-debit flow, where activation is webhook-driven — in which case this
-  // first GetCheckout races and fails. Send them to the success page instead of
-  // the generic error. A `gocardless_status=ok` return means the direct-debit
-  // payment is submitted (settling later), so mark it "processing".
+  // A completed session is a SUCCESS, not an error: the backend can finish
+  // the checkout before (or during) the redirect back, in which case this
+  // first GetCheckout fails — send them to the success page. An `ok` hosted
+  // return means the payment is submitted (settling later): "processing".
   const sessionCompleted =
     error instanceof ConnectError &&
     error.code === Code.FailedPrecondition &&
@@ -40,7 +41,12 @@ export const PortalCheckout = () => {
     const params = new URLSearchParams()
     const returnUrl = searchParams.get('return_url')
     if (returnUrl) params.set('return_url', returnUrl)
-    if (searchParams.get('gocardless_status') === 'ok') params.set('status', 'processing')
+    if (
+      searchParams.get('gocardless_status') === 'ok' ||
+      searchParams.get('stancer_status') === 'ok'
+    ) {
+      params.set('status', 'processing')
+    }
     navigate(`success?${params.toString()}`, { replace: true })
   }, [sessionCompleted, navigate, searchParams])
 
@@ -68,10 +74,12 @@ export const PortalCheckout = () => {
     <div className="h-full w-full bg-[#00000002]">
       <div className="flex flex-col gap-4 h-full">
         {isLoading || !data ? (
-          <>
-            <Skeleton height={16} width={50} />
-            <Skeleton height={44} />
-          </>
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">
+              {isHostedReturn ? 'Confirming your payment…' : 'Loading your checkout…'}
+            </p>
+          </div>
         ) : (
           <CheckoutFlow
             checkoutData={data}

@@ -37,6 +37,13 @@ export type PaymentAvailability =
         | 'pending_payment'
       displayTransactions?: boolean
     }
+  | {
+      // Abandoned hosted attempt: the backend resumes the SAME intent, so the
+      // customer may continue instead of a readonly "payment in progress" view.
+      type: 'resumable_hosted_payment'
+      connectionId: string
+      displayTransactions?: boolean
+    }
 
 /**
  * Determines payment availability for subscription checkout
@@ -172,11 +179,22 @@ export function getInvoicePaymentAvailability(config: {
 
   // Check for pending transactions
   if (transactions && transactions.length > 0) {
-    const hasPendingTransaction = transactions.some(
+    const pendingTransactions = transactions.filter(
       tx => tx.status === Transaction_PaymentStatusEnum.PENDING
     )
 
-    if (hasPendingTransaction) {
+    if (pendingTransactions.length > 0) {
+      // A Pending tx marked resumable is an abandoned hosted attempt: the
+      // backend rehydrates the same intent, so offer "Continue payment".
+      // A marker-less Pending tx (off-session charge in flight) stays readonly.
+      const resumable = pendingTransactions.find(tx => tx.resumableHostedConnectionId)
+      if (resumable?.resumableHostedConnectionId) {
+        return {
+          type: 'resumable_hosted_payment',
+          connectionId: resumable.resumableHostedConnectionId,
+          displayTransactions: true,
+        }
+      }
       return {
         type: 'readonly',
         reason: 'pending_payment',

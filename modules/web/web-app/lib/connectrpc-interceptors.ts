@@ -11,7 +11,8 @@ const loggingInterceptorSkipError = ['AbortError:', 'DOMException:']
 
 // Shallow-scan message props by name and mask credential-bearing fields before
 // they reach the console (and PostHog session replay). Payment connector setup
-// carries GoCardless access tokens / webhook secrets and Stripe `sk_` keys.
+// carries GoCardless access tokens / webhook secrets, Stripe `sk_` keys and
+// Stancer `stest_`/`sprod_` secret keys.
 const SECRET_FIELD_SUBSTRINGS = [
   'accesstoken',
   'webhooksecret',

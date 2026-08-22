@@ -2,8 +2,8 @@ use crate::customer_payment_methods::CustomerPaymentMethodRow;
 use crate::enums::{PaymentStatusEnum, PaymentTypeEnum};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use common_domain::ids::{
-    CheckoutSessionId, CustomerId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId,
-    PlanVersionId, StoredDocumentId, TenantId,
+    CheckoutSessionId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, InvoiceId,
+    PaymentTransactionId, PlanVersionId, StoredDocumentId, TenantId,
 };
 use diesel::{AsChangeset, Associations, Identifiable, Insertable, Queryable, Selectable};
 
@@ -44,6 +44,12 @@ pub struct PaymentTransactionRow {
     /// Set when a customer initiated the payment (portal), so a settled invoice
     /// payment is attributed to them rather than System. Null for system auto-charges.
     pub initiated_by_customer_id: Option<CustomerId>,
+    /// Hosted in-flow-capture intent at the provider (Stancer — no webhooks),
+    /// stored so the sweeper can recover a captured payment on a lost return.
+    /// Write-once per row; cleared on supersede, close-out, or completion
+    /// (invoice settled / checkout settled AND materialized).
+    pub pending_provider_intent_id: Option<String>,
+    pub pending_connection_id: Option<CustomerConnectionId>,
 }
 
 #[derive(Debug, Insertable)]
@@ -65,6 +71,8 @@ pub struct PaymentTransactionRowNew {
     pub pending_plan_version_id: Option<PlanVersionId>,
     pub next_action: Option<serde_json::Value>,
     pub initiated_by_customer_id: Option<CustomerId>,
+    pub pending_provider_intent_id: Option<String>,
+    pub pending_connection_id: Option<CustomerConnectionId>,
 }
 
 #[derive(AsChangeset, Default)]

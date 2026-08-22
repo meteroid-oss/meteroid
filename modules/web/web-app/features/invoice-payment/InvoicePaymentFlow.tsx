@@ -10,11 +10,13 @@ import { BillingInfo } from '@/features/checkout/components/BillingInfo'
 import { ReadonlyPaymentView } from '@/features/checkout/components/ReadonlyPaymentView'
 import { resolveCheckoutTheme } from '@/features/checkout/resolveCheckoutTheme'
 import { completeNextAction } from '@/features/checkout/utils/completeNextAction'
+import { hostedReturnUrl, stashHostedPreAttempt } from '@/features/checkout/utils/hostedReturn'
 import { getInvoicePaymentAvailability } from '@/features/checkout/utils/paymentAvailability'
 import { Transaction_PaymentStatusEnum } from '@/rpc/api/invoices/v1/models_pb'
 import {
   confirmInvoicePayment,
   getInvoicePayment,
+  initiateHostedInvoicePayment,
 } from '@/rpc/portal/invoice/v1/invoice-PortalInvoiceService_connectquery'
 import { formatCurrency } from '@/utils/numbers'
 
@@ -25,20 +27,22 @@ import { TransactionList } from './components/TransactionList'
 import { InvoicePaymentData } from './types'
 
 interface Props extends InvoicePaymentData {
-  /** Customer just authorised the GoCardless mandate: the webhook attaches it
+  /** Customer just completed a hosted flow: the backend attaches the method
    *  and charges this invoice, so show "processing" instead of the pay form. */
-  gocardlessProcessing?: boolean
-  /** Non-success GoCardless return (abandoned/failed): shown above the still-
-   *  available pay form so the customer can retry. */
-  gocardlessError?: string | null
+  hostedProcessing?: boolean
+  /** Non-success hosted-flow return (abandoned/failed/declined): shown above
+   *  the still-available pay form so the customer can retry. */
+  hostedError?: string | null
 }
 
 const InvoicePaymentFlow: React.FC<Props> = ({
   invoicePaymentData,
-  gocardlessProcessing = false,
-  gocardlessError = null,
+  hostedProcessing = false,
+  hostedError = null,
 }) => {
   const [isAddressEditing, setIsAddressEditing] = useState(false)
+  const [isResuming, setIsResuming] = useState(false)
+  const [resumeError, setResumeError] = useState<string | null>(null)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const themeConfig = useMemo(
@@ -61,7 +65,7 @@ const InvoicePaymentFlow: React.FC<Props> = ({
     bankAccount,
   } = invoicePaymentData
 
-  // Transactions already FAILED before the customer leaves for the GoCardless
+  // Transactions already FAILED before the customer leaves for a provider-
   // hosted flow. Snapshotted on departure so the return handler distinguishes a
   // genuinely new charge failure from these pre-existing attempts.
   const preAttemptFailedTxIds = useMemo(
@@ -77,6 +81,47 @@ const InvoicePaymentFlow: React.FC<Props> = ({
       console.error('Invoice payment confirmation error:', error)
     },
   })
+
+  const initiateHostedInvoicePaymentMutation = useMutation(initiateHostedInvoicePayment)
+
+  // Explicit pay CLICK for hosted-redirect card providers: the RPC pre-creates
+  // the transaction, mints the capturing intent and returns the redirect we
+  // follow. Never called on render.
+  const handleHostedInvoicePayment = async (connectionId: string) => {
+    if (!invoice?.currency) {
+      throw new Error('Currency is not defined')
+    }
+    stashHostedPreAttempt(invoice.id, preAttemptFailedTxIds)
+    const res = await initiateHostedInvoicePaymentMutation.mutateAsync({
+      connectionId,
+      invoiceId: invoice.id,
+      displayedAmount: invoice.amountDue,
+      displayedCurrency: invoice.currency,
+      returnUrl: hostedReturnUrl(),
+    })
+    if (!res.nextAction) {
+      throw new Error('The payment provider returned no redirect. Please try again.')
+    }
+    // Redirects to the provider-hosted page; never resolves.
+    await completeNextAction(res.nextAction)
+  }
+
+  // "Continue payment" for an abandoned hosted attempt: the same RPC resumes
+  // the SAME stored intent/redirect (single-intent discipline), so no second
+  // capturable intent can be minted.
+  const handleResumeHostedPayment = async (connectionId: string) => {
+    setResumeError(null)
+    setIsResuming(true)
+    try {
+      await handleHostedInvoicePayment(connectionId)
+    } catch (error) {
+      console.error('Hosted payment resume error:', error)
+      setResumeError(
+        error instanceof Error ? error.message : 'Unable to resume the payment. Please try again.'
+      )
+      setIsResuming(false)
+    }
+  }
 
   // Refetch the invoice so a freshly attached method appears in the list.
   const refreshInvoice = useCallback(() => {
@@ -112,11 +157,10 @@ const InvoicePaymentFlow: React.FC<Props> = ({
     }
   }
 
-  // NB: the GoCardless return outcome (ok/abandoned/failed) is read ONCE by the
-  // parent page and passed in as `gocardlessProcessing` / `gocardlessError`. The
-  // invoice charge itself is created by the `billing_requests.fulfilled` webhook
-  // (not from here), so on `ok` we only show "processing" and the page polls
-  // until the transaction appears — we never confirm the payment from the return.
+  // The hosted-flow return outcome is read ONCE by the parent page and passed
+  // in as `hostedProcessing` / `hostedError`. The charge is created
+  // backend-side, so on `ok` we only show "processing" and the page polls —
+  // we never confirm the payment from the return.
 
   if (!invoice || !customer) {
     return <div className="p-8 text-center">Loading invoice payment information...</div>
@@ -132,14 +176,16 @@ const InvoicePaymentFlow: React.FC<Props> = ({
     transactions: invoice.transactions,
   })
 
-  // Just returned from the hosted direct-debit flow: the charge is created
-  // asynchronously by a webhook, so the pending transaction may not be visible
-  // yet (the page polls for it — see the invoice-payment page). Until it lands,
-  // show the "processing" state instead of the payment form, so the customer
-  // isn't invited to pay again on a payment they just authorised. Once the
-  // transaction appears, this is already `readonly` on its own.
+  // Just returned from a hosted flow: the backend-created charge may not be
+  // visible yet. Until it lands, show "processing" instead of the payment
+  // form, so the customer isn't invited to pay again on a payment they just
+  // authorised.
+  // The resumable state is coerced too: inviting the customer to "continue" a
+  // payment they just completed would be wrong.
   const paymentAvailability =
-    gocardlessProcessing && baseAvailability.type === 'payment_form'
+    hostedProcessing &&
+    (baseAvailability.type === 'payment_form' ||
+      baseAvailability.type === 'resumable_hosted_payment')
       ? ({ type: 'readonly', reason: 'pending_payment', displayTransactions: true } as const)
       : baseAvailability
 
@@ -160,13 +206,13 @@ const InvoicePaymentFlow: React.FC<Props> = ({
           {/* A "processing" return renders as the readonly Payment In Progress
                 view below. A non-success return (abandoned/failed) surfaces here
                 as a banner, above the pay form which stays available for retry. */}
-          {gocardlessError && (
+          {hostedError && (
             <div
               className="rounded-md border px-4 py-3 text-sm flex items-start"
               style={{ background: 'var(--mtp-danger-bg)', color: 'var(--mtp-danger)' }}
             >
               <AlertCircle size={16} className="mr-2 mt-0.5 shrink-0" />
-              <span>{gocardlessError}</span>
+              <span>{hostedError}</span>
             </div>
           )}
 
@@ -189,6 +235,47 @@ const InvoicePaymentFlow: React.FC<Props> = ({
           {paymentAvailability.type === 'readonly' && (
             <>
               <ReadonlyPaymentView reason={paymentAvailability.reason} />
+              {paymentAvailability.displayTransactions && invoice.transactions && (
+                <TransactionList transactions={invoice.transactions} currency={invoice.currency} />
+              )}
+            </>
+          )}
+
+          {paymentAvailability.type === 'resumable_hosted_payment' && (
+            <>
+              <ReadonlyPaymentView
+                reason="pending_payment"
+                title="Payment Not Completed"
+                message="You started a payment for this invoice but did not finish it. You can continue where you left off."
+              />
+
+              {resumeError && (
+                <div
+                  className="p-3 rounded-lg text-sm flex items-start"
+                  style={{ background: 'var(--mtp-danger-bg)', color: 'var(--mtp-danger)' }}
+                >
+                  <AlertCircle size={16} className="mr-2 mt-0.5 shrink-0" />
+                  <span>{resumeError}</span>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => handleResumeHostedPayment(paymentAvailability.connectionId)}
+                disabled={isResuming}
+                className="w-full py-3 rounded-lg transition-all font-medium disabled:cursor-not-allowed disabled:opacity-60 hover:opacity-90"
+                style={{ background: 'var(--mtp-accent)', color: 'var(--mtp-on-accent)' }}
+              >
+                {isResuming ? (
+                  <div className="flex items-center justify-center">
+                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Processing...
+                  </div>
+                ) : (
+                  `Continue payment · ${formatCurrency(Number(invoice.amountDue) || 0, invoice.currency)}`
+                )}
+              </button>
+
               {paymentAvailability.displayTransactions && invoice.transactions && (
                 <TransactionList transactions={invoice.transactions} currency={invoice.currency} />
               )}
@@ -219,6 +306,7 @@ const InvoicePaymentFlow: React.FC<Props> = ({
                   directDebitConnectionId={paymentAvailability.directDebitConnectionId}
                   invoiceId={invoice.id}
                   preAttemptFailedTxIds={preAttemptFailedTxIds}
+                  onHostedInvoicePayment={handleHostedInvoicePayment}
                   themeConfig={themeConfig}
                 />
               )}

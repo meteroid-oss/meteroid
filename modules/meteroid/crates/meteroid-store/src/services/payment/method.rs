@@ -37,6 +37,16 @@ fn customer_idempotency(
 /// Maximum time to wait for payment provider API calls.
 const PAYMENT_PROVIDER_TIMEOUT: Duration = Duration::from_secs(45);
 
+/// Result of trying to cancel a superseded/abandoned hosted intent at the provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::services) enum CancelPendingIntentOutcome {
+    /// The intent is certainly dead; a replacement may be minted.
+    Cancelled,
+    /// The provider refused — a payment is underway or captured. The intent
+    /// MUST be adopted (run through completion), never replaced or orphaned.
+    NotCancelable,
+}
+
 /// Helper function to determine which direct debit payment methods are supported
 /// based on the invoicing entity's country
 fn get_direct_debit_types_for_country(
@@ -295,16 +305,16 @@ impl Services {
             // "Add a payment method" flow — not tied to an invoice.
             None,
             None,
+            None,
             return_url,
         )
         .await
     }
 
-    /// Set up a mandate AND collect the first payment in a single hosted flow, for
-    /// a checkout on a hosted-redirect provider (GoCardless). Returns the intent
-    /// carrying the Billing Request id (`intent_id`) and the hosted
-    /// `authorisation_url` (in `client_secret`). The caller pre-creates the Pending
-    /// checkout transaction whose id is in `checkout.transaction_id`.
+    /// Set up a mandate for a hosted checkout (first payment collected in the
+    /// same hosted flow). Returns the provider intent id and the hosted
+    /// `authorisation_url` (in `client_secret`); the caller pre-creates the
+    /// Pending checkout transaction named by `checkout.transaction_id`.
     pub(in crate::services) async fn create_hosted_checkout_intent(
         &self,
         conn: &mut PgConn,
@@ -320,32 +330,114 @@ impl Services {
             Some(crate::domain::ConnectionTypeEnum::DirectDebit),
             None,
             Some(checkout),
+            None,
             return_url,
         )
         .await
     }
 
-    pub(in crate::services) async fn create_setup_intent(
+    /// Cancel a superseded/expired hosted setup intent at the provider so it
+    /// can never capture money afterwards. On `NotCancelable` the caller must
+    /// NOT mint a replacement — route the intent through completion instead.
+    /// Transport/configuration errors propagate as `Err` (nothing minted).
+    pub(in crate::services) async fn cancel_pending_hosted_intent(
         &self,
         conn: &mut PgConn,
+        tenant_id: &TenantId,
+        customer_connection_id: &CustomerConnectionId,
+        intent_id: &str,
+    ) -> StoreResult<CancelPendingIntentOutcome> {
+        let connection =
+            CustomerConnectionDetailsRow::get_by_id(conn, tenant_id, customer_connection_id)
+                .await
+                .map_err(|err| StoreError::DatabaseError(err.error))?;
+        let connector = Connector::from_row(&self.store.settings.crypt_key, connection.connector)?;
+        let connector_impl = initialize_payment_connector(&connector)
+            .change_context(StoreError::PaymentProviderError)?;
+
+        let result = tokio::time::timeout(
+            PAYMENT_PROVIDER_TIMEOUT,
+            connector_impl.cancel_mandate_setup(&connector, intent_id),
+        )
+        .await
+        .map_err(|_| {
+            Report::new(StoreError::PaymentProviderError)
+                .attach("Payment provider request timed out")
+        })?;
+
+        match result {
+            Ok(()) => Ok(CancelPendingIntentOutcome::Cancelled),
+            Err(report)
+                if matches!(
+                    report.current_context(),
+                    crate::adapters::payment::error::ConnectorError::MandateSetup(_)
+                ) =>
+            {
+                log::warn!(
+                    "hosted-checkout intent {intent_id} is not cancelable at the provider \
+                     (payment underway/captured); adopting instead of replacing: {report:?}"
+                );
+                Ok(CancelPendingIntentOutcome::NotCancelable)
+            }
+            Err(report) => Err(report.change_context(StoreError::PaymentProviderError)),
+        }
+    }
+
+    /// Create a setup intent, optionally tied to an invoice this setup pays.
+    /// Invoice + in-flow-capturing provider: side-effect-free — the panel
+    /// fetches this on render, so it returns only a provider descriptor; only
+    /// the explicit pay action mints a capturable intent.
+    pub(in crate::services) async fn create_setup_intent(
+        &self,
         tenant_id: &TenantId,
         customer_connection_id: &CustomerConnectionId,
         invoice_id: Option<InvoiceId>,
         return_url: Option<String>,
     ) -> StoreResult<SetupIntent> {
+        if invoice_id.is_some() {
+            let mut conn = self.store.get_conn().await?;
+            let connection = CustomerConnectionDetailsRow::get_by_id(
+                &mut conn,
+                tenant_id,
+                customer_connection_id,
+            )
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
+            drop(conn);
+            let provider: crate::domain::enums::ConnectorProviderEnum =
+                connection.connector.provider.into();
+            let in_flow =
+                crate::adapters::payment::provider_capabilities(&provider).is_some_and(|caps| {
+                    caps.hosted_setup_completion
+                        == crate::adapters::payment::HostedSetupCompletion::PollingRequired
+                });
+            if in_flow {
+                return Ok(SetupIntent {
+                    intent_id: String::new(),
+                    client_secret: String::new(),
+                    public_key: SecretString::from(String::new()),
+                    provider,
+                    connector_id: connection.connector.id,
+                    connection_id: connection.id,
+                });
+            }
+        }
+
+        let mut conn = self.store.get_conn().await?;
         self.create_setup_intent_internal(
-            conn,
+            &mut conn,
             tenant_id,
             customer_connection_id,
             None,
             invoice_id,
+            None,
             None,
             return_url,
         )
         .await
     }
 
-    async fn create_setup_intent_internal(
+    pub(in crate::services::payment) async fn create_setup_intent_internal(
         &self,
         conn: &mut PgConn,
         tenant_id: &TenantId,
@@ -360,6 +452,9 @@ impl Services {
         // combined mandate+payment Billing Request). Mutually exclusive with
         // `invoice_id`.
         checkout: Option<crate::adapters::payment::model::HostedCheckoutContext>,
+        // In-flow hosted INVOICE payment (PollingRequired providers only): the
+        // hosted page captures `amount_due` together with the card save.
+        invoice_payment: Option<crate::adapters::payment::model::HostedInvoicePaymentContext>,
         return_url: Option<String>,
     ) -> StoreResult<SetupIntent> {
         let connection =
@@ -380,20 +475,52 @@ impl Services {
 
         let connector = Connector::from_row(&self.store.settings.crypt_key, connection.connector)?;
 
-        // Combined mandate+payment hosted checkout is GoCardless-only (Mock is
-        // admitted as the integration-test stand-in); other providers would
-        // silently ignore the ctx and return a non-URL secret.
+        // Hosted checkout is for hosted-redirect providers only (Mock is the
+        // integration-test stand-in); other providers would silently ignore
+        // the ctx and return a non-URL secret.
         if checkout.is_some()
             && !matches!(
                 connector.provider,
                 crate::domain::enums::ConnectorProviderEnum::Gocardless
+                    | crate::domain::enums::ConnectorProviderEnum::Stancer
                     | crate::domain::enums::ConnectorProviderEnum::Mock
             )
         {
             return Err(error_stack::Report::new(StoreError::InvalidArgument(
-                "Hosted checkout is only supported for hosted-redirect (GoCardless) direct-debit connections".to_string(),
+                "Hosted checkout is only supported for hosted-redirect (GoCardless, Stancer) connections".to_string(),
             )));
         }
+
+        // In-flow invoice capture is exclusively for webhook-less providers:
+        // on a webhook-backed provider the capture would race the webhook's
+        // off-session charge into a double-charge.
+        if invoice_payment.is_some()
+            && !crate::adapters::payment::provider_capabilities(&connector.provider).is_some_and(
+                |caps| {
+                    caps.hosted_setup_completion
+                        == crate::adapters::payment::HostedSetupCompletion::PollingRequired
+                },
+            )
+        {
+            return Err(error_stack::Report::new(StoreError::InvalidArgument(
+                "In-flow hosted invoice payment is only supported for polling-completed providers"
+                    .to_string(),
+            )));
+        }
+
+        // The hosted-checkout entry point passes DirectDebit (GoCardless's
+        // rail); Stancer is card-only, so it sets up a card instead.
+        let requested_connection_type = if checkout.is_some()
+            && connector.provider == crate::domain::enums::ConnectorProviderEnum::Stancer
+        {
+            Some(crate::domain::ConnectionTypeEnum::Card)
+        } else {
+            requested_connection_type
+        };
+
+        // Customer billing currency, for providers whose setup intent requires
+        // an explicit currency even for a 0-amount card save (Stancer).
+        let customer_currency = connection.customer.currency.clone();
 
         let connector_impl = initialize_payment_connector(&connector)
             .change_context(StoreError::PaymentProviderError)?;
@@ -471,25 +598,37 @@ impl Services {
         // value for both `redirect_uri` and `exit_uri`, so an abandoned flow
         // lands on the handler too (without a `billing_request`), and the
         // handler treats that as "abandoned".
-        let return_url =
-            if connector.provider == crate::domain::enums::ConnectorProviderEnum::Gocardless {
-                let handler_url = format!(
-                    "{}/v1/portal/gocardless/return?connection={}",
-                    self.store
-                        .settings
-                        .rest_api_external_url
-                        .trim_end_matches('/'),
-                    customer_connection.id.as_base62(),
-                );
-                match return_url.as_deref() {
-                    Some(target) if same_origin(&self.store.settings.public_url, target) => Some(
-                        format!("{handler_url}&dest={}", urlencoding::encode(target)),
-                    ),
-                    _ => Some(handler_url),
-                }
-            } else {
-                return_url
-            };
+        // Stancer follows the same shape at `/v1/portal/stancer/return`, but
+        // there the return handler IS the completion path (no webhooks); the
+        // adapter PATCHes the intent's own id onto this URL once it exists.
+        let handler_path = match connector.provider {
+            crate::domain::enums::ConnectorProviderEnum::Gocardless => {
+                Some("v1/portal/gocardless/return")
+            }
+            crate::domain::enums::ConnectorProviderEnum::Stancer => {
+                Some("v1/portal/stancer/return")
+            }
+            _ => None,
+        };
+        let return_url = if let Some(handler_path) = handler_path {
+            let handler_url = format!(
+                "{}/{}?connection={}",
+                self.store
+                    .settings
+                    .rest_api_external_url
+                    .trim_end_matches('/'),
+                handler_path,
+                customer_connection.id.as_base62(),
+            );
+            match return_url.as_deref() {
+                Some(target) if same_origin(&self.store.settings.public_url, target) => Some(
+                    format!("{handler_url}&dest={}", urlencoding::encode(target)),
+                ),
+                _ => Some(handler_url),
+            }
+        } else {
+            return_url
+        };
 
         // A GoCardless idempotency key protects ONE creation attempt against
         // automatic retries (it 409s `idempotent_creation_conflict` for ~30 days
@@ -513,6 +652,8 @@ impl Services {
             // Present for a hosted checkout: adds a `payment_request` so the first
             // payment is collected in the same hosted flow as the mandate.
             checkout,
+            invoice_payment,
+            currency: Some(customer_currency),
         };
 
         let instruction = tokio::time::timeout(

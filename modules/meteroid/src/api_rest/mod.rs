@@ -53,6 +53,7 @@ mod plans;
 mod productfamilies;
 pub(crate) mod products;
 pub mod server;
+pub mod stancer;
 mod subscriptions;
 pub mod svix_operational;
 mod usage;

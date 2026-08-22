@@ -210,6 +210,10 @@ message Transaction {
   PaymentTypeEnum payment_type = 9;
   optional string processed_at = 10;
   optional PaymentMethodInfo payment_method_info = 11;
+  // Set only while this PENDING transaction is a resumable hosted payment
+  // attempt: InitiateHostedInvoicePayment on this connection resumes the SAME
+  // intent/redirect instead of minting a second capturable intent.
+  optional string resumable_hosted_connection_id = 12;
 
   enum PaymentStatusEnum {
     READY = 0;

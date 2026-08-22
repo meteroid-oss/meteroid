@@ -58,6 +58,8 @@ pub async fn run_contract(impl_: &dyn PaymentConnector, connector: &Connector) {
                     return_url: None,
                     invoice_id: None,
                     checkout: None,
+                    invoice_payment: None,
+                    currency: Some("USD".to_string()),
                 },
             )
             .await
@@ -201,11 +203,15 @@ fn make_test_connection(connector: &Connector) -> crate::domain::CustomerConnect
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::payment::connector::{ConnectorIdentity, MandateSetupMode, WebhookOps};
-    use crate::adapters::payment::{GoCardlessConnector, MockConnector};
+    use crate::adapters::payment::connector::{
+        ConnectorIdentity, HostedSetupCompletion, MandateSetupMode, WebhookOps,
+    };
+    use crate::adapters::payment::{
+        GoCardlessConnector, MockConnector, StancerConnector, StripeConnector,
+    };
     use crate::domain::connectors::{
         Connector, GocardlessPublicData, GocardlessSensitiveData, MockPublicData, ProviderData,
-        ProviderSensitiveData,
+        ProviderSensitiveData, StancerPublicData, StancerSensitiveData,
     };
     use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
     use chrono::NaiveDateTime;
@@ -245,6 +251,102 @@ mod tests {
             "GC webhook endpoints are dashboard-managed"
         );
         assert_eq!(caps.mandate_setup_mode, MandateSetupMode::HostedRedirect);
+    }
+
+    /// Confirms the Stancer cap matrix is internally consistent. Runtime ops
+    /// aren't exercised here since they'd hit the real Stancer API.
+    #[test]
+    fn stancer_capabilities_consistent() {
+        let connector = StancerConnector::new();
+        let caps = connector.capabilities();
+        assert_capabilities_consistent(caps);
+        assert!(caps.supports_cards, "Stancer is a card provider");
+        assert!(caps.supports_mandates);
+        assert!(
+            caps.asynchronous_settlement,
+            "Stancer capture resolves asynchronously with no push channel"
+        );
+        assert!(
+            !caps.supports_self_webhook_registration,
+            "Stancer has no webhook mechanism at all"
+        );
+        assert!(!caps.supports_refunds, "refund() is Unsupported");
+        assert_eq!(caps.mandate_setup_mode, MandateSetupMode::HostedRedirect);
+    }
+
+    /// The pending-intent sweeper keys off this capability: only
+    /// `PollingRequired` providers persist the intent id and get swept;
+    /// `WebhookBacked` providers must never be swept.
+    #[test]
+    fn hosted_setup_completion_matches_webhook_reality() {
+        assert_eq!(
+            StancerConnector::new()
+                .capabilities()
+                .hosted_setup_completion,
+            HostedSetupCompletion::PollingRequired,
+            "Stancer has no webhooks; polling is its only completion backstop"
+        );
+        assert_eq!(
+            GoCardlessConnector::new()
+                .capabilities()
+                .hosted_setup_completion,
+            HostedSetupCompletion::WebhookBacked,
+            "billing_requests.fulfilled backs GoCardless hosted setups"
+        );
+        assert_eq!(
+            StripeConnector::new()
+                .capabilities()
+                .hosted_setup_completion,
+            HostedSetupCompletion::WebhookBacked,
+            "Stripe setup completes client-side with webhook backup"
+        );
+    }
+
+    /// Stancer has no webhook mechanism: registration must return Unsupported
+    /// and signature verification must reject unconditionally.
+    #[tokio::test]
+    async fn stancer_register_webhook_is_unsupported() {
+        let connector = Connector {
+            id: ConnectorId::new(),
+            created_at: NaiveDateTime::default(),
+            tenant_id: TenantId::new(),
+            alias: "contract-stancer".into(),
+            connector_type: ConnectorTypeEnum::PaymentProvider,
+            provider: ConnectorProviderEnum::Stancer,
+            data: Some(ProviderData::Stancer(StancerPublicData::default())),
+            sensitive: Some(ProviderSensitiveData::Stancer(StancerSensitiveData {
+                api_secret_key: "stest_fake".into(),
+            })),
+        };
+        let impl_ = StancerConnector::new();
+        let result = impl_
+            .register_webhook(
+                &connector,
+                "https://example.invalid/hook",
+                &[NormalizedEventSubscription::Payments],
+            )
+            .await;
+        assert!(
+            matches!(
+                result.as_ref().err().map(|r| r.current_context()),
+                Some(ConnectorError::Unsupported { .. })
+            ),
+            "Stancer register_webhook must return Unsupported (got: {result:?})"
+        );
+
+        let verify = impl_.verify_signature(
+            &connector,
+            b"{}",
+            &HeaderMap::new(),
+            &secrecy::SecretString::from("no-such-secret".to_string()),
+        );
+        assert!(
+            matches!(
+                verify.as_ref().err().map(|r| r.current_context()),
+                Some(ConnectorError::SignatureVerification)
+            ),
+            "no Stancer webhook signature can ever verify"
+        );
     }
 
     /// With the cap off, register_webhook must return Unsupported, not synthesise
