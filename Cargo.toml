@@ -56,7 +56,7 @@ argon2 = "0.5.2"
 async-trait = "0.1.74"
 axum = { version = "0.8.1", features = ["json", "query", "tower-log", "http1"] }
 axum-extra = { version = "0.12.5", default-features = false }
-axum-valid = "0.24.0"
+axum-valid = "0.25.0"
 parquet = { version = "59.0.0", default-features = false }
 base62 = "2.2.3"
 base64 = "0.22.0"
