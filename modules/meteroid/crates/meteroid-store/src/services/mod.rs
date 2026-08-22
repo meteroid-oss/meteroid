@@ -39,6 +39,8 @@ use crate::store::PgConn;
 pub use edge::CheckoutPaymentOutcome;
 pub use invoices::{CustomerDetailsUpdate, InvoiceBillingMode};
 pub use lifecycle::CycleTransitionResult;
+pub use payment::hosted_payment_sweep::{HostedPaymentSweepOutcome, PendingHostedPaymentRef};
+pub use payment::hosted_setup::HostedSetupOutcome;
 pub use quotes::QuoteConversionResult;
 use stripe_client::client::StripeClient;
 pub use subscriptions::insert::payment_method::PaymentSetupResult;

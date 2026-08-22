@@ -146,6 +146,7 @@ pub enum ConnectorProviderEnum {
     Pennylane,
     Mock,
     Gocardless,
+    Stancer,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

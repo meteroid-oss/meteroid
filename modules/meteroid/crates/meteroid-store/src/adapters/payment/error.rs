@@ -1,5 +1,13 @@
 use crate::domain::enums::ConnectorProviderEnum;
 
+/// Opaque marker a connector attaches to a `complete_mandate_setup` error when
+/// the hosted setup intent exists but its payment method is not populated yet
+/// (the customer's return redirect can beat the provider's own update).
+/// Callers may retry briefly; every other completion error is terminal for
+/// the attempt.
+#[derive(Debug, Clone, Copy)]
+pub struct HostedSetupPending;
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectorError {
     #[error("Connector configuration error: {0}")]

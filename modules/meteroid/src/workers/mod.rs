@@ -244,6 +244,28 @@ pub async fn spawn_workers(
         });
     }
 
+    {
+        use meteroid_store::constants::advisory_lock_keys;
+        use meteroid_store::leader::PgLeaderElection;
+
+        let store = store.clone();
+        let services = services.clone();
+        // Lost-return backstop for hosted checkouts AND hosted invoice
+        // payments on providers with no webhook (capability
+        // `HostedSetupCompletion::PollingRequired`), whose payment was
+        // captured in-flow. Single replica (provider
+        // polling), same kill switch as reconciliation.
+        let elector = Arc::new(PgLeaderElection::new(
+            store.pool.clone(),
+            advisory_lock_keys::HOSTED_PAYMENT_SWEEP_LEADER,
+        ));
+        let enabled = config.reconciliation_enabled;
+        join_set.spawn(async move {
+            misc::hosted_payment_sweeper::run_hosted_payment_sweeper(services, elector, enabled)
+                .await;
+        });
+    }
+
     join_set.spawn(async move {
         misc::currency_rates_worker::run_currency_rates_worker(&store, &currency_rates_service)
             .await;

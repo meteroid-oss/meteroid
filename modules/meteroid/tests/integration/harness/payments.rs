@@ -119,6 +119,14 @@ impl TestEnv {
         self.seed_customer_payment_methods_provider_2().await;
     }
 
+    /// Seed a Stancer connector as the card provider, with a pre-existing
+    /// connection + payment method already on file — see the doc comment on
+    /// `run_stancer_provider_seed` for why the connection must pre-exist.
+    pub async fn seed_stancer_payments(&self) {
+        crate::data::payment::run_stancer_provider_seed(self.pool()).await;
+        crate::data::payment::run_customer_payment_methods_stancer_seed(self.pool()).await;
+    }
+
     /// Seed direct debit provider (only DD, no card).
     pub async fn seed_direct_debit_provider(&self) {
         crate::data::payment::run_direct_debit_provider_seed(self.pool()).await;

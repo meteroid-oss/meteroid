@@ -10,6 +10,7 @@ import { EditHubspotIntegrationModal } from '@/features/settings/integrations/Ed
 import { GoCardlessIntegrationModal } from '@/features/settings/integrations/GoCardlessIntegration'
 import { HubspotIntegrationModal } from '@/features/settings/integrations/HubspotIntegration'
 import { PennylaneIntegrationModal } from '@/features/settings/integrations/PennylaneIntegration'
+import { StancerIntegrationModal } from '@/features/settings/integrations/StancerIntegration'
 import { StripeIntegrationModal } from '@/features/settings/integrations/StripeIntegration'
 import { DeadLetterPage } from '@/pages/admin/deadletter'
 import { DeadLetterDetailPage } from '@/pages/admin/deadletter-detail'
@@ -51,6 +52,10 @@ export const tenantRoutes: RouteObject = {
         {
           path: 'add-gocardless',
           element: <GoCardlessIntegrationModal />,
+        },
+        {
+          path: 'add-stancer',
+          element: <StancerIntegrationModal />,
         },
         {
           path: 'connect-pennylane',

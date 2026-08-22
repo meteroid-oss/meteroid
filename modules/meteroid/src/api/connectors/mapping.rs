@@ -19,6 +19,7 @@ pub mod connectors {
             server::ConnectorProviderEnum::Gocardless => {
                 domain_enum::ConnectorProviderEnum::Gocardless
             }
+            server::ConnectorProviderEnum::Stancer => domain_enum::ConnectorProviderEnum::Stancer,
         }
     }
 
@@ -39,6 +40,9 @@ pub mod connectors {
             }
             domain_enum::ConnectorProviderEnum::Gocardless => {
                 Some(server::ConnectorProviderEnum::Gocardless)
+            }
+            domain_enum::ConnectorProviderEnum::Stancer => {
+                Some(server::ConnectorProviderEnum::Stancer)
             }
             domain_enum::ConnectorProviderEnum::Mock => {
                 // Mock connector is for testing only - should never be returned via API
@@ -119,7 +123,27 @@ pub mod connectors {
                 // connector still works end-to-end; the proto enumeration
                 // layer just hasn't been regenerated to know about it.
                 ProviderData::Gocardless(_) => None,
+                // Stancer has no public data to expose (no publishable key,
+                // no external account id).
+                ProviderData::Stancer(_) => None,
             }),
+        })
+    }
+
+    /// Maps the proto `StancerConnector` payload to the sensitive domain
+    /// struct. Stancer has no public data — the secret key is the whole
+    /// configuration (mode rides on the key prefix). Rejects an empty key
+    /// rather than persisting an unusable connector.
+    pub fn stancer_data_to_domain(
+        value: &server::StancerConnector,
+    ) -> Result<domain::StancerSensitiveData, ConnectorApiError> {
+        if value.api_secret_key.trim().is_empty() {
+            return Err(ConnectorApiError::InvalidArgument(
+                "Stancer api_secret_key must not be empty".to_string(),
+            ));
+        }
+        Ok(domain::StancerSensitiveData {
+            api_secret_key: value.api_secret_key.clone(),
         })
     }
 

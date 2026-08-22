@@ -250,3 +250,10 @@ pub const CUST_UBER_SEPA_METHOD_ID: CustomerPaymentMethodId =
 
 pub const TEST_BANK_ACCOUNT_ID: BankAccountId =
     BankAccountId::from_const(uuid!("019438e0-0033-7000-8000-000000000001"));
+
+pub const STANCER_CONNECTOR_ID: ConnectorId =
+    ConnectorId::from_const(uuid!("019438e0-0034-7000-8000-000000000001"));
+pub const CUST_UBER_CONNECTION_STANCER_ID: CustomerConnectionId =
+    CustomerConnectionId::from_const(uuid!("019438e0-0035-7000-8000-000000000001"));
+pub const CUST_UBER_PAYMENT_METHOD_STANCER_ID: CustomerPaymentMethodId =
+    CustomerPaymentMethodId::from_const(uuid!("019438e0-0036-7000-8000-000000000001"));

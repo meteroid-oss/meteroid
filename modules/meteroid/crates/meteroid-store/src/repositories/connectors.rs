@@ -1,7 +1,8 @@
 use crate::domain::connectors::{
     Connector, ConnectorAccessToken, ConnectorMeta, ConnectorNew, HubspotPublicData,
     HubspotSensitiveData, PennylanePublicData, PennylaneSensitiveData, ProviderData,
-    ProviderSensitiveData, StripePublicData, StripeSensitiveData,
+    ProviderSensitiveData, StancerPublicData, StancerSensitiveData, StripePublicData,
+    StripeSensitiveData,
 };
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
@@ -50,6 +51,14 @@ pub trait ConnectorsInterface {
         alias: String,
         public: crate::domain::connectors::GocardlessPublicData,
         sensitive: crate::domain::connectors::GocardlessSensitiveData,
+    ) -> StoreResult<ConnectorMeta>;
+
+    async fn connect_stancer(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        alias: String,
+        stancer_data: StancerSensitiveData,
     ) -> StoreResult<ConnectorMeta>;
 
     async fn get_connector_with_data(
@@ -227,6 +236,55 @@ impl ConnectorsInterface for Store {
             .insert(&mut conn)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(res.into())
+    }
+
+    async fn connect_stancer(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        alias: String,
+        stancer_data: StancerSensitiveData,
+    ) -> StoreResult<ConnectorMeta> {
+        let row: ConnectorRowNew = ConnectorNew {
+            tenant_id,
+            alias: alias.clone(),
+            connector_type: ConnectorTypeEnum::PaymentProvider,
+            provider: ConnectorProviderEnum::Stancer,
+            data: Some(ProviderData::Stancer(StancerPublicData::default())),
+            sensitive: Some(ProviderSensitiveData::Stancer(stancer_data)),
+        }
+        .to_row(&self.settings.crypt_key)?;
+
+        let res = self
+            .transaction(|conn| {
+                let actor = &actor;
+                let row = &row;
+                let alias = &alias;
+                async move {
+                    let res = row
+                        .insert(conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    let activity = Activity::new(
+                        ActivityType::ConnectorConnected,
+                        EntityType::Connector,
+                        res.id.as_uuid(),
+                    )
+                    .with_metadata(serde_json::json!({
+                        "provider": "stancer",
+                        "alias": alias,
+                    }));
+                    self.internal
+                        .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                        .await?;
+                    Ok(res)
+                }
+                .scope_boxed()
+            })
+            .await?;
 
         Ok(res.into())
     }

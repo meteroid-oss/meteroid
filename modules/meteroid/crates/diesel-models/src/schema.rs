@@ -874,6 +874,8 @@ diesel::table! {
         next_action -> Nullable<Jsonb>,
         amount_refunded -> Int8,
         initiated_by_customer_id -> Nullable<Uuid>,
+        pending_provider_intent_id -> Nullable<Text>,
+        pending_connection_id -> Nullable<Uuid>,
     }
 }
 
@@ -1447,6 +1449,7 @@ diesel::joinable!(organization_invite -> user (invited_by));
 diesel::joinable!(organization_member -> organization (organization_id));
 diesel::joinable!(organization_member -> user (user_id));
 diesel::joinable!(payment_transaction -> checkout_session (checkout_session_id));
+diesel::joinable!(payment_transaction -> customer_connection (pending_connection_id));
 diesel::joinable!(payment_transaction -> customer_payment_method (payment_method_id));
 diesel::joinable!(payment_transaction -> invoice (invoice_id));
 diesel::joinable!(payment_transaction -> plan_version (pending_plan_version_id));

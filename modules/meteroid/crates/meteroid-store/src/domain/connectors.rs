@@ -41,6 +41,7 @@ pub enum ProviderData {
     Pennylane(PennylanePublicData),
     Mock(MockPublicData),
     Gocardless(GocardlessPublicData),
+    Stancer(StancerPublicData),
 }
 
 json_value_ser!(ProviderData);
@@ -50,6 +51,12 @@ pub struct StripePublicData {
     pub api_publishable_key: String,
     pub account_id: String,
 }
+
+/// Stancer has no publishable key and no account id: the secret key alone
+/// authenticates every call, and the hosted-page URL comes fully formed from
+/// the payment-intent response. Nothing public to store.
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct StancerPublicData {}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HubspotPublicData {
@@ -73,6 +80,7 @@ pub enum ProviderSensitiveData {
     Pennylane(PennylaneSensitiveData),
     Mock(MockSensitiveData),
     Gocardless(GocardlessSensitiveData),
+    Stancer(StancerSensitiveData),
 }
 
 impl ProviderSensitiveData {
@@ -130,6 +138,14 @@ pub struct StripeSensitiveData {
     /// clean up the endpoint on disconnect.
     #[serde(default)]
     pub webhook_endpoint_id: Option<String>,
+}
+
+/// Stancer's only credential. Test vs live mode rides on the key prefix
+/// (`stest_…` / `sprod_…`) — there is no environment toggle. No webhook
+/// secret: Stancer has no webhook mechanism at all (spec-verified).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StancerSensitiveData {
+    pub api_secret_key: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

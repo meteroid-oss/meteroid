@@ -57,6 +57,13 @@ pub struct PaymentMethodSnapshot {
     /// (combined mandate + first payment). Drives in-flight subscription
     /// activation on `billing_requests.fulfilled`. `None` otherwise.
     pub meteroid_checkout_session_id: Option<String>,
+    /// base62 `PaymentTransactionId` of the Pending checkout transaction this
+    /// setup was minted for, recovered from the intent/BR metadata
+    /// (`meteroid.transaction_id`). Completion records the captured payment
+    /// onto THIS transaction — never onto "the latest" for the session, which
+    /// can belong to a newer attempt. `None` for non-checkout setups and
+    /// legacy intents created before the id was stamped.
+    pub meteroid_transaction_id: Option<String>,
     /// The provider payment created from the Billing Request's `payment_request`
     /// (GoCardless `links.payment_request_payment`), present only on a combined
     /// mandate+payment hosted checkout. Recorded as the checkout transaction's
@@ -260,6 +267,19 @@ pub struct MandateSetupRequest<'a> {
     /// Billing Request with both a `mandate_request` and a `payment_request`).
     /// Mutually exclusive with `invoice_id` (checkout has no invoice yet).
     pub checkout: Option<HostedCheckoutContext>,
+    /// Set for a hosted INVOICE payment on an in-flow-capturing provider
+    /// (`HostedSetupCompletion::PollingRequired`, i.e. Stancer): the hosted
+    /// page shows and captures the invoice's real `amount_due` together with
+    /// the card save — the single charge; completion records it, never
+    /// re-charges. When set, `invoice_id` names the same invoice. Mutually
+    /// exclusive with `checkout`. Webhook-backed providers never receive it
+    /// (they keep the 0-amount save + post-mandate webhook charge).
+    pub invoice_payment: Option<HostedInvoicePaymentContext>,
+    /// The customer's billing currency (ISO 4217). Used by providers whose
+    /// setup intent requires an explicit currency even for a 0-amount card
+    /// save (Stancer); providers that derive currency from the mandate scheme
+    /// (GoCardless) or need none (Stripe) ignore it.
+    pub currency: Option<String>,
 }
 
 /// Context for a combined mandate + first-payment hosted checkout. Threaded into
@@ -283,6 +303,24 @@ pub struct HostedCheckoutContext {
     pub currency: String,
 }
 
+/// Context for an in-flow hosted INVOICE payment: the hosted page captures the
+/// invoice's `amount_due` together with the card save. Threaded into the
+/// provider intent so completion resolves both the invoice and the pre-created
+/// Pending transaction the capture must be recorded onto.
+#[derive(Debug, Clone)]
+pub struct HostedInvoicePaymentContext {
+    /// base62 `InvoiceId` — goes in the intent metadata (`meteroid.invoice_id`).
+    pub invoice_id: String,
+    /// base62 `PaymentTransactionId` of the pre-created Pending invoice
+    /// transaction — goes in the intent metadata (`meteroid.transaction_id`)
+    /// so completion records the capture onto THIS row, never "the latest".
+    pub transaction_id: String,
+    /// The invoice's `amount_due` in minor units, frozen at initiation.
+    pub amount_minor: i64,
+    /// ISO 4217 currency of the invoice.
+    pub currency: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct CreateCustomerRequest {
     pub idempotency_key: IdempotencyKey,
@@ -294,6 +332,10 @@ pub struct CreateCustomerRequest {
 pub enum RemoteTransactionStatus {
     Succeeded {
         amount_received_minor: i64,
+        /// ISO 4217 currency the provider reports the settled amount in.
+        /// Consumers cross-check it against the local transaction before
+        /// settling (in-flow captured checkout payments).
+        currency: String,
         processed_at: NaiveDateTime,
     },
     Pending,

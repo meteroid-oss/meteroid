@@ -168,6 +168,7 @@ fn payment_intent_from_remote_status(
         RemoteTransactionStatus::Succeeded {
             amount_received_minor,
             processed_at,
+            ..
         } => Some(PaymentIntent {
             external_id: row.provider_transaction_id.clone().unwrap_or_default(),
             transaction_id,
@@ -236,6 +237,8 @@ mod tests {
             next_action: None,
             initiated_by_customer_id: None,
             amount_refunded: 0,
+            pending_provider_intent_id: None,
+            pending_connection_id: None,
         }
     }
 
@@ -278,6 +281,7 @@ mod tests {
         let intent = payment_intent_from_remote_status(
             RemoteTransactionStatus::Succeeded {
                 amount_received_minor: 3500,
+                currency: "EUR".into(),
                 processed_at,
             },
             row.id,

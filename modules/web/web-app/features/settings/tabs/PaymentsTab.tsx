@@ -48,6 +48,7 @@ const PROVIDER_CAPABILITIES: Partial<Record<ConnectorProviderEnum, Record<Paymen
   {
     [ConnectorProviderEnum.STRIPE]: { card: true, directDebit: true },
     [ConnectorProviderEnum.GOCARDLESS]: { card: false, directDebit: true },
+    [ConnectorProviderEnum.STANCER]: { card: true, directDebit: false },
   }
 
 const providerSupports = (provider: ConnectorProviderEnum, rail: PaymentRail): boolean =>

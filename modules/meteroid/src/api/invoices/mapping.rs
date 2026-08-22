@@ -349,6 +349,15 @@ pub mod transactions {
     pub fn domain_to_server(
         value: domain::payment_transactions::PaymentTransaction,
     ) -> Transaction {
+        // A Pending tx carrying its hosted-intent marker is a resumable hosted
+        // attempt: expose only the connection to resume on, never the raw
+        // provider intent id.
+        let resumable_hosted_connection_id = (value.status
+            == domain::enums::PaymentStatusEnum::Pending
+            && value.pending_provider_intent_id.is_some())
+        .then(|| value.pending_connection_id.map(|c| c.as_proto()))
+        .flatten();
+
         Transaction {
             id: value.id.as_proto(),
             status: status_domain_to_server(value.status).into(),
@@ -361,6 +370,7 @@ pub mod transactions {
             invoice_id: value.invoice_id.map(|id| id.as_proto()),
             payment_method_info: None,
             processed_at: value.processed_at.as_proto(),
+            resumable_hosted_connection_id,
         }
     }
 
@@ -375,6 +385,82 @@ pub mod transactions {
             payment_method_type: method_type_domain_to_server(m.payment_method_type).into(),
         });
         tx
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use common_domain::ids::{BaseId, CustomerConnectionId, PaymentTransactionId, TenantId};
+        use meteroid_store::domain::enums::{PaymentStatusEnum, PaymentTypeEnum};
+        use meteroid_store::domain::payment_transactions::PaymentTransaction;
+
+        fn tx(
+            status: PaymentStatusEnum,
+            intent: Option<&str>,
+            connection: Option<CustomerConnectionId>,
+        ) -> PaymentTransaction {
+            PaymentTransaction {
+                id: PaymentTransactionId::new(),
+                tenant_id: TenantId::new(),
+                invoice_id: None,
+                provider_transaction_id: None,
+                processed_at: None,
+                refunded_at: None,
+                amount: 3500,
+                currency: "EUR".to_string(),
+                payment_method_id: None,
+                status,
+                payment_type: PaymentTypeEnum::Payment,
+                error_type: None,
+                receipt_pdf_id: None,
+                checkout_session_id: None,
+                pending_plan_version_id: None,
+                pending_provider_intent_id: intent.map(str::to_string),
+                pending_connection_id: connection,
+                amount_refunded: 0,
+                next_action: None,
+            }
+        }
+
+        #[test]
+        fn pending_with_hosted_marker_surfaces_resumable_connection_only() {
+            let connection = CustomerConnectionId::new();
+            let proto = domain_to_server(tx(
+                PaymentStatusEnum::Pending,
+                Some("pi_hosted_123"),
+                Some(connection),
+            ));
+            assert_eq!(
+                proto.resumable_hosted_connection_id,
+                Some(connection.as_proto()),
+                "a Pending tx with a hosted-intent marker must be resumable on its connection"
+            );
+            // The raw provider intent id must never reach the client.
+            assert_ne!(
+                proto.resumable_hosted_connection_id.as_deref(),
+                Some("pi_hosted_123")
+            );
+        }
+
+        #[test]
+        fn pending_without_marker_is_not_resumable() {
+            // A normal off-session charge in progress: Pending, no marker.
+            let proto = domain_to_server(tx(PaymentStatusEnum::Pending, None, None));
+            assert_eq!(proto.resumable_hosted_connection_id, None);
+        }
+
+        #[test]
+        fn non_pending_with_marker_is_not_resumable() {
+            // Settled-but-unmaterialized rows keep the marker for the sweeper;
+            // they must not invite the customer back to the hosted page.
+            let connection = CustomerConnectionId::new();
+            let proto = domain_to_server(tx(
+                PaymentStatusEnum::Settled,
+                Some("pi_hosted_123"),
+                Some(connection),
+            ));
+            assert_eq!(proto.resumable_hosted_connection_id, None);
+        }
     }
 }
 

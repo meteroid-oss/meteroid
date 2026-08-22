@@ -403,6 +403,48 @@ impl PaymentTransactionRowPatch {
 }
 
 impl PaymentTransactionRow {
+    /// Cancel a transaction ONLY while it is still awaiting (Pending/Ready),
+    /// in one status-predicated statement. Returns the number of rows updated:
+    /// 0 means a concurrent writer (e.g. the Stancer return handler settling a
+    /// captured payment) progressed the row first — the caller MUST treat that
+    /// as "already progressed" and never as a completed cancellation. This is
+    /// the guard `PaymentTransactionRowPatch::patch` (id+tenant only) lacks:
+    /// an unguarded patch would clobber a concurrently-settled row.
+    pub async fn cancel_if_awaiting(
+        conn: &mut PgConn,
+        tenant_uid: TenantId,
+        tx_id: PaymentTransactionId,
+        error: &str,
+    ) -> DbResult<usize> {
+        use crate::schema::payment_transaction::dsl::{
+            error_type, id, next_action, payment_transaction, pending_provider_intent_id, status,
+            tenant_id,
+        };
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(
+            payment_transaction
+                .filter(id.eq(tx_id))
+                .filter(tenant_id.eq(tenant_uid))
+                .filter(status.eq_any([PaymentStatusEnum::Pending, PaymentStatusEnum::Ready])),
+        )
+        .set((
+            status.eq(PaymentStatusEnum::Cancelled),
+            error_type.eq(Some(error.to_string())),
+            next_action.eq(None::<serde_json::Value>),
+            // The hosted attempt is closed out with it — stop sweeping it.
+            pending_provider_intent_id.eq(None::<String>),
+        ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while cancelling awaiting transaction")
+            .into_db_result()
+    }
+
     /// The most recent non-terminal (Pending/Ready) transaction for a checkout
     /// session, if any. Makes checkout completion idempotent: a re-invocation
     /// while a charge is in flight returns the existing transaction instead of
@@ -494,6 +536,176 @@ impl PaymentTransactionRow {
             .get_result(conn)
             .await
             .attach("Error while tagging transaction with checkout session")
+            .into_db_result()
+    }
+
+    /// Sweeper scan (all tenants): transactions still carrying a hosted
+    /// pending-intent id, created before `older_than`. Failed/Cancelled rows
+    /// stay watched (their hosted page can still capture on a retry) until
+    /// close-out; Settled rows stay until completion releases the marker, so
+    /// a settled-but-unmaterialized checkout keeps being retried. Only
+    /// Refunded is excluded (reversal handling owns it). Keyset-ordered on
+    /// `(created_at, id)` ascending; `after` continues strictly past that key.
+    pub async fn list_sweepable_with_pending_intent(
+        conn: &mut PgConn,
+        older_than: chrono::DateTime<chrono::Utc>,
+        after: Option<(chrono::DateTime<chrono::Utc>, PaymentTransactionId)>,
+        limit: i64,
+    ) -> DbResult<Vec<PaymentTransactionRow>> {
+        use crate::schema::payment_transaction::dsl as pt_dsl;
+        use diesel::BoolExpressionMethods;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = pt_dsl::payment_transaction
+            .filter(pt_dsl::pending_provider_intent_id.is_not_null())
+            .filter(pt_dsl::status.eq_any([
+                PaymentStatusEnum::Pending,
+                PaymentStatusEnum::Ready,
+                PaymentStatusEnum::Failed,
+                PaymentStatusEnum::Cancelled,
+                PaymentStatusEnum::Settled,
+            ]))
+            .filter(pt_dsl::created_at.lt(older_than))
+            .order_by((pt_dsl::created_at.asc(), pt_dsl::id.asc()))
+            .limit(limit)
+            .select(PaymentTransactionRow::as_select())
+            .into_boxed();
+
+        if let Some((after_created_at, after_id)) = after {
+            query = query.filter(
+                pt_dsl::created_at
+                    .gt(after_created_at)
+                    .or(pt_dsl::created_at
+                        .eq(after_created_at)
+                        .and(pt_dsl::id.gt(after_id))),
+            );
+        }
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while listing transactions awaiting hosted completion")
+            .into_db_result()
+    }
+
+    /// Clear the hosted pending-intent marker, but only while the row still
+    /// carries exactly `intent_id` (the caller's evidence). Returns the number
+    /// of rows updated: 0 means the marker changed concurrently (a newer
+    /// attempt re-initiated) and the caller must not treat the intent as
+    /// closed out.
+    pub async fn clear_pending_intent_if_matches(
+        conn: &mut PgConn,
+        tenant_uid: TenantId,
+        tx_id: PaymentTransactionId,
+        intent_id: &str,
+    ) -> DbResult<usize> {
+        use crate::schema::payment_transaction::dsl as pt_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(
+            pt_dsl::payment_transaction
+                .filter(pt_dsl::id.eq(tx_id))
+                .filter(pt_dsl::tenant_id.eq(tenant_uid))
+                .filter(pt_dsl::pending_provider_intent_id.eq(intent_id)),
+        )
+        .set(pt_dsl::pending_provider_intent_id.eq(None::<String>));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while clearing transaction pending intent")
+            .into_db_result()
+    }
+
+    /// Clear the hosted pending-intent marker for one row without the
+    /// intent-id predicate — safe because the marker is write-once per row.
+    /// Used under the row lock when only the domain tx (no marker) is in hand.
+    pub async fn clear_pending_intent(
+        conn: &mut PgConn,
+        tenant_uid: TenantId,
+        tx_id: PaymentTransactionId,
+    ) -> DbResult<usize> {
+        use crate::schema::payment_transaction::dsl as pt_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(
+            pt_dsl::payment_transaction
+                .filter(pt_dsl::id.eq(tx_id))
+                .filter(pt_dsl::tenant_id.eq(tenant_uid))
+                .filter(pt_dsl::pending_provider_intent_id.is_not_null()),
+        )
+        .set(pt_dsl::pending_provider_intent_id.eq(None::<String>));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while clearing transaction pending intent")
+            .into_db_result()
+    }
+
+    /// The most recent transaction for an invoice that still carries a hosted
+    /// pending-intent id, at ANY status. Backs the single-intent discipline of
+    /// hosted invoice payments: re-initiation cancels (or adopts) this intent
+    /// before minting a replacement.
+    pub async fn latest_with_pending_intent_by_invoice_id(
+        conn: &mut PgConn,
+        inv_uid: InvoiceId,
+        tenant_uid: TenantId,
+    ) -> DbResult<Option<PaymentTransactionRow>> {
+        use crate::schema::payment_transaction::dsl as pt_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = pt_dsl::payment_transaction
+            .filter(pt_dsl::invoice_id.eq(inv_uid))
+            .filter(pt_dsl::tenant_id.eq(tenant_uid))
+            .filter(pt_dsl::pending_provider_intent_id.is_not_null())
+            .order(pt_dsl::created_at.desc())
+            .select(PaymentTransactionRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while finding hosted invoice transaction")
+            .into_db_result()
+    }
+
+    /// The most recent transaction for a checkout session that still carries
+    /// a hosted pending-intent id, at ANY status. Backs the single-intent
+    /// discipline of hosted checkouts: re-initiation cancels (or adopts) this
+    /// intent before minting a replacement — deliberately NOT "the latest
+    /// transaction", since an intermediate saved-card attempt (no marker)
+    /// must not hide a still-live prior capturable intent.
+    pub async fn latest_with_pending_intent_by_checkout_session_id(
+        conn: &mut PgConn,
+        checkout_session_uid: CheckoutSessionId,
+        tenant_uid: TenantId,
+    ) -> DbResult<Option<PaymentTransactionRow>> {
+        use crate::schema::payment_transaction::dsl as pt_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = pt_dsl::payment_transaction
+            .filter(pt_dsl::checkout_session_id.eq(checkout_session_uid))
+            .filter(pt_dsl::tenant_id.eq(tenant_uid))
+            .filter(pt_dsl::pending_provider_intent_id.is_not_null())
+            .order(pt_dsl::created_at.desc())
+            .select(PaymentTransactionRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while finding hosted checkout transaction")
             .into_db_result()
     }
 }

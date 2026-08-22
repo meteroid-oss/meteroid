@@ -149,6 +149,76 @@ pub async fn run_mock_payment_provider_2_seed(pool: &PgPool) {
     .unwrap();
 }
 
+/// Seeds a Stancer connector as the invoicing entity's card provider.
+///
+/// Unlike the Mock provider, `StancerClient` makes real HTTP calls — there is
+/// no in-memory fake behind `ConnectorProviderEnum::Stancer`. This seed (and
+/// `run_customer_payment_methods_stancer_seed` below) exist to test the
+/// provider-agnostic config-resolution/connection-reuse logic around a
+/// Stancer connector without ever reaching the network: as long as a
+/// `CustomerConnection` row already exists for this connector, resolution
+/// never calls `CustomerOps::create_customer`. Do NOT use this seed in a test
+/// that exercises a from-scratch connection (that path always calls the real
+/// provider) or an actual charge (`PaymentOps::charge_off_session`).
+pub async fn run_stancer_provider_seed(pool: &PgPool) {
+    let mut conn = pool
+        .get()
+        .await
+        .expect("couldn't get db connection from pool");
+
+    conn.transaction(async |tx| {
+        // No `sensitive` ciphertext: nothing in these tests decrypts it, and
+        // a fake secret key would need to be validly encrypted to round-trip
+        // through `Connector::from_row` at all.
+        ConnectorRowNew {
+            id: ids::STANCER_CONNECTOR_ID,
+            tenant_id: ids::TENANT_ID,
+            alias: "stancer-payment-provider".to_string(),
+            connector_type: ConnectorTypeEnum::PaymentProvider,
+            provider: ConnectorProviderEnum::Stancer,
+            data: Some(serde_json::json!({ "Stancer": {} })),
+            sensitive: None,
+        }
+        .insert(tx)
+        .await?;
+
+        InvoicingEntityRowProvidersPatch {
+            id: ids::INVOICING_ENTITY_ID,
+            card_provider_id: Some(Some(ids::STANCER_CONNECTOR_ID)),
+            direct_debit_provider_id: None,
+            bank_account_id: None,
+        }
+        .patch_invoicing_entity_providers(tx, ids::TENANT_ID)
+        .await?;
+
+        Ok::<(), DatabaseErrorContainer>(())
+    })
+    .await
+    .unwrap();
+}
+
+/// Seeds a pre-existing customer connection + payment method for the Stancer
+/// connector, so resolution finds it and never calls the real provider.
+pub async fn run_customer_payment_methods_stancer_seed(pool: &PgPool) {
+    let uber_connection_id = get_or_create_customer_connection(
+        pool,
+        ids::CUST_UBER_ID,
+        ids::CUST_UBER_CONNECTION_STANCER_ID,
+        ids::STANCER_CONNECTOR_ID,
+        "cust_test_stancer_uber",
+    )
+    .await;
+
+    create_customer_payment_method(
+        pool,
+        ids::CUST_UBER_ID,
+        uber_connection_id,
+        ids::CUST_UBER_PAYMENT_METHOD_STANCER_ID,
+        "card_test_stancer_uber",
+    )
+    .await;
+}
+
 // =============================================================================
 // Customer Payment Methods Seeds
 // =============================================================================

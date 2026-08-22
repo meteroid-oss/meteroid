@@ -5,6 +5,7 @@ mod checkout_session;
 mod consolidation;
 mod coupons;
 mod hosted_checkout;
+mod hosted_invoice_payment;
 mod lifecycle;
 mod migration;
 mod payment_double_charge;

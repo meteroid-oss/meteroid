@@ -26,7 +26,28 @@ message ConfirmInvoicePaymentResponse {
   optional api.invoices.v1.PaymentActionRequired next_action = 2;
 }
 
+// Explicit PAY action for hosted-redirect in-flow-capture providers (Stancer):
+// pre-creates the Pending invoice transaction, mints the capturing intent and
+// returns the redirect. Click-only — SetupIntent (page render) is side-effect-free.
+message InitiateHostedInvoicePaymentRequest {
+  // The card customer connection to run the hosted payment on.
+  string connection_id = 1;
+  // Client-displayed total, validated against the invoice's amount_due.
+  uint64 displayed_amount = 2;
+  string displayed_currency = 3;
+  // Required with CustomerPortal tokens; InvoicePortal tokens carry the invoice.
+  optional string invoice_id = 4;
+  // Customer's desired post-flow page (same-origin; reflected into the return URL).
+  optional string return_url = 5;
+}
+
+message InitiateHostedInvoicePaymentResponse {
+  // Redirect the customer to the provider-hosted payment page.
+  api.invoices.v1.PaymentActionRequired next_action = 1;
+}
+
 service PortalInvoiceService {
   rpc GetInvoicePayment(GetInvoiceForPaymentRequest) returns (GetInvoiceForPaymentResponse) {}
   rpc ConfirmInvoicePayment(ConfirmInvoicePaymentRequest) returns (ConfirmInvoicePaymentResponse) {}
+  rpc InitiateHostedInvoicePayment(InitiateHostedInvoicePaymentRequest) returns (InitiateHostedInvoicePaymentResponse) {}
 }

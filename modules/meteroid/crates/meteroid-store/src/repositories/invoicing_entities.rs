@@ -238,7 +238,18 @@ impl InvoicingEntityInterface for Store {
                 let supported = if requires_cards {
                     capabilities.supports_cards
                 } else {
-                    capabilities.supports_mandates
+                    // "Supports direct debit" means an actual DD rail, not just
+                    // mandates: a card-only provider (Stancer) also has
+                    // supports_mandates (a saved card is a reusable mandate)
+                    // but must never land in the direct-debit slot.
+                    capabilities.supported_payment_methods.iter().any(|m| {
+                        matches!(
+                            m,
+                            crate::domain::PaymentMethodTypeEnum::DirectDebitSepa
+                                | crate::domain::PaymentMethodTypeEnum::DirectDebitAch
+                                | crate::domain::PaymentMethodTypeEnum::DirectDebitBacs
+                        )
+                    })
                 };
 
                 if !supported {

@@ -444,6 +444,8 @@ const getProviderName = (provider: ConnectorProviderEnum | undefined): string =>
       return 'Pennylane'
     case ConnectorProviderEnum.GOCARDLESS:
       return 'GoCardless'
+    case ConnectorProviderEnum.STANCER:
+      return 'Stancer'
     default:
       return 'Unknown'
   }

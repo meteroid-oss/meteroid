@@ -71,6 +71,67 @@ export const BrandIcon = ({
   </svg>
 )
 
+// Stancer's logo (from https://docs.stancer.com/favicon.svg) is a full
+// gradient mark, not a flat single-color path like the simple-icons ones
+// above, so it's inlined directly rather than going through BrandIcon.
+// Gradient/filter ids are prefixed to avoid colliding with other ids in the DOM.
+export const StancerLogo = ({ className }: { className?: string }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 104 104" className={className}>
+    <defs>
+      <linearGradient
+        id="stancer-logo-a"
+        x1="57.242"
+        y1="35"
+        x2="1.041"
+        y2="80.666"
+        gradientUnits="userSpaceOnUse"
+      >
+        <stop stopColor="#215DD2" />
+        <stop offset="1" stopColor="#79A7FF" />
+      </linearGradient>
+      <linearGradient
+        id="stancer-logo-b"
+        x1="82.862"
+        y1="7.249"
+        x2="41.529"
+        y2="53.322"
+        gradientUnits="userSpaceOnUse"
+      >
+        <stop stopColor="#d0e9ff" />
+        <stop offset="1" stopColor="#FF5B58" />
+      </linearGradient>
+      <filter
+        id="stancer-logo-c"
+        x="24.534"
+        y="29.266"
+        width="58.749"
+        height="44.733"
+        filterUnits="userSpaceOnUse"
+        colorInterpolationFilters="sRGB"
+      >
+        <feFlood floodOpacity="0" result="BackgroundImageFix" />
+        <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+        <feGaussianBlur stdDeviation="2" result="effect1_foregroundBlur" />
+      </filter>
+    </defs>
+    <path
+      d="M35.656 32h-11.57C17.239 32 11.28 36.6 9.664 43.131L.667 83.509C-.305 87.873 3.092 92 7.657 92h51.27c4.528 0 8.446-3.09 9.422-7.43l9.973-44.347C79.272 36 76.313 32 71.908 32H35.656Z"
+      fill="url(#stancer-logo-a)"
+    />
+    <path
+      d="M51.509 12h46.18c4.352 0 7.587 4 6.649 8.223l-.965 4.343H36.908l.35-1.435C38.856 16.599 44.744 12 51.509 12ZM35.112 31.913l-8.486 34.72C25.958 69.367 28.042 72 30.873 72h54.303c4.473 0 8.344-3.09 9.309-7.43l7.256-32.657H35.112Z"
+      fill="#d0e9ff"
+      fillRule="evenodd"
+    />
+    <path
+      d="m71.563 70 7.72-36.734H36.695L28.66 64.633c-.668 2.733 1.416 5.366 4.247 5.366h38.656Z"
+      fill="url(#stancer-logo-b)"
+      fillRule="evenodd"
+      filter="url(#stancer-logo-c)"
+    />
+  </svg>
+)
+
 export const IntegrationsTab = () => {
   // TODO set based on #hash
   const [activeSection] = useState('')
@@ -121,6 +182,16 @@ export const IntegrationsTab = () => {
           link: `add-gocardless`,
           data: connectorsQuery.data?.connectors.filter(
             connector => connector.provider === ConnectorProviderEnum.GOCARDLESS
+          ),
+        },
+        {
+          name: 'Stancer',
+          description: 'European card payments platform',
+          features: ['Card'],
+          icon: ({ className }) => <StancerLogo className={className} />,
+          link: `add-stancer`,
+          data: connectorsQuery.data?.connectors.filter(
+            connector => connector.provider === ConnectorProviderEnum.STANCER
           ),
         },
         {
@@ -268,47 +339,51 @@ export const IntegrationsTab = () => {
                               </Link>
                             </Button>
                           ) : (
-                            <div className="  grid grid-cols-[1fr,auto] gap-2">
-                              <span className="text-xs text-success flex items-center gap-2  ">
-                                <CheckCircle2 /> Connected
-                              </span>
+                            <div className="flex flex-col items-end gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-success flex items-center gap-1.5">
+                                  <CheckCircle2 className="w-4 h-4" /> Connected
+                                </span>
 
-                              {integration.multiConnectionsDisabled ? (
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="font-semibold"
-                                  disabled
-                                >
-                                  <PlusIcon size={16} />
-                                </Button>
-                              ) : (
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="font-semibold"
-                                  asChild
-                                >
-                                  <Link to={integration.link ?? '#'}>
-                                    <PlusIcon size={16} />{' '}
-                                  </Link>
-                                </Button>
-                              )}
+                                {integration.multiConnectionsDisabled ? (
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="font-semibold"
+                                    disabled
+                                  >
+                                    <PlusIcon size={16} />
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="font-semibold"
+                                    asChild
+                                  >
+                                    <Link to={integration.link ?? '#'}>
+                                      <PlusIcon size={16} />
+                                    </Link>
+                                  </Button>
+                                )}
+                              </div>
                               {integration.data.map(connector => (
-                                <React.Fragment key={connector.id}>
+                                <div
+                                  key={connector.id}
+                                  className="flex items-center gap-2"
+                                >
                                   <span className="text-xs">
                                     <CopyToClipboardButton text={connector.alias} />
                                   </span>
-                                  <span className="items-center justify-self-end">
-                                    <Popover>
-                                      <PopoverTrigger className="items-center justify-items-center w-9 ">
-                                        <MoreVerticalIcon size={16} className="cursor-pointer" />
-                                      </PopoverTrigger>
-                                      <PopoverContent
-                                        className="p-0  w-32  "
-                                        side="bottom"
-                                        align="end"
-                                      >
+                                  <Popover>
+                                    <PopoverTrigger className="flex items-center justify-center w-9">
+                                      <MoreVerticalIcon size={16} className="cursor-pointer" />
+                                    </PopoverTrigger>
+                                    <PopoverContent
+                                      className="p-0 w-32"
+                                      side="bottom"
+                                      align="end"
+                                    >
                                         {integration.editLink && (
                                           <Link
                                             to={`${integration.editLink}/${connector.id}`}
@@ -334,8 +409,7 @@ export const IntegrationsTab = () => {
                                         </Button>
                                       </PopoverContent>
                                     </Popover>
-                                  </span>
-                                </React.Fragment>
+                                  </div>
                               ))}
                             </div>
                           )}

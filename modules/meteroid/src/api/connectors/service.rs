@@ -6,16 +6,18 @@ use meteroid_grpc::meteroid::api::connectors::v1::connectors_service_server::Con
 use meteroid_grpc::meteroid::api::connectors::v1::{
     ConnectGoCardlessRequest, ConnectGoCardlessResponse, ConnectHubspotRequest,
     ConnectHubspotResponse, ConnectPennylaneRequest, ConnectPennylaneResponse,
-    ConnectStripeRequest, ConnectStripeResponse, ConnectorTypeEnum, DisconnectConnectorRequest,
-    DisconnectConnectorResponse, ListConnectorsRequest, ListConnectorsResponse,
-    UpdateHubspotConnectorRequest, UpdateHubspotConnectorResponse,
+    ConnectStancerRequest, ConnectStancerResponse, ConnectStripeRequest, ConnectStripeResponse,
+    ConnectorTypeEnum, DisconnectConnectorRequest, DisconnectConnectorResponse,
+    ListConnectorsRequest, ListConnectorsResponse, UpdateHubspotConnectorRequest,
+    UpdateHubspotConnectorResponse,
 };
 use meteroid_oauth::model::OauthProvider;
 use meteroid_store::domain::connectors::HubspotPublicData;
 use meteroid_store::domain::oauth::{ConnectHubspotData, ConnectPennylaneData, OauthVerifierData};
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::oauth::OauthInterface;
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
+use stancer_client::client::StancerClient;
 use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
@@ -251,6 +253,41 @@ impl ConnectorsService for ConnectorsServiceComponents {
 
         Ok(Response::new(ConnectPennylaneResponse {
             auth_url: url.expose_secret().to_owned(),
+        }))
+    }
+
+    /// Register a Stancer merchant account. Stancer has no dedicated
+    /// "verify key" endpoint — `GET /v2/ping` is the lightest call that fails
+    /// on a bad/revoked secret key, so we ping before persisting. No webhook
+    /// registration or secret: Stancer has no webhook mechanism at all;
+    /// settlement resolves through the reconciliation worker.
+    async fn connect_stancer(
+        &self,
+        request: Request<ConnectStancerRequest>,
+    ) -> Result<Response<ConnectStancerResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
+        let req = request.into_inner();
+
+        let data = req.data.ok_or(ConnectorApiError::MissingArgument(
+            "Missing stancer data".to_string(),
+        ))?;
+
+        let sensitive_data = mapping::connectors::stancer_data_to_domain(&data)?;
+
+        StancerClient::new()
+            .ping(&SecretString::from(sensitive_data.api_secret_key.clone()))
+            .await
+            .map_err(|e| ConnectorApiError::InvalidArgument(format!("Invalid Stancer key: {e}")))?;
+
+        let res = self
+            .store
+            .connect_stancer(actor, tenant_id, data.alias, sensitive_data)
+            .await
+            .map_err(Into::<ConnectorApiError>::into)?;
+
+        Ok(Response::new(ConnectStancerResponse {
+            connector: mapping::connectors::connector_meta_to_server(&res),
         }))
     }
 

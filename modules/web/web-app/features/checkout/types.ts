@@ -46,15 +46,16 @@ export interface PaymentPanelProps {
   onPaymentSubmit: (paymentMethodId: string) => Promise<void>
   /**
    * Invoice being paid, when this panel is used from the invoice-payment page.
-   * Threaded into the setup intent so hosted-redirect providers (GoCardless)
-   * can charge the invoice after the mandate is created. Absent for checkout.
+   * Threaded into the setup intent so hosted-redirect providers (GoCardless,
+   * Stancer) can charge the invoice after the mandate/card is created. Absent
+   * for checkout.
    */
   invoiceId?: string
   /**
    * Ids of this invoice's transactions already FAILED before the customer leaves
-   * for a hosted (GoCardless) mandate flow. Snapshotted on departure so the
-   * return handler can distinguish a genuinely new charge failure from these.
-   * Only meaningful alongside `invoiceId` (invoice-payment page).
+   * for a provider-hosted (GoCardless, Stancer) flow. Snapshotted on departure
+   * so the return handler can distinguish a genuinely new charge failure from
+   * these. Only meaningful alongside `invoiceId` (invoice-payment page).
    */
   preAttemptFailedTxIds?: string[]
   /** Resolved theme of the surrounding checkout pane, so Stripe Elements match. */
@@ -65,12 +66,23 @@ export interface PaymentPanelProps {
    */
   onPaymentMethodAttached?: () => void
   /**
-   * Checkout-only (no invoiceId): starts the hosted GoCardless flow that
-   * authorises the mandate AND collects the first payment in one step, then
-   * redirects (never resolves). When set and no mandate is saved, the direct
-   * debit tab renders a single pay button instead of pre-fetching a setup intent.
+   * Checkout-only (no invoiceId): starts a provider-hosted checkout flow via
+   * InitiateHostedCheckout, then redirects (never resolves). GoCardless
+   * authorises the mandate AND collects the first payment in one hosted step;
+   * Stancer saves the card on its hosted page and the server-side return
+   * handler runs the first charge. When set and no method is saved, the
+   * matching tab renders a single pay button.
    */
-  onHostedDirectDebit?: (connectionId: string) => Promise<void>
+  onHostedCheckout?: (connectionId: string) => Promise<void>
+  /**
+   * Invoice-payment page only (with invoiceId): starts the provider-hosted
+   * invoice payment via the explicit InitiateHostedInvoicePayment RPC, then
+   * redirects (never resolves). The pay CLICK is what pre-creates the invoice
+   * transaction and mints the capturing intent — rendering the page never
+   * does (the on-mount SetupIntent is a provider descriptor only for
+   * hosted-redirect card providers like Stancer).
+   */
+  onHostedInvoicePayment?: (connectionId: string) => Promise<void>
 }
 
 /**

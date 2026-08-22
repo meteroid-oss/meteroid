@@ -3,8 +3,8 @@
 //! sees the normalized types from [`super::model`] and [`super::events`].
 
 use super::connector::{
-    ConnectorCapabilities, ConnectorIdentity, CustomerOps, MandateOps, MandateSetupMode,
-    PaymentOps, ReconcileOps, RefundOps, WebhookOps,
+    ConnectorCapabilities, ConnectorIdentity, CustomerOps, HostedSetupCompletion, MandateOps,
+    MandateSetupMode, PaymentOps, ReconcileOps, RefundOps, WebhookOps,
 };
 use super::error::ConnectorError;
 use super::events::{
@@ -56,7 +56,7 @@ use stripe_client::webhook_endpoints::{
 /// `Unsupported` — flip it once that's implemented. (Webhook
 /// self-registration, by contrast, is implemented and auto-invoked on
 /// connect.)
-const STRIPE_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
+pub(super) const STRIPE_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
     supports_cards: true,
     supports_mandates: true,
     supports_refunds: false,
@@ -75,6 +75,9 @@ const STRIPE_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
     ],
     mandate_setup_mode: MandateSetupMode::EmbeddedClientSecret,
     webhook_replay_tolerance_secs: 300,
+    // Setup completes client-side and `payment_method.attached` /
+    // `setup_intent.succeeded` webhooks back it up — never swept.
+    hosted_setup_completion: HostedSetupCompletion::WebhookBacked,
 };
 
 /// Wraps a process-wide [`StripeClient`]: every tenant shares one pool since
@@ -375,6 +378,7 @@ fn remote_status_from_intent(intent: StripePaymentIntent) -> RemoteTransactionSt
     match intent.status {
         StripePaymentStatus::Succeeded => RemoteTransactionStatus::Succeeded {
             amount_received_minor: intent.amount_received.unwrap_or(intent.amount),
+            currency: intent.currency.clone(),
             // `StripePaymentIntent` doesn't carry Stripe's `created` timestamp
             // (stripe-client crate); wall-clock is a stand-in until it's added.
             processed_at: chrono::Utc::now().naive_utc(),
@@ -632,6 +636,7 @@ fn snapshot_from_payment_method(method: PaymentMethod) -> PaymentMethodSnapshot 
         meteroid_invoice_id: None,
         // Hosted combined mandate+payment checkout is GoCardless-only.
         meteroid_checkout_session_id: None,
+        meteroid_transaction_id: None,
         payment_request_payment: None,
     }
 }

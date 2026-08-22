@@ -11,10 +11,10 @@ import { resolveCheckoutTheme } from '@/features/checkout/resolveCheckoutTheme'
 import { hasCompleteBillingInformation } from '@/features/checkout/utils/billingInfo'
 import { completeNextAction } from '@/features/checkout/utils/completeNextAction'
 import {
-  consumeGocardlessReturn,
-  gocardlessErrorMessage,
-  gocardlessReturnUrl,
-} from '@/features/checkout/utils/gocardlessReturn'
+  consumeHostedReturn,
+  hostedReturnErrorMessage,
+  hostedReturnUrl,
+} from '@/features/checkout/utils/hostedReturn'
 import { getCheckoutPaymentAvailability } from '@/features/checkout/utils/paymentAvailability'
 import { BillingInfo } from '@/features/customers/components/BillingInfo'
 import { BankTransferInfo } from '@/features/invoice-payment/components/BankTransferInfo'
@@ -31,11 +31,12 @@ import { formatCurrency } from '@/utils/numbers'
 import { SubscriptionSummary } from './components/SubscriptionSummary'
 import { CheckoutFlowProps } from './types'
 
-// After the GoCardless hosted flow returns `ok`, the backend materializes the
-// subscription from the `billing_requests.fulfilled` webhook, which can lag the
-// redirect — poll the checkout until it reports the session completed.
-const GOCARDLESS_ACTIVATION_POLL_MS = 3000
-const GOCARDLESS_ACTIVATION_TIMEOUT_MS = 2 * 60 * 1000
+// After a hosted flow returns `ok`, the backend materializes the subscription
+// — from the `billing_requests.fulfilled` webhook for GoCardless (which can
+// lag the redirect), synchronously in the return handler for Stancer — so
+// poll the checkout until it reports the session completed.
+const HOSTED_ACTIVATION_POLL_MS = 3000
+const HOSTED_ACTIVATION_TIMEOUT_MS = 2 * 60 * 1000
 
 const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
   checkoutData: initialCheckoutData,
@@ -51,17 +52,17 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
   const [couponError, setCouponError] = useState<string | undefined>(undefined)
   const [isApplyingCoupon, setIsApplyingCoupon] = useState(false)
   const [checkoutData, setCheckoutData] = useState<Checkout>(initialCheckoutData)
-  // GoCardless direct-debit round trip: the mandate is authorised on GoCardless
-  // and the customer is redirected back here with a gocardless_status param.
+  // Hosted-flow round trip (GoCardless mandate / Stancer card): the customer is
+  // redirected back here with a gocardless_status / stancer_status param.
   // Lazy initializer so the params are read (and stripped) exactly once — a
   // re-run of the mount effect (StrictMode) must see the same outcome.
-  const [gocardlessReturn] = useState(() => consumeGocardlessReturn())
-  const [gocardlessError, setGocardlessError] = useState<string | null>(null)
-  // On an `ok` hosted-checkout return the mandate is active and the first
-  // payment submitted; the backend finalizes everything (webhook-driven). The
-  // frontend only observes: 'processing' while polling, 'delayed' past timeout.
+  const [hostedReturn] = useState(() => consumeHostedReturn())
+  const [hostedError, setHostedError] = useState<string | null>(null)
+  // On an `ok` hosted-checkout return the mandate/card is saved and the first
+  // payment submitted; the backend finalizes everything. The frontend only
+  // observes: 'processing' while polling, 'delayed' past timeout.
   const [hostedReturnPhase, setHostedReturnPhase] = useState<'processing' | 'delayed' | null>(() =>
-    gocardlessReturn?.status === 'ok' ? 'processing' : null
+    hostedReturn?.status === 'ok' ? 'processing' : null
   )
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -225,11 +226,11 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
     }
   }
 
-  // Hosted GoCardless checkout: ONE explicit customer action. The RPC validates
-  // the displayed amount server-side, creates the combined mandate+payment
-  // Billing Request, and returns a redirect next_action we follow (the
-  // completeNextAction redirect never resolves).
-  const handleHostedDirectDebit = async (connectionId: string) => {
+  // Hosted checkout (GoCardless mandate+payment Billing Request, or Stancer
+  // hosted card page): ONE explicit customer action. The RPC validates the
+  // displayed amount server-side and returns a redirect next_action we follow
+  // (the completeNextAction redirect never resolves).
+  const handleHostedCheckout = async (connectionId: string) => {
     setCouponError(undefined)
 
     if (billingBlocksPayment) {
@@ -246,36 +247,39 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
       displayedAmount: amountDue,
       displayedCurrency: subscription.subscription.currency,
       couponCode: couponCode.trim() || undefined,
-      returnUrl: gocardlessReturnUrl(),
+      returnUrl: hostedReturnUrl(),
     })
 
     if (!res.nextAction) {
       throw new Error('The payment provider returned no redirect. Please try again.')
     }
 
-    // Redirects to the GoCardless hosted page; never resolves.
+    // Redirects to the provider-hosted page; never resolves.
     await completeNextAction(res.nextAction)
   }
 
-  // Handle the GoCardless hosted-checkout return once, on mount. On `ok` the
-  // mandate is active and the first payment submitted; activation is entirely
-  // backend-driven (`billing_requests.fulfilled` webhook), so we only OBSERVE:
-  // poll the checkout until the subscription is active or the session reports
-  // completed, then navigate to success. On abandon/failure show the inline
-  // error and keep the payment form usable.
+  // Handle the hosted-checkout return once, on mount. On `ok` the mandate/card
+  // is saved and the first payment submitted; activation is entirely
+  // backend-driven (GoCardless: `billing_requests.fulfilled` webhook; Stancer:
+  // the return handler itself), so we only OBSERVE: poll the checkout until
+  // the subscription is active or the session reports completed, then navigate
+  // to success. On any other outcome (abandoned / failed / Stancer
+  // payment_failed or processing) show the inline error and keep the payment
+  // form usable — a fresh page load already refetched the checkout, so a card
+  // saved by a declined first charge is offered for retry.
   useEffect(() => {
-    const ret = gocardlessReturn
+    const ret = hostedReturn
     if (!ret) return
 
     if (ret.status !== 'ok') {
-      setGocardlessError(gocardlessErrorMessage(ret))
+      setHostedError(hostedReturnErrorMessage(ret))
       return
     }
 
     let cancelled = false
 
     const poll = async () => {
-      const deadline = Date.now() + GOCARDLESS_ACTIVATION_TIMEOUT_MS
+      const deadline = Date.now() + HOSTED_ACTIVATION_TIMEOUT_MS
       while (!cancelled && Date.now() < deadline) {
         try {
           const response = await applyCouponMutation.mutateAsync(
@@ -304,7 +308,7 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
           }
           // best-effort refresh; keep polling until the deadline
         }
-        await new Promise(resolve => setTimeout(resolve, GOCARDLESS_ACTIVATION_POLL_MS))
+        await new Promise(resolve => setTimeout(resolve, HOSTED_ACTIVATION_POLL_MS))
       }
       if (!cancelled) {
         setHostedReturnPhase('delayed')
@@ -405,13 +409,13 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
                     />
                   ) : (
                     <>
-                      {gocardlessError && (
+                      {hostedError && (
                         <div
                           className="mb-4 p-3 rounded-lg text-sm flex items-start"
                           style={{ background: 'var(--mtp-danger-bg)', color: 'var(--mtp-danger)' }}
                         >
                           <AlertCircle size={16} className="mr-2 mt-0.5 shrink-0" />
-                          <span>{gocardlessError}</span>
+                          <span>{hostedError}</span>
                         </div>
                       )}
 
@@ -427,7 +431,7 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
                             subscription.subscription.currency
                           )}
                           onPaymentSubmit={handlePaymentSubmit}
-                          onHostedDirectDebit={handleHostedDirectDebit}
+                          onHostedCheckout={handleHostedCheckout}
                           onPaymentMethodAttached={refreshCheckout}
                           cardConnectionId={paymentAvailability.cardConnectionId}
                           directDebitConnectionId={paymentAvailability.directDebitConnectionId}
