@@ -822,6 +822,7 @@ impl PlansInterface for Store {
                                         },
                                     )?,
                                     catalog: true,
+                                    tax_category_id: None,
                                 }
                                 .insert(conn)
                                 .await

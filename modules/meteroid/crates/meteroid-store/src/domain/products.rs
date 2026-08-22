@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use common_domain::ids::{BaseId, ProductFamilyId, ProductId, TenantId};
+use common_domain::ids::{BaseId, ProductFamilyId, ProductId, TaxCategoryId, TenantId};
 use diesel_models::products::{ProductRow, ProductRowNew};
 use error_stack::Report;
 
@@ -21,6 +21,7 @@ pub struct Product {
     pub fee_type: FeeTypeEnum,
     pub fee_structure: FeeStructure,
     pub catalog: bool,
+    pub tax_category_id: Option<TaxCategoryId>,
 }
 
 impl TryFrom<ProductRow> for Product {
@@ -47,6 +48,7 @@ impl TryFrom<ProductRow> for Product {
             fee_type: row.fee_type.into(),
             fee_structure,
             catalog: row.catalog,
+            tax_category_id: row.tax_category_id,
         })
     }
 }
@@ -60,6 +62,7 @@ pub struct ProductNew {
     pub fee_type: FeeTypeEnum,
     pub fee_structure: FeeStructure,
     pub catalog: bool,
+    pub tax_category_id: Option<TaxCategoryId>,
 }
 
 #[derive(Clone, Debug)]
@@ -88,6 +91,7 @@ impl TryFrom<ProductNew> for ProductRowNew {
             fee_type: new.fee_type.into(),
             fee_structure,
             catalog: new.catalog,
+            tax_category_id: new.tax_category_id,
         })
     }
 }

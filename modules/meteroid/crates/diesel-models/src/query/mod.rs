@@ -50,6 +50,7 @@ pub mod subscription_add_ons;
 pub mod subscription_components;
 pub mod subscription_events;
 pub mod subscriptions;
+pub mod tax_categories;
 
 pub mod subscriptions_lifecycle;
 pub mod tenants;

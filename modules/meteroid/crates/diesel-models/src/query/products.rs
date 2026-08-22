@@ -1,5 +1,5 @@
 use crate::errors::IntoDbResult;
-use crate::products::{ProductRow, ProductRowNew};
+use crate::products::{ProductRow, ProductRowNew, ProductRowPatch};
 
 use crate::{DbResult, PgConn};
 
@@ -201,38 +201,6 @@ impl ProductRow {
             .into_db_result()
     }
 
-    pub async fn update_fee_structure(
-        conn: &mut PgConn,
-        id: ProductId,
-        tenant_id: TenantId,
-        name: String,
-        description: Option<String>,
-        new_fee_type: crate::enums::FeeTypeEnum,
-        new_fee_structure: serde_json::Value,
-    ) -> DbResult<ProductRow> {
-        use crate::schema::product::dsl as p_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let query = diesel::update(p_dsl::product)
-            .filter(p_dsl::id.eq(id))
-            .filter(p_dsl::tenant_id.eq(tenant_id))
-            .set((
-                p_dsl::name.eq(name),
-                p_dsl::description.eq(description),
-                p_dsl::fee_type.eq(new_fee_type),
-                p_dsl::fee_structure.eq(new_fee_structure),
-                p_dsl::updated_at.eq(diesel::dsl::now),
-            ));
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .get_result(conn)
-            .await
-            .attach("Error while updating product fee structure")
-            .into_db_result()
-    }
-
     pub async fn archive(
         conn: &mut PgConn,
         product_id: ProductId,
@@ -309,6 +277,26 @@ impl ProductRow {
             .load(conn)
             .await
             .attach("Error while listing all products by tenant")
+            .into_db_result()
+    }
+}
+
+impl ProductRowPatch {
+    pub async fn patch(&self, conn: &mut PgConn) -> DbResult<ProductRow> {
+        use crate::schema::product::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(p_dsl::product)
+            .filter(p_dsl::id.eq(self.id))
+            .filter(p_dsl::tenant_id.eq(self.tenant_id))
+            .set((self, p_dsl::updated_at.eq(diesel::dsl::now)));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while updating product")
             .into_db_result()
     }
 }

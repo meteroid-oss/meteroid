@@ -6,7 +6,9 @@ use crate::domain::{
     SubscriptionFeeInterface, TaxBreakdownItem, TaxResolverEnum, VatNumberValidationStatus,
 };
 use chrono::NaiveDate;
-use common_domain::ids::{PriceComponentId, SubscriptionAddOnId, SubscriptionPriceComponentId};
+use common_domain::ids::{
+    PriceComponentId, ProductId, SubscriptionAddOnId, SubscriptionPriceComponentId, TaxCategoryId,
+};
 use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use diesel_models::subscription_components::SubscriptionComponentRow;
 use itertools::Itertools;
@@ -17,6 +19,8 @@ use crate::domain::BillableMetric;
 use crate::errors::StoreError;
 use crate::repositories::accounting::AccountingInterface;
 use crate::repositories::customer_balance::convert_currency;
+use crate::repositories::products::ProductInterface;
+use crate::repositories::tax_categories::TaxCategoryInterface;
 use crate::services::Services;
 use crate::services::invoice_lines::component::ExistingLineKey;
 use crate::services::invoice_lines::discount::calculate_coupons_discount;
@@ -28,6 +32,34 @@ use error_stack::{Report, ResultExt};
 use meteroid_tax::{ManualTaxEngine, MeteroidTaxEngine, TaxDetails, TaxEngine};
 
 impl Services {}
+
+/// Builds the tax engine for an invoicing entity — the single extension point for
+/// adding a tax provider.
+///
+/// Built-in resolvers (`Manual`, `MeteroidEuVat`) need no credentials and are chosen
+/// by `tax_resolver`. An external provider is configured as a `Tax`-typed connector
+/// referenced by `invoicing_entity.tax_provider_id`; to add one, load its connector
+/// (via the store, making this async) and return your `TaxEngine` from its provider.
+///
+/// `Ok(None)` means "apply no tax" (`tax_resolver = None`).
+fn build_tax_engine(
+    invoicing_entity: &InvoicingEntity,
+) -> StoreResult<Option<Box<dyn TaxEngine + Send + Sync>>> {
+    if invoicing_entity.tax_provider_id.is_some() {
+        // TODO(tax-provider): load the Tax connector and match on its provider, e.g.
+        //   ConnectorProviderEnum::Kintsugi => Ok(Some(Box::new(KintsugiEngine::new(cfg)?)))
+        // No external tax engine is registered yet.
+        return Err(Report::new(StoreError::InvalidArgument(
+            "tax_provider_id is set but no external tax engine is registered".to_string(),
+        )));
+    }
+
+    Ok(match invoicing_entity.tax_resolver {
+        TaxResolverEnum::None => None,
+        TaxResolverEnum::Manual => Some(Box::new(ManualTaxEngine {})),
+        TaxResolverEnum::MeteroidEuVat => Some(Box::new(MeteroidTaxEngine {})),
+    })
+}
 
 #[derive(Debug, Clone)]
 pub struct ComputedInvoiceContent {
@@ -510,12 +542,11 @@ impl Services {
             None => return Ok((invoice_lines.clone(), Vec::new())),
         };
 
-        let tax_engine: Box<dyn TaxEngine + Send + Sync> = match invoicing_entity.tax_resolver {
-            TaxResolverEnum::None => {
-                return Ok((invoice_lines.clone(), Vec::new()));
-            }
-            TaxResolverEnum::Manual => Box::new(ManualTaxEngine {}),
-            TaxResolverEnum::MeteroidEuVat => Box::new(MeteroidTaxEngine {}),
+        // Select the tax engine for this invoicing entity (built-in or external
+        // provider). See `build_tax_engine` — the single place to add a provider.
+        let tax_engine = match build_tax_engine(invoicing_entity)? {
+            Some(engine) => engine,
+            None => return Ok((invoice_lines.clone(), Vec::new())),
         };
 
         let customer = meteroid_tax::CustomerForTax {
@@ -549,6 +580,16 @@ impl Services {
             .filter_map(|line| line.product_id)
             .collect::<Vec<_>>();
 
+        // Resolve each line's tax category (the product's category, else the
+        // invoicing entity default) so the tax engine can price by category.
+        let product_categories: HashMap<ProductId, Option<TaxCategoryId>> = self
+            .store
+            .find_products_by_ids(&product_ids, invoicing_entity.tenant_id)
+            .await?
+            .into_iter()
+            .map(|p| (p.id, p.tax_category_id))
+            .collect();
+
         let product_taxes = {
             let mut fresh_conn = self.store.get_conn().await?;
             self.store
@@ -560,6 +601,46 @@ impl Services {
                 )
                 .await?
         };
+        // The category each line resolves to: the product's, else the entity default.
+        let line_categories: HashMap<String, TaxCategoryId> = invoice_lines
+            .iter()
+            .filter_map(|line| {
+                let category = line
+                    .product_id
+                    .and_then(|p| product_categories.get(&p).copied().flatten())
+                    .or(invoicing_entity.default_tax_category_id)?;
+                Some((line.local_id.to_string(), category))
+            })
+            .collect();
+
+        let resolved_category_ids: Vec<TaxCategoryId> =
+            line_categories.values().copied().unique().collect();
+
+        // Categories are only worth resolving when a line actually carries one.
+        let category_keys: HashMap<TaxCategoryId, String> = if resolved_category_ids.is_empty() {
+            HashMap::new()
+        } else {
+            self.store
+                .list_tax_categories(invoicing_entity.tenant_id)
+                .await?
+                .into_iter()
+                .map(|c| (c.id, c.key))
+                .collect()
+        };
+
+        // Custom taxes configured against a category apply to every line in it, on
+        // top of the taxes wired to the product directly.
+        let category_taxes = {
+            let mut fresh_conn = self.store.get_conn().await?;
+            self.store
+                .list_custom_taxes_by_categories(
+                    &mut fresh_conn,
+                    invoicing_entity.tenant_id,
+                    invoicing_entity.id,
+                    &resolved_category_ids,
+                )
+                .await?
+        };
 
         let invoice_lines_for_tax: Vec<meteroid_tax::LineItemForTax> = invoice_lines
             .iter()
@@ -567,30 +648,43 @@ impl Services {
                 if line.taxable_amount > 0 {
                     let total = line.taxable_amount.to_non_negative_u64();
 
-                    let custom_taxes = line
+                    let line_id = line.local_id.to_string();
+                    let category_id = line_categories.get(&line_id);
+
+                    let product_linked = line
                         .product_id
                         .and_then(|p| product_taxes.iter().find(|tax| tax.product_id == p))
-                        .map(|p| {
-                            p.custom_taxes
-                                .iter()
-                                .map(|t| meteroid_tax::CustomTax {
-                                    reference: t.id.to_string(),
-                                    name: t.name.clone(),
-                                    tax_rules: t
-                                        .rules
-                                        .iter()
-                                        .cloned()
-                                        .map(std::convert::Into::into)
-                                        .collect(),
-                                })
-                                .collect()
-                        })
+                        .map(|p| p.custom_taxes.as_slice())
                         .unwrap_or_default();
 
+                    let from_category = category_id
+                        .and_then(|id| category_taxes.get(id))
+                        .map(Vec::as_slice)
+                        .unwrap_or_default();
+
+                    let custom_taxes = product_linked
+                        .iter()
+                        .chain(from_category)
+                        .unique_by(|t| t.id)
+                        .map(|t| meteroid_tax::CustomTax {
+                            reference: t.id.to_string(),
+                            name: t.name.clone(),
+                            tax_rules: t
+                                .rules
+                                .iter()
+                                .cloned()
+                                .map(std::convert::Into::into)
+                                .collect(),
+                        })
+                        .collect();
+
+                    let tax_category = category_id.and_then(|id| category_keys.get(id).cloned());
+
                     Some(meteroid_tax::LineItemForTax {
-                        line_id: line.local_id.to_string(),
+                        line_id,
                         amount: total,
                         custom_taxes,
+                        tax_category,
                     })
                 } else {
                     // If the line amount is zero (or refund), we skip it

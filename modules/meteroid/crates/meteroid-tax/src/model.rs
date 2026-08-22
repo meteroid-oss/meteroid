@@ -102,7 +102,13 @@ pub struct LineItemForTax {
     pub line_id: String,
     pub amount: u64,
     pub custom_taxes: Vec<CustomTax>,
+    /// Resolved provider-agnostic tax category key (product's category, else the
+    /// invoicing entity default). Engines may price on it; None if unclassified.
+    pub tax_category: Option<String>,
 }
+
+/// Key of the built-in tax category that never yields tax, seeded in `tax_category`.
+pub const NONTAXABLE_CATEGORY_KEY: &str = "nontaxable";
 
 #[derive(Debug, Clone)]
 pub struct LineItemWithTax {

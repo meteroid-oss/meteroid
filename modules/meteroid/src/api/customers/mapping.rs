@@ -219,6 +219,7 @@ pub mod customer {
             ConnectorProviderEnum::Hubspot => ProtoConnectorProvider::Hubspot,
             ConnectorProviderEnum::Pennylane => ProtoConnectorProvider::Pennylane,
             ConnectorProviderEnum::Gocardless => ProtoConnectorProvider::Gocardless,
+            ConnectorProviderEnum::Kintsugi => return None,
             ConnectorProviderEnum::Mock => {
                 // Mock connector is for testing only - should never be returned via API
                 log::warn!(

@@ -13,6 +13,12 @@ service TaxesService {
   rpc UpsertProductAccounting(UpsertProductAccountingRequest) returns (UpsertProductAccountingResponse) {}
   rpc GetProductAccounting(GetProductAccountingRequest) returns (GetProductAccountingResponse) {}
   rpc ValidateVatNumber(ValidateVatNumberRequest) returns (ValidateVatNumberResponse) {}
+  rpc ListTaxCategories(ListTaxCategoriesRequest) returns (ListTaxCategoriesResponse) {}
+}
+
+message ListTaxCategoriesRequest {}
+message ListTaxCategoriesResponse {
+  repeated TaxCategory tax_categories = 1;
 }
 
 message CreateCustomTaxRequest {

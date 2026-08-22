@@ -16,11 +16,11 @@ pub fn initialize_payment_connector(
         ConnectorProviderEnum::Stripe => Ok(Box::new(StripeConnector::new())),
         ConnectorProviderEnum::Gocardless => Ok(Box::new(GoCardlessConnector::new())),
         ConnectorProviderEnum::Mock => Ok(Box::new(MockConnector::from_connector(config))),
-        ConnectorProviderEnum::Hubspot | ConnectorProviderEnum::Pennylane => {
-            Err(Report::new(ConnectorError::Unsupported {
-                provider: config.provider.clone(),
-                capability: "payment operations",
-            }))
-        }
+        ConnectorProviderEnum::Hubspot
+        | ConnectorProviderEnum::Pennylane
+        | ConnectorProviderEnum::Kintsugi => Err(Report::new(ConnectorError::Unsupported {
+            provider: config.provider.clone(),
+            capability: "payment operations",
+        })),
     }
 }

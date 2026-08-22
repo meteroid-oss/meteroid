@@ -106,6 +106,8 @@ pub async fn run_minimal_seed(pool: &PgPool) {
             require_billing_information: false,
             portal_theme_mode: None,
             portal_roundness: None,
+            default_tax_category_id: None,
+            tax_provider_id: None,
         }.insert(tx).await?;
 
         HistoricalRatesFromUsdRowNew::insert_batch(tx, vec![
