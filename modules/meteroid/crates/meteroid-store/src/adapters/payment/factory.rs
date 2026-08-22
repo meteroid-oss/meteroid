@@ -18,7 +18,9 @@ pub fn provider_capabilities(
         ConnectorProviderEnum::Gocardless => Some(&super::gocardless::GOCARDLESS_CAPABILITIES),
         ConnectorProviderEnum::Stancer => Some(&super::stancer::STANCER_CAPABILITIES),
         ConnectorProviderEnum::Mock => Some(&super::mock::MOCK_CAPABILITIES),
-        ConnectorProviderEnum::Hubspot | ConnectorProviderEnum::Pennylane => None,
+        ConnectorProviderEnum::Hubspot
+        | ConnectorProviderEnum::Pennylane
+        | ConnectorProviderEnum::Kintsugi => None,
     }
 }
 
@@ -32,11 +34,11 @@ pub fn initialize_payment_connector(
         ConnectorProviderEnum::Gocardless => Ok(Box::new(GoCardlessConnector::new())),
         ConnectorProviderEnum::Stancer => Ok(Box::new(StancerConnector::new())),
         ConnectorProviderEnum::Mock => Ok(Box::new(MockConnector::from_connector(config))),
-        ConnectorProviderEnum::Hubspot | ConnectorProviderEnum::Pennylane => {
-            Err(Report::new(ConnectorError::Unsupported {
-                provider: config.provider.clone(),
-                capability: "payment operations",
-            }))
-        }
+        ConnectorProviderEnum::Hubspot
+        | ConnectorProviderEnum::Pennylane
+        | ConnectorProviderEnum::Kintsugi => Err(Report::new(ConnectorError::Unsupported {
+            provider: config.provider.clone(),
+            capability: "payment operations",
+        })),
     }
 }
