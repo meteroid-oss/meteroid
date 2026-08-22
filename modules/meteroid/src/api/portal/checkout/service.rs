@@ -736,6 +736,7 @@ impl PortalCheckoutServiceComponents {
                                     .unwrap_or(meteroid_store::domain::enums::FeeTypeEnum::Rate),
                                 fee_structure: fee_structure.clone(),
                                 catalog: false,
+                                tax_category_id: None,
                             },
                         );
                     }
