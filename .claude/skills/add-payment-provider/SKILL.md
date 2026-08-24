@@ -156,7 +156,7 @@ non-exhaustive-match errors are your live checklist:
    handler in `api/connectors/service.rs`); return-handler route under
    `api_rest/<provider>/` if hosted-redirect (mirror `api_rest/gocardless/`).
 7. Frontend (`web-app/`): integration card in `settings/tabs/IntegrationsTab.tsx`,
-   route in `settings/settingsTabs.tsx` + a modal in `settings/integrations/`,
+   route in `router/tenant/index.tsx` + a modal in `settings/integrations/`,
    `PROVIDER_CAPABILITIES` in `settings/tabs/PaymentsTab.tsx`, `getProviderName()` in
    `customers/modals/ManageConnectionsModal.tsx`, and a `checkout/PaymentPanel.tsx`
    branch (reuse the redirect branch for hosted-redirect).
