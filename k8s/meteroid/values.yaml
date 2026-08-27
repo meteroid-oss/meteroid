@@ -43,8 +43,8 @@ serviceAccount:
 
 global:
   publicAppUrl: "http://meteroid.local"
-  publicApiUrl: "http://api.meteroid.local"
-  publicRestApiUrl: "http://api.meteroid.local/api"
+  publicApiUrl: "http://rpc.meteroid.local"
+  publicRestApiUrl: "http://api.meteroid.local"
 
   telemetry:
     tracingEnabled: false
@@ -122,13 +122,15 @@ ingress:
           pathType: Prefix
           service: web
           port: 80
-    - host: api.meteroid.local
+    - host: rpc.meteroid.local
       paths:
         - path: /
           pathType: Prefix
           service: api
           port: 50061
-        - path: /api
+    - host: api.meteroid.local
+      paths:
+        - path: /
           pathType: Prefix
           service: api
           port: 8080
