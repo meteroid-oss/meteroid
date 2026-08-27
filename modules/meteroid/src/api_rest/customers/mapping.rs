@@ -6,8 +6,18 @@ use crate::api_rest::customers::model::{
 use crate::errors::RestApiError;
 use common_domain::ids::{AliasOr, ConnectedAccountId, CustomerId};
 use meteroid_store::domain;
-use meteroid_store::domain::CustomerNew;
+use meteroid_store::domain::{CustomerNew, CustomerTaxStatus};
 use std::str::FromStr;
+
+/// REST keeps the backward-compatible `is_tax_exempt` bool; true maps to the
+/// Exempt tax status, false/absent to Taxable. ReverseCharge is set via gRPC.
+fn tax_status_from_rest(is_tax_exempt: Option<bool>) -> CustomerTaxStatus {
+    if is_tax_exempt.unwrap_or(false) {
+        CustomerTaxStatus::Exempt
+    } else {
+        CustomerTaxStatus::Taxable
+    }
+}
 
 pub fn domain_to_rest(d: domain::Customer) -> Result<Customer, RestApiError> {
     Ok(Customer {
@@ -60,13 +70,14 @@ pub fn create_req_to_domain(req: CustomerCreateRequest) -> Result<CustomerNew, R
         custom_taxes: req
             .custom_taxes
             .into_iter()
-            .map(|t| domain::CustomerCustomTax {
+            .map(|t| domain::CustomerTaxRate {
                 tax_code: t.tax_code,
                 name: t.name,
                 rate: t.rate,
             })
             .collect(),
-        is_tax_exempt: req.is_tax_exempt.unwrap_or(false),
+        tax_status: tax_status_from_rest(req.is_tax_exempt),
+        exemption_reason: req.exemption_reason,
         connected_account_id: req
             .connected_account_id
             .map(|id| ConnectedAccountId::from_str(&id))
@@ -98,13 +109,14 @@ pub fn update_req_to_domain(
         custom_taxes: req
             .custom_taxes
             .into_iter()
-            .map(|t| domain::CustomerCustomTax {
+            .map(|t| domain::CustomerTaxRate {
                 tax_code: t.tax_code,
                 name: t.name,
                 rate: t.rate,
             })
             .collect(),
-        is_tax_exempt: req.is_tax_exempt.unwrap_or(false),
+        tax_status: tax_status_from_rest(req.is_tax_exempt),
+        exemption_reason: req.exemption_reason,
     }
 }
 
@@ -129,7 +141,7 @@ pub fn patch_req_to_domain(id: CustomerId, req: CustomerPatchRequest) -> domain:
         custom_taxes: req.custom_taxes.map(|taxes| {
             taxes
                 .into_iter()
-                .map(|t| domain::CustomerCustomTax {
+                .map(|t| domain::CustomerTaxRate {
                     tax_code: t.tax_code,
                     name: t.name,
                     rate: t.rate,
@@ -137,7 +149,14 @@ pub fn patch_req_to_domain(id: CustomerId, req: CustomerPatchRequest) -> domain:
                 .collect()
         }),
         current_payment_method_id: None,
-        is_tax_exempt: req.is_tax_exempt,
+        tax_status: req.is_tax_exempt.map(|b| {
+            if b {
+                CustomerTaxStatus::Exempt
+            } else {
+                CustomerTaxStatus::Taxable
+            }
+        }),
+        exemption_reason: req.exemption_reason.map(Some),
         connected_account_id: None,
     }
 }

@@ -148,7 +148,6 @@ pub enum ConnectorProviderEnum {
     Mock,
     Gocardless,
     Stancer,
-    Kintsugi,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -379,6 +378,7 @@ pub enum TaxResolverEnum {
     Manual,
     #[default]
     MeteroidEuVat,
+    External,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq)]

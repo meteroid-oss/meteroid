@@ -30,6 +30,22 @@ pub mod customer {
         }
     }
 
+    pub fn tax_status_to_server(status: domain::CustomerTaxStatus) -> server::CustomerTaxStatus {
+        match status {
+            domain::CustomerTaxStatus::Taxable => server::CustomerTaxStatus::Taxable,
+            domain::CustomerTaxStatus::Exempt => server::CustomerTaxStatus::Exempt,
+            domain::CustomerTaxStatus::ReverseCharge => server::CustomerTaxStatus::ReverseCharge,
+        }
+    }
+
+    pub fn tax_status_from_server(status: server::CustomerTaxStatus) -> domain::CustomerTaxStatus {
+        match status {
+            server::CustomerTaxStatus::Taxable => domain::CustomerTaxStatus::Taxable,
+            server::CustomerTaxStatus::Exempt => domain::CustomerTaxStatus::Exempt,
+            server::CustomerTaxStatus::ReverseCharge => domain::CustomerTaxStatus::ReverseCharge,
+        }
+    }
+
     pub struct ServerAddressWrapper(pub server::Address);
 
     impl TryFrom<domain::Address> for ServerAddressWrapper {
@@ -135,13 +151,14 @@ pub mod customer {
                 custom_taxes: value
                     .custom_taxes
                     .into_iter()
-                    .map(|t| server::CustomTaxRate {
+                    .map(|t| server::CustomerTaxRate {
                         tax_code: t.tax_code,
                         name: t.name,
                         rate: t.rate.to_string(),
                     })
                     .collect(),
-                is_tax_exempt: value.is_tax_exempt,
+                tax_status: tax_status_to_server(value.tax_status) as i32,
+                exemption_reason: value.exemption_reason,
                 is_vat_number_valid: value.vat_number_format_valid,
                 vat_number_validation_status: vat_validation_status_to_server(
                     value.vat_number_validation_status,
@@ -186,13 +203,13 @@ pub mod customer {
 
     pub fn custom_taxes_from_grpc(
         custom_taxes: Option<server::update_customer::CustomTaxesList>,
-    ) -> Result<Option<Vec<domain::CustomerCustomTax>>, CustomerApiError> {
+    ) -> Result<Option<Vec<domain::CustomerTaxRate>>, CustomerApiError> {
         custom_taxes
             .map(|list| {
                 list.taxes
                     .into_iter()
                     .map(|t| {
-                        Ok(domain::CustomerCustomTax {
+                        Ok(domain::CustomerTaxRate {
                             tax_code: t.tax_code,
                             name: t.name,
                             rate: rust_decimal::Decimal::from_proto(t.rate).map_err(|_| {
@@ -220,7 +237,6 @@ pub mod customer {
             ConnectorProviderEnum::Pennylane => ProtoConnectorProvider::Pennylane,
             ConnectorProviderEnum::Gocardless => ProtoConnectorProvider::Gocardless,
             ConnectorProviderEnum::Stancer => ProtoConnectorProvider::Stancer,
-            ConnectorProviderEnum::Kintsugi => return None,
             ConnectorProviderEnum::Mock => {
                 // Mock connector is for testing only - should never be returned via API
                 log::warn!(

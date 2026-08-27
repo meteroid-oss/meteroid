@@ -1,5 +1,32 @@
 import { z } from 'zod'
 
+import { CustomerTaxStatus } from '@/rpc/api/customers/v1/models_pb'
+
+export type TaxStatus = 'TAXABLE' | 'EXEMPT' | 'REVERSE_CHARGE'
+
+export const taxStatusToProto = (status: TaxStatus): CustomerTaxStatus => {
+  switch (status) {
+    case 'EXEMPT':
+      return CustomerTaxStatus.EXEMPT
+    case 'REVERSE_CHARGE':
+      return CustomerTaxStatus.REVERSE_CHARGE
+    case 'TAXABLE':
+    default:
+      return CustomerTaxStatus.TAXABLE
+  }
+}
+
+export const taxStatusFromProto = (status: CustomerTaxStatus | undefined): TaxStatus => {
+  switch (status) {
+    case CustomerTaxStatus.EXEMPT:
+      return 'EXEMPT'
+    case CustomerTaxStatus.REVERSE_CHARGE:
+      return 'REVERSE_CHARGE'
+    default:
+      return 'TAXABLE'
+  }
+}
+
 const addressSchema = z.object({
   line1: z.string().optional(),
   line2: z.string().optional(),
@@ -29,7 +56,8 @@ export const customerFormSchema = z.object({
   phone: z.string().optional(),
   vatNumber: z.string().optional(),
   customTaxes: z.array(customTaxSchema).optional(),
-  isTaxExempt: z.boolean().default(false),
+  taxStatus: z.enum(['TAXABLE', 'EXEMPT', 'REVERSE_CHARGE']).default('TAXABLE'),
+  exemptionReason: z.string().optional(),
   billingAddress: addressSchema.optional(),
   shippingAddress: shippingAddressSchema.optional(), 
 })

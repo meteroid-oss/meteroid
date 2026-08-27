@@ -117,7 +117,7 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
                 mapping::invoicing_entities::proto_to_patch_domain(
                     data,
                     InvoicingEntityId::from_proto(req.id)?,
-                ),
+                )?,
                 tenant,
             )
             .await

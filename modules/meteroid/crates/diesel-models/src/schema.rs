@@ -158,6 +158,10 @@ pub mod sql_types {
     pub struct TaxResolverEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "CustomerTaxStatusEnum"))]
+    pub struct CustomerTaxStatusEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "CustomerVatValidationStatusEnum"))]
     pub struct CustomerVatValidationStatusEnum;
 
@@ -523,11 +527,13 @@ diesel::table! {
         tax_code -> Text,
         rules -> Jsonb,
         tax_category_id -> Nullable<Uuid>,
+        tenant_id -> Uuid,
     }
 }
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::CustomerTaxStatusEnum;
     use super::sql_types::CustomerVatValidationStatusEnum;
 
     customer (id) {
@@ -549,7 +555,8 @@ diesel::table! {
         vat_number -> Nullable<Text>,
         invoicing_emails -> Array<Nullable<Text>>,
         conn_meta -> Nullable<Jsonb>,
-        is_tax_exempt -> Bool,
+        tax_status -> CustomerTaxStatusEnum,
+        exemption_reason -> Nullable<Text>,
         vat_number_format_valid -> Bool,
         custom_taxes -> Jsonb,
         connected_account_id -> Nullable<Uuid>,

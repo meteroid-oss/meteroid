@@ -10,12 +10,20 @@ use crate::errors::StoreError;
 use crate::repositories::connectors::ConnectorsInterface;
 use crate::store::{PgConn, Store, StoreInternal};
 use common_domain::country::CountryCode;
-use common_domain::ids::{BaseId, InvoicingEntityId, OrganizationId, TenantId};
+use common_domain::ids::{BaseId, InvoicingEntityId, OrganizationId, TaxCategoryId, TenantId};
+use uuid::uuid;
+
+/// Built-in "Digital services" tax category (seeded, standard-rated) — the default
+/// classification for a new invoicing entity on this SaaS-first platform. Keep in
+/// sync with the tax_categories migration seed.
+const DIGITAL_SERVICES_TAX_CATEGORY_ID: TaxCategoryId =
+    TaxCategoryId::from_const(uuid!("a0000000-0000-4000-8000-000000000004"));
 use diesel_models::invoicing_entities::{
     InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,
     InvoicingEntityRowProvidersPatch,
 };
 use diesel_models::organizations::OrganizationRow;
+use diesel_models::tax_categories::TaxCategoryRow;
 use diesel_models::tenants::TenantRow;
 use error_stack::Report;
 use meteroid_store_macros::with_conn_delegate;
@@ -159,6 +167,19 @@ impl InvoicingEntityInterface for Store {
         let mut row: InvoicingEntityRowPatch = invoicing_entity.into();
         let entity_id = row.id;
 
+        if let Some(Some(category_id)) = row.default_tax_category_id {
+            let available =
+                TaxCategoryRow::is_available_for_tenant(&mut conn, category_id, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+            if !available {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "default_tax_category_id is not a tax category available to this tenant"
+                        .to_string(),
+                )));
+            }
+        }
+
         if row.country.is_some() {
             let is_in_use = InvoicingEntityRow::is_in_use(&mut conn, row.id, tenant_id)
                 .await
@@ -171,6 +192,45 @@ impl InvoicingEntityInterface for Store {
                     .internal
                     .get_currency_from_country(&row.country.clone().unwrap())?;
                 row.accounting_currency = Some(currency);
+            }
+        }
+
+        // Validate the tax resolver against the EFFECTIVE post-patch state (a
+        // country change applied in this same patch must be honoured): the built-in
+        // EU VAT engine is EU-seller-only, and an external tax provider may only be
+        // referenced under the External resolver. `row.country` is the applied new
+        // country (nulled above if the entity is already in use), else unchanged.
+        if let Some(new_resolver) = row.tax_resolver.clone() {
+            let current = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
+                &mut conn, entity_id, tenant_id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+            let effective_country = row
+                .country
+                .clone()
+                .unwrap_or_else(|| current.country.clone());
+
+            if matches!(
+                new_resolver,
+                diesel_models::enums::TaxResolverEnum::MeteroidEuVat
+            ) && !world_tax::is_eu_seller_country(&effective_country.code)
+            {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "Meteroid EU VAT is available to EU sellers only; use an external tax provider for non-EU sellers"
+                        .to_string(),
+                )));
+            }
+
+            if !matches!(
+                new_resolver,
+                diesel_models::enums::TaxResolverEnum::External
+            ) && current.tax_provider_id.is_some()
+            {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "tax_provider_id is only valid with the External tax resolver".to_string(),
+                )));
             }
         }
 
@@ -344,7 +404,7 @@ impl StoreInternal {
             require_billing_information: invoicing_entity.require_billing_information,
             portal_theme_mode: invoicing_entity.portal_theme_mode.clone(),
             portal_roundness: invoicing_entity.portal_roundness.clone(),
-            default_tax_category_id: None,
+            default_tax_category_id: Some(DIGITAL_SERVICES_TAX_CATEGORY_ID),
             tax_provider_id: None,
         };
 

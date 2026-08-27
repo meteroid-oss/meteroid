@@ -51,11 +51,6 @@ pub mod connectors {
                 );
                 None
             }
-            domain_enum::ConnectorProviderEnum::Kintsugi => {
-                // Tax providers aren't exposed via the connector API yet.
-                // TODO(tax-provider): expose once the Kintsugi connector is implemented.
-                None
-            }
         }
     }
 

@@ -10,7 +10,7 @@ use meteroid_store::clients::usage::MockUsageClient;
 use meteroid_store::domain::coupons::{CouponDiscount, CouponNew};
 use meteroid_store::domain::subscription_coupons::CreateSubscriptionCoupon;
 use meteroid_store::domain::{
-    CreateSubscription, CreateSubscriptionCoupons, CustomerCustomTax, InvoicingEntityPatch,
+    CreateSubscription, CreateSubscriptionCoupons, CustomerTaxRate, InvoicingEntityPatch,
     SubscriptionActivationCondition, SubscriptionNew,
 };
 use meteroid_store::repositories::SubscriptionInterface;
@@ -243,7 +243,10 @@ async fn test_compute_invoice_with_eu_vat(
             tax_rate: dec!(0.2),
             taxable_amount: 3500,
             tax_amount: 700,
-            exemption_type: None
+            exemption_type: None,
+            exemption_reason: None,
+            tax_reference: None,
+            overridden: false
         }],
         "Tax breakdown should contain VAT at 20%"
     );
@@ -294,7 +297,8 @@ async fn create_french_b2b_customer(
         custom_taxes: json!([]),
         invoicing_emails: vec![],
         phone: None,
-        is_tax_exempt: false,
+        tax_status: diesel_models::enums::CustomerTaxStatusEnum::Taxable,
+        exemption_reason: None,
         vat_number_format_valid: true,
         connected_account_id: None,
         vat_number_validation_status: None,
@@ -545,7 +549,8 @@ async fn create_german_b2b_customer(
         custom_taxes: json!([]),
         invoicing_emails: vec![],
         phone: None,
-        is_tax_exempt: false,
+        tax_status: diesel_models::enums::CustomerTaxStatusEnum::Taxable,
+        exemption_reason: None,
         vat_number_format_valid: true,
         connected_account_id: None,
         vat_number_validation_status: None,
@@ -589,7 +594,7 @@ async fn create_customer_with_custom_tax_rate(
         billing_email: None,
         current_payment_method_id: None,
         vat_number: None,
-        custom_taxes: serde_json::to_value(vec![CustomerCustomTax {
+        custom_taxes: serde_json::to_value(vec![CustomerTaxRate {
             tax_code: "custom".to_string(),
             name: "Custom Tax".to_string(),
             rate: dec!(0.0825),
@@ -597,7 +602,8 @@ async fn create_customer_with_custom_tax_rate(
         .unwrap(),
         invoicing_emails: vec![],
         phone: None,
-        is_tax_exempt: false,
+        tax_status: diesel_models::enums::CustomerTaxStatusEnum::Taxable,
+        exemption_reason: None,
         vat_number_format_valid: false,
         connected_account_id: None,
         vat_number_validation_status: None,
@@ -639,7 +645,7 @@ async fn test_compute_invoice_with_tax_category_custom_tax(
     conn: &mut PgConn,
 ) {
     use meteroid_store::domain::PaginationRequest;
-    use meteroid_store::domain::accounting::{CustomTaxNew, CustomTaxRule};
+    use meteroid_store::domain::accounting::{TaxRateNew, TaxRateRule};
     use meteroid_store::repositories::accounting::AccountingInterface;
     use meteroid_store::repositories::products::{ProductInterface, ProductUpdate};
     use meteroid_store::repositories::tax_categories::TaxCategoryInterface;
@@ -657,13 +663,13 @@ async fn test_compute_invoice_with_tax_category_custom_tax(
         .await
         .unwrap();
 
-    let saas = store
+    let digital_services = store
         .list_tax_categories(TENANT_ID)
         .await
         .unwrap()
         .into_iter()
-        .find(|c| c.key == "saas")
-        .expect("built-in saas category should be seeded");
+        .find(|c| c.key == "digital_services")
+        .expect("built-in digital_services category should be seeded");
 
     let products = store
         .list_products(
@@ -690,7 +696,7 @@ async fn test_compute_invoice_with_tax_category_custom_tax(
                     description: None,
                     fee_type: None,
                     fee_structure: None,
-                    tax_category_id: Some(Some(saas.id)),
+                    tax_category_id: Some(Some(digital_services.id)),
                 },
             )
             .await
@@ -698,16 +704,16 @@ async fn test_compute_invoice_with_tax_category_custom_tax(
     }
 
     // 10% (rates are fractions) for the invoicing entity's country (FR),
-    // targeting the SaaS category.
+    // targeting the Digital services category.
     store
         .insert_custom_tax(
             TENANT_ID,
-            CustomTaxNew {
+            TaxRateNew {
                 invoicing_entity_id: INVOICING_ENTITY_ID,
-                name: "SaaS France".to_string(),
-                tax_code: "SAAS_FR".to_string(),
-                tax_category_id: Some(saas.id),
-                rules: vec![CustomTaxRule {
+                name: "Digital services France".to_string(),
+                tax_code: "DIGITAL_SERVICES_FR".to_string(),
+                tax_category_id: Some(digital_services.id),
+                rules: vec![TaxRateRule {
                     country: Some(CountryCode::from_str("FR").unwrap()),
                     region: None,
                     rate: dec!(0.10),
@@ -775,5 +781,5 @@ async fn test_compute_invoice_with_tax_category_custom_tax(
         1,
         "The category tax should produce a single breakdown entry"
     );
-    assert_eq!(result.tax_breakdown[0].name, "SaaS France");
+    assert_eq!(result.tax_breakdown[0].name, "Digital services France");
 }

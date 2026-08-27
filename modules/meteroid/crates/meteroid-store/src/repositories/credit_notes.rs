@@ -465,12 +465,17 @@ fn compute_tax_breakdown(line_items: &[LineItem]) -> Vec<TaxBreakdownItem> {
         .into_iter()
         .map(|((tax_rate, name), tax_amount)| {
             let taxable_amount = taxable_by_rate.get(&tax_rate).copied().unwrap_or(0);
+            // Credit-note breakdown keeps its positive-magnitude convention; the
+            // domain field is signed (W4) so cast the unsigned aggregates.
             TaxBreakdownItem {
-                taxable_amount,
-                tax_amount,
+                taxable_amount: taxable_amount as i64,
+                tax_amount: tax_amount as i64,
                 tax_rate,
                 name,
                 exemption_type: None, // TODO: preserve exemption info if needed
+                exemption_reason: None,
+                tax_reference: None,
+                overridden: false,
             }
         })
         .collect()

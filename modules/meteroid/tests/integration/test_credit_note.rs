@@ -19,7 +19,7 @@ use meteroid_store::domain::coupons::{CouponDiscount, CouponNew};
 use meteroid_store::domain::enums::InvoiceStatusEnum;
 use meteroid_store::domain::subscription_coupons::CreateSubscriptionCoupon;
 use meteroid_store::domain::{
-    Address, BillingPeriodEnum, CreateSubscription, CreateSubscriptionCoupons, CustomerCustomTax,
+    Address, BillingPeriodEnum, CreateSubscription, CreateSubscriptionCoupons, CustomerTaxRate,
     FeeType, InvoicingEntityPatch, PaginationRequest, SubscriptionActivationCondition,
     SubscriptionNew, TermRate,
 };
@@ -2103,7 +2103,7 @@ async fn create_customer_with_tax(conn: &mut PgConn, balance_cents: i64) -> Cust
         billing_email: None,
         current_payment_method_id: None,
         vat_number: Some("FR12345678901".to_string()),
-        custom_taxes: serde_json::to_value(vec![CustomerCustomTax {
+        custom_taxes: serde_json::to_value(vec![CustomerTaxRate {
             tax_code: "vat".to_string(),
             name: "VAT".to_string(),
             rate: dec!(0.10), // 10% tax
@@ -2111,7 +2111,8 @@ async fn create_customer_with_tax(conn: &mut PgConn, balance_cents: i64) -> Cust
         .unwrap(),
         invoicing_emails: vec![],
         phone: None,
-        is_tax_exempt: false,
+        tax_status: diesel_models::enums::CustomerTaxStatusEnum::Taxable,
+        exemption_reason: None,
         vat_number_format_valid: true,
         connected_account_id: None,
         vat_number_validation_status: None,

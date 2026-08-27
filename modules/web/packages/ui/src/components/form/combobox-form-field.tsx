@@ -1,4 +1,4 @@
-import { CaretSortIcon, CheckIcon } from '@radix-ui/react-icons'
+import { CaretSortIcon, CheckIcon, Cross2Icon } from '@radix-ui/react-icons'
 import { useState } from 'react'
 import { Control, ControllerProps, FieldPath, FieldValues } from 'react-hook-form'
 
@@ -32,6 +32,8 @@ interface FormComboboxProps<
   className?: string
   layout?: 'vertical' | 'horizontal' | null
   hasSearch?: boolean
+  /** Show a clear (×) affordance to reset the field to an empty value. */
+  clearable?: boolean
   /** Called every time the search input changes — use it to drive server-side search. */
   onSearchChange?: (value: string) => void
   /** Set false when the caller filters `options` itself (e.g. server-side search). */
@@ -52,6 +54,7 @@ export function ComboboxFormField<
   labelClassName,
   className,
   hasSearch,
+  clearable,
   onSearchChange,
   shouldFilter,
   placeholder,
@@ -84,10 +87,29 @@ export function ComboboxFormField<
                     //!field.value && ''
                   )}
                 >
-                  {field.value
-                    ? options.find(option => option.value === field.value)?.label
-                    : (placeholder ?? `Select ${unit}`)}
-                  <CaretSortIcon className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  <span className="truncate text-left">
+                    {field.value
+                      ? options.find(option => option.value === field.value)?.label
+                      : (placeholder ?? `Select ${unit}`)}
+                  </span>
+                  <div className="ml-2 flex shrink-0 items-center gap-1">
+                    {clearable && field.value ? (
+                      <span
+                        role="button"
+                        tabIndex={-1}
+                        aria-label="Clear"
+                        className="flex items-center justify-center rounded-sm opacity-60 hover:opacity-100"
+                        onPointerDown={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          field.onChange('')
+                        }}
+                      >
+                        <Cross2Icon className="h-3.5 w-3.5" />
+                      </span>
+                    ) : null}
+                    <CaretSortIcon className="h-4 w-4 opacity-50" />
+                  </div>
                 </Button>
               </FormControl>
             </PopoverTrigger>

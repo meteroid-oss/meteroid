@@ -6,14 +6,17 @@ import "api/taxes/v1/models.proto";
 import "google/protobuf/empty.proto";
 
 service TaxesService {
-  rpc CreateCustomTax(CreateCustomTaxRequest) returns (CreateCustomTaxResponse) {}
-  rpc UpdateCustomTax(UpdateCustomTaxRequest) returns (UpdateCustomTaxResponse) {}
-  rpc DeleteCustomTax(DeleteCustomTaxRequest) returns (google.protobuf.Empty) {}
-  rpc ListCustomTaxes(ListCustomTaxesRequest) returns (ListCustomTaxesResponse) {}
+  rpc CreateTaxRate(CreateTaxRateRequest) returns (CreateTaxRateResponse) {}
+  rpc UpdateTaxRate(UpdateTaxRateRequest) returns (UpdateTaxRateResponse) {}
+  rpc DeleteTaxRate(DeleteTaxRateRequest) returns (google.protobuf.Empty) {}
+  rpc ListTaxRates(ListTaxRatesRequest) returns (ListTaxRatesResponse) {}
   rpc UpsertProductAccounting(UpsertProductAccountingRequest) returns (UpsertProductAccountingResponse) {}
   rpc GetProductAccounting(GetProductAccountingRequest) returns (GetProductAccountingResponse) {}
   rpc ValidateVatNumber(ValidateVatNumberRequest) returns (ValidateVatNumberResponse) {}
   rpc ListTaxCategories(ListTaxCategoriesRequest) returns (ListTaxCategoriesResponse) {}
+  rpc CreateTaxCategory(CreateTaxCategoryRequest) returns (CreateTaxCategoryResponse) {}
+  rpc UpdateTaxCategory(UpdateTaxCategoryRequest) returns (UpdateTaxCategoryResponse) {}
+  rpc DeleteTaxCategory(DeleteTaxCategoryRequest) returns (google.protobuf.Empty) {}
 }
 
 message ListTaxCategoriesRequest {}
@@ -21,32 +24,53 @@ message ListTaxCategoriesResponse {
   repeated TaxCategory tax_categories = 1;
 }
 
-message CreateCustomTaxRequest {
-  CustomTaxNew custom_tax = 1;
+message CreateTaxCategoryRequest {
+  string name = 1;
+  optional string parent_id = 2;
+}
+message CreateTaxCategoryResponse {
+  TaxCategory tax_category = 1;
 }
 
-message CreateCustomTaxResponse {
-  CustomTax custom_tax = 1;
+message UpdateTaxCategoryRequest {
+  string id = 1;
+  string name = 2;
+  optional string parent_id = 3;
+}
+message UpdateTaxCategoryResponse {
+  TaxCategory tax_category = 1;
 }
 
-message UpdateCustomTaxRequest {
-  CustomTax custom_tax = 1;
-}
-
-message UpdateCustomTaxResponse {
-  CustomTax custom_tax = 1;
-}
-
-message DeleteCustomTaxRequest {
+message DeleteTaxCategoryRequest {
   string id = 1;
 }
 
-message ListCustomTaxesRequest {
+message CreateTaxRateRequest {
+  TaxRateNew tax_rate = 1;
+}
+
+message CreateTaxRateResponse {
+  TaxRate tax_rate = 1;
+}
+
+message UpdateTaxRateRequest {
+  TaxRate tax_rate = 1;
+}
+
+message UpdateTaxRateResponse {
+  TaxRate tax_rate = 1;
+}
+
+message DeleteTaxRateRequest {
+  string id = 1;
+}
+
+message ListTaxRatesRequest {
   string invoicing_entity_id = 1;
 }
 
-message ListCustomTaxesResponse {
-  repeated CustomTax custom_taxes = 1;
+message ListTaxRatesResponse {
+  repeated TaxRate tax_rates = 1;
 }
 
 message UpsertProductAccountingRequest {

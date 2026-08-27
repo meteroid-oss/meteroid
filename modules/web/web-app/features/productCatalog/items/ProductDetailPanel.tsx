@@ -1,6 +1,11 @@
 import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query'
 import {
   Badge,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Separator,
   Sheet,
   SheetContent,
@@ -35,6 +40,10 @@ interface ProductDetailPanelProps {
   productId: string | null
   onClose: () => void
 }
+
+// Radix Select forbids empty-string item values, so the "no explicit category,
+// fall back to the invoicing entity default" choice uses a sentinel mapped to ''.
+const ENTITY_DEFAULT_CATEGORY = '__entity_default__'
 
 function usageModelLabel(model: FeeStructure_UsageModel): string {
   switch (model) {
@@ -137,25 +146,29 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
                 <DetailRow
                   label="Tax category"
                   value={
-                    <select
-                      className="text-sm bg-transparent border border-border rounded px-2 py-1"
-                      value={product.taxCategoryId ?? ''}
+                    <Select
+                      value={product.taxCategoryId || ENTITY_DEFAULT_CATEGORY}
                       disabled={updateProductMut.isPending}
-                      onChange={e =>
+                      onValueChange={v =>
                         updateProductMut.mutate({
                           productId: product.id,
                           name: product.name,
-                          taxCategoryId: e.target.value,
+                          taxCategoryId: v === ENTITY_DEFAULT_CATEGORY ? '' : v,
                         })
                       }
                     >
-                      <option value="">— Entity default —</option>
-                      {(taxCategoriesQuery.data?.taxCategories ?? []).map(c => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger className="h-8 w-[240px] text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ENTITY_DEFAULT_CATEGORY}>Entity default</SelectItem>
+                        {(taxCategoriesQuery.data?.taxCategories ?? []).map(c => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   }
                 />
                 {product.createdAt && (

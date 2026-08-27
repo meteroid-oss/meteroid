@@ -156,7 +156,8 @@ pub mod invoices {
         meteroid_grpc::meteroid::api::invoices::v1::TaxBreakdownItem {
             tax_rate: item.tax_rate.as_proto(),
             name: item.name.clone(),
-            amount: item.tax_amount as i64,
+            amount: item.tax_amount,
+            overridden: item.overridden,
         }
     }
 

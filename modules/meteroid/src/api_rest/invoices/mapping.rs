@@ -76,6 +76,8 @@ fn map_tax_breakdown_to_rest(item: domain::TaxBreakdownItem) -> TaxBreakdownItem
         tax_rate: item.tax_rate,
         name: item.name,
         exemption_type: item.exemption_type.map(map_tax_exemption_type_to_rest),
+        exemption_reason: item.exemption_reason,
+        tax_reference: item.tax_reference,
     }
 }
 

@@ -6,9 +6,11 @@
 pub mod calculation;
 mod calculation_test;
 pub mod errors;
+pub mod eu;
 pub mod provider;
 pub mod types;
 
+pub use eu::{EU_SELLER_COUNTRY_CODES, is_eu_seller_country};
 pub use provider::TaxDatabase;
 pub use types::{
     Region, TaxCalculationType, TaxRate, TaxScenario, TaxType, TradeAgreement,

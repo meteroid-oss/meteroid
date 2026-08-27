@@ -32,7 +32,7 @@ import { getCountryFlagEmoji } from '@/features/settings/utils'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { schemas } from '@/lib/schemas'
-import { CreateCustomerSchema } from '@/lib/schemas/customers'
+import { CreateCustomerSchema, taxStatusToProto } from '@/lib/schemas/customers'
 import { percentToRate } from '@/lib/utils/numbers'
 import {
   createCustomer,
@@ -69,7 +69,7 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
     schema: schemas.customers.createCustomerSchema,
     defaultValues: {
       customTaxes: [],
-      isTaxExempt: false,
+      taxStatus: 'TAXABLE',
     },
   })
 
@@ -118,7 +118,8 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
           name: tax.name,
           rate: percentToRate(tax.rate),
         })),
-        isTaxExempt: values.isTaxExempt,
+        taxStatus: taxStatusToProto(values.taxStatus),
+        exemptionReason: values.exemptionReason || undefined,
         billingAddress: values.billingAddress,
         shippingAddress: values.shippingAddress,
         connectedAccountId: values.connectedAccountId || undefined,

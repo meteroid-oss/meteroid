@@ -1,32 +1,60 @@
 use crate::StoreResult;
 use crate::domain::accounting::{
-    CustomTax, CustomTaxNew, ProductAccounting, ProductAccountingWithTaxes,
+    ProductAccounting, ProductAccountingWithTaxes, TaxRate, TaxRateNew, TaxRateRule,
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store};
-use common_domain::ids::{CustomTaxId, InvoicingEntityId, ProductId, TaxCategoryId, TenantId};
+use common_domain::ids::{
+    BaseId, CustomTaxId, InvoicingEntityId, ProductId, TaxCategoryId, TenantId,
+};
 use diesel_models::accounting::{CustomTaxRow, ProductAccountingRow, ProductAccountingWithTaxRow};
 use error_stack::Report;
 use std::collections::HashMap;
 
+/// Builds a persistable tax-rate row, enforcing that the accounting `tax_code`
+/// is present. Uniqueness of the code per tenant is enforced by the database
+/// (`custom_tax_tenant_tax_code_key`); a collision surfaces as `DuplicateValue`.
+fn build_custom_tax_row(
+    id: CustomTaxId,
+    tenant_id: TenantId,
+    invoicing_entity_id: InvoicingEntityId,
+    name: String,
+    tax_code: String,
+    tax_category_id: Option<TaxCategoryId>,
+    rules: &[TaxRateRule],
+) -> StoreResult<CustomTaxRow> {
+    if tax_code.trim().is_empty() {
+        return Err(StoreError::InvalidArgument(
+            "tax code is required and is used as the accounting reference".to_string(),
+        )
+        .into());
+    }
+
+    let rules = serde_json::to_value(rules)
+        .map_err(|e| StoreError::SerdeError("Failed to serialize rules".to_string(), e))?;
+
+    Ok(CustomTaxRow {
+        id,
+        invoicing_entity_id,
+        name,
+        tax_code,
+        rules,
+        tax_category_id,
+        tenant_id,
+    })
+}
+
 #[async_trait::async_trait]
 pub trait AccountingInterface {
-    async fn insert_custom_tax(
-        &self,
-        tenant_id: TenantId,
-        tax: CustomTaxNew,
-    ) -> StoreResult<CustomTax>;
-    async fn update_custom_tax(
-        &self,
-        tenant_id: TenantId,
-        tax: CustomTax,
-    ) -> StoreResult<CustomTax>;
+    async fn insert_custom_tax(&self, tenant_id: TenantId, tax: TaxRateNew)
+    -> StoreResult<TaxRate>;
+    async fn update_custom_tax(&self, tenant_id: TenantId, tax: TaxRate) -> StoreResult<TaxRate>;
     async fn delete_custom_tax(&self, tenant_id: TenantId, tax_id: CustomTaxId) -> StoreResult<()>;
     async fn list_custom_taxes_by_invoicing_entity_id(
         &self,
         tenant_id: TenantId,
         invoicing_entity_id: InvoicingEntityId,
-    ) -> StoreResult<Vec<CustomTax>>;
+    ) -> StoreResult<Vec<TaxRate>>;
 
     async fn upsert_product_accounting(
         &self,
@@ -49,7 +77,7 @@ pub trait AccountingInterface {
         tenant_id: TenantId,
         invoicing_entity_id: InvoicingEntityId,
         category_ids: &[TaxCategoryId],
-    ) -> StoreResult<HashMap<TaxCategoryId, Vec<CustomTax>>>;
+    ) -> StoreResult<HashMap<TaxCategoryId, Vec<TaxRate>>>;
 }
 
 #[async_trait::async_trait]
@@ -57,10 +85,18 @@ impl AccountingInterface for Store {
     async fn insert_custom_tax(
         &self,
         tenant_id: TenantId,
-        tax: CustomTaxNew,
-    ) -> StoreResult<CustomTax> {
+        tax: TaxRateNew,
+    ) -> StoreResult<TaxRate> {
         let mut conn = self.get_conn().await?;
-        let tax_row: CustomTaxRow = tax.try_into()?;
+        let tax_row = build_custom_tax_row(
+            CustomTaxId::new(),
+            tenant_id,
+            tax.invoicing_entity_id,
+            tax.name,
+            tax.tax_code,
+            tax.tax_category_id,
+            &tax.rules,
+        )?;
 
         let inserted_tax = tax_row
             .upsert(&mut conn, tenant_id)
@@ -70,13 +106,17 @@ impl AccountingInterface for Store {
         Ok(inserted_tax.try_into()?)
     }
 
-    async fn update_custom_tax(
-        &self,
-        tenant_id: TenantId,
-        tax: CustomTax,
-    ) -> StoreResult<CustomTax> {
+    async fn update_custom_tax(&self, tenant_id: TenantId, tax: TaxRate) -> StoreResult<TaxRate> {
         let mut conn = self.get_conn().await?;
-        let tax_row: CustomTaxRow = tax.try_into()?;
+        let tax_row = build_custom_tax_row(
+            tax.id,
+            tenant_id,
+            tax.invoicing_entity_id,
+            tax.name,
+            tax.tax_code,
+            tax.tax_category_id,
+            &tax.rules,
+        )?;
 
         let updated_tax = tax_row
             .upsert(&mut conn, tenant_id)
@@ -98,7 +138,7 @@ impl AccountingInterface for Store {
         &self,
         tenant_id: TenantId,
         invoicing_entity_id: InvoicingEntityId,
-    ) -> StoreResult<Vec<CustomTax>> {
+    ) -> StoreResult<Vec<TaxRate>> {
         let mut conn = self.get_conn().await?;
         let tax_rows =
             CustomTaxRow::list_by_invoicing_entity_id(&mut conn, invoicing_entity_id, tenant_id)
@@ -108,7 +148,7 @@ impl AccountingInterface for Store {
         let custom_taxes = tax_rows
             .into_iter()
             .map(std::convert::TryInto::try_into)
-            .collect::<Result<Vec<CustomTax>, _>>()?;
+            .collect::<Result<Vec<TaxRate>, _>>()?;
 
         Ok(custom_taxes)
     }
@@ -164,7 +204,7 @@ impl AccountingInterface for Store {
                 });
 
             if let Some(tax_row) = row.custom_tax {
-                let custom_tax: CustomTax = tax_row.try_into()?;
+                let custom_tax: TaxRate = tax_row.try_into()?;
                 entry.custom_taxes.push(custom_tax);
             }
         }
@@ -178,7 +218,7 @@ impl AccountingInterface for Store {
         tenant_id: TenantId,
         invoicing_entity_id: InvoicingEntityId,
         category_ids: &[TaxCategoryId],
-    ) -> StoreResult<HashMap<TaxCategoryId, Vec<CustomTax>>> {
+    ) -> StoreResult<HashMap<TaxCategoryId, Vec<TaxRate>>> {
         let rows = CustomTaxRow::list_by_invoicing_entity_and_categories(
             conn,
             invoicing_entity_id,
@@ -188,7 +228,7 @@ impl AccountingInterface for Store {
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-        let mut grouped: HashMap<TaxCategoryId, Vec<CustomTax>> = HashMap::new();
+        let mut grouped: HashMap<TaxCategoryId, Vec<TaxRate>> = HashMap::new();
 
         for row in rows {
             let Some(category_id) = row.tax_category_id else {

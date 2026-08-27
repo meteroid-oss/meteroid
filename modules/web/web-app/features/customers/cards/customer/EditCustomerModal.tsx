@@ -6,7 +6,12 @@ import { toast } from 'sonner'
 
 import { CustomerFormFields } from '@/features/customers/form/CustomerFormFields'
 import { useZodForm } from '@/hooks/useZodForm'
-import { editCustomerSchema, EditCustomerSchema } from '@/lib/schemas/customers'
+import {
+  editCustomerSchema,
+  EditCustomerSchema,
+  taxStatusFromProto,
+  taxStatusToProto,
+} from '@/lib/schemas/customers'
 import { percentToRate, rateToPercent } from '@/lib/utils/numbers'
 import {
   getCustomerById,
@@ -54,7 +59,8 @@ export const EditCustomerModal = ({ customer, visible, onCancel }: Props) => {
         name: tax.name,
         rate: rateToPercent(tax.rate),
       })) ?? [],
-    isTaxExempt: customer.isTaxExempt,
+    taxStatus: taxStatusFromProto(customer.taxStatus),
+    exemptionReason: customer.exemptionReason,
     billingAddress: customer.billingAddress,
     shippingAddress: customer.shippingAddress,
   })
@@ -88,7 +94,8 @@ export const EditCustomerModal = ({ customer, visible, onCancel }: Props) => {
             rate: percentToRate(tax.rate),
           })),
         },
-        isTaxExempt: data.isTaxExempt,
+        taxStatus: taxStatusToProto(data.taxStatus),
+        exemptionReason: data.exemptionReason || undefined,
         billingAddress: data.billingAddress,
         shippingAddress: data.shippingAddress,
       },

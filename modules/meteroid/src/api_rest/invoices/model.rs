@@ -104,12 +104,18 @@ pub struct InvoiceListResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TaxBreakdownItem {
-    pub taxable_amount: u64,
-    pub tax_amount: u64,
+    pub taxable_amount: i64,
+    pub tax_amount: i64,
     #[schema(value_type = String, format = "decimal")]
     pub tax_rate: rust_decimal::Decimal,
     pub name: String,
     pub exemption_type: Option<TaxExemptionType>,
+    /// Free-text legal exemption mention (EU exempt/reverse-charge invoices).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exemption_reason: Option<String>,
+    /// Accounting/reporting code of the tax rate for this line, for exports.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tax_reference: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

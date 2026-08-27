@@ -2,7 +2,7 @@ use super::CustomerServiceComponents;
 use crate::api::customers::error::CustomerApiError;
 use crate::api::customers::mapping::customer::{
     DomainAddressWrapper, DomainShippingAddressWrapper, ServerCustomerBriefWrapper,
-    ServerCustomerWrapper,
+    ServerCustomerWrapper, tax_status_from_server,
 };
 use crate::api::utils::PaginationExt;
 use common_domain::ids::{
@@ -14,7 +14,7 @@ use error_stack::Report;
 use meteroid_grpc::meteroid::api::customers::v1::{
     ArchiveCustomerRequest, ArchiveCustomerResponse, BuyCustomerCreditsRequest,
     BuyCustomerCreditsResponse, CreateCustomerRequest, CreateCustomerResponse, CustomerBrief,
-    DeleteCustomerConnectionRequest, DeleteCustomerConnectionResponse,
+    CustomerTaxStatus, DeleteCustomerConnectionRequest, DeleteCustomerConnectionResponse,
     GenerateCustomerPortalTokenRequest, GenerateCustomerPortalTokenResponse,
     GetCustomerByAliasRequest, GetCustomerByAliasResponse, GetCustomerByIdRequest,
     GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse,
@@ -76,8 +76,8 @@ impl CustomersService for CustomerServiceComponents {
                 .custom_taxes
                 .into_iter()
                 .map(
-                    |t| -> Result<meteroid_store::domain::CustomerCustomTax, CustomerApiError> {
-                        Ok(meteroid_store::domain::CustomerCustomTax {
+                    |t| -> Result<meteroid_store::domain::CustomerTaxRate, CustomerApiError> {
+                        Ok(meteroid_store::domain::CustomerTaxRate {
                             tax_code: t.tax_code,
                             name: t.name,
                             rate: t.rate.parse().map_err(|_| {
@@ -87,7 +87,12 @@ impl CustomersService for CustomerServiceComponents {
                     },
                 )
                 .collect::<Result<Vec<_>, _>>()?,
-            is_tax_exempt: inner.is_tax_exempt.unwrap_or(false),
+            tax_status: inner
+                .tax_status
+                .and_then(|v| CustomerTaxStatus::try_from(v).ok())
+                .map(tax_status_from_server)
+                .unwrap_or_default(),
+            exemption_reason: inner.exemption_reason,
             connected_account_id: ConnectedAccountId::from_proto_opt(inner.connected_account_id)?,
         };
 
@@ -155,7 +160,11 @@ impl CustomersService for CustomerServiceComponents {
                     )
                     .map_err(Into::<Status>::into)?,
                     current_payment_method_id: None,
-                    is_tax_exempt: customer.is_tax_exempt,
+                    tax_status: customer
+                        .tax_status
+                        .and_then(|v| CustomerTaxStatus::try_from(v).ok())
+                        .map(tax_status_from_server),
+                    exemption_reason: customer.exemption_reason.map(Some),
                     connected_account_id: None,
                 },
             )

@@ -14,6 +14,7 @@ interface Props<TFieldValues extends FieldValues, TName extends FieldPath<TField
   containerClassName?: string
   labelClassName?: string
   layout?: 'vertical' | 'horizontal' | null
+  clearable?: boolean
 }
 
 export function CountrySelect<
@@ -28,6 +29,7 @@ export function CountrySelect<
   containerClassName,
   labelClassName,
   layout = 'vertical',
+  clearable,
 }: Props<TFieldValues, TName>) {
   const getCountriesQuery = useQuery(getCountries)
 
@@ -41,6 +43,7 @@ export function CountrySelect<
       labelClassName={labelClassName}
       layout={layout}
       placeholder={placeholder}
+      clearable={clearable}
       hasSearch
       options={
         getCountriesQuery.data?.countries.map(country => ({

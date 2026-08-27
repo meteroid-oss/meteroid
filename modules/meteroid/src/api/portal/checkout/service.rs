@@ -923,7 +923,7 @@ impl PortalCheckoutServiceComponents {
             .map(|item| TaxBreakdownItem {
                 name: item.name,
                 rate: item.tax_rate.to_string(),
-                amount: item.tax_amount,
+                amount: item.tax_amount.to_non_negative_u64(),
             })
             .collect();
 

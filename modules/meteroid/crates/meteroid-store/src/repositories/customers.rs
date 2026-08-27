@@ -676,7 +676,8 @@ impl CustomersInterface for Store {
                 StoreError::SerdeError("Failed to serialize custom_taxes".to_string(), e)
             })?,
             vat_number_format_valid,
-            is_tax_exempt: customer.is_tax_exempt,
+            tax_status: customer.tax_status.into(),
+            exemption_reason: customer.exemption_reason,
             vat_number_validation_status,
             vat_number_checked_at,
             vat_number_vies_check,

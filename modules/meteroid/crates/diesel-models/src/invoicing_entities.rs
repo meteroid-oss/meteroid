@@ -72,6 +72,7 @@ pub struct InvoicingEntityRowPatch {
     pub require_billing_information: Option<bool>,
     pub portal_theme_mode: Option<Option<String>>,
     pub portal_roundness: Option<Option<String>>,
+    pub default_tax_category_id: Option<Option<TaxCategoryId>>,
 }
 
 #[derive(Debug, AsChangeset)]
