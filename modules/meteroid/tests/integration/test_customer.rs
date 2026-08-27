@@ -53,7 +53,8 @@ async fn test_customers_basic() {
                 invoicing_entity_id: None,
                 vat_number: None,
                 custom_taxes: vec![],
-                is_tax_exempt: Some(false),
+                tax_status: None,
+                exemption_reason: None,
                 connected_account_id: None,
             }),
         })
@@ -79,7 +80,8 @@ async fn test_customers_basic() {
                 invoicing_entity_id: None,
                 vat_number: None,
                 custom_taxes: vec![],
-                is_tax_exempt: Some(false),
+                tax_status: None,
+                exemption_reason: None,
                 connected_account_id: None,
             }),
         })
@@ -230,7 +232,8 @@ async fn test_customers_basic() {
                 invoicing_entity_id: None,
                 vat_number: None,
                 custom_taxes: None,
-                is_tax_exempt: None,
+                tax_status: None,
+                exemption_reason: None,
             }),
         })
         .await

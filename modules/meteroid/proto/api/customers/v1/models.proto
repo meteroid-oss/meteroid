@@ -30,7 +30,7 @@ message ShippingAddress {
   bool sameAsBilling = 7;
 }
 
-message CustomTaxRate {
+message CustomerTaxRate {
   string tax_code = 1;
   string name = 2;
   string rate = 3;
@@ -44,6 +44,14 @@ enum VatNumberValidationStatus {
   VAT_NUMBER_VALIDATION_STATUS_VALID = 2;
   VAT_NUMBER_VALIDATION_STATUS_INVALID = 3;
   VAT_NUMBER_VALIDATION_STATUS_UNAVAILABLE = 4;
+}
+
+// Party tax status. TAXABLE is the default; REVERSE_CHARGE is additive to the
+// VIES-derived reverse charge the built-in engine also computes.
+enum CustomerTaxStatus {
+  CUSTOMER_TAX_STATUS_TAXABLE = 0;
+  CUSTOMER_TAX_STATUS_EXEMPT = 1;
+  CUSTOMER_TAX_STATUS_REVERSE_CHARGE = 2;
 }
 
 message Customer {
@@ -64,8 +72,8 @@ message Customer {
   optional string vat_number = 16;
   optional string current_payment_method_id = 17;
   optional api.connectors.v1.ConnectionMetadata connection_metadata = 18;
-  repeated CustomTaxRate custom_taxes = 20;
-  bool is_tax_exempt = 21;
+  repeated CustomerTaxRate custom_taxes = 20;
+  CustomerTaxStatus tax_status = 21;
   bool is_vat_number_valid = 22;
   repeated CustomerConnection customer_connections = 23;
   repeated CustomerPaymentMethod payment_methods = 24;
@@ -77,7 +85,8 @@ message Customer {
   optional string vat_number_registered_name = 29;
   // VIES consultation number (audit proof); present only for qualified checks.
   optional string vat_number_consultation_number = 30;
-
+  // Free-text legal exemption mention (EU exempt/reverse-charge invoices).
+  optional string exemption_reason = 31;
 }
 
 message CustomerNew {
@@ -91,9 +100,10 @@ message CustomerNew {
   optional ShippingAddress shipping_address = 13;
   optional string invoicing_entity_id = 14;
   optional string vat_number = 16;
-  repeated CustomTaxRate custom_taxes = 17;
-  optional bool is_tax_exempt = 18;
+  repeated CustomerTaxRate custom_taxes = 17;
+  optional CustomerTaxStatus tax_status = 18;
   optional string connected_account_id = 19;
+  optional string exemption_reason = 20;
 }
 
 
@@ -111,14 +121,15 @@ message UpdateCustomer {
   optional string invoicing_entity_id = 14;
   optional string vat_number = 15;
   CustomTaxesList custom_taxes = 17;
-  optional bool is_tax_exempt = 18;
+  optional CustomerTaxStatus tax_status = 18;
+  optional string exemption_reason = 19;
 
   message InvoicingEmails {
     repeated string emails = 1;
   }
 
   message CustomTaxesList {
-    repeated CustomTaxRate taxes = 1;
+    repeated CustomerTaxRate taxes = 1;
   }
 }
 

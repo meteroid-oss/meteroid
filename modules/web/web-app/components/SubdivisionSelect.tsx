@@ -11,6 +11,7 @@ interface Props<TFieldValues extends FieldValues, TName extends FieldPath<TField
   label?: string
   placeholder?: string
   className?: string
+  clearable?: boolean
 }
 
 export function SubdivisionSelect<
@@ -23,6 +24,7 @@ export function SubdivisionSelect<
   placeholder = 'Select a subdivision',
   label = 'Subdivision',
   className,
+  clearable,
 }: Props<TFieldValues, TName>) {
   const countryCode = useWatch({
     name: countryFieldName,
@@ -46,6 +48,7 @@ export function SubdivisionSelect<
       control={control}
       className={className}
       placeholder={placeholder}
+      clearable={clearable}
       hasSearch
       disabled={!countryCode || subdivisions.length === 0}
       options={subdivisions.map(subdivision => ({

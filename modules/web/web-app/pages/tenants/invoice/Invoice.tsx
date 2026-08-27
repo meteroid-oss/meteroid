@@ -1097,7 +1097,16 @@ export const InvoiceSummaryLines: React.FC<{ invoice: DetailedInvoice }> = ({ in
               return (
                 <FlexDetails
                   key={tax.name}
-                  title={`${tax.name} (${taxRate}%)`}
+                  title={
+                    <span>
+                      {tax.name} ({taxRate}%)
+                      {tax.overridden && (
+                        <span className="ml-1.5 text-[11px] text-warning">
+                          overridden: EU VAT not applied
+                        </span>
+                      )}
+                    </span>
+                  }
                   value={formatCurrency(taxAmountValue, invoice.currency)}
                 />
               )

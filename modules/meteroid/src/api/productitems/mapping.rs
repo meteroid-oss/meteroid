@@ -25,6 +25,7 @@ pub mod products {
                 fee_type: Some(fee_type_to_proto(product.fee_type)),
                 fee_structure: Some(fee_structure_to_proto(product.fee_structure)),
                 catalog: product.catalog,
+                tax_category_id: product.tax_category_id.map(|id| id.as_proto()),
             })
         }
     }

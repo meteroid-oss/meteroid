@@ -886,13 +886,13 @@ async fn _process_pending_tx(conn: &mut PgConn, invoice_id: InvoiceId) -> StoreR
 }
 
 pub fn compute_tax_breakdown(lines: &[LineItem]) -> Vec<TaxBreakdownItem> {
-    let mut tax_groups: HashMap<Decimal, (u64, u64)> = HashMap::new();
+    let mut tax_groups: HashMap<Decimal, (i64, i64)> = HashMap::new();
 
     for line in lines {
-        if line.tax_amount > 0 || line.taxable_amount > 0 {
+        if line.tax_amount != 0 || line.taxable_amount != 0 {
             let entry = tax_groups.entry(line.tax_rate).or_insert((0, 0));
-            entry.0 += line.taxable_amount as u64;
-            entry.1 += line.tax_amount as u64;
+            entry.0 += line.taxable_amount;
+            entry.1 += line.tax_amount;
         }
     }
 
@@ -905,6 +905,9 @@ pub fn compute_tax_breakdown(lines: &[LineItem]) -> Vec<TaxBreakdownItem> {
                 tax_rate,
                 name: "Tax".to_string(),
                 exemption_type: None,
+                exemption_reason: None,
+                tax_reference: None,
+                overridden: false,
             },
         )
         .collect()

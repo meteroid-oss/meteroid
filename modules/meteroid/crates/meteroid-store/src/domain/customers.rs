@@ -19,13 +19,13 @@ use serde_with::skip_serializing_none;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CustomerCustomTax {
+pub struct CustomerTaxRate {
     pub tax_code: String,
     pub name: String,
     pub rate: rust_decimal::Decimal,
 }
 
-json_value_serde!(CustomerCustomTax);
+json_value_serde!(CustomerTaxRate);
 
 /// External (VIES) VAT validation state. See the `customer_vat_validation` migration.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, o2o)]
@@ -35,6 +35,28 @@ pub enum VatNumberValidationStatus {
     Valid,
     Invalid,
     Unavailable,
+}
+
+/// Party tax status (W6): tri-state replacement for the old `is_tax_exempt` bool.
+/// `ReverseCharge` is an explicit merchant choice, additive to the VIES-derived
+/// reverse charge the built-in engine already computes.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, o2o)]
+#[map_owned(diesel_models::enums::CustomerTaxStatusEnum)]
+pub enum CustomerTaxStatus {
+    #[default]
+    Taxable,
+    Exempt,
+    ReverseCharge,
+}
+
+impl From<CustomerTaxStatus> for meteroid_tax::CustomerTaxStatus {
+    fn from(val: CustomerTaxStatus) -> Self {
+        match val {
+            CustomerTaxStatus::Taxable => meteroid_tax::CustomerTaxStatus::Taxable,
+            CustomerTaxStatus::Exempt => meteroid_tax::CustomerTaxStatus::Exempt,
+            CustomerTaxStatus::ReverseCharge => meteroid_tax::CustomerTaxStatus::ReverseCharge,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, o2o)]
@@ -62,9 +84,11 @@ pub struct Customer {
     pub invoicing_emails: Vec<String>,
     #[map(~.map(|v| v.try_into()).transpose()?)]
     pub conn_meta: Option<ConnectionMeta>,
-    pub is_tax_exempt: bool,
+    #[map(~.into())]
+    pub tax_status: CustomerTaxStatus,
+    pub exemption_reason: Option<String>,
     #[from(serde_json::from_value(~).unwrap_or_default())]
-    pub custom_taxes: Vec<CustomerCustomTax>,
+    pub custom_taxes: Vec<CustomerTaxRate>,
     pub vat_number_format_valid: bool,
     pub connected_account_id: Option<ConnectedAccountId>,
     #[map(~.map(Into::into))]
@@ -119,8 +143,9 @@ pub struct CustomerNew {
     // for seeding
     pub force_created_date: Option<NaiveDateTime>,
     pub vat_number: Option<String>,
-    pub custom_taxes: Vec<CustomerCustomTax>,
-    pub is_tax_exempt: bool,
+    pub custom_taxes: Vec<CustomerTaxRate>,
+    pub tax_status: CustomerTaxStatus,
+    pub exemption_reason: Option<String>,
     pub connected_account_id: Option<ConnectedAccountId>,
 }
 
@@ -200,7 +225,8 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
             custom_taxes: serde_json::to_value(&self.inner.custom_taxes).map_err(|e| {
                 StoreError::SerdeError("Failed to serialize custom_taxes".to_string(), e)
             })?,
-            is_tax_exempt: self.inner.is_tax_exempt,
+            tax_status: self.inner.tax_status.into(),
+            exemption_reason: self.inner.exemption_reason,
             vat_number_format_valid: self.vat_number_format_valid,
             connected_account_id: self.inner.connected_account_id,
             vat_number_validation_status,
@@ -230,9 +256,11 @@ pub struct CustomerPatch {
     #[map(~.map(|v| serde_json::to_value(&v)).transpose().map_err(| e | {
     StoreError::SerdeError("Failed to serialize custom_taxes".to_string(), e)
     })?)]
-    pub custom_taxes: Option<Vec<CustomerCustomTax>>,
+    pub custom_taxes: Option<Vec<CustomerTaxRate>>,
     pub current_payment_method_id: Option<Option<CustomerPaymentMethodId>>,
-    pub is_tax_exempt: Option<bool>,
+    #[map(~.map(Into::into))]
+    pub tax_status: Option<CustomerTaxStatus>,
+    pub exemption_reason: Option<Option<String>>,
     pub connected_account_id: Option<Option<ConnectedAccountId>>,
 }
 
@@ -313,8 +341,9 @@ pub struct CustomerUpdate {
     pub shipping_address: Option<ShippingAddress>,
     pub invoicing_entity_id: InvoicingEntityId,
     pub vat_number: Option<String>,
-    pub custom_taxes: Vec<CustomerCustomTax>,
-    pub is_tax_exempt: bool,
+    pub custom_taxes: Vec<CustomerTaxRate>,
+    pub tax_status: CustomerTaxStatus,
+    pub exemption_reason: Option<String>,
 }
 
 impl CustomerUpdate {
@@ -366,7 +395,8 @@ mod tests {
             vat_number: None,
             invoicing_emails: vec![],
             conn_meta: None,
-            is_tax_exempt: false,
+            tax_status: CustomerTaxStatus::Taxable,
+            exemption_reason: None,
             custom_taxes: vec![],
             vat_number_format_valid: false,
             connected_account_id: None,

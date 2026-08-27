@@ -175,6 +175,7 @@ pub enum ConnectorTypeEnum {
     PaymentProvider,
     Crm,
     Accounting,
+    Tax,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
@@ -395,6 +396,7 @@ pub enum TaxResolverEnum {
     None,
     Manual,
     MeteroidEuVat,
+    External,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq)]
@@ -405,6 +407,20 @@ pub enum CustomerVatValidationStatusEnum {
     Valid,
     Invalid,
     Unavailable,
+}
+
+/// Tri-state tax treatment of a customer (party status).
+/// Taxable: normal taxation. Exempt: no tax (e.g. charity, treaty exemption).
+/// ReverseCharge: tax accounted for by the buyer (B2B intra-EU), additive to the
+/// VIES-derived reverse charge the engine already computes.
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[ExistingTypePath = "crate::schema::sql_types::CustomerTaxStatusEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum CustomerTaxStatusEnum {
+    #[default]
+    Taxable,
+    Exempt,
+    ReverseCharge,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq, Eq)]

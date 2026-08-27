@@ -67,6 +67,8 @@ pub struct CustomerCreateRequest {
     pub vat_number: Option<String>,
     pub custom_taxes: Vec<CustomTaxRate>,
     pub is_tax_exempt: Option<bool>,
+    /// Free-text legal exemption mention surfaced on exempt invoices.
+    pub exemption_reason: Option<String>,
     pub connected_account_id: Option<String>,
 }
 
@@ -85,6 +87,8 @@ pub struct CustomerUpdateRequest {
     pub vat_number: Option<String>,
     pub custom_taxes: Vec<CustomTaxRate>,
     pub is_tax_exempt: Option<bool>,
+    /// Free-text legal exemption mention surfaced on exempt invoices.
+    pub exemption_reason: Option<String>,
 }
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate, Default)]
@@ -102,6 +106,8 @@ pub struct CustomerPatchRequest {
     pub vat_number: Option<String>,
     pub custom_taxes: Option<Vec<CustomTaxRate>>,
     pub is_tax_exempt: Option<bool>,
+    /// Free-text legal exemption mention surfaced on exempt invoices.
+    pub exemption_reason: Option<String>,
 }
 
 // TODO : allow importing from stripe

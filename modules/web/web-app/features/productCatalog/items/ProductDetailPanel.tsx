@@ -1,6 +1,11 @@
-import { skipToken } from '@connectrpc/connect-query'
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query'
 import {
   Badge,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Separator,
   Sheet,
   SheetContent,
@@ -14,7 +19,9 @@ import {
   TableHeader,
   TableRow,
 } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { ProductEntitlementsSection } from '@/features/productCatalog/items/ProductEntitlementsSection'
 import { useBasePath } from '@/hooks/useBasePath'
@@ -23,7 +30,8 @@ import { env } from '@/lib/env'
 import { feeTypeLabel, formatCadence, formatPricingSummary } from '@/lib/mapping/prices'
 import { FeeStructure_BillingType, FeeStructure_UsageModel } from '@/rpc/api/prices/v1/models_pb'
 import { listPricesByProduct } from '@/rpc/api/prices/v1/prices-PricesService_connectquery'
-import { getProduct } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
+import { getProduct, updateProduct } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
+import { listTaxCategories } from '@/rpc/api/taxes/v1/taxes-TaxesService_connectquery'
 import { parseAndFormatDate } from '@/utils/date'
 
 import { MatrixRowsSection } from './MatrixRowsSection'
@@ -32,6 +40,10 @@ interface ProductDetailPanelProps {
   productId: string | null
   onClose: () => void
 }
+
+// Radix Select forbids empty-string item values, so the "no explicit category,
+// fall back to the invoicing entity default" choice uses a sentinel mapped to ''.
+const ENTITY_DEFAULT_CATEGORY = '__entity_default__'
 
 function usageModelLabel(model: FeeStructure_UsageModel): string {
   switch (model) {
@@ -71,6 +83,22 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
     listPricesByProduct,
     productId ? { productId } : skipToken
   )
+
+  const queryClient = useQueryClient()
+  const taxCategoriesQuery = useQuery(listTaxCategories, {})
+  const updateProductMut = useMutation(updateProduct, {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: getProduct,
+          input: { productId: productId ?? '' },
+          cardinality: 'finite',
+        }),
+      })
+      toast.success('Tax category updated')
+    },
+    onError: e => toast.error(`Failed to update tax category: ${e.message}`),
+  })
 
   const product = productQuery.data?.product
   const metricName = productQuery.data?.metricName
@@ -113,6 +141,34 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
                     ) : (
                       <span className="text-muted-foreground">-</span>
                     )
+                  }
+                />
+                <DetailRow
+                  label="Tax category"
+                  value={
+                    <Select
+                      value={product.taxCategoryId || ENTITY_DEFAULT_CATEGORY}
+                      disabled={updateProductMut.isPending}
+                      onValueChange={v =>
+                        updateProductMut.mutate({
+                          productId: product.id,
+                          name: product.name,
+                          taxCategoryId: v === ENTITY_DEFAULT_CATEGORY ? '' : v,
+                        })
+                      }
+                    >
+                      <SelectTrigger className="h-8 w-[240px] text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ENTITY_DEFAULT_CATEGORY}>Entity default</SelectItem>
+                        {(taxCategoriesQuery.data?.taxCategories ?? []).map(c => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   }
                 />
                 {product.createdAt && (

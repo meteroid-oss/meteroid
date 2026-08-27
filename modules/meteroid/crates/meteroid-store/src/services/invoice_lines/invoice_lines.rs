@@ -6,7 +6,9 @@ use crate::domain::{
     SubscriptionFeeInterface, TaxBreakdownItem, TaxResolverEnum, VatNumberValidationStatus,
 };
 use chrono::NaiveDate;
-use common_domain::ids::{PriceComponentId, SubscriptionAddOnId, SubscriptionPriceComponentId};
+use common_domain::ids::{
+    PriceComponentId, ProductId, SubscriptionAddOnId, SubscriptionPriceComponentId, TaxCategoryId,
+};
 use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use diesel_models::subscription_components::SubscriptionComponentRow;
 use itertools::Itertools;
@@ -17,6 +19,8 @@ use crate::domain::BillableMetric;
 use crate::errors::StoreError;
 use crate::repositories::accounting::AccountingInterface;
 use crate::repositories::customer_balance::convert_currency;
+use crate::repositories::products::ProductInterface;
+use crate::repositories::tax_categories::TaxCategoryInterface;
 use crate::services::Services;
 use crate::services::invoice_lines::component::ExistingLineKey;
 use crate::services::invoice_lines::discount::calculate_coupons_discount;
@@ -28,6 +32,43 @@ use error_stack::{Report, ResultExt};
 use meteroid_tax::{ManualTaxEngine, MeteroidTaxEngine, TaxDetails, TaxEngine};
 
 impl Services {}
+
+/// Builds the tax engine for an invoicing entity — the single extension point for
+/// adding a tax provider.
+///
+/// Built-in resolvers (`Manual`, `MeteroidEuVat`) need no credentials and are chosen
+/// by `tax_resolver`. An external provider is configured as a `Tax`-typed connector
+/// referenced by `invoicing_entity.tax_provider_id`; to add one, load its connector
+/// (via the store, making this async) and return your `TaxEngine` from its provider.
+///
+/// The engine uses an empty reference for taxes without an accounting code
+/// (engine-computed VAT); only a real `tax_code` is stored on the breakdown.
+fn non_empty(s: String) -> Option<String> {
+    if s.is_empty() { None } else { Some(s) }
+}
+
+/// `Ok(None)` means "apply no tax" (`tax_resolver = None`).
+fn build_tax_engine(
+    invoicing_entity: &InvoicingEntity,
+) -> StoreResult<Option<Box<dyn TaxEngine + Send + Sync>>> {
+    if invoicing_entity.tax_resolver == TaxResolverEnum::External
+        || invoicing_entity.tax_provider_id.is_some()
+    {
+        // TODO(tax-provider): load the Tax connector and match on its provider to
+        // return the corresponding TaxEngine (see the add-tax-provider skill).
+        // No external tax engine is registered yet.
+        return Err(Report::new(StoreError::InvalidArgument(
+            "tax_provider_id is set but no external tax engine is registered".to_string(),
+        )));
+    }
+
+    Ok(match invoicing_entity.tax_resolver {
+        TaxResolverEnum::None => None,
+        TaxResolverEnum::Manual => Some(Box::new(ManualTaxEngine {})),
+        TaxResolverEnum::MeteroidEuVat => Some(Box::new(MeteroidTaxEngine {})),
+        TaxResolverEnum::External => unreachable!("External is handled above"),
+    })
+}
 
 #[derive(Debug, Clone)]
 pub struct ComputedInvoiceContent {
@@ -372,16 +413,14 @@ impl Services {
             )
             .await?;
 
-        let subtotal = invoice_lines
+        // Signed throughout so credit/proration lines net correctly (W4); only the
+        // final amount_due is clamped (a customer never owes a negative amount).
+        let subtotal: i64 = invoice_lines
             .iter()
-            .fold(0, |acc, x| acc + x.amount_subtotal)
-            .to_non_negative_u64();
+            .fold(0, |acc, x| acc + x.amount_subtotal);
 
-        let subtotal_with_discounts = subtotal.saturating_sub(discount_total);
-        let tax_amount = invoice_lines
-            .iter()
-            .fold(0, |acc, x| acc + x.tax_amount)
-            .to_non_negative_u64();
+        let subtotal_with_discounts = subtotal - discount_total as i64;
+        let tax_amount: i64 = invoice_lines.iter().fold(0, |acc, x| acc + x.tax_amount);
 
         let total = subtotal_with_discounts + tax_amount;
         let balance_in_invoice_currency = convert_currency(
@@ -391,29 +430,25 @@ impl Services {
             &subscription_details.subscription.currency,
         )
         .await?;
-        let applied_credits = min(total, balance_in_invoice_currency.to_non_negative_u64());
-        let already_paid = prepaid_amount.unwrap_or(0);
-        let amount_due = total
-            .checked_sub(already_paid)
-            .and_then(|subtotal| subtotal.checked_sub(applied_credits))
-            .unwrap_or(0);
-        let subtotal_recurring = invoice_lines
+        let applied_credits = min(total.max(0), balance_in_invoice_currency.max(0));
+        let already_paid = prepaid_amount.unwrap_or(0) as i64;
+        let amount_due = (total - already_paid - applied_credits).max(0);
+        let subtotal_recurring: i64 = invoice_lines
             .iter()
             .filter(|x| x.metric_id.is_none())
-            .fold(0, |acc, x| acc + x.amount_subtotal)
-            .to_non_negative_u64();
+            .fold(0, |acc, x| acc + x.amount_subtotal);
 
         Ok(ComputedInvoiceContent {
             invoice_lines,
-            subtotal: subtotal as i64,
+            subtotal,
             applied_coupons: coupons_discount.applied_coupons,
             discount: discount_total as i64,
             tax_breakdown: breakdown,
-            applied_credits: applied_credits as i64,
-            total: total as i64,
-            amount_due: amount_due as i64,
-            subtotal_recurring: subtotal_recurring as i64,
-            tax_amount: tax_amount as i64,
+            applied_credits,
+            total,
+            amount_due,
+            subtotal_recurring,
+            tax_amount,
         })
     }
 
@@ -445,16 +480,12 @@ impl Services {
             )
             .await?;
 
-        let subtotal = line_items
-            .iter()
-            .fold(0, |acc, x| acc + x.amount_subtotal)
-            .to_non_negative_u64();
+        // Signed throughout so credit/proration lines net correctly (W4); only the
+        // final amount_due is clamped (a customer never owes a negative amount).
+        let subtotal: i64 = line_items.iter().fold(0, |acc, x| acc + x.amount_subtotal);
 
-        let subtotal_with_discounts = subtotal - discount_total;
-        let tax_amount = line_items
-            .iter()
-            .fold(0, |acc, x| acc + x.tax_amount)
-            .to_non_negative_u64();
+        let subtotal_with_discounts = subtotal - discount_total as i64;
+        let tax_amount: i64 = line_items.iter().fold(0, |acc, x| acc + x.tax_amount);
 
         let total = subtotal_with_discounts + tax_amount;
         let balance_in_invoice_currency = convert_currency(
@@ -464,29 +495,25 @@ impl Services {
             &invoice_currency,
         )
         .await?;
-        let applied_credits = min(total, balance_in_invoice_currency.to_non_negative_u64());
-        let already_paid = prepaid_amount.unwrap_or(0);
-        let amount_due = total
-            .checked_sub(already_paid)
-            .and_then(|subtotal| subtotal.checked_sub(applied_credits))
-            .unwrap_or(0);
-        let subtotal_recurring = line_items
+        let applied_credits = min(total.max(0), balance_in_invoice_currency.max(0));
+        let already_paid = prepaid_amount.unwrap_or(0) as i64;
+        let amount_due = (total - already_paid - applied_credits).max(0);
+        let subtotal_recurring: i64 = line_items
             .iter()
             .filter(|x| x.metric_id.is_none())
-            .fold(0, |acc, x| acc + x.amount_subtotal)
-            .to_non_negative_u64();
+            .fold(0, |acc, x| acc + x.amount_subtotal);
 
         Ok(ComputedInvoiceContent {
             invoice_lines: line_items,
-            subtotal: subtotal as i64,
+            subtotal,
             applied_coupons: Vec::new(),
             discount: discount_total as i64,
             tax_breakdown: breakdown,
-            applied_credits: applied_credits as i64,
-            total: total as i64,
-            amount_due: amount_due as i64,
-            subtotal_recurring: subtotal_recurring as i64,
-            tax_amount: tax_amount as i64,
+            applied_credits,
+            total,
+            amount_due,
+            subtotal_recurring,
+            tax_amount,
         })
     }
 
@@ -510,12 +537,11 @@ impl Services {
             None => return Ok((invoice_lines.clone(), Vec::new())),
         };
 
-        let tax_engine: Box<dyn TaxEngine + Send + Sync> = match invoicing_entity.tax_resolver {
-            TaxResolverEnum::None => {
-                return Ok((invoice_lines.clone(), Vec::new()));
-            }
-            TaxResolverEnum::Manual => Box::new(ManualTaxEngine {}),
-            TaxResolverEnum::MeteroidEuVat => Box::new(MeteroidTaxEngine {}),
+        // Select the tax engine for this invoicing entity (built-in or external
+        // provider). See `build_tax_engine` — the single place to add a provider.
+        let tax_engine = match build_tax_engine(invoicing_entity)? {
+            Some(engine) => engine,
+            None => return Ok((invoice_lines.clone(), Vec::new())),
         };
 
         let customer = meteroid_tax::CustomerForTax {
@@ -531,14 +557,21 @@ impl Services {
             custom_tax_rates: customer
                 .custom_taxes
                 .iter()
-                .map(|t| meteroid_tax::CustomerCustomTaxRate {
+                .map(|t| meteroid_tax::CustomerTaxRate {
                     tax_code: t.tax_code.clone(),
                     name: t.name.clone(),
                     rate: t.rate,
                 })
                 .collect(),
-            tax_exempt: customer.is_tax_exempt,
+            tax_status: customer.tax_status.into(),
+            exemption_reason: customer.exemption_reason.clone(),
             billing_address: customer_address.into(),
+            shipping_address: customer
+                .shipping_address
+                .as_ref()
+                .filter(|s| !s.same_as_billing)
+                .and_then(|s| s.address.clone())
+                .map(Into::into),
         };
 
         // we retrieve the custom tax rates for each line item
@@ -548,6 +581,16 @@ impl Services {
             .iter()
             .filter_map(|line| line.product_id)
             .collect::<Vec<_>>();
+
+        // Resolve each line's tax category (the product's category, else the
+        // invoicing entity default) so the tax engine can price by category.
+        let product_categories: HashMap<ProductId, Option<TaxCategoryId>> = self
+            .store
+            .find_products_by_ids(&product_ids, invoicing_entity.tenant_id)
+            .await?
+            .into_iter()
+            .map(|p| (p.id, p.tax_category_id))
+            .collect();
 
         let product_taxes = {
             let mut fresh_conn = self.store.get_conn().await?;
@@ -560,41 +603,98 @@ impl Services {
                 )
                 .await?
         };
+        // The category each line resolves to: the product's, else the entity default.
+        let line_categories: HashMap<String, TaxCategoryId> = invoice_lines
+            .iter()
+            .filter_map(|line| {
+                let category = line
+                    .product_id
+                    .and_then(|p| product_categories.get(&p).copied().flatten())
+                    .or(invoicing_entity.default_tax_category_id)?;
+                Some((line.local_id.to_string(), category))
+            })
+            .collect();
+
+        let resolved_category_ids: Vec<TaxCategoryId> =
+            line_categories.values().copied().unique().collect();
+
+        // Categories are only worth resolving when a line actually carries one.
+        // The stable key drives the non-taxable short-circuit; all other categories
+        // are standard-rated by the engine.
+        let category_keys: HashMap<TaxCategoryId, String> = if resolved_category_ids.is_empty() {
+            HashMap::new()
+        } else {
+            self.store
+                .list_tax_categories(invoicing_entity.tenant_id)
+                .await?
+                .into_iter()
+                .map(|c| (c.id, c.key))
+                .collect()
+        };
+
+        // Custom taxes configured against a category apply to every line in it, on
+        // top of the taxes wired to the product directly.
+        let category_taxes = {
+            let mut fresh_conn = self.store.get_conn().await?;
+            self.store
+                .list_custom_taxes_by_categories(
+                    &mut fresh_conn,
+                    invoicing_entity.tenant_id,
+                    invoicing_entity.id,
+                    &resolved_category_ids,
+                )
+                .await?
+        };
 
         let invoice_lines_for_tax: Vec<meteroid_tax::LineItemForTax> = invoice_lines
             .iter()
             .filter_map(|line| {
-                if line.taxable_amount > 0 {
-                    let total = line.taxable_amount.to_non_negative_u64();
+                // Credit/proration lines carry a negative taxable amount and must
+                // reduce tax symmetrically (W4); only truly-zero lines are skipped.
+                if line.taxable_amount != 0 {
+                    let total = line.taxable_amount;
 
-                    let custom_taxes = line
+                    let line_id = line.local_id.to_string();
+                    let category_id = line_categories.get(&line_id);
+
+                    let product_linked = line
                         .product_id
                         .and_then(|p| product_taxes.iter().find(|tax| tax.product_id == p))
-                        .map(|p| {
-                            p.custom_taxes
-                                .iter()
-                                .map(|t| meteroid_tax::CustomTax {
-                                    reference: t.id.to_string(),
-                                    name: t.name.clone(),
-                                    tax_rules: t
-                                        .rules
-                                        .iter()
-                                        .cloned()
-                                        .map(std::convert::Into::into)
-                                        .collect(),
-                                })
-                                .collect()
-                        })
+                        .map(|p| p.custom_taxes.as_slice())
                         .unwrap_or_default();
 
+                    let from_category = category_id
+                        .and_then(|id| category_taxes.get(id))
+                        .map(Vec::as_slice)
+                        .unwrap_or_default();
+
+                    let custom_taxes = product_linked
+                        .iter()
+                        .chain(from_category)
+                        .unique_by(|t| t.id)
+                        .map(|t| meteroid_tax::TaxRate {
+                            // The accounting/reporting code is the breakdown reference (W1).
+                            reference: t.tax_code.clone(),
+                            name: t.name.clone(),
+                            tax_rules: t
+                                .rules
+                                .iter()
+                                .cloned()
+                                .map(std::convert::Into::into)
+                                .collect(),
+                        })
+                        .collect();
+
+                    let tax_category = category_id.and_then(|id| category_keys.get(id).cloned());
+
                     Some(meteroid_tax::LineItemForTax {
-                        line_id: line.local_id.to_string(),
+                        line_id,
                         amount: total,
                         custom_taxes,
+                        tax_category,
                     })
                 } else {
-                    // If the line amount is zero (or refund), we skip it
-                    // TODO : consider whether we want to allow tax credits within an invoice, or if we restrict to using a separate credit note (prob cleaner)
+                    // Zero-amount line: no tax to compute.
                     None
                 }
             })
@@ -626,26 +726,26 @@ impl Services {
                         tax_name,
                         ..
                     } => {
-                        line.tax_amount = *tax_amount as i64;
+                        line.tax_amount = *tax_amount;
                         line.tax_rate = *tax_rate;
                         line.tax_details = vec![TaxDetail {
                             tax_rate: *tax_rate,
                             tax_name: tax_name.clone(),
-                            tax_amount: *tax_amount as i64,
+                            tax_amount: *tax_amount,
                         }];
                     }
                     TaxDetails::MultipleTaxes {
                         taxes,
                         total_tax_amount,
                     } => {
-                        line.tax_amount = *total_tax_amount as i64;
+                        line.tax_amount = *total_tax_amount;
                         line.tax_rate = taxes.iter().map(|t| t.tax_rate).sum();
                         line.tax_details = taxes
                             .iter()
                             .map(|t| TaxDetail {
                                 tax_rate: t.tax_rate,
                                 tax_name: t.tax_name.clone(),
-                                tax_amount: t.tax_amount as i64,
+                                tax_amount: t.tax_amount,
                             })
                             .collect();
                     }
@@ -655,7 +755,7 @@ impl Services {
                         line.tax_details = vec![];
                     }
                 }
-                line.taxable_amount = taxed_line.pre_tax_amount as i64;
+                line.taxable_amount = taxed_line.pre_tax_amount;
             } else {
                 // no tax details found
                 line.tax_rate = rust_decimal::Decimal::ZERO;
@@ -666,7 +766,12 @@ impl Services {
             line.amount_total = line.taxable_amount + line.tax_amount;
         }
 
+        // A merchant override (a tax rate carrying an accounting reference)
+        // replaces the built-in EU VAT engine rate only under that engine (C2).
+        let engine_is_eu_vat = invoicing_entity.tax_resolver == TaxResolverEnum::MeteroidEuVat;
+
         // Convert tax breakdown items, expanding any MultipleTaxes into separate items
+        let exemption_reason = res.exemption_reason.clone();
         let breakdown = res
             .breakdown
             .into_iter()
@@ -676,24 +781,39 @@ impl Services {
                         tax_rate,
                         tax_name,
                         tax_amount,
-                        ..
-                    } => vec![TaxBreakdownItem {
-                        taxable_amount: item.taxable_amount,
-                        tax_amount,
-                        tax_rate,
-                        name: tax_name,
-                        exemption_type: None,
-                    }],
+                        tax_reference,
+                    } => {
+                        let tax_reference = non_empty(tax_reference);
+                        // Signed per-rate aggregate: a mixed charge+credit group
+                        // (or a pure credit note) may net negative and must be
+                        // preserved so the breakdown reconciles with tax_amount.
+                        vec![TaxBreakdownItem {
+                            taxable_amount: item.taxable_amount,
+                            tax_amount,
+                            tax_rate,
+                            name: tax_name,
+                            exemption_type: None,
+                            exemption_reason: None,
+                            overridden: engine_is_eu_vat && tax_reference.is_some(),
+                            tax_reference,
+                        }]
+                    }
                     TaxDetails::MultipleTaxes { taxes, .. } => {
                         // Expand multiple taxes into separate breakdown items
                         taxes
                             .into_iter()
-                            .map(|tax| TaxBreakdownItem {
-                                taxable_amount: item.taxable_amount,
-                                tax_amount: tax.tax_amount,
-                                tax_rate: tax.tax_rate,
-                                name: tax.tax_name,
-                                exemption_type: None,
+                            .map(|tax| {
+                                let tax_reference = non_empty(tax.tax_reference);
+                                TaxBreakdownItem {
+                                    taxable_amount: item.taxable_amount,
+                                    tax_amount: tax.tax_amount,
+                                    tax_rate: tax.tax_rate,
+                                    name: tax.tax_name,
+                                    exemption_type: None,
+                                    exemption_reason: None,
+                                    overridden: engine_is_eu_vat && tax_reference.is_some(),
+                                    tax_reference,
+                                }
                             })
                             .collect()
                     }
@@ -713,6 +833,9 @@ impl Services {
                             tax_rate: rust_decimal::Decimal::ZERO,
                             name: "Exempt".to_string(),
                             exemption_type: Some(exemption_type),
+                            exemption_reason: exemption_reason.clone(),
+                            overridden: false,
+                            tax_reference: None,
                         }]
                     }
                 }

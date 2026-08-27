@@ -1,31 +1,32 @@
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
 use common_domain::country::CountryCode;
-use common_domain::ids::{BaseId, CustomTaxId, InvoicingEntityId, ProductId};
+use common_domain::ids::{CustomTaxId, InvoicingEntityId, ProductId, TaxCategoryId};
 use diesel_models::accounting::{CustomTaxRow, ProductAccountingRow};
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, o2o)]
-#[try_map_owned(CustomTaxRow, StoreErrorReport)]
-pub struct CustomTax {
+#[try_from_owned(CustomTaxRow, StoreErrorReport)]
+pub struct TaxRate {
     pub id: CustomTaxId,
     pub invoicing_entity_id: InvoicingEntityId,
     pub name: String,
     pub tax_code: String,
+    /// When set, the tax applies to every line resolving to this category,
+    /// on top of any product explicitly linked to it.
+    pub tax_category_id: Option<TaxCategoryId>,
     #[from(serde_json::from_value(~).map_err(| e | {
     StoreError::SerdeError("Failed to deserialize rules".to_string(), e)
     }) ?)]
-    #[into(serde_json::to_value(& ~).map_err(| e | {
-    StoreError::SerdeError("Failed to serialize rules".to_string(), e)
-    }) ?)]
-    pub rules: Vec<CustomTaxRule>,
+    pub rules: Vec<TaxRateRule>,
 }
 
-impl From<CustomTax> for meteroid_tax::CustomTax {
-    fn from(tax: CustomTax) -> Self {
-        meteroid_tax::CustomTax {
-            reference: tax.id.to_string(),
+impl From<TaxRate> for meteroid_tax::TaxRate {
+    fn from(tax: TaxRate) -> Self {
+        meteroid_tax::TaxRate {
+            // The accounting/reporting code is the breakdown reference (W1).
+            reference: tax.tax_code,
             name: tax.name,
             tax_rules: tax
                 .rules
@@ -36,28 +37,24 @@ impl From<CustomTax> for meteroid_tax::CustomTax {
     }
 }
 
-#[derive(Debug, Clone, o2o)]
-#[owned_try_into(CustomTaxRow, StoreErrorReport)]
-#[ghosts(id: {CustomTaxId::new()})]
-pub struct CustomTaxNew {
+#[derive(Debug, Clone)]
+pub struct TaxRateNew {
     pub invoicing_entity_id: InvoicingEntityId,
     pub name: String,
     pub tax_code: String,
-    #[into(serde_json::to_value(& ~).map_err(| e | {
-    StoreError::SerdeError("Failed to serialize rules".to_string(), e)
-    }) ?)]
-    pub rules: Vec<CustomTaxRule>,
+    pub tax_category_id: Option<TaxCategoryId>,
+    pub rules: Vec<TaxRateRule>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
-#[owned_into(meteroid_tax::TaxRule)]
-pub struct CustomTaxRule {
+#[owned_into(meteroid_tax::TaxRateRule)]
+pub struct TaxRateRule {
     pub country: Option<CountryCode>,
     pub region: Option<String>,
     pub rate: rust_decimal::Decimal,
 }
 
-json_value_serde!(CustomTaxRule);
+json_value_serde!(TaxRateRule);
 
 #[derive(Debug, Clone, o2o)]
 #[map_owned(ProductAccountingRow)]
@@ -74,5 +71,5 @@ pub struct ProductAccountingWithTaxes {
     pub invoicing_entity_id: InvoicingEntityId,
     pub product_code: Option<String>,
     pub ledger_account_code: Option<String>,
-    pub custom_taxes: Vec<CustomTax>,
+    pub custom_taxes: Vec<TaxRate>,
 }

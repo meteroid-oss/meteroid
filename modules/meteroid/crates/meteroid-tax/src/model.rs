@@ -10,10 +10,20 @@ pub struct Address {
 }
 
 #[derive(Debug, Clone)]
-pub struct CustomerCustomTaxRate {
+pub struct CustomerTaxRate {
     pub tax_code: String,
     pub name: String,
     pub rate: rust_decimal::Decimal,
+}
+
+/// Tri-state party tax status (W6). `ReverseCharge` is an explicit merchant
+/// choice, additive to the VIES-derived reverse charge the engine also computes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CustomerTaxStatus {
+    #[default]
+    Taxable,
+    Exempt,
+    ReverseCharge,
 }
 
 #[derive(Debug, Clone)]
@@ -26,26 +36,33 @@ pub struct CustomerForTax {
     /// Invoicing-entity policy: apply reverse charge (B2B) only once VIES has
     /// confirmed the number. Off = fail-open on format validity alone.
     pub require_vies_valid_for_reverse_charge: bool,
-    pub custom_tax_rates: Vec<CustomerCustomTaxRate>,
-    pub tax_exempt: bool,
+    pub custom_tax_rates: Vec<CustomerTaxRate>,
+    pub tax_status: CustomerTaxStatus,
+    /// Free-text legal mention surfaced on exempt/reverse-charge invoices.
+    pub exemption_reason: Option<String>,
     pub billing_address: Address,
+    /// Distinct ship-to address when the customer set one that differs from
+    /// billing; `None` otherwise. External engines that are destination-based
+    /// (e.g. US sales tax on physical goods) should resolve ship-to as
+    /// `shipping_address` falling back to `billing_address`. The built-in
+    /// engines are place-of-supply and use `billing_address` only.
+    pub shipping_address: Option<Address>,
 }
 
 #[derive(Debug)]
 pub enum CustomerTax {
-    CustomTaxRate(rust_decimal::Decimal),
-    CustomTaxRates(Vec<CustomerCustomTaxRate>),
+    TaxRates(Vec<CustomerTaxRate>),
     ResolvedTaxRate(world_tax::TaxRate),
     ResolvedMultipleTaxRates(Vec<world_tax::TaxRate>),
     Exempt,
+    ReverseCharge,
     NoTax,
 }
 
 impl Clone for CustomerTax {
     fn clone(&self) -> Self {
         match self {
-            CustomerTax::CustomTaxRate(rate) => CustomerTax::CustomTaxRate(*rate),
-            CustomerTax::CustomTaxRates(rates) => CustomerTax::CustomTaxRates(rates.clone()),
+            CustomerTax::TaxRates(rates) => CustomerTax::TaxRates(rates.clone()),
             CustomerTax::ResolvedTaxRate(tax_rate) => {
                 CustomerTax::ResolvedTaxRate(world_tax::TaxRate {
                     rate: tax_rate.rate,
@@ -64,13 +81,14 @@ impl Clone for CustomerTax {
                     .collect(),
             ),
             CustomerTax::Exempt => CustomerTax::Exempt,
+            CustomerTax::ReverseCharge => CustomerTax::ReverseCharge,
             CustomerTax::NoTax => CustomerTax::NoTax,
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct TaxRule {
+pub struct TaxRateRule {
     pub country: Option<CountryCode>,
     pub region: Option<String>,
     pub rate: rust_decimal::Decimal,
@@ -92,22 +110,31 @@ pub struct TaxRateEntry {
 }
 
 #[derive(Debug, Clone)]
-pub struct CustomTax {
+pub struct TaxRate {
     pub reference: String,
     pub name: String,
-    pub tax_rules: Vec<TaxRule>,
+    pub tax_rules: Vec<TaxRateRule>,
 }
 
 pub struct LineItemForTax {
     pub line_id: String,
-    pub amount: u64,
-    pub custom_taxes: Vec<CustomTax>,
+    /// Signed subunit amount. Credit/proration lines are negative and reduce tax
+    /// symmetrically (W4); the currency's precision governs the subunit scale.
+    pub amount: i64,
+    pub custom_taxes: Vec<TaxRate>,
+    /// Resolved provider-agnostic tax category key (product's category, else the
+    /// invoicing entity default). Engines may price on it; None if unclassified.
+    /// The `nontaxable` key is special-cased to exempt; all others are standard-rated.
+    pub tax_category: Option<String>,
 }
+
+/// Key of the built-in tax category that never yields tax, seeded in `tax_category`.
+pub const NONTAXABLE_CATEGORY_KEY: &str = "nontaxable";
 
 #[derive(Debug, Clone)]
 pub struct LineItemWithTax {
     pub line_id: String,
-    pub pre_tax_amount: u64,
+    pub pre_tax_amount: i64,
     pub tax_details: TaxDetails,
 }
 
@@ -123,7 +150,7 @@ pub struct TaxItem {
     pub tax_rate: rust_decimal::Decimal,
     pub tax_reference: String,
     pub tax_name: String,
-    pub tax_amount: u64,
+    pub tax_amount: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -132,25 +159,29 @@ pub enum TaxDetails {
         tax_rate: rust_decimal::Decimal,
         tax_reference: String,
         tax_name: String,
-        tax_amount: u64,
+        tax_amount: i64,
     },
     MultipleTaxes {
         taxes: Vec<TaxItem>,
-        total_tax_amount: u64,
+        total_tax_amount: i64,
     },
     Exempt(VatExemptionReason),
 }
 
 pub struct TaxBreakdownItem {
-    pub taxable_amount: u64,
+    pub taxable_amount: i64,
     pub details: TaxDetails,
 }
 
 pub struct CalculationResult {
-    pub tax_amount: u64,
-    pub total_amount_after_tax: u64,
+    pub tax_amount: i64,
+    pub total_amount_after_tax: i64,
     pub breakdown: Vec<TaxBreakdownItem>,
     pub line_items: Vec<LineItemWithTax>,
+    /// Customer's free-text exemption mention, surfaced onto exempt/reverse-charge
+    /// breakdown items (legally required on EU exempt invoices). `None` when the
+    /// customer provided none.
+    pub exemption_reason: Option<String>,
 }
 
 pub enum VatNumberExternalValidationResult {

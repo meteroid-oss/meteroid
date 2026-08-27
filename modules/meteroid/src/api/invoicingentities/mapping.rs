@@ -1,6 +1,6 @@
 pub mod invoicing_entities {
     use common_domain::country::CountryCode;
-    use common_domain::ids::{InvoicingEntityId, StoredDocumentId};
+    use common_domain::ids::{InvoicingEntityId, StoredDocumentId, TaxCategoryId};
 
     use meteroid_grpc::meteroid::api::invoicingentities::v1 as server;
     use meteroid_grpc::meteroid::api::invoicingentities::v1::TaxResolver;
@@ -44,6 +44,7 @@ pub mod invoicing_entities {
             meteroid_store::domain::enums::TaxResolverEnum::MeteroidEuVat => {
                 TaxResolver::MeteroidEuVat
             }
+            meteroid_store::domain::enums::TaxResolverEnum::External => TaxResolver::External,
             meteroid_store::domain::enums::TaxResolverEnum::None => TaxResolver::None,
         }
     }
@@ -57,6 +58,7 @@ pub mod invoicing_entities {
                 TaxResolver::MeteroidEuVat => {
                     meteroid_store::domain::enums::TaxResolverEnum::MeteroidEuVat
                 }
+                TaxResolver::External => meteroid_store::domain::enums::TaxResolverEnum::External,
                 TaxResolver::None => meteroid_store::domain::enums::TaxResolverEnum::None,
             })
         })
@@ -65,8 +67,8 @@ pub mod invoicing_entities {
     pub fn proto_to_patch_domain(
         proto: server::InvoicingEntityData,
         id: InvoicingEntityId,
-    ) -> domain::InvoicingEntityPatch {
-        domain::InvoicingEntityPatch {
+    ) -> Result<domain::InvoicingEntityPatch, tonic::Status> {
+        Ok(domain::InvoicingEntityPatch {
             id,
             legal_name: proto.legal_name,
             invoice_number_pattern: proto.invoice_number_pattern,
@@ -90,7 +92,12 @@ pub mod invoicing_entities {
             require_billing_information: proto.require_billing_information,
             portal_theme_mode: Some(proto.portal_theme_mode),
             portal_roundness: Some(proto.portal_roundness),
-        }
+            default_tax_category_id: match proto.default_tax_category_id {
+                None => None,
+                Some(s) if s.is_empty() => Some(None),
+                Some(s) => Some(Some(TaxCategoryId::from_proto(s)?)),
+            },
+        })
     }
 
     pub fn domain_to_proto(domain: domain::InvoicingEntity) -> server::InvoicingEntity {
@@ -121,6 +128,7 @@ pub mod invoicing_entities {
             require_billing_information: domain.require_billing_information,
             portal_theme_mode: domain.portal_theme_mode,
             portal_roundness: domain.portal_roundness,
+            default_tax_category_id: domain.default_tax_category_id.map(|id| id.as_proto()),
         }
     }
 

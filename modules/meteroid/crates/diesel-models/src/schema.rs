@@ -158,6 +158,10 @@ pub mod sql_types {
     pub struct TaxResolverEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "CustomerTaxStatusEnum"))]
+    pub struct CustomerTaxStatusEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "CustomerVatValidationStatusEnum"))]
     pub struct CustomerVatValidationStatusEnum;
 
@@ -522,11 +526,14 @@ diesel::table! {
         name -> Text,
         tax_code -> Text,
         rules -> Jsonb,
+        tax_category_id -> Nullable<Uuid>,
+        tenant_id -> Uuid,
     }
 }
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::CustomerTaxStatusEnum;
     use super::sql_types::CustomerVatValidationStatusEnum;
 
     customer (id) {
@@ -548,7 +555,8 @@ diesel::table! {
         vat_number -> Nullable<Text>,
         invoicing_emails -> Array<Nullable<Text>>,
         conn_meta -> Nullable<Jsonb>,
-        is_tax_exempt -> Bool,
+        tax_status -> CustomerTaxStatusEnum,
+        exemption_reason -> Nullable<Text>,
         vat_number_format_valid -> Bool,
         custom_taxes -> Jsonb,
         connected_account_id -> Nullable<Uuid>,
@@ -784,6 +792,8 @@ diesel::table! {
         require_billing_information -> Bool,
         portal_theme_mode -> Nullable<Text>,
         portal_roundness -> Nullable<Text>,
+        default_tax_category_id -> Nullable<Uuid>,
+        tax_provider_id -> Nullable<Uuid>,
     }
 }
 
@@ -984,6 +994,7 @@ diesel::table! {
         fee_type -> FeeTypeEnum,
         fee_structure -> Jsonb,
         catalog -> Bool,
+        tax_category_id -> Nullable<Uuid>,
     }
 }
 
@@ -993,6 +1004,18 @@ diesel::table! {
         invoicing_entity_id -> Uuid,
         product_code -> Nullable<Text>,
         ledger_account_code -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    tax_category (id) {
+        id -> Uuid,
+        tenant_id -> Nullable<Uuid>,
+        parent_id -> Nullable<Uuid>,
+        key -> Text,
+        name -> Text,
+        is_builtin -> Bool,
+        created_at -> Timestamp,
     }
 }
 
@@ -1475,6 +1498,7 @@ diesel::joinable!(product_custom_tax -> custom_tax (custom_tax_id));
 diesel::joinable!(product_custom_tax -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(product_custom_tax -> product (product_id));
 diesel::joinable!(product_family -> tenant (tenant_id));
+diesel::joinable!(tax_category -> tenant (tenant_id));
 diesel::joinable!(quote -> customer (customer_id));
 diesel::joinable!(quote -> invoice (converted_to_invoice_id));
 diesel::joinable!(quote -> plan_version (plan_version_id));
@@ -1576,6 +1600,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     subscription_add_on,
     subscription_component,
     subscription_event,
+    tax_category,
     tenant,
     user,
     webhook_in_event,

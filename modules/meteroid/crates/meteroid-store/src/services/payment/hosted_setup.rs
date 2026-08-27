@@ -250,7 +250,8 @@ impl Services {
             vat_number: None,
             current_payment_method_id: Some(Some(payment_method.id)),
             invoicing_emails: None,
-            is_tax_exempt: None,
+            tax_status: None,
+            exemption_reason: None,
             custom_taxes: None,
             connected_account_id: None,
         };

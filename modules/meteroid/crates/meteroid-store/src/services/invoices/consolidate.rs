@@ -332,6 +332,7 @@ fn merge_tax_breakdown(acc: &mut Vec<TaxBreakdownItem>, items: &[TaxBreakdownIte
             e.tax_rate == item.tax_rate
                 && e.name == item.name
                 && e.exemption_type == item.exemption_type
+                && e.exemption_reason == item.exemption_reason
         }) {
             existing.taxable_amount += item.taxable_amount;
             existing.tax_amount += item.tax_amount;
@@ -368,13 +369,16 @@ mod tests {
     use chrono::NaiveDate;
     use rust_decimal::Decimal;
 
-    fn tax(name: &str, rate: i64, taxable: u64, amount: u64) -> TaxBreakdownItem {
+    fn tax(name: &str, rate: i64, taxable: i64, amount: i64) -> TaxBreakdownItem {
         TaxBreakdownItem {
             taxable_amount: taxable,
             tax_amount: amount,
             tax_rate: Decimal::from(rate),
             name: name.to_string(),
             exemption_type: None,
+            exemption_reason: None,
+            tax_reference: None,
+            overridden: false,
         }
     }
 

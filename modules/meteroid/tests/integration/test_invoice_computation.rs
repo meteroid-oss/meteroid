@@ -10,7 +10,7 @@ use meteroid_store::clients::usage::MockUsageClient;
 use meteroid_store::domain::coupons::{CouponDiscount, CouponNew};
 use meteroid_store::domain::subscription_coupons::CreateSubscriptionCoupon;
 use meteroid_store::domain::{
-    CreateSubscription, CreateSubscriptionCoupons, CustomerCustomTax, InvoicingEntityPatch,
+    CreateSubscription, CreateSubscriptionCoupons, CustomerTaxRate, InvoicingEntityPatch,
     SubscriptionActivationCondition, SubscriptionNew,
 };
 use meteroid_store::repositories::SubscriptionInterface;
@@ -44,6 +44,7 @@ async fn test_compute_invoice_scenarios() {
     test_compute_invoice_with_eu_vat(&services, &store, &mut conn).await;
     test_compute_invoice_with_reverse_charge(&services, &store, &mut conn).await;
     test_compute_invoice_with_manual_tax_and_coupon(&services, &store, &mut conn).await;
+    test_compute_invoice_with_tax_category_custom_tax(&services, &store, &mut conn).await;
 }
 
 async fn test_compute_invoice_basic(
@@ -242,7 +243,10 @@ async fn test_compute_invoice_with_eu_vat(
             tax_rate: dec!(0.2),
             taxable_amount: 3500,
             tax_amount: 700,
-            exemption_type: None
+            exemption_type: None,
+            exemption_reason: None,
+            tax_reference: None,
+            overridden: false
         }],
         "Tax breakdown should contain VAT at 20%"
     );
@@ -293,7 +297,8 @@ async fn create_french_b2b_customer(
         custom_taxes: json!([]),
         invoicing_emails: vec![],
         phone: None,
-        is_tax_exempt: false,
+        tax_status: diesel_models::enums::CustomerTaxStatusEnum::Taxable,
+        exemption_reason: None,
         vat_number_format_valid: true,
         connected_account_id: None,
         vat_number_validation_status: None,
@@ -544,7 +549,8 @@ async fn create_german_b2b_customer(
         custom_taxes: json!([]),
         invoicing_emails: vec![],
         phone: None,
-        is_tax_exempt: false,
+        tax_status: diesel_models::enums::CustomerTaxStatusEnum::Taxable,
+        exemption_reason: None,
         vat_number_format_valid: true,
         connected_account_id: None,
         vat_number_validation_status: None,
@@ -588,7 +594,7 @@ async fn create_customer_with_custom_tax_rate(
         billing_email: None,
         current_payment_method_id: None,
         vat_number: None,
-        custom_taxes: serde_json::to_value(vec![CustomerCustomTax {
+        custom_taxes: serde_json::to_value(vec![CustomerTaxRate {
             tax_code: "custom".to_string(),
             name: "Custom Tax".to_string(),
             rate: dec!(0.0825),
@@ -596,7 +602,8 @@ async fn create_customer_with_custom_tax_rate(
         .unwrap(),
         invoicing_emails: vec![],
         phone: None,
-        is_tax_exempt: false,
+        tax_status: diesel_models::enums::CustomerTaxStatusEnum::Taxable,
+        exemption_reason: None,
         vat_number_format_valid: false,
         connected_account_id: None,
         vat_number_validation_status: None,
@@ -628,4 +635,151 @@ async fn create_test_coupon(
         .await
         .unwrap()
         .id
+}
+
+/// A custom tax attached to a tax category applies to every line whose product
+/// carries that category — no per-product wiring.
+async fn test_compute_invoice_with_tax_category_custom_tax(
+    services: &Services,
+    store: &meteroid_store::Store,
+    conn: &mut PgConn,
+) {
+    use meteroid_store::domain::PaginationRequest;
+    use meteroid_store::domain::accounting::{TaxRateNew, TaxRateRule};
+    use meteroid_store::repositories::accounting::AccountingInterface;
+    use meteroid_store::repositories::products::{ProductInterface, ProductUpdate};
+    use meteroid_store::repositories::tax_categories::TaxCategoryInterface;
+
+    store
+        .patch_invoicing_entity(
+            common_domain::actor::Actor::System,
+            InvoicingEntityPatch {
+                id: INVOICING_ENTITY_ID,
+                tax_resolver: Some(meteroid_store::domain::enums::TaxResolverEnum::Manual),
+                ..Default::default()
+            },
+            TENANT_ID,
+        )
+        .await
+        .unwrap();
+
+    let digital_services = store
+        .list_tax_categories(TENANT_ID)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|c| c.key == "digital_services")
+        .expect("built-in digital_services category should be seeded");
+
+    let products = store
+        .list_products(
+            TENANT_ID,
+            None,
+            false,
+            PaginationRequest {
+                per_page: Some(100),
+                page: 0,
+            },
+            None,
+        )
+        .await
+        .unwrap();
+
+    for product in products.items {
+        store
+            .update_product(
+                common_domain::actor::Actor::System,
+                ProductUpdate {
+                    id: product.id,
+                    tenant_id: TENANT_ID,
+                    name: None,
+                    description: None,
+                    fee_type: None,
+                    fee_structure: None,
+                    tax_category_id: Some(Some(digital_services.id)),
+                },
+            )
+            .await
+            .unwrap();
+    }
+
+    // 10% (rates are fractions) for the invoicing entity's country (FR),
+    // targeting the Digital services category.
+    store
+        .insert_custom_tax(
+            TENANT_ID,
+            TaxRateNew {
+                invoicing_entity_id: INVOICING_ENTITY_ID,
+                name: "Digital services France".to_string(),
+                tax_code: "DIGITAL_SERVICES_FR".to_string(),
+                tax_category_id: Some(digital_services.id),
+                rules: vec![TaxRateRule {
+                    country: Some(CountryCode::from_str("FR").unwrap()),
+                    region: None,
+                    rate: dec!(0.10),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+
+    let customer_id = create_french_b2b_customer(services, conn).await;
+
+    let subscription_id = services
+        .insert_subscription(
+            common_domain::actor::Actor::System,
+            CreateSubscription {
+                subscription: SubscriptionNew {
+                    customer_id,
+                    plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
+                    net_terms: None,
+                    invoice_memo: None,
+                    invoice_threshold: None,
+                    start_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    end_date: None,
+                    billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
+                    activation_condition: SubscriptionActivationCondition::OnStart,
+                    trial_duration: None,
+                    billing_day_anchor: None,
+                    payment_methods_config: None,
+                    auto_advance_invoices: true,
+                    charge_automatically: false,
+                    purchase_order: None,
+                    backdate_invoices: false,
+                    skip_checkout_session: false,
+                    skip_past_invoices: false,
+                },
+                price_components: None,
+                add_ons: None,
+                coupons: None,
+                entitlements: vec![],
+            },
+            TENANT_ID,
+        )
+        .await
+        .unwrap()
+        .id;
+
+    let subscription_details = store
+        .get_subscription_details_with_conn(conn, TENANT_ID, subscription_id)
+        .await
+        .unwrap();
+
+    let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+    let result = services
+        .compute_invoice(&invoice_date, &subscription_details, None)
+        .await
+        .unwrap();
+
+    let expected_tax = (result.subtotal as f64 * 0.10).round() as i64;
+    assert_eq!(
+        result.tax_amount, expected_tax,
+        "The category's custom tax (10%) should apply to every line"
+    );
+    assert_eq!(
+        result.tax_breakdown.len(),
+        1,
+        "The category tax should produce a single breakdown entry"
+    );
+    assert_eq!(result.tax_breakdown[0].name, "Digital services France");
 }

@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
 
-use crate::enums::CustomerVatValidationStatusEnum;
+use crate::enums::{CustomerTaxStatusEnum, CustomerVatValidationStatusEnum};
 use common_domain::ids::{
     ConnectedAccountId, CustomerId, CustomerPaymentMethodId, InvoicingEntityId, TenantId,
 };
@@ -30,7 +30,8 @@ pub struct CustomerRow {
     pub conn_meta: Option<serde_json::Value>,
     //  logo_url -> Nullable<Text>,
     //  website_url -> Nullable<Text>,
-    pub is_tax_exempt: bool,
+    pub tax_status: CustomerTaxStatusEnum,
+    pub exemption_reason: Option<String>,
     pub vat_number_format_valid: bool,
     pub custom_taxes: serde_json::Value,
     pub connected_account_id: Option<ConnectedAccountId>,
@@ -68,7 +69,8 @@ pub struct CustomerRowNew {
     pub current_payment_method_id: Option<CustomerPaymentMethodId>,
     pub vat_number: Option<String>,
     pub invoicing_emails: Vec<Option<String>>,
-    pub is_tax_exempt: bool,
+    pub tax_status: CustomerTaxStatusEnum,
+    pub exemption_reason: Option<String>,
     pub custom_taxes: serde_json::Value,
     pub vat_number_format_valid: bool,
     pub connected_account_id: Option<ConnectedAccountId>,
@@ -92,7 +94,8 @@ pub struct CustomerRowPatch {
     pub invoicing_entity_id: Option<InvoicingEntityId>,
     pub vat_number: Option<Option<String>>,
     pub current_payment_method_id: Option<Option<CustomerPaymentMethodId>>,
-    pub is_tax_exempt: Option<bool>,
+    pub tax_status: Option<CustomerTaxStatusEnum>,
+    pub exemption_reason: Option<Option<String>>,
     pub custom_taxes: Option<serde_json::Value>,
     pub vat_number_format_valid: Option<bool>,
     pub connected_account_id: Option<Option<ConnectedAccountId>>,
@@ -118,7 +121,8 @@ pub struct CustomerRowUpdate {
     pub shipping_address: Option<serde_json::Value>,
     pub invoicing_entity_id: InvoicingEntityId,
     pub vat_number: Option<String>,
-    pub is_tax_exempt: bool,
+    pub tax_status: CustomerTaxStatusEnum,
+    pub exemption_reason: Option<String>,
     pub custom_taxes: serde_json::Value,
     pub vat_number_format_valid: bool,
     pub vat_number_validation_status: Option<CustomerVatValidationStatusEnum>,

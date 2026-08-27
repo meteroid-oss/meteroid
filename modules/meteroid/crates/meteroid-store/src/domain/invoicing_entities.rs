@@ -5,7 +5,7 @@ use crate::domain::connectors::{Connector, ConnectorMeta};
 use crate::domain::{Address, BankAccount, TaxResolverEnum};
 use common_domain::country::CountryCode;
 use common_domain::ids::{
-    BankAccountId, ConnectorId, InvoicingEntityId, StoredDocumentId, TenantId,
+    BankAccountId, ConnectorId, InvoicingEntityId, StoredDocumentId, TaxCategoryId, TenantId,
 };
 use diesel_models::invoicing_entities::{
     InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,
@@ -60,6 +60,10 @@ pub struct InvoicingEntity {
     pub portal_theme_mode: Option<String>,
     /// Customer-portal control roundness ("Sharp" | "Modern" | "Rounded").
     pub portal_roundness: Option<String>,
+    /// Best-effort default tax category for lines whose product carries none.
+    pub default_tax_category_id: Option<TaxCategoryId>,
+    /// External tax provider (a Tax-typed connector). None = built-in resolver.
+    pub tax_provider_id: Option<ConnectorId>,
 }
 
 impl InvoicingEntity {
@@ -128,6 +132,7 @@ pub struct InvoicingEntityPatch {
     pub require_billing_information: Option<bool>,
     pub portal_theme_mode: Option<Option<String>>,
     pub portal_roundness: Option<Option<String>>,
+    pub default_tax_category_id: Option<Option<TaxCategoryId>>,
 }
 
 #[derive(Clone, Debug, o2o, Default)]

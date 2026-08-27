@@ -13,7 +13,7 @@ use common_domain::ids::{BaseId, UserId};
 use csv::ReaderBuilder;
 use meteroid_store::Store;
 use meteroid_store::domain::batch_jobs::{BatchJob, BatchJobChunk};
-use meteroid_store::domain::{CustomerCustomTax, CustomerNew};
+use meteroid_store::domain::{CustomerNew, CustomerTaxRate, CustomerTaxStatus};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::CustomersInterface;
 use rust_decimal::Decimal;
@@ -61,12 +61,17 @@ fn map_to_domain(csv: NewCustomerCsv) -> Result<CustomerNew, String> {
         vat_number: csv.vat_number.map(|v| v.0),
         invoicing_entity_id: csv.invoicing_entity_id,
         custom_taxes,
-        is_tax_exempt: csv.is_tax_exempt.unwrap_or(false),
+        tax_status: if csv.is_tax_exempt.unwrap_or(false) {
+            CustomerTaxStatus::Exempt
+        } else {
+            CustomerTaxStatus::Taxable
+        },
+        exemption_reason: None,
         connected_account_id: None,
     })
 }
 
-fn parse_tax_rates(tax_rates: &CustomTaxRatesCsv) -> Result<Vec<CustomerCustomTax>, String> {
+fn parse_tax_rates(tax_rates: &CustomTaxRatesCsv) -> Result<Vec<CustomerTaxRate>, String> {
     let mut taxes = Vec::new();
 
     if let Some(rate) = tax_rates.rate1 {
@@ -95,7 +100,7 @@ fn parse_tax_rate(
     tax_code: &Option<CsvString>,
     name: &Option<CsvString>,
     field_name: &str,
-) -> Result<CustomerCustomTax, String> {
+) -> Result<CustomerTaxRate, String> {
     let tax_code = tax_code
         .as_ref()
         .ok_or(format!(
@@ -110,7 +115,7 @@ fn parse_tax_rate(
         .0
         .clone();
 
-    Ok(CustomerCustomTax {
+    Ok(CustomerTaxRate {
         tax_code,
         name,
         rate,

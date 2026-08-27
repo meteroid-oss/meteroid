@@ -428,7 +428,7 @@ mod mapper {
                     name: t.name.clone(),
                     rate: t.tax_rate,
                     // Negate to match the credit note's negative subtotal/total rendering
-                    amount: rusty_money::Money::from_minor(-(t.tax_amount as i64), currency),
+                    amount: rusty_money::Money::from_minor(-t.tax_amount, currency),
                     exemption_type,
                 }
             })

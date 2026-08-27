@@ -64,6 +64,7 @@ golden.workspace = true
 paste.workspace = true
 meteroid-store-macros = { workspace = true }
 meteroid-tax = { workspace = true }
+world-tax = { workspace = true }
 ctor = { workspace = true }
 envconfig = { workspace = true }
 urlencoding = { workspace = true }

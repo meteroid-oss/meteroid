@@ -738,6 +738,7 @@ impl PortalCheckoutServiceComponents {
                                     .unwrap_or(meteroid_store::domain::enums::FeeTypeEnum::Rate),
                                 fee_structure: fee_structure.clone(),
                                 catalog: false,
+                                tax_category_id: None,
                             },
                         );
                     }
@@ -922,7 +923,7 @@ impl PortalCheckoutServiceComponents {
             .map(|item| TaxBreakdownItem {
                 name: item.name,
                 rate: item.tax_rate.to_string(),
-                amount: item.tax_amount,
+                amount: item.tax_amount.to_non_negative_u64(),
             })
             .collect();
 

@@ -9,6 +9,8 @@ import {
   FormMessage,
   Input,
   InputFormField,
+  SelectFormField,
+  SelectItem,
 } from '@md/ui'
 import { Minus, Plus, X } from 'lucide-react'
 import { useState } from 'react'
@@ -38,6 +40,9 @@ export const CustomerFormFields = <T extends CustomerFormSchema>({
 
   const customTaxes = useWatch({ control, name: 'customTaxes' })
   const hasCustomTaxes = customTaxes && customTaxes.length > 0
+
+  const taxStatus = useWatch({ control, name: 'taxStatus' })
+  const showExemptionReason = taxStatus === 'EXEMPT' || taxStatus === 'REVERSE_CHARGE'
 
   return (
     <>
@@ -168,7 +173,27 @@ export const CustomerFormFields = <T extends CustomerFormSchema>({
         </div>
 
         {!hasCustomTaxes && (
-          <CheckboxFormField control={control} label="Tax exempt" name="isTaxExempt" />
+          <>
+            <SelectFormField
+              control={control}
+              label="Tax status"
+              name="taxStatus"
+              className="max-w-xs"
+            >
+              <SelectItem value="TAXABLE">Taxable</SelectItem>
+              <SelectItem value="EXEMPT">Exempt</SelectItem>
+              <SelectItem value="REVERSE_CHARGE">Reverse charge</SelectItem>
+            </SelectFormField>
+            {showExemptionReason && (
+              <InputFormField
+                control={control}
+                label="Exemption reason"
+                name="exemptionReason"
+                layout="horizontal"
+                placeholder="Legal mention shown on invoices"
+              />
+            )}
+          </>
         )}
       </div>
 

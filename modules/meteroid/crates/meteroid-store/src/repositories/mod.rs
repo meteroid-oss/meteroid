@@ -15,6 +15,7 @@ pub mod bi;
 pub mod customers;
 pub mod invoices;
 pub mod plans;
+pub mod tax_categories;
 pub mod tenants;
 
 pub mod add_ons;

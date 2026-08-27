@@ -1,7 +1,7 @@
 use crate::accounting::{CustomTaxRow, ProductAccountingRow, ProductAccountingWithTaxRow};
 use crate::errors::{DatabaseError, DatabaseErrorContainer, IntoDbResult};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{CustomTaxId, InvoicingEntityId, ProductId, TenantId};
+use common_domain::ids::{CustomTaxId, InvoicingEntityId, ProductId, TaxCategoryId, TenantId};
 use diesel::upsert::excluded;
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, JoinOnDsl, OptionalExtension, QueryDsl,
@@ -40,6 +40,7 @@ impl CustomTaxRow {
                 ct_dsl::name.eq(excluded(ct_dsl::name)),
                 ct_dsl::tax_code.eq(excluded(ct_dsl::tax_code)),
                 ct_dsl::rules.eq(excluded(ct_dsl::rules)),
+                ct_dsl::tax_category_id.eq(excluded(ct_dsl::tax_category_id)),
             ));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -102,6 +103,40 @@ impl CustomTaxRow {
             .get_results(conn)
             .await
             .attach("Error while fetching custom_tax by invoicing entity id with tenant check")
+            .into_db_result()
+    }
+
+    /// Custom taxes targeting one of these categories, for that invoicing entity.
+    pub async fn list_by_invoicing_entity_and_categories(
+        conn: &mut PgConn,
+        param_id: InvoicingEntityId,
+        tenant_id: TenantId,
+        category_ids: &[TaxCategoryId],
+    ) -> DbResult<Vec<CustomTaxRow>> {
+        use crate::schema::{custom_tax::dsl as ct_dsl, invoicing_entity::dsl as ie_dsl};
+        use diesel_async::RunQueryDsl;
+
+        if category_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let query = ct_dsl::custom_tax
+            .filter(ct_dsl::invoicing_entity_id.eq(param_id))
+            .filter(ct_dsl::tax_category_id.eq_any(category_ids))
+            .filter(
+                ct_dsl::invoicing_entity_id.eq_any(
+                    ie_dsl::invoicing_entity
+                        .filter(ie_dsl::tenant_id.eq(tenant_id))
+                        .select(ie_dsl::id),
+                ),
+            );
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while fetching custom_tax by tax categories")
             .into_db_result()
     }
 }

@@ -3,7 +3,7 @@ use crate::connectors::ConnectorRow;
 use crate::enums::TaxResolverEnum;
 use common_domain::country::CountryCode;
 use common_domain::ids::{
-    BankAccountId, ConnectorId, InvoicingEntityId, StoredDocumentId, TenantId,
+    BankAccountId, ConnectorId, InvoicingEntityId, StoredDocumentId, TaxCategoryId, TenantId,
 };
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
@@ -41,6 +41,8 @@ pub struct InvoicingEntityRow {
     pub require_billing_information: bool,
     pub portal_theme_mode: Option<String>,
     pub portal_roundness: Option<String>,
+    pub default_tax_category_id: Option<TaxCategoryId>,
+    pub tax_provider_id: Option<ConnectorId>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -70,6 +72,7 @@ pub struct InvoicingEntityRowPatch {
     pub require_billing_information: Option<bool>,
     pub portal_theme_mode: Option<Option<String>>,
     pub portal_roundness: Option<Option<String>>,
+    pub default_tax_category_id: Option<Option<TaxCategoryId>>,
 }
 
 #[derive(Debug, AsChangeset)]

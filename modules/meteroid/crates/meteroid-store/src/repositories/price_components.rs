@@ -53,6 +53,7 @@ pub async fn resolve_component_internal(
                     ))
                 })?,
                 catalog,
+                tax_category_id: None,
             }
             .insert(conn)
             .await

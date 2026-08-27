@@ -34,6 +34,7 @@ pub mod accounting;
 pub mod customers;
 pub mod invoices;
 pub mod plans;
+pub mod tax_categories;
 
 pub mod price_components;
 pub mod prices;

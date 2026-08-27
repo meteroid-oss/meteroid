@@ -32,6 +32,7 @@ import {
   generateCustomerPortalToken,
   getCustomerById,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { CustomerTaxStatus } from '@/rpc/api/customers/v1/models_pb'
 import {
   getInvoicingEntity,
   getInvoicingEntityProviders,
@@ -264,8 +265,10 @@ export const Customer = () => {
                           <span>{data.vatNumber}</span>
                           <VatValidationBadge customer={data} />
                         </span>
-                      ) : data.isTaxExempt ? (
+                      ) : data.taxStatus === CustomerTaxStatus.EXEMPT ? (
                         'Tax Exempt'
+                      ) : data.taxStatus === CustomerTaxStatus.REVERSE_CHARGE ? (
+                        'Reverse charge'
                       ) : (
                         'None'
                       )

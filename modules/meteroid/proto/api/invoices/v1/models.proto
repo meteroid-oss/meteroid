@@ -124,6 +124,8 @@ message TaxBreakdownItem {
   string name = 1;
   string tax_rate = 2;
   int64 amount = 3;
+  // A merchant override replaced the built-in EU VAT engine rate on this line.
+  bool overridden = 4;
 }
 
 message CouponLineItem {

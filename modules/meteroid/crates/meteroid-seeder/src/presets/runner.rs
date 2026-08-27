@@ -213,7 +213,8 @@ pub async fn run_preset(
             name: customer.name,
             shipping_address: customer.shipping_address.clone(),
             custom_taxes: vec![],
-            is_tax_exempt: false,
+            tax_status: meteroid_store::domain::CustomerTaxStatus::Taxable,
+            exemption_reason: None,
             connected_account_id: None,
         });
     }

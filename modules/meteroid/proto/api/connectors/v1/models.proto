@@ -15,6 +15,7 @@ enum ConnectorTypeEnum {
   PAYMENT_PROVIDER = 0;
   CRM = 1;
   ACCOUNTING = 2;
+  TAX = 3;
 }
 
 message ConnectorData {

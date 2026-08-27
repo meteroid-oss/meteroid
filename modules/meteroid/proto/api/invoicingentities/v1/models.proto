@@ -33,6 +33,8 @@ message InvoicingEntity {
   // Apply reverse charge only to VIES-verified VAT numbers (off = fail-open).
   bool require_vies_valid_for_reverse_charge = 26;
   bool require_billing_information = 27;
+  // Fallback tax category for lines whose product carries none.
+  optional string default_tax_category_id = 28;
 }
 
 message InvoicingEntityPublic {
@@ -73,12 +75,15 @@ message InvoicingEntityData {
   optional string portal_roundness = 24;
   optional bool require_vies_valid_for_reverse_charge = 25;
   optional bool require_billing_information = 26;
+  // Fallback tax category for lines whose product carries none. Empty string clears it.
+  optional string default_tax_category_id = 27;
 }
 
 enum TaxResolver {
   NONE = 0;
   MANUAL = 1;
   METEROID_EU_VAT = 2;
+  EXTERNAL = 3;
 }
 
 message FileData {

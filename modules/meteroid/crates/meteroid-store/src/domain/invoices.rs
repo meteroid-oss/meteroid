@@ -124,12 +124,25 @@ pub enum TaxExemptionType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaxBreakdownItem {
-    pub taxable_amount: u64,
+    // Signed: credit/proration lines net negative and must reconcile with the
+    // invoice-level signed tax_amount (W4). Never clamp per-rate rows.
+    pub taxable_amount: i64,
     #[serde(default)]
-    pub tax_amount: u64,
+    pub tax_amount: i64,
     pub tax_rate: Decimal,
     pub name: String,
     pub exemption_type: Option<TaxExemptionType>,
+    /// Free-text legal exemption mention (EU exempt/reverse-charge invoices).
+    #[serde(default)]
+    pub exemption_reason: Option<String>,
+    /// Accounting/reporting code of the tax rate that produced this line (W1),
+    /// for accounting exports. `None` for engine-computed VAT and exemptions.
+    #[serde(default)]
+    pub tax_reference: Option<String>,
+    /// True when a merchant override replaced the built-in EU VAT engine rate on
+    /// this line (C2 precedence ladder). Drives the "EU VAT not applied" hint.
+    #[serde(default)]
+    pub overridden: bool,
 }
 
 #[derive(Debug, o2o)]
