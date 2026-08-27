@@ -8018,6 +8018,13 @@
               "$ref": "#/components/schemas/CustomTaxRate"
             }
           },
+          "exemption_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Free-text legal exemption mention surfaced on exempt invoices."
+          },
           "invoicing_emails": {
             "type": "array",
             "items": {
@@ -8256,6 +8263,13 @@
               "$ref": "#/components/schemas/CustomTaxRate"
             }
           },
+          "exemption_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Free-text legal exemption mention surfaced on exempt invoices."
+          },
           "invoicing_emails": {
             "type": [
               "array",
@@ -8375,6 +8389,13 @@
             "items": {
               "$ref": "#/components/schemas/CustomTaxRate"
             }
+          },
+          "exemption_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Free-text legal exemption mention surfaced on exempt invoices."
           },
           "invoicing_emails": {
             "type": "array",
@@ -12515,6 +12536,13 @@
           "name"
         ],
         "properties": {
+          "exemption_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Free-text legal exemption mention (EU exempt/reverse-charge invoices)."
+          },
           "exemption_type": {
             "oneOf": [
               {
@@ -12530,17 +12558,22 @@
           },
           "tax_amount": {
             "type": "integer",
-            "format": "int64",
-            "minimum": 0
+            "format": "int64"
           },
           "tax_rate": {
             "type": "string",
             "format": "decimal"
           },
+          "tax_reference": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Accounting/reporting code of the tax rate for this line, for exports."
+          },
           "taxable_amount": {
             "type": "integer",
-            "format": "int64",
-            "minimum": 0
+            "format": "int64"
           }
         }
       },
