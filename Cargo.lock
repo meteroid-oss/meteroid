@@ -736,9 +736,9 @@ dependencies = [
 
 [[package]]
 name = "axum-valid"
-version = "0.24.0"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3881b4b05ede123ff3c82f41c63e47425443556365b47b2ba4d05098a5bd2645"
+checksum = "6c0cba26dfbdeff786711f747a51efd368c3864ab9574981ae532514dd492dd7"
 dependencies = [
  "axum",
  "validator",
