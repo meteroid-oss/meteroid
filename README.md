@@ -11,7 +11,7 @@
 
 
 <h3 align="center">
-  Cloud-native pricing and billing infrastructure for product-led SaaS 🔥.
+  Cloud-native pricing and billing platform for SaaS, Infrastructure, and AI companies 🔥.
 </h3>
 
 <br/>
@@ -115,6 +115,9 @@ Meteroid is the complete monetization platform for modern SaaS. Key capabilities
   Automatically generate accurate, detailed invoices, from simple charges to complex
   usage-based and hybrid billing. Issue credit notes when corrections are needed.
 
+- [**Entitlements:**](https://docs.meteroid.com/entitlements/create-and-manage-entitlements)
+  Control what each customer can access, use, or consume, from simple feature access to metered usage limits.
+
 - [**Trials, Coupons & Add-Ons:**](https://docs.meteroid.com/billing/managing-trials-and-coupons)
   Drive conversions with trial periods and promotional coupons. Attach add-ons to
   subscriptions to let customers unlock additional capabilities without switching plans.
@@ -136,14 +139,14 @@ Meteroid is the complete monetization platform for modern SaaS. Key capabilities
 Whether you're product-led or sales-led, or running both motions at once,
 Meteroid is your single source of truth for monetization.
 
+- **Engineering teams** that have been through the pain of building and maintaining a
+  billing system from scratch.
+
 - **Product-led teams** that want to ship usage-based or complex or hybrid pricing from day one,
   without building custom billing infrastructure.
 
 - **Sales-led teams** that need to close custom deals fast, automate quote-to-cash,
   and keep finance in sync with no manual handovers between sales and billing.
-
-- **Engineering teams** that have been through the pain of building and maintaining a
-  billing system from scratch.
 
 ## Build for Sustainable Growth
 
