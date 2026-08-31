@@ -37,8 +37,10 @@ use common_domain::ids::{
 use diesel_models::applied_coupons::AppliedCouponRowNew;
 use diesel_models::checkout_sessions::CheckoutSessionRow;
 use diesel_models::coupons::CouponRow;
+use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
 use diesel_models::customers::CustomerRow;
 use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum as DbSubscriptionStatusEnum};
+use diesel_models::invoices::InvoiceRow;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::plans::PlanRow;
 use diesel_models::quotes::QuoteRow;
@@ -614,7 +616,8 @@ impl ServicesEdge {
         self.store
             .transaction(|conn| {
                 async move {
-                    self.services
+                    let (transaction, next_action) = self
+                        .services
                         .process_invoice_payment_tx(
                             conn,
                             tenant_id,
@@ -626,7 +629,42 @@ impl ServicesEdge {
                             on_session,
                             idempotency_ref,
                         )
+                        .await?;
+
+                    // A Pending, action-free charge on an async-settling rail
+                    // (Stancer, GoCardless) is contractually accepted even though
+                    // funds haven't arrived yet. `bill.rs`'s checkout-completion
+                    // path already stamps Processing for this case; this is the
+                    // equivalent for the off-session/renewal path (pgmq
+                    // `payment_request` worker, GoCardless mandate-fulfilled
+                    // webhook, portal pay-now), which otherwise leaves the
+                    // invoice reading Unpaid while money is in flight.
+                    if transaction.status == PaymentStatusEnum::Pending {
+                        let method = CustomerPaymentMethodRow::get_by_id(
+                            conn,
+                            &tenant_id,
+                            &payment_method_id,
+                        )
                         .await
+                        .map_err(|e| StoreError::DatabaseError(e.error))?;
+                        if self
+                            .services
+                            .accepted_async_debit(conn, tenant_id, &transaction, &method)
+                            .await?
+                        {
+                            InvoiceRow::apply_payment_status(
+                                conn,
+                                invoice_id,
+                                tenant_id,
+                                diesel_models::enums::InvoicePaymentStatus::Processing,
+                                None,
+                            )
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+                        }
+                    }
+
+                    Ok((transaction, next_action))
                 }
                 .scope_boxed()
             })

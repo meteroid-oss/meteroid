@@ -271,7 +271,14 @@ mod tests {
             !caps.supports_self_webhook_registration,
             "Stancer has no webhook mechanism at all"
         );
-        assert!(!caps.supports_refunds, "refund() is Unsupported");
+        assert!(
+            caps.supports_refunds,
+            "refund() is wired to POST /v2/refunds/"
+        );
+        assert!(
+            caps.supports_partial_refunds,
+            "amount is optional on RefundCreate"
+        );
         assert_eq!(caps.mandate_setup_mode, MandateSetupMode::HostedRedirect);
     }
 
