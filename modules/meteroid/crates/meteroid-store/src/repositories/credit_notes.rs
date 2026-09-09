@@ -74,6 +74,8 @@ pub struct CreateCreditNoteParams {
     pub reason: Option<String>,
     pub memo: Option<String>,
     pub credit_type: CreditType,
+    /// Refund already issued manually outside Meteroid: skip the provider refund call.
+    pub skip_provider_refund: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -821,6 +823,7 @@ pub(crate) async fn finalize_credit_note_tx(
     tenant_id: TenantId,
     actor: &Actor,
     credit_note_id: CreditNoteId,
+    skip_provider_refund: bool,
 ) -> StoreResult<CreditNote> {
     let credit_note_row = CreditNoteRow::find_by_id(conn, tenant_id, credit_note_id).await?;
 
@@ -884,7 +887,10 @@ pub(crate) async fn finalize_credit_note_tx(
 
     apply_credit_note_to_invoice_tx(store, conn, tenant_id, actor, &credit_note).await?;
 
-    if credit_note.credit_type == CreditType::Refund && credit_note.refunded_amount_cents > 0 {
+    if credit_note.credit_type == CreditType::Refund
+        && credit_note.refunded_amount_cents > 0
+        && !skip_provider_refund
+    {
         trigger_provider_refund_tx(store, conn, tenant_id, actor, &credit_note).await?;
     }
 
@@ -1365,9 +1371,18 @@ impl CreditNoteInterface for Store {
         self.transaction(|conn| {
             let actor = &actor;
             async move {
+                let skip_provider_refund = params.skip_provider_refund;
                 let draft =
                     create_user_credit_note_tx(self, conn, tenant_id, actor, params, false).await?;
-                finalize_credit_note_tx(self, conn, tenant_id, actor, draft.id).await
+                finalize_credit_note_tx(
+                    self,
+                    conn,
+                    tenant_id,
+                    actor,
+                    draft.id,
+                    skip_provider_refund,
+                )
+                .await
             }
             .scope_boxed()
         })
@@ -1466,7 +1481,7 @@ impl CreditNoteInterface for Store {
         self.transaction(|conn| {
             let actor = &actor;
             async move {
-                finalize_credit_note_tx(self, conn, tenant_id, actor, credit_note_id).await
+                finalize_credit_note_tx(self, conn, tenant_id, actor, credit_note_id, false).await
             }
             .scope_boxed()
         })

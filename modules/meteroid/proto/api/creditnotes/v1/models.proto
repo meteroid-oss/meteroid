@@ -85,4 +85,6 @@ message NewCreditNote {
   optional string reason = 3;
   optional string memo = 4;
   CreditType credit_type = 5;
+  // Refund already issued manually outside Meteroid: skip the provider refund call.
+  optional bool skip_provider_refund = 6;
 }

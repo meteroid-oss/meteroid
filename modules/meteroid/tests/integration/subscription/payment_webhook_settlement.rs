@@ -1484,6 +1484,7 @@ async fn test_credit_note_refund_triggers_provider_reversal(#[future] test_env: 
                 reason: Some("test full refund".to_string()),
                 memo: None,
                 credit_type: CreditType::Refund,
+                skip_provider_refund: false,
             },
         )
         .await
@@ -1519,6 +1520,46 @@ async fn test_credit_note_refund_triggers_provider_reversal(#[future] test_env: 
         .has_payment_status(InvoicePaymentStatus::Unpaid);
 }
 
+/// `skip_provider_refund: true` on a Refund-type credit note (the "already
+/// refunded manually" option) must bypass `trigger_provider_refund_tx`
+/// entirely, even though the connector supports refunds. Only honored via
+/// `create_and_finalize_credit_note` — that's the path the flag flows
+/// through (see `credit_notes.rs`'s `finalize_credit_note_tx` signature).
+#[rstest]
+#[tokio::test]
+async fn test_credit_note_skip_provider_refund_leaves_transaction_untouched(
+    #[future] test_env: TestEnv,
+) {
+    use meteroid_store::repositories::CreditNoteInterface;
+    use meteroid_store::repositories::credit_notes::{CreateCreditNoteParams, CreditType};
+
+    let env = test_env.await;
+    let (_sub_id, invoice_id, tx, total) = settled_paid_invoice(&env).await;
+
+    let credit_note = env
+        .store()
+        .create_and_finalize_credit_note(
+            common_domain::actor::Actor::System,
+            TENANT_ID,
+            CreateCreditNoteParams {
+                invoice_id,
+                line_items: vec![],
+                reason: Some("test manual refund".to_string()),
+                memo: None,
+                credit_type: CreditType::Refund,
+                skip_provider_refund: true,
+            },
+        )
+        .await
+        .expect("credit note created and finalized without calling the provider");
+    assert_eq!(credit_note.refunded_amount_cents, total);
+
+    let unchanged_tx = transaction_for_invoice(&env, invoice_id).await;
+    assert_eq!(unchanged_tx.id, tx.id);
+    assert_eq!(unchanged_tx.amount_refunded, 0);
+    assert_eq!(unchanged_tx.status, PaymentStatusEnum::Settled);
+}
+
 /// A non-Refund credit type (e.g. `CreditToBalance`) must never touch the
 /// underlying `PaymentTransaction` — `trigger_provider_refund_tx` is only
 /// invoked for `CreditType::Refund`. Regression guard for that gate.
@@ -1544,6 +1585,7 @@ async fn test_credit_to_balance_credit_note_does_not_touch_payment_transaction(
                 reason: Some("test credit to balance".to_string()),
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
+                skip_provider_refund: false,
             },
         )
         .await
