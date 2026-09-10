@@ -543,19 +543,9 @@ async fn apply_credit_note_to_invoice_tx(
     Ok(())
 }
 
-/// Actually moves money back for a Refund-type credit note, instead of only
-/// recording the accounting figure. Only wired for connectors whose
-/// `capabilities().supports_refunds` is true (Stancer today); every other
-/// provider — and any settlement with no real connector behind it at all
-/// (manual/admin `mark_invoice_as_paid`, a balance-only payment) — keeps
-/// today's accounting-only behavior unchanged: there's nothing to call, so
-/// this is a silent no-op, not an error.
-///
-/// Only fails the whole finalization (rolling back the credit note, balance
-/// update, and invoice changes made so far in this transaction) once we've
-/// actually resolved a refund-capable connector and it refuses the refund
-/// outright — that's the one case where finalizing anyway would silently
-/// never pay the customer back.
+/// Calls the payment provider's refund API for a Refund-type credit note
+/// (Stancer today); a no-op if the connector doesn't support refunds. Fails
+/// the whole finalization if the provider refuses the refund.
 async fn trigger_provider_refund_tx(
     store: &Store,
     conn: &mut PgConn,

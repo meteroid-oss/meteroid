@@ -631,14 +631,9 @@ impl ServicesEdge {
                         )
                         .await?;
 
-                    // A Pending, action-free charge on an async-settling rail
-                    // (Stancer, GoCardless) is contractually accepted even though
-                    // funds haven't arrived yet. `bill.rs`'s checkout-completion
-                    // path already stamps Processing for this case; this is the
-                    // equivalent for the off-session/renewal path (pgmq
-                    // `payment_request` worker, GoCardless mandate-fulfilled
-                    // webhook, portal pay-now), which otherwise leaves the
-                    // invoice reading Unpaid while money is in flight.
+                    // Accepted but still settling (Stancer/GoCardless): stamp
+                    // Processing, mirroring bill.rs's checkout path, so the
+                    // invoice doesn't read Unpaid while money is in flight.
                     if transaction.status == PaymentStatusEnum::Pending {
                         let method = CustomerPaymentMethodRow::get_by_id(
                             conn,

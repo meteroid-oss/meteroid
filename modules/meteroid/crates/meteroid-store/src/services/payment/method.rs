@@ -611,28 +611,12 @@ impl Services {
             _ => None,
         };
         let return_url = if let Some(handler_path) = handler_path {
-            let rest_api_base = self
-                .store
-                .settings
-                .rest_api_external_url
-                .trim_end_matches('/');
-            // Stancer's return handler is unauthenticated by design (a bare
-            // browser redirect can't carry an API key) and is registered
-            // without an `/api` prefix for exactly that reason — but some
-            // deployments configure `rest_api_external_url` with a trailing
-            // `/api` (e.g. the official Helm chart's `publicRestApiUrl`), which
-            // makes the built URL collide with the REST auth middleware's
-            // "anything under /api/ needs an API key" rule. Strip it here so
-            // the redirect actually reaches the handler instead of a 401.
-            let rest_api_base =
-                if connector.provider == crate::domain::enums::ConnectorProviderEnum::Stancer {
-                    rest_api_base.trim_end_matches("/api")
-                } else {
-                    rest_api_base
-                };
             let handler_url = format!(
                 "{}/{}?connection={}",
-                rest_api_base,
+                self.store
+                    .settings
+                    .rest_api_external_url
+                    .trim_end_matches('/'),
                 handler_path,
                 customer_connection.id.as_base62(),
             );
