@@ -84,6 +84,12 @@ impl Services {
             idempotency_key: IdempotencyKey::new(format!("charge:{}", transaction_id.as_base62())),
             // Checkout is always customer-present, so 3DS can be completed inline.
             on_session: true,
+            descriptor: None,
+            webhook_url: Some(crate::adapters::payment::model::connector_webhook_url(
+                self.store.settings.webhook_base_url(),
+                connector.tenant_id,
+                &connector.alias,
+            )),
         };
 
         let outcome = connector_impl

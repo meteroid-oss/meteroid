@@ -35,6 +35,20 @@ pub enum AdapterWebhookError {
     StoreError,
 }
 
+impl AdapterWebhookError {
+    /// Only transient failures (DB, provider fetch) are retried via pgmq; everything else is acked
+    /// so a bad event can't block the queue.
+    pub fn is_transient(&self) -> bool {
+        matches!(
+            self,
+            Self::ProviderError
+                | Self::StoreError
+                | Self::DatabaseError
+                | Self::ObjectStoreUnreachable
+        )
+    }
+}
+
 impl IntoResponse for AdapterWebhookError {
     fn into_response(self) -> Response {
         let status = match self {

@@ -295,6 +295,109 @@ async fn test_async_charge_failure_errors_invoice_and_schedules_dunning(
     );
 }
 
+/// A stamped transaction id that was rolled back (replayed onto a newer row) settles the row
+/// holding the provider payment id.
+#[rstest]
+#[tokio::test]
+async fn test_success_webhook_for_a_rolled_back_transaction_settles_by_provider_id(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    let (sub_id, invoice_id) = unpaid_card_invoice(&env).await;
+
+    env.set_mock_charge_behavior("pending").await;
+    env.services()
+        .complete_invoice_payment(
+            TENANT_ID,
+            invoice_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            false,
+            None,
+        )
+        .await
+        .expect("charge accepted");
+    let external_id = transaction_for_invoice(&env, invoice_id)
+        .await
+        .provider_transaction_id
+        .clone()
+        .expect("the pending charge carries the provider id");
+
+    let rolled_back = PaymentTransactionId::new();
+    deliver_webhook(&env, &succeeded_payload(rolled_back, &external_id)).await;
+
+    assert_eq!(
+        transaction_for_invoice(&env, invoice_id).await.status,
+        PaymentStatusEnum::Settled
+    );
+    env.get_invoices(sub_id)
+        .await
+        .assert()
+        .invoice_at(0)
+        .is_finalized_paid();
+}
+
+/// A failed provider-hosted attempt (no saved method) is not a failed collection: no dunning.
+#[rstest]
+#[tokio::test]
+async fn test_hosted_attempt_failure_keeps_invoice_payable_without_dunning(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    let (sub_id, invoice_id) = unpaid_card_invoice(&env).await;
+    let invoice = env.get_invoices(sub_id).await.remove(0);
+
+    let tx_id = PaymentTransactionId::new();
+    {
+        let mut conn = env.conn().await;
+        diesel_models::payments::PaymentTransactionRowNew {
+            id: tx_id,
+            tenant_id: TENANT_ID,
+            invoice_id: Some(invoice_id),
+            provider_transaction_id: Some("tr_hosted".to_string()),
+            amount: invoice.amount_due,
+            currency: invoice.currency.clone(),
+            payment_method_id: None,
+            status: diesel_models::enums::PaymentStatusEnum::Pending,
+            payment_type: diesel_models::enums::PaymentTypeEnum::Payment,
+            error_type: None,
+            processed_at: None,
+            checkout_session_id: None,
+            pending_plan_version_id: None,
+            next_action: None,
+            initiated_by_customer_id: None,
+            pending_provider_intent_id: None,
+            pending_connection_id: None,
+        }
+        .insert(&mut conn)
+        .await
+        .expect("insert hosted attempt");
+    }
+
+    let payload = format!(
+        r#"{{"id":"evt_hosted_{tx}","kind":"payment_failed","transaction_id":"{tx}","external_id":"tr_hosted"}}"#,
+        tx = tx_id.as_base62(),
+    )
+    .into_bytes();
+    deliver_webhook(&env, &payload).await;
+
+    assert_eq!(
+        transaction_for_invoice(&env, invoice_id).await.status,
+        PaymentStatusEnum::Failed
+    );
+    env.run_outbox_and_orchestration().await;
+    env.get_invoices(sub_id)
+        .await
+        .assert()
+        .invoice_at(0)
+        .has_status(InvoiceStatusEnum::Finalized)
+        .has_payment_status(InvoicePaymentStatus::Unpaid);
+    assert_eq!(
+        env.pending_payment_retries(sub_id, invoice_id).await,
+        0,
+        "a hosted attempt the customer abandoned must not start dunning"
+    );
+}
+
 // =============================================================================
 // Money reversals: a settled payment clawed back must reopen its invoice.
 // =============================================================================

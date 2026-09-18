@@ -13,7 +13,6 @@ use meteroid_store::store::{PgConfig, PgPool, StoreConfig};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
-use stripe_client::client::StripeClient;
 use testcontainers::core::WaitFor;
 use testcontainers::core::wait::LogWaitStrategy;
 use testcontainers::runners::AsyncRunner;
@@ -192,7 +191,6 @@ async fn start_meteroid_from_config(
 ) -> MeteroidSetup {
     let token = CancellationToken::new();
     let cloned_token = token.clone();
-    let stripe = Arc::new(StripeClient::new());
 
     let store = meteroid_store::Store::new(StoreConfig {
         pg: config.pg.clone(),
@@ -202,6 +200,7 @@ async fn start_meteroid_from_config(
         mailer_enabled: config.mailer_enabled(),
         public_url: config.public_url.clone(),
         rest_api_external_url: config.rest_api_external_url.clone(),
+        webhook_external_url: config.webhook_external_url.clone(),
         eventbus: create_eventbus_noop(),
         mailer: mailer.clone(),
         oauth: meteroid_oauth::service::OauthServices::new(OauthConfig::dummy()),
@@ -214,7 +213,7 @@ async fn start_meteroid_from_config(
     })
     .expect("Could not create store");
 
-    let services = Services::new(Arc::new(store.clone()), usage_client, stripe);
+    let services = Services::new(Arc::new(store.clone()), usage_client);
 
     populate_postgres(&store.pool, seed_level).await;
 

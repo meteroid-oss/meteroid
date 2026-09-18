@@ -177,6 +177,7 @@ async fn initiate(
             amount_minor,
             "EUR".to_string(),
             None, // coupon_code
+            None, // rail
             None, // return_url
         )
         .await
@@ -554,6 +555,126 @@ async fn test_hosted_checkout_first_payment_failure_reopens_invoice(#[future] te
         .has_payment_status(InvoicePaymentStatus::Errored)
         .has_amount_due(3500);
     assert_eq!(env.pending_payment_retries(sub_id, invoice_id).await, 1);
+}
+
+// A hosted first payment that fails before fulfillment (declined, expired or cancelled) leaves the
+// session reopenable: "Open checkout" and the customer's retry both find it and start a new
+// attempt.
+#[rstest]
+#[tokio::test]
+async fn test_hosted_checkout_failure_before_fulfillment_keeps_session_retryable(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    env.seed_payments().await;
+    env.seed_uber_sepa_payment_method().await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap())
+        .on_checkout()
+        .no_trial()
+        .auto_charge()
+        .create(env.services())
+        .await;
+    let sess = env
+        .store()
+        .get_checkout_session_by_subscription(TENANT_ID, sub_id)
+        .await
+        .expect("activation checkout session auto-created");
+
+    let (tx, _) = initiate(&env, sess.id, 3500).await;
+    deliver_gocardless_webhook(&env, &failed_payload(tx.id)).await;
+    env.run_outbox_and_orchestration().await;
+
+    assert_eq!(
+        tx_row(&env, tx.id).await.status,
+        diesel_models::enums::PaymentStatusEnum::Failed
+    );
+    env.get_invoices(sub_id).await.assert().assert_empty();
+
+    let reopened = env
+        .store()
+        .get_checkout_session_by_subscription(TENANT_ID, sub_id)
+        .await
+        .expect("a failed hosted attempt keeps the session reachable from the subscription");
+    assert_eq!(reopened.id, sess.id);
+    assert_eq!(reopened.status, CheckoutSessionStatus::Created);
+    assert!(reopened.can_complete());
+
+    let (retry_tx, _) = initiate(&env, sess.id, 3500).await;
+    assert_ne!(retry_tx.id, tx.id, "the retry mints a fresh attempt");
+    assert_eq!(retry_tx.status, PaymentStatusEnum::Pending);
+    assert_eq!(
+        env.get_transactions_by_checkout_session(sess.id)
+            .await
+            .len(),
+        2
+    );
+    assert_eq!(
+        session(&env, sess.id).await.status,
+        CheckoutSessionStatus::AwaitingPayment
+    );
+}
+
+// The failure is processed from the outbox, so it can arrive after the customer retried. It must
+// not disrupt the retry: the session stays AwaitingPayment on the new attempt.
+#[rstest]
+#[tokio::test]
+async fn test_hosted_checkout_late_failure_event_keeps_retry_in_flight(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    env.seed_payments().await;
+    env.seed_uber_sepa_payment_method().await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap())
+        .on_checkout()
+        .no_trial()
+        .auto_charge()
+        .create(env.services())
+        .await;
+    let sess = env
+        .store()
+        .get_checkout_session_by_subscription(TENANT_ID, sub_id)
+        .await
+        .expect("activation checkout session auto-created");
+
+    let (first, _) = initiate(&env, sess.id, 3500).await;
+    // The webhook consolidates the row as Failed; its outbox event is NOT processed yet.
+    deliver_gocardless_webhook(&env, &failed_payload(first.id)).await;
+    assert_eq!(
+        tx_row(&env, first.id).await.status,
+        diesel_models::enums::PaymentStatusEnum::Failed
+    );
+
+    // The customer retries before orchestration catches up.
+    let (retry, url) = initiate(&env, sess.id, 3500).await;
+    assert_ne!(retry.id, first.id);
+    assert_eq!(
+        session(&env, sess.id).await.status,
+        CheckoutSessionStatus::AwaitingPayment
+    );
+
+    // The stale failure lands now: the in-flight retry keeps the session as it is.
+    env.run_outbox_and_orchestration().await;
+    assert_eq!(
+        session(&env, sess.id).await.status,
+        CheckoutSessionStatus::AwaitingPayment
+    );
+
+    // Another click resumes the retry instead of cancelling it and creating a third.
+    let (again, url_again) = initiate(&env, sess.id, 3500).await;
+    assert_eq!(again.id, retry.id);
+    assert_eq!(url_again, url);
+    assert_eq!(
+        env.get_transactions_by_checkout_session(sess.id)
+            .await
+            .len(),
+        2
+    );
 }
 
 // =============================================================================

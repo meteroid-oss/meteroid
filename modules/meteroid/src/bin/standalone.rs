@@ -24,7 +24,6 @@ use meteroid::workers;
 use meteroid::{bootstrap, singletons};
 use meteroid_mailer::service::mailer_service;
 use meteroid_store::Services;
-use stripe_client::client::StripeClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -44,11 +43,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let store = singletons::get_store().await;
 
     let store_arc = Arc::new(store.clone()); // TODO harmonize, arc everywhere or nowhere
-    let stripe = Arc::new(StripeClient::new());
 
     let usage_clients = Arc::new(MeteringUsageClient::get().clone());
 
-    let services = Services::new(store_arc.clone(), usage_clients.clone(), stripe);
+    let services = Services::new(store_arc.clone(), usage_clients.clone());
 
     let services_arc = Arc::new(services.clone());
 

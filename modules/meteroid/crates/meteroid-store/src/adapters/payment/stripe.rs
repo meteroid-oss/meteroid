@@ -3,8 +3,8 @@
 //! sees the normalized types from [`super::model`] and [`super::events`].
 
 use super::connector::{
-    ConnectorCapabilities, ConnectorIdentity, CustomerOps, HostedSetupCompletion, MandateOps,
-    MandateSetupMode, PaymentOps, ReconcileOps, RefundOps, WebhookOps,
+    ConnectorCapabilities, ConnectorIdentity, CredentialOps, CustomerOps, HostedSetupCompletion,
+    MandateOps, MandateSetupMode, PaymentOps, ReconcileOps, RefundOps, WebhookOps,
 };
 use super::error::ConnectorError;
 use super::events::{
@@ -78,6 +78,9 @@ pub(super) const STRIPE_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilit
     // Setup completes client-side and `payment_method.attached` /
     // `setup_intent.succeeded` webhooks back it up — never swept.
     hosted_setup_completion: HostedSetupCompletion::WebhookBacked,
+    supports_hosted_invoice_payment: false,
+    supports_hosted_checkout: false,
+    pending_charge_accepted: false,
 };
 
 /// Wraps a process-wide [`StripeClient`]: every tenant shares one pool since
@@ -111,6 +114,38 @@ impl ConnectorIdentity for StripeConnector {
 
     fn capabilities(&self) -> &ConnectorCapabilities {
         &STRIPE_CAPABILITIES
+    }
+}
+
+#[async_trait]
+impl CredentialOps for StripeConnector {
+    /// The account lookup doubles as the credential check; its id is stored in the public data.
+    async fn validate_credentials(
+        &self,
+        connector: &Connector,
+    ) -> Result<ProviderData, Report<ConnectorError>> {
+        use stripe_client::accounts::AccountsApi;
+        let secret = extract_secret_key(connector)?;
+        let publishable = extract_publishable_key(connector)?;
+        let account = Self::client()
+            .get_account(&secret)
+            .await
+            .map_err(|e| match &e {
+                StripeError::Stripe(req) if matches!(req.http_status, 400 | 401 | 403) => {
+                    Report::new(ConnectorError::Configuration(format!(
+                        "Stripe rejected these API keys: {e}"
+                    )))
+                }
+                _ => Report::new(ConnectorError::Transport(format!(
+                    "Couldn't reach Stripe to verify the keys: {e}"
+                ))),
+            })?;
+        Ok(ProviderData::Stripe(
+            crate::domain::connectors::StripePublicData {
+                api_publishable_key: publishable.expose_secret().to_string(),
+                account_id: account.id,
+            },
+        ))
     }
 }
 
@@ -621,6 +656,23 @@ fn snapshot_from_payment_method(method: PaymentMethod) -> PaymentMethodSnapshot 
             _ => (None, None, None, None),
         };
 
+    let fingerprint = match method._type {
+        StripePmType::Card => method.card.as_ref().and_then(|c| c.fingerprint.clone()),
+        StripePmType::SepaDebit => method
+            .sepa_debit
+            .as_ref()
+            .and_then(|a| a.fingerprint.clone()),
+        StripePmType::UsBankAccount => method
+            .us_bank_account
+            .as_ref()
+            .and_then(|a| a.fingerprint.clone()),
+        StripePmType::BacsDebit => method
+            .bacs_debit
+            .as_ref()
+            .and_then(|a| a.fingerprint.clone()),
+        StripePmType::Other => None,
+    };
+
     PaymentMethodSnapshot {
         external_payment_method_id: method.id,
         payment_method_type,
@@ -629,6 +681,7 @@ fn snapshot_from_payment_method(method: PaymentMethod) -> PaymentMethodSnapshot 
         card_last4,
         card_exp_month,
         card_exp_year,
+        fingerprint,
         // Stripe events carry our metadata directly.
         meteroid_connection_id: None,
         meteroid_customer_id: None,

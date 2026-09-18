@@ -38,7 +38,8 @@ export const PortalInvoicePayment = () => {
   // 'failed' → the charge failed: back to the pay form with an error banner;
   // 'timed_out' → nothing landed within the cap: readonly "check back later".
   const [gcPhase, setGcPhase] = useState<'processing' | 'failed' | 'timed_out' | null>(
-    hostedRet?.status === 'ok' ? 'processing' : null
+    // `processing` (still settling at the provider) is treated like `ok`.
+    hostedRet?.status === 'ok' || hostedRet?.status === 'processing' ? 'processing' : null
   )
   // Transactions already FAILED the first time we see the invoice belong to
   // earlier attempts and must not resolve this return as a failure.
@@ -106,16 +107,24 @@ export const PortalInvoicePayment = () => {
   // view (poll stopped) rather than re-offering the form — the charge may
   // still land and paying again could double-charge.
   const hostedProcessing = gcPhase === 'processing' || gcPhase === 'timed_out'
+  const data = invoicePaymentQuery.data?.invoice
+  // The saved departure state has the rail; without it, only a single configured rail is certain.
+  const failedRail =
+    hostedRet?.departure?.rail ??
+    (data?.cardConnectionId && !data?.directDebitConnectionId
+      ? 'card'
+      : data?.directDebitConnectionId && !data?.cardConnectionId
+        ? 'directDebit'
+        : undefined)
   const hostedError =
-    hostedRet && hostedRet.status !== 'ok'
+    hostedRet && hostedRet.status !== 'ok' && hostedRet.status !== 'processing'
       ? hostedReturnErrorMessage(hostedRet)
       : gcPhase === 'failed'
-        ? hostedRet?.provider === 'stancer'
-          ? 'Your card payment could not be completed. Please try again or use a different payment method.'
-          : 'Your direct debit payment could not be completed. Please try again or use a different payment method.'
+        ? `Your ${
+            failedRail === 'directDebit' ? 'direct debit ' : failedRail === 'card' ? 'card ' : ''
+          }payment could not be completed. Please try again or use a different payment method.`
         : null
 
-  const data = invoicePaymentQuery.data?.invoice
   const error = invoicePaymentQuery.error
   const isLoading = invoicePaymentQuery.isLoading
 

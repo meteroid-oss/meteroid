@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import CheckoutFlow from '@/features/checkout/CheckoutFlow'
+import { HOSTED_STATUS_PARAM } from '@/features/checkout/utils/hostedReturn'
 import { useQuery } from '@/lib/connectrpc'
 import { getCheckout } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
 import { useForceTheme } from 'providers/ThemeProvider'
@@ -22,10 +23,9 @@ export const PortalCheckout = () => {
   const addonPurchaseContext = checkoutQuery.data?.addonPurchaseContext
   const error = checkoutQuery.error
   const isLoading = checkoutQuery.isLoading
-  // On the return leg from a hosted provider the URL carries `<provider>_status`;
+  // On the return leg from a hosted provider the URL carries `hosted_status`;
   // show "confirming your payment" rather than a generic loader while we resolve.
-  const isHostedReturn =
-    searchParams.get('stancer_status') === 'ok' || searchParams.get('gocardless_status') === 'ok'
+  const isHostedReturn = searchParams.get(HOSTED_STATUS_PARAM) === 'ok'
 
   // A completed session is a SUCCESS, not an error: the backend can finish
   // the checkout before (or during) the redirect back, in which case this
@@ -41,10 +41,7 @@ export const PortalCheckout = () => {
     const params = new URLSearchParams()
     const returnUrl = searchParams.get('return_url')
     if (returnUrl) params.set('return_url', returnUrl)
-    if (
-      searchParams.get('gocardless_status') === 'ok' ||
-      searchParams.get('stancer_status') === 'ok'
-    ) {
+    if (searchParams.get(HOSTED_STATUS_PARAM) === 'ok') {
       params.set('status', 'processing')
     }
     navigate(`success?${params.toString()}`, { replace: true })

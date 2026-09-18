@@ -12,6 +12,8 @@ export const PortalCheckoutSuccess = () => {
   // isn't "successful" yet — the subscription is active and the payment is
   // processing. Card checkouts settle inline and stay on the default wording.
   const processing = searchParams.get('status') === 'processing'
+  // Set by the invoice-payment flow; absent on checkout.
+  const invoiceNumber = searchParams.get('invoice')
   const [countdown, setCountdown] = useState(3)
 
   useEffect(() => {
@@ -36,7 +38,7 @@ export const PortalCheckoutSuccess = () => {
       <div className="w-full max-w-md flex flex-col items-center">
         <CheckCircle className="h-12 w-12 text-success mb-4 " />
         <h2 className="text-md font-semibold text-gray-800 mb-2">
-          {processing ? "You're all set!" : 'Payment successful!'}
+          {processing ? (invoiceNumber ? 'Payment submitted' : "You're all set!") : 'Payment successful!'}
         </h2>
         {returnUrl ? (
           <div className="text-gray-800 text-sm">
@@ -51,7 +53,9 @@ export const PortalCheckoutSuccess = () => {
         ) : (
           <p className="text-gray-800 text-sm">
             {processing
-              ? 'Your subscription is confirmed. Your first payment is being processed and will be collected shortly. You can safely close this tab.'
+              ? invoiceNumber
+                ? `Your payment for invoice ${invoiceNumber} is being processed and will be collected shortly. You can safely close this tab.`
+                : 'Your subscription is confirmed. Your first payment is being processed and will be collected shortly. You can safely close this tab.'
               : 'Thank you for your payment. You can now safely close this tab.'}
           </p>
         )}

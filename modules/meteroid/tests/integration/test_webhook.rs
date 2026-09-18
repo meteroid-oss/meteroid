@@ -9,9 +9,12 @@ use diesel_models::enums::{CheckoutTypeEnum, PaymentStatusEnum, PaymentTypeEnum}
 use diesel_models::payments::PaymentTransactionRowNew;
 use meteroid::workers::pgmq::processors::run_once_webhook_in;
 use meteroid_store::domain::connectors::{
-    GocardlessPublicData, GocardlessSensitiveData, StripeSensitiveData,
+    GocardlessPublicData, GocardlessSensitiveData, ProviderData, ProviderSensitiveData,
+    StripePublicData, StripeSensitiveData,
 };
-use meteroid_store::domain::enums::PaymentStatusEnum as DomainPaymentStatus;
+use meteroid_store::domain::enums::{
+    ConnectorProviderEnum, PaymentStatusEnum as DomainPaymentStatus,
+};
 use meteroid_store::domain::pgmq::{PgmqQueue, WebhookInProcessEvent};
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
@@ -41,17 +44,20 @@ async fn test_webhook_in_ingest_dedup_and_worker() {
     // webhook signing secret — verification is mandatory at ingest.
     setup
         .store
-        .connect_stripe(
+        .connect_payment_provider(
             Actor::System,
             TENANT_ID,
             ALIAS.to_string(),
-            "pk_test_123".to_string(),
-            StripeSensitiveData {
+            ConnectorProviderEnum::Stripe,
+            ProviderData::Stripe(StripePublicData {
+                api_publishable_key: "pk_test_123".to_string(),
+                account_id: "acct_test_123".to_string(),
+            }),
+            ProviderSensitiveData::Stripe(StripeSensitiveData {
                 api_secret_key: "sk_test_123".to_string(),
                 webhook_secret: WEBHOOK_SECRET.to_string(),
                 webhook_endpoint_id: None,
-            },
-            "acct_test_123".to_string(),
+            }),
         )
         .await
         .unwrap();
@@ -234,17 +240,19 @@ async fn start_meteroid_with_gocardless() -> meteroid_it::container::MeteroidSet
 
     setup
         .store
-        .connect_gocardless(
+        .connect_payment_provider(
+            Actor::System,
             TENANT_ID,
             GC_ALIAS.to_string(),
-            GocardlessPublicData {
+            ConnectorProviderEnum::Gocardless,
+            ProviderData::Gocardless(GocardlessPublicData {
                 creditor_id: Some("CR123".to_string()),
                 environment: "sandbox".to_string(),
-            },
-            GocardlessSensitiveData {
+            }),
+            ProviderSensitiveData::Gocardless(GocardlessSensitiveData {
                 access_token: "sandbox_token".to_string(),
                 webhook_secret: GC_WEBHOOK_SECRET.to_string(),
-            },
+            }),
         )
         .await
         .unwrap();

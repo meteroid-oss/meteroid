@@ -1,0 +1,21 @@
+[package]
+name = "mollie-client"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio = { workspace = true, features = ["full"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_path_to_error = { workspace = true }
+serde_with = { workspace = true }
+secrecy = { workspace = true }
+thiserror = { workspace = true }
+reqwest = { workspace = true, features = ["default", "json"] }
+bytes = { workspace = true }
+rust_decimal = { workspace = true, features = ["serde-with-str"] }
+
+[dev-dependencies]
+rust_decimal_macros = { workspace = true }

@@ -1,5 +1,5 @@
 use crate::checkout_sessions::{CheckoutSessionRow, CheckoutSessionRowNew};
-use crate::enums::CheckoutSessionStatusEnum;
+use crate::enums::{CheckoutSessionStatusEnum, PaymentStatusEnum};
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 use chrono::{DateTime, Utc};
@@ -175,6 +175,38 @@ impl CheckoutSessionRow {
             .get_result(conn)
             .await
             .attach("Error while marking checkout session as awaiting payment")
+            .into_db_result()
+    }
+
+    /// Returns the session to `Created` after a failed hosted attempt so it can be retried.
+    /// Stays `AwaitingPayment` while any transaction is non-terminal (a retry is in flight).
+    pub async fn reopen_after_failed_payment(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: CheckoutSessionId,
+    ) -> DbResult<Option<CheckoutSessionRow>> {
+        use crate::schema::checkout_session::dsl as cs_dsl;
+        use crate::schema::payment_transaction::dsl as pt_dsl;
+
+        let in_flight = pt_dsl::payment_transaction
+            .filter(pt_dsl::checkout_session_id.eq(id))
+            .filter(pt_dsl::tenant_id.eq(tenant_id))
+            .filter(pt_dsl::status.eq_any([PaymentStatusEnum::Pending, PaymentStatusEnum::Ready]));
+
+        let query = diesel::update(cs_dsl::checkout_session)
+            .filter(cs_dsl::id.eq(id))
+            .filter(cs_dsl::tenant_id.eq(tenant_id))
+            .filter(cs_dsl::status.eq(CheckoutSessionStatusEnum::AwaitingPayment))
+            .filter(diesel::dsl::not(diesel::dsl::exists(in_flight)))
+            .set(cs_dsl::status.eq(CheckoutSessionStatusEnum::Created));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .optional()
+            .attach("Error while reopening checkout session after a failed payment")
             .into_db_result()
     }
 

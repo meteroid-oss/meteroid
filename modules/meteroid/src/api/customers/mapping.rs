@@ -229,22 +229,8 @@ pub mod customer {
         provider: ConnectorProviderEnum,
         external_company_id: Option<String>,
     ) -> Option<server::CustomerConnection> {
-        use meteroid_grpc::meteroid::api::connectors::v1::ConnectorProviderEnum as ProtoConnectorProvider;
-
-        let connector_provider = match provider {
-            ConnectorProviderEnum::Stripe => ProtoConnectorProvider::Stripe,
-            ConnectorProviderEnum::Hubspot => ProtoConnectorProvider::Hubspot,
-            ConnectorProviderEnum::Pennylane => ProtoConnectorProvider::Pennylane,
-            ConnectorProviderEnum::Gocardless => ProtoConnectorProvider::Gocardless,
-            ConnectorProviderEnum::Stancer => ProtoConnectorProvider::Stancer,
-            ConnectorProviderEnum::Mock => {
-                // Mock connector is for testing only - should never be returned via API
-                log::warn!(
-                    "Attempted to expose Mock customer connection via API - this should not happen in production"
-                );
-                return None;
-            }
-        };
+        let connector_provider =
+            crate::api::connectors::mapping::connectors::connector_provider_to_server(&provider)?;
 
         Some(server::CustomerConnection {
             id: connection.id.as_proto(),

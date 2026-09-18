@@ -627,6 +627,7 @@ diesel::table! {
         card_last4 -> Nullable<Text>,
         card_exp_month -> Nullable<Int4>,
         card_exp_year -> Nullable<Int4>,
+        fingerprint -> Nullable<Text>,
     }
 }
 

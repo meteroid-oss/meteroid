@@ -115,10 +115,19 @@ impl ServicesEdge {
         tenant_id: &TenantId,
         customer_connection_id: &CustomerConnectionId,
         invoice_id: Option<InvoiceId>,
+        preferred_type: Option<crate::domain::ConnectionTypeEnum>,
         return_url: Option<String>,
+        descriptor_only: bool,
     ) -> StoreResult<SetupIntent> {
         self.services
-            .create_setup_intent(tenant_id, customer_connection_id, invoice_id, return_url)
+            .create_setup_intent(
+                tenant_id,
+                customer_connection_id,
+                invoice_id,
+                preferred_type,
+                return_url,
+                descriptor_only,
+            )
             .await
     }
 
@@ -148,36 +157,54 @@ impl ServicesEdge {
         tenant_id: TenantId,
         connection_id: CustomerConnectionId,
         invoice_id: InvoiceId,
+        preferred_type: Option<crate::domain::ConnectionTypeEnum>,
         return_url: Option<String>,
     ) -> StoreResult<SetupIntent> {
         self.services
-            .initiate_hosted_invoice_payment(tenant_id, connection_id, invoice_id, return_url)
+            .initiate_hosted_invoice_payment(
+                tenant_id,
+                connection_id,
+                invoice_id,
+                preferred_type,
+                return_url,
+            )
             .await
     }
 
-    /// Complete a GoCardless Billing Request Flow after the customer returns
-    /// from the hosted authorisation URL. See
-    /// [`crate::services::payment::gocardless_return`] for the full design.
-    pub async fn complete_gocardless_setup(
+    /// Records a hosted-flow invoice capture on its pre-created transaction (idempotent).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn settle_hosted_invoice_capture(
         &self,
-        connection_id: CustomerConnectionId,
-        billing_request_id: String,
-    ) -> StoreResult<crate::domain::CustomerPaymentMethod> {
+        tenant_id: TenantId,
+        customer_id: common_domain::ids::CustomerId,
+        connector: &crate::domain::connectors::Connector,
+        payment_method: crate::domain::CustomerPaymentMethod,
+        invoice_id_str: &str,
+        captured_payment_id: Option<String>,
+        intent_transaction_id: Option<String>,
+    ) -> StoreResult<crate::services::payment::hosted_setup::HostedSetupOutcome> {
         self.services
-            .complete_gocardless_setup(connection_id, billing_request_id)
+            .settle_hosted_invoice_capture(
+                tenant_id,
+                customer_id,
+                connector,
+                payment_method,
+                invoice_id_str,
+                captured_payment_id,
+                intent_transaction_id,
+            )
             .await
     }
 
-    /// Complete a hosted-page setup for a polling-completed provider, then
-    /// run the fail-closed first payment. See
-    /// [`crate::services::payment::hosted_setup`] for the full design.
-    pub async fn complete_hosted_setup(
+    /// Complete a hosted-redirect return for any provider; see
+    /// [`crate::services::payment::hosted_return`].
+    pub async fn complete_hosted_return(
         &self,
         connection_id: CustomerConnectionId,
-        intent_id: String,
-    ) -> StoreResult<crate::services::HostedSetupOutcome> {
+        intent_id: Option<String>,
+    ) -> StoreResult<crate::services::HostedReturnOutcome> {
         self.services
-            .complete_hosted_setup(connection_id, intent_id)
+            .complete_hosted_return(connection_id, intent_id)
             .await
     }
 
@@ -1385,6 +1412,7 @@ impl ServicesEdge {
         amount_minor: i64,
         currency: String,
         coupon_code: Option<String>,
+        rail: Option<crate::domain::ConnectionTypeEnum>,
         return_url: Option<String>,
     ) -> Result<CheckoutCompletionResult, StoreErrorReport> {
         use crate::domain::payment_transactions::PaymentNextAction;
@@ -1567,20 +1595,16 @@ impl ServicesEdge {
                             &tenant_id,
                             &connection_id,
                             checkout_ctx,
+                            rail,
                             return_url,
                         )
                         .await?;
 
-                    // PollingRequired providers capture in-flow with NO
-                    // webhooks: persist the intent id atomically with the
-                    // pending transaction so the sweeper can recover a lost
-                    // return. WebhookBacked providers are never swept.
+                    // Saved with the pending tx so the sweeper can recover a lost return (Stancer)
+                    // or webhook (Mollie). GoCardless is never swept.
                     let polling_required =
                         crate::adapters::payment::provider_capabilities(&setup_intent.provider)
-                            .is_some_and(|caps| {
-                                caps.hosted_setup_completion
-                                    == crate::adapters::payment::HostedSetupCompletion::PollingRequired
-                            });
+                            .is_some_and(|caps| caps.completes_pending_hosted_intents());
 
                     // For GoCardless the hosted authorisation URL rides in
                     // `client_secret`; drive the browser redirect through the same
@@ -1679,7 +1703,8 @@ impl ServicesEdge {
                             .to_string(),
                     )));
                 }
-                HostedSetupOutcome::PaymentFailed { .. } | HostedSetupOutcome::SetupFailed
+                HostedSetupOutcome::PaymentFailed { .. }
+                | HostedSetupOutcome::SetupFailed { .. }
                     if adoption_attempt == 0 =>
                 {
                     // Resolved as declined/dead: now cancelable — loop once to

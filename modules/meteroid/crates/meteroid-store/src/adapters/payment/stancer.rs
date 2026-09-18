@@ -13,8 +13,8 @@
 //! through the return-URL redirect.
 
 use super::connector::{
-    ConnectorCapabilities, ConnectorIdentity, CustomerOps, HostedSetupCompletion, MandateOps,
-    MandateSetupMode, PaymentOps, ReconcileOps, RefundOps, WebhookOps,
+    ConnectorCapabilities, ConnectorIdentity, CredentialOps, CustomerOps, HostedSetupCompletion,
+    MandateOps, MandateSetupMode, PaymentOps, ReconcileOps, RefundOps, WebhookOps,
 };
 use super::error::{ConnectorError, HostedSetupPending};
 use super::events::{NormalizedEventSubscription, NormalizedWebhookEvent};
@@ -24,7 +24,9 @@ use super::model::{
     MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot, RefundOutcome,
     RefundRequest, RefundSnapshot, RegisteredWebhook, RemoteTransactionStatus,
 };
-use crate::domain::connectors::{Connector, ProviderSensitiveData};
+use crate::domain::connectors::{
+    Connector, ProviderData, ProviderSensitiveData, StancerPublicData,
+};
 use crate::domain::enums::ConnectorProviderEnum;
 use crate::domain::{Customer, CustomerConnection, PaymentMethodTypeEnum};
 use async_trait::async_trait;
@@ -67,6 +69,9 @@ pub(super) const STANCER_CAPABILITIES: ConnectorCapabilities = ConnectorCapabili
     // The return redirect is the only push signal; the sweeper polls persisted
     // pending intents as the lost-return backstop.
     hosted_setup_completion: HostedSetupCompletion::PollingRequired,
+    supports_hosted_invoice_payment: true,
+    supports_hosted_checkout: true,
+    pending_charge_accepted: true,
 };
 
 /// Currencies Stancer accepts; anything else is rejected up-front.
@@ -102,6 +107,29 @@ impl ConnectorIdentity for StancerConnector {
     }
     fn capabilities(&self) -> &ConnectorCapabilities {
         &STANCER_CAPABILITIES
+    }
+}
+
+#[async_trait]
+impl CredentialOps for StancerConnector {
+    async fn validate_credentials(
+        &self,
+        connector: &Connector,
+    ) -> Result<ProviderData, Report<ConnectorError>> {
+        let secret = extract_secret_key(connector)?;
+        Self::client().ping(&secret).await.map_err(|e| match &e {
+            stancer_client::error::StancerError::Stancer(req)
+                if matches!(req.http_status, 400 | 401 | 403) =>
+            {
+                Report::new(ConnectorError::Configuration(format!(
+                    "Invalid Stancer key: {e}"
+                )))
+            }
+            _ => Report::new(ConnectorError::Transport(format!(
+                "Couldn't reach Stancer to verify the key: {e}"
+            ))),
+        })?;
+        Ok(ProviderData::Stancer(StancerPublicData::default()))
     }
 }
 
@@ -397,6 +425,21 @@ impl MandateOps for StancerConnector {
 
 #[async_trait]
 impl PaymentOps for StancerConnector {
+    /// Built from committed state (not the transaction id), so the first charge and any retry of
+    /// the same (invoice, method, attempt) share a key and Stancer's `unique_id` dedupes them.
+    fn invoice_charge_idempotency_seed(
+        &self,
+        payment_method_id: &common_domain::ids::CustomerPaymentMethodId,
+        invoice_id: &common_domain::ids::InvoiceId,
+        prior_invoice_attempts: usize,
+    ) -> Option<String> {
+        Some(format!(
+            "stancer-charge:{}:{}:{prior_invoice_attempts}",
+            payment_method_id.as_base62(),
+            invoice_id.as_base62(),
+        ))
+    }
+
     /// `POST /v2/payments/` against the saved card. `auth` is omitted entirely
     /// — omission is what skips 3DS off-session (`auth: false` is rejected;
     /// live-verified). Never returns `RequiresAction`. `unique_id` (derived
@@ -718,6 +761,7 @@ fn snapshot_from_card(
         card_last4: Some(card.last4),
         card_exp_month: Some(card.exp_month as i32),
         card_exp_year: Some(card.exp_year as i32),
+        fingerprint: None,
         meteroid_connection_id: metadata.get("meteroid.connection_id").cloned(),
         meteroid_customer_id: metadata.get("meteroid.customer_id").cloned(),
         meteroid_invoice_id: metadata.get("meteroid.invoice_id").cloned(),
@@ -1194,6 +1238,8 @@ mod tests {
 
         let seed = "charge:stancer-charge:methodB62xxxxxxxxxxxxx:invoiceB62xxxxxxxxxxxx:0";
         let make = |transaction_id| ChargeRequest {
+            descriptor: None,
+            webhook_url: None,
             transaction_id,
             customer_external_id: "cust_ext",
             payment_method_external_id: "card_ext",
@@ -1431,6 +1477,8 @@ mod tests {
              checkout: Option<HostedCheckoutContext>,
              invoice_payment: Option<HostedInvoicePaymentContext>| {
                 MandateSetupRequest {
+                    descriptor: None,
+                    webhook_url: None,
                     payment_methods: &[PaymentMethodTypeEnum::Card],
                     idempotency_key: IdempotencyKey::new("k"),
                     return_url: Some("https://api.example.invalid/return".into()),
@@ -1525,6 +1573,8 @@ mod tests {
                 &connector,
                 &connection,
                 MandateSetupRequest {
+                    descriptor: None,
+                    webhook_url: None,
                     payment_methods: &[PaymentMethodTypeEnum::DirectDebitSepa],
                     idempotency_key: super::super::model::IdempotencyKey::new("k"),
                     return_url: Some("https://api.example.invalid/return".into()),

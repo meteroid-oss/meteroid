@@ -6,8 +6,8 @@
 //! unsupported.
 
 use super::connector::{
-    ConnectorCapabilities, ConnectorIdentity, CustomerOps, HostedSetupCompletion, MandateOps,
-    MandateSetupMode, PaymentOps, ReconcileOps, RefundOps, WebhookOps,
+    ConnectorCapabilities, ConnectorIdentity, CredentialOps, CustomerOps, HostedSetupCompletion,
+    MandateOps, MandateSetupMode, PaymentOps, ReconcileOps, RefundOps, WebhookOps,
 };
 use super::error::ConnectorError;
 use super::events::{
@@ -19,7 +19,7 @@ use super::model::{
     ChargeAcknowledged, ChargeCancelled, ChargeFailure, ChargeOutcome, ChargeReceipt,
     ChargeRequest, CreateCustomerRequest, DeclineKind, ExternalCustomerRef,
     MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot, RefundOutcome,
-    RefundRequest, RefundSnapshot, RegisteredWebhook, RemoteTransactionStatus,
+    RefundRequest, RefundSnapshot, RegisteredWebhook, RemoteTransactionStatus, WebhookDeliveryUnit,
 };
 use crate::domain::connectors::{Connector, ProviderData, ProviderSensitiveData};
 use crate::domain::enums::ConnectorProviderEnum;
@@ -75,6 +75,9 @@ pub(super) const GOCARDLESS_CAPABILITIES: ConnectorCapabilities = ConnectorCapab
     // `billing_requests.fulfilled` completes a hosted setup even when the
     // return redirect is lost — no pending-intent persistence or sweep.
     hosted_setup_completion: HostedSetupCompletion::WebhookBacked,
+    supports_hosted_invoice_payment: false,
+    supports_hosted_checkout: true,
+    pending_charge_accepted: true,
 };
 
 /// GoCardless connector. Live + sandbox clients are static singletons so all
@@ -116,6 +119,37 @@ impl ConnectorIdentity for GoCardlessConnector {
     }
     fn capabilities(&self) -> &ConnectorCapabilities {
         &GOCARDLESS_CAPABILITIES
+    }
+}
+
+#[async_trait]
+impl CredentialOps for GoCardlessConnector {
+    /// Cheap authenticated GET: catches a wrong token or environment before it is persisted.
+    async fn validate_credentials(
+        &self,
+        connector: &Connector,
+    ) -> Result<ProviderData, Report<ConnectorError>> {
+        let token = extract_access_token(connector)?;
+        Self::client_for(connector)
+            .validate_credentials(&token)
+            .await
+            .map_err(|e| match &e {
+                gocardless_client::error::GoCardlessError::Api(req)
+                    if matches!(req.http_status, 400 | 401 | 403) =>
+                {
+                    Report::new(ConnectorError::Configuration(format!(
+                        "GoCardless rejected this access token: {e}"
+                    )))
+                }
+                _ => Report::new(ConnectorError::Transport(format!(
+                    "Couldn't reach GoCardless to verify the token: {e}"
+                ))),
+            })?;
+        connector.data.clone().ok_or_else(|| {
+            Report::new(ConnectorError::Configuration(
+                "gocardless connector has no public data".into(),
+            ))
+        })
     }
 }
 
@@ -657,6 +691,34 @@ impl WebhookOps for GoCardlessConnector {
 
     /// GoCardless batches several events per POST; return all (dropping any
     /// loses it permanently once we ACK 200).
+    /// A `{"events":[...]}` batch becomes one unit per inner event, keyed by its `EV...` id, so
+    /// dedup is per event and a bad event doesn't block the others.
+    fn split_delivery(
+        &self,
+        _connector: &Connector,
+        payload: &[u8],
+    ) -> Result<Vec<WebhookDeliveryUnit>, Report<ConnectorError>> {
+        let json: serde_json::Value = serde_json::from_slice(payload)
+            .map_err(|e| Report::new(ConnectorError::PayloadDecode(e.to_string())))?;
+        let Some(events) = json.get("events").and_then(|v| v.as_array()) else {
+            return Ok(vec![WebhookDeliveryUnit {
+                event_id: json.get("id").and_then(|v| v.as_str()).map(str::to_string),
+                body: payload.to_vec(),
+            }]);
+        };
+        events
+            .iter()
+            .map(|ev| {
+                let body = serde_json::to_vec(&serde_json::json!({ "events": [ev] }))
+                    .map_err(|e| Report::new(ConnectorError::PayloadDecode(e.to_string())))?;
+                Ok(WebhookDeliveryUnit {
+                    event_id: ev.get("id").and_then(|v| v.as_str()).map(str::to_string),
+                    body,
+                })
+            })
+            .collect()
+    }
+
     fn parse_events(
         &self,
         _connector: &Connector,
@@ -747,6 +809,7 @@ fn snapshot_from_mandate(
         card_last4: None,
         card_exp_month: None,
         card_exp_year: None,
+        fingerprint: None,
         meteroid_connection_id: metadata.get("meteroid.connection_id").cloned(),
         meteroid_customer_id: metadata.get("meteroid.customer_id").cloned(),
         meteroid_invoice_id: metadata.get("meteroid.invoice_id").cloned(),
@@ -1125,6 +1188,22 @@ mod tests {
                 webhook_secret: TEST_SECRET.into(),
             })),
         }
+    }
+
+    /// A batch splits into one unit per inner event, keyed by that event's id.
+    #[test]
+    fn batch_splits_into_one_unit_per_event() {
+        let connector = test_connector();
+        let body = br#"{"events":[{"id":"EV1","resource_type":"payments","action":"confirmed","links":{}},{"id":"EV2","resource_type":"payments","action":"failed","links":{}}]}"#;
+        let units = GoCardlessConnector::new()
+            .split_delivery(&connector, body)
+            .unwrap();
+        assert_eq!(units.len(), 2);
+        assert_eq!(units[0].event_id.as_deref(), Some("EV1"));
+        assert_eq!(units[1].event_id.as_deref(), Some("EV2"));
+        let first: serde_json::Value = serde_json::from_slice(&units[0].body).unwrap();
+        assert_eq!(first["events"].as_array().unwrap().len(), 1);
+        assert_eq!(first["events"][0]["id"], "EV1");
     }
 
     fn sign(payload: &[u8]) -> String {

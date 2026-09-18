@@ -239,45 +239,51 @@ impl CustomerPaymentMethodRow {
 }
 
 impl CustomerPaymentMethodRowNew {
+    /// Insert, or refresh the row with the same provider id.
     pub async fn upsert(&self, conn: &mut PgConn) -> DbResult<CustomerPaymentMethodRow> {
-        use crate::schema::customer_payment_method::dsl::{
-            connection_id, customer_payment_method, external_payment_method_id,
-        };
+        use crate::schema::customer_payment_method::dsl as cpm_dsl;
         use diesel_async::RunQueryDsl;
 
-        let query = diesel::insert_into(customer_payment_method)
+        let query = diesel::insert_into(cpm_dsl::customer_payment_method)
             .values(self)
-            .on_conflict((connection_id, external_payment_method_id))
+            .on_conflict((cpm_dsl::connection_id, cpm_dsl::external_payment_method_id))
             .do_update()
-            .set(self);
+            .set((self, cpm_dsl::updated_at.eq(diesel::dsl::now)));
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
             .await
-            .attach("Error while inserting customer to connector")
+            .attach("Error while upserting customer payment method")
             .into_db_result()
     }
 
-    pub async fn insert_if_not_exist(
+    /// Upserts on the active `(connection, type, fingerprint)` row, adopting the new provider id.
+    /// The partial unique index makes concurrent inserts converge. Requires `fingerprint`.
+    pub async fn upsert_by_fingerprint(
         &self,
         conn: &mut PgConn,
     ) -> DbResult<CustomerPaymentMethodRow> {
-        use crate::schema::customer_payment_method::dsl::{
-            connection_id, customer_payment_method, external_payment_method_id,
-        };
+        use crate::schema::customer_payment_method::dsl as cpm_dsl;
+        use diesel::upsert::DecoratableTarget;
         use diesel_async::RunQueryDsl;
 
-        let query = diesel::insert_into(customer_payment_method)
+        let query = diesel::insert_into(cpm_dsl::customer_payment_method)
             .values(self)
-            .on_conflict((connection_id, external_payment_method_id))
-            .do_nothing();
+            .on_conflict((
+                cpm_dsl::connection_id,
+                cpm_dsl::payment_method_type,
+                cpm_dsl::fingerprint,
+            ))
+            .filter_target(cpm_dsl::archived_at.is_null())
+            .do_update()
+            .set((self, cpm_dsl::updated_at.eq(diesel::dsl::now)));
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
             .await
-            .attach("Error while inserting customer to connector")
+            .attach("Error while upserting customer payment method by fingerprint")
             .into_db_result()
     }
 }

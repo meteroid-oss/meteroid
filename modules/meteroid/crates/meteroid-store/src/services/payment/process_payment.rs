@@ -1,7 +1,7 @@
 use crate::StoreResult;
 use crate::adapters::payment::bridge::payment_intent_from_outcome;
-use crate::adapters::payment::initialize_payment_connector;
-use crate::adapters::payment::model::{ChargeRequest, IdempotencyKey};
+use crate::adapters::payment::model::{ChargeRequest, IdempotencyKey, PaymentDescriptor};
+use crate::adapters::payment::{PaymentConnector, initialize_payment_connector};
 use crate::domain::connectors::Connector;
 use crate::domain::entity_activity::Actor;
 use crate::domain::payment_transactions::{PaymentIntent, PaymentNextAction, PaymentTransaction};
@@ -180,6 +180,17 @@ impl Services {
                 on_session,
                 idempotency_ref.as_deref(),
                 prior_invoice_attempts,
+                Some(PaymentDescriptor {
+                    // The seller as snapshotted on the invoice.
+                    merchant_name: invoice
+                        .invoice
+                        .seller_details
+                        .get("legal_name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    invoice_number: Some(invoice.invoice.invoice_number.clone()),
+                }),
             )
             .await?;
 
@@ -214,6 +225,7 @@ impl Services {
         on_session: bool,
         idempotency_ref: Option<&str>,
         prior_invoice_attempts: usize,
+        descriptor: Option<PaymentDescriptor>,
     ) -> StoreResult<PaymentIntent> {
         let method = CustomerPaymentMethodRow::get_by_id(conn, tenant_id, payment_method_id)
             .await
@@ -229,36 +241,14 @@ impl Services {
         let connector_impl = initialize_payment_connector(&connector)
             .change_context(StoreError::PaymentProviderError)?;
 
-        // Provider idempotency key. Default: the transaction id, so the client's
-        // own internal retries within this attempt dedupe. When the caller passes
-        // a stable `idempotency_ref` (the webhook charge does — see below), use
-        // that instead: it survives a full DB-transaction rollback + pgmq retry,
-        // where a fresh transaction id would NOT, and lets the provider dedupe a
-        // charge it already processed rather than creating a second one.
-        //
-        // Stancer override: no webhook exists and reconciliation only polls
-        // locally-known rows, so a rollback after an accepted charge would
-        // orphan the provider payment. EVERY Stancer invoice charge derives
-        // its key from committed state only — (method, invoice, #prior
-        // committed attempts) — so any retry of the same attempt reuses the
-        // key (adapter adopts) while a new attempt after a committed decline
-        // gets a fresh one.
-        let idempotency_key =
-            if connector.provider == crate::domain::enums::ConnectorProviderEnum::Stancer {
-                IdempotencyKey::new(format!(
-                    "charge:{}",
-                    stancer_invoice_idempotency_seed(
-                        payment_method_id,
-                        invoice_id,
-                        prior_invoice_attempts
-                    )
-                ))
-            } else {
-                match idempotency_ref {
-                    Some(seed) => IdempotencyKey::new(format!("charge:{seed}")),
-                    None => IdempotencyKey::new(format!("charge:{}", transaction_id.as_base62())),
-                }
-            };
+        let idempotency_key = invoice_charge_idempotency_key(
+            connector_impl.as_ref(),
+            payment_method_id,
+            invoice_id,
+            prior_invoice_attempts,
+            idempotency_ref,
+            transaction_id,
+        );
         let request = ChargeRequest {
             transaction_id: *transaction_id,
             customer_external_id: &connection.external_customer_id,
@@ -268,6 +258,12 @@ impl Services {
             currency: &currency,
             idempotency_key,
             on_session,
+            descriptor,
+            webhook_url: Some(crate::adapters::payment::model::connector_webhook_url(
+                self.store.settings.webhook_base_url(),
+                connector.tenant_id,
+                &connector.alias,
+            )),
         };
 
         let outcome = tokio::time::timeout(
@@ -291,64 +287,120 @@ impl Services {
     }
 }
 
-/// Stable provider-idempotency seed for a Stancer invoice charge. Derived
-/// exclusively from committed state — never the per-attempt transaction id —
-/// so the return-handler first charge and any later retry/renewal of the same
-/// (invoice, method, attempt) reuse the SAME provider key and Stancer dedupes.
-fn stancer_invoice_idempotency_seed(
+/// Default: the caller's seed (survives rollback and pgmq retry), else the transaction id.
+/// Providers with [`PaymentOps::invoice_charge_idempotency_seed`] reuse the key across retries of
+/// an accepted attempt; an attempt after a decline gets a new one.
+fn invoice_charge_idempotency_key(
+    connector_impl: &dyn PaymentConnector,
     payment_method_id: &CustomerPaymentMethodId,
     invoice_id: &InvoiceId,
     prior_invoice_attempts: usize,
-) -> String {
-    format!(
-        "stancer-charge:{}:{}:{prior_invoice_attempts}",
-        payment_method_id.as_base62(),
-        invoice_id.as_base62(),
-    )
+    idempotency_ref: Option<&str>,
+    transaction_id: &PaymentTransactionId,
+) -> IdempotencyKey {
+    let committed_seed = connector_impl.invoice_charge_idempotency_seed(
+        payment_method_id,
+        invoice_id,
+        prior_invoice_attempts,
+    );
+    match committed_seed.or(idempotency_ref.map(str::to_string)) {
+        Some(seed) => IdempotencyKey::new(format!("charge:{seed}")),
+        None => IdempotencyKey::new(format!("charge:{}", transaction_id.as_base62())),
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::stancer_invoice_idempotency_seed;
-    use common_domain::ids::{BaseId, CustomerPaymentMethodId, InvoiceId};
+    use super::invoice_charge_idempotency_key;
+    use crate::adapters::payment::{
+        GoCardlessConnector, MollieConnector, PaymentConnector, StancerConnector, StripeConnector,
+    };
+    use common_domain::ids::{BaseId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId};
 
-    /// The double-charge guard: two invocations for the same invoice+method
-    /// derive the SAME seed — Stancer's `unique_id` unicity then dedupes.
+    /// A rolled-back attempt retried with a new transaction id reuses the key, so Mollie replays
+    /// it.
     #[test]
-    fn stancer_seed_is_stable_across_invocations() {
-        let method = CustomerPaymentMethodId::new();
-        let invoice = InvoiceId::new();
-
-        let first = stancer_invoice_idempotency_seed(&method, &invoice, 0);
-        let second = stancer_invoice_idempotency_seed(&method, &invoice, 0);
-        assert_eq!(first, second);
-        assert_eq!(
+    fn mollie_charge_key_survives_a_rolled_back_attempt() {
+        let (method, invoice) = (CustomerPaymentMethodId::new(), InvoiceId::new());
+        let key = |attempts, seed: Option<&str>| {
+            invoice_charge_idempotency_key(
+                &MollieConnector::new(),
+                &method,
+                &invoice,
+                attempts,
+                seed,
+                &PaymentTransactionId::new(),
+            )
+            .as_str()
+            .to_string()
+        };
+        let first = key(0, None);
+        assert_eq!(first, key(0, None));
+        assert_eq!(first, key(0, Some("gc-charge:mdt_1:inv")));
+        assert_ne!(
             first,
+            key(1, None),
+            "a new committed attempt gets a fresh key"
+        );
+
+        let stancer = invoice_charge_idempotency_key(
+            &StancerConnector::new(),
+            &method,
+            &invoice,
+            0,
+            None,
+            &PaymentTransactionId::new(),
+        );
+        assert_ne!(first, stancer.as_str(), "providers never share a key");
+    }
+
+    /// Stancer's key must stay byte-identical for in-flight retries.
+    #[test]
+    fn stancer_charge_key_format_is_unchanged() {
+        let (method, invoice) = (CustomerPaymentMethodId::new(), InvoiceId::new());
+        let key = invoice_charge_idempotency_key(
+            &StancerConnector::new(),
+            &method,
+            &invoice,
+            2,
+            Some("ignored"),
+            &PaymentTransactionId::new(),
+        );
+        assert_eq!(
+            key.as_str(),
             format!(
-                "stancer-charge:{}:{}:0",
+                "charge:stancer-charge:{}:{}:2",
                 method.as_base62(),
                 invoice.as_base62()
             )
         );
     }
 
-    /// A genuinely new attempt (after a COMMITTED failed one) must get a fresh
-    /// seed, or dunning could never retry a declined Stancer charge; different
-    /// invoices/methods must never share a seed.
+    /// Providers without a committed seed use the caller's seed, else the transaction id.
     #[test]
-    fn stancer_seed_distinguishes_attempts_and_targets() {
-        let method = CustomerPaymentMethodId::new();
-        let invoice = InvoiceId::new();
-
-        let base = stancer_invoice_idempotency_seed(&method, &invoice, 0);
-        assert_ne!(base, stancer_invoice_idempotency_seed(&method, &invoice, 1));
-        assert_ne!(
-            base,
-            stancer_invoice_idempotency_seed(&CustomerPaymentMethodId::new(), &invoice, 0)
+    fn other_providers_keep_seed_or_transaction_key() {
+        let (method, invoice, tx) = (
+            CustomerPaymentMethodId::new(),
+            InvoiceId::new(),
+            PaymentTransactionId::new(),
         );
-        assert_ne!(
-            base,
-            stancer_invoice_idempotency_seed(&method, &InvoiceId::new(), 0)
-        );
+        let impls: [Box<dyn PaymentConnector>; 2] = [
+            Box::new(StripeConnector::new()),
+            Box::new(GoCardlessConnector::new()),
+        ];
+        for connector_impl in impls {
+            let key = |seed| {
+                invoice_charge_idempotency_key(
+                    connector_impl.as_ref(),
+                    &method,
+                    &invoice,
+                    0,
+                    seed,
+                    &tx,
+                )
+            };
+            assert_eq!(key(None).as_str(), format!("charge:{}", tx.as_base62()));
+            assert_eq!(key(Some("seed")).as_str(), "charge:seed");
+        }
     }
 }

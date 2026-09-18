@@ -3,15 +3,20 @@ use super::events::{NormalizedEventSubscription, NormalizedWebhookEvent};
 use super::model::{
     ChargeOutcome, ChargeRequest, CreateCustomerRequest, ExternalCustomerRef,
     MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot, RefundOutcome,
-    RefundRequest, RefundSnapshot, RegisteredWebhook, RemoteTransactionStatus,
+    RefundRequest, RefundSnapshot, RegisteredWebhook, RemoteTransactionStatus, WebhookDeliveryUnit,
 };
-use crate::domain::connectors::Connector;
+use crate::domain::connectors::{Connector, ProviderData};
 use crate::domain::enums::ConnectorProviderEnum;
 use crate::domain::{Customer, CustomerConnection, PaymentMethodTypeEnum};
 use async_trait::async_trait;
+use common_domain::ids::{CustomerPaymentMethodId, InvoiceId};
 use error_stack::Report;
 use http::HeaderMap;
 use secrecy::SecretString;
+
+/// Raw query string, injected by the webhook router. Lets unsigned webhooks (Mollie) authenticate
+/// with a per-connector URL token.
+pub const REQUEST_QUERY_HEADER: &str = "x-meteroid-request-query";
 
 /// Static description of what a connector can do. Drives operation selection,
 /// onboarding UI, and which contract tests apply.
@@ -34,14 +39,47 @@ pub struct ConnectorCapabilities {
     /// How a hosted-redirect setup's completion reaches us. Drives whether the
     /// hosted-checkout pending-intent id is persisted and swept.
     pub hosted_setup_completion: HostedSetupCompletion,
+    /// Collects the invoice on the provider's hosted page; completion records it, never recharges.
+    pub supports_hosted_invoice_payment: bool,
+    /// The checkout's first payment and the mandate are collected in one hosted flow.
+    pub supports_hosted_checkout: bool,
+    /// A `Pending` charge with no next action is in flight on every rail (cards included), not
+    /// waiting on the customer.
+    pub pending_charge_accepted: bool,
+}
+
+/// Return target of hosted-redirect providers (one provider-agnostic handler).
+pub const HOSTED_RETURN_PATH: &str = "v1/portal/hosted/return";
+
+impl ConnectorCapabilities {
+    /// The intent id is persisted; the return handler or the sweeper completes it.
+    pub fn completes_pending_hosted_intents(&self) -> bool {
+        self.hosted_setup_completion == HostedSetupCompletion::PollingRequired
+            || self.supports_hosted_invoice_payment
+    }
+
+    pub fn is_hosted_redirect(&self) -> bool {
+        self.mandate_setup_mode == MandateSetupMode::HostedRedirect
+    }
+
+    pub fn supports_direct_debit(&self) -> bool {
+        self.supported_payment_methods.iter().any(|m| {
+            matches!(
+                m,
+                PaymentMethodTypeEnum::DirectDebitSepa
+                    | PaymentMethodTypeEnum::DirectDebitAch
+                    | PaymentMethodTypeEnum::DirectDebitBacs
+            )
+        })
+    }
 }
 
 /// How the outcome of a hosted setup flow is delivered once the customer
 /// finishes on the provider's hosted page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostedSetupCompletion {
-    /// A webhook is the backstop: a lost return still completes, so no intent
-    /// id is persisted and the sweeper never polls this provider.
+    /// A webhook covers lost returns, so checkout intents are not persisted or swept (invoice
+    /// payments still are).
     WebhookBacked,
     /// No webhook exists: the return redirect is the only push signal, so the
     /// intent id is persisted and the sweeper polls it as the lost-return backstop.
@@ -62,6 +100,17 @@ pub enum MandateSetupMode {
 pub trait ConnectorIdentity: Send + Sync {
     fn provider(&self) -> ConnectorProviderEnum;
     fn capabilities(&self) -> &ConnectorCapabilities;
+}
+
+/// Runs once at connect time, before the connector is persisted.
+#[async_trait]
+pub trait CredentialOps: Send + Sync {
+    /// Checks the credentials with the provider and returns the public data to persist (e.g. the
+    /// Stripe account id). `Configuration` = rejected, `Transport` = provider unreachable.
+    async fn validate_credentials(
+        &self,
+        connector: &Connector,
+    ) -> Result<ProviderData, Report<ConnectorError>>;
 }
 
 /// All methods carry an idempotency key from a stable internal id; callers may
@@ -129,6 +178,17 @@ pub trait PaymentOps: Send + Sync {
         connector: &Connector,
         request: ChargeRequest<'_>,
     ) -> Result<ChargeOutcome, Report<ConnectorError>>;
+
+    /// Idempotency seed built from committed state, so the key survives a rollback and retry.
+    /// `None` uses the transaction id.
+    fn invoice_charge_idempotency_seed(
+        &self,
+        _payment_method_id: &CustomerPaymentMethodId,
+        _invoice_id: &InvoiceId,
+        _prior_invoice_attempts: usize,
+    ) -> Option<String> {
+        None
+    }
 }
 
 /// Safety net for the worker polling transactions stuck in `Pending`: webhook
@@ -209,6 +269,34 @@ pub trait WebhookOps: Send + Sync {
         headers: &HeaderMap,
     ) -> Result<Option<NormalizedWebhookEvent>, Report<ConnectorError>>;
 
+    /// Turns a `ResourceChanged` notification into concrete events by re-reading the resource.
+    /// Must not return another `ResourceChanged`.
+    async fn resolve_resource_change(
+        &self,
+        connector: &Connector,
+        _resource_ref: &str,
+    ) -> Result<Vec<NormalizedWebhookEvent>, Report<ConnectorError>> {
+        Err(Report::new(ConnectorError::Unsupported {
+            provider: connector.provider.clone(),
+            capability: "webhook.resolve_resource_change",
+        }))
+    }
+
+    /// Splits a verified delivery into units, each keyed by provider event id for dedup.
+    /// Default: one JSON body keyed by its top-level `id`.
+    fn split_delivery(
+        &self,
+        _connector: &Connector,
+        payload: &[u8],
+    ) -> Result<Vec<WebhookDeliveryUnit>, Report<ConnectorError>> {
+        let json: serde_json::Value = serde_json::from_slice(payload)
+            .map_err(|e| Report::new(ConnectorError::PayloadDecode(e.to_string())))?;
+        Ok(vec![WebhookDeliveryUnit {
+            event_id: json.get("id").and_then(|v| v.as_str()).map(str::to_string),
+            body: payload.to_vec(),
+        }])
+    }
+
     /// Parse all events in one delivery; dropping any loses it once we ACK 200.
     /// Default suits one-event providers (Stripe); batching providers (GoCardless) override.
     fn parse_events(
@@ -232,12 +320,20 @@ pub trait WebhookOps: Send + Sync {
 /// `Transport` is retryable — other errors are bugs, permanent rejections, or
 /// logical failures surfaced as an `Outcome`.
 pub trait PaymentConnector:
-    ConnectorIdentity + CustomerOps + MandateOps + PaymentOps + RefundOps + ReconcileOps + WebhookOps
+    ConnectorIdentity
+    + CredentialOps
+    + CustomerOps
+    + MandateOps
+    + PaymentOps
+    + RefundOps
+    + ReconcileOps
+    + WebhookOps
 {
 }
 
 impl<T> PaymentConnector for T where
     T: ConnectorIdentity
+        + CredentialOps
         + CustomerOps
         + MandateOps
         + PaymentOps

@@ -13,6 +13,7 @@ use common_domain::ids::{
 use error_stack::{Report, ResultExt};
 use meteroid_store::adapters::payment::PaymentConnector;
 use meteroid_store::adapters::payment::bridge::payment_intent_from_event;
+use meteroid_store::adapters::payment::error::HostedSetupFailed;
 use meteroid_store::adapters::payment::events::{NormalizedEventKind, NormalizedWebhookEvent};
 use meteroid_store::domain::connectors::Connector;
 use meteroid_store::domain::entity_activity::Actor;
@@ -213,6 +214,49 @@ pub async fn handle_normalized_event(
             );
             Ok(())
         }
+        // Payloadless notification (Mollie): a transient re-read failure propagates so pgmq
+        // retries.
+        NormalizedEventKind::ResourceChanged { resource_ref } => {
+            let resolved = connector_impl
+                .resolve_resource_change(connector, resource_ref)
+                .await
+                .change_context(errors::AdapterWebhookError::ProviderError)?;
+            if resolved
+                .iter()
+                .any(|e| matches!(e.kind, NormalizedEventKind::ResourceChanged { .. }))
+            {
+                return Err(Report::new(
+                    errors::AdapterWebhookError::EventTypeNotSupported(
+                        "resolver returned a nested ResourceChanged".to_string(),
+                    ),
+                ));
+            }
+            // Run every event even if one fails (a mandate update must not block the payment
+            // state). Handlers are idempotent, so a retry safely replays all.
+            let mut failure: Option<Report<errors::AdapterWebhookError>> = None;
+            for resolved_event in resolved {
+                let event_id = resolved_event.provider_event_id.clone();
+                if let Err(err) = Box::pin(handle_normalized_event(
+                    resolved_event,
+                    connector,
+                    connector_impl,
+                    store.clone(),
+                    services,
+                ))
+                .await
+                {
+                    log::warn!("resolved event {event_id} failed: {err:?}");
+                    // Prefer a retryable failure over a terminal one.
+                    let keep_existing = failure.as_ref().is_some_and(|f| {
+                        f.current_context().is_transient() || !err.current_context().is_transient()
+                    });
+                    if !keep_existing {
+                        failure = Some(err);
+                    }
+                }
+            }
+            failure.map_or(Ok(()), Err)
+        }
         // Remaining kinds (dispute won/lost) are outcome notifications only:
         // the money movement arrives as funds_withdrawn / funds_reinstated,
         // handled above — log and ack so the provider stops retrying.
@@ -269,10 +313,26 @@ async fn handle_mandate_setup_completed(
     store: &Store,
     services: &Services,
 ) -> Result<(), Report<errors::AdapterWebhookError>> {
-    let snapshot = connector_impl
+    let snapshot = match connector_impl
         .complete_mandate_setup(connector, provider_intent_id)
         .await
-        .change_context(errors::AdapterWebhookError::ProviderError)?;
+    {
+        Ok(snapshot) => snapshot,
+        // Retrying won't fix it (e.g. invalid mandate): ack and log instead of dead-lettering.
+        Err(report)
+            if report
+                .frames()
+                .any(|f| f.downcast_ref::<HostedSetupFailed>().is_some()) =>
+        {
+            log::error!(
+                "hosted setup {provider_intent_id} failed terminally; no method attached: {report:?}"
+            );
+            return Ok(());
+        }
+        Err(report) => {
+            return Err(report.change_context(errors::AdapterWebhookError::ProviderError));
+        }
+    };
 
     attach_payment_method_from_snapshot(snapshot, connector, store, services).await
 }
@@ -327,6 +387,9 @@ async fn attach_payment_method_from_snapshot(
     }
 
     let invoice_to_charge = snapshot.meteroid_invoice_id.clone();
+    // Invoice paid on the hosted page (Mollie): the first payment is the invoice payment.
+    let in_flow_invoice_transaction = snapshot.meteroid_transaction_id.clone();
+    let in_flow_captured_payment = snapshot.payment_request_payment.clone();
     // A combined mandate+payment CHECKOUT Billing Request: the provider already
     // created the first payment, so instead of charging an invoice we materialize
     // the subscription in-flight against the pre-created checkout transaction.
@@ -350,6 +413,7 @@ async fn attach_payment_method_from_snapshot(
             card_last4: snapshot.card_last4,
             card_exp_month: snapshot.card_exp_month,
             card_exp_year: snapshot.card_exp_year,
+            fingerprint: snapshot.fingerprint,
         })
         .await
         .change_context(errors::AdapterWebhookError::StoreError)?;
@@ -382,7 +446,30 @@ async fn attach_payment_method_from_snapshot(
         .await
         .change_context(errors::AdapterWebhookError::StoreError)?;
 
-    if let Some(invoice_id_str) = invoice_to_charge {
+    if let (Some(invoice_id_str), Some(_)) = (&invoice_to_charge, &in_flow_invoice_transaction) {
+        match services
+            .settle_hosted_invoice_capture(
+                connector.tenant_id,
+                customer_id,
+                connector,
+                payment_method,
+                invoice_id_str,
+                in_flow_captured_payment,
+                in_flow_invoice_transaction,
+            )
+            .await
+        {
+            Ok(outcome) => log::info!(
+                "mandate attached; in-flow invoice {invoice_id_str} settlement: {outcome:?}"
+            ),
+            Err(e) => {
+                log::warn!(
+                    "mandate attached but in-flow invoice {invoice_id_str} settlement failed; retrying via pgmq: {e:?}"
+                );
+                return Err(e).change_context(errors::AdapterWebhookError::StoreError);
+            }
+        }
+    } else if let Some(invoice_id_str) = invoice_to_charge {
         let invoice_id = match InvoiceId::parse_base62(&invoice_id_str) {
             Ok(id) => id,
             Err(_) => {
@@ -597,7 +684,7 @@ async fn handle_payment_requires_action(
     } else if let Some(secret) = &e.client_secret {
         PaymentNextAction::UseSdk {
             intent_id: e.external_transaction_id.clone(),
-            publishable_key: stripe_publishable_key(connector).unwrap_or_default(),
+            publishable_key: connector.publishable_key().unwrap_or_default().to_string(),
             client_secret: Some(secrecy::SecretString::from(secret.clone())),
         }
     } else {
@@ -683,28 +770,27 @@ async fn run_consolidate(
 ) -> Result<(), Report<errors::AdapterWebhookError>> {
     use meteroid_store::domain::enums::PaymentStatusEnum;
 
-    let store_clone = store.clone();
-    let result = store
-        .transaction(|conn| {
-            let store = store_clone.clone();
-            let intent = intent.clone();
-            async move {
-                let existing = store
-                    .get_payment_tx_by_id_for_update(conn, transaction_id, intent.tenant_id)
-                    .await?;
-                store
-                    .consolidate_intent_and_transaction_tx(
-                        conn,
-                        &meteroid_store::domain::entity_activity::Actor::System,
-                        existing,
-                        intent,
-                    )
-                    .await?;
-                Ok(())
-            }
-            .scope_boxed()
-        })
-        .await;
+    let mut result = consolidate_once(store, transaction_id, intent.clone()).await;
+
+    // The stamped transaction id may point to a rolled-back row while the provider kept the payment
+    // (replayed onto a newer row): settle the row holding the provider payment id.
+    if let Err(e) = &result
+        && matches!(e.current_context(), StoreError::ValueNotFound(_))
+        && !intent.external_id.is_empty()
+        && let Ok(Some(tx)) = store
+            .get_payment_tx_by_provider_transaction_id(intent.tenant_id, &intent.external_id)
+            .await
+        && tx.id != transaction_id
+    {
+        log::info!(
+            "Webhook transaction {transaction_id} not found; applying it to {} (holds provider payment {})",
+            tx.id,
+            intent.external_id
+        );
+        let mut rebound = intent.clone();
+        rebound.transaction_id = tx.id;
+        result = consolidate_once(store, tx.id, rebound).await;
+    }
 
     // A declined checkout is recorded post-tx (persist_declined_checkout_charge),
     // so a FAILED/cancelled webhook can legitimately arrive with no local row yet:
@@ -737,6 +823,35 @@ async fn run_consolidate(
 
     result.change_context(errors::AdapterWebhookError::StoreError)?;
     Ok(())
+}
+
+async fn consolidate_once(
+    store: &Store,
+    transaction_id: PaymentTransactionId,
+    intent: meteroid_store::domain::payment_transactions::PaymentIntent,
+) -> Result<(), Report<StoreError>> {
+    let store_clone = store.clone();
+    store
+        .transaction(|conn| {
+            let store = store_clone.clone();
+            let intent = intent.clone();
+            async move {
+                let existing = store
+                    .get_payment_tx_by_id_for_update(conn, transaction_id, intent.tenant_id)
+                    .await?;
+                store
+                    .consolidate_intent_and_transaction_tx(
+                        conn,
+                        &meteroid_store::domain::entity_activity::Actor::System,
+                        existing,
+                        intent,
+                    )
+                    .await?;
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await
 }
 
 /// Apply a post-settlement reversal (refund / chargeback / dispute funds
@@ -886,13 +1001,4 @@ async fn resolve_transaction_id(
         .await
         .change_context(errors::AdapterWebhookError::StoreError)?
         .map(|t| t.id))
-}
-
-fn stripe_publishable_key(connector: &Connector) -> Option<String> {
-    match &connector.data {
-        Some(meteroid_store::domain::connectors::ProviderData::Stripe(d)) => {
-            Some(d.api_publishable_key.clone())
-        }
-        _ => None,
-    }
 }

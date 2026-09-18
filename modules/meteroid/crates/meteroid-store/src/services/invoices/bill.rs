@@ -63,20 +63,16 @@ pub enum InvoiceBillingMode {
 /// standalone. The durable fix is a single per-(customer, date) finalization trigger.
 const CONSOLIDATION_MIN_GRACE_HOURS: i32 = 1;
 
-/// True when the provider has accepted a charge that settles later — the
-/// asynchronous analogue of a card authorization.
-///
-/// Keyed on the rail: Stripe SEPA/ACH are as asynchronous as GoCardless, and a card is
-/// synchronous through Stripe. A GoCardless mandate is a direct debit whatever its
-/// scheme (becs, pad, autogiro… are stored as `Other`), so that provider is async on its
-/// own. Stancer is async for CARDS too (an accepted charge lands `to_capture`), so a
-/// Pending action-free Stancer charge is accepted-in-flight, never "awaiting the
-/// customer". `next_action` present means the customer still has to act (3DS).
+/// A `Pending` charge with no next action that settles later: direct debit on every provider, and
+/// every rail of providers with `pending_charge_accepted`.
 fn is_accepted_async_debit(
     transaction: &PaymentTransaction,
     method_type: &PaymentMethodTypeEnum,
     provider: &ConnectorProviderEnum,
 ) -> bool {
+    let provider_accepts_pending =
+        crate::adapters::payment::provider_capabilities(&provider.clone().into())
+            .is_some_and(|caps| caps.pending_charge_accepted);
     transaction.status == PaymentStatusEnum::Pending
         && transaction.next_action.is_none()
         && (matches!(
@@ -84,10 +80,7 @@ fn is_accepted_async_debit(
             PaymentMethodTypeEnum::DirectDebitSepa
                 | PaymentMethodTypeEnum::DirectDebitAch
                 | PaymentMethodTypeEnum::DirectDebitBacs
-        ) || matches!(
-            provider,
-            ConnectorProviderEnum::Gocardless | ConnectorProviderEnum::Stancer
-        ))
+        ) || provider_accepts_pending)
 }
 
 impl Services {

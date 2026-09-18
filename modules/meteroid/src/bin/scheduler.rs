@@ -24,7 +24,6 @@ use meteroid::svix::wire_svix;
 use meteroid::workers;
 use meteroid_mailer::service::mailer_service;
 use meteroid_store::Services;
-use stripe_client::client::StripeClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -39,11 +38,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let store = Arc::new(singletons::get_store().await.clone());
 
-    let stripe = Arc::new(StripeClient::new());
-
     let usage_clients = Arc::new(MeteringUsageClient::get().clone());
 
-    let services = Arc::new(Services::new(store.clone(), usage_clients.clone(), stripe));
+    let services = Arc::new(Services::new(store.clone(), usage_clients.clone()));
 
     let object_store_service = Arc::new(S3Storage::try_new(
         &config.object_store_uri,

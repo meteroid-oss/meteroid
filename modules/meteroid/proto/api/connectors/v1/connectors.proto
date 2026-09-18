@@ -4,17 +4,23 @@ package meteroid.api.connectors.v1;
 
 import "api/connectors/v1/models.proto";
 
-message ConnectStripeRequest {
-  StripeConnector data = 1;
-  // When set AND `data.webhook_secret` is empty, the server auto-creates a
-  // Stripe webhook endpoint at this URL via Stripe's API and stores the
-  // returned signing secret on the connector. The frontend constructs the
-  // URL from its own public REST API base so different deployment envs
-  // (sandbox / live / on-prem) work without extra backend config.
-  optional string auto_register_webhook_url = 2;
+// Connects any payment provider; `credentials` holds the provider-specific form. The backend
+// checks the credentials with the provider before persisting.
+message ConnectPaymentProviderRequest {
+  oneof credentials {
+    StripeConnector stripe = 1;
+    GoCardlessConnector gocardless = 2;
+    StancerConnector stancer = 3;
+    MollieConnector mollie = 4;
+  }
+  // Providers that can register webhooks themselves (Stripe): if set and no webhook secret is
+  // given, the server creates the endpoint at this URL and stores its signing secret. The frontend
+  // builds the URL from its public REST base, so it works across deployments without backend
+  // config.
+  optional string auto_register_webhook_url = 5;
 }
 
-message ConnectStripeResponse {
+message ConnectPaymentProviderResponse {
   Connector connector = 1;
 }
 
@@ -57,31 +63,13 @@ message ConnectPennylaneResponse {
   string auth_url = 1;
 }
 
-message ConnectGoCardlessRequest {
-  GoCardlessConnector data = 1;
-}
-
-message ConnectGoCardlessResponse {
-  Connector connector = 1;
-}
-
-message ConnectStancerRequest {
-  StancerConnector data = 1;
-}
-
-message ConnectStancerResponse {
-  Connector connector = 1;
-}
-
 service ConnectorsService {
   rpc ListConnectors(ListConnectorsRequest) returns (ListConnectorsResponse) {}
   rpc DisconnectConnector(DisconnectConnectorRequest) returns (DisconnectConnectorResponse) {}
 
-  rpc ConnectStripe(ConnectStripeRequest) returns (ConnectStripeResponse) {}
+  rpc ConnectPaymentProvider(ConnectPaymentProviderRequest) returns (ConnectPaymentProviderResponse) {}
   rpc ConnectHubspot(ConnectHubspotRequest) returns (ConnectHubspotResponse) {}
   rpc UpdateHubspotConnector(UpdateHubspotConnectorRequest) returns (UpdateHubspotConnectorResponse) {}
 
   rpc ConnectPennylane(ConnectPennylaneRequest) returns (ConnectPennylaneResponse) {}
-  rpc ConnectGoCardless(ConnectGoCardlessRequest) returns (ConnectGoCardlessResponse) {}
-  rpc ConnectStancer(ConnectStancerRequest) returns (ConnectStancerResponse) {}
 }

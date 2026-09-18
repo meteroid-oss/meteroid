@@ -351,9 +351,24 @@ impl PortalInvoiceService for PortalInvoiceServiceComponents {
             ));
         }
 
+        use meteroid_grpc::meteroid::portal::shared::v1::ConnectionTypeEnum as RailProto;
+        let rail = inner
+            .connection_type
+            .and_then(|raw| RailProto::try_from(raw).ok())
+            .map(|ct| match ct {
+                RailProto::Card => meteroid_store::domain::ConnectionTypeEnum::Card,
+                RailProto::DirectDebit => meteroid_store::domain::ConnectionTypeEnum::DirectDebit,
+            });
+
         let intent = self
             .services
-            .initiate_hosted_invoice_payment(tenant, connection_id, invoice_id, inner.return_url)
+            .initiate_hosted_invoice_payment(
+                tenant,
+                connection_id,
+                invoice_id,
+                rail,
+                inner.return_url,
+            )
             .await
             .map_err(Into::<PortalInvoiceApiError>::into)?;
 

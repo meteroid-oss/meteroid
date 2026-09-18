@@ -19,7 +19,6 @@ pub mod utils;
 mod checkout_completion;
 mod checkout_preview;
 pub mod clients;
-mod connectors;
 mod credits;
 mod edge;
 mod entitlements;
@@ -40,9 +39,10 @@ pub use edge::CheckoutPaymentOutcome;
 pub use invoices::{CustomerDetailsUpdate, InvoiceBillingMode};
 pub use lifecycle::CycleTransitionResult;
 pub use payment::hosted_payment_sweep::{HostedPaymentSweepOutcome, PendingHostedPaymentRef};
+pub use payment::hosted_return::HostedReturnOutcome;
 pub use payment::hosted_setup::HostedSetupOutcome;
+pub use payment::webhook_backed_setup::WebhookBackedSetupOutcome;
 pub use quotes::QuoteConversionResult;
-use stripe_client::client::StripeClient;
 pub use subscriptions::insert::payment_method::PaymentSetupResult;
 pub use subscriptions::payment_resolution;
 pub use subscriptions::proration;
@@ -54,7 +54,6 @@ pub use subscriptions::utils::validate_charge_automatically_with_provider_ids;
 struct Services {
     store: Arc<Store>,
     usage_client: Arc<dyn UsageClient>,
-    pub(crate) stripe: Arc<StripeClient>,
 }
 
 // EXTERNAL. Flat api, to be used in apis and workers.
@@ -65,16 +64,11 @@ pub struct ServicesEdge {
 }
 
 impl ServicesEdge {
-    pub fn new(
-        store: Arc<Store>,
-        usage_client: Arc<dyn UsageClient>,
-        stripe: Arc<StripeClient>,
-    ) -> Self {
+    pub fn new(store: Arc<Store>, usage_client: Arc<dyn UsageClient>) -> Self {
         Self {
             services: Services {
                 store: store.clone(),
                 usage_client,
-                stripe,
             },
             store,
         }

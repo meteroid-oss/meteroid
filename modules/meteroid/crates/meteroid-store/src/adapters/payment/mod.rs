@@ -15,18 +15,21 @@ pub mod factory;
 pub mod gocardless;
 pub mod mock;
 pub mod model;
+pub mod mollie;
 pub mod stancer;
 pub mod stripe;
 
 pub use factory::{initialize_payment_connector, provider_capabilities};
 pub use gocardless::GoCardlessConnector;
 pub use mock::MockConnector;
+pub use mollie::MollieConnector;
 pub use stancer::StancerConnector;
 pub use stripe::StripeConnector;
 
 pub use connector::{
-    ConnectorCapabilities, ConnectorIdentity, CustomerOps, HostedSetupCompletion, MandateOps,
-    MandateSetupMode, PaymentConnector, PaymentOps, ReconcileOps, RefundOps, WebhookOps,
+    ConnectorCapabilities, ConnectorIdentity, CredentialOps, CustomerOps, HOSTED_RETURN_PATH,
+    HostedSetupCompletion, MandateOps, MandateSetupMode, PaymentConnector, PaymentOps,
+    ReconcileOps, RefundOps, WebhookOps,
 };
 pub use error::{ConnectorError, HostedSetupPending};
 pub use events::{
@@ -40,5 +43,5 @@ pub use model::{
     CreateCustomerRequest, DeclineKind, ExternalCustomerRef, IdempotencyKey,
     MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot, RefundAcknowledged,
     RefundFailure, RefundOutcome, RefundReason, RefundReceipt, RefundRequest, RegisteredWebhook,
-    RemoteTransactionStatus, RequiresActionInstruction,
+    RemoteTransactionStatus, RequiresActionInstruction, WebhookDeliveryUnit,
 };

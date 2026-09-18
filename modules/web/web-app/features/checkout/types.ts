@@ -6,6 +6,7 @@ import {
 } from '@/rpc/portal/checkout/v1/checkout_pb'
 import { Checkout } from '@/rpc/portal/checkout/v1/models_pb'
 
+import type { HostedRail } from '@/features/checkout/utils/hostedReturn'
 import type { PortalThemeConfig } from '@/pages/portal/experience/theme'
 
 /**
@@ -69,14 +70,14 @@ export interface PaymentPanelProps {
    * InitiateHostedCheckout, then redirects (never resolves). When set and no
    * method is saved, the matching tab renders a single pay button.
    */
-  onHostedCheckout?: (connectionId: string) => Promise<void>
+  onHostedCheckout?: (connectionId: string, rail: HostedRail) => Promise<void>
   /**
    * Invoice-payment page only (with invoiceId): starts the provider-hosted
    * invoice payment via InitiateHostedInvoicePayment, then redirects (never
    * resolves). The pay CLICK is what pre-creates the transaction and mints
    * the capturing intent — rendering the page never does.
    */
-  onHostedInvoicePayment?: (connectionId: string) => Promise<void>
+  onHostedInvoicePayment?: (connectionId: string, rail?: HostedRail) => Promise<void>
 }
 
 /**

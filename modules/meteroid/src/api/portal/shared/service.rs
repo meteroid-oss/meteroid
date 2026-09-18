@@ -136,6 +136,16 @@ impl PortalSharedService for PortalSharedServiceComponents {
         let portal_resource = request.portal_resource()?;
 
         let inner = request.into_inner();
+
+        // Only matters when the connection serves both rails (Mollie card + SEPA).
+        let preferred_type = match inner.connection_type() {
+            meteroid_grpc::meteroid::portal::shared::v1::ConnectionTypeEnum::Card => {
+                meteroid_store::domain::ConnectionTypeEnum::Card
+            }
+            meteroid_grpc::meteroid::portal::shared::v1::ConnectionTypeEnum::DirectDebit => {
+                meteroid_store::domain::ConnectionTypeEnum::DirectDebit
+            }
+        };
         let customer_connection_id = CustomerConnectionId::from_proto_opt(inner.connection_id)?
             // TODO: if connection_id is not provided, we could resolve the connector from the portal resource and create a new connection
             .ok_or(PortalSharedApiError::MissingArgument(
@@ -189,7 +199,9 @@ impl PortalSharedService for PortalSharedServiceComponents {
                 &tenant,
                 &customer_connection_id,
                 invoice_id,
+                Some(preferred_type),
                 inner.return_url,
+                inner.descriptor_only.unwrap_or(false),
             )
             .await
             .map_err(Into::<PortalSharedApiError>::into)?;
@@ -207,6 +219,10 @@ impl PortalSharedService for PortalSharedServiceComponents {
                 provider_public_key: intent.public_key.expose_secret().to_string(),
                 provider: provider as i32,
                 connection_id: intent.connection_id.as_proto(),
+                capabilities: meteroid_store::adapters::payment::provider_capabilities(
+                    &intent.provider,
+                )
+                .map(crate::api::connectors::mapping::connectors::capabilities_to_server),
             }),
         }))
     }
@@ -277,6 +293,7 @@ impl PortalSharedService for PortalSharedServiceComponents {
                 card_last4: method.card_last4,
                 card_exp_month: method.card_exp_month,
                 card_exp_year: method.card_exp_year,
+                fingerprint: method.fingerprint,
             })
             .await
             .map_err(Into::<PortalSharedApiError>::into)?;

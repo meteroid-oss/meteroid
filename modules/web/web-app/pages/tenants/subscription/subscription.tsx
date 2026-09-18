@@ -394,7 +394,7 @@ export const Subscription = () => {
       window.open(checkoutUrl, '_blank')
     },
     onError: error => {
-      console.error('Failed to generate checkout token:', error)
+      toast.error(`Failed to open checkout: ${error.message}`)
     },
   })
 

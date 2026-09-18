@@ -257,3 +257,8 @@ pub const CUST_UBER_CONNECTION_STANCER_ID: CustomerConnectionId =
     CustomerConnectionId::from_const(uuid!("019438e0-0035-7000-8000-000000000001"));
 pub const CUST_UBER_PAYMENT_METHOD_STANCER_ID: CustomerPaymentMethodId =
     CustomerPaymentMethodId::from_const(uuid!("019438e0-0036-7000-8000-000000000001"));
+
+pub const MOLLIE_CONNECTOR_ID: ConnectorId =
+    ConnectorId::from_const(uuid!("019438e0-0037-7000-8000-000000000001"));
+pub const CUST_UBER_CONNECTION_MOLLIE_ID: CustomerConnectionId =
+    CustomerConnectionId::from_const(uuid!("019438e0-0038-7000-8000-000000000001"));

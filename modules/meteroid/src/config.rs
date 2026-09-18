@@ -43,6 +43,11 @@ pub struct Config {
     )]
     pub rest_api_external_url: String,
 
+    /// Public base URL for inbound provider webhooks; unset → `rest_api_external_url`. Only needed
+    /// when the REST base isn't public (e.g. local dev).
+    #[envconfig(from = "METEROID_WEBHOOK_EXTERNAL_URL")]
+    pub webhook_external_url: Option<String>,
+
     #[envconfig(from = "OPENEXCHANGERATES_API_KEY")]
     pub openexchangerates_api_key: Option<String>,
 

@@ -5,6 +5,7 @@ use thiserror::Error;
 use crate::errors::ObjectStoreError;
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
 use meteroid_store::adapters::payment::ConnectorError;
+use meteroid_store::adapters::payment::error::CustomerFacingMessage;
 use meteroid_store::errors::StoreError;
 
 #[derive(Debug, Error, ErrorAsTonic)]
@@ -30,10 +31,21 @@ pub enum PortalInvoiceApiError {
     #[error("{0}")]
     #[code(Internal)]
     InternalError(String),
+    #[error("{0}")]
+    #[code(FailedPrecondition)]
+    PaymentUnavailable(String),
 }
 
 impl From<Report<StoreError>> for PortalInvoiceApiError {
     fn from(value: Report<StoreError>) -> Self {
+        // Customer-facing provider message (Mollie), shown as is.
+        if let Some(CustomerFacingMessage(msg)) = value
+            .frames()
+            .find_map(|f| f.downcast_ref::<CustomerFacingMessage>())
+        {
+            return Self::PaymentUnavailable(msg.clone());
+        }
+
         let err = value.current_context();
 
         match err {
@@ -74,5 +86,37 @@ impl From<Report<ObjectStoreError>> for PortalInvoiceApiError {
             "Object store error in portal invoice service".to_string(),
             err,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn provider_report(err: Report<ConnectorError>) -> Report<StoreError> {
+        err.change_context(StoreError::PaymentProviderError)
+    }
+
+    #[test]
+    fn customer_facing_provider_message_is_shown_verbatim() {
+        let msg = "Direct debit is not available right now. Please pay by card.";
+        let marked = provider_report(
+            Report::new(ConnectorError::Configuration(msg.to_string()))
+                .attach_opaque(CustomerFacingMessage(msg.to_string())),
+        );
+        match PortalInvoiceApiError::from(marked) {
+            PortalInvoiceApiError::PaymentUnavailable(m) => assert_eq!(m, msg),
+            other => panic!("expected PaymentUnavailable, got {other:?}"),
+        }
+
+        let unmarked = provider_report(Report::new(ConnectorError::Configuration(
+            "stripe sdk: boom".to_string(),
+        )));
+        match PortalInvoiceApiError::from(unmarked) {
+            PortalInvoiceApiError::InternalError(m) => {
+                assert_eq!(m, "Connector configuration error: stripe sdk: boom")
+            }
+            other => panic!("expected InternalError, got {other:?}"),
+        }
     }
 }

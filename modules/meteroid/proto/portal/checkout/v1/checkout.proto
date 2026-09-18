@@ -3,6 +3,7 @@ syntax = "proto3";
 package meteroid.portal.checkout.v1;
 
 import "portal/checkout/v1/models.proto";
+import "portal/shared/v1/models.proto";
 import "api/invoices/v1/models.proto";
 
 // Checkout type enum
@@ -78,6 +79,9 @@ message InitiateHostedCheckoutRequest {
   optional string coupon_code = 4;
   // Customer's desired post-flow page (same-origin; reflected into the return URL).
   optional string return_url = 5;
+  // The rail the customer started from, when the connection serves several; absent = direct
+  // debit (legacy).
+  optional portal.shared.v1.ConnectionTypeEnum connection_type = 6;
 }
 
 message InitiateHostedCheckoutResponse {

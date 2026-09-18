@@ -11,10 +11,14 @@ import "api/bankaccounts/v1/models.proto";
 
 message SetupIntent {
   string intent_id = 1;
+  // Client secret (embedded SDK), authorisation URL (hosted redirect) or session data (drop-in),
+  // per `capabilities.mandate_setup_mode`. Empty when `descriptor_only`.
   string intent_secret = 2;
   string provider_public_key = 4;
   api.connectors.v1.ConnectorProviderEnum provider = 5;
   string connection_id = 6;
+  // What the frontend picks its UI from.
+  api.connectors.v1.PaymentProviderCapabilities capabilities = 7;
 }
 
 message UpdateCustomer {

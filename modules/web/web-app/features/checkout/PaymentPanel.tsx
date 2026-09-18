@@ -1,10 +1,12 @@
+import { Code, ConnectError } from '@connectrpc/connect'
 import { useMutation } from '@connectrpc/connect-query'
 import { Elements, useElements, useStripe } from '@stripe/react-stripe-js'
 import { AlertCircle, Building, CreditCard, ExternalLink } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 
+import { connectorDisplayName } from '@/features/payments/providers'
 import { useQuery } from '@/lib/connectrpc'
-import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
+import { ConnectorProviderEnum, MandateSetupMode } from '@/rpc/api/connectors/v1/models_pb'
 import {
   CustomerPaymentMethod,
   CustomerPaymentMethod_PaymentMethodTypeEnum,
@@ -20,12 +22,28 @@ import { PaymentForm } from './components/PaymentForm'
 import { buildStripeAppearance } from './stripeAppearance'
 import { getStripePromise } from './stripeClient'
 import { PaymentMethodSelection, PaymentPanelProps, PaymentState } from './types'
-import { hostedReturnUrl, stashHostedPreAttempt } from './utils/hostedReturn'
-
-/** Payment rail served by a hosted-redirect provider's panel. */
-type HostedRail = 'card' | 'directDebit'
+import { hostedRedirectHelperText, useRailTabs } from './useRailTabs'
+import {
+  HostedRail,
+  hostedReturnUrl,
+  stashHostedDeparture,
+  stashHostedPreAttempt,
+} from './utils/hostedReturn'
 
 const railIcon = (rail: HostedRail) => (rail === 'card' ? CreditCard : Building)
+
+/** `InvalidArgument` and `FailedPrecondition` carry customer-facing provider text: shown
+ *  without the "[code]" prefix. */
+const errorText = (err: unknown, fallback: string) => {
+  if (
+    err instanceof ConnectError &&
+    (err.code === Code.InvalidArgument || err.code === Code.FailedPrecondition) &&
+    err.rawMessage
+  ) {
+    return err.rawMessage
+  }
+  return err instanceof Error && err.message ? err.message : fallback
+}
 
 /** Which tab a saved payment method belongs under. Everything that isn't a
  *  card (SEPA/ACH/BACS/bank account) is a direct-debit method. */
@@ -138,7 +156,7 @@ const SavedMandatePanel: React.FC<{
       await onPaymentSubmit(selectedId)
       setState(PaymentState.SUCCESS)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred during payment processing')
+      setError(errorText(err, 'An error occurred during payment processing'))
       setState(PaymentState.ERROR)
     }
   }
@@ -152,7 +170,7 @@ const SavedMandatePanel: React.FC<{
       // Redirects to the provider-hosted page on success; never resolves.
       await onAddNew()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to start the hosted payment')
+      setError(errorText(err, 'Unable to start the hosted payment'))
       setState(PaymentState.ERROR)
     }
   }
@@ -542,11 +560,6 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
     [props.themeConfig]
   )
 
-  const hasCard = !!props.cardConnectionId
-  const hasDirectDebit = !!props.directDebitConnectionId
-  const hasBoth =
-    hasCard && hasDirectDebit && props.cardConnectionId !== props.directDebitConnectionId
-
   // Saved methods usable on the active tab: chargeable off-session, so the
   // hosted flow is only needed for setting up a *new* method.
   const savedMethodsForTab = props.paymentMethods.filter(
@@ -570,14 +583,19 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
     !!props.onHostedCheckout &&
     savedMethodsForTab.length === 0
 
-  // Just before the customer leaves for a provider-hosted flow, snapshot the
-  // invoice's already-failed transactions so the return handler can tell the new
-  // charge's failure apart from these — without racing the first post-return poll.
-  const stashPreAttempt = useCallback(() => {
+  // Before redirecting to a hosted flow, save the rail (the return doesn't include it) and the
+  // already-failed txs, so a failure of the new charge can be told apart.
+  const beforeHostedRedirect = useCallback(() => {
+    stashHostedDeparture({ rail: activeTab })
     if (props.invoiceId) {
       stashHostedPreAttempt(props.invoiceId, props.preAttemptFailedTxIds ?? [])
     }
-  }, [props.invoiceId, props.preAttemptFailedTxIds])
+  }, [activeTab, props.invoiceId, props.preAttemptFailedTxIds])
+
+  const startHostedCheckout = async (connectionId: string, rail: HostedRail) => {
+    beforeHostedRedirect()
+    await props.onHostedCheckout?.(connectionId, rail)
+  }
 
   const setupIntentQuery = useQuery(
     setupIntent,
@@ -589,26 +607,40 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
       // Present only on the invoice-payment page: lets GoCardless's return
       // handler charge this invoice once the mandate is set up.
       invoiceId: props.invoiceId,
+      // Checkout renders from the provider alone; Mollie/Stancer create the payment on click.
+      descriptorOnly: !props.invoiceId && !!props.onHostedCheckout,
     },
     { enabled: !!activeConnectionId && !hostedCheckoutDD }
   )
 
   const intent = setupIntentQuery.data?.setupIntent
   const intentSecret = intent?.intentSecret
-  const provider = intent?.provider
+  const capabilities = intent?.capabilities
   const connectionId = intent?.connectionId
+
+  const { hasBoth, sharedProvider } = useRailTabs(
+    props.cardConnectionId,
+    props.directDebitConnectionId,
+    capabilities,
+    intent?.provider
+  )
 
   // The tab bar must stay visible in every state (loading / error / hosted
   // redirect / Stripe) so a customer who opened the Direct Debit tab can
   // always get back to Card. Only the panel *body* switches per state.
   const renderBody = () => {
     if (hostedCheckoutDD && props.onHostedCheckout && activeConnectionId) {
+      // No intent is fetched on this tab: a DD-only connection's provider isn't exposed to the portal.
       return (
         <HostedCheckoutPanel
           totalAmount={props.totalAmount}
           connectionId={activeConnectionId}
-          onInitiate={props.onHostedCheckout}
-          providerLabel="GoCardless"
+          onInitiate={startHostedCheckout}
+          providerLabel={
+            sharedProvider !== undefined
+              ? connectorDisplayName(sharedProvider)
+              : 'your payment provider'
+          }
           rail="directDebit"
         />
       )
@@ -618,9 +650,9 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
       return <div className="w-full p-6 lg:p-10 text-center">Loading payment options...</div>
     }
 
-    // `intentSecret` may legitimately be empty: for Stancer + invoice the
-    // response is a provider descriptor only (initiation is click-driven).
-    if (setupIntentQuery.isError || !intent || !connectionId || provider === undefined) {
+    // `intentSecret` can be empty: for providers collecting the invoice on their hosted page, the
+    // intent is a descriptor only (the payment is created on click).
+    if (setupIntentQuery.isError || !intent || !connectionId || !capabilities) {
       console.log(
         `setupIntent error: ${
           setupIntentQuery.isError ? setupIntentQuery.error : 'missing intent fields'
@@ -633,133 +665,91 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
       )
     }
 
-    // Stancer + invoice: the setup intent is a provider descriptor only —
-    // rendering never mints a payment intent; initiation is click-driven.
-    if (
-      provider === ConnectorProviderEnum.STANCER &&
-      props.invoiceId &&
-      props.onHostedInvoicePayment
-    ) {
-      const onInitiate = props.onHostedInvoicePayment
-      if (savedMethodsForTab.length > 0) {
-        return (
-          <SavedMandatePanel
-            methods={savedMethodsForTab}
-            customer={props.customer}
-            onPaymentSubmit={props.onPaymentSubmit}
-            onAddNew={() => onInitiate(connectionId)}
-            rail="card"
-            onBeforeRedirect={stashPreAttempt}
-          />
-        )
-      }
-      return (
-        <HostedCheckoutPanel
-          totalAmount={props.totalAmount}
-          connectionId={connectionId}
-          onInitiate={async id => {
-            stashPreAttempt()
-            await onInitiate(id)
-          }}
-          providerLabel="Stancer"
-          rail="card"
-        />
-      )
-    }
+    const providerName = connectorDisplayName(intent.provider)
+    const rail: HostedRail = activeTab
 
-    // All remaining branches need the intent secret (hosted URL or Stripe
-    // client_secret).
-    if (!intentSecret) {
-      return (
-        <div className="w-full p-6 lg:p-10 text-center text-red-600">
-          Unable to initialize payment system. Please try again later.
-        </div>
-      )
-    }
+    if (capabilities.mandateSetupMode === MandateSetupMode.HOSTED_REDIRECT) {
+      // Saved methods are charged off-session; the hosted flow is only for a new method. If the
+      // provider collects the payment on its hosted page, the pay click creates it (invoice or
+      // checkout); otherwise the intent secret is already the authorisation URL.
+      const { onHostedInvoicePayment, onHostedCheckout } = props
+      const mintOnClick = !capabilities.supportsHostedInvoicePayment
+        ? undefined
+        : props.invoiceId && onHostedInvoicePayment
+          ? (id: string) => onHostedInvoicePayment(id, rail)
+          : !props.invoiceId && onHostedCheckout
+            ? (id: string) => onHostedCheckout(id, rail)
+            : undefined
 
-    // GoCardless flow: no embedded SDK. The backend put the BRF
-    // `authorisation_url` in `intentSecret` (the field is reused across
-    // providers — for Stripe it carries the client_secret instead). The user
-    // clicks through to the GoCardless-hosted page; when they come back, the
-    // server's return-URL handler upserts the mandate and redirects to this
-    // page with a gocardless_status the flow uses to confirm the payment.
-    if (provider === ConnectorProviderEnum.GOCARDLESS) {
-      // Mandate reuse: if the customer already has a bank account (mandate) on
-      // this tab, let them pay it off-session — don't force the hosted flow
-      // again. The hosted redirect is only for setting up the *first* (or an
-      // additional) mandate. `intentSecret` is the fresh authorisation URL,
-      // reused as the "set up a new bank account" link.
-      if (savedMethodsForTab.length > 0) {
-        return (
-          <SavedMandatePanel
-            methods={savedMethodsForTab}
-            customer={props.customer}
-            onPaymentSubmit={props.onPaymentSubmit}
-            addNewUrl={intentSecret}
-            rail="directDebit"
-            onBeforeRedirect={stashPreAttempt}
-          />
-        )
-      }
-      return (
-        <HostedRedirectPanel
-          authorisationUrl={intentSecret}
-          providerLabel="GoCardless"
-          rail="directDebit"
-          helperText="You'll be redirected to GoCardless to authorise a direct-debit mandate. After you confirm, you'll return here to complete your payment."
-          onBeforeRedirect={stashPreAttempt}
-        />
-      )
-    }
-
-    // Stancer flow: hosted-redirect card provider, no embedded SDK.
-    // `intentSecret` carries the hosted payment-page URL; the server-side
-    // return handler saves the card, runs any first charge, and redirects
-    // back with a stancer_status.
-    if (provider === ConnectorProviderEnum.STANCER) {
-      // A saved Stancer card is a reusable off-session token: charge it
-      // directly — the hosted redirect is only for saving a new card.
-      if (savedMethodsForTab.length > 0) {
-        return (
-          <SavedMandatePanel
-            methods={savedMethodsForTab}
-            customer={props.customer}
-            onPaymentSubmit={props.onPaymentSubmit}
-            addNewUrl={intentSecret}
-            rail="card"
-            onBeforeRedirect={stashPreAttempt}
-          />
-        )
-      }
-      // Checkout page, no saved card: InitiateHostedCheckout puts the session
-      // in the intent metadata so the return handler can charge and activate
-      // it — the plain setup intent would only save the card.
-      if (!props.invoiceId && props.onHostedCheckout && connectionId) {
+      if (mintOnClick) {
+        if (savedMethodsForTab.length > 0) {
+          return (
+            <SavedMandatePanel
+              methods={savedMethodsForTab}
+              customer={props.customer}
+              onPaymentSubmit={props.onPaymentSubmit}
+              onAddNew={() => mintOnClick(connectionId)}
+              rail={rail}
+              onBeforeRedirect={beforeHostedRedirect}
+            />
+          )
+        }
         return (
           <HostedCheckoutPanel
             totalAmount={props.totalAmount}
             connectionId={connectionId}
-            onInitiate={props.onHostedCheckout}
-            providerLabel="Stancer"
-            rail="card"
+            onInitiate={async id => {
+              beforeHostedRedirect()
+              await mintOnClick(id)
+            }}
+            providerLabel={providerName}
+            rail={rail}
           />
         )
       }
-      // Plain method setup: 0-amount card save on the hosted page.
+
+      if (!intentSecret) {
+        return (
+          <div className="w-full p-6 lg:p-10 text-center text-red-600">
+            Unable to initialize payment system. Please try again later.
+          </div>
+        )
+      }
+      if (savedMethodsForTab.length > 0) {
+        return (
+          <SavedMandatePanel
+            methods={savedMethodsForTab}
+            customer={props.customer}
+            onPaymentSubmit={props.onPaymentSubmit}
+            addNewUrl={intentSecret}
+            rail={rail}
+            onBeforeRedirect={beforeHostedRedirect}
+          />
+        )
+      }
       return (
         <HostedRedirectPanel
           authorisationUrl={intentSecret}
-          providerLabel="Stancer"
-          rail="card"
-          helperText="You'll be redirected to Stancer's secure page to enter your card details. After you confirm, you'll return here to complete your payment."
-          onBeforeRedirect={stashPreAttempt}
+          providerLabel={providerName}
+          rail={rail}
+          helperText={hostedRedirectHelperText(
+            providerName,
+            rail,
+            "After you confirm, you'll return here to complete your payment."
+          )}
+          onBeforeRedirect={beforeHostedRedirect}
         />
       )
     }
 
-    // Stripe flow: mount Elements. publishable_key is in providerPublicKey.
+    // Stripe Elements is the only embedded SDK in the portal.
     const stripePublishableKey = intent.providerPublicKey
-    if (!stripePublishableKey) {
+    if (
+      capabilities.mandateSetupMode !== MandateSetupMode.EMBEDDED_CLIENT_SECRET ||
+      intent.provider !== ConnectorProviderEnum.STRIPE ||
+      !intentSecret ||
+      !stripePublishableKey
+    ) {
       return (
         <div className="w-full p-6 lg:p-10 text-center text-red-600">
           Provider configuration is incomplete. Please contact support.
@@ -832,13 +822,14 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
         </div>
       )}
 
-      {renderBody()}
+      {/* Keyed per tab: a shared Mollie connection renders the same panel on both tabs. */}
+      <Fragment key={activeTab}>{renderBody()}</Fragment>
     </div>
   )
 }
 
 /**
- * Renders the hosted-redirect branch for providers (GoCardless, Stancer) that
+ * Renders the hosted-redirect branch for providers (GoCardless, Stancer, Mollie) that
  * collect mandate/card consent on their own UI rather than via an embedded SDK.
  *
  * Workflow:
@@ -891,7 +882,7 @@ const HostedRedirectPanel: React.FC<{
 const HostedCheckoutPanel: React.FC<{
   totalAmount: string
   connectionId: string
-  onInitiate: (connectionId: string) => Promise<void>
+  onInitiate: (connectionId: string, rail: HostedRail) => Promise<void>
   providerLabel: string
   rail: HostedRail
 }> = ({ totalAmount, connectionId, onInitiate, providerLabel, rail }) => {
@@ -905,12 +896,10 @@ const HostedCheckoutPanel: React.FC<{
     setError(null)
     try {
       // On success this redirects to the hosted page and never resolves.
-      await onInitiate(connectionId)
+      await onInitiate(connectionId, rail)
     } catch (err) {
       setError(
-        err instanceof Error && err.message
-          ? err.message
-          : `Unable to start the ${railLabel} payment. Please try again.`
+        errorText(err, `Unable to start the ${railLabel} payment. Please try again.`)
       )
       setState(PaymentState.ERROR)
     }

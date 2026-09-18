@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS customer_payment_method_active_fingerprint_uidx;
+ALTER TABLE customer_payment_method DROP COLUMN fingerprint;

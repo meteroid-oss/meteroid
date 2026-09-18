@@ -4,14 +4,12 @@ import { RouteObject } from 'react-router-dom'
 import { StandardOnly } from '@/components/StandardOnly'
 import { TenantLayoutOutlet } from '@/components/layouts'
 import { NotImplemented } from '@/features/NotImplemented'
+import { PaymentProviderConnectModal } from '@/features/payments/PaymentProviderConnectModal'
 import { MrrReport } from '@/features/reports/charts/MrrReport'
 import { RevenueReport } from '@/features/reports/charts/RevenueReport'
 import { EditHubspotIntegrationModal } from '@/features/settings/integrations/EditHubspotIntegrationModal'
-import { GoCardlessIntegrationModal } from '@/features/settings/integrations/GoCardlessIntegration'
 import { HubspotIntegrationModal } from '@/features/settings/integrations/HubspotIntegration'
 import { PennylaneIntegrationModal } from '@/features/settings/integrations/PennylaneIntegration'
-import { StancerIntegrationModal } from '@/features/settings/integrations/StancerIntegration'
-import { StripeIntegrationModal } from '@/features/settings/integrations/StripeIntegration'
 import { DeadLetterPage } from '@/pages/admin/deadletter'
 import { DeadLetterDetailPage } from '@/pages/admin/deadletter-detail'
 import { BatchJobPage } from '@/pages/tenants/batchjob'
@@ -46,16 +44,8 @@ export const tenantRoutes: RouteObject = {
       handle: { title: 'Settings' },
       children: [
         {
-          path: 'add-stripe',
-          element: <StripeIntegrationModal />,
-        },
-        {
-          path: 'add-gocardless',
-          element: <GoCardlessIntegrationModal />,
-        },
-        {
-          path: 'add-stancer',
-          element: <StancerIntegrationModal />,
+          path: 'connect-payment-provider/:providerKey',
+          element: <PaymentProviderConnectModal />,
         },
         {
           path: 'connect-pennylane',

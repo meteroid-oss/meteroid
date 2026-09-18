@@ -32,6 +32,78 @@ async fn finalized_unpaid_invoice(env: &TestEnv) -> common_domain::ids::InvoiceI
     invoices[0].id
 }
 
+// Mollie checkout: with `descriptor_only`, rendering the SetupIntent creates no Mollie payment.
+
+#[rstest]
+#[tokio::test]
+async fn test_checkout_setup_intent_is_descriptor_only_for_mollie(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+    env.seed_mollie_payments().await;
+
+    let intent = env
+        .services()
+        .create_setup_intent(
+            &TENANT_ID,
+            &CUST_UBER_CONNECTION_MOLLIE_ID,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("the checkout render must not reach Mollie");
+    assert_eq!(intent.provider, ConnectorProviderEnum::Mollie);
+    assert_eq!(intent.connection_id, CUST_UBER_CONNECTION_MOLLIE_ID);
+    assert!(
+        intent.intent_id.is_empty() && intent.client_secret.is_empty(),
+        "descriptor only: no Mollie payment may be created on page render"
+    );
+
+    // Without the flag, setup calls Mollie (and fails: the seed has no credentials).
+    assert!(
+        env.services()
+            .create_setup_intent(
+                &TENANT_ID,
+                &CUST_UBER_CONNECTION_MOLLIE_ID,
+                None,
+                None,
+                None,
+                false,
+            )
+            .await
+            .is_err()
+    );
+}
+
+// Stancer checkout: same descriptor-only render.
+
+#[rstest]
+#[tokio::test]
+async fn test_checkout_setup_intent_is_descriptor_only_for_stancer(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+    env.seed_stancer_payments().await;
+
+    let intent = env
+        .services()
+        .create_setup_intent(
+            &TENANT_ID,
+            &CUST_UBER_CONNECTION_STANCER_ID,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("the checkout render must not reach Stancer");
+    assert_eq!(intent.provider, ConnectorProviderEnum::Stancer);
+    assert!(
+        intent.intent_id.is_empty() && intent.client_secret.is_empty(),
+        "descriptor only: no Stancer payment intent may be created on page render"
+    );
+}
+
 // The on-render SetupIntent for a Stancer card connection + invoice is a pure
 // provider DESCRIPTOR — no transaction, no intent, no network.
 
@@ -56,6 +128,8 @@ async fn test_invoice_setup_intent_is_side_effect_free_for_stancer(#[future] tes
             &CUST_UBER_CONNECTION_STANCER_ID,
             Some(invoice_id),
             None,
+            None,
+            false,
         )
         .await
         .expect(
@@ -88,6 +162,8 @@ async fn test_invoice_setup_intent_is_side_effect_free_for_stancer(#[future] tes
             &CUST_UBER_CONNECTION_STANCER_ID,
             Some(invoice_id),
             None,
+            None,
+            false,
         )
         .await
         .expect("re-render is equally side-effect-free");
@@ -198,6 +274,7 @@ async fn test_pending_hosted_attempt_resumes_same_intent(#[future] test_env: Tes
             CUST_UBER_CONNECTION_STANCER_ID,
             invoice_id,
             None,
+            None,
         )
         .await
         .expect("re-initiation while Pending must resume the stored intent");
@@ -236,6 +313,7 @@ async fn test_pending_attempt_without_marker_refuses_reinitiation(#[future] test
             TENANT_ID,
             CUST_UBER_CONNECTION_STANCER_ID,
             invoice_id,
+            None,
             None,
         )
         .await;

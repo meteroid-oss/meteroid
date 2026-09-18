@@ -26,6 +26,9 @@ message SetupIntentRequest {
   // happen after the mandate exists, so the return handler uses this to charge
   // the invoice once setup completes. Absent for plain "add a payment method".
   optional string invoice_id = 4;
+  // Mollie/Stancer: return only a provider descriptor without creating a hosted payment (the pay
+  // button does that). Ignored for other providers.
+  optional bool descriptor_only = 5;
 }
 message SetupIntentResponse {
   SetupIntent setup_intent = 1;
