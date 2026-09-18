@@ -23,13 +23,16 @@ import { toast } from 'sonner'
 import { useBasePath } from '@/hooks/useBasePath'
 import { CURRENCIES } from '@/lib/data/currencies'
 import { formatCurrency } from '@/lib/utils/numbers'
+import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
   createCreditNote,
   listCreditNotesByInvoiceId,
 } from '@/rpc/api/creditnotes/v1/creditnotes-CreditNotesService_connectquery'
 import { CreditNoteStatus, CreditType } from '@/rpc/api/creditnotes/v1/models_pb'
+import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { getInvoice } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
 import { DetailedInvoice, InvoicePaymentStatus, LineItem } from '@/rpc/api/invoices/v1/models_pb'
+import { getInvoicingEntityProviders } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
 
 interface CreateCreditNoteDialogProps {
   open: boolean
@@ -114,6 +117,25 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
   )
   const existingCreditNotes = existingCreditNotesQuery.data?.creditNotes
 
+  // Client-side mirror of the backend's `ConnectorCapabilities.supports_refunds`
+  // (only Stancer today) — hides the "already refunded manually" checkbox for a
+  // provider that can't do a real refund anyway, where it'd be meaningless.
+  // The invoice itself carries no connector info, so this goes through the
+  // customer's invoicing entity to find its active card provider.
+  const customerQuery = useQuery(
+    getCustomerById,
+    { id: invoice.customerId },
+    { enabled: open && Boolean(invoice.customerId) }
+  )
+  const invoicingEntityId = customerQuery.data?.customer?.invoicingEntityId
+  const invoicingEntityProvidersQuery = useQuery(
+    getInvoicingEntityProviders,
+    { id: invoicingEntityId ?? '' },
+    { enabled: open && Boolean(invoicingEntityId) }
+  )
+  const refundSupported =
+    invoicingEntityProvidersQuery.data?.cardProvider?.provider === ConnectorProviderEnum.STANCER
+
   const initialLineItems = useMemo<LineItemSelection[]>(() => {
     const alreadyByLine: Record<string, number> = {}
     for (const cn of existingCreditNotes ?? []) {
@@ -159,6 +181,7 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
     allowedDispositionsForScope(s)[0] ?? 'reduce-debt'
   const [disposition, setDisposition] = useState<Disposition>(defaultDispositionFor(defaultScope))
   const [reissue, setReissue] = useState(false)
+  const [skipProviderRefund, setSkipProviderRefund] = useState(false)
   const [reason, setReason] = useState('')
   const [memo, setMemo] = useState('')
 
@@ -364,6 +387,7 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
         reason: reason || undefined,
         memo: memo || undefined,
         creditType: dispositionToCreditType(disposition),
+        skipProviderRefund: disposition === 'refund' ? skipProviderRefund : undefined,
       },
       finalize: true,
       reissueAsDraft: scope === 'full' && reissue,
@@ -475,8 +499,8 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
                     <Label htmlFor="disp-refund" className="text-sm font-normal cursor-pointer">
                       Refund to customer
                       <span className="block text-xs text-muted-foreground">
-                        The paid amount must be refunded to the customer via your payment provider
-                        (out of band). Any applied customer credit is restored to the balance.
+                        The paid amount is refunded to the customer via your payment provider. Any
+                        applied customer credit is restored to the balance.
                       </span>
                     </Label>
                   </div>
@@ -645,6 +669,28 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
                 <span className="block text-xs text-muted-foreground">
                   Creates an editable draft copy so you can fix the line items before reissuing. The
                   cancelled invoice is kept on record.
+                </span>
+              </Label>
+            </div>
+          )}
+
+          {/* Skip provider refund (refund disposition, only when the provider supports it) */}
+          {disposition === 'refund' && refundSupported && (
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id="skip-provider-refund"
+                checked={skipProviderRefund}
+                onCheckedChange={v => setSkipProviderRefund(v === true)}
+                className="mt-0.5"
+              />
+              <Label
+                htmlFor="skip-provider-refund"
+                className="text-sm font-normal cursor-pointer"
+              >
+                This refund was already issued manually
+                <span className="block text-xs text-muted-foreground">
+                  Skips the automatic refund via your payment provider — only the accounting entry
+                  is recorded.
                 </span>
               </Label>
             </div>

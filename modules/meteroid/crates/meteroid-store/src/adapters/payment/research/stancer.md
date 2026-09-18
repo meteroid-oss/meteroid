@@ -53,7 +53,7 @@ The contributor's claim "Stancer has no webhook mechanism" is confirmed.
 |---|---|---|
 | `supports_cards` | `true` | Card provider; saved `card_…` token charged via `POST /v2/payments/`. |
 | `supports_mandates` | `true` | Saved card is a reusable off-session token (hosted intent flow). |
-| `supports_refunds` | `true` | `POST /v2/refunds/` `{payment, amount?}` (spec). Client method must be added. |
+| `supports_refunds` | `true` | `POST /v2/refunds/` `{payment, amount?}` (spec, OpenAPI-verified). Implemented in `stancer.rs`'s `RefundOps::refund`. |
 | `supports_partial_refunds` | `true` | `amount` optional on `RefundCreate`; any positive amount accepted. |
 | `supports_3ds` | `true` | Hosted page runs the 3DS challenge (`threeds: required` on the intent). Off-session charges omit `auth` → no 3DS (live-verified; `auth: false` is rejected by validation). |
 | `supports_disputes` | `false` | `GET /v2/disputes/` exists but there is no push channel; no dispute lifecycle in v1 (see §7). |
