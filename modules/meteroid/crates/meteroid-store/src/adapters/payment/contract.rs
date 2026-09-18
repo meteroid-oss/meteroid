@@ -50,6 +50,8 @@ pub async fn run_contract(impl_: &dyn PaymentConnector, connector: &Connector) {
                 connector,
                 &test_connection,
                 MandateSetupRequest {
+                    descriptor: None,
+                    webhook_url: None,
                     payment_methods: &[PaymentMethodTypeEnum::Card],
                     idempotency_key: IdempotencyKey::new(format!(
                         "test_mandate:{}",
@@ -78,6 +80,8 @@ pub async fn run_contract(impl_: &dyn PaymentConnector, connector: &Connector) {
         .charge_off_session(
             connector,
             ChargeRequest {
+                descriptor: None,
+                webhook_url: None,
                 transaction_id: PaymentTransactionId::new(),
                 customer_external_id: &external.external_id,
                 payment_method_external_id: "pm_test",
@@ -154,6 +158,24 @@ pub fn assert_capabilities_consistent(caps: &ConnectorCapabilities) {
         !caps.supported_payment_methods.is_empty(),
         "a connector with no supported_payment_methods can't accept money — likely a config bug"
     );
+    assert_eq!(
+        caps.supports_cards,
+        caps.supported_payment_methods
+            .contains(&PaymentMethodTypeEnum::Card),
+        "supports_cards must agree with supported_payment_methods"
+    );
+    if caps.supports_hosted_invoice_payment {
+        assert!(
+            caps.is_hosted_redirect(),
+            "supports_hosted_invoice_payment implies a hosted-redirect setup"
+        );
+    }
+    if caps.hosted_setup_completion == super::connector::HostedSetupCompletion::PollingRequired {
+        assert!(
+            caps.is_hosted_redirect(),
+            "PollingRequired completion only applies to hosted-redirect setups"
+        );
+    }
 }
 
 // ── test fixtures ──────────────────────────────────────────────────
@@ -208,11 +230,12 @@ mod tests {
         ConnectorIdentity, HostedSetupCompletion, MandateSetupMode, WebhookOps,
     };
     use crate::adapters::payment::{
-        GoCardlessConnector, MockConnector, StancerConnector, StripeConnector,
+        GoCardlessConnector, MockConnector, MollieConnector, StancerConnector, StripeConnector,
     };
     use crate::domain::connectors::{
-        Connector, GocardlessPublicData, GocardlessSensitiveData, MockPublicData, ProviderData,
-        ProviderSensitiveData, StancerPublicData, StancerSensitiveData,
+        Connector, GocardlessPublicData, GocardlessSensitiveData, MockPublicData, MolliePublicData,
+        MollieSensitiveData, ProviderData, ProviderSensitiveData, StancerPublicData,
+        StancerSensitiveData,
     };
     use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
     use chrono::NaiveDateTime;
@@ -301,6 +324,106 @@ mod tests {
             HostedSetupCompletion::WebhookBacked,
             "Stripe setup completes client-side with webhook backup"
         );
+    }
+
+    /// Hosted invoice collection is only safe if completion records the capture; otherwise the
+    /// invoice would also be charged off-session.
+    #[test]
+    fn hosted_invoice_payment_matches_completion_design() {
+        let stancer = StancerConnector::new();
+        let mollie = MollieConnector::new();
+        let gocardless = GoCardlessConnector::new();
+        let stripe = StripeConnector::new();
+
+        assert!(stancer.capabilities().supports_hosted_invoice_payment);
+        assert!(
+            mollie.capabilities().supports_hosted_invoice_payment,
+            "Mollie stamps the invoice transaction into the first payment"
+        );
+        assert!(
+            !gocardless.capabilities().supports_hosted_invoice_payment,
+            "GoCardless charges the invoice off-session once the mandate exists"
+        );
+        assert!(!stripe.capabilities().supports_hosted_invoice_payment);
+
+        assert!(stancer.capabilities().completes_pending_hosted_intents());
+        assert!(mollie.capabilities().completes_pending_hosted_intents());
+        assert!(!gocardless.capabilities().completes_pending_hosted_intents());
+        assert!(!stripe.capabilities().completes_pending_hosted_intents());
+    }
+
+    /// No webhook self-registration; unsigned webhooks need the URL token.
+    #[tokio::test]
+    async fn mollie_capabilities_and_webhook_contract() {
+        let connector = Connector {
+            id: ConnectorId::new(),
+            created_at: NaiveDateTime::default(),
+            tenant_id: TenantId::new(),
+            alias: "contract-mollie".into(),
+            connector_type: ConnectorTypeEnum::PaymentProvider,
+            provider: ConnectorProviderEnum::Mollie,
+            data: Some(ProviderData::Mollie(MolliePublicData::default())),
+            sensitive: Some(ProviderSensitiveData::Mollie(MollieSensitiveData {
+                api_key: "test_fake".into(),
+                webhook_token: "token".into(),
+            })),
+        };
+        let impl_ = MollieConnector::new();
+        let caps = impl_.capabilities();
+        assert_capabilities_consistent(caps);
+        assert!(caps.supports_cards, "Mollie is a card provider");
+        assert!(caps.supports_mandates);
+        assert!(caps.asynchronous_settlement);
+        assert!(!caps.supports_self_webhook_registration);
+        assert_eq!(caps.mandate_setup_mode, MandateSetupMode::HostedRedirect);
+        assert_eq!(
+            caps.hosted_setup_completion,
+            HostedSetupCompletion::WebhookBacked,
+            "the payment webhook backstops a lost return"
+        );
+
+        let result = impl_
+            .register_webhook(
+                &connector,
+                "https://example.invalid/hook",
+                &[NormalizedEventSubscription::Payments],
+            )
+            .await;
+        assert!(matches!(
+            result.as_ref().err().map(|r| r.current_context()),
+            Some(ConnectorError::Unsupported { .. })
+        ));
+
+        let verify = impl_.verify_signature(
+            &connector,
+            b"id=tr_x",
+            &HeaderMap::new(),
+            &secrecy::SecretString::from("token".to_string()),
+        );
+        assert!(
+            matches!(
+                verify.as_ref().err().map(|r| r.current_context()),
+                Some(ConnectorError::SignatureMissing)
+            ),
+            "an unsigned ping without the URL token must be rejected"
+        );
+
+        // Other adapters keep the default (no resource resolution).
+        let stancer_connector = Connector {
+            provider: ConnectorProviderEnum::Stancer,
+            data: Some(ProviderData::Stancer(StancerPublicData::default())),
+            sensitive: Some(ProviderSensitiveData::Stancer(StancerSensitiveData {
+                api_secret_key: "stest_fake".into(),
+            })),
+            ..connector
+        };
+        let unsupported = StancerConnector::new()
+            .resolve_resource_change(&stancer_connector, "paym_x")
+            .await;
+        assert!(matches!(
+            unsupported.as_ref().err().map(|r| r.current_context()),
+            Some(ConnectorError::Unsupported { .. })
+        ));
     }
 
     /// Stancer has no webhook mechanism: registration must return Unsupported

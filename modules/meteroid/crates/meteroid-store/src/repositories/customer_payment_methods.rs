@@ -34,6 +34,8 @@ pub trait CustomerPaymentMethodsInterface {
         id: &CustomerPaymentMethodId,
     ) -> StoreResult<CustomerPaymentMethod>;
 
+    /// Inserts, or merges into the existing row for the same instrument (same provider id, or same
+    /// active fingerprint under a new provider id).
     async fn upsert_payment_method(
         &self,
         method: CustomerPaymentMethodNew,
@@ -129,32 +131,25 @@ impl CustomerPaymentMethodsInterface for Store {
         &self,
         method: CustomerPaymentMethodNew,
     ) -> StoreResult<CustomerPaymentMethod> {
-        let mut conn = self.get_conn().await?;
-        let row: CustomerPaymentMethodRowNew = method.into();
-
-        let customer_payment_method = row
-            .upsert(&mut conn)
-            .await
-            .map_err(|err| StoreError::DatabaseError(err.error))?
-            .into();
-
-        Ok(customer_payment_method)
+        self.transaction(|conn| {
+            async move { self.persist_payment_method(conn, method.into(), true).await }
+                .scope_boxed()
+        })
+        .await
     }
 
     async fn insert_payment_method_if_not_exist(
         &self,
         method: CustomerPaymentMethodNew,
     ) -> StoreResult<CustomerPaymentMethod> {
-        let mut conn = self.get_conn().await?;
-        let row: CustomerPaymentMethodRowNew = method.into();
-
-        let customer_payment_method = row
-            .insert_if_not_exist(&mut conn)
-            .await
-            .map_err(|err| StoreError::DatabaseError(err.error))?
-            .into();
-
-        Ok(customer_payment_method)
+        self.transaction(|conn| {
+            async move {
+                self.persist_payment_method(conn, method.into(), false)
+                    .await
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn update_payment_method_card_details(
@@ -269,6 +264,34 @@ impl CustomerPaymentMethodsInterface for Store {
 }
 
 impl Store {
+    /// Merges a re-added instrument into its existing row: by provider id, else by active
+    /// fingerprint (adopting the new provider id). Concurrent writers converge via ON CONFLICT.
+    async fn persist_payment_method(
+        &self,
+        conn: &mut crate::store::PgConn,
+        row: CustomerPaymentMethodRowNew,
+        overwrite_existing: bool,
+    ) -> StoreResult<CustomerPaymentMethod> {
+        let existing = CustomerPaymentMethodRow::get_by_external_id(
+            conn,
+            &row.tenant_id,
+            &row.external_payment_method_id,
+        )
+        .await
+        .map_err(|err| StoreError::DatabaseError(err.error))?
+        .filter(|existing| existing.connection_id == row.connection_id);
+
+        let saved = match existing {
+            Some(existing) if !overwrite_existing => Ok(existing),
+            Some(_) => row.upsert(conn).await,
+            None if row.fingerprint.is_some() => row.upsert_by_fingerprint(conn).await,
+            None => row.upsert(conn).await,
+        }
+        .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+        Ok(saved.into())
+    }
+
     /// Prefers card over direct debit.
     async fn resolve_online_payment_method(
         &self,

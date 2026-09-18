@@ -26,6 +26,7 @@ pub struct CustomerPaymentMethodRow {
     pub card_last4: Option<String>,
     pub card_exp_month: Option<i32>,
     pub card_exp_year: Option<i32>,
+    pub fingerprint: Option<String>,
 }
 
 #[derive(Debug, Insertable, AsChangeset)]
@@ -44,6 +45,7 @@ pub struct CustomerPaymentMethodRowNew {
     pub card_last4: Option<String>,
     pub card_exp_month: Option<i32>,
     pub card_exp_year: Option<i32>,
+    pub fingerprint: Option<String>,
 }
 
 #[derive(Debug, Queryable, Selectable)]

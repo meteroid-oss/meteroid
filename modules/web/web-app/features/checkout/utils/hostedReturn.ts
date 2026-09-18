@@ -1,55 +1,98 @@
 /**
- * Return-URL contract of the hosted-redirect providers: the server-side return
- * handler redirects back with `<provider>_status` (and sometimes
- * `<provider>_error`). GoCardless: `ok | failed | abandoned` (webhook-driven;
- * `ok` only means the mandate was authorised). Stancer: `ok | processing |
- * payment_failed | failed` (no webhook — the return handler IS the completion
- * path; `payment_failed` = card saved but the first charge declined).
+ * Return-URL contract for all hosted-redirect providers: the return handler redirects back with
+ * `hosted_status` and, on failure, `hosted_error`. `ok` = method saved (and any payment done or,
+ * for webhook-driven providers, submitted); `processing` = still settling; `payment_failed` =
+ * method saved but the first charge declined; `failed` / `abandoned` = nothing saved.
  */
 
-export type HostedReturnProvider = 'gocardless' | 'stancer'
+export type HostedOutcome = 'ok' | 'processing' | 'payment_failed' | 'failed' | 'abandoned'
 
-export type GocardlessOutcome = 'ok' | 'failed' | 'abandoned'
-export type StancerOutcome = 'ok' | 'processing' | 'payment_failed' | 'failed'
+export type HostedRail = 'card' | 'directDebit'
 
-export type HostedReturn =
-  | { provider: 'gocardless'; status: GocardlessOutcome; error?: string }
-  | { provider: 'stancer'; status: StancerOutcome; error?: string }
+/** What the page knew when the customer left for the hosted flow. */
+export interface HostedDeparture {
+  rail: HostedRail
+  /** Payment methods on file before departure; anything else is new on return. */
+  paymentMethodIds?: string[]
+}
 
-const isGocardlessOutcome = (v: string | null): v is GocardlessOutcome =>
-  v === 'ok' || v === 'failed' || v === 'abandoned'
+export interface HostedReturn {
+  status: HostedOutcome
+  error?: string
+  // Absent when nothing was saved (resumed attempt, storage blocked).
+  departure?: HostedDeparture
+}
 
-const isStancerOutcome = (v: string | null): v is StancerOutcome =>
-  v === 'ok' || v === 'processing' || v === 'payment_failed' || v === 'failed'
+const isHostedOutcome = (v: string | null): v is HostedOutcome =>
+  v === 'ok' || v === 'processing' || v === 'payment_failed' || v === 'failed' || v === 'abandoned'
 
-const RETURN_PARAMS = ['gocardless_status', 'gocardless_error', 'stancer_status', 'stancer_error']
+export const HOSTED_STATUS_PARAM = 'hosted_status'
+const RETURN_PARAMS = [HOSTED_STATUS_PARAM, 'hosted_error']
 
 /**
  * Read the hosted-flow return outcome from the current URL and strip the
  * provider params (via replaceState) so a reload doesn't replay it. The
  * portal `?token=` and every other param are preserved.
  */
+// The first read strips the URL; a re-run initializer (StrictMode) gets the same result.
+let lastConsumed: { url: string; ret: HostedReturn; at: number } | null = null
+const CONSUMED_REUSE_MS = 10_000
+
 export const consumeHostedReturn = (): HostedReturn | null => {
   if (typeof window === 'undefined') return null
 
-  const params = new URLSearchParams(window.location.search)
-  const gcStatus = params.get('gocardless_status')
-  const stancerStatus = params.get('stancer_status')
-
-  let ret: HostedReturn | null = null
-  if (isGocardlessOutcome(gcStatus)) {
-    ret = { provider: 'gocardless', status: gcStatus, error: params.get('gocardless_error') ?? undefined }
-  } else if (isStancerOutcome(stancerStatus)) {
-    ret = { provider: 'stancer', status: stancerStatus, error: params.get('stancer_error') ?? undefined }
+  const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`
+  if (lastConsumed && lastConsumed.url === currentUrl && Date.now() - lastConsumed.at < CONSUMED_REUSE_MS) {
+    return lastConsumed.ret
   }
-  if (!ret) return null
+
+  const params = new URLSearchParams(window.location.search)
+  const status = params.get(HOSTED_STATUS_PARAM)
+  if (!isHostedOutcome(status)) return null
+  const ret: HostedReturn = { status, error: params.get('hosted_error') ?? undefined }
 
   RETURN_PARAMS.forEach(p => params.delete(p))
   const search = params.toString()
   const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`
   window.history.replaceState(window.history.state, '', nextUrl)
 
-  return ret
+  const departure = consumeHostedDeparture()
+  const consumed = departure ? { ...ret, departure } : ret
+  lastConsumed = { url: nextUrl, ret: consumed, at: Date.now() }
+  return consumed
+}
+
+const DEPARTURE_KEY = 'hosted_departure'
+// An older departure is ignored so a stale snapshot can't hide a real failure on a later visit.
+const HOSTED_STASH_TTL_MS = 60 * 60 * 1000
+
+/** Save the rail (and known methods) before redirecting; the return carries neither. */
+export const stashHostedDeparture = (departure: HostedDeparture): void => {
+  if (typeof window === 'undefined') return
+  try {
+    window.sessionStorage.setItem(DEPARTURE_KEY, JSON.stringify({ ...departure, ts: Date.now() }))
+  } catch {
+    // sessionStorage can throw (private mode, quota); messages then stay rail-neutral.
+  }
+}
+
+const consumeHostedDeparture = (): HostedDeparture | undefined => {
+  try {
+    const raw = window.sessionStorage.getItem(DEPARTURE_KEY)
+    if (!raw) return undefined
+    window.sessionStorage.removeItem(DEPARTURE_KEY)
+    const parsed = JSON.parse(raw) as { rail?: unknown; paymentMethodIds?: unknown; ts?: unknown }
+    if (typeof parsed.ts !== 'number' || Date.now() - parsed.ts > HOSTED_STASH_TTL_MS) return undefined
+    if (parsed.rail !== 'card' && parsed.rail !== 'directDebit') return undefined
+    return {
+      rail: parsed.rail,
+      paymentMethodIds: Array.isArray(parsed.paymentMethodIds)
+        ? parsed.paymentMethodIds.filter((id): id is string => typeof id === 'string')
+        : undefined,
+    }
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -64,9 +107,6 @@ export const hostedReturnUrl = (): string | undefined => {
 }
 
 const PRE_ATTEMPT_KEY = (invoiceId: string) => `hosted_pre_attempt_failed:${invoiceId}`
-// An older departure is ignored so a stale snapshot can't suppress a real
-// failure on a later, unrelated visit.
-const PRE_ATTEMPT_TTL_MS = 60 * 60 * 1000
 
 /**
  * Record which transactions were already FAILED *before* the customer leaves
@@ -98,7 +138,7 @@ export const consumeHostedPreAttempt = (invoiceId: string): Set<string> | null =
     if (!raw) return null
     window.sessionStorage.removeItem(PRE_ATTEMPT_KEY(invoiceId))
     const parsed = JSON.parse(raw) as { ids?: unknown; ts?: unknown }
-    if (typeof parsed.ts !== 'number' || Date.now() - parsed.ts > PRE_ATTEMPT_TTL_MS) return null
+    if (typeof parsed.ts !== 'number' || Date.now() - parsed.ts > HOSTED_STASH_TTL_MS) return null
     if (!Array.isArray(parsed.ids)) return null
     return new Set(parsed.ids.filter((id): id is string => typeof id === 'string'))
   } catch {
@@ -106,25 +146,30 @@ export const consumeHostedPreAttempt = (invoiceId: string): Set<string> | null =
   }
 }
 
-/** User-facing message for a non-`ok` hosted-flow return. */
+const setupNoun = (rail?: HostedRail) =>
+  rail === 'directDebit' ? 'Direct debit mandate' : rail === 'card' ? 'Card' : 'Payment method'
+
+const setupLabel = (rail?: HostedRail) =>
+  rail === 'directDebit' ? 'Direct debit setup' : rail === 'card' ? 'Card setup' : 'Payment method setup'
+
+/** User-facing message for a hosted payment-method setup that saved the method. */
+export const hostedReturnSuccessMessage = (ret: HostedReturn): string =>
+  `${setupNoun(ret.departure?.rail)} saved.`
+
+/** User-facing message for a non-`ok` hosted return, worded for the rail the customer left
+ *  from (saved before departure; the return itself is provider-neutral). */
 export const hostedReturnErrorMessage = (ret: HostedReturn): string => {
-  if (ret.provider === 'gocardless') {
-    if (ret.status === 'abandoned') {
-      return 'Direct debit authorisation was cancelled. You can try again.'
-    }
-    return ret.error
-      ? `Direct debit authorisation failed (${ret.error}). Please try again.`
-      : 'Direct debit authorisation failed. Please try again.'
-  }
-  // Stancer
+  const rail = ret.departure?.rail
   switch (ret.status) {
     case 'processing':
-      return 'Your card details are still being confirmed. Please wait a moment and try again.'
+      return `Your ${setupNoun(rail).toLowerCase()} is still being confirmed. Please wait a moment and try again.`
     case 'payment_failed':
-      return 'Your card was saved, but the payment was declined. Please retry with this card or use a different one.'
+      return `Your ${setupNoun(rail).toLowerCase()} was saved, but the payment was declined. Please retry with it or use a different payment method.`
+    case 'abandoned':
+      return `${setupLabel(rail)} was cancelled. You can try again.`
     default:
       return ret.error
-        ? `Card setup failed (${ret.error}). Please try again.`
-        : 'Card setup failed. Please try again.'
+        ? `${setupLabel(rail)} failed (${ret.error}). Please try again.`
+        : `${setupLabel(rail)} failed. Please try again.`
   }
 }

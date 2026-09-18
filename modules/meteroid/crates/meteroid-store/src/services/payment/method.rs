@@ -302,6 +302,7 @@ impl Services {
             tenant_id,
             customer_connection_id,
             Some(connection_type),
+            None,
             // "Add a payment method" flow — not tied to an invoice.
             None,
             None,
@@ -321,13 +322,16 @@ impl Services {
         tenant_id: &TenantId,
         customer_connection_id: &CustomerConnectionId,
         checkout: crate::adapters::payment::model::HostedCheckoutContext,
+        // Optional: legacy direct-debit-only callers omit it.
+        rail: Option<crate::domain::ConnectionTypeEnum>,
         return_url: Option<String>,
     ) -> StoreResult<SetupIntent> {
         self.create_setup_intent_internal(
             conn,
             tenant_id,
             customer_connection_id,
-            Some(crate::domain::ConnectionTypeEnum::DirectDebit),
+            None,
+            Some(rail.unwrap_or(crate::domain::ConnectionTypeEnum::DirectDebit)),
             None,
             Some(checkout),
             None,
@@ -384,17 +388,17 @@ impl Services {
     }
 
     /// Create a setup intent, optionally tied to an invoice this setup pays.
-    /// Invoice + in-flow-capturing provider: side-effect-free — the panel
-    /// fetches this on render, so it returns only a provider descriptor; only
-    /// the explicit pay action mints a capturable intent.
+    /// Fetched on render: see [`setup_intent_is_descriptor_only`].
     pub(in crate::services) async fn create_setup_intent(
         &self,
         tenant_id: &TenantId,
         customer_connection_id: &CustomerConnectionId,
         invoice_id: Option<InvoiceId>,
+        preferred_type: Option<crate::domain::ConnectionTypeEnum>,
         return_url: Option<String>,
+        descriptor_only: bool,
     ) -> StoreResult<SetupIntent> {
-        if invoice_id.is_some() {
+        if invoice_id.is_some() || descriptor_only {
             let mut conn = self.store.get_conn().await?;
             let connection = CustomerConnectionDetailsRow::get_by_id(
                 &mut conn,
@@ -406,12 +410,7 @@ impl Services {
             drop(conn);
             let provider: crate::domain::enums::ConnectorProviderEnum =
                 connection.connector.provider.into();
-            let in_flow =
-                crate::adapters::payment::provider_capabilities(&provider).is_some_and(|caps| {
-                    caps.hosted_setup_completion
-                        == crate::adapters::payment::HostedSetupCompletion::PollingRequired
-                });
-            if in_flow {
+            if setup_intent_is_descriptor_only(&provider, invoice_id.is_some(), descriptor_only) {
                 return Ok(SetupIntent {
                     intent_id: String::new(),
                     client_secret: String::new(),
@@ -429,6 +428,7 @@ impl Services {
             tenant_id,
             customer_connection_id,
             None,
+            preferred_type,
             invoice_id,
             None,
             None,
@@ -443,6 +443,8 @@ impl Services {
         tenant_id: &TenantId,
         customer_connection_id: &CustomerConnectionId,
         requested_connection_type: Option<crate::domain::ConnectionTypeEnum>,
+        // Soft: checkout from the direct-debit tab of a card-only provider still sets up a card.
+        preferred_connection_type: Option<crate::domain::ConnectionTypeEnum>,
         // When set, this setup is paying a specific invoice; for hosted-redirect
         // providers it's stored in the Billing Request metadata so the
         // `billing_requests.fulfilled` webhook can charge it once the mandate exists.
@@ -475,48 +477,24 @@ impl Services {
 
         let connector = Connector::from_row(&self.store.settings.crypt_key, connection.connector)?;
 
-        // Hosted checkout is for hosted-redirect providers only (Mock is the
-        // integration-test stand-in); other providers would silently ignore
-        // the ctx and return a non-URL secret.
-        if checkout.is_some()
-            && !matches!(
-                connector.provider,
-                crate::domain::enums::ConnectorProviderEnum::Gocardless
-                    | crate::domain::enums::ConnectorProviderEnum::Stancer
-                    | crate::domain::enums::ConnectorProviderEnum::Mock
-            )
-        {
+        let capabilities = crate::adapters::payment::provider_capabilities(&connector.provider);
+
+        // Other providers would silently ignore the ctx and return a non-URL secret.
+        if checkout.is_some() && !capabilities.is_some_and(|caps| caps.supports_hosted_checkout) {
             return Err(error_stack::Report::new(StoreError::InvalidArgument(
-                "Hosted checkout is only supported for hosted-redirect (GoCardless, Stancer) connections".to_string(),
+                "Hosted checkout is not supported by this provider".to_string(),
             )));
         }
 
-        // In-flow invoice capture is exclusively for webhook-less providers:
-        // on a webhook-backed provider the capture would race the webhook's
-        // off-session charge into a double-charge.
+        // Only where completion records the capture; otherwise the mandate webhook would charge the
+        // invoice again off-session.
         if invoice_payment.is_some()
-            && !crate::adapters::payment::provider_capabilities(&connector.provider).is_some_and(
-                |caps| {
-                    caps.hosted_setup_completion
-                        == crate::adapters::payment::HostedSetupCompletion::PollingRequired
-                },
-            )
+            && !capabilities.is_some_and(|caps| caps.supports_hosted_invoice_payment)
         {
             return Err(error_stack::Report::new(StoreError::InvalidArgument(
-                "In-flow hosted invoice payment is only supported for polling-completed providers"
-                    .to_string(),
+                "In-flow hosted invoice payment is not supported by this provider".to_string(),
             )));
         }
-
-        // The hosted-checkout entry point passes DirectDebit (GoCardless's
-        // rail); Stancer is card-only, so it sets up a card instead.
-        let requested_connection_type = if checkout.is_some()
-            && connector.provider == crate::domain::enums::ConnectorProviderEnum::Stancer
-        {
-            Some(crate::domain::ConnectionTypeEnum::Card)
-        } else {
-            requested_connection_type
-        };
 
         // Customer billing currency, for providers whose setup intent requires
         // an explicit currency even for a 0-amount card save (Stancer).
@@ -576,40 +554,19 @@ impl Services {
 
         // Filter payment methods based on requested connection type if specified
         if let Some(requested_type) = requested_connection_type {
-            payment_methods.retain(|pm| match requested_type {
-                crate::domain::ConnectionTypeEnum::Card => {
-                    matches!(pm, PaymentMethodTypeEnum::Card)
-                }
-                crate::domain::ConnectionTypeEnum::DirectDebit => matches!(
-                    pm,
-                    PaymentMethodTypeEnum::DirectDebitSepa
-                        | PaymentMethodTypeEnum::DirectDebitAch
-                        | PaymentMethodTypeEnum::DirectDebitBacs
-                ),
-            });
+            payment_methods.retain(|pm| rail_matches(requested_type, pm));
         }
+        apply_rail_preference(
+            &connector.provider,
+            &mut payment_methods,
+            preferred_connection_type,
+        );
 
-        // GoCardless must redirect back to our backend completion endpoint (to
-        // finalize the BR), not a client-supplied URL. Build it server-side
-        // from the REST API's external base URL. The customer's desired
-        // post-flow page rides along as a validated `dest` query param
-        // (same-origin as our public URL, or dropped); the return handler
-        // bounces there once the mandate is stored. The adapter uses this same
-        // value for both `redirect_uri` and `exit_uri`, so an abandoned flow
-        // lands on the handler too (without a `billing_request`), and the
-        // handler treats that as "abandoned".
-        // Stancer follows the same shape at `/v1/portal/stancer/return`, but
-        // there the return handler IS the completion path (no webhooks); the
-        // adapter PATCHes the intent's own id onto this URL once it exists.
-        let handler_path = match connector.provider {
-            crate::domain::enums::ConnectorProviderEnum::Gocardless => {
-                Some("v1/portal/gocardless/return")
-            }
-            crate::domain::enums::ConnectorProviderEnum::Stancer => {
-                Some("v1/portal/stancer/return")
-            }
-            _ => None,
-        };
+        // Hosted-redirect providers return to our own handler, never a client-supplied URL; the
+        // customer's page is passed as a same-origin `dest` param.
+        let handler_path = capabilities
+            .filter(|caps| caps.is_hosted_redirect())
+            .map(|_| crate::adapters::payment::HOSTED_RETURN_PATH);
         let return_url = if let Some(handler_path) = handler_path {
             let handler_url = format!(
                 "{}/{}?connection={}",
@@ -638,7 +595,34 @@ impl Services {
         // failed. Mint a fresh key per attempt so each start creates a new Billing
         // Request + hosted Flow (the Flow is single-use anyway); the key still
         // stays fixed across the client's internal retries within this one call.
+        let merchant_name = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
+            conn,
+            connection.customer.invoicing_entity_id,
+            *tenant_id,
+        )
+        .await
+        .map_err(|err| StoreError::DatabaseError(err.error))?
+        .legal_name;
+        let invoice_number = match invoice_id {
+            Some(id) => Some(
+                diesel_models::invoices::InvoiceRow::find_by_id(conn, *tenant_id, id)
+                    .await
+                    .map_err(|err| StoreError::DatabaseError(err.error))?
+                    .invoice_number,
+            ),
+            None => None,
+        };
+
         let mandate_request = MandateSetupRequest {
+            webhook_url: Some(crate::adapters::payment::model::connector_webhook_url(
+                self.store.settings.webhook_base_url(),
+                connector.tenant_id,
+                &connector.alias,
+            )),
+            descriptor: Some(crate::adapters::payment::model::PaymentDescriptor {
+                merchant_name,
+                invoice_number,
+            }),
             payment_methods: &payment_methods,
             idempotency_key: IdempotencyKey::new(format!(
                 "setup_intent:{}:{}",
@@ -718,6 +702,51 @@ impl Services {
     }
 }
 
+/// For providers collecting the invoice on their hosted page (Mollie, Stancer), setup creates a
+/// real payment, so a render-time intent (`descriptor_only`) must have no side effects.
+fn setup_intent_is_descriptor_only(
+    provider: &crate::domain::enums::ConnectorProviderEnum,
+    for_invoice: bool,
+    descriptor_only: bool,
+) -> bool {
+    (for_invoice || descriptor_only) && supports_hosted_invoice_payment(provider)
+}
+
+fn supports_hosted_invoice_payment(provider: &crate::domain::enums::ConnectorProviderEnum) -> bool {
+    crate::adapters::payment::provider_capabilities(provider)
+        .is_some_and(|caps| caps.supports_hosted_invoice_payment)
+}
+
+/// Each rail is its own hosted flow (Mollie card vs SEPA); Stripe's Payment Element shows all
+/// methods of one intent, so it stays whole.
+fn apply_rail_preference(
+    provider: &crate::domain::enums::ConnectorProviderEnum,
+    payment_methods: &mut Vec<PaymentMethodTypeEnum>,
+    preferred: Option<crate::domain::ConnectionTypeEnum>,
+) {
+    use crate::adapters::payment::MandateSetupMode;
+    let hosted_redirect = crate::adapters::payment::provider_capabilities(provider)
+        .is_some_and(|caps| caps.mandate_setup_mode == MandateSetupMode::HostedRedirect);
+    if let Some(preferred) = preferred
+        && hosted_redirect
+        && payment_methods.iter().any(|pm| rail_matches(preferred, pm))
+    {
+        payment_methods.retain(|pm| rail_matches(preferred, pm));
+    }
+}
+
+fn rail_matches(rail: crate::domain::ConnectionTypeEnum, method: &PaymentMethodTypeEnum) -> bool {
+    match rail {
+        crate::domain::ConnectionTypeEnum::Card => matches!(method, PaymentMethodTypeEnum::Card),
+        crate::domain::ConnectionTypeEnum::DirectDebit => matches!(
+            method,
+            PaymentMethodTypeEnum::DirectDebitSepa
+                | PaymentMethodTypeEnum::DirectDebitAch
+                | PaymentMethodTypeEnum::DirectDebitBacs
+        ),
+    }
+}
+
 /// Same-origin gate for the customer-supplied post-redirect target before we
 /// reflect it into the GoCardless return-handler URL. Scheme + host + port must
 /// match the configured public URL exactly; anything unparseable, cross-origin,
@@ -793,5 +822,139 @@ mod tests {
         assert!(!same_origin(PUBLIC, "//billing.example.com/checkout"));
         assert!(!same_origin(PUBLIC, "/checkout?token=abc"));
         assert!(!same_origin(PUBLIC, "javascript:alert(1)"));
+    }
+
+    mod rails {
+        use super::super::{apply_rail_preference, get_direct_debit_types_for_country};
+        use crate::domain::enums::ConnectorProviderEnum;
+        use crate::domain::{ConnectionTypeEnum, PaymentMethodTypeEnum};
+        use common_domain::country::CountryCode;
+        use diesel_models::enums::PaymentMethodTypeEnum as DbMethod;
+
+        fn dd_types(code: &str) -> Vec<Option<DbMethod>> {
+            let country = CountryCode {
+                code: code.into(),
+                name: code.into(),
+            };
+            get_direct_debit_types_for_country(&country)
+        }
+
+        #[test]
+        fn direct_debit_types_follow_the_entity_country() {
+            assert_eq!(dd_types("GB"), vec![Some(DbMethod::DirectDebitSepa)]);
+            assert_eq!(dd_types("FR"), vec![Some(DbMethod::DirectDebitSepa)]);
+            assert_eq!(dd_types("US"), vec![Some(DbMethod::DirectDebitAch)]);
+        }
+
+        #[test]
+        fn rail_preference_narrows_only_hosted_redirect_providers() {
+            let both = || {
+                vec![
+                    PaymentMethodTypeEnum::Card,
+                    PaymentMethodTypeEnum::DirectDebitSepa,
+                ]
+            };
+
+            let mut stripe = both();
+            apply_rail_preference(
+                &ConnectorProviderEnum::Stripe,
+                &mut stripe,
+                Some(ConnectionTypeEnum::Card),
+            );
+            assert_eq!(stripe, both());
+
+            let mut mollie_card = both();
+            apply_rail_preference(
+                &ConnectorProviderEnum::Mollie,
+                &mut mollie_card,
+                Some(ConnectionTypeEnum::Card),
+            );
+            assert_eq!(mollie_card, vec![PaymentMethodTypeEnum::Card]);
+
+            let mut mollie_dd = both();
+            apply_rail_preference(
+                &ConnectorProviderEnum::Mollie,
+                &mut mollie_dd,
+                Some(ConnectionTypeEnum::DirectDebit),
+            );
+            assert_eq!(mollie_dd, vec![PaymentMethodTypeEnum::DirectDebitSepa]);
+
+            // A preference the connection can't serve is ignored.
+            let mut card_only = vec![PaymentMethodTypeEnum::Card];
+            apply_rail_preference(
+                &ConnectorProviderEnum::Mollie,
+                &mut card_only,
+                Some(ConnectionTypeEnum::DirectDebit),
+            );
+            assert_eq!(card_only, vec![PaymentMethodTypeEnum::Card]);
+        }
+    }
+
+    mod in_flow {
+        use super::super::supports_hosted_invoice_payment;
+        use crate::domain::enums::ConnectorProviderEnum;
+
+        #[test]
+        fn only_capturing_providers_skip_the_on_render_intent() {
+            for provider in [
+                ConnectorProviderEnum::Stripe,
+                ConnectorProviderEnum::Gocardless,
+                ConnectorProviderEnum::Mock,
+            ] {
+                assert!(
+                    !supports_hosted_invoice_payment(&provider),
+                    "{provider:?} must mint a real setup intent"
+                );
+            }
+            assert!(supports_hosted_invoice_payment(
+                &ConnectorProviderEnum::Stancer
+            ));
+            assert!(supports_hosted_invoice_payment(
+                &ConnectorProviderEnum::Mollie
+            ));
+        }
+    }
+}
+
+#[cfg(test)]
+mod setup_descriptor_tests {
+    use super::setup_intent_is_descriptor_only;
+    use crate::domain::enums::ConnectorProviderEnum;
+
+    /// Stripe and GoCardless still create an intent: Stripe needs the client secret.
+    #[test]
+    fn checkout_descriptor_only_spares_hosted_payment_providers() {
+        assert!(setup_intent_is_descriptor_only(
+            &ConnectorProviderEnum::Mollie,
+            false,
+            true
+        ));
+        assert!(setup_intent_is_descriptor_only(
+            &ConnectorProviderEnum::Stancer,
+            false,
+            true
+        ));
+        for provider in [
+            ConnectorProviderEnum::Stripe,
+            ConnectorProviderEnum::Gocardless,
+        ] {
+            assert!(!setup_intent_is_descriptor_only(&provider, false, true));
+        }
+        assert!(!setup_intent_is_descriptor_only(
+            &ConnectorProviderEnum::Mollie,
+            false,
+            false
+        ));
+        // Invoice pages keep the in-flow rule regardless of the flag.
+        assert!(setup_intent_is_descriptor_only(
+            &ConnectorProviderEnum::Stancer,
+            true,
+            false
+        ));
+        assert!(!setup_intent_is_descriptor_only(
+            &ConnectorProviderEnum::Stripe,
+            true,
+            true
+        ));
     }
 }

@@ -214,6 +214,51 @@ pub async fn run_customer_payment_methods_stancer_seed(pool: &PgPool) {
     .await;
 }
 
+/// Seeds a Mollie connector without credentials: any Mollie API call fails, so a passing test
+/// proves no call was made.
+pub async fn run_mollie_provider_seed(pool: &PgPool) {
+    let mut conn = pool
+        .get()
+        .await
+        .expect("couldn't get db connection from pool");
+
+    conn.transaction(async |tx| {
+        ConnectorRowNew {
+            id: ids::MOLLIE_CONNECTOR_ID,
+            tenant_id: ids::TENANT_ID,
+            alias: "mollie-payment-provider".to_string(),
+            connector_type: ConnectorTypeEnum::PaymentProvider,
+            provider: ConnectorProviderEnum::Mollie,
+            data: Some(serde_json::json!({ "Mollie": {} })),
+            sensitive: None,
+        }
+        .insert(tx)
+        .await?;
+
+        InvoicingEntityRowProvidersPatch {
+            id: ids::INVOICING_ENTITY_ID,
+            card_provider_id: Some(Some(ids::MOLLIE_CONNECTOR_ID)),
+            direct_debit_provider_id: None,
+            bank_account_id: None,
+        }
+        .patch_invoicing_entity_providers(tx, ids::TENANT_ID)
+        .await?;
+
+        Ok::<(), DatabaseErrorContainer>(())
+    })
+    .await
+    .unwrap();
+
+    get_or_create_customer_connection(
+        pool,
+        ids::CUST_UBER_ID,
+        ids::CUST_UBER_CONNECTION_MOLLIE_ID,
+        ids::MOLLIE_CONNECTOR_ID,
+        "cst_test_mollie_uber",
+    )
+    .await;
+}
+
 // =============================================================================
 // Customer Payment Methods Seeds
 // =============================================================================
@@ -371,6 +416,7 @@ pub async fn create_customer_payment_method(
             card_last4: Some("4242".to_string()),
             card_exp_month: Some(12),
             card_exp_year: Some(2030),
+            fingerprint: None,
         }
         .upsert(tx)
         .await?;
@@ -407,6 +453,7 @@ pub async fn create_customer_sepa_payment_method(
             card_last4: None,
             card_exp_month: None,
             card_exp_year: None,
+            fingerprint: None,
         }
         .upsert(tx)
         .await?;

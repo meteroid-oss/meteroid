@@ -3,6 +3,7 @@ syntax = "proto3";
 package meteroid.portal.invoice.v1;
 
 import "portal/invoice/v1/models.proto";
+import "portal/shared/v1/models.proto";
 import "api/invoices/v1/models.proto";
 
 message GetInvoiceForPaymentRequest {
@@ -39,6 +40,8 @@ message InitiateHostedInvoicePaymentRequest {
   optional string invoice_id = 4;
   // Customer's desired post-flow page (same-origin; reflected into the return URL).
   optional string return_url = 5;
+  // The rail the customer picked (tab), when the connection serves several.
+  optional portal.shared.v1.ConnectionTypeEnum connection_type = 6;
 }
 
 message InitiateHostedInvoicePaymentResponse {

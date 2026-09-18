@@ -13,7 +13,6 @@ use meteroid::singletons::connect_redis;
 use meteroid::svix::wire_svix;
 use meteroid::{bootstrap, singletons};
 use meteroid_store::Services;
-use stripe_client::client::StripeClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -32,15 +31,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let store = singletons::get_store().await;
 
-    let stripe = Arc::new(StripeClient::new());
-
     let store_arc = Arc::new(store.clone());
 
-    let services = Services::new(
-        store_arc,
-        Arc::new(MeteringUsageClient::get().clone()),
-        stripe,
-    );
+    let services = Services::new(store_arc, Arc::new(MeteringUsageClient::get().clone()));
 
     let fred_client = connect_redis(&config.redis);
     let redis_available = fred_client.is_some();

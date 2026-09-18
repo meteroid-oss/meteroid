@@ -19,13 +19,22 @@ one.
 
 Key source files to reread each run (they drift — don't trust this skill's line
 numbers, re-grep):
-- `.../adapters/payment/connector.rs` — the `PaymentConnector` trait (sub-traits) + `ConnectorCapabilities` + `MandateSetupMode`
-- `.../adapters/payment/factory.rs` — `initialize_payment_connector` dispatch match
+- `.../adapters/payment/connector.rs` — the `PaymentConnector` trait (sub-traits incl. `CredentialOps`) + `ConnectorCapabilities` + `MandateSetupMode`
+- `.../adapters/payment/factory.rs` — `initialize_payment_connector` + `provider_capabilities` dispatch matches
 - `.../adapters/payment/model.rs` — `ChargeRequest`, `MandateSetupInstruction`, `ChargeOutcome`, …
 - `.../adapters/payment/events.rs` — the normalized webhook vocabulary you must map onto
-- `.../adapters/payment/{stripe,gocardless,mock}.rs` — the two real templates + the stub template
-- `.../domain/connectors.rs` — `ProviderData` / `ProviderSensitiveData` enums + per-provider config structs
+- `.../adapters/payment/{stripe,gocardless,mollie,stancer,mock}.rs` — the real templates + the stub template
+- `.../domain/connectors.rs` — `ProviderData` / `ProviderSensitiveData` enums + per-provider config structs (+ `webhook_secret()` / `publishable_key()` accessors)
 - `.../domain/enums.rs` + `crates/diesel-models/src/enums.rs` — the `ConnectorProviderEnum`
+- `web-app/features/payments/providers.tsx` — the frontend registry (name, logo, connect form, dashboard link)
+
+Everything downstream of the adapter keys on `ConnectorCapabilities`, never on the
+provider enum: the services (hosted checkout gate, return URL, async-debit rule,
+idempotency seed), the REST hosted-return handler, the webhook router, the gRPC
+connect handler, and the frontend (which receives the capabilities as
+`PaymentProviderCapabilities` on connectors and setup intents). A new provider
+therefore declares its behaviour once in its capability matrix and adapter, and
+the frontend only needs a registry entry.
 
 ---
 
@@ -91,8 +100,14 @@ For each provider concept, resolve it to our contract before writing code:
 | each webhook/notification type | a `NormalizedEventKind` (or intentionally dropped → log) |
 | card / bank-debit / 3DS / disputes / partial-refund support | `ConnectorCapabilities` bits |
 | sync-confirm vs webhook-confirm | `asynchronous_settlement` |
+| a Pending card charge is accepted and captured later (never awaiting the customer) | `pending_charge_accepted` |
+| hosted page collects the invoice / first checkout payment with the method | `supports_hosted_invoice_payment` / `supports_hosted_checkout` |
+| hosted return is backed by a webhook, or only by our sweeper | `hosted_setup_completion` |
 | can we create webhook endpoints via API? | `supports_self_webhook_registration` |
 | signature max age | `webhook_replay_tolerance_secs` |
+| credential check at connect time (and public data to persist) | `CredentialOps::validate_credentials` |
+| batched / undeduplicated webhook deliveries | `WebhookOps::split_delivery` |
+| idempotency key must survive a rollback + retry | `PaymentOps::invoice_charge_idempotency_seed` |
 
 If a provider capability has **no** mapping in our contract, stop and raise it with
 the user before inventing one — it may need a new `NormalizedEventKind`, a new
@@ -143,23 +158,27 @@ non-exhaustive-match errors are your live checklist:
    - `src/api/connectors/mapping.rs` (both proto↔domain arms).
 2. `ProviderData` / `ProviderSensitiveData` variants + config structs in
    `domain/connectors.rs` (public vs encrypted split per the research doc;
-   sandbox-default any live toggle).
+   sandbox-default any live toggle). Add the `webhook_secret()` arm if the provider
+   signs webhooks.
 3. `<provider>-client` crate if hand-rolling (mirror `gocardless-client` shape), or
    wire the official crate. Hold the HTTP client in a `OnceLock` inside the adapter.
-4. `<provider>.rs` adapter — implement every `PaymentConnector` sub-trait. Start
-   from a stub returning `ConnectorError::Unsupported` everywhere; fill method by
-   method against the research doc's request map. Register in `mod.rs` + `factory.rs`.
-5. `webhook_secret()` arm in `api_rest/webhooks/router.rs`; `match &connector.data`
-   arm in `api_rest/webhooks/event_handler.rs`. (Inbound route + event dispatch are
-   already provider-agnostic — no route to add.)
-6. gRPC `Connect<Provider>` (message in `models.proto` + rpc in `connectors.proto` +
-   handler in `api/connectors/service.rs`); return-handler route under
-   `api_rest/<provider>/` if hosted-redirect (mirror `api_rest/gocardless/`).
-7. Frontend (`web-app/`): integration card in `settings/tabs/IntegrationsTab.tsx`,
-   route in `router/tenant/index.tsx` + a modal in `settings/integrations/`,
-   `PROVIDER_CAPABILITIES` in `settings/tabs/PaymentsTab.tsx`, `getProviderName()` in
-   `customers/modals/ManageConnectionsModal.tsx`, and a `checkout/PaymentPanel.tsx`
-   branch (reuse the redirect branch for hosted-redirect).
+4. `<provider>.rs` adapter — implement every `PaymentConnector` sub-trait, including
+   `CredentialOps::validate_credentials`. Start from a stub returning
+   `ConnectorError::Unsupported` everywhere; fill method by method against the
+   research doc's request map. Register in `mod.rs` + both `factory.rs` matches.
+   Override `split_delivery` only for batched or undeduplicated deliveries, and
+   `invoice_charge_idempotency_seed` only when the research doc says the key must
+   survive a rollback. Hosted-redirect adapters bake `intent=<id>` into the
+   `return_url` and use `flow_abandoned` as the exit marker; the return handler at
+   `HOSTED_RETURN_PATH` is shared and needs no per-provider code.
+5. gRPC: a `<Provider>Connector` credentials message in `models.proto`, an arm in
+   the `ConnectPaymentProviderRequest.credentials` oneof, and a
+   `credentials_to_domain` arm in `api/connectors/mapping.rs`. The handler,
+   repository, webhook router and event dispatch are provider-agnostic.
+6. Frontend (`web-app/`): one entry in `features/payments/providers.tsx` (name,
+   logo, description, connect form definition, optional dashboard link / address
+   rule). Settings, the connect modal, the customer page and the checkout panel
+   read from it and from the capabilities the API returns.
 
 Rules the abstraction depends on (repeated because they're easy to violate):
 - Unsupported op → `ConnectorError::Unsupported`, **never `panic!`**.
@@ -172,9 +191,10 @@ Rules the abstraction depends on (repeated because they're easy to violate):
 
 ## Phase 4 — Verify
 
-- Add a contract test calling `run_contract(&impl_, &connector)` in `contract.rs`
-  (or the adapter module) — proves idempotency threading, capability
-  self-consistency, and that unsupported ops error instead of panic.
+- Add a contract test calling `run_contract(&impl_, &connector)` in the adapter
+  module (see `mock_satisfies_contract`) — proves idempotency threading, capability
+  self-consistency, and that unsupported ops error instead of panic. The
+  `factory.rs` test checks every payment provider's capability matrix.
 - Add a sandbox test alongside `gocardless-client/tests/` if the provider has a
   usable sandbox.
 - `cargo build` and re-grep the existing providers (`grep -rin gocardless`) — every

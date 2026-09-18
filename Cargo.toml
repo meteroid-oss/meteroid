@@ -8,6 +8,7 @@ members = [
   "modules/meteroid/crates/stripe-client",
   "modules/meteroid/crates/gocardless-client",
   "modules/meteroid/crates/stancer-client",
+  "modules/meteroid/crates/mollie-client",
   "modules/meteroid/crates/hubspot-client",
   "modules/meteroid/crates/pennylane-client",
   "modules/meteroid/crates/diesel-models",
@@ -241,6 +242,7 @@ meteroid-middleware = { path = "modules/meteroid/crates/meteroid-middleware" }
 stripe-client = { path = "modules/meteroid/crates/stripe-client" }
 gocardless-client = { path = "modules/meteroid/crates/gocardless-client" }
 stancer-client = { path = "modules/meteroid/crates/stancer-client" }
+mollie-client = { path = "modules/meteroid/crates/mollie-client" }
 meteroid-oauth = { path = "modules/meteroid/crates/meteroid-oauth" }
 meteroid-seeder = { path = "modules/meteroid/crates/meteroid-seeder" }
 hubspot-client = { path = "modules/meteroid/crates/hubspot-client" }

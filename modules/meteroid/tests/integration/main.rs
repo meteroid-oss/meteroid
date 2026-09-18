@@ -17,6 +17,7 @@ mod test_idempotency;
 mod test_idempotency_cache;
 mod test_instance;
 mod test_internal;
+mod test_payment_method_fingerprint;
 // mod test_payment;
 mod test_billing;
 mod test_credit_note;

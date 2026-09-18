@@ -37,6 +37,8 @@ pub struct Settings {
     /// backend REST endpoints directly rather than the frontend `public_url`
     /// (e.g. the GoCardless Billing Request Flow return URL).
     pub rest_api_external_url: String,
+    /// Public base for inbound provider webhooks; `None` → `rest_api_external_url`.
+    pub webhook_external_url: Option<String>,
     pub mailer_enabled: bool,
     pub domains_whitelist: Vec<String>,
     pub billing_default_plan_id: Option<PlanId>,
@@ -46,6 +48,40 @@ pub struct Settings {
 
 #[allow(clippy::upper_case_acronyms)]
 type PLACEHOLDER = i32; // enterprise placeholder
+
+impl Settings {
+    /// Base URL for provider webhook callbacks (Mollie per-payment webhook URLs).
+    pub fn webhook_base_url(&self) -> &str {
+        webhook_base(
+            self.webhook_external_url.as_deref(),
+            &self.rest_api_external_url,
+        )
+    }
+}
+
+/// Blank (e.g. `METEROID_WEBHOOK_EXTERNAL_URL=` in compose) means unset.
+fn webhook_base<'a>(override_url: Option<&'a str>, rest_api_external_url: &'a str) -> &'a str {
+    override_url
+        .filter(|url| !url.trim().is_empty())
+        .unwrap_or(rest_api_external_url)
+}
+
+#[cfg(test)]
+mod webhook_base_tests {
+    use super::webhook_base;
+
+    #[test]
+    fn blank_override_falls_back_to_the_rest_url() {
+        let rest = "https://api.example.com";
+        assert_eq!(webhook_base(None, rest), rest);
+        assert_eq!(webhook_base(Some(""), rest), rest);
+        assert_eq!(webhook_base(Some("  "), rest), rest);
+        assert_eq!(
+            webhook_base(Some("https://hooks.example.com"), rest),
+            "https://hooks.example.com"
+        );
+    }
+}
 
 #[derive(Clone)]
 pub struct Store {
@@ -67,6 +103,7 @@ pub struct StoreConfig {
     pub mailer_enabled: bool,
     pub public_url: String,
     pub rest_api_external_url: String,
+    pub webhook_external_url: Option<String>,
     pub eventbus: Arc<dyn EventBus<Event>>,
     pub mailer: Arc<dyn MailerService>,
     pub oauth: OauthServices,
@@ -162,6 +199,7 @@ impl Store {
                 multi_organization_enabled: config.multi_organization_enabled,
                 public_url: config.public_url,
                 rest_api_external_url: config.rest_api_external_url,
+                webhook_external_url: config.webhook_external_url,
                 mailer_enabled: config.mailer_enabled,
                 domains_whitelist: config.domains_whitelist,
                 billing_default_plan_id: config.billing_default_plan_id,

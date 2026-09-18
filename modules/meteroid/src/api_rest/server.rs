@@ -104,8 +104,7 @@ pub async fn start_rest_server_with_listener(
         //todo add "/api" to path and merge with api_routes
         .nest("/files", crate::api_rest::files::file_routes())
         .nest("/webhooks", crate::api_rest::webhooks::webhook_in_routes())
-        .merge(crate::api_rest::gocardless::gocardless_routes())
-        .merge(crate::api_rest::stancer::stancer_routes())
+        .merge(crate::api_rest::hosted_return::hosted_return_routes())
         .merge(crate::api_rest::oauth::oauth_routes())
         .merge(api_router)
         .fallback(handler_404)

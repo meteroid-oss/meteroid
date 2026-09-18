@@ -49,9 +49,12 @@ pub enum HostedPaymentSweepOutcome {
     Declined,
     /// Nothing to record yet; re-checked on the next sweep.
     StillPending,
-    /// Abandoned past the cutoff with no captured payment: intent cancelled,
-    /// transaction cancelled (or marker cleared), checkout session expired.
-    Expired,
+    /// The provider ended the attempt before the cutoff (a Mollie page expires within minutes):
+    /// intent and transaction cancelled, checkout session reopened for a retry.
+    AttemptClosed,
+    /// No capture by the cutoff: intent and transaction cancelled (or marker cleared), checkout
+    /// session expired.
+    CheckoutExpired,
 }
 
 /// Pure decision for one sweep pass, kept free of IO so the money-path table
@@ -69,9 +72,13 @@ pub(crate) fn sweep_action(
         HostedSetupOutcome::PaymentFailed { .. } if !past_abandon_cutoff => {
             HostedPaymentSweepOutcome::Declined
         }
+        // Final at the provider: the page can never capture, so close it out now.
+        HostedSetupOutcome::SetupFailed { definitive: true } if !past_abandon_cutoff => {
+            HostedPaymentSweepOutcome::AttemptClosed
+        }
         // Processing / SetupFailed / MethodSaved — and a declined attempt —
         // close out once past the cutoff.
-        _ if past_abandon_cutoff => HostedPaymentSweepOutcome::Expired,
+        _ if past_abandon_cutoff => HostedPaymentSweepOutcome::CheckoutExpired,
         _ => HostedPaymentSweepOutcome::StillPending,
     }
 }
@@ -144,24 +151,28 @@ impl Services {
 
         let past_cutoff = item.created_at < abandoned_before;
         let action = sweep_action(&outcome, past_cutoff);
-        if action == HostedPaymentSweepOutcome::Expired {
+        if matches!(
+            action,
+            HostedPaymentSweepOutcome::CheckoutExpired | HostedPaymentSweepOutcome::AttemptClosed
+        ) {
             // The close-out can abort (lost race, uncancelable intent):
             // report the truth — still pending, not expired.
-            if !self.close_out_abandoned_hosted_payment(item).await? {
+            let expire_session = action == HostedPaymentSweepOutcome::CheckoutExpired;
+            if !self.close_out_hosted_attempt(item, expire_session).await? {
                 return Ok(HostedPaymentSweepOutcome::StillPending);
             }
         }
         Ok(action)
     }
 
-    /// Close out an abandoned attempt: cancel the provider intent, cancel the
-    /// transaction via a status-predicated update — a concurrently-settled row
-    /// is never clobbered, captured money is NEVER cancelled away — or clear
-    /// the marker of an already-terminal one; expire a checkout session. The
-    /// anchor row is locked FOR UPDATE; losing any race aborts the close-out.
-    async fn close_out_abandoned_hosted_payment(
+    /// Closes out a finished attempt: cancels the provider intent, then cancels the transaction
+    /// with a status-guarded update (a settled row or captured money is never cancelled) or clears
+    /// the marker of a terminal one. The checkout session is expired, or reopened for a retry if
+    /// only the attempt failed. The anchor row is locked FOR UPDATE; losing any race aborts.
+    async fn close_out_hosted_attempt(
         &self,
         item: &PendingHostedPaymentRef,
+        expire_session: bool,
     ) -> StoreResult<bool> {
         use crate::services::payment::method::CancelPendingIntentOutcome;
 
@@ -308,13 +319,25 @@ impl Services {
                     }
 
                     if let Some(session_id) = session {
-                        CheckoutSessionRow::mark_expired_single(conn, tenant_id, session_id)
+                        if expire_session {
+                            CheckoutSessionRow::mark_expired_single(conn, tenant_id, session_id)
+                                .await
+                                .map_err(Into::<Report<StoreError>>::into)?;
+                            log::info!(
+                                "expired abandoned hosted checkout session {session_id} \
+                                 (transaction {transaction_id})"
+                            );
+                        } else {
+                            CheckoutSessionRow::reopen_after_failed_payment(
+                                conn, tenant_id, session_id,
+                            )
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
-                        log::info!(
-                            "expired abandoned hosted checkout session {session_id} \
-                             (transaction {transaction_id})"
-                        );
+                            log::info!(
+                                "closed out dead hosted attempt (transaction {transaction_id}); \
+                                 checkout session {session_id} left open for a retry"
+                            );
+                        }
                     } else {
                         log::info!(
                             "closed out abandoned hosted invoice payment attempt \
@@ -354,6 +377,7 @@ mod tests {
             card_last4: Some("4242".into()),
             card_exp_month: Some(12),
             card_exp_year: Some(2030),
+            fingerprint: None,
         }
     }
 
@@ -395,7 +419,7 @@ mod tests {
         );
         assert_eq!(
             sweep_action(&declined, true),
-            HostedPaymentSweepOutcome::Expired
+            HostedPaymentSweepOutcome::CheckoutExpired
         );
 
         // No card / no payment on the intent yet: wait, then expire.
@@ -405,15 +429,26 @@ mod tests {
         );
         assert_eq!(
             sweep_action(&HostedSetupOutcome::Processing, true),
-            HostedPaymentSweepOutcome::Expired
+            HostedPaymentSweepOutcome::CheckoutExpired
         );
+        let failed = |definitive| HostedSetupOutcome::SetupFailed { definitive };
         assert_eq!(
-            sweep_action(&HostedSetupOutcome::SetupFailed, false),
+            sweep_action(&failed(false), false),
             HostedPaymentSweepOutcome::StillPending
         );
         assert_eq!(
-            sweep_action(&HostedSetupOutcome::SetupFailed, true),
-            HostedPaymentSweepOutcome::Expired
+            sweep_action(&failed(false), true),
+            HostedPaymentSweepOutcome::CheckoutExpired
+        );
+        // Final at the provider (Mollie canceled/expired): closed out now, but the session only
+        // expires after the cutoff.
+        assert_eq!(
+            sweep_action(&failed(true), false),
+            HostedPaymentSweepOutcome::AttemptClosed
+        );
+        assert_eq!(
+            sweep_action(&failed(true), true),
+            HostedPaymentSweepOutcome::CheckoutExpired
         );
 
         assert_eq!(
@@ -422,7 +457,7 @@ mod tests {
         );
         assert_eq!(
             sweep_action(&HostedSetupOutcome::MethodSaved(method()), true),
-            HostedPaymentSweepOutcome::Expired
+            HostedPaymentSweepOutcome::CheckoutExpired
         );
 
         // Captured-but-unreconciled money is NEVER expired away — expiring

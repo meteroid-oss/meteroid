@@ -13,10 +13,8 @@
 
 use crate::StoreResult;
 use crate::adapters::payment::error::ConnectorError;
-use crate::adapters::payment::error::HostedSetupPending;
-use crate::adapters::payment::{
-    HostedSetupCompletion, PaymentConnector, initialize_payment_connector,
-};
+use crate::adapters::payment::error::{HostedSetupFailed, HostedSetupPending};
+use crate::adapters::payment::{PaymentConnector, initialize_payment_connector};
 use crate::domain::connectors::Connector;
 use crate::domain::entity_activity::Actor;
 use crate::domain::{
@@ -41,7 +39,7 @@ const PAYMENT_PROVIDER_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// The customer's redirect can beat the intent's own `.card` update — retry
 /// briefly before surfacing "processing" (no webhook catches up later).
-const COMPLETE_ATTEMPTS: u32 = 3;
+pub(crate) const COMPLETE_ATTEMPTS: u32 = 3;
 const COMPLETE_RETRY_DELAY: Duration = Duration::from_secs(2);
 
 /// Customer-facing outcome of a hosted-setup return. System failures stay `Err`.
@@ -61,7 +59,9 @@ pub enum HostedSetupOutcome {
     /// Intent has no saved method after retries; a refresh re-runs this (idempotent).
     Processing,
     /// Hosted flow ended without a saved card (cancelled/unpaid/nonexistent intent).
-    SetupFailed,
+    /// `definitive`: final at the provider (Mollie canceled/failed/expired), the page can't
+    /// capture.
+    SetupFailed { definitive: bool },
     /// Money WAS captured but does not reconcile with the transaction. Nothing
     /// settled; operator review required. Never expired by the sweeper —
     /// captured money is never cancelled away.
@@ -92,21 +92,8 @@ impl Services {
         Ok(())
     }
 
-    /// Finalize a hosted setup intent after the customer returns, then perform
-    /// the fail-closed first payment. Idempotent across re-visits.
-    /// Unauthenticated, attacker-supplied ids: the intent metadata is
-    /// ownership-checked before anything is attached or charged.
-    pub async fn complete_hosted_setup(
-        &self,
-        connection_id: CustomerConnectionId,
-        intent_id: String,
-    ) -> StoreResult<HostedSetupOutcome> {
-        self.complete_hosted_setup_with_attempts(connection_id, intent_id, COMPLETE_ATTEMPTS)
-            .await
-    }
-
-    /// [`Self::complete_hosted_setup`] with an explicit `.card`-timing retry
-    /// budget: the return handler retries briefly; the sweeper passes 1.
+    /// [`Self::complete_hosted_setup_for_connection`] by connection id, with an explicit retry
+    /// budget for `.card` timing: the return handler retries briefly, the sweeper passes 1.
     pub(crate) async fn complete_hosted_setup_with_attempts(
         &self,
         connection_id: CustomerConnectionId,
@@ -114,24 +101,33 @@ impl Services {
         complete_attempts: u32,
     ) -> StoreResult<HostedSetupOutcome> {
         let mut conn = self.store.get_conn().await?;
-
         let connection_row =
             CustomerConnectionDetailsRow::get_by_id_unscoped(&mut conn, &connection_id)
                 .await
                 .map_err(|err| StoreError::DatabaseError(err.error))?;
         drop(conn);
+        self.complete_hosted_setup_for_connection(connection_row, intent_id, complete_attempts)
+            .await
+    }
 
+    /// Finalizes a hosted setup intent after the customer returns, then makes the first payment
+    /// (fail-closed). Idempotent. Ids are unauthenticated, so intent metadata is checked for
+    /// ownership before anything is attached or charged.
+    pub(crate) async fn complete_hosted_setup_for_connection(
+        &self,
+        connection_row: CustomerConnectionDetailsRow,
+        intent_id: String,
+        complete_attempts: u32,
+    ) -> StoreResult<HostedSetupOutcome> {
+        let connection_id = connection_row.id;
         let external_customer_id = connection_row.external_customer_id.clone();
         let connector =
             Connector::from_row(&self.store.settings.crypt_key, connection_row.connector)?;
 
-        // Webhook-backed providers complete through their webhook and never
-        // persist a sweepable intent id — refuse to run this money path for them.
-        let polling_required = crate::adapters::payment::provider_capabilities(&connector.provider)
-            .is_some_and(|caps| {
-                caps.hosted_setup_completion == HostedSetupCompletion::PollingRequired
-            });
-        if !polling_required {
+        // Only providers that persist a sweepable intent id take this path.
+        let completes_here = crate::adapters::payment::provider_capabilities(&connector.provider)
+            .is_some_and(|caps| caps.completes_pending_hosted_intents());
+        if !completes_here {
             return Err(Report::new(StoreError::InvalidArgument(
                 "connection's provider does not use polled hosted-setup completion".to_string(),
             )));
@@ -181,7 +177,11 @@ impl Services {
                         log::info!(
                             "hosted setup for intent {intent_id} did not complete: {report:?}"
                         );
-                        Ok(HostedSetupOutcome::SetupFailed)
+                        Ok(HostedSetupOutcome::SetupFailed {
+                            definitive: report
+                                .frames()
+                                .any(|f| f.downcast_ref::<HostedSetupFailed>().is_some()),
+                        })
                     } else {
                         Err(report.change_context(StoreError::PaymentProviderError))
                     };
@@ -233,6 +233,7 @@ impl Services {
                 card_last4: snapshot.card_last4,
                 card_exp_month: snapshot.card_exp_month,
                 card_exp_year: snapshot.card_exp_year,
+                fingerprint: snapshot.fingerprint,
             })
             .await?;
 
@@ -444,6 +445,33 @@ impl Services {
         }
     }
 
+    /// Idempotent: called by both the mandate webhook and the return handler.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn settle_hosted_invoice_capture(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        customer_id: common_domain::ids::CustomerId,
+        connector: &Connector,
+        payment_method: CustomerPaymentMethod,
+        invoice_id_str: &str,
+        captured_payment_id: Option<String>,
+        intent_transaction_id: Option<String>,
+    ) -> StoreResult<HostedSetupOutcome> {
+        let connector_impl = initialize_payment_connector(connector)
+            .change_context(StoreError::PaymentProviderError)?;
+        self.settle_invoice_after_hosted_setup(
+            tenant_id,
+            customer_id,
+            connector,
+            connector_impl.as_ref(),
+            payment_method,
+            invoice_id_str,
+            captured_payment_id,
+            intent_transaction_id,
+        )
+        .await
+    }
+
     /// Settle the invoice FROM the in-flow captured payment — never charge;
     /// settling drives the invoice Paid pipeline via the settlement outbox event.
     #[allow(clippy::too_many_arguments)]
@@ -492,7 +520,8 @@ impl Services {
                     last_payment_error: Some(message.clone()),
                     processed_at: None,
                 };
-                self.consolidate_hosted_intent(tenant_id, row.id, intent, Some(payment_method.id))
+                // No method: the customer's own hosted attempt, so no dunning.
+                self.consolidate_hosted_intent(tenant_id, row.id, intent, None)
                     .await?;
                 log::warn!(
                     "hosted invoice payment for invoice {invoice_id}: in-flow captured payment \
@@ -516,7 +545,8 @@ impl Services {
                     last_payment_error: None,
                     processed_at: None,
                 };
-                self.consolidate_hosted_intent(tenant_id, row.id, intent, Some(payment_method.id))
+                // No method: the customer's own hosted attempt, so no dunning.
+                self.consolidate_hosted_intent(tenant_id, row.id, intent, None)
                     .await?;
                 Ok(HostedSetupOutcome::PaymentFailed {
                     payment_method,
@@ -870,6 +900,12 @@ impl Services {
                     idempotency_key: IdempotencyKey::new(format!("charge:{}", row.id.as_base62())),
                     // Off-session: 3DS already ran on the hosted page.
                     on_session: false,
+                    descriptor: None,
+                    webhook_url: Some(crate::adapters::payment::model::connector_webhook_url(
+                        self.store.settings.webhook_base_url(),
+                        connector.tenant_id,
+                        &connector.alias,
+                    )),
                 },
             ),
         )

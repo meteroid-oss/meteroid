@@ -2,8 +2,8 @@
 //! [`Connector`], so each test can configure success or failure scenarios.
 
 use super::connector::{
-    ConnectorCapabilities, ConnectorIdentity, CustomerOps, HostedSetupCompletion, MandateOps,
-    MandateSetupMode, PaymentOps, ReconcileOps, RefundOps, WebhookOps,
+    ConnectorCapabilities, ConnectorIdentity, CredentialOps, CustomerOps, HostedSetupCompletion,
+    MandateOps, MandateSetupMode, PaymentOps, ReconcileOps, RefundOps, WebhookOps,
 };
 use super::error::ConnectorError;
 use super::events::{
@@ -49,6 +49,9 @@ pub(super) const MOCK_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilitie
     // Mock stands in for webhook-driven providers in integration tests; hosted
     // checkouts complete without pending-intent persistence, as before.
     hosted_setup_completion: HostedSetupCompletion::WebhookBacked,
+    supports_hosted_invoice_payment: false,
+    supports_hosted_checkout: true,
+    pending_charge_accepted: false,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -77,6 +80,19 @@ impl ConnectorIdentity for MockConnector {
 
     fn capabilities(&self) -> &ConnectorCapabilities {
         &MOCK_CAPABILITIES
+    }
+}
+
+#[async_trait]
+impl CredentialOps for MockConnector {
+    async fn validate_credentials(
+        &self,
+        connector: &Connector,
+    ) -> Result<ProviderData, Report<ConnectorError>> {
+        Ok(connector
+            .data
+            .clone()
+            .unwrap_or_else(|| ProviderData::Mock(self.config.clone())))
     }
 }
 
@@ -131,6 +147,7 @@ impl MandateOps for MockConnector {
             card_last4: Some("4242".to_string()),
             card_exp_month: Some(12),
             card_exp_year: Some(2030),
+            fingerprint: Some("mock_fp_4242".to_string()),
             meteroid_connection_id: None,
             meteroid_customer_id: None,
             meteroid_invoice_id: None,
@@ -153,6 +170,7 @@ impl MandateOps for MockConnector {
             card_last4: None,
             card_exp_month: None,
             card_exp_year: None,
+            fingerprint: Some("mock_fp_0009".to_string()),
             meteroid_connection_id: None,
             meteroid_customer_id: None,
             meteroid_invoice_id: None,
@@ -479,6 +497,8 @@ mod tests {
             .charge_off_session(
                 &c,
                 ChargeRequest {
+                    descriptor: None,
+                    webhook_url: None,
                     transaction_id: common_domain::ids::PaymentTransactionId::new(),
                     customer_external_id: "cus",
                     payment_method_external_id: "pm",
@@ -508,6 +528,13 @@ mod tests {
             charge(Some("requires_action")).await,
             ChargeOutcome::RequiresAction(_)
         ));
+    }
+
+    /// The mock is the reference adapter, so it must pass the contract.
+    #[tokio::test]
+    async fn mock_satisfies_contract() {
+        let c = connector(None);
+        super::super::contract::run_contract(&MockConnector::from_connector(&c), &c).await;
     }
 
     #[test]

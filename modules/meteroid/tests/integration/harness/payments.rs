@@ -126,6 +126,11 @@ impl TestEnv {
         crate::data::payment::run_customer_payment_methods_stancer_seed(self.pool()).await;
     }
 
+    /// Seed Mollie as the card provider, with Uber's connection (no credentials).
+    pub async fn seed_mollie_payments(&self) {
+        crate::data::payment::run_mollie_provider_seed(self.pool()).await;
+    }
+
     /// Seed direct debit provider (only DD, no card).
     pub async fn seed_direct_debit_provider(&self) {
         crate::data::payment::run_direct_debit_provider_seed(self.pool()).await;

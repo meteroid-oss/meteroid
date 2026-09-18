@@ -44,6 +44,8 @@ impl Services {
         tenant_id: TenantId,
         connection_id: CustomerConnectionId,
         invoice_id: InvoiceId,
+        // The rail the customer chose, when the connection serves several (Mollie card + SEPA).
+        preferred_type: Option<crate::domain::ConnectionTypeEnum>,
         return_url: Option<String>,
     ) -> StoreResult<SetupIntent> {
         // At most twice: once more after an adoption resolves the prior
@@ -220,6 +222,7 @@ impl Services {
                                 &tenant_id,
                                 &connection_id,
                                 None,
+                                preferred_type,
                                 Some(invoice_id),
                                 None,
                                 Some(invoice_ctx),
@@ -299,7 +302,8 @@ impl Services {
                             .to_string(),
                     )));
                 }
-                HostedSetupOutcome::PaymentFailed { .. } | HostedSetupOutcome::SetupFailed
+                HostedSetupOutcome::PaymentFailed { .. }
+                | HostedSetupOutcome::SetupFailed { .. }
                     if adoption_attempt == 0 =>
                 {
                     // Resolved as declined/dead: now cancelable — loop once to

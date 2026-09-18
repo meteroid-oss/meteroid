@@ -7,6 +7,20 @@ use crate::domain::enums::ConnectorProviderEnum;
 #[derive(Debug, Clone, Copy)]
 pub struct HostedSetupPending;
 
+/// Completion error that retrying won't fix (e.g. invalid Mollie mandate); webhook handlers ack
+/// it and log. Without it, a `MandateSetup` error stays retryable.
+#[derive(Debug, Clone, Copy)]
+pub struct HostedSetupFailed;
+
+/// The customer never finished the hosted flow (Mollie `open`). Lets the return handler say
+/// "not completed" instead of "still processing".
+#[derive(Debug, Clone, Copy)]
+pub struct HostedSetupNotCompleted;
+
+/// Customer-facing message; the portal shows it as is.
+#[derive(Debug, Clone)]
+pub struct CustomerFacingMessage(pub String);
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectorError {
     #[error("Connector configuration error: {0}")]

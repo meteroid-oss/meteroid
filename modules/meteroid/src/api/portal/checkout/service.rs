@@ -233,6 +233,20 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             ));
         }
 
+        let rail = inner
+            .connection_type
+            .and_then(|raw| {
+                meteroid_grpc::meteroid::portal::shared::v1::ConnectionTypeEnum::try_from(raw).ok()
+            })
+            .map(|ct| match ct {
+                meteroid_grpc::meteroid::portal::shared::v1::ConnectionTypeEnum::Card => {
+                    meteroid_store::domain::ConnectionTypeEnum::Card
+                }
+                meteroid_grpc::meteroid::portal::shared::v1::ConnectionTypeEnum::DirectDebit => {
+                    meteroid_store::domain::ConnectionTypeEnum::DirectDebit
+                }
+            });
+
         let result = self
             .services
             .initiate_hosted_checkout(
@@ -242,6 +256,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 amount_due as i64,
                 currency,
                 coupon_code,
+                rail,
                 inner.return_url,
             )
             .await

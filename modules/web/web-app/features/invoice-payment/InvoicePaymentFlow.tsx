@@ -10,7 +10,11 @@ import { BillingInfo } from '@/features/checkout/components/BillingInfo'
 import { ReadonlyPaymentView } from '@/features/checkout/components/ReadonlyPaymentView'
 import { resolveCheckoutTheme } from '@/features/checkout/resolveCheckoutTheme'
 import { completeNextAction } from '@/features/checkout/utils/completeNextAction'
-import { hostedReturnUrl, stashHostedPreAttempt } from '@/features/checkout/utils/hostedReturn'
+import {
+  type HostedRail,
+  hostedReturnUrl,
+  stashHostedPreAttempt,
+} from '@/features/checkout/utils/hostedReturn'
 import { getInvoicePaymentAvailability } from '@/features/checkout/utils/paymentAvailability'
 import { Transaction_PaymentStatusEnum } from '@/rpc/api/invoices/v1/models_pb'
 import {
@@ -18,6 +22,7 @@ import {
   getInvoicePayment,
   initiateHostedInvoicePayment,
 } from '@/rpc/portal/invoice/v1/invoice-PortalInvoiceService_connectquery'
+import { ConnectionTypeEnum } from '@/rpc/portal/shared/v1/models_pb'
 import { formatCurrency } from '@/utils/numbers'
 
 import { BankTransferInfo } from './components/BankTransferInfo'
@@ -87,7 +92,7 @@ const InvoicePaymentFlow: React.FC<Props> = ({
   // Explicit pay CLICK for hosted-redirect card providers: the RPC pre-creates
   // the transaction, mints the capturing intent and returns the redirect we
   // follow. Never called on render.
-  const handleHostedInvoicePayment = async (connectionId: string) => {
+  const handleHostedInvoicePayment = async (connectionId: string, rail?: HostedRail) => {
     if (!invoice?.currency) {
       throw new Error('Currency is not defined')
     }
@@ -98,6 +103,13 @@ const InvoicePaymentFlow: React.FC<Props> = ({
       displayedAmount: invoice.amountDue,
       displayedCurrency: invoice.currency,
       returnUrl: hostedReturnUrl(),
+      // A connection serving several rails (Mollie) pays on the selected tab.
+      connectionType:
+        rail === undefined
+          ? undefined
+          : rail === 'card'
+            ? ConnectionTypeEnum.CARD
+            : ConnectionTypeEnum.DIRECT_DEBIT,
     })
     if (!res.nextAction) {
       throw new Error('The payment provider returned no redirect. Please try again.')
@@ -150,6 +162,10 @@ const InvoicePaymentFlow: React.FC<Props> = ({
         invoice: invoice.invoiceNumber || '',
         customer: customer?.name || '',
       })
+      // Async rails (direct debit) settle later: "processing", not "successful".
+      if (res.transaction?.status === Transaction_PaymentStatusEnum.PENDING && !res.nextAction) {
+        params.set('status', 'processing')
+      }
       navigate(`success?${params.toString()}`)
     } catch (error) {
       console.error('Payment submission error:', error)

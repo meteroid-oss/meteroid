@@ -5095,6 +5095,7 @@ dependencies = [
  "meteroid-tax",
  "mockall",
  "moka",
+ "mollie-client",
  "nanoid",
  "nonzero",
  "o2o",
@@ -5322,6 +5323,7 @@ dependencies = [
  "meteroid-oauth",
  "meteroid-store-macros",
  "meteroid-tax",
+ "mollie-client",
  "nanoid",
  "nonzero_ext",
  "o2o",
@@ -5498,6 +5500,23 @@ dependencies = [
  "smallvec",
  "tagptr",
  "uuid",
+]
+
+[[package]]
+name = "mollie-client"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "reqwest 0.13.4",
+ "rust_decimal",
+ "rust_decimal_macros",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "serde_with",
+ "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]

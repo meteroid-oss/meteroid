@@ -43,6 +43,9 @@ pub struct PaymentMethodSnapshot {
     pub card_last4: Option<String>,
     pub card_exp_month: Option<i32>,
     pub card_exp_year: Option<i32>,
+    /// Provider id of the underlying card/bank account, stable across re-adds (Stripe
+    /// `fingerprint`, Mollie `cardFingerprint`). `None` for GoCardless and Stancer.
+    pub fingerprint: Option<String>,
     /// Recovered from provider metadata when the webhook event doesn't echo it
     /// (GoCardless); `None` when events already carry our ids (Stripe).
     pub meteroid_connection_id: Option<String>,
@@ -105,6 +108,33 @@ pub struct ChargeRequest<'a> {
     /// provider return a completable `requires_action` (3DS) the portal can
     /// finish; off-session (recurring) charges can only be flagged for later.
     pub on_session: bool,
+    /// Customer-facing payment description (Mollie).
+    pub descriptor: Option<PaymentDescriptor>,
+    /// Per-payment callback URL (Mollie); see [`connector_webhook_url`].
+    pub webhook_url: Option<String>,
+}
+
+/// `/webhooks/v1/{tenant}/{alias}`, built per payment from the configured base.
+pub fn connector_webhook_url(
+    webhook_base_url: &str,
+    tenant_id: common_domain::ids::TenantId,
+    alias: &str,
+) -> String {
+    use common_domain::ids::BaseId;
+    format!(
+        "{}/webhooks/v1/{}/{}",
+        webhook_base_url.trim_end_matches('/'),
+        tenant_id.as_base62(),
+        urlencoding::encode(alias)
+    )
+}
+
+/// Customer-facing context of a payment: who pays and for what.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PaymentDescriptor {
+    /// The merchant's legal name (invoicing entity).
+    pub merchant_name: String,
+    pub invoice_number: Option<String>,
 }
 
 /// Normalized charge outcome across providers. A `Failed` here is a provider
@@ -247,6 +277,14 @@ pub struct RegisteredWebhook {
     pub secret: SecretString,
 }
 
+/// One inbound webhook to archive and enqueue: its dedup key (provider event id, `None` for
+/// payloadless notifications) and the body the worker parses.
+#[derive(Debug, Clone)]
+pub struct WebhookDeliveryUnit {
+    pub event_id: Option<String>,
+    pub body: Vec<u8>,
+}
+
 #[derive(Debug, Clone)]
 pub struct MandateSetupRequest<'a> {
     pub payment_methods: &'a [PaymentMethodTypeEnum],
@@ -274,6 +312,10 @@ pub struct MandateSetupRequest<'a> {
     /// The customer's billing currency (ISO 4217), for providers whose setup
     /// intent requires one even for a 0-amount card save (Stancer); others ignore it.
     pub currency: Option<String>,
+    /// What the hosted payment is for (see [`ChargeRequest::descriptor`]).
+    pub descriptor: Option<PaymentDescriptor>,
+    /// See [`ChargeRequest::webhook_url`].
+    pub webhook_url: Option<String>,
 }
 
 /// Context for a combined mandate + first-payment hosted checkout. Threaded into
@@ -339,4 +381,22 @@ pub enum RemoteTransactionStatus {
     /// Provider has no record (our outbound call never reached it); safe to
     /// cancel the local transaction and retry from scratch.
     Unknown,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common_domain::ids::{BaseId, TenantId};
+
+    #[test]
+    fn connector_webhook_url_is_tenant_and_alias_scoped() {
+        let tenant = TenantId::new();
+        assert_eq!(
+            connector_webhook_url("https://api.example.com/", tenant, "mollie eu"),
+            format!(
+                "https://api.example.com/webhooks/v1/{}/mollie%20eu",
+                tenant.as_base62()
+            )
+        );
+    }
 }

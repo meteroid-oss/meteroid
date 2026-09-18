@@ -64,6 +64,12 @@ pub enum NormalizedEventKind {
     Acknowledged {
         reason: &'static str,
     },
+
+    /// Notification without a payload (Mollie "payment `tr_…` changed"); expanded by
+    /// [`super::connector::WebhookOps::resolve_resource_change`].
+    ResourceChanged {
+        resource_ref: String,
+    },
 }
 
 /// Coarse kinds for configuring webhook subscriptions; the adapter maps each to

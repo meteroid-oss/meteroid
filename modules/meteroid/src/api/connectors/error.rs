@@ -16,6 +16,11 @@ pub enum ConnectorApiError {
     #[code(InvalidArgument)]
     InvalidArgument(String),
 
+    /// Invalid input with a user-facing message, shown as is.
+    #[error("{0}")]
+    #[code(InvalidArgument)]
+    InvalidInput(String),
+
     #[error("{0}")]
     #[code(Internal)]
     StoreError(String, #[source] Box<dyn Error>),

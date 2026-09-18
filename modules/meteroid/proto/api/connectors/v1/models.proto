@@ -9,6 +9,7 @@ enum ConnectorProviderEnum {
   PENNYLANE = 2;
   GOCARDLESS = 3;
   STANCER = 4;
+  MOLLIE = 5;
 }
 
 enum ConnectorTypeEnum {
@@ -25,12 +26,47 @@ message ConnectorData {
   }
 }
 
+// How a payment method is set up. The frontend picks its UI from this, not from the provider.
+enum MandateSetupMode {
+  // Provider returns a client secret; the frontend mounts an embedded SDK.
+  EMBEDDED_CLIENT_SECRET = 0;
+  // Provider returns an authorisation URL; the frontend redirects the browser.
+  HOSTED_REDIRECT = 1;
+  // Provider returns opaque session data; the frontend mounts a drop-in widget.
+  EMBEDDED_DROP_IN = 2;
+}
+
+// How a hosted-redirect setup's completion reaches the backend.
+enum HostedSetupCompletion {
+  // A webhook covers lost returns.
+  WEBHOOK_BACKED = 0;
+  // Only the return redirect signals completion; a sweeper polls lost returns.
+  POLLING_REQUIRED = 1;
+}
+
+// What a payment provider can do (mirrors backend `ConnectorCapabilities`). Absent on
+// non-payment connectors.
+message PaymentProviderCapabilities {
+  bool supports_cards = 1;
+  bool supports_direct_debit = 2;
+  MandateSetupMode mandate_setup_mode = 3;
+  HostedSetupCompletion hosted_setup_completion = 4;
+  // The hosted page collects the invoice amount with the method, so the payment is created on
+  // the pay click, not on render.
+  bool supports_hosted_invoice_payment = 5;
+  // The checkout's first payment is collected in the same hosted flow as the mandate.
+  bool supports_hosted_checkout = 6;
+  // Charges settle later via webhook or reconciliation.
+  bool asynchronous_settlement = 7;
+}
+
 message Connector {
   string id = 1;
   string alias = 2;
   ConnectorProviderEnum provider = 3;
   ConnectorTypeEnum connector_type = 4;
   optional ConnectorData data = 5;
+  optional PaymentProviderCapabilities payment_capabilities = 6;
 }
 
 // we could add some Stripe Connect to simplify cloud onboarding later
@@ -47,6 +83,13 @@ message StripeConnector {
 message StancerConnector {
   string alias = 1;
   string api_secret_key = 2;
+}
+
+// Mollie: the API key is the only credential; its prefix selects test/live. Webhooks are
+// per payment, authenticated by a server-generated URL token.
+message MollieConnector {
+  string alias = 1;
+  string api_key = 2;
 }
 
 message HubspotConnectorData {

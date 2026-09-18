@@ -19,6 +19,7 @@ import { VatValidationBadge } from '@/features/customers/components/BillingInfoC
 import { CustomerInvoiceModal } from '@/features/customers/modals/CustomerInvoiceModal'
 import { ManageConnectionsModal } from '@/features/customers/modals/ManageConnectionsModal'
 import { EffectiveEntitlementsCard } from '@/features/entitlements/customer/EffectiveEntitlementsCard'
+import { connectorDisplayName, paymentProvider } from '@/features/payments/providers'
 import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
@@ -319,7 +320,7 @@ export const Customer = () => {
                     // provider display name if the connector isn't loaded yet.
                     const connectorName =
                       connectorAliasById.get(connection.connectorId) ||
-                      getProviderName(connection.connectorProvider)
+                      connectorDisplayName(connection.connectorProvider)
                     const externalLink = getProviderLink(
                       connection.connectorProvider,
                       connection.externalCustomerId,
@@ -436,34 +437,13 @@ const FlexDetails = ({
   </Flex>
 )
 
-// Helper functions for connector providers
-const getProviderName = (provider: ConnectorProviderEnum | undefined): string => {
-  switch (provider) {
-    case ConnectorProviderEnum.STRIPE:
-      return 'Stripe'
-    case ConnectorProviderEnum.HUBSPOT:
-      return 'Hubspot'
-    case ConnectorProviderEnum.PENNYLANE:
-      return 'Pennylane'
-    case ConnectorProviderEnum.GOCARDLESS:
-      return 'GoCardless'
-    case ConnectorProviderEnum.STANCER:
-      return 'Stancer'
-    default:
-      return 'Unknown'
-  }
-}
-
 const getProviderLink = (
   provider: ConnectorProviderEnum | undefined,
   externalId: string,
   externalCompanyId?: string,
   isSandbox?: boolean
 ): string | undefined => {
-  // Return external links for providers that support it
   switch (provider) {
-    case ConnectorProviderEnum.STRIPE:
-      return `https://dashboard.stripe.com/customers/${externalId}`
     case ConnectorProviderEnum.HUBSPOT:
       return externalCompanyId
         ? `https://app.hubspot.com/contacts/${externalCompanyId}/company/${externalId}`
@@ -472,9 +452,7 @@ const getProviderLink = (
       return externalCompanyId
         ? `https://app.pennylane.com/companies/${externalCompanyId}/thirdparties/customers?id=${externalId}`
         : undefined
-    case ConnectorProviderEnum.GOCARDLESS:
-      return `https://manage${isSandbox ? '-sandbox' : ''}.gocardless.com/customers/${externalId}`
     default:
-      return undefined
+      return paymentProvider(provider)?.customerDashboardUrl?.(externalId, isSandbox ?? true)
   }
 }

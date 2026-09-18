@@ -42,6 +42,12 @@ impl Services {
             return Ok(());
         };
 
+        // No saved method: the customer's own attempt on a hosted page (Mollie, Stancer). Nothing
+        // was charged automatically, so no dunning; the invoice stays payable.
+        if event.payment_method_id.is_none() {
+            return Ok(());
+        }
+
         self.store
             .transaction(|conn| {
                 async move {
@@ -204,7 +210,8 @@ impl Services {
     }
 
     /// Releases a checkout session whose charge failed before any invoice existed, so the
-    /// customer can start over instead of being stuck on `AwaitingPayment`.
+    /// customer can retry. It goes back to `Created`, not `Cancelled`, so "Open checkout" on the
+    /// subscription still works after a declined or expired hosted payment.
     async fn release_failed_checkout_session(
         &self,
         tenant_id: TenantId,
@@ -213,9 +220,9 @@ impl Services {
         self.store
             .transaction(|conn| {
                 async move {
-                    // Idempotent: only Created/AwaitingPayment sessions transition, so a
+                    // Idempotent: only an AwaitingPayment session transitions, so a
                     // redelivery finds nothing to do and returns None.
-                    CheckoutSessionRow::mark_cancelled(conn, tenant_id, session_id)
+                    CheckoutSessionRow::reopen_after_failed_payment(conn, tenant_id, session_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
                     Ok(())

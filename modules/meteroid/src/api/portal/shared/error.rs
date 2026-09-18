@@ -5,6 +5,7 @@ use thiserror::Error;
 use crate::errors::ObjectStoreError;
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
 use meteroid_store::adapters::payment::ConnectorError;
+use meteroid_store::adapters::payment::error::CustomerFacingMessage;
 use meteroid_store::errors::StoreError;
 
 #[derive(Debug, Error, ErrorAsTonic)]
@@ -33,10 +34,21 @@ pub enum PortalSharedApiError {
     #[error("{0}")]
     #[code(Internal)]
     InternalError(String),
+    #[error("{0}")]
+    #[code(FailedPrecondition)]
+    PaymentUnavailable(String),
 }
 
 impl From<Report<StoreError>> for PortalSharedApiError {
     fn from(value: Report<StoreError>) -> Self {
+        // Customer-facing provider message (Mollie), shown as is.
+        if let Some(CustomerFacingMessage(msg)) = value
+            .frames()
+            .find_map(|f| f.downcast_ref::<CustomerFacingMessage>())
+        {
+            return Self::PaymentUnavailable(msg.clone());
+        }
+
         let err = value.current_context();
 
         match err {

@@ -67,9 +67,13 @@ pub async fn run_hosted_payment_sweeper(
         loop {
             let jitter = Duration::from_millis(rand::random::<u64>() % 10_000);
             match sweep(&services, &mut rotation).await {
-                Ok((completed, expired)) if completed > 0 || expired > 0 => {
+                Ok(counts) if counts.is_noteworthy() => {
                     log::info!(
-                        "Hosted payment sweep completed {completed} attempts, closed out {expired} abandoned attempts"
+                        "Hosted payment sweep completed {} attempts, closed {} attempts the \
+                         provider ended, expired {} abandoned checkouts",
+                        counts.completed,
+                        counts.attempts_closed,
+                        counts.checkouts_expired
                     );
                 }
                 Ok(_) => {
@@ -136,10 +140,23 @@ impl SweepRotation {
     }
 }
 
+#[derive(Default)]
+struct SweepCounts {
+    completed: usize,
+    attempts_closed: usize,
+    checkouts_expired: usize,
+}
+
+impl SweepCounts {
+    fn is_noteworthy(&self) -> bool {
+        self.completed > 0 || self.attempts_closed > 0 || self.checkouts_expired > 0
+    }
+}
+
 async fn sweep(
     services: &Arc<Services>,
     rotation: &mut SweepRotation,
-) -> Result<(usize, usize), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<SweepCounts, Box<dyn std::error::Error + Send + Sync>> {
     let now = chrono::Utc::now();
     let older_than = now - chrono::Duration::from_std(AWAITING_GRACE).unwrap();
     let abandoned_before = now - chrono::Duration::from_std(ABANDONED_MAX_AGE).unwrap();
@@ -154,8 +171,7 @@ async fn sweep(
         .last()
         .map(|item| (item.created_at, item.transaction_id));
 
-    let mut completed = 0usize;
-    let mut expired = 0usize;
+    let mut counts = SweepCounts::default();
     for item in items {
         // One erroring attempt must never abort the batch — log, count, move on.
         match services.sweep_hosted_payment(&item, abandoned_before).await {
@@ -169,11 +185,15 @@ async fn sweep(
                     item.invoice_id
                 );
                 rotation.record_ok(item.transaction_id);
-                completed += 1;
+                counts.completed += 1;
             }
-            Ok(HostedPaymentSweepOutcome::Expired) => {
+            Ok(HostedPaymentSweepOutcome::AttemptClosed) => {
                 rotation.record_ok(item.transaction_id);
-                expired += 1;
+                counts.attempts_closed += 1;
+            }
+            Ok(HostedPaymentSweepOutcome::CheckoutExpired) => {
+                rotation.record_ok(item.transaction_id);
+                counts.checkouts_expired += 1;
             }
             Ok(HostedPaymentSweepOutcome::Declined | HostedPaymentSweepOutcome::StillPending) => {
                 rotation.record_ok(item.transaction_id);
@@ -201,7 +221,7 @@ async fn sweep(
 
     rotation.advance(last_key, batch_len, BATCH_SIZE as usize);
 
-    Ok((completed, expired))
+    Ok(counts)
 }
 
 #[cfg(test)]

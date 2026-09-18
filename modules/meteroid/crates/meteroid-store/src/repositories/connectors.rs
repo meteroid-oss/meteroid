@@ -1,8 +1,7 @@
 use crate::domain::connectors::{
     Connector, ConnectorAccessToken, ConnectorMeta, ConnectorNew, HubspotPublicData,
     HubspotSensitiveData, PennylanePublicData, PennylaneSensitiveData, ProviderData,
-    ProviderSensitiveData, StancerPublicData, StancerSensitiveData, StripePublicData,
-    StripeSensitiveData,
+    ProviderSensitiveData,
 };
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
@@ -35,30 +34,14 @@ pub trait ConnectorsInterface {
         tenant_id: TenantId,
     ) -> StoreResult<()>;
 
-    async fn connect_stripe(
+    async fn connect_payment_provider(
         &self,
         actor: Actor,
         tenant_id: TenantId,
         alias: String,
-        publishable_key: String,
-        stripe_data: StripeSensitiveData,
-        stripe_account_id: String,
-    ) -> StoreResult<ConnectorMeta>;
-
-    async fn connect_gocardless(
-        &self,
-        tenant_id: TenantId,
-        alias: String,
-        public: crate::domain::connectors::GocardlessPublicData,
-        sensitive: crate::domain::connectors::GocardlessSensitiveData,
-    ) -> StoreResult<ConnectorMeta>;
-
-    async fn connect_stancer(
-        &self,
-        actor: Actor,
-        tenant_id: TenantId,
-        alias: String,
-        stancer_data: StancerSensitiveData,
+        provider: ConnectorProviderEnum,
+        data: ProviderData,
+        sensitive: ProviderSensitiveData,
     ) -> StoreResult<ConnectorMeta>;
 
     async fn get_connector_with_data(
@@ -157,25 +140,25 @@ impl ConnectorsInterface for Store {
         .await
     }
 
-    async fn connect_stripe(
+    async fn connect_payment_provider(
         &self,
         actor: Actor,
         tenant_id: TenantId,
         alias: String,
-        publishable_key: String,
-        stripe_data: StripeSensitiveData,
-        stripe_account_id: String,
+        provider: ConnectorProviderEnum,
+        data: ProviderData,
+        sensitive: ProviderSensitiveData,
     ) -> StoreResult<ConnectorMeta> {
+        let db_provider: diesel_models::enums::ConnectorProviderEnum = provider.clone().into();
+        let meta_key = db_provider.as_meta_key().to_string();
+        let account_id = data.external_account_id().map(str::to_string);
         let row: ConnectorRowNew = ConnectorNew {
             tenant_id,
             alias: alias.clone(),
             connector_type: ConnectorTypeEnum::PaymentProvider,
-            provider: ConnectorProviderEnum::Stripe,
-            data: Some(ProviderData::Stripe(StripePublicData {
-                api_publishable_key: publishable_key,
-                account_id: stripe_account_id.clone(),
-            })),
-            sensitive: Some(ProviderSensitiveData::Stripe(stripe_data)),
+            provider,
+            data: Some(data),
+            sensitive: Some(sensitive),
         }
         .to_row(&self.settings.crypt_key)?;
 
@@ -184,7 +167,8 @@ impl ConnectorsInterface for Store {
                 let actor = &actor;
                 let row = &row;
                 let alias = &alias;
-                let stripe_account_id = &stripe_account_id;
+                let meta_key = &meta_key;
+                let account_id = &account_id;
                 async move {
                     let res = row
                         .insert(conn)
@@ -197,85 +181,9 @@ impl ConnectorsInterface for Store {
                         res.id.as_uuid(),
                     )
                     .with_metadata(serde_json::json!({
-                        "provider": "stripe",
+                        "provider": meta_key,
                         "alias": alias,
-                        "stripe_account_id": stripe_account_id,
-                    }));
-                    self.internal
-                        .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
-                        .await?;
-                    Ok(res)
-                }
-                .scope_boxed()
-            })
-            .await?;
-
-        Ok(res.into())
-    }
-
-    async fn connect_gocardless(
-        &self,
-        tenant_id: TenantId,
-        alias: String,
-        public: crate::domain::connectors::GocardlessPublicData,
-        sensitive: crate::domain::connectors::GocardlessSensitiveData,
-    ) -> StoreResult<ConnectorMeta> {
-        let mut conn = self.get_conn().await?;
-
-        let row: ConnectorRowNew = ConnectorNew {
-            tenant_id,
-            alias,
-            connector_type: ConnectorTypeEnum::PaymentProvider,
-            provider: ConnectorProviderEnum::Gocardless,
-            data: Some(ProviderData::Gocardless(public)),
-            sensitive: Some(ProviderSensitiveData::Gocardless(sensitive)),
-        }
-        .to_row(&self.settings.crypt_key)?;
-
-        let res = row
-            .insert(&mut conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        Ok(res.into())
-    }
-
-    async fn connect_stancer(
-        &self,
-        actor: Actor,
-        tenant_id: TenantId,
-        alias: String,
-        stancer_data: StancerSensitiveData,
-    ) -> StoreResult<ConnectorMeta> {
-        let row: ConnectorRowNew = ConnectorNew {
-            tenant_id,
-            alias: alias.clone(),
-            connector_type: ConnectorTypeEnum::PaymentProvider,
-            provider: ConnectorProviderEnum::Stancer,
-            data: Some(ProviderData::Stancer(StancerPublicData::default())),
-            sensitive: Some(ProviderSensitiveData::Stancer(stancer_data)),
-        }
-        .to_row(&self.settings.crypt_key)?;
-
-        let res = self
-            .transaction(|conn| {
-                let actor = &actor;
-                let row = &row;
-                let alias = &alias;
-                async move {
-                    let res = row
-                        .insert(conn)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
-                    let activity = Activity::new(
-                        ActivityType::ConnectorConnected,
-                        EntityType::Connector,
-                        res.id.as_uuid(),
-                    )
-                    .with_metadata(serde_json::json!({
-                        "provider": "stancer",
-                        "alias": alias,
+                        "account_id": account_id,
                     }));
                     self.internal
                         .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))

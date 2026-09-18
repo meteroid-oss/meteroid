@@ -15,8 +15,8 @@ import { Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
+import { connectorDisplayName } from '@/features/payments/providers'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
-import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
   deleteCustomerConnection,
   upsertCustomerConnection,
@@ -84,23 +84,6 @@ export const ManageConnectionsModal = ({
 
     setFormData(newFormData)
   }, [customer, connectorsQuery.data])
-
-  const getProviderName = (provider: ConnectorProviderEnum): string => {
-    switch (provider) {
-      case ConnectorProviderEnum.STRIPE:
-        return 'Stripe'
-      case ConnectorProviderEnum.HUBSPOT:
-        return 'Hubspot'
-      case ConnectorProviderEnum.PENNYLANE:
-        return 'Pennylane'
-      case ConnectorProviderEnum.GOCARDLESS:
-        return 'GoCardless'
-      case ConnectorProviderEnum.STANCER:
-        return 'Stancer'
-      default:
-        return 'Unknown'
-    }
-  }
 
   const handleSave = async (connectorId: string) => {
     if (!customer) return
@@ -179,7 +162,7 @@ export const ManageConnectionsModal = ({
                   <div>
                     <Label className="text-sm font-medium">{connector.alias}</Label>
                     <div className="text-xs text-muted-foreground">
-                      {getProviderName(connector.provider)}
+                      {connectorDisplayName(connector.provider)}
                     </div>
                   </div>
                   {hasExistingConnection && (

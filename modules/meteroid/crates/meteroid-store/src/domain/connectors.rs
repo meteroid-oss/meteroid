@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use std::str::FromStr;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Connector {
     pub id: ConnectorId,
     pub created_at: NaiveDateTime,
@@ -25,10 +25,48 @@ pub struct Connector {
     pub sensitive: Option<ProviderSensitiveData>,
 }
 
+impl std::fmt::Debug for Connector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Connector")
+            .field("id", &self.id)
+            .field("created_at", &self.created_at)
+            .field("tenant_id", &self.tenant_id)
+            .field("alias", &self.alias)
+            .field("connector_type", &self.connector_type)
+            .field("provider", &self.provider)
+            .field("data", &self.data)
+            .field("sensitive", &self.sensitive.as_ref().map(|_| "<redacted>"))
+            .finish()
+    }
+}
+
 impl Connector {
     pub fn hubspot_data(&self) -> Option<&HubspotPublicData> {
         match &self.data {
             Some(ProviderData::Hubspot(data)) => Some(data),
+            _ => None,
+        }
+    }
+
+    /// Secret for verifying inbound webhooks; `None` if the provider has none or it isn't set.
+    pub fn webhook_secret(&self) -> Option<SecretString> {
+        self.sensitive.as_ref().and_then(|s| s.webhook_secret())
+    }
+
+    /// Client-side key for an embedded SDK (Stripe publishable key).
+    pub fn publishable_key(&self) -> Option<&str> {
+        match &self.data {
+            Some(ProviderData::Stripe(d)) => Some(d.api_publishable_key.as_str()),
+            _ => None,
+        }
+    }
+}
+
+impl ProviderData {
+    /// The merchant's account id at the provider, if exposed.
+    pub fn external_account_id(&self) -> Option<&str> {
+        match self {
+            ProviderData::Stripe(d) => Some(d.account_id.as_str()),
             _ => None,
         }
     }
@@ -42,6 +80,7 @@ pub enum ProviderData {
     Mock(MockPublicData),
     Gocardless(GocardlessPublicData),
     Stancer(StancerPublicData),
+    Mollie(MolliePublicData),
 }
 
 json_value_ser!(ProviderData);
@@ -57,6 +96,10 @@ pub struct StripePublicData {
 /// the payment-intent response. Nothing public to store.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct StancerPublicData {}
+
+/// The API key prefix selects test/live; webhook URLs are built server-side.
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct MolliePublicData {}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HubspotPublicData {
@@ -81,9 +124,43 @@ pub enum ProviderSensitiveData {
     Mock(MockSensitiveData),
     Gocardless(GocardlessSensitiveData),
     Stancer(StancerSensitiveData),
+    Mollie(MollieSensitiveData),
 }
 
 impl ProviderSensitiveData {
+    /// Value inbound webhooks are verified against: a signing secret, or the URL token for unsigned
+    /// webhooks (Mollie). Empty means unset.
+    pub fn webhook_secret(&self) -> Option<SecretString> {
+        let raw = match self {
+            ProviderSensitiveData::Stripe(d) => d.webhook_secret.as_str(),
+            ProviderSensitiveData::Gocardless(d) => d.webhook_secret.as_str(),
+            ProviderSensitiveData::Mollie(d) => d.webhook_token.as_str(),
+            ProviderSensitiveData::Stancer(_)
+            | ProviderSensitiveData::Mock(_)
+            | ProviderSensitiveData::Hubspot(_)
+            | ProviderSensitiveData::Pennylane(_) => "",
+        };
+        (!raw.is_empty()).then(|| SecretString::from(raw.to_string()))
+    }
+
+    /// Stores the secret and endpoint id of a webhook endpoint we registered. `None` if this
+    /// provider has nowhere to keep them, so the caller never persists a connector it can't verify
+    /// webhooks for.
+    pub fn with_registered_webhook(
+        mut self,
+        endpoint_id: &str,
+        secret: &SecretString,
+    ) -> Option<Self> {
+        match &mut self {
+            ProviderSensitiveData::Stripe(d) => {
+                d.webhook_secret = secret.expose_secret().to_string();
+                d.webhook_endpoint_id = Some(endpoint_id.to_string());
+                Some(self)
+            }
+            _ => None,
+        }
+    }
+
     pub fn encrypt(&self, key: &SecretString) -> StoreResult<String> {
         let s = serde_json::to_string(self).map_err(|e| {
             StoreError::SerdeError(
@@ -146,6 +223,24 @@ pub struct StripeSensitiveData {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StancerSensitiveData {
     pub api_secret_key: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MollieSensitiveData {
+    /// `test_…` / `live_…` API key; the prefix selects the mode.
+    pub api_key: String,
+    /// Random token appended to `webhookUrl` to authenticate Mollie's unsigned webhooks.
+    pub webhook_token: String,
+}
+
+impl MollieSensitiveData {
+    /// Mollie doesn't sign webhooks, so we generate a 256-bit token for the URL.
+    pub fn new(api_key: String) -> Self {
+        Self {
+            api_key,
+            webhook_token: hex::encode(rand::random::<[u8; 32]>()),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -336,4 +431,18 @@ pub struct ConnectorAccessToken {
     pub external_company_id: String,
     pub access_token: SecretString,
     pub expires_at: Option<DateTime<Utc>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MollieSensitiveData;
+
+    #[test]
+    fn mollie_credentials_mint_a_fresh_token() {
+        let a = MollieSensitiveData::new("test_k".into());
+        let b = MollieSensitiveData::new("test_k".into());
+        assert_eq!(a.webhook_token.len(), 64);
+        assert!(a.webhook_token.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(a.webhook_token, b.webhook_token);
+    }
 }

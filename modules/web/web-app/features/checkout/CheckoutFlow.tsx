@@ -11,6 +11,7 @@ import { resolveCheckoutTheme } from '@/features/checkout/resolveCheckoutTheme'
 import { hasCompleteBillingInformation } from '@/features/checkout/utils/billingInfo'
 import { completeNextAction } from '@/features/checkout/utils/completeNextAction'
 import {
+  HostedRail,
   consumeHostedReturn,
   hostedReturnErrorMessage,
   hostedReturnUrl,
@@ -26,14 +27,14 @@ import {
 } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
 import { CheckoutType } from '@/rpc/portal/checkout/v1/checkout_pb'
 import { Checkout } from '@/rpc/portal/checkout/v1/models_pb'
+import { ConnectionTypeEnum } from '@/rpc/portal/shared/v1/models_pb'
 import { formatCurrency } from '@/utils/numbers'
 
 import { SubscriptionSummary } from './components/SubscriptionSummary'
 import { CheckoutFlowProps } from './types'
 
-// After a hosted flow returns `ok`, the backend materializes the subscription
-// (GoCardless: webhook, which can lag the redirect; Stancer: the return
-// handler) — poll the checkout until the session reports completed.
+// After a hosted flow returns `ok`, the backend creates the subscription (via webhook, which can
+// lag the redirect, or via the return handler), so poll until the session is completed.
 const HOSTED_ACTIVATION_POLL_MS = 3000
 const HOSTED_ACTIVATION_TIMEOUT_MS = 2 * 60 * 1000
 
@@ -52,7 +53,7 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
   const [isApplyingCoupon, setIsApplyingCoupon] = useState(false)
   const [checkoutData, setCheckoutData] = useState<Checkout>(initialCheckoutData)
   // Hosted-flow round trip (GoCardless mandate / Stancer card): the customer is
-  // redirected back here with a gocardless_status / stancer_status param.
+  // redirected back here with a hosted_status param.
   // Lazy initializer so the params are read (and stripped) exactly once — a
   // re-run of the mount effect (StrictMode) must see the same outcome.
   const [hostedReturn] = useState(() => consumeHostedReturn())
@@ -227,7 +228,7 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
 
   // Hosted checkout: ONE explicit customer action. The RPC validates the
   // displayed amount server-side and returns a redirect next_action we follow.
-  const handleHostedCheckout = async (connectionId: string) => {
+  const handleHostedCheckout = async (connectionId: string, rail: HostedRail) => {
     setCouponError(undefined)
 
     if (billingBlocksPayment) {
@@ -245,6 +246,8 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
       displayedCurrency: subscription.subscription.currency,
       couponCode: couponCode.trim() || undefined,
       returnUrl: hostedReturnUrl(),
+      // Only matters when one connection serves both rails (Mollie).
+      connectionType: rail === 'card' ? ConnectionTypeEnum.CARD : ConnectionTypeEnum.DIRECT_DEBIT,
     })
 
     if (!res.nextAction) {
@@ -264,7 +267,8 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({
     const ret = hostedReturn
     if (!ret) return
 
-    if (ret.status !== 'ok') {
+    // `processing` is still settling: treat it like `ok` rather than prompt a second payment.
+    if (ret.status !== 'ok' && ret.status !== 'processing') {
       setHostedError(hostedReturnErrorMessage(ret))
       return
     }

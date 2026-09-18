@@ -85,7 +85,7 @@ impl WebhookIn {
             .await;
 
             if let Err(err) = result {
-                if is_transient(err.current_context()) {
+                if err.current_context().is_transient() {
                     // A DB write or provider fetch failed transiently; propagate
                     // so pgmq retries this message.
                     return Err(err).change_context(PgmqError::HandleMessages);
@@ -108,17 +108,6 @@ impl WebhookIn {
 
         Ok(())
     }
-}
-
-/// Only genuinely transient failures (DB / provider fetch) warrant a pgmq retry.
-/// Everything else — unknown events, bad metadata, events that aren't ours — is
-/// acked as a no-op so it can't wedge the queue on endless retries.
-fn is_transient(err: &crate::errors::AdapterWebhookError) -> bool {
-    use crate::errors::AdapterWebhookError as E;
-    matches!(
-        err,
-        E::ProviderError | E::StoreError | E::DatabaseError | E::ObjectStoreUnreachable
-    )
 }
 
 #[async_trait::async_trait]

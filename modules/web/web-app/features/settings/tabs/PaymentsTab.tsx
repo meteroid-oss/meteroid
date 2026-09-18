@@ -11,20 +11,19 @@ import {
   SelectValue,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { siStripe } from 'simple-icons'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { Loading } from '@/components/Loading'
+import { PaymentRail, paymentProvider, railsOf } from '@/features/payments/providers'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
 import { BankAccountsCard } from '@/features/settings/components/bankaccounts'
 import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
-import { BrandIcon } from '@/features/settings/tabs/IntegrationsTab'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { listBankAccounts } from '@/rpc/api/bankaccounts/v1/bankaccounts-BankAccountsService_connectquery'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
-import { ConnectorProviderEnum, ConnectorTypeEnum } from '@/rpc/api/connectors/v1/models_pb'
+import { Connector, ConnectorTypeEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
   getInvoicingEntityProviders,
   updateInvoicingEntityProviders,
@@ -36,23 +35,14 @@ const paymentMethodsSchema = z.object({
   bankAccountId: z.string().optional(),
 })
 
-// Client-side mirror of each provider's payment-rail capabilities (see the
-// backend `ConnectorCapabilities`). Used to keep providers out of slots they
-// can't serve — e.g. GoCardless has no card support, so it must not appear in
-// the card-provider dropdown. Add an entry per provider as the list grows; the
-// backend enforces the same rule authoritatively, so an unmapped provider stays
-// selectable (and is validated server-side) rather than silently disappearing.
-type PaymentRail = 'card' | 'directDebit'
+// Rails come from each connector's backend capabilities; the backend validates routing.
+const providerSupports = (connector: Connector, rail: PaymentRail): boolean =>
+  railsOf(connector.paymentCapabilities)[rail]
 
-const PROVIDER_CAPABILITIES: Partial<Record<ConnectorProviderEnum, Record<PaymentRail, boolean>>> =
-  {
-    [ConnectorProviderEnum.STRIPE]: { card: true, directDebit: true },
-    [ConnectorProviderEnum.GOCARDLESS]: { card: false, directDebit: true },
-    [ConnectorProviderEnum.STANCER]: { card: true, directDebit: false },
-  }
-
-const providerSupports = (provider: ConnectorProviderEnum, rail: PaymentRail): boolean =>
-  PROVIDER_CAPABILITIES[provider]?.[rail] ?? true
+const ProviderIcon = ({ connector }: { connector: Connector }) => {
+  const Logo = paymentProvider(connector.provider)?.Logo
+  return Logo ? <Logo className="w-3 h-3" /> : <>P</>
+}
 
 interface PaymentMethodsFormProps {
   invoiceEntityId: string
@@ -63,7 +53,7 @@ interface PaymentMethodsFormProps {
         bankAccount?: { id: string }
       }
     | undefined
-  paymentProviders: { id: string; alias: string; provider: ConnectorProviderEnum }[]
+  paymentProviders: Connector[]
   bankAccounts: { id: string; name: string; currency: string; displayName: string }[]
 }
 
@@ -96,11 +86,9 @@ const PaymentMethodsForm = ({
     },
   })
 
-  // Only offer providers that can actually serve each rail (see PROVIDER_CAPABILITIES).
-  const cardProviders = paymentProviders.filter(p => providerSupports(p.provider, 'card'))
-  const directDebitProviders = paymentProviders.filter(p =>
-    providerSupports(p.provider, 'directDebit')
-  )
+  // Only offer providers that support each rail.
+  const cardProviders = paymentProviders.filter(p => providerSupports(p, 'card'))
+  const directDebitProviders = paymentProviders.filter(p => providerSupports(p, 'directDebit'))
 
   const onSubmit = async (values: z.infer<typeof paymentMethodsSchema>) => {
     await updateInvoicingEntityMut.mutateAsync({
@@ -110,6 +98,8 @@ const PaymentMethodsForm = ({
         values.directDebitProviderId === 'none' ? undefined : values.directDebitProviderId,
       bankAccountId: values.bankAccountId === 'none' ? undefined : values.bankAccountId,
     })
+    // Reset to the saved values so later changes mark the form dirty again.
+    methods.reset(values)
   }
 
   return (
@@ -163,15 +153,7 @@ const PaymentMethodsForm = ({
                             <div className="flex items-center">
                               <div className="w-5 h-5 rounded flex items-center justify-center mr-2">
                                 <span className="text-xs">
-                                  {provider.provider === ConnectorProviderEnum.STRIPE ? (
-                                    <BrandIcon
-                                      path={siStripe.path}
-                                      color="#635bff"
-                                      className="w-3 h-3"
-                                    />
-                                  ) : (
-                                    'P'
-                                  )}
+                                  <ProviderIcon connector={provider} />
                                 </span>
                               </div>
                               {provider.alias}
@@ -205,15 +187,7 @@ const PaymentMethodsForm = ({
                             <div className="flex items-center">
                               <div className="w-5 h-5 rounded flex items-center justify-center mr-2">
                                 <span className="text-xs">
-                                  {provider.provider === ConnectorProviderEnum.STRIPE ? (
-                                    <BrandIcon
-                                      path={siStripe.path}
-                                      color="#635bff"
-                                      className="w-3 h-3"
-                                    />
-                                  ) : (
-                                    'P'
-                                  )}
+                                  <ProviderIcon connector={provider} />
                                 </span>
                               </div>
                               {provider.alias}

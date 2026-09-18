@@ -1,4 +1,5 @@
-import { ConnectorProviderEnum, type Connector } from '@/rpc/api/connectors/v1/models_pb'
+import { paymentProvider } from '@/features/payments/providers'
+import { type Connector } from '@/rpc/api/connectors/v1/models_pb'
 
 import type { Customer } from '@/rpc/api/customers/v1/models_pb'
 
@@ -14,9 +15,8 @@ interface Providers {
 }
 
 /**
- * Advisory checks that mirror provider-side requirements, so staff can fix a
- * customer before a real payment fails. Frontend heuristic, not enforcement —
- * the payment path keeps its own validation.
+ * Advisory checks mirroring provider-side requirements (declared per provider in the
+ * registry), so staff can fix a customer before a payment fails. Not enforced.
  */
 export const getPaymentRoutingWarnings = (
   customer: Pick<Customer, 'billingAddress'>,
@@ -25,25 +25,18 @@ export const getPaymentRoutingWarnings = (
   const warnings: PaymentRoutingWarning[] = []
 
   const addr = customer.billingAddress
-  // GoCardless rejects customer/mandate creation with "country_code is required
-  // if any address fields are provided" — so a partial address is the trap.
-  const hasAnyAddressField = Boolean(
-    addr && (addr.line1 || addr.line2 || addr.city || addr.state || addr.zipCode)
-  )
-  const missingCountry = !addr?.country
+  const address = {
+    hasAnyField: Boolean(
+      addr && (addr.line1 || addr.line2 || addr.city || addr.state || addr.zipCode)
+    ),
+    missingCountry: !addr?.country,
+  }
 
   const check = (rail: PaymentRoutingWarning['rail'], connector?: Connector) => {
     if (!connector) return
-    if (
-      connector.provider === ConnectorProviderEnum.GOCARDLESS &&
-      hasAnyAddressField &&
-      missingCountry
-    ) {
-      warnings.push({
-        rail,
-        providerAlias: connector.alias,
-        message: `Add the customer's country. GoCardless requires it once an address is set, otherwise ${rail.toLowerCase()} setup fails.`,
-      })
+    const message = paymentProvider(connector.provider)?.customerAddressWarning?.(address)
+    if (message) {
+      warnings.push({ rail, providerAlias: connector.alias, message })
     }
   }
 

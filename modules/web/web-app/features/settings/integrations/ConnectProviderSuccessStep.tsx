@@ -191,7 +191,8 @@ export const ConnectProviderSuccessStep = ({
           size="sm"
           hasIcon
           className="h-fit px-0"
-          onClick={() => navigate(`${basePath}/settings/payments`)}
+          // replace, not push: a push would let the settings close handler (navigate(-1)) reopen the wizard.
+          onClick={() => navigate(`${basePath}/settings?tab=payments`, { replace: true })}
         >
           Open payment routing settings
           <ArrowRight size={14} strokeWidth={1.5} />

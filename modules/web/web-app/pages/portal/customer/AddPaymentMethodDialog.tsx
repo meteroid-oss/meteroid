@@ -1,3 +1,4 @@
+import { ConnectError } from '@connectrpc/connect'
 import { useMutation } from '@connectrpc/connect-query'
 import { Button, Dialog, DialogContent, DialogHeader, DialogTitle } from '@md/ui'
 import { Elements, useElements, useStripe } from '@stripe/react-stripe-js'
@@ -9,18 +10,37 @@ import { PaymentForm } from '@/features/checkout/components/PaymentForm'
 import { buildStripeAppearance } from '@/features/checkout/stripeAppearance'
 import { getStripePromise } from '@/features/checkout/stripeClient'
 import {
+  hostedRedirectHelperText,
+  isHostedRedirect,
+  useRailTabs,
+} from '@/features/checkout/useRailTabs'
+import {
+  HostedRail,
   consumeHostedReturn,
   hostedReturnErrorMessage,
+  hostedReturnSuccessMessage,
   hostedReturnUrl,
+  stashHostedDeparture,
 } from '@/features/checkout/utils/hostedReturn'
+import { connectorDisplayName } from '@/features/payments/providers'
 import { useQuery } from '@/lib/connectrpc'
 import { usePortalConfig } from '@/pages/portal/experience/PortalThemeProvider'
-import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
+import { getCustomerPortalOverview } from '@/rpc/portal/customer/v1/customer-PortalCustomerService_connectquery'
 import { ConnectionTypeEnum } from '@/rpc/portal/shared/v1/models_pb'
 import {
   addPaymentMethod,
   setupIntent,
 } from '@/rpc/portal/shared/v1/shared-PortalSharedService_connectquery'
+
+// `processing`: the webhook or sweeper will save the method shortly, so poll instead of
+// reporting failure.
+const PENDING_POLL_MS = 2000
+const PENDING_TIMEOUT_MS = 60 * 1000
+// One toast id: pending → outcome updates in place, and StrictMode can't show two.
+const HOSTED_TOAST_ID = 'hosted-payment-method-return'
+
+const railNoun = (rail?: HostedRail) =>
+  rail === 'directDebit' ? 'direct debit mandate' : rail === 'card' ? 'card' : 'payment method'
 
 interface AddPaymentMethodDialogProps {
   open: boolean
@@ -170,10 +190,6 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
   const portalConfig = usePortalConfig()
   const stripeAppearance = buildStripeAppearance(portalConfig)
 
-  const hasCard = !!cardConnectionId
-  const hasDirectDebit = !!directDebitConnectionId
-  const hasBoth = hasCard && hasDirectDebit && cardConnectionId !== directDebitConnectionId
-
   // Hosted-redirect providers bounce back to this page; the server threads
   // the page URL through as the return target (minus stale provider params).
   const activeConnectionId = activeTab === 'card' ? cardConnectionId : directDebitConnectionId
@@ -181,40 +197,86 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
   const returnUrl = hostedReturnUrl()
 
   // A hosted authorisation flow redirects back here as a full page load (the
-  // dialog is closed). Detect the outcome and surface it: toast + refetch
-  // on success, error toast otherwise. Runs once — the params are stripped.
+  // dialog is closed). Lazy initializer: the params are stripped on first read.
+  const [hostedRet] = useState(() => consumeHostedReturn())
+  const [awaitingMethod, setAwaitingMethod] = useState(() => hostedRet?.status === 'processing')
+
+  // Shares the portal overview's cache entry, so polling also refreshes the list behind the dialog.
+  const overviewQuery = useQuery(getCustomerPortalOverview, undefined, {
+    refetchInterval: awaitingMethod ? PENDING_POLL_MS : false,
+  })
+  const knownMethods = overviewQuery.data?.overview?.paymentMethods
+  const knownMethodIdsRef = useRef<Set<string> | null>(null)
+
   const onSuccessRef = useRef(onSuccess)
   onSuccessRef.current = onSuccess
   useEffect(() => {
-    const ret = consumeHostedReturn()
+    const ret = hostedRet
     if (!ret) return
     if (ret.status === 'ok') {
-      toast.success(ret.provider === 'stancer' ? 'Card saved.' : 'Direct debit mandate authorised.')
+      toast.success(hostedReturnSuccessMessage(ret), { id: HOSTED_TOAST_ID })
       onSuccessRef.current?.()
+    } else if (ret.status === 'processing') {
+      toast.loading(`Confirming your ${railNoun(ret.departure?.rail)}…`, { id: HOSTED_TOAST_ID })
     } else {
-      toast.error(hostedReturnErrorMessage(ret))
+      toast.error(hostedReturnErrorMessage(ret), { id: HOSTED_TOAST_ID })
     }
-  }, [])
+  }, [hostedRet])
 
+  useEffect(() => {
+    if (!awaitingMethod || !hostedRet || !knownMethods) return
+    if (knownMethodIdsRef.current === null) {
+      // The pre-departure snapshot can't contain the new method; seeding from the first poll is racy.
+      knownMethodIdsRef.current = new Set(
+        hostedRet.departure?.paymentMethodIds ?? knownMethods.map(m => m.id)
+      )
+    }
+    const known = knownMethodIdsRef.current
+    if (knownMethods.some(m => !known.has(m.id))) {
+      setAwaitingMethod(false)
+      toast.success(hostedReturnSuccessMessage(hostedRet), { id: HOSTED_TOAST_ID })
+      onSuccessRef.current?.()
+    }
+  }, [awaitingMethod, hostedRet, knownMethods])
+
+  useEffect(() => {
+    if (!awaitingMethod) return
+    const timer = setTimeout(() => {
+      setAwaitingMethod(false)
+      toast.info(
+        `Your ${railNoun(hostedRet?.departure?.rail)} is still being confirmed. It will appear here shortly.`,
+        { id: HOSTED_TOAST_ID }
+      )
+    }, PENDING_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [awaitingMethod, hostedRet])
+
+  const setupIntentRequest = {
+    connectionId: activeConnectionId!,
+    connectionType:
+      activeTab === 'card' ? ConnectionTypeEnum.CARD : ConnectionTypeEnum.DIRECT_DEBIT,
+    returnUrl,
+  }
+  // Rendering only needs the capabilities; a hosted-payment provider creates nothing until "Continue".
   const setupIntentQuery = useQuery(
     setupIntent,
-    {
-      connectionId: activeConnectionId!,
-      connectionType:
-        activeTab === 'card' ? ConnectionTypeEnum.CARD : ConnectionTypeEnum.DIRECT_DEBIT,
-      returnUrl,
-    },
+    { ...setupIntentRequest, descriptorOnly: true },
     { enabled: open && !!activeConnectionId }
   )
+  const mintSetupIntent = useMutation(setupIntent)
+  const [redirectError, setRedirectError] = useState<string | null>(null)
+  useEffect(() => setRedirectError(null), [activeTab, open])
 
   const intent = setupIntentQuery.data?.setupIntent
   const intentSecret = intent?.intentSecret
-  const provider = intent?.provider
+  const capabilities = intent?.capabilities
+  const { hasBoth } = useRailTabs(cardConnectionId, directDebitConnectionId, capabilities)
   const stripePublishableKey = intent?.providerPublicKey
   const connectionId = intent?.connectionId
-  const isHostedRedirect =
-    provider === ConnectorProviderEnum.GOCARDLESS || provider === ConnectorProviderEnum.STANCER
-  const hostedProviderLabel = provider === ConnectorProviderEnum.STANCER ? 'Stancer' : 'GoCardless'
+  const hostedRedirect = isHostedRedirect(capabilities)
+  // The hosted payment is created on click (`descriptorOnly` above).
+  const mintsOnClick = !!capabilities?.supportsHostedInvoicePayment
+  const hostedProviderLabel = connectorDisplayName(intent?.provider)
 
   const handleSuccess = () => {
     onOpenChange(false)
@@ -276,32 +338,63 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
 
           {!setupIntentQuery.isLoading &&
             (setupIntentQuery.isError ||
-              !intentSecret ||
+              (!intentSecret && !mintsOnClick) ||
               !connectionId ||
-              (!isHostedRedirect && !stripePublishableKey)) && (
+              (!hostedRedirect && !stripePublishableKey)) && (
               <div className="p-6 text-center text-sm text-red-600">
                 Unable to initialize payment system. Please try again later.
               </div>
             )}
 
-          {/* Hosted-redirect branch (GoCardless mandate / Stancer card): the
-              backend put the hosted authorisation URL in intentSecret. No SDK
-              to mount; we render a redirect button. */}
-          {intentSecret && connectionId && isHostedRedirect && (
+          {/* Hosted-redirect branch: the backend put the hosted authorisation URL in
+              intentSecret (or mints it on click). No SDK to mount; we render a redirect button. */}
+          {(intentSecret || mintsOnClick) && connectionId && hostedRedirect && (
             <div className="p-2">
               <p className="text-sm text-muted-foreground mb-4">
-                {provider === ConnectorProviderEnum.STANCER
-                  ? "You'll be redirected to Stancer's secure page to enter your card details. Once you confirm, you'll be sent back here."
-                  : "You'll be redirected to GoCardless to authorise a direct-debit mandate. Once you confirm, you'll be sent back here."}
+                {hostedRedirectHelperText(
+                  hostedProviderLabel,
+                  activeTab,
+                  "Once you confirm, you'll be sent back here."
+                )}
               </p>
+              {redirectError && (
+                <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm flex items-start">
+                  <AlertCircle size={16} className="mr-2 mt-0.5 shrink-0" />
+                  <span>{redirectError}</span>
+                </div>
+              )}
               <div className="flex justify-end gap-2 pt-2">
                 <Button type="button" variant="outline" onClick={handleCancel}>
                   Cancel
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => {
-                    window.location.href = intentSecret
+                  disabled={mintSetupIntent.isPending}
+                  onClick={async () => {
+                    setRedirectError(null)
+                    let url = intentSecret
+                    if (!url) {
+                      try {
+                        const res = await mintSetupIntent.mutateAsync(setupIntentRequest)
+                        url = res.setupIntent?.intentSecret
+                      } catch (err) {
+                        // Provider errors are customer-facing: drop the "[code]" prefix.
+                        setRedirectError(
+                          ConnectError.from(err).rawMessage ||
+                            'Unable to start the setup. Please try again.'
+                        )
+                        return
+                      }
+                    }
+                    if (!url) {
+                      setRedirectError('Unable to start the setup. Please try again.')
+                      return
+                    }
+                    stashHostedDeparture({
+                      rail: activeTab,
+                      paymentMethodIds: knownMethods?.map(m => m.id),
+                    })
+                    window.location.href = url
                   }}
                 >
                   <ExternalLink size={14} className="mr-2" />
@@ -312,7 +405,7 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
           )}
 
           {/* Stripe embedded flow */}
-          {intentSecret && stripePublishableKey && connectionId && !isHostedRedirect && (
+          {intentSecret && stripePublishableKey && connectionId && !hostedRedirect && (
             <Elements
               key={intentSecret}
               stripe={getStripePromise(stripePublishableKey)}
