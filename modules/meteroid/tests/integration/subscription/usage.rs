@@ -198,3 +198,91 @@ async fn test_cancel_with_usage_produces_final_arrear_invoice() {
         sub.mrr_cents
     );
 }
+
+/// Cancelling at the end of the first period must still bill that period's usage.
+/// The final invoice is generated while `cycle_index` is still 0, which previously
+/// produced no arrear period, so the usage was never billed.
+///
+/// Timeline:
+///   2024-01-01  subscription start, invoice #1 (rate only)
+///   2024-02-01  cancellation processed → invoice #2 (usage for period 0)
+#[tokio::test]
+async fn test_cancel_in_first_period_bills_final_arrears() {
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let period1_end = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+
+    let usage_client = build_usage_client(Decimal::from(100), &[(start_date, period1_end)]);
+    let env = test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(usage_client)).await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_USAGE_ID)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    env.services()
+        .cancel_subscription(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            Some("testing first-period final arrears".to_string()),
+            CancellationEffectiveAt::Date(period1_end),
+        )
+        .await
+        .expect("cancel_subscription failed");
+
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.status, SubscriptionStatusEnum::Cancelled);
+
+    // 100 units × EUR 0.10 = 1000 cents, no second advance rate charge.
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    invoices.assert().invoice_at(0).has_total(2000);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("final arrears for period 0")
+        .has_total(1000);
+}
+
+/// Fixed-term variant: `end_date` inside the first period. Unlike a cancel, this ends
+/// through a renewal into cycle 1 (period truncated to `end_date`), so the final
+/// arrears for [Jan 1, Jan 20) are billed through the cycle > 0 path.
+#[tokio::test]
+async fn test_end_date_in_first_period_bills_final_arrears() {
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let end_date = NaiveDate::from_ymd_opt(2024, 1, 20).unwrap();
+
+    let usage_client = build_usage_client(Decimal::from(100), &[(start_date, end_date)]);
+    let env = test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(usage_client)).await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_USAGE_ID)
+        .start_date(start_date)
+        .end_date(end_date)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    // Renew (billing suppressed, end_date already passed), then EndSubscription.
+    env.process_cycles().await;
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.status, SubscriptionStatusEnum::Completed);
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    invoices.assert().invoice_at(0).has_total(2000);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("final arrears up to end_date")
+        .has_invoice_date(end_date)
+        .has_total(1000);
+}
