@@ -98,6 +98,102 @@ async fn test_slot_transactions_comprehensive_next() {
     test_mixed_pending_and_active(&services, &store).await;
 }
 
+/// The upgrade invoice must charge delta × rate × proration once, not delta² × rate × proration.
+#[tokio::test]
+async fn test_slot_upgrade_invoice_exact_amounts() {
+    helpers::init::logging();
+    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+
+    let setup = meteroid_it::container::start_meteroid_with_clients(
+        postgres_connection_string,
+        SeedLevel::PLANS,
+        Arc::new(MockUsageClient::noop()),
+        Arc::new(MockMailerService::new()),
+    )
+    .await;
+
+    let store = setup.store.clone();
+    let services = setup.services.clone();
+    let rate = Decimal::from_str("10.00").unwrap();
+
+    // Period 2024-01-01 → 2024-02-01 (31 days), upgrade on 01-15 → 17/31 remaining
+    let mid_period = NaiveDate::from_ymd_opt(2024, 1, 15).map(|d| d.and_time(NaiveTime::MIN));
+    let period_start = NaiveDate::from_ymd_opt(2024, 1, 1).map(|d| d.and_time(NaiveTime::MIN));
+
+    // (delta, at_ts, expected cents): 2 × 10 × 17/31 = 10.97, 3 × 10 × 17/31 = 16.45,
+    // and backdated to the period start the full 3 × 10 = 30.00
+    for (delta, at_ts, expected_cents) in [
+        (2, mid_period, 1097),
+        (3, mid_period, 1645),
+        (3, period_start, 3000),
+    ] {
+        let (subscription_id, slot_component_id) =
+            create_subscription_with_slots(&services, rate, Some(1), Some(100), 5).await;
+
+        let result = services
+            .update_subscription_slots_for_test(
+                TENANT_ID,
+                subscription_id,
+                slot_component_id,
+                delta,
+                SlotUpgradeBillingMode::Optimistic,
+                at_ts,
+            )
+            .await
+            .expect("Failed to upgrade slots");
+
+        let expected = Decimal::new(expected_cents, 2);
+        assert_eq!(result.prorated_amount, Some(expected), "delta {delta}");
+
+        let invoice = store
+            .get_invoice_by_id(TENANT_ID, result.invoice_id.unwrap())
+            .await
+            .expect("Failed to get invoice");
+
+        assert_eq!(invoice.subtotal, expected_cents, "delta {delta}");
+        let line = &invoice.line_items[0];
+        assert_eq!(line.amount_subtotal, expected_cents, "delta {delta}");
+        assert_eq!(line.quantity, Some(Decimal::from(delta)));
+        assert_eq!(
+            line.unit_price,
+            Some(expected / Decimal::from(delta)),
+            "delta {delta}"
+        );
+    }
+
+    // The invoice matches what the preview showed the customer
+    let today = chrono::Utc::now().date_naive();
+    let (subscription_id, slot_component_id) =
+        create_subscription_with_slots_from(&services, today, rate, Some(1), Some(100), 5).await;
+
+    let preview = services
+        .preview_slot_update(TENANT_ID, subscription_id, slot_component_id, 2)
+        .await
+        .expect("Failed to preview slot update");
+    assert_eq!(preview.prorated_amount, Decimal::new(2000, 2));
+
+    let result = services
+        .update_subscription_slots(
+            TENANT_ID,
+            subscription_id,
+            slot_component_id,
+            2,
+            SlotUpgradeBillingMode::Optimistic,
+        )
+        .await
+        .expect("Failed to upgrade slots");
+
+    let invoice = store
+        .get_invoice_by_id(TENANT_ID, result.invoice_id.unwrap())
+        .await
+        .expect("Failed to get invoice");
+    assert_eq!(
+        Decimal::new(invoice.subtotal, 2),
+        preview.prorated_amount,
+        "Invoice subtotal must match the preview"
+    );
+}
+
 async fn test_optimistic_upgrade(services: &Services, store: &Store) {
     let (subscription_id, slot_component_id) = create_subscription_with_slots(
         services,
@@ -949,6 +1045,25 @@ async fn create_subscription_with_slots(
     max_slots: Option<u32>,
     initial_slots: u32,
 ) -> (SubscriptionId, PriceComponentId) {
+    create_subscription_with_slots_from(
+        services,
+        NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+        unit_rate,
+        min_slots,
+        max_slots,
+        initial_slots,
+    )
+    .await
+}
+
+async fn create_subscription_with_slots_from(
+    services: &Services,
+    start_date: NaiveDate,
+    unit_rate: Decimal,
+    min_slots: Option<u32>,
+    max_slots: Option<u32>,
+    initial_slots: u32,
+) -> (SubscriptionId, PriceComponentId) {
     let subscription_id = services
         .insert_subscription(
             common_domain::actor::Actor::System,
@@ -959,7 +1074,7 @@ async fn create_subscription_with_slots(
                     net_terms: None,
                     invoice_memo: None,
                     invoice_threshold: None,
-                    start_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    start_date,
                     end_date: None,
                     billing_start_date: None,
                     activation_condition:
