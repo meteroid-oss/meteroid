@@ -65,7 +65,11 @@ pub fn calculate_component_period_for_invoice_date(
                 (Some(advance_period), proration_factor)
             };
 
-            let arrear_period = if cycle_index == 0 {
+            // Cycle 0 has nothing to bill in arrears yet, unless the subscription ends
+            // within it (cancel or end_date): then the final invoice bills that window.
+            let has_arrears =
+                cycle_index > 0 || (is_completed && invoice_date > billing_start_or_resume_date);
+            let arrear_period = if !has_arrears {
                 None
             } else {
                 Some(calculate_arrear_period_range(
@@ -1136,6 +1140,39 @@ mod test {
             .expect("should return periods");
 
             assert_eq!(periods.proration_factor, None);
+        }
+
+        #[test]
+        fn first_cycle_completed_bills_arrears() {
+            // Cancelled (or end_date) within cycle 0: the final invoice bills the
+            // cycle-0 window in arrears, and nothing in advance.
+            let start = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+            let periods = |invoice_date| {
+                calculate_component_period_for_invoice_date(
+                    invoice_date,
+                    &BillingPeriodEnum::Monthly,
+                    &SubscriptionFeeBillingPeriod::Monthly,
+                    start,
+                    0,
+                    1,
+                    true,
+                )
+                .expect("should return periods")
+            };
+
+            let at_period_end = periods(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap());
+            assert_eq!(at_period_end.advance, None);
+            assert_eq!(
+                at_period_end.arrear,
+                Some(p("2024-01-01", "2024-02-01")),
+                "end-of-period cancel"
+            );
+
+            let mid_period = periods(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+            assert_eq!(mid_period.arrear, Some(p("2024-01-01", "2024-01-15")));
+
+            // Ended on (or before) the billing start: no window to bill.
+            assert_eq!(periods(start).arrear, None);
         }
     }
 }
