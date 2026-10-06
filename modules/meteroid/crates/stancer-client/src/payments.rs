@@ -53,6 +53,7 @@ pub struct StancerPaymentCard {
 /// `authorize`/`capture`). Settlement is asynchronous with no webhook push
 /// (confirmed live): a successful charge starts at `ToCapture`/`CaptureSent`
 /// and only later resolves to `Captured` — callers must poll `get_payment`.
+/// source: https://docs.stancer.com/api/openapi.json (`StatusCode`).
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StancerPaymentStatus {

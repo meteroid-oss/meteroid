@@ -5,4 +5,5 @@ pub mod error;
 pub mod payment_intents;
 pub mod payments;
 pub mod ping;
+pub mod refunds;
 mod request;

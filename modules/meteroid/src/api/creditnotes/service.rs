@@ -270,6 +270,7 @@ impl CreditNotesService for CreditNoteServiceComponents {
             reason: credit_note_req.reason,
             memo: credit_note_req.memo,
             credit_type,
+            skip_provider_refund: credit_note_req.skip_provider_refund.unwrap_or(false),
         };
 
         if req.reissue_as_draft && !req.finalize {

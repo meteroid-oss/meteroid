@@ -1,5 +1,9 @@
 use crate::StoreResult;
+use crate::adapters::payment::{
+    IdempotencyKey, RefundOutcome, RefundReason, RefundRequest, initialize_payment_connector,
+};
 use crate::constants::Currencies;
+use crate::domain::connectors::Connector;
 use crate::domain::entity_activity::Actor;
 use crate::domain::invoice_lines::{LineItem, TaxDetail};
 use crate::domain::invoices::TaxBreakdownItem;
@@ -9,17 +13,22 @@ use crate::domain::{
 };
 use crate::errors::StoreError;
 use crate::repositories::customer_balance::{CustomerBalance, convert_currency};
+use crate::repositories::payment_transactions::{
+    PaymentTransactionInterface, ReversalAmount, TransactionReversal,
+};
 use crate::store::Store;
 use chrono::NaiveDateTime;
-use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId, StoredDocumentId, TenantId};
+use common_domain::ids::{BaseId, CreditNoteId, CustomerId, InvoiceId, StoredDocumentId, TenantId};
 use common_utils::decimals::{ToSubunit, ToUnit};
 use diesel_models::PgConn;
 use diesel_models::credit_notes::CreditNoteRow;
+use diesel_models::customer_connection::CustomerConnectionDetailsRow;
+use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
 use diesel_models::customers::CustomerRow;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::payments::PaymentTransactionRow;
-use error_stack::{Report, bail};
+use error_stack::{Report, ResultExt, bail};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use scoped_futures::ScopedFutureExt;
@@ -65,6 +74,8 @@ pub struct CreateCreditNoteParams {
     pub reason: Option<String>,
     pub memo: Option<String>,
     pub credit_type: CreditType,
+    /// Refund already issued manually outside Meteroid: skip the provider refund call.
+    pub skip_provider_refund: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -532,6 +543,110 @@ async fn apply_credit_note_to_invoice_tx(
     Ok(())
 }
 
+/// Calls the payment provider's refund API for a Refund-type credit note
+/// (Stancer today); a no-op if the connector doesn't support refunds. Fails
+/// the whole finalization if the provider refuses the refund.
+async fn trigger_provider_refund_tx(
+    store: &Store,
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    actor: &Actor,
+    credit_note: &CreditNote,
+) -> StoreResult<()> {
+    let Some(transaction) = store
+        .last_settled_payment_tx_by_invoice_id(tenant_id, credit_note.invoice_id)
+        .await?
+    else {
+        return Ok(());
+    };
+
+    // Lock the row before handing it to `reverse_transaction_tx`, per its contract.
+    let transaction = store
+        .get_payment_tx_by_id_for_update(conn, transaction.id, tenant_id)
+        .await?;
+
+    let Some(payment_method_id) = transaction.payment_method_id else {
+        return Ok(());
+    };
+    let Some(provider_transaction_id) = transaction.provider_transaction_id.clone() else {
+        return Ok(());
+    };
+
+    let method = CustomerPaymentMethodRow::get_by_id(conn, &tenant_id, &payment_method_id)
+        .await
+        .map_err(|err| StoreError::DatabaseError(err.error))?;
+    let connection =
+        CustomerConnectionDetailsRow::get_by_id(conn, &tenant_id, &method.connection_id)
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
+    let connector = Connector::from_row(&store.settings.crypt_key, connection.connector)?;
+    let connector_impl = initialize_payment_connector(&connector)
+        .change_context(StoreError::PaymentProviderError)?;
+
+    if !connector_impl.capabilities().supports_refunds {
+        return Ok(());
+    }
+
+    let outcome = connector_impl
+        .refund(
+            &connector,
+            RefundRequest {
+                external_transaction_id: &provider_transaction_id,
+                amount_minor: credit_note.refunded_amount_cents,
+                currency: &credit_note.currency,
+                reason: Some(RefundReason::RequestedByCustomer),
+                idempotency_key: IdempotencyKey::new(format!(
+                    "refund:{}",
+                    credit_note.id.as_base62()
+                )),
+            },
+        )
+        .await
+        .change_context(StoreError::PaymentProviderError)?;
+
+    match outcome {
+        RefundOutcome::Succeeded(receipt) => {
+            store
+                .reverse_transaction_tx(
+                    conn,
+                    actor,
+                    transaction,
+                    TransactionReversal {
+                        external_transaction_id: provider_transaction_id,
+                        amount: ReversalAmount::Incremental(receipt.amount_refunded_minor),
+                        reason: format!(
+                            "Refund via credit note {}",
+                            credit_note.credit_note_number
+                        ),
+                        reversed_at: receipt.processed_at,
+                    },
+                )
+                .await?;
+        }
+        // Known v1 gap: no refund-status poller exists yet (Stancer has no
+        // webhook), so an accepted-but-unsettled refund doesn't update
+        // `PaymentTransaction.amount_refunded` until a future reconciliation
+        // pass is built. Logged loudly rather than silently dropped.
+        RefundOutcome::Pending(ack) => {
+            log::warn!(
+                "Stancer refund {} for credit note {} was accepted but is not yet confirmed; \
+                 payment transaction {} not yet updated (no refund poller exists)",
+                ack.external_refund_id,
+                credit_note.credit_note_number,
+                transaction.id
+            );
+        }
+        RefundOutcome::Failed(failure) => {
+            bail!(StoreError::PaymentError(format!(
+                "Provider refused the refund for credit note {}: {}",
+                credit_note.credit_note_number, failure.message
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 /// Reverses the effect of `apply_credit_note_to_invoice_tx` when voiding a CN.
 /// Adds the credit note total back to `amount_due`. If the invoice was Paid and now has outstanding balance, recomputes payment_status from
 /// settled payment transactions (Unpaid if none, PartiallyPaid otherwise).
@@ -698,6 +813,7 @@ pub(crate) async fn finalize_credit_note_tx(
     tenant_id: TenantId,
     actor: &Actor,
     credit_note_id: CreditNoteId,
+    skip_provider_refund: bool,
 ) -> StoreResult<CreditNote> {
     let credit_note_row = CreditNoteRow::find_by_id(conn, tenant_id, credit_note_id).await?;
 
@@ -760,6 +876,13 @@ pub(crate) async fn finalize_credit_note_tx(
         .try_into()?;
 
     apply_credit_note_to_invoice_tx(store, conn, tenant_id, actor, &credit_note).await?;
+
+    if credit_note.credit_type == CreditType::Refund
+        && credit_note.refunded_amount_cents > 0
+        && !skip_provider_refund
+    {
+        trigger_provider_refund_tx(store, conn, tenant_id, actor, &credit_note).await?;
+    }
 
     store
         .internal
@@ -1238,9 +1361,18 @@ impl CreditNoteInterface for Store {
         self.transaction(|conn| {
             let actor = &actor;
             async move {
+                let skip_provider_refund = params.skip_provider_refund;
                 let draft =
                     create_user_credit_note_tx(self, conn, tenant_id, actor, params, false).await?;
-                finalize_credit_note_tx(self, conn, tenant_id, actor, draft.id).await
+                finalize_credit_note_tx(
+                    self,
+                    conn,
+                    tenant_id,
+                    actor,
+                    draft.id,
+                    skip_provider_refund,
+                )
+                .await
             }
             .scope_boxed()
         })
@@ -1339,7 +1471,7 @@ impl CreditNoteInterface for Store {
         self.transaction(|conn| {
             let actor = &actor;
             async move {
-                finalize_credit_note_tx(self, conn, tenant_id, actor, credit_note_id).await
+                finalize_credit_note_tx(self, conn, tenant_id, actor, credit_note_id, false).await
             }
             .scope_boxed()
         })
