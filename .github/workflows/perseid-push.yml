@@ -1,0 +1,25 @@
+# Written by `perseid connect meteroid-oss/sdks-root`: pushes the spec to meteroid-oss/sdks-root on each published release,
+# which regenerates the SDKs. Run that command again to change these settings.
+# It pushes as the perseid App, installed on meteroid-oss/sdks-root, whose perseid.toml names this repository as its source.
+name: Spec
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency: perseid-push
+
+jobs:
+  push:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: meteroid-oss/perseid/push@v0
+        with:
+          spec: "spec/api/v1/openapi.json"
+          to: meteroid-oss/sdks-root
