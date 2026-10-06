@@ -13,6 +13,7 @@ use crate::data::ids::*;
 use crate::harness::{
     InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env, test_env_with_usage,
 };
+use common_domain::ids::{SubscriptionId, SubscriptionPriceComponentId};
 use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use meteroid_store::clients::usage::{
     GroupedUsageData, MockUsageClient, MockUsageDataParams, UsageData,
@@ -31,9 +32,13 @@ use meteroid_store::domain::subscription_amendment::{
     SubscriptionAmendment,
 };
 use meteroid_store::domain::subscription_changes::{ChangeDirection, PlanChangeMode};
-use meteroid_store::domain::{BillingPeriodEnum, UsagePeriod, UsagePricingModel};
+use meteroid_store::domain::{
+    BillingPeriodEnum, SlotUpgradeBillingMode, UsagePeriod, UsagePricingModel,
+};
+use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::credit_notes::CreditNoteInterface;
+use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 use rust_decimal::Decimal;
 
 /// Create a catalog add-on (new product) with a monthly EUR Rate price.
@@ -1596,6 +1601,172 @@ async fn test_amendment_remove_slot_component(#[future] test_env: TestEnv) {
     // Seats was €10 × 1 slot = €10/mo.
     let mrr_after = env.get_subscription(sub_id).await.mrr_cents;
     assert_eq!(mrr_after, mrr_before - 1000);
+}
+
+/// Starter with 5 seats (1 default + 4 added), then the Seats price is edited €10 → €12.
+fn edit_seats_price_amendment(
+    mode: PlanChangeMode,
+    seats_id: SubscriptionPriceComponentId,
+) -> SubscriptionAmendment {
+    SubscriptionAmendment {
+        apply_mode: mode,
+        component_changes: ComponentChanges {
+            edited: vec![EditComponent {
+                subscription_component_id: seats_id,
+                name: None,
+                price_entry: PriceEntry::New(PriceInput {
+                    cadence: BillingPeriodEnum::Monthly,
+                    currency: "EUR".to_string(),
+                    pricing: Pricing::Slot {
+                        unit_rate: Decimal::new(1200, 2),
+                        min_slots: None,
+                        max_slots: None,
+                    },
+                }),
+            }],
+            added: vec![],
+            removed: vec![],
+        },
+        add_on_changes: AddOnChanges::default(),
+    }
+}
+
+async fn starter_with_five_seats(env: &TestEnv) -> (SubscriptionId, SubscriptionPriceComponentId) {
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    env.services()
+        .update_subscription_slots_for_test(
+            TENANT_ID,
+            sub_id,
+            COMP_STARTER_SEATS_ID,
+            4,
+            SlotUpgradeBillingMode::Optimistic,
+            NaiveDate::from_ymd_opt(2024, 1, 2).map(|d| d.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("add 4 seats");
+
+    let seats = env
+        .get_subscription_components(sub_id)
+        .await
+        .into_iter()
+        .find(|c| c.name == "Seats")
+        .expect("Seats (slot) component");
+    (sub_id, seats.id)
+}
+
+async fn active_seats(env: &TestEnv, sub_id: SubscriptionId, at: NaiveDate) -> u32 {
+    env.store()
+        .get_active_slots_value(
+            TENANT_ID,
+            sub_id,
+            "Seats".to_string(),
+            Some(at.and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("get active seats")
+}
+
+/// Repricing a Slot component must keep the seat count: the override must not seed
+/// a fresh slot-ledger checkpoint at min_slots.
+///
+/// Immediate edit on Jan 16 (16/31 left): credit 5 × €10, charge 5 × €12.
+/// Feb 1 renewal: Platform €29 + Seats 5 × €12 = €89.
+#[rstest]
+#[tokio::test]
+async fn test_amendment_edit_slot_component_price_keeps_seats(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 16).unwrap();
+    let feb1 = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+
+    let (sub_id, seats_id) = starter_with_five_seats(&env).await;
+    assert_eq!(active_seats(&env, sub_id, change_date).await, 5);
+
+    let result = env
+        .services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            edit_seats_price_amendment(PlanChangeMode::Immediate, seats_id),
+            change_date,
+        )
+        .await
+        .expect("edit slot component failed");
+
+    assert_eq!(active_seats(&env, sub_id, change_date).await, 5);
+
+    // Both sides prorate the live 5 seats: charge 6000 × 16/31 = 3097, credit
+    // 5000 × 16/31 = 2581, netted into one adjustment line of 516.
+    let adjustment = env
+        .store()
+        .get_invoice_by_id(TENANT_ID, result.adjustment_invoice_id.expect("adjustment"))
+        .await
+        .expect("adjustment invoice");
+    assert_eq!(adjustment.subtotal, 516);
+
+    // MRR: Platform €29 + Seats 5 × €12.
+    env.get_subscription(sub_id).await.assert().has_mrr(8900);
+
+    env.process_cycles().await;
+
+    assert_eq!(active_seats(&env, sub_id, feb1).await, 5);
+    let invoices = env.get_invoices(sub_id).await;
+    invoices
+        .assert()
+        .invoice_at(invoices.len() - 1)
+        .with_context("renewal bills 5 seats at the new price")
+        .has_period(feb1, NaiveDate::from_ymd_opt(2024, 3, 1).unwrap())
+        .has_total(8900);
+}
+
+/// End-of-period variant: the override applied at Feb 1 keeps the 5 seats and the
+/// renewal bills Platform €29 + Seats 5 × €12 = €89.
+#[rstest]
+#[tokio::test]
+async fn test_amendment_edit_slot_component_price_keeps_seats_end_of_period(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    let feb1 = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+
+    let (sub_id, seats_id) = starter_with_five_seats(&env).await;
+
+    env.services()
+        .schedule_amendment(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            edit_seats_price_amendment(PlanChangeMode::EndOfPeriod, seats_id),
+        )
+        .await
+        .expect("schedule_amendment failed");
+
+    env.process_cycles().await;
+
+    let seats = env
+        .get_subscription_components(sub_id)
+        .await
+        .into_iter()
+        .find(|c| c.name == "Seats")
+        .expect("Seats (slot) component");
+    assert_ne!(seats.id, seats_id, "override should be applied");
+    assert_eq!(active_seats(&env, sub_id, feb1).await, 5);
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices
+        .assert()
+        .invoice_at(invoices.len() - 1)
+        .with_context("renewal bills 5 seats at the new price")
+        .has_period(feb1, NaiveDate::from_ymd_opt(2024, 3, 1).unwrap())
+        .has_total(8900);
+    env.get_subscription(sub_id).await.assert().has_mrr(8900);
 }
 
 // =============================================================================

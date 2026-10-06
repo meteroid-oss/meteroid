@@ -1022,8 +1022,9 @@ impl Services {
                 .map_err(Into::<Report<StoreError>>::into)?;
         }
 
-        // Seed slot transactions for newly-added Slot components/add-ons.
-        for c in component_insert {
+        // Seed slot transactions for newly-added Slot components/add-ons. Overrides and
+        // edited add-ons keep the unit's existing ledger: a seed would reset the live count.
+        for c in component_insert.iter().filter(|c| !c.is_override) {
             if let Some(tx) = crate::domain::slot_transactions::SlotTransactionNewInternal::from_fee(
                 &c.fee,
                 change_date,
@@ -1034,7 +1035,7 @@ impl Services {
                     .map_err(Into::<Report<StoreError>>::into)?;
             }
         }
-        for a in addon_insert {
+        for a in addon_insert.iter().filter(|a| a.lineage_id.is_none()) {
             if let Some(tx) = crate::domain::slot_transactions::SlotTransactionNewInternal::from_fee(
                 &a.fee,
                 change_date,
@@ -1552,11 +1553,14 @@ async fn resolve_amendment(
             ))
         })?;
         let fee_structure = load_product_fee_structure(conn, tenant_id, product_id).await?;
-        let (new_fee, new_period) =
+        let (mut new_fee, new_period) =
             resolve_fee_read_only(conn, &fee_structure, &edit.price_entry, tenant_id).await?;
 
         let mut current_fee = current.fee.clone();
         resolve_live_slot_count(conn, tenant_id, subscription_id, &mut current_fee).await?;
+        // Repricing a Slot component keeps the customer's seats, so the new fee (seeded
+        // with min_slots) must carry the live count for the charge side of the proration.
+        resolve_live_slot_count(conn, tenant_id, subscription_id, &mut new_fee).await?;
 
         let new_name = edit.name.clone().unwrap_or_else(|| current.name.clone());
 
