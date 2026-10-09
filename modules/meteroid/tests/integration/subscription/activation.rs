@@ -7,6 +7,8 @@
 
 #![allow(clippy::too_many_arguments)]
 
+use chrono::Datelike;
+use common_domain::ids::SubscriptionId;
 use rstest::rstest;
 
 use crate::data::ids::*;
@@ -547,4 +549,168 @@ async fn test_manual_no_trial(#[future] test_env: TestEnv) {
     // Still no invoices
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().assert_empty();
+}
+
+async fn activate_manually(env: &TestEnv, sub_id: SubscriptionId) {
+    env.services()
+        .activate_subscription_manual(TENANT_ID, sub_id)
+        .await
+        .expect("manual activation failed");
+    env.run_outbox_and_orchestration().await;
+    env.process_cycles().await;
+}
+
+/// Manual + No Trial: activating bills the first period in advance, like OnStart does.
+#[rstest]
+#[tokio::test]
+async fn test_manual_activation_bills_first_period(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let today = chrono::Utc::now().date_naive();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID) // $35/month
+        .start_date(today)
+        .manual()
+        .no_trial()
+        .no_auto_charge()
+        .create(env.services())
+        .await;
+
+    activate_manually(&env, sub_id).await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active();
+    assert_eq!(sub.current_period_start, today);
+    assert_eq!(sub.cycle_index, Some(0));
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("first period billed on manual activation")
+        .has_total(3500)
+        .check_prorated(false);
+}
+
+/// Activated after its start date: billing starts on the activation day, the pending
+/// days are not billed and the anniversary anchor moves to the activation day.
+#[rstest]
+#[tokio::test]
+async fn test_late_manual_activation_starts_billing_on_activation_day(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let today = chrono::Utc::now().date_naive();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID) // $35/month
+        .start_date(today - chrono::Duration::days(10))
+        .manual()
+        .no_trial()
+        .no_auto_charge()
+        .create(env.services())
+        .await;
+
+    activate_manually(&env, sub_id).await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().is_active();
+    assert_eq!(sub.billing_start_date, Some(today));
+    assert_eq!(sub.current_period_start, today);
+    assert_eq!(sub.billing_day_anchor, today.day() as i16);
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .has_total(3500)
+        .check_prorated(false);
+}
+
+/// Manual + Free Trial: activation starts the trial, nothing billed yet.
+#[rstest]
+#[tokio::test]
+async fn test_manual_activation_free_trial_starts_trial(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let today = chrono::Utc::now().date_naive();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID) // $49/month with free trial
+        .start_date(today)
+        .manual()
+        .trial_days(14)
+        .create(env.services())
+        .await;
+
+    activate_manually(&env, sub_id).await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_trial_active()
+        .has_next_action(Some(CycleActionEnum::EndTrial));
+    assert_eq!(
+        sub.current_period_end,
+        Some(today + chrono::Duration::days(14))
+    );
+
+    env.get_invoices(sub_id).await.assert().assert_empty();
+}
+
+/// Manual + Paid Trial: activation bills the full first period, like OnStart.
+#[rstest]
+#[tokio::test]
+async fn test_manual_activation_paid_trial_bills_immediately(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let today = chrono::Utc::now().date_naive();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_TRIAL_ID) // $99/month with paid trial
+        .start_date(today)
+        .manual()
+        .trial_days(7)
+        .create(env.services())
+        .await;
+
+    activate_manually(&env, sub_id).await;
+
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .is_trial_active();
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .has_total(9900)
+        .check_prorated(false);
+}
+
+/// Activated before a future start date: waits for the start date like OnStart does.
+#[rstest]
+#[tokio::test]
+async fn test_manual_activation_before_future_start_waits(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let start = chrono::Utc::now().date_naive() + chrono::Duration::days(10);
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+        .start_date(start)
+        .manual()
+        .no_trial()
+        .no_auto_charge()
+        .create(env.services())
+        .await;
+
+    activate_manually(&env, sub_id).await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .has_status(SubscriptionStatusEnum::PendingActivation)
+        .has_next_action(Some(CycleActionEnum::ActivateSubscription));
+    assert!(sub.activated_at.is_some());
+    assert_eq!(sub.current_period_end, Some(start));
+
+    env.get_invoices(sub_id).await.assert().assert_empty();
 }

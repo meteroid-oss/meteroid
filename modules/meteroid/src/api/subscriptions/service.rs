@@ -503,7 +503,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
         Ok(Response::new(ActivateSubscriptionResponse {
             subscription: Some(proto_subscription),
-            invoice_id: None, // Invoice creation happens asynchronously via worker
+            invoice_id: None,
         }))
     }
 

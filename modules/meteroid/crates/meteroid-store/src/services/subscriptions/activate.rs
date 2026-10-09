@@ -4,14 +4,15 @@ use crate::domain::enums::{BillingPeriodEnum, SubscriptionActivationCondition};
 use crate::domain::scheduled_events::ScheduledEventNew;
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
-use crate::services::Services;
+use crate::services::{InvoiceBillingMode, Services};
 use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
-use chrono::{Days, Duration, NaiveDate, Utc};
+use chrono::{Datelike, Duration, NaiveDate, Utc};
 use common_domain::ids::{SubscriptionId, TenantId};
 use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
+use diesel_models::plans::PlanRow;
 use diesel_models::scheduled_events::ScheduledEventRowNew;
-use diesel_models::subscriptions::SubscriptionRow;
+use diesel_models::subscriptions::{SubscriptionCycleRowPatch, SubscriptionRow};
 use error_stack::Report;
 use scoped_futures::ScopedFutureExt;
 
@@ -25,6 +26,8 @@ pub struct PaymentActivationParams {
 }
 
 impl Services {
+    /// Billing starts on the activation day, or on the planned billing start if that is
+    /// still ahead: time spent pending is never billed.
     pub async fn activate_subscription_manual(
         &self,
         tenant_id: TenantId,
@@ -36,102 +39,113 @@ impl Services {
                 async move {
                     SubscriptionRow::lock_subscription_for_update(conn, subscription_id).await?;
 
-                    let subscription = self
+                    let sub = self
                         .store
                         .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
-                        .await?;
+                        .await?
+                        .subscription;
 
-                    if subscription.subscription.activation_condition
-                        != SubscriptionActivationCondition::Manual
-                    {
+                    if sub.activation_condition != SubscriptionActivationCondition::Manual {
                         return Err(Report::new(StoreError::InvalidArgument(
                             "Subscription activation condition must be Manual".to_string(),
                         )));
                     }
 
-                    if subscription.subscription.activated_at.is_some() {
+                    if sub.activated_at.is_some() {
                         return Err(Report::new(StoreError::InvalidArgument(
                             "Subscription is already activated".to_string(),
                         )));
                     }
 
-                    // TODO check
-                    // Calculate activation parameters based on trial
-                    let (
-                        status,
-                        current_period_start,
-                        current_period_end,
-                        next_cycle_action,
-                        cycle_index,
-                    ) = if let Some(trial_duration) = subscription.subscription.trial_duration {
-                        // Has trial: activate with trial status
-                        let new_period_start = subscription
-                            .subscription
-                            .current_period_end
-                            .unwrap_or_else(|| Utc::now().naive_utc().date());
-                        let new_period_end = new_period_start
-                            .checked_add_days(Days::new(trial_duration as u64))
-                            .unwrap_or_else(|| new_period_start + Duration::days(7));
+                    let today = Utc::now().naive_utc().date();
+                    let planned_start = sub.billing_start_date.unwrap_or(sub.start_date);
 
-                        (
-                            SubscriptionStatusEnum::TrialActive,
-                            new_period_start,
-                            Some(new_period_end),
-                            Some(CycleActionEnum::EndTrial),
-                            Some(0),
+                    if planned_start > today {
+                        // Same state as an OnStart subscription with a future start date.
+                        SubscriptionRow::activate_subscription(
+                            conn,
+                            &subscription_id,
+                            &tenant_id,
+                            planned_start,
+                            Some(planned_start),
+                            Some(CycleActionEnum::ActivateSubscription),
+                            None,
+                            SubscriptionStatusEnum::PendingActivation,
                         )
+                        .await?;
                     } else {
-                        // No trial: activate directly to active state
-                        let new_period_start = subscription
-                            .subscription
-                            .billing_start_date
-                            .or(Some(subscription.subscription.start_date))
-                            .unwrap_or_else(|| Utc::now().naive_utc().date());
+                        let trial_is_free =
+                            PlanRow::get_with_version(conn, sub.plan_version_id, tenant_id)
+                                .await?
+                                .version
+                                .is_some_and(|v| v.trial_is_free);
+                        let trial_duration = sub.trial_duration.filter(|&d| d > 0);
+                        let has_free_trial = trial_duration.is_some() && trial_is_free;
 
-                        let period = calculate_advance_period_range(
-                            new_period_start,
-                            subscription.subscription.billing_day_anchor as u32,
-                            true,
-                            &subscription.subscription.period,
-                        );
+                        let anchor_for = |start: NaiveDate| match trial_duration {
+                            Some(days) if trial_is_free => {
+                                (start + Duration::days(i64::from(days))).day()
+                            }
+                            _ => start.day(),
+                        };
+                        // Re-anchor a derived anniversary anchor; keep an explicit fixed day.
+                        let billing_day_anchor =
+                            if u32::from(sub.billing_day_anchor) == anchor_for(planned_start) {
+                                anchor_for(today)
+                            } else {
+                                u32::from(sub.billing_day_anchor)
+                            };
 
-                        (
-                            SubscriptionStatusEnum::Active,
-                            new_period_start,
-                            Some(period.end),
-                            Some(CycleActionEnum::RenewSubscription),
-                            Some(1),
+                        SubscriptionCycleRowPatch {
+                            id: subscription_id,
+                            tenant_id,
+                            cycle_index: None,
+                            status: None,
+                            next_cycle_action: None,
+                            current_period_start: None,
+                            current_period_end: None,
+                            pending_checkout: None,
+                            processing_started_at: None,
+                            billing_start_date: Some(today),
+                            billing_day_anchor: Some(billing_day_anchor as i16),
+                        }
+                        .patch(conn)
+                        .await?;
+
+                        self.activate_subscription_after_payment(
+                            conn,
+                            &subscription_id,
+                            &tenant_id,
+                            PaymentActivationParams {
+                                billing_start_date: today,
+                                trial_duration: trial_duration.map(|d| d as i32),
+                                is_paid_trial: !trial_is_free,
+                                billing_day_anchor,
+                                period: sub.period,
+                            },
                         )
-                    };
+                        .await?;
 
-                    // Activate the subscription
-                    SubscriptionRow::activate_subscription(
-                        conn,
-                        &subscription_id,
-                        &tenant_id,
-                        current_period_start,
-                        current_period_end,
-                        next_cycle_action,
-                        cycle_index,
-                        status,
-                    )
-                    .await?;
+                        if !has_free_trial {
+                            self.bill_subscription_tx(
+                                conn,
+                                tenant_id,
+                                subscription_id,
+                                InvoiceBillingMode::Immediate,
+                            )
+                            .await?;
+                        }
+                    }
 
-                    // Fetch and return updated subscription
-                    let updated =
-                        SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?;
-
-                    Ok(updated)
+                    SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)
                 }
                 .scope_boxed()
             })
             .await?;
 
-        let subscription: Subscription = db_subscription.try_into()?;
-
-        Ok(subscription)
+        db_subscription.try_into()
     }
 
     /// Activates a subscription after payment has been confirmed.
