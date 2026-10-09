@@ -167,6 +167,13 @@ SaaS industries.
 
 Please refer to the [contributing guide](CONTRIBUTING.md) for how to install Meteroid from sources.
 
+## Upcoming breaking release
+
+> [!WARNING]
+> The next major release of Meteroid is a new baseline. It is **not** compatible with the current
+> release line: there is no in-place upgrade, and existing self-hosted instances will need a manual data
+> migration. Pin your deployment to the current release until the migration guide is published here.
+
 ## Deployment
 
 > ☁️ **Just testing?** Skip self-hosting entirely — spin up a free workspace on
