@@ -42,7 +42,7 @@
     "jotai-scope": "^0.5.2",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.488.0",
-    "nanoid": "5.0.9",
+    "nanoid": "5.1.16",
     "papaparse": "^5.5.3",
     "posthog-js": "^1.386.6",
     "react": "^18.3.1",
