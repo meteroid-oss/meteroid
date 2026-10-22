@@ -468,7 +468,8 @@ impl Services {
         let delta_decimal = Decimal::from_i32(delta).ok_or_else(|| {
             StoreError::InvalidArgument(format!("Invalid delta value: {}", delta))
         })?;
-        let amount_subtotal = (delta_decimal * prorated_amount)
+        // prorated_amount is already the total for all `delta` slots
+        let amount_subtotal = prorated_amount
             .to_subunit_opt(currency.precision)
             .ok_or_else(|| {
                 StoreError::InvalidArgument(format!(
@@ -483,7 +484,7 @@ impl Services {
             start_date,
             end_date,
             quantity: Decimal::from_i32(delta),
-            unit_price: Some(prorated_amount),
+            unit_price: Some(prorated_amount / delta_decimal),
             tax_rate: Decimal::ZERO,
             taxable_amount: amount_subtotal,
             tax_amount: 0,
