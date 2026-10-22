@@ -873,15 +873,15 @@ impl Services {
         // TODO case when invoiced early via threshold (that's for usage-based only)
         // can be quite easy => we need some last_invoice_threshold date in the subscription, to reduce the usage periods if that date is within the period
 
+        let is_completed = subscription_details
+            .subscription
+            .current_period_end
+            .is_none()
+            && !subscription_details.subscription.pending_checkout;
+
         let component_period_components: Vec<(ComponentPeriods, Vec<&T>)> = component_groups
             .into_iter()
             .filter_map(|(billing_period, components)| {
-                let is_completed = subscription_details
-                    .subscription
-                    .current_period_end
-                    .is_none()
-                    && !subscription_details.subscription.pending_checkout;
-
                 // we calculate the periods range, for each billing_period. There can be advance, arrears, or both
                 let period = calculate_component_period_for_invoice_date(
                     invoice_date,
@@ -927,14 +927,15 @@ impl Services {
 
         // One-time fees: billed in full, never prorated, exactly once. Billing point:
         //  - plan-level one-time fees bill on the subscription's first invoice
-        //    (`cycle_index == 0`); they are not re-billed on renewals or carried over
+        //    (`cycle_index == 0`, not the final invoice of a subscription ending in
+        //    cycle 0); they are not re-billed on renewals or carried over
         //    by a plan change (which is why `applies_this_period` excludes them);
         //  - a one-time fee added by a manual amendment bills on the invoice for the
         //    period it becomes effective (`effective_from == invoice_date`), which for
         //    an immediate amendment is its adjustment invoice (handled elsewhere) and
         //    for an end-of-period amendment is the upcoming renewal.
         for component in one_time_records {
-            let bill_now = cycle_index == 0
+            let bill_now = (cycle_index == 0 && !is_completed)
                 || (component.added_by_amendment()
                     && component.effective_from() == Some(invoice_date));
             if !bill_now {
