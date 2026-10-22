@@ -459,9 +459,15 @@ impl Services {
                     )
                     .await?;
                     let invoice_id = draft.invoice_id;
-                    let finalized =
-                        finalize_credit_note_tx(&self.store, conn, tenant_id, actor, draft.id)
-                            .await?;
+                    let finalized = finalize_credit_note_tx(
+                        &self.store,
+                        conn,
+                        tenant_id,
+                        actor,
+                        draft.id,
+                        false,
+                    )
+                    .await?;
                     let corrected = if reissue_as_draft {
                         Some(
                             self.create_corrected_invoice_from_tx(conn, tenant_id, invoice_id)

@@ -651,6 +651,7 @@ impl Services {
                     reason: Some("Subscription amendment".to_string()),
                     memo: None,
                     credit_type,
+                    skip_provider_refund: false,
                 },
                 // Amendment credits come from proration; `negate_line_items` flags each
                 // line prorated only where proration actually reduced it (factor < 1).
@@ -664,6 +665,7 @@ impl Services {
                 tenant_id,
                 &Actor::System,
                 credit_note.id,
+                false,
             )
             .await?;
             created.push(finalized.id);

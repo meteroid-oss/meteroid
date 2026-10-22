@@ -21,8 +21,9 @@ use super::events::{NormalizedEventSubscription, NormalizedWebhookEvent};
 use super::model::{
     ChargeAcknowledged, ChargeCancelled, ChargeFailure, ChargeOutcome, ChargeReceipt,
     ChargeRequest, CreateCustomerRequest, DeclineKind, ExternalCustomerRef,
-    MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot, RefundOutcome,
-    RefundRequest, RefundSnapshot, RegisteredWebhook, RemoteTransactionStatus,
+    MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot, RefundAcknowledged,
+    RefundFailure, RefundOutcome, RefundReceipt, RefundRequest, RefundSnapshot, RegisteredWebhook,
+    RemoteTransactionStatus,
 };
 use crate::domain::connectors::{
     Connector, ProviderData, ProviderSensitiveData, StancerPublicData,
@@ -42,6 +43,7 @@ use stancer_client::payment_intents::{
     ThreeDsMode, UpdatePaymentIntent,
 };
 use stancer_client::payments::{CreatePayment, StancerPayment, StancerPaymentStatus};
+use stancer_client::refunds::{RefundCreate, RefundStatus, StancerRefund};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -49,10 +51,10 @@ pub(super) const STANCER_CAPABILITIES: ConnectorCapabilities = ConnectorCapabili
     supports_cards: true,
     // The saved card token is a reusable off-session instrument (a "mandate").
     supports_mandates: true,
-    // `refund()` returns Unsupported — refunds are not wired into the billing
-    // layer for any provider yet.
-    supports_refunds: false,
-    supports_partial_refunds: false,
+    // `POST /v2/refunds/` (OpenAPI-verified). `amount` is optional on the
+    // request, so a partial refund is just a smaller amount than the payment.
+    supports_refunds: true,
+    supports_partial_refunds: true,
     // The hosted page runs the 3DS challenge (`threeds: required` on the
     // intent). Off-session charges omit `auth` → no 3DS (MIT posture).
     supports_3ds: true,
@@ -445,11 +447,28 @@ impl PaymentOps for StancerConnector {
     /// live-verified). Never returns `RequiresAction`. `unique_id` (derived
     /// via [`stancer_unique_id`]) is Stancer's only dedup mechanism here, so a
     /// DB rollback + retry dedupes at the provider instead of charging twice.
+    ///
+    /// Every current caller passes `on_session: false` here precisely because
+    /// a genuine on-session Stancer charge goes through the hosted-redirect
+    /// flow instead (`MandateOps::initiate_mandate_setup` /
+    /// `initiate_hosted_invoice_payment`), which forces 3DS itself. This
+    /// method has no way to insert a 3DS step after the fact, so a caller
+    /// reaching it with `on_session: true` would silently skip SCA — log
+    /// loudly rather than let that regression go unnoticed.
     async fn charge_off_session(
         &self,
         connector: &Connector,
         request: ChargeRequest<'_>,
     ) -> Result<ChargeOutcome, Report<ConnectorError>> {
+        if request.on_session {
+            log::error!(
+                "Stancer charge_off_session called with on_session=true for transaction {}; \
+                 this method never triggers 3DS — an on-session Stancer charge must go through \
+                 the hosted-redirect flow instead",
+                request.transaction_id
+            );
+        }
+
         let secret_key = extract_secret_key(connector)?;
         let client = Self::client();
 
@@ -515,15 +534,54 @@ impl PaymentOps for StancerConnector {
 
 #[async_trait]
 impl RefundOps for StancerConnector {
+    /// `POST /v2/refunds/`. `RefundCreate` carries no idempotency field
+    /// (OpenAPI-verified), so a redelivered/retried call could double-refund:
+    /// first check `GET /v2/payments/{id}/refunds` for an existing refund of
+    /// the same amount and adopt it instead of creating a second one, then
+    /// create with `NoRetry` so a transport hiccup surfaces as an error
+    /// instead of silently retrying underneath us.
     async fn refund(
         &self,
-        _connector: &Connector,
-        _request: RefundRequest<'_>,
+        connector: &Connector,
+        request: RefundRequest<'_>,
     ) -> Result<RefundOutcome, Report<ConnectorError>> {
-        Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Stancer,
-            capability: "refund",
-        }))
+        let secret_key = extract_secret_key(connector)?;
+        let client = Self::client();
+        let payment_id = request.external_transaction_id.to_string();
+
+        match client.list_payment_refunds(&payment_id, &secret_key).await {
+            Ok(existing) => {
+                if let Some(matching) = existing
+                    .into_iter()
+                    .find(|r| r.amount == request.amount_minor && r.status != RefundStatus::Failed)
+                {
+                    log::info!(
+                        "Stancer refund for payment {payment_id} amount {} already exists as {}; adopting",
+                        request.amount_minor,
+                        matching.id
+                    );
+                    return Ok(refund_to_outcome(matching));
+                }
+            }
+            // The pre-check is a safety net, not the source of truth: a failed
+            // lookup must not block a genuine refund attempt.
+            Err(e) => log::warn!("Stancer refund pre-check failed for payment {payment_id}: {e}"),
+        }
+
+        let result = client
+            .create_refund(
+                RefundCreate {
+                    payment: payment_id,
+                    amount: Some(request.amount_minor),
+                },
+                &secret_key,
+            )
+            .await;
+
+        match result {
+            Ok(refund) => Ok(refund_to_outcome(refund)),
+            Err(e) => Err(map_stancer_error(StancerOp::Refund, e)),
+        }
     }
 
     /// `fetch_refund` exists to resolve amount-less refund *webhooks*; Stancer
@@ -783,27 +841,31 @@ fn decline_kind_for(response: Option<&str>) -> DeclineKind {
 }
 
 /// Map the synchronous `POST /v2/payments/` response. Stancer captures in an
-/// end-of-day batch, so `to_capture`/`capture_sent` (bank-authorized, funds
-/// committed — Stancer shows these as "paid") settle like `captured`, not Pending.
+/// end-of-day batch: `to_capture`/`capture_sent` mean bank-authorized and
+/// funds committed, but NOT yet settled — live-verified that such a payment
+/// can still resolve to `canceled` instead of `captured` (the batch capture
+/// simply doesn't happen). Treat them as Pending and let the reconciliation
+/// worker poll to the real terminal state; fabricating Succeeded here left a
+/// transaction permanently marked Settled with nothing ever re-checking it.
 fn payment_to_outcome(payment: StancerPayment, amount_minor: i64) -> ChargeOutcome {
     let id = payment.id;
     let response = payment.response.filter(|r| r != "00");
     match payment.status {
-        Some(
-            StancerPaymentStatus::Captured
-            | StancerPaymentStatus::ToCapture
-            | StancerPaymentStatus::CaptureSent,
-        ) => ChargeOutcome::Succeeded(ChargeReceipt {
+        Some(StancerPaymentStatus::Captured) => ChargeOutcome::Succeeded(ChargeReceipt {
             external_id: id,
             // No separate settled figure exists on the create response.
             amount_received_minor: amount_minor,
             processed_at: chrono::Utc::now().naive_utc(),
             provider_request_id: None,
         }),
-        // `authorized` can still expire/cancel; `Unknown` is unmodeled — never
-        // fabricate success/failure, let reconcile re-poll to a modeled status.
+        // `to_capture`/`capture_sent` can still resolve to `canceled` instead
+        // of `captured` (live-verified); `authorized` can still expire/cancel;
+        // `Unknown` is unmodeled — never fabricate success/failure, let
+        // reconcile re-poll to a modeled status.
         Some(
-            StancerPaymentStatus::Authorize
+            StancerPaymentStatus::ToCapture
+            | StancerPaymentStatus::CaptureSent
+            | StancerPaymentStatus::Authorize
             | StancerPaymentStatus::Authorized
             | StancerPaymentStatus::Capture
             | StancerPaymentStatus::Unknown,
@@ -849,22 +911,53 @@ fn payment_to_outcome(payment: StancerPayment, amount_minor: i64) -> ChargeOutco
     }
 }
 
+/// Map the `POST /v2/refunds/` response (OpenAPI-verified `RefundStatus`).
+/// `Unknown` maps to `Pending` like [`payment_to_outcome`] does for its own
+/// unmodeled statuses — never fabricate success/failure on a status we don't
+/// recognize.
+fn refund_to_outcome(refund: StancerRefund) -> RefundOutcome {
+    match refund.status {
+        RefundStatus::Refunded => RefundOutcome::Succeeded(RefundReceipt {
+            external_refund_id: refund.id,
+            amount_refunded_minor: refund.amount,
+            processed_at: chrono::Utc::now().naive_utc(),
+            provider_request_id: None,
+        }),
+        RefundStatus::ToRefund
+        | RefundStatus::RefundSent
+        | RefundStatus::AwaitingApproval
+        | RefundStatus::Unknown => RefundOutcome::Pending(RefundAcknowledged {
+            external_refund_id: refund.id,
+            provider_request_id: None,
+        }),
+        status @ (RefundStatus::NotHonored
+        | RefundStatus::PaymentCanceled
+        | RefundStatus::Failed) => RefundOutcome::Failed(RefundFailure {
+            code: None,
+            message: format!("Stancer refund {} {status:?}", refund.id),
+            provider_request_id: None,
+        }),
+    }
+}
+
 /// Same status table as [`payment_to_outcome`], onto the reconciliation shape.
 fn remote_status_from_payment(payment: StancerPayment) -> RemoteTransactionStatus {
     let response = payment.response.filter(|r| r != "00");
     match payment.status {
+        Some(StancerPaymentStatus::Captured | StancerPaymentStatus::Disputed) => {
+            RemoteTransactionStatus::Succeeded {
+                amount_received_minor: payment.amount,
+                currency: payment.currency,
+                processed_at: chrono::Utc::now().naive_utc(),
+            }
+        }
+        // `to_capture`/`capture_sent` are still pending as far as reconcile is
+        // concerned: only a later poll landing on `Captured` (or `Canceled`)
+        // is authoritative — see `payment_to_outcome`.
         Some(
-            StancerPaymentStatus::Captured
-            | StancerPaymentStatus::ToCapture
+            StancerPaymentStatus::ToCapture
             | StancerPaymentStatus::CaptureSent
-            | StancerPaymentStatus::Disputed,
-        ) => RemoteTransactionStatus::Succeeded {
-            amount_received_minor: payment.amount,
-            currency: payment.currency,
-            processed_at: chrono::Utc::now().naive_utc(),
-        },
-        Some(
-            StancerPaymentStatus::Authorize
+            | StancerPaymentStatus::Authorize
             | StancerPaymentStatus::Authorized
             | StancerPaymentStatus::Capture
             | StancerPaymentStatus::Unknown,
@@ -891,6 +984,7 @@ enum StancerOp {
     Mandate,
     PaymentMethod,
     Charge,
+    Refund,
 }
 
 impl StancerOp {
@@ -901,6 +995,7 @@ impl StancerOp {
             // Reading a card is a read on the customer's setup.
             StancerOp::PaymentMethod => ConnectorError::CustomerOp(msg),
             StancerOp::Charge => ConnectorError::Charge(msg),
+            StancerOp::Refund => ConnectorError::Refund(msg),
         }
     }
 }
@@ -1031,8 +1126,11 @@ mod tests {
         let caps = connector.capabilities();
         assert!(caps.supports_cards);
         assert!(caps.supports_mandates);
-        assert!(!caps.supports_refunds, "refund() is Unsupported");
-        assert!(!caps.supports_partial_refunds);
+        assert!(
+            caps.supports_refunds,
+            "refund() is wired to POST /v2/refunds/"
+        );
+        assert!(caps.supports_partial_refunds);
         assert!(caps.supports_3ds);
         assert!(!caps.supports_disputes);
         assert!(!caps.supports_self_webhook_registration);
@@ -1061,26 +1159,17 @@ mod tests {
             payment_to_outcome(payment(Some(StancerPaymentStatus::Disputed), None), 4_200),
             ChargeOutcome::Succeeded(_)
         ));
-        // Batch capture: to_capture/capture_sent are bank-authorized and committed
-        // (Stancer shows them "paid"), so they settle immediately like captured.
-        for status in [
-            StancerPaymentStatus::ToCapture,
-            StancerPaymentStatus::CaptureSent,
-        ] {
-            assert!(
-                matches!(
-                    payment_to_outcome(payment(Some(status.clone()), None), 4_200),
-                    ChargeOutcome::Succeeded(_)
-                ),
-                "status {status:?} must be Succeeded"
-            );
-        }
     }
 
     /// Unmodeled statuses must never be fabricated into a success or failure.
+    /// `to_capture`/`capture_sent` belong here too (live-verified: such a
+    /// payment can still resolve to `canceled` instead of `captured`), not in
+    /// the success states above.
     #[test]
     fn payment_to_outcome_pending_states() {
         for status in [
+            Some(StancerPaymentStatus::ToCapture),
+            Some(StancerPaymentStatus::CaptureSent),
             Some(StancerPaymentStatus::Authorize),
             Some(StancerPaymentStatus::Authorized),
             Some(StancerPaymentStatus::Capture),
@@ -1160,19 +1249,9 @@ mod tests {
             remote_status_from_payment(payment(Some(StancerPaymentStatus::Disputed), None)),
             RemoteTransactionStatus::Succeeded { .. }
         ));
-        for settled in [
-            StancerPaymentStatus::ToCapture,
-            StancerPaymentStatus::CaptureSent,
-        ] {
-            assert!(
-                matches!(
-                    remote_status_from_payment(payment(Some(settled.clone()), None)),
-                    RemoteTransactionStatus::Succeeded { .. }
-                ),
-                "status {settled:?} must reconcile as Succeeded"
-            );
-        }
         for pending in [
+            Some(StancerPaymentStatus::ToCapture),
+            Some(StancerPaymentStatus::CaptureSent),
             Some(StancerPaymentStatus::Authorize),
             Some(StancerPaymentStatus::Capture),
             Some(StancerPaymentStatus::Unknown),
@@ -1375,32 +1454,74 @@ mod tests {
         ));
     }
 
+    /// `fetch_refund` stays `Unsupported`: its contract purpose is resolving
+    /// amount-less refund *webhooks*, and Stancer has none — our own
+    /// `refund()` returns amounts inline instead.
     #[tokio::test]
-    async fn refund_ops_are_unsupported() {
+    async fn fetch_refund_is_unsupported() {
         let connector = test_connector();
         let stancer = StancerConnector::new();
-        let refund = stancer
-            .refund(
-                &connector,
-                RefundRequest {
-                    external_transaction_id: "paym_x",
-                    amount_minor: 100,
-                    currency: "EUR",
-                    reason: None,
-                    idempotency_key: super::super::model::IdempotencyKey::new("k"),
-                },
-            )
-            .await;
-        assert!(matches!(
-            refund.as_ref().err().map(|r| r.current_context()),
-            Some(ConnectorError::Unsupported { .. })
-        ));
 
         let fetched = stancer.fetch_refund(&connector, "refund_x").await;
         assert!(matches!(
             fetched.as_ref().err().map(|r| r.current_context()),
             Some(ConnectorError::Unsupported { .. })
         ));
+    }
+
+    fn refund(status: RefundStatus) -> StancerRefund {
+        StancerRefund {
+            id: "refd_test1".into(),
+            payment: "paym_test1".into(),
+            amount: 4_200,
+            status,
+        }
+    }
+
+    #[test]
+    fn refund_to_outcome_success_state() {
+        match refund_to_outcome(refund(RefundStatus::Refunded)) {
+            RefundOutcome::Succeeded(r) => {
+                assert_eq!(r.external_refund_id, "refd_test1");
+                assert_eq!(r.amount_refunded_minor, 4_200);
+            }
+            other => panic!("expected Succeeded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn refund_to_outcome_pending_states() {
+        for status in [
+            RefundStatus::ToRefund,
+            RefundStatus::RefundSent,
+            RefundStatus::AwaitingApproval,
+            RefundStatus::Unknown,
+        ] {
+            assert!(
+                matches!(
+                    refund_to_outcome(refund(status.clone())),
+                    RefundOutcome::Pending(_)
+                ),
+                "status {status:?} must be Pending"
+            );
+        }
+    }
+
+    #[test]
+    fn refund_to_outcome_terminal_states() {
+        for status in [
+            RefundStatus::NotHonored,
+            RefundStatus::PaymentCanceled,
+            RefundStatus::Failed,
+        ] {
+            assert!(
+                matches!(
+                    refund_to_outcome(refund(status.clone())),
+                    RefundOutcome::Failed(_)
+                ),
+                "status {status:?} must be Failed"
+            );
+        }
     }
 
     /// Checkout/invoice intents carry the REAL amount with `capture: true`;

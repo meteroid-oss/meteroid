@@ -1556,3 +1556,155 @@ async fn test_deferred_checkout_materialization_prices_at_charge_date(#[future] 
         .is_finalized_paid()
         .has_amount_due(0);
 }
+
+// =============================================================================
+// Credit-note-triggered refund: finalizing a Refund-type credit note against a
+// connector whose `capabilities().supports_refunds` is true (Mock here) drives
+// the SAME `reverse_transaction_tx` reversal pipeline a provider webhook does
+// — see `trigger_provider_refund_tx` in
+// `meteroid-store/src/repositories/credit_notes.rs`. Before this feature,
+// finalizing a Refund-type credit note only wrote the accounting figures and
+// never touched the underlying `PaymentTransaction` or reopened the invoice.
+// =============================================================================
+
+#[rstest]
+#[tokio::test]
+async fn test_credit_note_refund_triggers_provider_reversal(#[future] test_env: TestEnv) {
+    use meteroid_store::repositories::CreditNoteInterface;
+    use meteroid_store::repositories::credit_notes::{CreateCreditNoteParams, CreditType};
+
+    let env = test_env.await;
+    let (sub_id, invoice_id, tx, total) = settled_paid_invoice(&env).await;
+
+    let credit_note = env
+        .store()
+        .create_credit_note(
+            common_domain::actor::Actor::System,
+            TENANT_ID,
+            CreateCreditNoteParams {
+                invoice_id,
+                line_items: vec![], // all lines, full amount
+                reason: Some("test full refund".to_string()),
+                memo: None,
+                credit_type: CreditType::Refund,
+                skip_provider_refund: false,
+            },
+        )
+        .await
+        .expect("credit note created");
+    assert_eq!(
+        credit_note.refunded_amount_cents, total,
+        "no applied credits in this fixture, so the whole total is a refund"
+    );
+
+    env.store()
+        .finalize_credit_note(
+            common_domain::actor::Actor::System,
+            TENANT_ID,
+            credit_note.id,
+        )
+        .await
+        .expect("credit note finalized, provider refund accepted");
+
+    let refunded_tx = transaction_for_invoice(&env, invoice_id).await;
+    assert_eq!(refunded_tx.id, tx.id, "same transaction, now reversed");
+    assert_eq!(refunded_tx.amount_refunded, total);
+    assert_eq!(
+        refunded_tx.status,
+        PaymentStatusEnum::Refunded,
+        "a full claw-back flips status to Refunded"
+    );
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices
+        .assert()
+        .invoice_at(0)
+        .has_amount_due(total)
+        .has_payment_status(InvoicePaymentStatus::Unpaid);
+}
+
+/// `skip_provider_refund: true` on a Refund-type credit note (the "already
+/// refunded manually" option) must bypass `trigger_provider_refund_tx`
+/// entirely, even though the connector supports refunds. Only honored via
+/// `create_and_finalize_credit_note` — that's the path the flag flows
+/// through (see `credit_notes.rs`'s `finalize_credit_note_tx` signature).
+#[rstest]
+#[tokio::test]
+async fn test_credit_note_skip_provider_refund_leaves_transaction_untouched(
+    #[future] test_env: TestEnv,
+) {
+    use meteroid_store::repositories::CreditNoteInterface;
+    use meteroid_store::repositories::credit_notes::{CreateCreditNoteParams, CreditType};
+
+    let env = test_env.await;
+    let (_sub_id, invoice_id, tx, total) = settled_paid_invoice(&env).await;
+
+    let credit_note = env
+        .store()
+        .create_and_finalize_credit_note(
+            common_domain::actor::Actor::System,
+            TENANT_ID,
+            CreateCreditNoteParams {
+                invoice_id,
+                line_items: vec![],
+                reason: Some("test manual refund".to_string()),
+                memo: None,
+                credit_type: CreditType::Refund,
+                skip_provider_refund: true,
+            },
+        )
+        .await
+        .expect("credit note created and finalized without calling the provider");
+    assert_eq!(credit_note.refunded_amount_cents, total);
+
+    let unchanged_tx = transaction_for_invoice(&env, invoice_id).await;
+    assert_eq!(unchanged_tx.id, tx.id);
+    assert_eq!(unchanged_tx.amount_refunded, 0);
+    assert_eq!(unchanged_tx.status, PaymentStatusEnum::Settled);
+}
+
+/// A non-Refund credit type (e.g. `CreditToBalance`) must never touch the
+/// underlying `PaymentTransaction` — `trigger_provider_refund_tx` is only
+/// invoked for `CreditType::Refund`. Regression guard for that gate.
+#[rstest]
+#[tokio::test]
+async fn test_credit_to_balance_credit_note_does_not_touch_payment_transaction(
+    #[future] test_env: TestEnv,
+) {
+    use meteroid_store::repositories::CreditNoteInterface;
+    use meteroid_store::repositories::credit_notes::{CreateCreditNoteParams, CreditType};
+
+    let env = test_env.await;
+    let (_sub_id, invoice_id, tx, _total) = settled_paid_invoice(&env).await;
+
+    let credit_note = env
+        .store()
+        .create_credit_note(
+            common_domain::actor::Actor::System,
+            TENANT_ID,
+            CreateCreditNoteParams {
+                invoice_id,
+                line_items: vec![],
+                reason: Some("test credit to balance".to_string()),
+                memo: None,
+                credit_type: CreditType::CreditToBalance,
+                skip_provider_refund: false,
+            },
+        )
+        .await
+        .expect("credit note created");
+
+    env.store()
+        .finalize_credit_note(
+            common_domain::actor::Actor::System,
+            TENANT_ID,
+            credit_note.id,
+        )
+        .await
+        .expect("credit note finalized");
+
+    let unchanged_tx = transaction_for_invoice(&env, invoice_id).await;
+    assert_eq!(unchanged_tx.id, tx.id);
+    assert_eq!(unchanged_tx.amount_refunded, 0);
+    assert_eq!(unchanged_tx.status, PaymentStatusEnum::Settled);
+}

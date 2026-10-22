@@ -238,6 +238,7 @@ async fn test_credit_note_partial_credits() {
                 reason: Some("Partial refund - first batch".to_string()),
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
+                skip_provider_refund: false,
             },
         )
         .await
@@ -298,6 +299,7 @@ async fn test_credit_note_partial_credits() {
                 reason: Some("Partial refund - second batch".to_string()),
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
+                skip_provider_refund: false,
             },
         )
         .await
@@ -466,6 +468,7 @@ async fn test_credit_note_partial_credits() {
                 reason: Some("Should fail - duplicate".to_string()),
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
+                skip_provider_refund: false,
             },
         )
         .await;
@@ -597,6 +600,7 @@ async fn test_credit_note_race_condition() {
                         reason: Some("Concurrent 1".to_string()),
                         memo: None,
                         credit_type: CreditType::CreditToBalance,
+                        skip_provider_refund: false,
                     },
                 )
                 .await
@@ -615,6 +619,7 @@ async fn test_credit_note_race_condition() {
                         reason: Some("Concurrent 2".to_string()),
                         memo: None,
                         credit_type: CreditType::CreditToBalance,
+                        skip_provider_refund: false,
                     },
                 )
                 .await
@@ -828,6 +833,7 @@ async fn test_credit_note_refund_with_applied_credits() {
                 reason: Some("Full refund with applied credits".to_string()),
                 memo: None,
                 credit_type: CreditType::Refund,
+                skip_provider_refund: false,
             },
         )
         .await
@@ -1062,6 +1068,7 @@ async fn test_credit_note_partial_amounts() {
                 reason: Some("Partial amount credit test".to_string()),
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
+                skip_provider_refund: false,
             },
         )
         .await
@@ -1160,6 +1167,7 @@ async fn test_credit_note_partial_amounts() {
                 reason: Some("Should fail - exceeds subtotal".to_string()),
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
+                skip_provider_refund: false,
             },
         )
         .await;
@@ -1190,6 +1198,7 @@ async fn test_credit_note_partial_amounts() {
                 reason: Some("Should fail - negative amount".to_string()),
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
+                skip_provider_refund: false,
             },
         )
         .await;
@@ -1341,6 +1350,7 @@ async fn test_credit_note_debt_cancellation_full_settles_invoice() {
                 reason: Some("Full debt cancellation".to_string()),
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                skip_provider_refund: false,
             },
         )
         .await
@@ -1402,6 +1412,7 @@ async fn test_credit_note_debt_cancellation_partial_leaves_unpaid() {
                 reason: Some("Partial debt cancellation".to_string()),
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                skip_provider_refund: false,
             },
         )
         .await
@@ -1446,6 +1457,7 @@ async fn test_credit_note_debt_cancellation_rejected_on_paid_invoice() {
                 reason: None,
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                skip_provider_refund: false,
             },
         )
         .await;
@@ -1473,6 +1485,7 @@ async fn test_credit_note_credit_to_balance_rejected_on_unpaid_invoice() {
                 reason: None,
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
+                skip_provider_refund: false,
             },
         )
         .await;
@@ -1501,6 +1514,7 @@ async fn test_credit_note_debt_cancellation_void_reverts_invoice() {
                 reason: None,
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                skip_provider_refund: false,
             },
         )
         .await
@@ -1566,6 +1580,7 @@ async fn create_and_finalize_debt_cancellation_cn(
                 reason: Some("Wrong billing amount".to_string()),
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                skip_provider_refund: false,
             },
         )
         .await
@@ -1711,6 +1726,7 @@ async fn test_corrected_invoice_rejected_after_partial_debt_cancellation() {
                 reason: None,
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                skip_provider_refund: false,
             },
         )
         .await
@@ -1756,6 +1772,7 @@ async fn test_cn_with_reissue_unpaid_full_dc_happy_path() {
                 reason: Some("Wrong billing amount".to_string()),
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                skip_provider_refund: false,
             },
             true,
         )
@@ -1809,6 +1826,7 @@ async fn test_cn_with_reissue_rejected_if_already_reissued() {
                 reason: None,
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                skip_provider_refund: false,
             },
             true,
         )
@@ -1851,6 +1869,7 @@ async fn test_cn_with_reissue_rejected_when_partial() {
                 reason: None,
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                skip_provider_refund: false,
             },
             true,
         )
@@ -1892,6 +1911,7 @@ async fn test_cn_with_reissue_paid_full_refund_happy_path() {
                 reason: Some("Wrong plan billed".to_string()),
                 memo: None,
                 credit_type: CreditType::Refund,
+                skip_provider_refund: false,
             },
             true,
         )
@@ -1941,6 +1961,7 @@ async fn test_cn_with_reissue_paid_full_ctb_happy_path() {
                 reason: None,
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
+                skip_provider_refund: false,
             },
             true,
         )
