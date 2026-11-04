@@ -1,0 +1,109 @@
+syntax = "proto3";
+
+package meteroid.api.purchaselinks.v1;
+
+enum AllowedBuyerTypes {
+  ALLOWED_BUYER_TYPES_ALL = 0;
+  ALLOWED_BUYER_TYPES_COMPANIES_ONLY = 1;
+  ALLOWED_BUYER_TYPES_INDIVIDUALS_ONLY = 2;
+}
+
+// Whether companies are asked for a VAT / tax ID; individuals never are.
+enum TaxIdCollection {
+  TAX_ID_COLLECTION_OPTIONAL = 0;
+  TAX_ID_COLLECTION_OFF = 1;
+  TAX_ID_COLLECTION_REQUIRED = 2;
+}
+
+// A public, reusable link to buy a plan. Each purchase started from it creates a
+// customer and a checkout session.
+message PurchaseLink {
+  string id = 1;
+  string plan_id = 2;
+  string plan_name = 3;
+  string name = 4;
+  // Public URL to share.
+  string url = 5;
+  bool allow_coupon_codes = 6;
+  // Offered to licensed software (e.g. self-hosted instances) as a way to subscribe.
+  bool listed = 7;
+  optional string success_url = 8;
+  optional string cancel_url = 9;
+  string created_at = 10;
+  optional string archived_at = 11;
+  // Purchases started from the link, and how many completed.
+  uint32 started_count = 12;
+  uint32 completed_count = 13;
+  // When false, buyers only give their billing country, not a full address.
+  bool require_billing_address = 14;
+  TaxIdCollection tax_id_collection = 15;
+  AllowedBuyerTypes allowed_buyer_types = 16;
+}
+
+message ListPurchaseLinksRequest {
+  optional string plan_id = 1;
+  bool include_archived = 2;
+}
+
+message ListPurchaseLinksResponse {
+  repeated PurchaseLink links = 1;
+}
+
+message CreatePurchaseLinkRequest {
+  string plan_id = 1;
+  string name = 2;
+  bool allow_coupon_codes = 3;
+  bool listed = 4;
+  optional string success_url = 5;
+  optional string cancel_url = 6;
+  // Default true.
+  optional bool require_billing_address = 7;
+  TaxIdCollection tax_id_collection = 8;
+  AllowedBuyerTypes allowed_buyer_types = 9;
+}
+
+message CreatePurchaseLinkResponse {
+  PurchaseLink link = 1;
+}
+
+message UpdatePurchaseLinkRequest {
+  string id = 1;
+  string name = 2;
+  bool allow_coupon_codes = 3;
+  bool listed = 4;
+  optional string success_url = 5;
+  optional string cancel_url = 6;
+  // Default true.
+  optional bool require_billing_address = 7;
+  TaxIdCollection tax_id_collection = 8;
+  AllowedBuyerTypes allowed_buyer_types = 9;
+}
+
+message UpdatePurchaseLinkResponse {
+  PurchaseLink link = 1;
+}
+
+// Issues a new URL; the previous one stops working.
+message RegeneratePurchaseLinkUrlRequest {
+  string id = 1;
+}
+
+message RegeneratePurchaseLinkUrlResponse {
+  PurchaseLink link = 1;
+}
+
+message ArchivePurchaseLinkRequest {
+  string id = 1;
+}
+
+message ArchivePurchaseLinkResponse {
+  PurchaseLink link = 1;
+}
+
+service PurchaseLinksService {
+  rpc ListPurchaseLinks(ListPurchaseLinksRequest) returns (ListPurchaseLinksResponse) {}
+  rpc CreatePurchaseLink(CreatePurchaseLinkRequest) returns (CreatePurchaseLinkResponse) {}
+  rpc UpdatePurchaseLink(UpdatePurchaseLinkRequest) returns (UpdatePurchaseLinkResponse) {}
+  rpc RegeneratePurchaseLinkUrl(RegeneratePurchaseLinkUrlRequest) returns (RegeneratePurchaseLinkUrlResponse) {}
+  rpc ArchivePurchaseLink(ArchivePurchaseLinkRequest) returns (ArchivePurchaseLinkResponse) {}
+}

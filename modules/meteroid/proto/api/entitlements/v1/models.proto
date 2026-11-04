@@ -10,8 +10,8 @@ enum CalendarUnit {
   YEAR = 4;
 }
 
-// Operator-facing lifecycle for a feature. DISABLED is the kill switch; ARCHIVED hides the
-// feature without deleting its rows.
+// Only ACTIVE entitlements resolve. ARCHIVED releases the code and hides the feature's entitlements
+// until it is unarchived to ACTIVE.
 enum FeatureStatus {
   ACTIVE = 0;
   DISABLED = 1;
@@ -45,15 +45,63 @@ message ResetPeriod {
   message Never {}
 }
 
+// What happens once usage reaches the limit. Block refuses usage beyond the limit plus the optional
+// grace; Allow lets it continue.
+message OverageBehavior {
+  oneof Inner {
+    Block block = 1;
+    Allow allow = 2;
+  }
+
+  message Block {
+    // Usage allowed beyond the limit, in percent of the limit.
+    optional uint32 grace_period_pct = 1;
+  }
+  message Allow {}
+}
+
+// Authoritative value type of a Config feature — declared once at creation, immutable.
+// MAP and JSON both carry a JSON value (MAP is the key/value-editor variant).
+enum ConfigValueType {
+  CONFIG_VALUE_TYPE_UNSPECIFIED = 0;
+  CONFIG_VALUE_TYPE_NUMBER = 1;
+  CONFIG_VALUE_TYPE_BOOLEAN = 2;
+  CONFIG_VALUE_TYPE_TEXT = 3;
+  CONFIG_VALUE_TYPE_MAP = 4;
+  CONFIG_VALUE_TYPE_JSON = 5;
+  CONFIG_VALUE_TYPE_SELECT = 6;
+}
+
 message FeatureType {
   oneof Inner {
     BooleanFeature boolean = 1;
     MeteredFeature metered = 2;
+    ConfigFeature config = 3;
   }
 
   message BooleanFeature {}
   message MeteredFeature {
     string metric_id = 1;
+  }
+  // Static, typed configuration value. No metric, resolved synchronously.
+  message ConfigFeature {
+    // The feature's value type. Fixed at creation.
+    ConfigValueType value_type = 2;
+    // Allowed values when value_type = SELECT (e.g. ["basic", "premium"]).
+    repeated string options = 1;
+  }
+}
+
+// A static, typed configuration value carried by a Config feature/entitlement. Resolved
+// synchronously through the entitlement chain — no metric, no usage. `json` carries a
+// JSON-encoded structured value (the "metadata" case: several fields in one entitlement).
+message ConfigValue {
+  oneof value {
+    // Decimal encoded as a string, consistent with metered `limit`.
+    string number = 1;
+    bool boolean = 2;
+    string text = 3;
+    string json = 4;
   }
 }
 
@@ -68,6 +116,7 @@ message FeatureRef {
   string id = 1;
   string name = 2;
   optional ProductRef product = 3;
+  // Unique key used to reference this feature in your code. Cannot be changed after creation.
   string code = 4;
 }
 
@@ -80,7 +129,10 @@ message Feature {
   // Product the feature belongs to. Unset ⇒ tenant-global feature.
   optional ProductRef product = 6;
   string created_at = 7;
+  // Unique key used to reference this feature in your code. Cannot be changed after creation.
   string code = 8;
+  // Feature-level default entitlement (lowest-priority baseline). Unset if none configured.
+  optional Entitlement entitlement = 9;
 }
 
 message EntitlementEntity {
@@ -91,6 +143,7 @@ message EntitlementEntity {
     string add_on_id = 4;
     string subscription_id = 5;
     string quote_id = 6;
+    string customer_id = 7;
   }
 }
 
@@ -107,6 +160,7 @@ message EntitlementValue {
   oneof value {
     BooleanValue boolean_value = 1;
     MeteredValue metered_value = 2;
+    ConfigValue config_value = 3;
   }
 
   message BooleanValue {
@@ -116,6 +170,16 @@ message EntitlementValue {
     optional string limit = 1;
     optional ResetPeriod reset_period = 2;
     bool enabled = 5;
+    // Event property the limit is tracked per (e.g. one allowance per seat). Unset = one limit
+    // for the whole customer.
+    optional string group_by = 9;
+    // Unset is Block without grace.
+    optional OverageBehavior overage_behavior = 10;
+    // Deprecated: use `thresholds`. Read only when `thresholds` is empty; returned as the lowest
+    // threshold.
+    optional uint32 warning_threshold_pct = 11;
+    // Percents of the limit (1-100, at most 10) at which usage sends an alert, once per window.
+    repeated uint32 thresholds = 12;
   }
 }
 
@@ -135,12 +199,16 @@ message EffectiveEntitlement {
   oneof value {
     BooleanEntitlement boolean = 2;
     MeteredEntitlement metered = 3;
+    ConfigEntitlement config = 4;
   }
   // Highest-priority entity that contributed to the final value, with its human-readable name.
   ResolvedOrigin origin = 5;
 
   message BooleanEntitlement {
     bool enabled = 1;
+  }
+  message ConfigEntitlement {
+    ConfigValue value = 1;
   }
   message MeteredEntitlement {
     string metric_id = 1;
@@ -149,7 +217,16 @@ message EffectiveEntitlement {
     optional string remaining = 4;
     optional string reset_at = 6;
     optional ResetPeriod reset_period = 7;
+    // False once a blocking limit (plus its grace) is reached, even when switched on.
     bool enabled = 10;
+    optional string group_by = 13;
+    OverageBehavior overage_behavior = 14;
+    // Deprecated: the lowest of `thresholds`.
+    optional uint32 warning_threshold_pct = 15;
+    // Switched on, but refused because the blocking limit (plus its grace) is reached: the
+    // configured switch is `enabled || limit_reached`.
+    bool limit_reached = 16;
+    repeated uint32 thresholds = 17;
   }
 }
 
@@ -160,6 +237,7 @@ message ResolvedEntitlement {
   oneof value {
     BooleanResolved boolean = 2;
     MeteredResolved metered = 3;
+    ConfigResolved config = 4;
   }
   // Highest-priority entity that contributed to the final value, with its human-readable name.
   ResolvedOrigin origin = 5;
@@ -167,10 +245,18 @@ message ResolvedEntitlement {
   message BooleanResolved {
     bool enabled = 1;
   }
+  message ConfigResolved {
+    ConfigValue value = 1;
+  }
   message MeteredResolved {
     string metric_id = 1;
     optional string limit = 2;
     optional ResetPeriod reset_period = 3;
     bool enabled = 6;
+    optional string group_by = 10;
+    OverageBehavior overage_behavior = 11;
+    // Deprecated: the lowest of `thresholds`.
+    optional uint32 warning_threshold_pct = 12;
+    repeated uint32 thresholds = 13;
   }
 }

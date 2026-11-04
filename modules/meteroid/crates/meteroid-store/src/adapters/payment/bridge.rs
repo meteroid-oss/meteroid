@@ -6,11 +6,34 @@
 //! [`consolidate_intent_and_transaction_tx`]: crate::repositories::payment_transactions::PaymentTransactionInterface::consolidate_intent_and_transaction_tx
 
 use super::events::NormalizedEventKind;
-use super::model::ChargeOutcome;
+use super::model::{ChargeOutcome, RequiresActionInstruction};
 use crate::domain::PaymentStatusEnum;
 use crate::domain::payment_transactions::{PaymentIntent, PaymentNextAction};
 use common_domain::ids::{PaymentTransactionId, TenantId};
 use secrecy::{ExposeSecret, SecretString};
+
+/// The provider's external id and the next action the portal completes.
+pub fn next_action_from_instruction(
+    action: RequiresActionInstruction,
+) -> (String, PaymentNextAction) {
+    match action {
+        RequiresActionInstruction::HostedUrl {
+            external_id, url, ..
+        } => (external_id, PaymentNextAction::RedirectToUrl { url }),
+        RequiresActionInstruction::ClientSecret {
+            external_id,
+            client_secret,
+            publishable_key,
+        } => (
+            external_id.clone(),
+            PaymentNextAction::UseSdk {
+                intent_id: external_id,
+                publishable_key: publishable_key.expose_secret().to_string(),
+                client_secret: Some(SecretString::from(client_secret)),
+            },
+        ),
+    }
+}
 
 /// Extra params are caller-supplied — [`ChargeOutcome`] carries the outcome,
 /// not the originating request (amount, currency, ids).
@@ -32,6 +55,7 @@ pub fn payment_intent_from_outcome(
             next_action: None,
             status: PaymentStatusEnum::Settled,
             last_payment_error: None,
+            decline_kind: None,
             processed_at: Some(r.processed_at),
         },
         ChargeOutcome::Pending(a) => PaymentIntent {
@@ -44,28 +68,13 @@ pub fn payment_intent_from_outcome(
             next_action: None,
             status: PaymentStatusEnum::Pending,
             last_payment_error: None,
+            decline_kind: None,
             processed_at: None,
         },
         ChargeOutcome::RequiresAction(action) => {
             // Stays Pending; the persisted next_action is what marks it as
             // "awaiting customer authentication".
-            let (external_id, next_action) = match action {
-                super::model::RequiresActionInstruction::HostedUrl {
-                    external_id, url, ..
-                } => (external_id, PaymentNextAction::RedirectToUrl { url }),
-                super::model::RequiresActionInstruction::ClientSecret {
-                    external_id,
-                    client_secret,
-                    publishable_key,
-                } => (
-                    external_id.clone(),
-                    PaymentNextAction::UseSdk {
-                        intent_id: external_id,
-                        publishable_key: publishable_key.expose_secret().to_string(),
-                        client_secret: Some(SecretString::from(client_secret)),
-                    },
-                ),
-            };
+            let (external_id, next_action) = next_action_from_instruction(action);
             PaymentIntent {
                 external_id,
                 transaction_id,
@@ -76,6 +85,7 @@ pub fn payment_intent_from_outcome(
                 next_action: Some(next_action),
                 status: PaymentStatusEnum::Pending,
                 last_payment_error: None,
+                decline_kind: None,
                 processed_at: None,
             }
         }
@@ -89,6 +99,7 @@ pub fn payment_intent_from_outcome(
             next_action: None,
             status: PaymentStatusEnum::Cancelled,
             last_payment_error: Some(c.message),
+            decline_kind: None,
             processed_at: None,
         },
         ChargeOutcome::Failed(f) => PaymentIntent {
@@ -101,6 +112,7 @@ pub fn payment_intent_from_outcome(
             next_action: None,
             status: PaymentStatusEnum::Failed,
             last_payment_error: Some(f.message),
+            decline_kind: Some(f.decline_kind),
             processed_at: None,
         },
     }
@@ -125,6 +137,7 @@ pub fn payment_intent_from_event(
             next_action: None,
             status: PaymentStatusEnum::Settled,
             last_payment_error: None,
+            decline_kind: None,
             processed_at: Some(chrono::Utc::now().naive_utc()),
         }),
         NormalizedEventKind::PaymentFailed(e) => Some(PaymentIntent {
@@ -137,6 +150,7 @@ pub fn payment_intent_from_event(
             next_action: None,
             status: PaymentStatusEnum::Failed,
             last_payment_error: Some(e.message.clone()),
+            decline_kind: Some(e.decline_kind),
             processed_at: None,
         }),
         NormalizedEventKind::PaymentPending(e) => Some(PaymentIntent {
@@ -149,6 +163,7 @@ pub fn payment_intent_from_event(
             next_action: None,
             status: PaymentStatusEnum::Pending,
             last_payment_error: None,
+            decline_kind: None,
             processed_at: None,
         }),
         _ => None,

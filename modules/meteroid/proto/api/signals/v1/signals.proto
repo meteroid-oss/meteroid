@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package meteroid.api.signals.v1;
+
+import "api/signals/v1/models.proto";
+
+message ListSignalsRequest {
+  SignalFilter filter = 1;
+  SignalSort sort = 2;
+  // Zero-based page index.
+  uint32 page = 3;
+  // Page size; clamped server-side.
+  uint32 per_page = 4;
+}
+
+message ListSignalsResponse {
+  repeated Signal signals = 1;
+  uint32 total = 2;
+  // Currency of every *_cents: the tenant reporting currency.
+  string currency = 3;
+  // All signals, then one entry per category, over the filter without its category.
+  CategorySummary all = 4;
+  repeated CategorySummary categories = 5;
+}
+
+message GetSignalRequest {
+  string event_id = 1;
+}
+
+// The signal with what it is worth, why, what happens if nothing changes, and the levers it implies.
+// Sections the caller may not see (subscriptions:read, invoices:read, the add-on) are left out.
+message GetSignalResponse {
+  Signal signal = 1;
+  // Currency of signal.impact_cents.
+  string currency = 2;
+  optional SignalChart chart = 3;
+  optional SignalOutlook outlook = 4;
+  repeated SignalOption options = 5;
+  SignalProvenance provenance = 6;
+  // Sections that failed to compute ("chart", "options", …); the rest is valid.
+  repeated string unavailable_sections = 7;
+}
+
+// Dismiss (acknowledge) firing signals: explicit event ids (a page selection) or every signal the
+// filter matches, in one write.
+message DismissSignalsRequest {
+  // Explicit selection; when non-empty the filter is ignored.
+  repeated string event_ids = 1;
+  optional SignalFilter filter = 2;
+  // Undo: with event_ids only, moves those ACKNOWLEDGED events back to FIRING.
+  bool restore = 3;
+}
+
+message DismissSignalsResponse {
+  uint32 dismissed = 1;
+}
+
+service SignalsService {
+  rpc ListSignals(ListSignalsRequest) returns (ListSignalsResponse) {}
+  rpc GetSignal(GetSignalRequest) returns (GetSignalResponse) {}
+  rpc DismissSignals(DismissSignalsRequest) returns (DismissSignalsResponse) {}
+}

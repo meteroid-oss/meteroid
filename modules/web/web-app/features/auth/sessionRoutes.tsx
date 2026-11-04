@@ -3,6 +3,7 @@ import { FC, useEffect, useMemo } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 
 import { Loading } from '@/components/Loading'
+import { ForcedEnrollmentGate } from '@/features/auth/components/ForcedEnrollmentGate'
 import { Loader } from '@/features/auth/components/Loader'
 import { useSession } from '@/features/auth/session'
 import { useLogout } from '@/hooks/useLogout'
@@ -67,6 +68,10 @@ export const ProtectedRoutes: FC = () => {
 
   if (meQuery.isLoading) {
     return <Loading />
+  }
+
+  if (meQuery.data?.mfaEnrollmentRequired) {
+    return <ForcedEnrollmentGate />
   }
 
   return <Outlet />

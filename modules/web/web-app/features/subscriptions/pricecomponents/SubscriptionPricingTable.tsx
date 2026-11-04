@@ -1,6 +1,7 @@
 import { cn } from '@ui/lib'
 import { FC } from 'react'
 
+import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
 import {
   formatSubscriptionFee,
   formatSubscriptionFeeBillingPeriod,
@@ -36,6 +37,7 @@ const formatFeeType = (fee: SubscriptionFee | undefined) => {
   if (fee.fee.case === 'capacity') return 'Capacity'
   if (fee.fee.case === 'slot') return 'Slot'
   if (fee.fee.case === 'usage') return 'Usage'
+  if (fee.fee.case === 'credit') return 'Credit'
 
   return 'Unknown'
 }
@@ -47,11 +49,12 @@ const SubscriptionFeeDetail = ({
   fee: SubscriptionFee | undefined
   currency: string
 }) => {
+  const creditUnits = useCreditUnits()
   if (!fee || !fee.fee.case) {
     return <span className="text-muted-foreground">No fee information</span>
   }
 
-  const formatted = formatSubscriptionFee(fee, currency)
+  const formatted = formatSubscriptionFee(fee, currency, creditUnits)
 
   return (
     <div className="space-y-1">
@@ -62,6 +65,9 @@ const SubscriptionFeeDetail = ({
             : formatCurrency(Number(formatted.amount), currency || 'USD')}
         </span>
       </div>
+      {fee.fee.case === 'credit' && (
+        <div className="text-xs text-muted-foreground">{formatted.details}</div>
+      )}
       {formatted.breakdown && (
         <div className="text-xs text-muted-foreground whitespace-pre-line mt-1 pl-2 border-l-2 border-muted">
           {formatted.breakdown}

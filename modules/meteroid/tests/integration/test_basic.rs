@@ -1,4 +1,4 @@
-use meteroid::api::shared::conversions::ProtoConv;
+use meteroid_app::conversions::ProtoConv;
 use rust_decimal::Decimal;
 
 use crate::helpers;
@@ -16,7 +16,8 @@ use meteroid_store::repositories::InvoiceInterface;
 async fn test_main() {
     // Generic setup
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::MINIMAL).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
@@ -37,6 +38,8 @@ async fn test_main() {
             name: "Test - usage".to_string(),
             environment: 0,
             disable_emails: None,
+            email_delivery_mode: None,
+            sandbox_preset: 0,
         }))
         .await
         .unwrap()
@@ -76,6 +79,7 @@ async fn test_main() {
                 plan_type: PlanType::Standard as i32,
                 currency: "EUR".to_string(),
                 entitlements: vec![],
+                tax_inclusive: false,
             },
         ))
         .await
@@ -111,6 +115,7 @@ async fn test_main() {
                                     },
                                 ),
                             ),
+                            credit_unit: None,
                         },
                     )),
                 }],
@@ -144,6 +149,9 @@ async fn test_main() {
             api::customers::v1::CreateCustomerRequest {
                 data: Some(api::customers::v1::CustomerNew {
                     name: "Customer A".to_string(),
+                    customer_type: api::customers::v1::CustomerType::Company as i32,
+                    first_name: None,
+                    last_name: None,
                     billing_email: Some("customer@domain.com".to_string()),
                     alias: None,
                     invoicing_emails: Vec::new(),
@@ -153,10 +161,14 @@ async fn test_main() {
                     shipping_address: None,
                     invoicing_entity_id: None,
                     vat_number: None,
+                    legal_number: None,
+                    buyer_reference: None,
                     custom_taxes: vec![],
                     tax_status: None,
                     exemption_reason: None,
                     connected_account_id: None,
+                    custom_properties: None,
+                    preferred_locales: vec![],
                 }),
             },
         ))
@@ -166,7 +178,7 @@ async fn test_main() {
         .customer
         .unwrap();
 
-    let now = chrono::offset::Local::now().date_naive();
+    let now = chrono::Utc::now().date_naive();
 
     let subscription = clients
         .subscriptions
@@ -201,6 +213,10 @@ async fn test_main() {
             None,
             None,
             None,
+            None,
+            false,
+            None,
+            vec![],
             Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(10),

@@ -2,7 +2,7 @@ use crate::errors::IntoDbResult;
 use crate::plan_version_add_ons::{PlanVersionAddOnRow, PlanVersionAddOnRowNew};
 use crate::{DbResult, PgConn};
 use common_domain::ids::{AddOnId, PlanVersionId, TenantId};
-use diesel::{ExpressionMethods, Insertable, IntoSql, QueryDsl, SelectableHelper, debug_query};
+use diesel::{ExpressionMethods, Insertable, IntoSql, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use tap::TapFallible;
@@ -13,7 +13,7 @@ impl PlanVersionAddOnRowNew {
 
         let query = diesel::insert_into(pva_dsl::plan_version_add_on).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -36,7 +36,7 @@ impl PlanVersionAddOnRow {
             .filter(pva_dsl::tenant_id.eq(tenant_id))
             .select(PlanVersionAddOnRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -58,7 +58,7 @@ impl PlanVersionAddOnRow {
             .filter(pva_dsl::tenant_id.eq(tenant_id))
             .select(PlanVersionAddOnRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -103,7 +103,7 @@ impl PlanVersionAddOnRow {
                 pva_dsl::tenant_id,
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -125,7 +125,7 @@ impl PlanVersionAddOnRow {
             .filter(pva_dsl::add_on_id.eq(add_on_id))
             .filter(pva_dsl::tenant_id.eq(tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)

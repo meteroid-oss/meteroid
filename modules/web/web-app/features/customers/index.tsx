@@ -1,3 +1,3 @@
 export { CustomersCreatePanel } from './CustomersCreatePanel'
-export { CustomerHeader, CustomersHeader } from './headers'
+export { CustomerHeader } from './headers'
 export { CustomersTable } from './table/CustomersTable'

@@ -1,0 +1,2 @@
+-- Postgres does not support removing a value from an enum type.
+-- 'CLOSED' is left in place; no-op down migration.

@@ -23,6 +23,7 @@ import {
 import { editedComponentsAtom } from '@/features/plans/pricecomponents/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
+import { usePermissions } from '@/hooks/usePermissions'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { PlanStatus } from '@/rpc/api/plans/v1/models_pb'
 import {
@@ -38,6 +39,7 @@ import {
 
 export const PlanActions = () => {
   const isExpress = useIsExpressOrganization()
+  const canManage = usePermissions().has('catalog:manage')
   const [editedComponents] = useAtom(editedComponentsAtom)
   const [isBusy, setIsBusy] = useState(false)
   const [isConfirmOpen, setConfirmOpen] = useState(false)
@@ -207,7 +209,7 @@ export const PlanActions = () => {
 
   const isOutdatedDraft = isDraft && planWithVersion.version?.usesProductPricing === false
 
-  if (isExpress) return null
+  if (isExpress || !canManage) return null
 
   return isDraft ? (
     <>

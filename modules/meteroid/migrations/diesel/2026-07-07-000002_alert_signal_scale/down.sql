@@ -1,0 +1,3 @@
+ALTER TABLE tenant DROP COLUMN alert_evaluation_interval_secs;
+DROP INDEX idx_alert_segment_member_left_at;
+DROP INDEX idx_alert_segment_member_def_left;

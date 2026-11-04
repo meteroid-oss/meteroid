@@ -1,24 +1,35 @@
 import { useMutation } from '@connectrpc/connect-query'
 import {
   Button,
-  Card,
-  CheckboxFormField,
   ComboboxFormField,
   Form,
   InputFormField,
   MultiSelectFormField,
   MultiSelectItem,
+  Switch,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
+import { useWatch } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { Loading } from '@/components/Loading'
+import { Slot } from '@/edition'
+import { DeliveryModeBadge } from '@/features/customer-emails/DeliveryView'
+import { DangerZone } from '@/features/settings/DangerZone'
+import {
+  SettingsFieldGrid,
+  SettingsRow,
+  SettingsRowGroup,
+  SettingsSection,
+} from '@/features/settings/components/SettingsSection'
+import { useBasePath } from '@/hooks/useBasePath'
 import { useOrganizationSlug } from '@/hooks/useOrganization'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
+import { generalSettingsSchema, type GeneralSettingsSchema } from '@/lib/schemas/settings'
 import { getCurrencies } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import {
   activeTenant,
@@ -26,14 +37,6 @@ import {
   updateTenant,
   updateTenantAvailableCurrencies,
 } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
-
-const generalSchema = z.object({
-  tradeName: z.string().min(1, 'Trade name is required'),
-  tenantName: z.string().min(1, 'Tenant name is required'),
-  slug: z.string().min(1, 'Tenant name is required'),
-  reportingCurrency: z.string().min(1, 'Tenant name is required'),
-  disableEmails: z.boolean(),
-})
 
 const currencySchema = z.object({
   selectedCurrencies: z.array(z.string()).min(1, 'At least one currency is required'),
@@ -53,6 +56,7 @@ export const GeneralTab = () => {
   const navigate = useNavigate()
 
   const organizationSlug = useOrganizationSlug()
+  const basePath = useBasePath()
 
   const updateTenantMut = useMutation(updateTenant, {
     onSuccess: async res => {
@@ -95,15 +99,21 @@ export const GeneralTab = () => {
   })
 
   const methods = useZodForm({
-    schema: generalSchema,
+    schema: generalSettingsSchema,
     defaultValues: {
       tradeName: '',
       tenantName: '',
       slug: '',
       reportingCurrency: '',
-      disableEmails: false,
+      alertEvaluationInterval: '0',
+      keepLastEvents: false,
     },
     mode: 'onSubmit',
+  })
+
+  const keepLastEvents = useWatch({
+    control: methods.control,
+    name: 'keepLastEvents',
   })
 
   useEffect(() => {
@@ -113,7 +123,8 @@ export const GeneralTab = () => {
         tenantName: activeTenantData.tenant.name,
         slug: activeTenantData.tenant.slug,
         reportingCurrency: activeTenantData.tenant.reportingCurrency,
-        disableEmails: activeTenantData.tenant.disableEmails || false,
+        alertEvaluationInterval: String(activeTenantData.tenant.alertEvaluationIntervalSecs ?? 0),
+        keepLastEvents: activeTenantData.tenant.keepLastEvents,
       })
     }
   }, [activeTenantData, currencies])
@@ -134,14 +145,18 @@ export const GeneralTab = () => {
     return <Loading />
   }
 
-  const onSubmit = async (values: z.infer<typeof generalSchema>) => {
+  const onSubmit = async (values: GeneralSettingsSchema) => {
     await updateTenantMut.mutateAsync({
       data: {
         tradeName: values.tradeName,
         slug: values.slug,
         reportingCurrency: values.reportingCurrency,
         name: values.tenantName,
-        disableEmails: values.disableEmails,
+        alertEvaluationIntervalSecs: Number(values.alertEvaluationInterval),
+        keepLastEvents:
+          values.keepLastEvents !== activeTenantData?.tenant?.keepLastEvents
+            ? values.keepLastEvents
+            : undefined,
       },
     })
   }
@@ -152,8 +167,7 @@ export const GeneralTab = () => {
     })
   }
 
-  // Filter out already active currencies from the available options
-  const availableCurrencyOptions = currencies.map(currency => ({
+  const currencyOptions = currencies.map(currency => ({
     label: (
       <span className="flex flex-row">
         <span className="pr-2">{currency.name}</span>
@@ -165,133 +179,123 @@ export const GeneralTab = () => {
   }))
 
   return (
-    <div className="flex flex-col gap-4">
-      <Form {...currencyMethods}>
-        <form onSubmit={currencyMethods.handleSubmit(onSubmitCurrencies)} className="space-y-4">
-          <Card className="px-8 py-6 max-w-[950px] space-y-4">
-            <div className="grid grid-cols-6 gap-4">
-              <div className="col-span-3">
-                <h3 className="font-medium text-lg">Available currencies</h3>
-              </div>
-            </div>
-
-            {/* Display currently active currencies */}
-            <div className="grid grid-cols-6 gap-4 pt-1">
-              <MultiSelectFormField
-                name="selectedCurrencies"
-                control={currencyMethods.control}
-                placeholder="Select currencies"
-                hasSearch
-                // hasSearch
-                containerClassName="col-span-6"
-                description="Select currencies you want to make available in this tenant. Note: Once linked to a customer, a currency cannot be removed."
-              >
-                {availableCurrencyOptions.map((a, i) => (
-                  <MultiSelectItem key={'msc-' + i} value={a.value} keywords={a.keywords}>
-                    {a.label}
-                  </MultiSelectItem>
-                ))}
-              </MultiSelectFormField>
-            </div>
-
-            <div className="pt-4 flex justify-end items-center">
-              <div>
-                <Button
-                  size="sm"
-                  disabled={
-                    currencyMethods.getValues().selectedCurrencies.length === 0 ||
-                    updateTenantCurrencyMut.isPending
-                  }
-                >
-                  Save Currencies
-                </Button>
-              </div>
-            </div>
-          </Card>
-        </form>
-      </Form>
+    <div className="flex max-w-3xl flex-col gap-6">
       <Form {...methods}>
-        <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-4">
-          <Card className="px-8 py-6 max-w-[950px]  space-y-4">
-            <div className="grid grid-cols-6 gap-4  ">
-              <div className="col-span-3">
-                <h3 className="font-medium text-lg">Tenant settings</h3>
-              </div>
-            </div>
-            <div className="grid grid-cols-6 gap-4 pt-1 ">
-              <InputFormField
-                name="tradeName"
-                label="Company trade name"
-                control={methods.control}
-                placeholder="ACME"
-                containerClassName="col-span-6"
-              />
-
-              <InputFormField
-                name="tenantName"
-                control={methods.control}
-                label="Tenant name"
-                placeholder="Production"
-                containerClassName="col-span-3"
-              />
-              <InputFormField
-                name="slug"
-                control={methods.control}
-                label="Tenant slug"
-                placeholder="prod"
-                containerClassName="col-span-3"
-              />
-
-              <ComboboxFormField
-                name="reportingCurrency"
-                label="Reporting currency"
-                control={methods.control}
-                placeholder="Select"
-                hasSearch
-                containerClassName="col-span-3"
-                description="The currency used for reporting and dashboards"
-                options={
-                  currencies.map(currency => ({
-                    label: (
-                      <span className="flex flex-row">
-                        <span className="pr-2">{currency.name}</span>
-                        <span>({currency.code})</span>
-                      </span>
-                    ),
-                    value: currency.code,
-                    keywords: [currency.name, currency.code],
-                  })) ?? []
-                }
-              />
-
-              <div className="col-span-6">
-                <div className="pt-4 text-sm">Advanced</div>
-
-                <CheckboxFormField
-                  name="disableEmails"
-                  label="Disable all email notifications"
+        <form onSubmit={methods.handleSubmit(onSubmit)}>
+          <SettingsSection
+            divided={false}
+            title="Organization"
+            description="Your company identity and where reporting figures roll up."
+            action={
+              <Button size="sm" disabled={!methods.formState.isDirty || updateTenantMut.isPending}>
+                Save
+              </Button>
+            }
+          >
+            <div className="space-y-4">
+              <SettingsFieldGrid>
+                <InputFormField
+                  name="tradeName"
+                  label="Company trade name"
                   control={methods.control}
-                  description="Invoices, receipts, payment reminders etc will not be sent to your customers."
+                  placeholder="ACME"
+                  containerClassName="sm:col-span-2"
                 />
-              </div>
-            </div>
+                <InputFormField
+                  name="tenantName"
+                  control={methods.control}
+                  label="Tenant name"
+                  placeholder="Production"
+                />
+                <InputFormField
+                  name="slug"
+                  control={methods.control}
+                  label="Tenant slug"
+                  placeholder="prod"
+                />
+                <ComboboxFormField
+                  name="reportingCurrency"
+                  label="Reporting currency"
+                  control={methods.control}
+                  placeholder="Select"
+                  hasSearch
+                  description="Used across dashboards and reports."
+                  options={currencyOptions}
+                />
+              </SettingsFieldGrid>
 
-            <div className="pt-10 flex justify-end items-center ">
-              <div>
-                <Button
-                  size="sm"
-                  disabled={
-                    //   !methods.formState.isValid ||
-                    !methods.formState.isDirty || updateTenantMut.isPending
-                  }
+              <SettingsRowGroup>
+                <SettingsRow
+                  title="Customer emails"
+                  description="Delivery, sender and email types are set in Customer emails."
                 >
-                  Save changes
-                </Button>
-              </div>
+                  {activeTenantData?.tenant && (
+                    <DeliveryModeBadge mode={activeTenantData.tenant.emailDeliveryMode} />
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate(`${basePath}/settings/emails`, { replace: true })}
+                  >
+                    Open
+                  </Button>
+                </SettingsRow>
+                <Slot name="generalSettings.rows" control={methods.control} />
+                {/* No longer offered: shown only to a tenant that has it, to turn it off. */}
+                {activeTenantData?.tenant?.keepLastEvents && (
+                  <SettingsRow
+                    title="Keep the last copy of re-sent events"
+                    description="An event re-sent with the same id replaces the earlier copy instead of being ignored. Applies to new events only."
+                  >
+                    <Switch
+                      checked={keepLastEvents}
+                      disabled={!keepLastEvents}
+                      onCheckedChange={v =>
+                        methods.setValue('keepLastEvents', v, { shouldDirty: true })
+                      }
+                    />
+                  </SettingsRow>
+                )}
+              </SettingsRowGroup>
             </div>
-          </Card>
+          </SettingsSection>
         </form>
       </Form>
+
+      <Form {...currencyMethods}>
+        <form onSubmit={currencyMethods.handleSubmit(onSubmitCurrencies)}>
+          <SettingsSection
+            title="Currencies"
+            description="Currencies customers can be billed in. Once linked to a customer, a currency can’t be removed."
+            action={
+              <Button
+                size="sm"
+                disabled={
+                  currencyMethods.getValues().selectedCurrencies.length === 0 ||
+                  updateTenantCurrencyMut.isPending
+                }
+              >
+                Save
+              </Button>
+            }
+          >
+            <MultiSelectFormField
+              name="selectedCurrencies"
+              control={currencyMethods.control}
+              placeholder="Select currencies"
+              hasSearch
+            >
+              {currencyOptions.map((a, i) => (
+                <MultiSelectItem key={'msc-' + i} value={a.value} keywords={a.keywords}>
+                  {a.label}
+                </MultiSelectItem>
+              ))}
+            </MultiSelectFormField>
+          </SettingsSection>
+        </form>
+      </Form>
+      <DangerZone />
     </div>
   )
 }

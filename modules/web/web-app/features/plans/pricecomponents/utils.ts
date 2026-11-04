@@ -5,6 +5,7 @@ import {
   ArmchairIcon,
   ArrowDownIcon,
   Clock4Icon,
+  CoinsIcon,
   ParkingMeterIcon,
   UngroupIcon,
 } from 'lucide-react'
@@ -14,6 +15,7 @@ import { usePlanWithVersion } from '@/features/plans/hooks/usePlan'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 
 import type { ComponentFeeType } from '@/features/pricing/conversions'
+import type { CreditUnit } from '@/rpc/api/creditunits/v1/models_pb'
 import type { Price } from '@/rpc/api/prices/v1/models_pb'
 import type { LucideIcon } from 'lucide-react'
 
@@ -26,12 +28,17 @@ export const useEditedComponents = () => {
 export const formatPrice = (currency: string) => (price: string) => {
   const amountFloat = parseFloat(price)
 
-  return amountFloat.toLocaleString(undefined, {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 8,
-  })
+  // A credit unit code (4+ characters) is no ISO currency: shown after the amount.
+  try {
+    return amountFloat.toLocaleString(undefined, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 8,
+    })
+  } catch {
+    return `${amountFloat.toLocaleString(undefined, { maximumFractionDigits: 8 })} ${currency}`
+  }
 }
 
 export const useCurrency = () => {
@@ -61,6 +68,7 @@ export const feeTypeToHuman = (
     .with('usage', () => 'Usage-based')
     .with('oneTime', () => 'One-time charge')
     .with('extraRecurring', () => 'Recurring charge')
+    .with('credit', () => 'Credit pack')
     .exhaustive()
 }
 
@@ -72,6 +80,7 @@ export function feeTypeIcon(type: ComponentFeeType): LucideIcon {
     case 'usage': return ActivityIcon
     case 'oneTime': return ArrowDownIcon
     case 'extraRecurring': return Clock4Icon
+    case 'credit': return CoinsIcon
   }
 }
 
@@ -94,8 +103,16 @@ export function priceSummaryBadges(
   feeType: ComponentFeeType,
   latestPrice?: Price,
   currency?: string,
+  creditUnits?: readonly Pick<CreditUnit, 'id' | 'name' | 'pluralName'>[]
 ): string[] {
-  const fmt = currency ? formatPrice(currency) : (p: string) => p
+  // Credits read in their unit's own name ("500 fast requests") once the units are known.
+  const credits = (unitId: string, amount: string) => {
+    const unit = creditUnits?.find(u => u.id === unitId)
+    const value = parseFloat(amount)
+    return `${value} ${value === 1 ? (unit?.name ?? 'credit') : (unit?.pluralName ?? 'credits')}`
+  }
+  const moneyFmt = currency ? formatPrice(currency) : (p: string) => p
+  const fmt = moneyFmt
 
   if (!latestPrice?.pricing?.case) return [feeTypeToHuman(feeType)]
 
@@ -105,10 +122,13 @@ export function priceSummaryBadges(
     case 'ratePricing':
       return [`${fmt(latestPrice.pricing.value.rate)} / ${cadence}`]
     case 'slotPricing':
-      return ['UNIT PRICE', `${fmt(latestPrice.pricing.value.unitRate)} / seat`]
+      return ['Unit price', `${fmt(latestPrice.pricing.value.unitRate)} / seat`]
     case 'capacityPricing':
-      return [`${fmt(latestPrice.pricing.value.rate)} / ${cadence}`, 'CAPACITY']
+      return [`${fmt(latestPrice.pricing.value.rate)} / ${cadence}`, 'Capacity']
     case 'usagePricing': {
+      // Priced in a credit unit: the amounts are credits, not money.
+      const unitId = latestPrice.creditUnit?.creditUnitId
+      const fmt = unitId ? (p: string) => credits(unitId, p) : moneyFmt
       const model = latestPrice.pricing.value.model
       if (model.case === 'perUnit') return [`${fmt(model.value)} / unit`]
       if (model.case === 'tiered' || model.case === 'volume') {
@@ -125,7 +145,7 @@ export function priceSummaryBadges(
         const prices = model.value.rows.map(r => parseFloat(r.perUnitPrice)).filter(n => !isNaN(n))
         if (prices.length === 0) return ['Matrix']
         const range = priceRange(prices, fmt)
-        return [`Matrix: ${range} / unit`]
+        return [`${range} / unit, by dimension`]
       }
       return ['Usage']
     }
@@ -138,6 +158,20 @@ export function priceSummaryBadges(
       const { unitPrice, quantity } = latestPrice.pricing.value
       const total = quantity > 1 ? new Decimal(unitPrice).mul(quantity).toString() : unitPrice
       return [`${fmt(total)}`]
+    }
+    case 'creditPricing': {
+      const { unitPrice, quantity, creditAmount, once } = latestPrice.pricing.value
+      const charge = new Decimal(unitPrice).mul(quantity).toString()
+      const credit = new Decimal(creditAmount).mul(quantity).toString()
+      // A pack granting a credit unit grants credits, not money.
+      const grantedUnitId = latestPrice.pricing.value.creditUnitId
+      const granted = grantedUnitId
+        ? `+${credits(grantedUnitId, credit)}`
+        : `+${fmt(credit)} credit`
+      if (new Decimal(unitPrice).isZero()) {
+        return [once ? 'Included once at start' : `Included / ${cadence}`, granted]
+      }
+      return [once ? `${fmt(charge)} once at start` : `${fmt(charge)} / ${cadence}`, granted]
     }
     default:
       return [feeTypeToHuman(feeType)]

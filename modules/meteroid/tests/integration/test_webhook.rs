@@ -1,7 +1,7 @@
 use crate::data::ids::{CUST_SPOTIFY_ID, PLAN_VERSION_1_LEETCODE_ID, TENANT_ID};
+use crate::data::payment::insert_test_payment_connector;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
-use common_domain::actor::Actor;
 use common_domain::ids::{BaseId, CheckoutSessionId, PaymentTransactionId};
 use common_domain::pgmq::{MessageReadQty, MessageReadVtSec};
 use diesel_models::checkout_sessions::CheckoutSessionRowNew;
@@ -9,14 +9,13 @@ use diesel_models::enums::{CheckoutTypeEnum, PaymentStatusEnum, PaymentTypeEnum}
 use diesel_models::payments::PaymentTransactionRowNew;
 use meteroid::workers::pgmq::processors::run_once_webhook_in;
 use meteroid_store::domain::connectors::{
-    GocardlessPublicData, GocardlessSensitiveData, ProviderData, ProviderSensitiveData,
+    GocardlessEnvironment, GocardlessPublicData, GocardlessSensitiveData, PaymentProviderConfig,
     StripePublicData, StripeSensitiveData,
 };
 use meteroid_store::domain::enums::{
-    ConnectorProviderEnum, PaymentStatusEnum as DomainPaymentStatus,
+    ConnectorStatusEnum, PaymentStatusEnum as DomainPaymentStatus,
 };
 use meteroid_store::domain::pgmq::{PgmqQueue, WebhookInProcessEvent};
-use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use std::sync::Arc;
@@ -36,31 +35,32 @@ fn stripe_signature(body: &str, secret: &str) -> String {
 /// worker then settles the pending transaction and marks the audit row processed.
 #[tokio::test]
 async fn test_webhook_in_ingest_dedup_and_worker() {
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
     // A Stripe connector whose (encrypted at rest) sensitive data carries the
     // webhook signing secret — verification is mandatory at ingest.
-    setup
-        .store
-        .connect_payment_provider(
-            Actor::System,
-            TENANT_ID,
-            ALIAS.to_string(),
-            ConnectorProviderEnum::Stripe,
-            ProviderData::Stripe(StripePublicData {
+    insert_test_payment_connector(
+        &setup.store,
+        ALIAS,
+        PaymentProviderConfig::Stripe(
+            StripePublicData {
                 api_publishable_key: "pk_test_123".to_string(),
-                account_id: "acct_test_123".to_string(),
-            }),
-            ProviderSensitiveData::Stripe(StripeSensitiveData {
-                api_secret_key: "sk_test_123".to_string(),
-                webhook_secret: WEBHOOK_SECRET.to_string(),
+                account_id: Some("acct_test_123".to_string()),
+                webhook_events_fingerprint: None,
+            },
+            StripeSensitiveData {
+                api_secret_key: "sk_test_123".to_string().into(),
+                webhook_secret: WEBHOOK_SECRET.to_string().into(),
                 webhook_endpoint_id: None,
-            }),
-        )
-        .await
-        .unwrap();
+            },
+        ),
+        ConnectorStatusEnum::Active,
+    )
+    .await
+    .unwrap();
 
     // A payment awaiting the provider's confirmation.
     let checkout_session_id = CheckoutSessionId::new();
@@ -74,7 +74,7 @@ async fn test_webhook_in_ingest_dedup_and_worker() {
             id: checkout_session_id,
             tenant_id: TENANT_ID,
             customer_id: CUST_SPOTIFY_ID,
-            plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
+            plan_version_id: Some(PLAN_VERSION_1_LEETCODE_ID),
             billing_start_date: None,
             billing_day_anchor: None,
             net_terms: None,
@@ -95,6 +95,8 @@ async fn test_webhook_in_ingest_dedup_and_worker() {
             checkout_type: CheckoutTypeEnum::SelfServe,
             subscription_id: None,
             change_date: None,
+            success_url: None,
+            cancel_url: None,
         }
         .insert(&mut conn)
         .await
@@ -118,6 +120,10 @@ async fn test_webhook_in_ingest_dedup_and_worker() {
             initiated_by_customer_id: None,
             pending_provider_intent_id: None,
             pending_connection_id: None,
+            parent_transaction_id: None,
+            credit_note_id: None,
+            refund_mode: None,
+            reversal_reason: None,
         }
         .insert(&mut conn)
         .await
@@ -156,7 +162,7 @@ async fn test_webhook_in_ingest_dedup_and_worker() {
     // Sign the exact bytes we send with the secret stored in the connector.
     let signature = stripe_signature(&body, WEBHOOK_SECRET);
 
-    let client = reqwest::Client::new();
+    let client = http_client_tracing::client();
     let url = format!(
         "{}/webhooks/v1/{}/{}",
         setup.config.rest_api_external_url, TENANT_ID, ALIAS
@@ -234,28 +240,28 @@ fn gocardless_signature(body: &str, secret: &str) -> String {
 }
 
 async fn start_meteroid_with_gocardless() -> meteroid_it::container::MeteroidSetup {
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
-    setup
-        .store
-        .connect_payment_provider(
-            Actor::System,
-            TENANT_ID,
-            GC_ALIAS.to_string(),
-            ConnectorProviderEnum::Gocardless,
-            ProviderData::Gocardless(GocardlessPublicData {
+    insert_test_payment_connector(
+        &setup.store,
+        GC_ALIAS,
+        PaymentProviderConfig::Gocardless(
+            GocardlessPublicData {
                 creditor_id: Some("CR123".to_string()),
-                environment: "sandbox".to_string(),
-            }),
-            ProviderSensitiveData::Gocardless(GocardlessSensitiveData {
-                access_token: "sandbox_token".to_string(),
-                webhook_secret: GC_WEBHOOK_SECRET.to_string(),
-            }),
-        )
-        .await
-        .unwrap();
+                environment: GocardlessEnvironment::Sandbox,
+            },
+            GocardlessSensitiveData {
+                access_token: "sandbox_token".to_string().into(),
+                webhook_secret: GC_WEBHOOK_SECRET.to_string().into(),
+            },
+        ),
+        ConnectorStatusEnum::Active,
+    )
+    .await
+    .unwrap();
 
     setup
 }
@@ -275,7 +281,7 @@ async fn insert_pending_gc_tx(
         id: checkout_session_id,
         tenant_id: TENANT_ID,
         customer_id: CUST_SPOTIFY_ID,
-        plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
+        plan_version_id: Some(PLAN_VERSION_1_LEETCODE_ID),
         billing_start_date: None,
         billing_day_anchor: None,
         net_terms: None,
@@ -296,6 +302,8 @@ async fn insert_pending_gc_tx(
         checkout_type: CheckoutTypeEnum::SelfServe,
         subscription_id: None,
         change_date: None,
+        success_url: None,
+        cancel_url: None,
     }
     .insert(&mut conn)
     .await
@@ -319,6 +327,10 @@ async fn insert_pending_gc_tx(
         initiated_by_customer_id: None,
         pending_provider_intent_id: None,
         pending_connection_id: None,
+        parent_transaction_id: None,
+        credit_note_id: None,
+        refund_mode: None,
+        reversal_reason: None,
     }
     .insert(&mut conn)
     .await
@@ -340,7 +352,7 @@ async fn test_gocardless_settles_via_provider_id_and_dedups() {
         include_str!("fixtures/webhooks/gocardless/gocardless_confirmed_empty_metadata.json");
     let signature = gocardless_signature(body, GC_WEBHOOK_SECRET);
 
-    let client = reqwest::Client::new();
+    let client = http_client_tracing::client();
     let url = format!(
         "{}/webhooks/v1/{}/{}",
         setup.config.rest_api_external_url, TENANT_ID, GC_ALIAS
@@ -422,7 +434,7 @@ async fn test_gocardless_settles_via_resource_metadata() {
     let body = serde_json::to_string(&payload).unwrap();
     let signature = gocardless_signature(&body, GC_WEBHOOK_SECRET);
 
-    let client = reqwest::Client::new();
+    let client = http_client_tracing::client();
     let url = format!(
         "{}/webhooks/v1/{}/{}",
         setup.config.rest_api_external_url, TENANT_ID, GC_ALIAS
@@ -481,7 +493,7 @@ async fn test_gocardless_poison_event_does_not_block_valid_settlement() {
     let body = include_str!("fixtures/webhooks/gocardless/gocardless_batch_poison_then_valid.json");
     let signature = gocardless_signature(body, GC_WEBHOOK_SECRET);
 
-    let client = reqwest::Client::new();
+    let client = http_client_tracing::client();
     let url = format!(
         "{}/webhooks/v1/{}/{}",
         setup.config.rest_api_external_url, TENANT_ID, GC_ALIAS
@@ -558,4 +570,105 @@ async fn test_gocardless_poison_event_does_not_block_valid_settlement() {
             );
         }
     }
+}
+
+/// The connector-id URL: an active connector's events are queued, a draft's are acknowledged
+/// but ignored, and a deleted connector answers 410 so the provider stops retrying.
+#[tokio::test]
+async fn test_webhook_by_connector_id_follows_the_connector_status() {
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup =
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
+
+    let stripe = |alias: &'static str, status| {
+        insert_test_payment_connector(
+            &setup.store,
+            alias,
+            PaymentProviderConfig::Stripe(
+                StripePublicData {
+                    api_publishable_key: "pk_test_123".to_string(),
+                    account_id: Some("acct_test_123".to_string()),
+                    webhook_events_fingerprint: None,
+                },
+                StripeSensitiveData {
+                    api_secret_key: "sk_test_123".to_string().into(),
+                    webhook_secret: WEBHOOK_SECRET.to_string().into(),
+                    webhook_endpoint_id: None,
+                },
+            ),
+            status,
+        )
+    };
+    let active = stripe("stripe-active", ConnectorStatusEnum::Active)
+        .await
+        .unwrap();
+    let draft = stripe("stripe-draft", ConnectorStatusEnum::Draft)
+        .await
+        .unwrap();
+    let deleted = stripe("stripe-deleted", ConnectorStatusEnum::Deleted)
+        .await
+        .unwrap();
+
+    let client = http_client_tracing::client();
+    let post = |connector_id: common_domain::ids::ConnectorId, event_id: &str| {
+        let body = serde_json::json!({
+            "id": event_id,
+            "object": "event",
+            "type": "payment_intent.succeeded",
+            "data": { "object": {
+                "object": "payment_intent",
+                "id": "pi_by_id",
+                "amount": 100,
+                "amount_received": 100,
+                "currency": "usd",
+                "livemode": false,
+                "status": "succeeded",
+                "metadata": {}
+            }}
+        })
+        .to_string();
+        let signature = stripe_signature(&body, WEBHOOK_SECRET);
+        client
+            .post(format!(
+                "{}/webhooks/v1/payments/{}",
+                setup.config.rest_api_external_url,
+                connector_id.as_base62()
+            ))
+            .header("Stripe-Signature", signature)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(body)
+            .send()
+    };
+
+    let queued = || async {
+        setup
+            .store
+            .pgmq_read(
+                PgmqQueue::WebhookIn,
+                MessageReadQty(10),
+                MessageReadVtSec(0),
+            )
+            .await
+            .unwrap()
+            .len()
+    };
+
+    assert_eq!(
+        post(draft.id, "evt_draft").await.unwrap().status(),
+        reqwest::StatusCode::OK
+    );
+    assert_eq!(queued().await, 0, "a draft's events are not processed");
+
+    assert_eq!(
+        post(active.id, "evt_active").await.unwrap().status(),
+        reqwest::StatusCode::OK
+    );
+    assert_eq!(queued().await, 1);
+
+    assert_eq!(
+        post(deleted.id, "evt_deleted").await.unwrap().status(),
+        reqwest::StatusCode::GONE
+    );
+    assert_eq!(queued().await, 1);
 }

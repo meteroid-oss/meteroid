@@ -1,9 +1,11 @@
 import { redirect, RouteObject } from 'react-router-dom'
 
+import { editionPortalRoutes } from '@/edition'
 import { PortalCheckout } from '@/pages/portal/checkout'
 import { PortalCheckoutSuccess } from '@/pages/portal/checkout-success'
 import { PortalCustomer } from '@/pages/portal/customer'
 import { PortalInvoicePayment } from '@/pages/portal/invoice-payment'
+import { PortalPurchase } from '@/pages/portal/purchase'
 import { PortalQuote } from '@/pages/portal/quote'
 import { PortalSubscription } from '@/pages/portal/subscription'
 
@@ -42,6 +44,11 @@ export const portalRoutes: RouteObject = {
           handle: { title: 'Checkout success' },
         },
       ],
+    },
+    {
+      path: 'purchase/:token',
+      element: <PortalPurchase />,
+      handle: { title: 'Purchase' },
     },
     {
       path: 'portal/checkout',
@@ -95,5 +102,6 @@ export const portalRoutes: RouteObject = {
       element: <PortalSubscription />,
       handle: { title: 'Subscription' },
     },
+    ...editionPortalRoutes(),
   ],
 }

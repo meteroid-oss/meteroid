@@ -19,6 +19,7 @@ const STATUS_LABELS: Record<InvoiceStatus, string> = {
   [InvoiceStatus.FINALIZED]: 'Finalized',
   [InvoiceStatus.UNCOLLECTIBLE]: 'Uncollectible',
   [InvoiceStatus.VOID]: 'Void',
+  [InvoiceStatus.CLOSED]: 'Closed',
 }
 
 const STATUSES: { label: string; value: InvoiceStatus }[] = [
@@ -26,6 +27,7 @@ const STATUSES: { label: string; value: InvoiceStatus }[] = [
   { label: 'Finalized', value: InvoiceStatus.FINALIZED },
   { label: 'Uncollectible', value: InvoiceStatus.UNCOLLECTIBLE },
   { label: 'Void', value: InvoiceStatus.VOID },
+  { label: 'Closed', value: InvoiceStatus.CLOSED },
 ]
 
 interface Props {

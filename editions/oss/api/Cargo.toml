@@ -1,0 +1,22 @@
+[package]
+name = "meteroid-oss-api"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "meteroid-api"
+path = "src/main.rs"
+
+# One-shot, for instances upgrading from a release that delivered webhooks through Svix.
+[[bin]]
+name = "meteroid-svix-import"
+path = "src/svix_import.rs"
+
+[dependencies]
+meteroid = { path = "../../../modules/meteroid" }
+meteroid-edition-oss = { path = "../modules" }
+common-build-info.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+workspace-hack = { version = "0.1", path = "../../../crates/workspace-hack" }

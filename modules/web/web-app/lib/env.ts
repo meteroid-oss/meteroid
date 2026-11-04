@@ -13,13 +13,16 @@ const _env = parseEnv(window._env, {
   VITE_METEROID_REST_API_EXTERNAL_URL: z.string().default('http://127.0.0.1:8080'),
   // enable developer experience mode
   VITE_DX: z.boolean().default(false),
-  // todo move to feature flag service
-  VITE_ENTITLEMENTS_ENABLED: z.boolean().default(false),
+  // OpenReplay
+  VITE_PUBLIC_OPENREPLAY_PROJECT_KEY: z.string().optional(),
+  VITE_PUBLIC_OPENREPLAY_INGEST_POINT: z.string().optional(),
 })
 
 export const env = {
   meteroidApiUri: _env.VITE_METEROID_API_EXTERNAL_URL,
   meteroidRestApiUri: _env.VITE_METEROID_REST_API_EXTERNAL_URL,
   dx: _env.VITE_DX,
-  entitlementsEnabled: _env.VITE_ENTITLEMENTS_ENABLED,
+  openReplayProjectKey: _env.VITE_PUBLIC_OPENREPLAY_PROJECT_KEY,
+  openReplayIngestPoint: _env.VITE_PUBLIC_OPENREPLAY_INGEST_POINT,
+  entitlementsEnabled: true,
 }

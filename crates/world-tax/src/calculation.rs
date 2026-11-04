@@ -299,42 +299,57 @@ impl TaxScenario {
             return Ok(vec![]);
         }
 
-        // Get the country's tax system type
-        let country = db.get_country(&self.destination_region.country)?;
+        // The destination's tax system is looked up leniently, because for the outcomes
+        // below it only decides whether "no tax applies" is expressed as a zero VAT rate
+        // or as an empty rate set — a distinction callers collapse anyway.
+        //
+        // Holding no rate data for a country must therefore not fail the calculation. A
+        // supply to a country outside the seller's VAT territory is an export whether or
+        // not we know what tax that country levies, and that is by far the common case:
+        // most of the world's ISO codes have no entry here. The branches that genuinely
+        // need a rate (Origin, Destination) still go through `get_regional_rates`, which
+        // fails loudly when the data is missing — as it should, since there the answer
+        // really does depend on it.
+        let destination = db.get_country(&self.destination_region.country).ok();
+        let destination_is_vat =
+            destination.is_none_or(|country| matches!(country.tax_type, TaxSystemType::Vat));
 
         match calculation_type {
             TaxCalculationType::ReverseCharge => {
-                match country.tax_type {
-                    TaxSystemType::Vat => Ok(vec![TaxRate {
+                // Reverse charge only ever arises from a customs-union rule, so the
+                // destination is a member state and its VAT status is not in doubt.
+                if destination_is_vat {
+                    Ok(vec![TaxRate {
                         tax_type: TaxType::VAT(VatRate::ReverseCharge),
                         compound: false,
                         rate: 0.0,
-                    }]),
-                    _ => {
-                        // For non-VAT systems, proceed with normal rate lookup
-                        self.get_regional_rates(calculation_type, db)
-                    }
+                    }])
+                } else {
+                    // For non-VAT systems, proceed with normal rate lookup
+                    self.get_regional_rates(calculation_type, db)
                 }
             }
             TaxCalculationType::ZeroRated => {
-                match country.tax_type {
-                    TaxSystemType::Vat => Ok(vec![TaxRate {
+                if destination_is_vat {
+                    Ok(vec![TaxRate {
                         tax_type: TaxType::VAT(VatRate::Zero),
                         compound: false,
                         rate: 0.0,
-                    }]),
-                    _ => Ok(vec![]), // For non-VAT systems, no tax
+                    }])
+                } else {
+                    Ok(vec![]) // For non-VAT systems, no tax
                 }
             }
             TaxCalculationType::Exempt => {
                 // Only apply Exempt for VAT systems
-                match country.tax_type {
-                    TaxSystemType::Vat => Ok(vec![TaxRate {
+                if destination_is_vat {
+                    Ok(vec![TaxRate {
                         tax_type: TaxType::VAT(VatRate::Exempt),
                         compound: false,
                         rate: 0.0,
-                    }]),
-                    _ => self.get_regional_rates(calculation_type, db), // For non-VAT systems, proceed with normal lookup
+                    }])
+                } else {
+                    self.get_regional_rates(calculation_type, db) // For non-VAT systems, proceed with normal lookup
                 }
             }
             _ => self.get_regional_rates(calculation_type, db),

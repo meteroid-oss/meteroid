@@ -1,0 +1,31 @@
+[package]
+name = "metric-core"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "metric_core"
+
+[dependencies]
+async-trait.workspace = true
+chrono = { workspace = true, features = ["clock", "serde"] }
+chrono-tz = { workspace = true }
+clickhouse = { workspace = true, features = ["chrono", "uuid"] }
+common-domain = { workspace = true }
+envconfig.workspace = true
+error-stack.workspace = true
+log.workspace = true
+prost-types.workspace = true
+refinery-core = { workspace = true }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time = { workspace = true, features = ["formatting", "parsing"] }
+tokio = { workspace = true, features = ["time"] }
+uuid = { workspace = true, features = ["v4"] }
+workspace-hack = { version = "0.1", path = "../../crates/workspace-hack" }
+
+[dev-dependencies]
+rstest = { workspace = true }

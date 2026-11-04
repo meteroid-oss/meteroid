@@ -19,6 +19,8 @@ interface LineItemDisplayProps {
   onEdit: (index: number) => void
   isUsageBased: boolean
   originalItem?: OriginalLineItem
+  // Shows the stored line as billed, without edit controls.
+  readOnly?: boolean
 }
 
 export const LineItemDisplay = ({
@@ -28,12 +30,13 @@ export const LineItemDisplay = ({
   onRemove,
   onEdit,
   isUsageBased,
+  originalItem,
+  readOnly = false,
 }: LineItemDisplayProps) => {
   const [isExpanded, setIsExpanded] = useState(false)
   const itemWithValues = item as UpdateInvoiceLineSchemaRegular
   const subLines = (item as UpdateInvoiceLineSchemaWithSublines).subLines as
-    | SubLineSchema[]
-    | undefined
+    SubLineSchema[] | undefined
   const hasSublines = !!subLines && subLines.length > 0
 
   const sublineRowTotalMinor = (sl: SubLineSchema) =>
@@ -89,46 +92,59 @@ export const LineItemDisplay = ({
         </div>
         <div className="text-right flex items-center gap-2">
           <div>
-            {!hasSublines &&
-              itemWithValues.quantity !== null &&
-              itemWithValues.quantity !== undefined &&
-              itemWithValues.unitPrice !== null &&
-              itemWithValues.unitPrice !== undefined && (
-                <div className="text-[11px] text-muted-foreground">
-                  {itemWithValues.quantity} ×{' '}
-                  {formatCurrency(majorToMinorUnit(itemWithValues.unitPrice, currency), currency)}
-                </div>
-              )}
-            <div className="text-[13px] font-medium">
-              {hasSublines
-                ? formatCurrency(sublinesTotalMinor, currency)
-                : formatCurrency(
-                    Number(itemWithValues.quantity ?? 0) *
-                      Number(majorToMinorUnit(itemWithValues.unitPrice ?? 0, currency)),
-                    currency
+            {readOnly && originalItem ? (
+              <div className="text-[13px] font-medium">
+                {formatCurrency(Number(originalItem.subtotal), currency)}
+              </div>
+            ) : (
+              <>
+                {!hasSublines &&
+                  itemWithValues.quantity !== null &&
+                  itemWithValues.quantity !== undefined &&
+                  itemWithValues.unitPrice !== null &&
+                  itemWithValues.unitPrice !== undefined && (
+                    <div className="text-[11px] text-muted-foreground">
+                      {itemWithValues.quantity} ×{' '}
+                      {formatCurrency(
+                        majorToMinorUnit(itemWithValues.unitPrice, currency),
+                        currency
+                      )}
+                    </div>
                   )}
+                <div className="text-[13px] font-medium">
+                  {hasSublines
+                    ? formatCurrency(sublinesTotalMinor, currency)
+                    : formatCurrency(
+                        Number(itemWithValues.quantity ?? 0) *
+                          Number(majorToMinorUnit(itemWithValues.unitPrice ?? 0, currency)),
+                        currency
+                      )}
+                </div>
+              </>
+            )}
+          </div>
+          {!readOnly && (
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                variant="link"
+                size="icon"
+                onClick={() => onEdit(index)}
+                className="h-6 w-6 p-0"
+              >
+                <Edit size={14} />
+              </Button>
+              <Button
+                type="button"
+                variant="link"
+                size="icon"
+                onClick={() => onRemove(index)}
+                className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+              >
+                <Trash2 size={14} />
+              </Button>
             </div>
-          </div>
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="link"
-              size="icon"
-              onClick={() => onEdit(index)}
-              className="h-6 w-6 p-0"
-            >
-              <Edit size={14} />
-            </Button>
-            <Button
-              type="button"
-              variant="link"
-              size="icon"
-              onClick={() => onRemove(index)}
-              className="h-6 w-6 p-0 text-destructive hover:text-destructive"
-            >
-              <Trash2 size={14} />
-            </Button>
-          </div>
+          )}
         </div>
       </div>
 

@@ -310,7 +310,7 @@ async fn test_renewal_after_paid_trial(#[future] test_env: TestEnv) {
         .invoice_at(0)
         .with_context("Invoice 1: at checkout")
         .has_total(9900)
-        .has_invoice_date(start_date)
+        .has_billing_period_start(start_date)
         .check_prorated(false);
 
     // === Phase 3: First process_cycles - trial ends AND renewal fires ===
@@ -334,7 +334,7 @@ async fn test_renewal_after_paid_trial(#[future] test_env: TestEnv) {
         .invoice_at(1)
         .with_context("Invoice 2: first renewal")
         .has_total(9900)
-        .has_invoice_date(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap());
+        .has_billing_period_start(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap());
 
     let period_end_1 = sub.current_period_end;
 
@@ -358,7 +358,7 @@ async fn test_renewal_after_paid_trial(#[future] test_env: TestEnv) {
         .assert()
         .invoice_at(2)
         .has_total(9900)
-        .has_invoice_date(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap());
+        .has_billing_period_start(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap());
 
     let period_end_2 = sub.current_period_end;
 
@@ -793,7 +793,7 @@ async fn test_onstart_paid_trial(#[future] test_env: TestEnv) {
         .with_context("Invoice 1: at creation")
         .is_finalized_unpaid()
         .has_total(9900) // Full $99/month
-        .has_invoice_date(start_date)
+        .has_billing_period_start(start_date)
         .check_prorated(false);
 
     // === Phase 2: process_cycles - trial ends AND renewal fires ===
@@ -820,7 +820,7 @@ async fn test_onstart_paid_trial(#[future] test_env: TestEnv) {
         .with_context("Invoice 2: at renewal")
         .is_finalized_unpaid()
         .has_total(9900)
-        .has_invoice_date(expected_renewal_date);
+        .has_billing_period_start(expected_renewal_date);
 }
 
 // =============================================================================
@@ -965,7 +965,7 @@ async fn test_lifecycle_end_date_billing_terminates(#[future] test_env: TestEnv)
         .invoice_at(0)
         .with_context("Invoice 1: first full period")
         .is_finalized_unpaid()
-        .has_invoice_date(start_date)
+        .has_billing_period_start(start_date)
         .has_total(3500)
         .check_prorated(false);
 
@@ -994,7 +994,7 @@ async fn test_lifecycle_end_date_billing_terminates(#[future] test_env: TestEnv)
         .invoice_at(1)
         .with_context("Invoice 2: second billing cycle (billed at period start)")
         .is_finalized_unpaid()
-        .has_invoice_date(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap())
+        .has_billing_period_start(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap())
         .has_total(3500);
 
     // === Phase 3: EndSubscription fires — subscription completes with no new invoice ===

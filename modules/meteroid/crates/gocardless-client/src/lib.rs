@@ -4,6 +4,7 @@
 
 pub mod billing_requests;
 pub mod client;
+pub mod creditors;
 pub mod customer_bank_accounts;
 pub mod customers;
 pub mod error;

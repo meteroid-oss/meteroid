@@ -4,7 +4,6 @@ use crate::{DbResult, PgConn};
 use common_domain::ids::{TaxCategoryId, TenantId};
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, OptionalExtension, QueryDsl, SelectableHelper,
-    debug_query,
 };
 use error_stack::ResultExt;
 
@@ -17,7 +16,7 @@ impl TaxCategoryRowNew {
             .values(self)
             .returning(TaxCategoryRow::as_returning());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -41,7 +40,7 @@ impl TaxCategoryRow {
             .select(TaxCategoryRow::as_select())
             .order(tc::name.asc());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -65,7 +64,7 @@ impl TaxCategoryRow {
                 .filter(tc::tenant_id.is_null().or(tc::tenant_id.eq(tenant_id))),
         ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -93,7 +92,7 @@ impl TaxCategoryRow {
             .set((tc::name.eq(name), tc::parent_id.eq(parent_id)))
             .returning(TaxCategoryRow::as_returning());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -118,7 +117,7 @@ impl TaxCategoryRow {
             .filter(tc::tenant_id.eq(tenant_id))
             .filter(tc::is_builtin.eq(false));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)

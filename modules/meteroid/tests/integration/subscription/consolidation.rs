@@ -434,7 +434,7 @@ async fn test_prepaid_balance_credit_recomputed_once(#[future] test_env: TestEnv
     // Ample prepaid balance so the renewal is fully covered regardless of what the subscriptions'
     // initial-period invoices consumed first. The discriminating signal is that the credit lives
     // on the parent only — the children must carry zero applied_credits.
-    env.top_up_balance(CUST_UBER_ID, 1_000_000).await;
+    env.fund_invoice_credit(CUST_UBER_ID, 1_000_000).await;
 
     for _ in 0..2 {
         subscription()
@@ -615,4 +615,144 @@ async fn test_zero_grace_still_consolidates(#[future] test_env: TestEnv) {
     );
     assert_eq!(parents[0].total, 7000);
     assert_eq!(env.get_consolidated_children(parents[0].id).await.len(), 2);
+}
+
+/// Minimum-commitment × consolidation: the floor is a per-subscription concept, computed during
+/// each member's pre-merge refresh, so the consolidated parent must carry ONE shortfall line per
+/// member — never a merged or double-counted floor. $50 floor on the $35 LeetCode plan → each
+/// renewal is a $35 line + a $15 top-up; two merged members = 4 lines, $100 total.
+#[rstest]
+#[tokio::test]
+async fn test_consolidated_invoice_includes_per_subscription_minimum(#[future] test_env: TestEnv) {
+    use diesel_async::RunQueryDsl;
+    use diesel_models::plan_version_adjustments::PlanVersionAdjustmentRowNew;
+    use meteroid_store::domain::LineItemKind;
+
+    let env = test_env.await;
+    env.set_consolidate_recurring_invoices(true).await;
+    let mut conn = env.conn().await;
+
+    diesel::insert_into(diesel_models::schema::plan_version_adjustment::table)
+        .values(&PlanVersionAdjustmentRowNew {
+            kind: diesel_models::enums::AdjustmentKindEnum::Minimum,
+            plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
+            amount_subunit: 5_000, // $50 floor
+            includes_all_components: true,
+        })
+        .execute(&mut conn)
+        .await
+        .unwrap();
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    for _ in 0..2 {
+        subscription()
+            .customer(CUST_UBER_ID)
+            .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+            .start_date(start_date)
+            .on_start()
+            .no_trial()
+            .create(env.services())
+            .await;
+    }
+
+    env.process_cycles().await;
+
+    let parents = consolidated_parents(&env, CUST_UBER_ID).await;
+    assert_eq!(parents.len(), 1, "one consolidated renewal invoice");
+    let parent = &parents[0];
+
+    let shortfall_count = parent
+        .line_items
+        .iter()
+        .filter(|l| l.kind == LineItemKind::MinimumShortfall)
+        .count();
+    assert_eq!(
+        shortfall_count, 2,
+        "one per-subscription shortfall line, not merged or double-counted"
+    );
+    assert_eq!(
+        parent.total, 10_000,
+        "2 × ($35 recurring + $15 floor top-up)"
+    );
+    assert_eq!(
+        parent.line_items.len(),
+        4,
+        "2 recurring + 2 shortfall lines aggregated from the two members"
+    );
+}
+
+/// A merged draft is never issued, so a credit note cannot target it: the consolidated parent
+/// carries its lines under the same local ids and takes the notes, which is why budget spend reads
+/// only the parents' notes. Before the explicit guard, the refusal came from the draft status alone.
+#[rstest]
+#[tokio::test]
+async fn test_credit_notes_target_the_consolidated_parent_never_a_member(
+    #[future] test_env: TestEnv,
+) {
+    use common_domain::actor::Actor;
+    use meteroid_store::repositories::CreditNoteInterface;
+    use meteroid_store::repositories::credit_notes::{
+        CreateCreditNoteParams, CreditLineItem, CreditType,
+    };
+
+    let env = test_env.await;
+    env.set_consolidate_recurring_invoices(true).await;
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    for _ in 0..2 {
+        subscription()
+            .customer(CUST_UBER_ID)
+            .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+            .start_date(start_date)
+            .on_start()
+            .no_trial()
+            .create(env.services())
+            .await;
+    }
+    env.process_cycles().await;
+
+    let parent = consolidated_parents(&env, CUST_UBER_ID).await[0].clone();
+    assert_eq!(parent.status, InvoiceStatusEnum::Finalized);
+    let children = env.get_consolidated_children(parent.id).await;
+    assert_eq!(children.len(), 2);
+
+    let params = |invoice_id, line_items| CreateCreditNoteParams {
+        invoice_id,
+        line_items,
+        reason: None,
+        memo: None,
+        credit_type: CreditType::DebtCancellation,
+        custom_properties: None,
+    };
+    for child in &children {
+        let refused = env
+            .store()
+            .create_credit_note(Actor::System, TENANT_ID, params(child.id, vec![]))
+            .await
+            .expect_err("a consolidated member takes no credit note");
+        assert!(
+            format!("{refused:?}").contains("merged into a consolidated parent"),
+            "refused as a consolidated member, not merely as a draft: {refused:?}"
+        );
+    }
+
+    let member_line = &children[0].line_items[0];
+    let note = env
+        .store()
+        .create_credit_note(
+            Actor::System,
+            TENANT_ID,
+            params(
+                parent.id,
+                vec![CreditLineItem::Amount {
+                    local_id: member_line.local_id.clone(),
+                    amount_cents: 1_000,
+                }],
+            ),
+        )
+        .await
+        .expect("the parent credits a merged member's line by its local id");
+    assert_eq!(note.invoice_id, parent.id);
+    assert_eq!(note.line_items.len(), 1);
+    assert_eq!(note.line_items[0].local_id, member_line.local_id);
+    assert_eq!(note.line_items[0].amount_subtotal, -1_000);
 }

@@ -1,0 +1,4 @@
+-- No-op. The previous predicate (status <> 'DRAFT') admits CLOSED rows, which all carry the
+-- placeholder invoice_number 'draft'; recreating it once two invoices have been closed under one
+-- invoicing entity fails on the duplicate key, wedging the rollback. The wider predicate this
+-- migration installs is a superset of the old constraint, so leaving it in place is safe.

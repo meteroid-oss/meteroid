@@ -8,6 +8,17 @@ export const ARRAY_SERDE = {
   deserialize: (value: string) => value.split(','),
 }
 
+// URL-friendly serde for a protobuf enum, storing the readable enum name
+// (e.g. ?status=FINALIZED) and mapping undefined to an absent param.
+export const enumSerde = <E extends Record<string, string | number>>(enumObj: E) => ({
+  serialize: (value: number | undefined) =>
+    value === undefined ? '' : String(enumObj[value as keyof E] ?? ''),
+  deserialize: (value: string) => {
+    const parsed = enumObj[value as keyof E]
+    return typeof parsed === 'number' ? parsed : undefined
+  },
+})
+
 export function useQueryState<T>(
   key: string,
   defaultValue: T,
@@ -20,9 +31,12 @@ export function useQueryState<T>(
         return value
       }
     },
+    replace = false,
   }: {
     serialize?: (value: T) => string
     deserialize?: (value: string) => T
+    /** Replace the history entry instead of pushing one (keeps Back out of the state changes). */
+    replace?: boolean
   } = {}
 ): [T, (value: SetQueryStateAction<T>) => void] {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -36,19 +50,22 @@ export function useQueryState<T>(
     (value: SetQueryStateAction<T>) => {
       const newState = typeof value === 'function' ? (value as (prevState: T) => T)(state) : value
 
-      setSearchParams(prevParams => {
-        const newParams = new URLSearchParams(prevParams)
-        const serialized = serialize(newState)
+      setSearchParams(
+        prevParams => {
+          const newParams = new URLSearchParams(prevParams)
+          const serialized = serialize(newState)
 
-        if (newState === defaultValue || serialized === '') {
-          newParams.delete(key)
-        } else {
-          newParams.set(key, serialized)
-        }
-        return newParams
-      })
+          if (newState === defaultValue || serialized === '') {
+            newParams.delete(key)
+          } else {
+            newParams.set(key, serialized)
+          }
+          return newParams
+        },
+        { replace }
+      )
     },
-    [key, setSearchParams, serialize, defaultValue, state]
+    [key, setSearchParams, serialize, defaultValue, state, replace]
   )
 
   return [state, setQueryState]

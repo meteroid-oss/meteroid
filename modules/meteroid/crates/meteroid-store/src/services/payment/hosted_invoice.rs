@@ -105,10 +105,11 @@ impl Services {
 
                         // One attempt at a time: an in-flight hosted attempt is
                         // RETURNED; any other in-flight payment refuses a second.
-                        if let Some(pending) = existing
-                            .iter()
-                            .find(|tx| tx.transaction.status == PaymentStatusEnum::Pending)
-                        {
+                        // REFUND rows share the invoice but are not payment attempts.
+                        if let Some(pending) = existing.iter().find(|tx| {
+                            tx.transaction.payment_type.is_collection()
+                                && tx.transaction.status == PaymentStatusEnum::Pending
+                        }) {
                             let row = &pending.transaction;
                             if let (Some(intent_id), Some(url)) = (
                                 row.pending_provider_intent_id.clone(),
@@ -141,12 +142,13 @@ impl Services {
                         let active_payment_sum: i64 = existing
                             .iter()
                             .filter(|tx| {
-                                matches!(
-                                    tx.transaction.status,
-                                    PaymentStatusEnum::Ready | PaymentStatusEnum::Settled
-                                )
+                                tx.transaction.payment_type.is_collection()
+                                    && matches!(
+                                        tx.transaction.status,
+                                        PaymentStatusEnum::Ready | PaymentStatusEnum::Settled
+                                    )
                             })
-                            .map(|tx| tx.transaction.amount - tx.transaction.amount_refunded)
+                            .map(|tx| tx.transaction.amount - tx.transaction.amount_reversed)
                             .sum();
                         if active_payment_sum >= invoice.invoice.total {
                             return Err(Report::new(StoreError::PaymentError(format!(
@@ -227,6 +229,7 @@ impl Services {
                                 None,
                                 Some(invoice_ctx),
                                 return_url,
+                                true,
                             )
                             .await?;
 
@@ -256,6 +259,10 @@ impl Services {
                             initiated_by_customer_id: Some(invoice.invoice.customer_id),
                             pending_provider_intent_id: Some(setup_intent.intent_id.clone()),
                             pending_connection_id: Some(setup_intent.connection_id),
+                            parent_transaction_id: None,
+                            credit_note_id: None,
+                            refund_mode: None,
+                            reversal_reason: None,
                         };
                         row.insert(conn)
                             .await

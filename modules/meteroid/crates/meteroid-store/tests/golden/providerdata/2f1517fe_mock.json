@@ -1,0 +1,14 @@
+{
+  "Mock": {
+    "fail_payment_intent": false,
+    "fail_setup_intent": false,
+    "charge_behavior": "requires_action",
+    "account_id": "acct_mock",
+    "pending_methods": [
+      "DirectDebitSepa"
+    ],
+    "reject_credentials": false,
+    "reconcile_status": "pending",
+    "refund_behavior": "succeeded"
+  }
+}

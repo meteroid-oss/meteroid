@@ -12,6 +12,7 @@ message CreateFeatureRequest {
   // Product the feature belongs to. Unset ⇒ tenant-global feature.
   optional string product_id = 4;
   optional EntitlementValue entitlement = 5;
+  // Unique key used to reference this feature in your code. Cannot be changed after creation.
   string code = 6;
 }
 
@@ -30,6 +31,7 @@ message GetFeatureResponse {
 
 message ListFeaturesRequest {
   meteroid.common.v1.Pagination pagination = 1;
+  // Empty ⇒ ACTIVE and DISABLED.
   repeated FeatureStatus statuses = 2;
   optional string search = 3;
   optional string product_id = 4;
@@ -47,18 +49,34 @@ message UpdateFeatureRequest {
   // Send unset to leave product_id unchanged; send `clear_product_id = true` to detach.
   optional string product_id = 4;
   bool clear_product_id = 5;
+  // Replace a select-config feature's allowed options. Only applied when
+  // `update_config_options = true`. Removing an option still referenced by an entitlement is rejected.
+  repeated string config_options = 6;
+  bool update_config_options = 7;
 }
 
 message UpdateFeatureResponse {
   Feature feature = 1;
 }
 
+// An ARCHIVED feature can only be unarchived to ACTIVE, which fails with FAILED_PRECONDITION while
+// another feature uses its code.
 message SetFeatureStatusRequest {
   string id = 1;
   FeatureStatus status = 2;
 }
 
 message SetFeatureStatusResponse {}
+
+message GetFeatureCodeHolderRequest {
+  string id = 1;
+}
+
+// For an ARCHIVED feature, the feature now using its code, which blocks unarchiving. Unset when
+// nothing does or the feature is not archived.
+message GetFeatureCodeHolderResponse {
+  optional FeatureRef holder = 1;
+}
 
 message CreateEntitlementRequest {
   string feature_id = 1;
@@ -92,6 +110,8 @@ message ListEntitlementsByEntityRequest {
 
 message ListEntitlementsByEntityResponse {
   repeated Entitlement entitlements = 1;
+  // The feature of each listed entitlement, once per feature.
+  repeated Feature features = 2;
 }
 
 message UpdateEntitlementRequest {
@@ -116,6 +136,30 @@ message GetEffectiveEntitlementsRequest {
 
 message GetEffectiveEntitlementsResponse {
   repeated EffectiveEntitlement entitlements = 1;
+}
+
+message ListCreditPaidFeaturesRequest {
+  string customer_id = 1;
+}
+
+message ListCreditPaidFeaturesResponse {
+  repeated CreditPaidFeature features = 1;
+}
+
+// A metered feature whose usage a customer wallet pays: usage priced in a credit unit is paid by
+// that unit's wallet, money usage by the currency's wallet while it holds credit that can pay it.
+message CreditPaidFeature {
+  string feature_id = 1;
+  string metric_id = 2;
+  repeated CreditPayer payers = 3;
+}
+
+// One subscription charging the feature's usage, and the wallet paying it.
+message CreditPayer {
+  string wallet_id = 1;
+  string subscription_id = 2;
+  // The product the usage is billed under, which product-restricted credit answers to.
+  optional string product_id = 3;
 }
 
 message GetResolvedForProductRequest      {string product_id = 1;}
@@ -146,6 +190,7 @@ service EntitlementsService {
   rpc ListFeatures(ListFeaturesRequest) returns (ListFeaturesResponse) {}
   rpc UpdateFeature(UpdateFeatureRequest) returns (UpdateFeatureResponse) {}
   rpc SetFeatureStatus(SetFeatureStatusRequest) returns (SetFeatureStatusResponse) {}
+  rpc GetFeatureCodeHolder(GetFeatureCodeHolderRequest) returns (GetFeatureCodeHolderResponse) {}
 
   rpc CreateEntitlement(CreateEntitlementRequest) returns (CreateEntitlementResponse) {}
   rpc GetEntitlement(GetEntitlementRequest) returns (GetEntitlementResponse) {}
@@ -154,6 +199,7 @@ service EntitlementsService {
   rpc UpdateEntitlement(UpdateEntitlementRequest) returns (UpdateEntitlementResponse) {}
   rpc DeleteEntitlement(DeleteEntitlementRequest) returns (DeleteEntitlementResponse) {}
   rpc GetEffectiveEntitlements(GetEffectiveEntitlementsRequest) returns (GetEffectiveEntitlementsResponse) {}
+  rpc ListCreditPaidFeatures(ListCreditPaidFeaturesRequest) returns (ListCreditPaidFeaturesResponse);
 
   rpc GetResolvedEntitlementsForProduct(GetResolvedForProductRequest) returns (GetResolvedResponse);
   rpc GetResolvedEntitlementsForAddOn(GetResolvedForAddOnRequest) returns (GetResolvedResponse);

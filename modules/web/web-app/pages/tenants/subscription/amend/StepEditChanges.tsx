@@ -1,3 +1,4 @@
+import { create } from '@bufbuild/protobuf'
 import {
   Badge,
   Button,
@@ -7,6 +8,9 @@ import {
   DialogTitle,
   Input,
   Label,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from '@md/ui'
 import { useAtom } from 'jotai'
 import { Check, Minus, Pencil, Plus, Search, Trash2 } from 'lucide-react'
@@ -19,8 +23,10 @@ import { FeeTypePicker } from '@/features/plans/pricecomponents/FeeTypePicker'
 import { ProductBrowser } from '@/features/plans/pricecomponents/ProductBrowser'
 import { ProductPricingForm } from '@/features/plans/pricecomponents/ProductPricingForm'
 import { priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
-import { formDataToPrice } from '@/features/pricing'
+import { formDataToPrice, protoPricingToFormData } from '@/features/pricing'
+import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
 import {
+  formatSubscriptionFee,
   formatSubscriptionFeeBillingPeriod,
   formatSubscriptionFeeCompact,
 } from '@/features/subscriptions/utils/fees'
@@ -33,7 +39,8 @@ import {
   amendSubscriptionAtom,
 } from '@/pages/tenants/subscription/amend/state'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
-import { FeeStructure_BillingType } from '@/rpc/api/prices/v1/models_pb'
+import { listCreditUnits } from '@/rpc/api/creditunits/v1/creditunits-CreditUnitsService_connectquery'
+import { FeeStructure_BillingType, UsagePricingSchema } from '@/rpc/api/prices/v1/models_pb'
 import {
   SubscriptionAddOn,
   SubscriptionComponent,
@@ -44,6 +51,7 @@ import { getSubscriptionDetails } from '@/rpc/api/subscriptions/v1/subscriptions
 
 import type { StructuralInfo } from '@/features/plans/pricecomponents/ProductPricingForm'
 import type { ComponentFeeType } from '@/features/pricing'
+import type { CreditUnit } from '@/rpc/api/creditunits/v1/models_pb'
 
 /**
  * Map a live SubscriptionFee oneof to the ComponentFeeType used by the pricing
@@ -63,10 +71,37 @@ const feeTypeFromSubscriptionFee = (fee?: SubscriptionFee): ComponentFeeType => 
       return 'slot'
     case 'usage':
       return 'usage'
+    case 'credit':
+      return 'credit'
     default:
       return 'rate'
   }
 }
+
+// A pack's subscription fee does not carry its expiry, so an override form would silently reset it.
+export const canOverridePrice = (fee: SubscriptionFee | undefined): boolean =>
+  fee?.fee.case !== 'credit'
+
+const CREDIT_PACK_OVERRIDE_HINT =
+  "A credit pack's price can't be overridden. Remove it and add a new credit pack component instead."
+
+const OverridePriceButton = ({ fee, onClick }: { fee?: SubscriptionFee; onClick: () => void }) =>
+  canOverridePrice(fee) ? (
+    <Button variant="secondary" size="sm" onClick={onClick}>
+      <Pencil className="h-4 w-4 mr-1" /> Override price
+    </Button>
+  ) : (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span tabIndex={0}>
+          <Button variant="secondary" size="sm" disabled>
+            <Pencil className="h-4 w-4 mr-1" /> Override price
+          </Button>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs">{CREDIT_PACK_OVERRIDE_HINT}</TooltipContent>
+    </Tooltip>
+  )
 
 const usageModelProtoToForm: Record<string, string> = {
   perUnit: 'per_unit',
@@ -116,14 +151,8 @@ const structuralFromFee = (fee?: SubscriptionFee): StructuralInfo => {
   }
 }
 
-/**
- * Seed an override price form from a live fee. Covers scalar types fully
- * (rate / one-time / recurring / capacity / slot) and usage per-unit. For
- * tiered / volume / package / matrix usage, the structural context (metric +
- * model) is seeded but the rate rows are left for re-entry, since reconstructing
- * them from the runtime fee is lossy.
- */
-const subscriptionFeeToFormData = (
+/** Seed an override price form from a live fee, so its current prices show. */
+export const subscriptionFeeToFormData = (
   fee: SubscriptionFee | undefined,
   period: SubscriptionFeeBillingPeriod
 ): Record<string, unknown> | undefined => {
@@ -148,6 +177,8 @@ const subscriptionFeeToFormData = (
         rate: f.value.rate,
         included: Number(f.value.included),
         overageRate: f.value.overageRate,
+        creditUnitId: fee?.creditUnit?.creditUnitId ?? '',
+        creditUnitRate: fee?.creditUnit?.rate ?? '',
       }
     case 'slot':
       return {
@@ -164,16 +195,34 @@ const subscriptionFeeToFormData = (
     case 'usage': {
       const model = f.value.model
       const usageModel = usageModelProtoToForm[model.case ?? ''] ?? 'per_unit'
-      const base = { metricId: f.value.metricId, usageModel, term }
-      if (model.case === 'perUnit') {
-        return { ...base, unitPrice: model.value }
+      const pricing = protoPricingToFormData({
+        case: 'usagePricing',
+        value: create(UsagePricingSchema, { model }),
+      })
+      return {
+        metricId: f.value.metricId,
+        usageModel,
+        term,
+        creditUnitId: fee?.creditUnit?.creditUnitId ?? '',
+        creditUnitRate: fee?.creditUnit?.rate ?? '',
+        ...pricing?.data,
       }
-      // tiered / volume / package / matrix: structure only; rates re-entered.
-      return base
     }
     default:
       return undefined
   }
+}
+
+/** A fee's one-line summary; a credit pack also shows the credit it grants, in its unit. */
+export const formatAmendFee = (
+  fee: SubscriptionFee | undefined,
+  currency: string,
+  creditUnits?: CreditUnit[]
+): string => {
+  const compact = formatSubscriptionFeeCompact(fee, currency, creditUnits)
+  return fee?.fee.case === 'credit'
+    ? `${compact} · ${formatSubscriptionFee(fee, currency, creditUnits).details}`
+    : compact
 }
 
 /**
@@ -184,12 +233,14 @@ const subscriptionFeeToFormData = (
 const formatDraftFee = (
   feeType: ComponentFeeType,
   formData: Record<string, unknown>,
-  currency: string
+  currency: string,
+  creditUnits?: CreditUnit[]
 ): string => {
   try {
-    return formatSubscriptionFeeCompact(
-      priceToSubscriptionFee(formDataToPrice(feeType, formData, currency)),
-      currency
+    return formatAmendFee(
+      priceToSubscriptionFee(formDataToPrice(feeType, formData, currency), { creditUnits }),
+      currency,
+      creditUnits
     )
   } catch {
     return feeType
@@ -207,6 +258,7 @@ export const StepEditChanges = () => {
   const [showAddAddOn, setShowAddAddOn] = useState(false)
   const [overrideAddOn, setOverrideAddOn] = useState<SubscriptionAddOn | null>(null)
 
+  const creditUnits = useQuery(listCreditUnits, { includeArchived: true }).data?.units
   const subscriptionQuery = useQuery(
     getSubscriptionDetails,
     { subscriptionId: state.subscriptionId },
@@ -463,7 +515,11 @@ export const StepEditChanges = () => {
                       >
                         {edited?.name || component.name}
                         {edited && (
-                          <Badge variant="outline" size="sm" className="ml-2 text-brand border-brand/30">
+                          <Badge
+                            variant="outline"
+                            size="sm"
+                            className="ml-2 text-brand border-brand/30"
+                          >
                             Price overridden
                           </Badge>
                         )}
@@ -472,14 +528,19 @@ export const StepEditChanges = () => {
                         {edited ? (
                           <>
                             <span className="line-through opacity-60">
-                              {formatSubscriptionFeeCompact(component.fee, currency)}
+                              {formatAmendFee(component.fee, currency, creditUnits)}
                             </span>{' '}
                             <span className="text-brand">
-                              {formatDraftFee(edited.feeType, edited.formData, currency)}
+                              {formatDraftFee(
+                                edited.feeType,
+                                edited.formData,
+                                currency,
+                                creditUnits
+                              )}
                             </span>
                           </>
                         ) : (
-                          formatSubscriptionFeeCompact(component.fee, currency)
+                          formatAmendFee(component.fee, currency, creditUnits)
                         )}
                         <span className="opacity-70">
                           {' · '}
@@ -489,18 +550,19 @@ export const StepEditChanges = () => {
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {edited && !isRemoved && (
-                        <Button variant="ghost" size="sm" onClick={() => clearOverride(component.id)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => clearOverride(component.id)}
+                        >
                           Reset
                         </Button>
                       )}
                       {!isRemoved && (
-                        <Button
-                          variant="secondary"
-                          size="sm"
+                        <OverridePriceButton
+                          fee={component.fee}
                           onClick={() => setOverrideComponent(component)}
-                        >
-                          <Pencil className="h-4 w-4 mr-1" /> Override price
-                        </Button>
+                        />
                       )}
                       <Button
                         variant={isRemoved ? 'secondary' : 'ghost'}
@@ -523,12 +585,16 @@ export const StepEditChanges = () => {
                   <div className="min-w-0">
                     <div className="text-sm font-medium">
                       {extra.name}
-                      <Badge variant="outline" size="sm" className="ml-2 text-brand border-brand/30">
+                      <Badge
+                        variant="outline"
+                        size="sm"
+                        className="ml-2 text-brand border-brand/30"
+                      >
                         Added
                       </Badge>
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      {formatDraftFee(extra.feeType, extra.formData, currency)}
+                      {formatDraftFee(extra.feeType, extra.formData, currency, creditUnits)}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -572,12 +638,20 @@ export const StepEditChanges = () => {
                       >
                         {addOn.name}
                         {edited?.quantity != null && edited.quantity !== addOn.quantity && (
-                          <Badge variant="outline" size="sm" className="ml-2 text-brand border-brand/30">
+                          <Badge
+                            variant="outline"
+                            size="sm"
+                            className="ml-2 text-brand border-brand/30"
+                          >
                             Qty {addOn.quantity} → {edited.quantity}
                           </Badge>
                         )}
                         {edited?.priceOverride && (
-                          <Badge variant="outline" size="sm" className="ml-2 text-brand border-brand/30">
+                          <Badge
+                            variant="outline"
+                            size="sm"
+                            className="ml-2 text-brand border-brand/30"
+                          >
                             Price overridden
                           </Badge>
                         )}
@@ -586,18 +660,19 @@ export const StepEditChanges = () => {
                         {edited?.priceOverride ? (
                           <>
                             <span className="line-through opacity-60">
-                              {formatSubscriptionFeeCompact(addOn.fee, currency)}
+                              {formatAmendFee(addOn.fee, currency, creditUnits)}
                             </span>{' '}
                             <span className="text-brand">
                               {formatDraftFee(
                                 edited.priceOverride.feeType,
                                 edited.priceOverride.formData,
-                                currency
+                                currency,
+                                creditUnits
                               )}
                             </span>
                           </>
                         ) : (
-                          formatSubscriptionFeeCompact(addOn.fee, currency)
+                          formatAmendFee(addOn.fee, currency, creditUnits)
                         )}
                         <span className="opacity-70">
                           {' · '}
@@ -635,13 +710,10 @@ export const StepEditChanges = () => {
                         </Button>
                       )}
                       {!isRemoved && (
-                        <Button
-                          variant="secondary"
-                          size="sm"
+                        <OverridePriceButton
+                          fee={addOn.fee}
                           onClick={() => setOverrideAddOn(addOn)}
-                        >
-                          <Pencil className="h-4 w-4 mr-1" /> Override price
-                        </Button>
+                        />
                       )}
                       <Button
                         variant={isRemoved ? 'secondary' : 'ghost'}
@@ -662,7 +734,8 @@ export const StepEditChanges = () => {
                   ? priceSummaryBadges(
                       feeTypeEnumToComponentFeeType(cat.feeType),
                       cat.price,
-                      currency
+                      currency,
+                      creditUnits
                     ).join(' / ')
                   : undefined
                 return (
@@ -673,7 +746,11 @@ export const StepEditChanges = () => {
                     <div className="min-w-0">
                       <div className="text-sm font-medium">
                         {cat?.name ?? added.addOnId}
-                        <Badge variant="outline" size="sm" className="ml-2 text-brand border-brand/30">
+                        <Badge
+                          variant="outline"
+                          size="sm"
+                          className="ml-2 text-brand border-brand/30"
+                        >
                           Added
                         </Badge>
                       </div>
@@ -706,7 +783,11 @@ export const StepEditChanges = () => {
                           <Plus className="h-3 w-3" />
                         </Button>
                       </div>
-                      <Button variant="ghost" size="sm" onClick={() => removeNewAddOn(added.addOnId)}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeNewAddOn(added.addOnId)}
+                      >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -793,6 +874,7 @@ const OverridePriceModal = ({
   const feeType = feeTypeFromSubscriptionFee(component.fee)
   const initialFormData = subscriptionFeeToFormData(component.fee, component.period)
   const structuralInfo = structuralFromFee(component.fee)
+  const creditUnits = useCreditUnits()
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
@@ -802,7 +884,7 @@ const OverridePriceModal = ({
         </DialogHeader>
         <p className="text-xs text-muted-foreground">
           Enter the new price for this component. The current fee is&nbsp;
-          {formatSubscriptionFeeCompact(component.fee, currency)}.
+          {formatAmendFee(component.fee, currency, creditUnits)}.
         </p>
         <ProductPricingForm
           feeType={feeType}
@@ -842,6 +924,7 @@ const OverrideAddOnPriceModal = ({
   const feeType = feeTypeFromSubscriptionFee(addOn.fee)
   const initialFormData = subscriptionFeeToFormData(addOn.fee, addOn.period)
   const structuralInfo = structuralFromFee(addOn.fee)
+  const creditUnits = useCreditUnits()
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
@@ -851,7 +934,7 @@ const OverrideAddOnPriceModal = ({
         </DialogHeader>
         <p className="text-xs text-muted-foreground">
           Enter the new price for this add-on. The current fee is&nbsp;
-          {formatSubscriptionFeeCompact(addOn.fee, currency)}.
+          {formatAmendFee(addOn.fee, currency, creditUnits)}.
         </p>
         <ProductPricingForm
           feeType={feeType}
@@ -891,12 +974,7 @@ const EditExtraComponentModal = ({
         </DialogHeader>
         <div>
           <Label className="text-sm">Component name</Label>
-          <Input
-            className="mt-1"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            autoFocus
-          />
+          <Input className="mt-1" value={name} onChange={e => setName(e.target.value)} autoFocus />
         </div>
         <ProductPricingForm
           feeType={draft.feeType}
@@ -962,7 +1040,11 @@ const AddComponentModal = ({
 
         {step === 'choose' && (
           <div className="space-y-4">
-            <ProductBrowser currency={currency} onAdd={handleProductAdd} submitLabel="Add component" />
+            <ProductBrowser
+              currency={currency}
+              onAdd={handleProductAdd}
+              submitLabel="Add component"
+            />
             <div className="border-t pt-3">
               <Button variant="secondary" onClick={() => setStep('identity')}>
                 Or create a custom fee
@@ -1092,7 +1174,9 @@ const AddAddOnModal = ({
               >
                 <div
                   className={`shrink-0 w-5 h-5 rounded border flex items-center justify-center ${
-                    isSelected ? 'bg-success border-success text-success-foreground' : 'border-border'
+                    isSelected
+                      ? 'bg-success border-success text-success-foreground'
+                      : 'border-border'
                   }`}
                 >
                   {isSelected && <Check className="h-3 w-3" />}

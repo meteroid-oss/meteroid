@@ -1,0 +1,31 @@
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr>
+    <td class="footer" align="center" style="font-size:12px;line-height:18px;color:#6b7079;text-align:center;">
+      <span style="font-weight:600;color:#414651;"><%= legal_name %></span>
+<% if !address_lines.is_empty() { %>
+      <br><% for (i, line) in address_lines.iter().enumerate() { %><% if i > 0 { %>, <% } %><%= line %><% } %>
+<% } %>
+<% if vat_number.is_some() || legal_number.is_some() { %>
+      <br><% if let Some(vat_number) = &vat_number { %><%= vat_number %><% } %><% if vat_number.is_some() && legal_number.is_some() { %> &middot; <% } %><% if let Some(legal_number) = &legal_number { %><%= legal_number %><% } %>
+<% } %>
+    </td>
+  </tr>
+<% if let Some(powered_by) = powered_by { %>
+  <tr>
+    <td align="center" style="padding-top:24px;">
+      <table role="presentation" class="powered-by" align="center" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+        <tr>
+          <td bgcolor="#ffffff" style="padding:7px 14px;background-color:#ffffff;border:1px solid #e1e4e8;border-radius:999px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td valign="middle" style="padding-right:7px;"><a href="https://meteroid.com/?utm_source=customer_email&amp;utm_medium=powered_by" target="_blank" style="text-decoration:none;"><img src="https://static.meteroid.com/assets/mail-images/meteroid-logo-small.png" alt="" width="14" height="15" style="display:block;width:14px;height:15px;border:0;"></a></td>
+                <td valign="middle" style="font-size:12px;line-height:16px;font-weight:500;color:#414651;white-space:nowrap;"><a href="https://meteroid.com/?utm_source=customer_email&amp;utm_medium=powered_by" target="_blank" style="color:#414651;text-decoration:none;"><%= powered_by %></a></td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+<% } %>
+</table>

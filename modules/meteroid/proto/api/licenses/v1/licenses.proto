@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package meteroid.api.licenses.v1;
+
+import "api/licenses/v1/models.proto";
+
+message ListLicensesRequest {
+  optional string customer_id = 1;
+  optional string subscription_id = 2;
+  // Include revoked licenses. Defaults to false.
+  bool include_revoked = 3;
+}
+
+message ListLicensesResponse {
+  repeated License licenses = 1;
+}
+
+message GetLicenseRequest {
+  string id = 1;
+}
+
+message GetLicenseResponse {
+  License license = 1;
+}
+
+message IssueLicenseRequest {
+  string customer_id = 1;
+  // Ties the license to a subscription: its entitlements, and it is revoked when the
+  // subscription ends.
+  optional string subscription_id = 2;
+  // Online: lifetime of each refreshed license, 1-31 days, default 7.
+  // Offline: lifetime of the signed license, 1-400 days, default 365.
+  optional uint32 validity_days = 3;
+  // Delivered at once as a signed offline license, with no activation code.
+  bool offline = 4;
+  // Offline only: the installation the license names and stays bound to.
+  optional string instance_id = 5;
+}
+
+message IssueLicenseResponse {
+  License license = 1;
+  // Online: the one-time code the installation activates the license with.
+  optional string activation_code = 2;
+  // Offline: the signed license, installed in the instance (settings or LICENSE_KEY).
+  optional string offline_license = 3;
+}
+
+// The activation code of a license that wasn't activated yet.
+message GetActivationCodeRequest {
+  string id = 1;
+}
+
+message GetActivationCodeResponse {
+  string activation_code = 1;
+}
+
+message RevokeLicenseRequest {
+  string id = 1;
+  // Drops the license from its installation on the next refresh instead of at its expiry.
+  bool immediately = 2;
+}
+
+message RevokeLicenseResponse {
+  License license = 1;
+}
+
+message IssueOfflineLicenseRequest {
+  string id = 1;
+  uint32 valid_days = 2;
+  // The installation the license names and stays bound to; omitted, it isn't tied to one.
+  optional string instance_id = 3;
+  reserved 4;
+}
+
+message IssueOfflineLicenseResponse {
+  // Signed license, installed in the instance (settings or LICENSE_KEY).
+  string license = 1;
+}
+
+message GetSigningKeysRequest {}
+
+message GetSigningKeysResponse {
+  repeated SigningKey keys = 1;
+  // Public endpoints licensed software talks to.
+  LicensingEndpoints endpoints = 2;
+}
+
+message RotateSigningKeyRequest {}
+
+message RotateSigningKeyResponse {
+  SigningKey key = 1;
+}
+
+// Licenses this tenant issues to its customers for their own installations.
+service LicensesService {
+  rpc ListLicenses(ListLicensesRequest) returns (ListLicensesResponse) {}
+  rpc GetLicense(GetLicenseRequest) returns (GetLicenseResponse) {}
+  rpc IssueLicense(IssueLicenseRequest) returns (IssueLicenseResponse) {}
+  rpc GetActivationCode(GetActivationCodeRequest) returns (GetActivationCodeResponse) {}
+  rpc RevokeLicense(RevokeLicenseRequest) returns (RevokeLicenseResponse) {}
+  rpc IssueOfflineLicense(IssueOfflineLicenseRequest) returns (IssueOfflineLicenseResponse) {}
+  rpc GetSigningKeys(GetSigningKeysRequest) returns (GetSigningKeysResponse) {}
+  rpc RotateSigningKey(RotateSigningKeyRequest) returns (RotateSigningKeyResponse) {}
+}

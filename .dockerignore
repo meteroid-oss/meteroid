@@ -1,6 +1,10 @@
 **/node_modules
+# The tracked links through which EE web sources resolve packages.
+!ee/modules/node_modules
+!ee/modules/*/node_modules
 **/npm-debug.log
 **/out
+!modules/**/src/**/out
 **/generated
 **/dist
 **/build

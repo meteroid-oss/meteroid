@@ -5,7 +5,7 @@ import { type EntitlementSpec } from '@/rpc/api/entitlements/v1/models_pb'
 
 import { slugifyCode } from '../utils'
 
-import { type PendingEntitlementSpec, pendingSpecToEntitlementSpec } from './types'
+import { configFeatureTypeValue, type PendingEntitlementSpec, pendingSpecToEntitlementSpec } from './types'
 
 // Resolves pending specs into proto EntitlementSpec[].
 // For specs with featureName (new): calls createFeature first to get a real featureId.
@@ -34,7 +34,17 @@ export async function resolveEntitlementSpecs(
         featureType:
           spec.featureType === 'boolean'
             ? { Inner: { case: 'boolean', value: {} } }
-            : { Inner: { case: 'metered', value: { metricId: spec.metricId } } },
+            : spec.featureType === 'config'
+              ? {
+                  Inner: {
+                    case: 'config',
+                    value: configFeatureTypeValue(
+                      spec.configKind ?? 'number',
+                      spec.configOptions ?? []
+                    ),
+                  },
+                }
+              : { Inner: { case: 'metered', value: { metricId: spec.metricId } } },
       })
 
       return pendingSpecToEntitlementSpec({ ...spec, featureId: res.feature!.id })

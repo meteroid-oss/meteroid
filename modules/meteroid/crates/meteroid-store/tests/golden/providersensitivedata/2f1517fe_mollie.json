@@ -1,0 +1,6 @@
+{
+  "Mollie": {
+    "api_key": "test_x",
+    "webhook_token": "token_x"
+  }
+}

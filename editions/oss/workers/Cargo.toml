@@ -1,0 +1,17 @@
+[package]
+name = "meteroid-oss-workers"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "meteroid-worker"
+path = "src/main.rs"
+
+[dependencies]
+meteroid-workers.workspace = true
+meteroid-edition-oss = { path = "../modules" }
+common-build-info.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+workspace-hack = { version = "0.1", path = "../../../crates/workspace-hack" }

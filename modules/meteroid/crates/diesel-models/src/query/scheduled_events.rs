@@ -24,38 +24,12 @@ impl ScheduledEventRow {
             .filter(id.eq(event_id_param))
             .filter(tenant_id.eq(tenant_id_param));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
             .await
             .attach("Error while fetching scheduled event by ID")
-            .into_db_result()
-    }
-
-    /// Pending cancellation (subscription_id, scheduled_time) pairs for the given
-    /// subscriptions, ordered by scheduled_time asc.
-    pub async fn list_pending_cancellations_for_subscriptions(
-        conn: &mut PgConn,
-        subscription_ids: &[SubscriptionId],
-        tenant_id_param: &TenantId,
-    ) -> DbResult<Vec<(SubscriptionId, NaiveDateTime)>> {
-        use crate::schema::scheduled_event::dsl::{
-            event_type, scheduled_event, scheduled_time, status, subscription_id, tenant_id,
-        };
-
-        let query = scheduled_event
-            .filter(subscription_id.eq_any(subscription_ids))
-            .filter(tenant_id.eq(tenant_id_param))
-            .filter(status.eq(ScheduledEventStatus::Pending))
-            .filter(event_type.eq(ScheduledEventTypeEnum::CancelSubscription))
-            .order_by(scheduled_time.asc())
-            .select((subscription_id, scheduled_time));
-
-        query
-            .get_results(conn)
-            .await
-            .attach("Error while fetching pending cancellations")
             .into_db_result()
     }
 
@@ -75,7 +49,7 @@ impl ScheduledEventRow {
             .filter(status.eq(ScheduledEventStatus::Pending))
             .order_by(scheduled_time.asc());
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -111,12 +85,74 @@ impl ScheduledEventRow {
             .filter(event_type.eq_any(visible_types))
             .order_by(scheduled_time.asc());
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
             .await
             .attach("Error while fetching pending user-visible scheduled events")
+            .into_db_result()
+    }
+
+    /// Get the next pending cancellation date for each of the given subscriptions.
+    /// Used to surface "cancels on" instead of "renews on" in list/overview views.
+    pub async fn list_pending_cancellations_for_subscriptions(
+        conn: &mut PgConn,
+        subscription_ids: &[SubscriptionId],
+        tenant_id_param: &TenantId,
+    ) -> DbResult<Vec<(SubscriptionId, NaiveDateTime)>> {
+        use crate::schema::scheduled_event::dsl::{
+            event_type, scheduled_event, scheduled_time, status, subscription_id, tenant_id,
+        };
+
+        let query = scheduled_event
+            .filter(subscription_id.eq_any(subscription_ids))
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(status.eq(ScheduledEventStatus::Pending))
+            .filter(event_type.eq(ScheduledEventTypeEnum::CancelSubscription))
+            .order_by(scheduled_time.asc())
+            .select((subscription_id, scheduled_time));
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while fetching pending cancellations")
+            .into_db_result()
+    }
+
+    /// The next attempt of the earliest change of a subscription dated before `before` (cancel,
+    /// pause, plan change, amendment) still pending or being applied; `Some(None)` when it is due.
+    pub async fn next_unapplied_change_before(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+        subscription_id_param: SubscriptionId,
+        before: NaiveDateTime,
+    ) -> DbResult<Option<Option<NaiveDateTime>>> {
+        use crate::schema::scheduled_event::dsl::{
+            event_type, next_attempt_at, scheduled_event, scheduled_time, status, subscription_id,
+            tenant_id,
+        };
+
+        scheduled_event
+            .filter(subscription_id.eq(subscription_id_param))
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(status.eq_any([
+                ScheduledEventStatus::Pending,
+                ScheduledEventStatus::Processing,
+            ]))
+            .filter(event_type.eq_any([
+                ScheduledEventTypeEnum::CancelSubscription,
+                ScheduledEventTypeEnum::PauseSubscription,
+                ScheduledEventTypeEnum::ApplyPlanChange,
+                ScheduledEventTypeEnum::ApplyAmendment,
+            ]))
+            .filter(scheduled_time.lt(before))
+            .order_by(scheduled_time.asc())
+            .select(next_attempt_at)
+            .first::<Option<NaiveDateTime>>(conn)
+            .await
+            .optional()
+            .attach("Error while looking for an unapplied change of a subscription")
             .into_db_result()
     }
 
@@ -140,7 +176,7 @@ impl ScheduledEventRow {
             .filter(status.eq(ScheduledEventStatus::Pending))
             .order_by(scheduled_time.asc());
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -181,7 +217,7 @@ impl ScheduledEventRow {
             .for_update()
             .skip_locked();
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -208,8 +244,15 @@ impl ScheduledEventRow {
                 SELECT se.id
                 FROM scheduled_event se
                 INNER JOIN subscription s ON se.subscription_id = s.id
+                -- Only ACTIVE tenants are processed; paused/archived are skipped.
+                -- FOR UPDATE OF se (below) keeps this join out of the lock scope.
+                INNER JOIN tenant t ON t.id = se.tenant_id AND t.status = 'ACTIVE'
+                -- A sandbox still being seeded advances its subscriptions itself.
+                LEFT JOIN sandbox_seed sd ON sd.tenant_id = se.tenant_id AND sd.status = 'IN_PROGRESS'
                 WHERE se.status = 'PENDING'
+                  AND sd.tenant_id IS NULL
                   AND se.scheduled_time <= $1
+                  AND (se.next_attempt_at IS NULL OR se.next_attempt_at <= $1)
                   AND (
                       -- Non-lifecycle events: always process
                       se.event_type IN ('FINALIZE_INVOICE', 'RETRY_PAYMENT')
@@ -225,7 +268,8 @@ impl ScheduledEventRow {
             RETURNING id, subscription_id, tenant_id, event_type, scheduled_time,
                       priority, event_data, created_at, updated_at, status,
                       retries, last_retry_at, error, processed_at, source,
-                      created_by_customer
+                      created_by_customer, actor_type, actor_uuid, actor_alias,
+                      next_attempt_at
         "#;
 
         let now = Utc::now().naive_utc();
@@ -234,7 +278,7 @@ impl ScheduledEventRow {
             .bind::<sql_types::Timestamp, _>(now)
             .bind::<sql_types::BigInt, _>(limit);
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -257,7 +301,7 @@ impl ScheduledEventRow {
                 updated_at.eq(Utc::now().naive_utc()),
             ));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -284,7 +328,7 @@ impl ScheduledEventRow {
                 updated_at.eq(Utc::now().naive_utc()),
             ));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -310,7 +354,7 @@ impl ScheduledEventRow {
                 updated_at.eq(Utc::now().naive_utc()),
             ));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -324,7 +368,7 @@ impl ScheduledEventRow {
     /// for more than 5 minutes, reset it to PENDING for retry (worker likely crashed).
     pub async fn retry_timeout_events(conn: &mut PgConn) -> DbResult<()> {
         use crate::schema::scheduled_event::dsl::{
-            error, last_retry_at, retries, scheduled_event, scheduled_time, status, updated_at,
+            error, last_retry_at, next_attempt_at, retries, scheduled_event, status, updated_at,
         };
 
         let now = Utc::now().naive_utc();
@@ -342,14 +386,14 @@ impl ScheduledEventRow {
             )
             .set((
                 status.eq(ScheduledEventStatus::Pending),
-                scheduled_time.eq(now),
+                next_attempt_at.eq(Some(now)),
                 retries.eq(retries + 1),
                 last_retry_at.eq(Some(now)),
                 error.eq(Some("timeout".to_string())),
                 updated_at.eq(now),
             ));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -359,7 +403,7 @@ impl ScheduledEventRow {
             .into_db_result()
     }
 
-    /// Retry an event
+    /// Retry an event at `retry_time`, counting the attempt; its effective date stays.
     pub async fn retry_event(
         conn: &mut PgConn,
         event_id_param: &ScheduledEventId,
@@ -367,21 +411,21 @@ impl ScheduledEventRow {
         error_message: &str,
     ) -> DbResult<()> {
         use crate::schema::scheduled_event::dsl::{
-            error, id, last_retry_at, retries, scheduled_event, scheduled_time, status, updated_at,
+            error, id, last_retry_at, next_attempt_at, retries, scheduled_event, status, updated_at,
         };
 
         let query = diesel::update(scheduled_event)
             .filter(id.eq(event_id_param))
             .set((
                 status.eq(ScheduledEventStatus::Pending),
-                scheduled_time.eq(retry_time),
+                next_attempt_at.eq(Some(retry_time)),
                 retries.eq(retries + 1),
                 last_retry_at.eq(Some(Utc::now().naive_utc())),
                 error.eq(Some(error_message)),
                 updated_at.eq(Utc::now().naive_utc()),
             ));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -391,29 +435,57 @@ impl ScheduledEventRow {
             .into_db_result()
     }
 
-    /// Cancel event
+    /// Tries an event again at `retry_time` without counting the attempt: what it waits on is
+    /// not its own failure.
+    pub async fn defer_event(
+        conn: &mut PgConn,
+        event_id_param: &ScheduledEventId,
+        retry_time: NaiveDateTime,
+        error_message: &str,
+    ) -> DbResult<()> {
+        use crate::schema::scheduled_event::dsl::{
+            error, id, next_attempt_at, scheduled_event, status, updated_at,
+        };
+
+        diesel::update(scheduled_event)
+            .filter(id.eq(event_id_param))
+            .set((
+                status.eq(ScheduledEventStatus::Pending),
+                next_attempt_at.eq(Some(retry_time)),
+                error.eq(Some(error_message)),
+                updated_at.eq(Utc::now().naive_utc()),
+            ))
+            .execute(conn)
+            .await
+            .attach("Error while deferring a scheduled event")
+            .map(|_| ())
+            .into_db_result()
+    }
+
+    /// Cancels the event while it is still pending; returns whether it was.
     pub async fn cancel_event(
         conn: &mut PgConn,
         event_id_param: &ScheduledEventId,
         reason: &str,
-    ) -> DbResult<()> {
+    ) -> DbResult<bool> {
         use crate::schema::scheduled_event::dsl::{error, id, scheduled_event, status, updated_at};
 
         let query = diesel::update(scheduled_event)
             .filter(id.eq(event_id_param))
+            .filter(status.eq(ScheduledEventStatus::Pending))
             .set((
                 status.eq(ScheduledEventStatus::Canceled),
                 error.eq(Some(reason.to_string())),
                 updated_at.eq(Utc::now().naive_utc()),
             ));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
             .await
             .attach("Error while canceling event")
-            .map(|_| ())
+            .map(|updated| updated > 0)
             .into_db_result()
     }
 
@@ -446,7 +518,7 @@ impl ScheduledEventRow {
                 updated_at.eq(Utc::now().naive_utc()),
             ));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -486,7 +558,7 @@ impl ScheduledEventRow {
                 updated_at.eq(Utc::now().naive_utc()),
             ));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -505,7 +577,7 @@ impl ScheduledEventRowNew {
 
         let query = diesel::insert_into(scheduled_event).values(events);
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)

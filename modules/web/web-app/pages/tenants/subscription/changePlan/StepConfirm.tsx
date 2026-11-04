@@ -1,4 +1,4 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { useMutation } from '@connectrpc/connect-query'
 import {
   Alert,
   Button,
@@ -19,13 +19,19 @@ import { useWizard } from 'react-use-wizard'
 import { toast } from 'sonner'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
+import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
+import { invalidateSubscriptionBilling } from '@/features/subscriptions/invalidateSubscriptionBilling'
+import { formatPackLineCredit, packLineView } from '@/features/subscriptions/planChangePackLines'
 import {
   PricingComponent,
   SubscriptionPricingTable,
 } from '@/features/subscriptions/pricecomponents/SubscriptionPricingTable'
+import { creditUnitNames } from '@/features/subscriptions/subscriptionPrice'
 import { useQuery } from '@/lib/connectrpc'
+import { rpcErrorMessage } from '@/lib/rpcError'
 import { formatCurrency } from '@/lib/utils/numbers'
 import { changePlanAtom } from '@/pages/tenants/subscription/changePlan/state'
+import { usePlanChangeParameters } from '@/pages/tenants/subscription/changePlan/usePlanChangeParameters'
 import {
   ScheduledEventType,
   SubscriptionFeeBillingPeriod,
@@ -37,6 +43,12 @@ import {
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 import { PlanChangeApplyMode } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 import { parseAndFormatDate } from '@/utils/date'
+
+import type { CreditUnitNames } from '@/features/subscriptions/subscriptionPrice'
+import type {
+  PlanChangePackLine,
+  SubscriptionFee_FeeCreditUnit,
+} from '@/rpc/api/subscriptions/v1/models_pb'
 
 const scheduledEventLabel = (eventType: ScheduledEventType): string => {
   switch (eventType) {
@@ -53,6 +65,31 @@ const scheduledEventLabel = (eventType: ScheduledEventType): string => {
   }
 }
 
+const PackChangeRow = ({
+  line,
+  currency,
+  unitNames,
+}: {
+  line: PlanChangePackLine
+  currency: string
+  unitNames: (unit: SubscriptionFee_FeeCreditUnit) => CreditUnitNames
+}) => {
+  const view = packLineView(line, currency, formatPackLineCredit(line, currency, unitNames))
+  if (!view) return null
+  return (
+    <div className="flex justify-between gap-4">
+      <div className="min-w-0">
+        <div className="text-muted-foreground">{view.label}</div>
+        <div className="text-xs text-muted-foreground truncate">
+          {line.name}
+          {view.detail && ` · ${view.detail}`}
+        </div>
+      </div>
+      <span className="text-foreground shrink-0">{view.value}</span>
+    </div>
+  )
+}
+
 export const StepConfirm = () => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -62,24 +99,33 @@ export const StepConfirm = () => {
 
   const scheduleMut = useMutation(schedulePlanChange)
   const previewMut = useMutation(previewPlanChange)
+  const { parameterizedComponents, ready } = usePlanChangeParameters()
 
   // Re-fetch preview when apply mode changes to get correct effective_date and proration
   useEffect(() => {
-    if (state.targetPlanVersionId && state.subscriptionId) {
+    if (ready && state.targetPlanVersionId && state.subscriptionId) {
       previewMut.mutate(
         {
           subscriptionId: state.subscriptionId,
           newPlanVersionId: state.targetPlanVersionId,
           applyMode: state.applyMode,
+          parameterizedComponents,
         },
         {
           onSuccess: data => {
             setState(prev => ({ ...prev, preview: data }))
           },
+          onError: error => {
+            toast.error(rpcErrorMessage(error, 'Failed to preview the plan change'))
+            setState(prev => ({ ...prev, preview: undefined }))
+            if (state.applyMode === PlanChangeApplyMode.IMMEDIATE) {
+              setState(prev => ({ ...prev, applyMode: PlanChangeApplyMode.END_OF_PERIOD }))
+            }
+          },
         }
       )
     }
-  }, [state.applyMode])
+  }, [state.applyMode, ready])
 
   const subscriptionQuery = useQuery(
     getSubscriptionDetails,
@@ -92,7 +138,21 @@ export const StepConfirm = () => {
 
   const preview = state.preview
   const currency = state.currency || 'USD'
+
+  const creditUnits = useCreditUnits()
+  const knownUnits = useMemo(
+    () => Object.fromEntries((creditUnits ?? []).map(unit => [unit.id, unit])),
+    [creditUnits]
+  )
+  const unitNames = (unit: SubscriptionFee_FeeCreditUnit) => creditUnitNames(unit, knownUnits)
   const isImmediate = state.applyMode === PlanChangeApplyMode.IMMEDIATE
+  const immediateAllowed = preview?.immediateAllowed ?? false
+
+  useEffect(() => {
+    if (preview && !preview.immediateAllowed && isImmediate) {
+      setState(prev => ({ ...prev, applyMode: PlanChangeApplyMode.END_OF_PERIOD }))
+    }
+  }, [preview, isImmediate, setState])
 
   // Detect if subscription has annual components
   const isAnnual = (subscriptionQuery.data?.priceComponents ?? []).some(
@@ -130,6 +190,7 @@ export const StepConfirm = () => {
         subscriptionId: state.subscriptionId,
         newPlanVersionId: state.targetPlanVersionId,
         applyMode: state.applyMode,
+        parameterizedComponents,
       })
 
       if (isImmediate) {
@@ -142,21 +203,10 @@ export const StepConfirm = () => {
         )
       }
 
-      await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey({
-          schema: getSubscriptionDetails,
-
-          input: {
-            subscriptionId: state.subscriptionId,
-          },
-
-          cardinality: 'finite'
-        }),
-      })
+      await invalidateSubscriptionBilling(queryClient, state.subscriptionId)
       navigate(`../${state.subscriptionId}`, { replace: true })
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to schedule plan change'
-      toast.error(message)
+      toast.error(rpcErrorMessage(error, 'Failed to schedule the plan change'))
     }
   }
 
@@ -211,11 +261,23 @@ export const StepConfirm = () => {
                   </Label>
                 </div>
                 <div className="flex items-start gap-3">
-                  <RadioGroupItem value="immediate" id="mode-immediate" className="mt-0.5" />
-                  <Label htmlFor="mode-immediate" className={`cursor-pointer `}>
+                  <RadioGroupItem
+                    value="immediate"
+                    id="mode-immediate"
+                    className="mt-0.5"
+                    disabled={!immediateAllowed}
+                  />
+                  <Label
+                    htmlFor="mode-immediate"
+                    className={
+                      immediateAllowed ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
+                    }
+                  >
                     <div className="text-sm font-medium">Immediately</div>
                     <div className="text-xs text-muted-foreground">
-                      Apply now with a prorated adjustment invoice.
+                      {immediateAllowed || !preview
+                        ? 'Apply now with a prorated adjustment invoice.'
+                        : 'Not available: this subscription or the new plan has a minimum commitment, which applies for a whole billing period. The change takes effect at the end of the period.'}
                     </div>
                   </Label>
                 </div>
@@ -281,6 +343,19 @@ export const StepConfirm = () => {
                     remaining in current period (
                     {Math.round(preview.proration.prorationFactor * 100)}% prorated)
                   </div>
+                  {preview.proration.packChanges.length > 0 && (
+                    <div className="border-t border-border mt-3 pt-3 space-y-2">
+                      <div className="text-xs font-medium text-muted-foreground">Credit packs</div>
+                      {preview.proration.packChanges.map((line, idx) => (
+                        <PackChangeRow
+                          key={`${line.kind}-${line.name}-${idx}`}
+                          line={line}
+                          currency={currency}
+                          unitNames={unitNames}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -346,7 +421,13 @@ export const StepConfirm = () => {
         <Button
           variant="brand"
           onClick={handleSchedule}
-          disabled={scheduleMut.isPending || (isImmediate && isAnnual && !forceAnnual)}
+          disabled={
+            scheduleMut.isPending ||
+            previewMut.isPending ||
+            !preview ||
+            (isImmediate && !immediateAllowed) ||
+            (isImmediate && isAnnual && !forceAnnual)
+          }
           className="min-w-[180px]"
         >
           {scheduleMut.isPending

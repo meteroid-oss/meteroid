@@ -1,0 +1,189 @@
+# Full preview environment — everything the app can use, memory-tuned to fit a
+# small box (steady-state footprint ~1.3-1.6 GB across all services).
+#
+# Same as docker-compose.yml PLUS ClickHouse + Redpanda + Redis, and the backend
+# is built WITH the `metering-server` feature so metering runs in-process (in the
+# Enterprise edition, with analytics on the metering port). Point a Coolify "Docker Compose" resource at this file instead of
+# docker-compose.yml for a full-featured preview. NOT for production.
+#
+# Memory: infra memory is tuned internally (redpanda --memory, ClickHouse
+# max_server_memory_usage, redis maxmemory). The mem_limit values are safety
+# ceilings, not the expected usage — lower them if your host is tighter, but
+# ClickHouse/Redpanda can OOM if starved.
+
+name: meteroid-preview-full
+
+volumes:
+  pg_data:
+  clickhouse_data:
+  redpanda_data:
+
+networks:
+  meteroid_net:
+
+services:
+  meteroid-db:
+    image: ghcr.io/meteroid-oss/meteroid-postgres:18.3-standard
+    user: postgres
+    environment:
+      - POSTGRES_USER=meteroid
+      - POSTGRES_PASSWORD=secret
+      - POSTGRES_DB=meteroid
+    volumes:
+      - pg_data:/var/lib/postgresql
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - max_connections=50
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    mem_limit: 256m
+    networks: [meteroid_net]
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.6.2-alpine
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: default
+      CLICKHOUSE_DB: meteroid
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/preview.xml:ro
+      - ./clickhouse/users.xml:/etc/clickhouse-server/users.d/named-collections.xml:ro
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 3s
+      retries: 60
+    mem_limit: 768m
+    networks: [meteroid_net]
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.1
+    hostname: redpanda
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 512M
+      - --reserve-memory 0M
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr INTERNAL://0.0.0.0:29092
+      - --advertise-kafka-addr INTERNAL://redpanda:29092
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ['CMD-SHELL', "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    mem_limit: 700m
+    networks: [meteroid_net]
+
+  redpanda-topic-create:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.1
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint:
+      - bash
+      - -c
+      - 'rpk topic create meteroid-events-raw --brokers redpanda:29092 || true'
+    restart: "no"
+    networks: [meteroid_net]
+
+  redis:
+    image: redis:8-alpine
+    command: redis-server --maxmemory 96mb --maxmemory-policy allkeys-lru --save "" --appendonly no
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 128m
+    networks: [meteroid_net]
+
+  # All-in-one backend WITH metering in-process (+ analytics in the Enterprise edition).
+  meteroid:
+    build:
+      context: ../..
+      dockerfile: modules/meteroid/preview.Dockerfile
+      args:
+        FEATURES: metering-server
+    env_file:
+      - ./preview.env
+      - path: ../../ee/docker/preview/license.env
+        required: false
+    environment:
+      - SERVICE_FQDN_GRPCAPI_50061
+      - SERVICE_FQDN_RESTAPI_8084
+      - METEROID_API_EXTERNAL_URL=${SERVICE_URL_GRPCAPI:-http://localhost:50061}
+      - METEROID_REST_API_EXTERNAL_URL=${SERVICE_URL_RESTAPI:-http://localhost:8084}
+      - METEROID_PUBLIC_URL=${SERVICE_URL_WEB:-http://localhost:3000}
+      # In-process metering (and Enterprise analytics) talk to these:
+      - CLICKHOUSE_HTTP_ADDRESS=http://clickhouse:8123
+      - CLICKHOUSE_TCP_ADDRESS=clickhouse:9000
+      - CLICKHOUSE_DATABASE=meteroid
+      - CLICKHOUSE_USERNAME=default
+      - CLICKHOUSE_PASSWORD=default
+      - CLICKHOUSE_CLUSTER_NAME=meteroid
+      - KAFKA_BOOTSTRAP_SERVERS=redpanda:29092
+      - KAFKA_INTERNAL_ADDR=redpanda:29092
+      # Keep the kafka producer buffer small (default is 400 MiB).
+      - KAFKA_PRODUCER_QUEUE_MIB=32
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      meteroid-db:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    expose:
+      - "50061"
+      - "8084"
+    # For local testing, uncomment to publish on the host:
+    # ports:
+    #   - "50061:50061"
+    #   - "8084:8084"
+    healthcheck:
+      test: ['CMD', '/bin/grpc_health_probe', '-addr=:50061']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+    mem_limit: 512m
+    networks: [meteroid_net]
+
+  meteroid-web:
+    build:
+      context: ../..
+      dockerfile: modules/web/web-app/Dockerfile
+    environment:
+      - SERVICE_FQDN_WEB_80
+      - VITE_METEROID_API_EXTERNAL_URL=${SERVICE_URL_GRPCAPI:-http://localhost:50061}
+      - VITE_METEROID_REST_API_EXTERNAL_URL=${SERVICE_URL_RESTAPI:-http://localhost:8084}
+    depends_on:
+      meteroid:
+        condition: service_started
+    expose:
+      - "80"
+    # For local testing, uncomment to publish on the host:
+    # ports:
+    #   - "3000:80"
+    mem_limit: 128m
+    networks: [meteroid_net]

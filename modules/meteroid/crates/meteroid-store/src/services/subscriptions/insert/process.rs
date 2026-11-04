@@ -3,8 +3,9 @@ use super::payment_method::PaymentSetupResult;
 use crate::constants::{Currencies, Currency};
 use crate::domain::checkout_sessions::{CheckoutType, CreateCheckoutSession};
 use crate::domain::coupons::Coupon;
+use crate::domain::custom_property_definitions::CustomPropertyMode;
 use crate::domain::entity_activity::Actor;
-use crate::domain::enums::SubscriptionEventType;
+use crate::domain::enums::{CustomPropertyEntityType, SubscriptionEventType};
 use crate::domain::scheduled_events::ScheduledEventNew;
 use crate::domain::slot_transactions::{SlotTransaction, SlotTransactionNewInternal};
 use crate::domain::{
@@ -18,8 +19,8 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::jwt_claims::{ResourceAccess, generate_portal_token};
 use crate::services::InvoiceBillingMode;
 use crate::services::subscriptions::utils::{
-    PendingMaterialization, apply_coupons, apply_coupons_without_validation, calculate_mrr,
-    extract_billing_period, process_create_subscription_add_ons,
+    PendingMaterialization, apply_coupons, apply_coupons_at, apply_coupons_without_validation,
+    creation_minimum_for_mrr, extract_billing_period, process_create_subscription_add_ons,
     process_create_subscription_components, process_create_subscription_coupons,
 };
 use crate::store::PgConn;
@@ -42,11 +43,11 @@ use diesel_models::subscription_components::{
 };
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowNew};
-use error_stack::{Report, ResultExt};
+use error_stack::{Report, ResultExt, bail};
 use futures::TryFutureExt;
 use scoped_futures::ScopedFutureExt;
 use secrecy::SecretString;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::log;
 use uuid::Uuid;
@@ -59,6 +60,10 @@ pub struct ProcessedSubscription {
     add_ons: Vec<SubscriptionAddOnRowNew>,
     coupons: Vec<AppliedCouponRowNew>,
     event: SubscriptionEventRow,
+    /// Emitted (in addition to `event`) when the subscription is born already Completed
+    /// (a migrated, already-ended subscription) so the analytics running total decrements
+    /// it at its end_date. The +1 at start comes from the DB activation trigger.
+    ended_event: Option<SubscriptionEventRow>,
     slot_transactions: Vec<SlotTransactionRow>,
     scheduled_events: Vec<ScheduledEventNew>,
     /// Products/prices that need to be created inside the persist transaction (components).
@@ -71,6 +76,44 @@ pub struct ProcessedSubscription {
     /// When true, skip billing for this subscription (migration mode).
     skip_past_invoices: bool,
     entitlements: Vec<crate::domain::entitlements::EntitlementSpec>,
+    /// Snapshot of the plan minimum at subscription creation time. None when the plan has no minimum.
+    minimum: Option<crate::domain::plan_minimums::PlanMinimum>,
+    /// Operator-set minimum override. When present it supersedes `minimum` and is written as
+    /// an `is_override = true` row.
+    minimum_override: Option<(i64, crate::domain::plan_minimums::CreateMinimumScope)>,
+    /// When true (and no override), the plan minimum snapshot is skipped entirely.
+    drop_minimum: bool,
+    /// Inserted not started: the lifecycle starts it and bills its first period.
+    start_deferred: bool,
+}
+
+impl ProcessedSubscription {
+    /// Inserts it not started whatever its start date, for the lifecycle to start it at its
+    /// business time (`ActivateSubscription`): the first period is billed and what is owed at
+    /// start is funded then, not when it is inserted.
+    pub(crate) fn defer_start(&mut self) -> StoreResult<()> {
+        let row = &mut self.subscription;
+        if row.activation_condition
+            != diesel_models::enums::SubscriptionActivationConditionEnum::OnStart
+            || row.trial_duration.is_some()
+            || row.imported_at.is_some()
+            || row.pending_checkout
+            || !self.scheduled_events.is_empty()
+        {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "only a subscription that starts on its start date, without a trial, can be \
+                 started later"
+                    .to_string(),
+            )));
+        }
+        row.status = diesel_models::enums::SubscriptionStatusEnum::PendingActivation;
+        row.current_period_start = row.billing_start_date.unwrap_or(row.start_date);
+        row.current_period_end = Some(row.start_date);
+        row.next_cycle_action = Some(CycleActionEnum::ActivateSubscription);
+        row.cycle_index = None;
+        self.start_deferred = true;
+        Ok(())
+    }
 }
 
 pub struct DetailedSubscription {
@@ -84,6 +127,13 @@ pub struct DetailedSubscription {
     pub pending_materializations: Vec<PendingMaterialization>,
     pub pending_addon_materializations: Vec<PendingMaterialization>,
     pub entitlements: Vec<crate::domain::entitlements::EntitlementSpec>,
+    /// Operator-set minimum override applied at creation. Replaces the plan snapshot when present.
+    minimum_override: Option<(i64, crate::domain::plan_minimums::CreateMinimumScope)>,
+    /// When true (and no override), the plan minimum snapshot is skipped entirely.
+    drop_minimum: bool,
+    /// The tax the quoted prices carry, resolved in the gather step. `None` for a
+    /// tax-exclusive plan or an untaxed customer.
+    tax_inclusive_rate: Option<rust_decimal::Decimal>,
 }
 
 impl Services {
@@ -101,6 +151,8 @@ impl Services {
                 add_ons,
                 coupons,
                 entitlements,
+                minimum_override,
+                drop_minimum,
             } = params;
 
             let customer = context
@@ -171,6 +223,9 @@ impl Services {
                 pending_materializations,
                 pending_addon_materializations,
                 entitlements: entitlements.clone(),
+                minimum_override: minimum_override.clone(),
+                drop_minimum: *drop_minimum,
+                tax_inclusive_rate: context.tax_inclusive_rates.get(idx).copied().flatten(),
             });
         }
 
@@ -229,6 +284,9 @@ impl Services {
             pending_materializations: vec![], // Quotes have pre-resolved products/prices
             pending_addon_materializations: vec![], // Quotes have pre-resolved add-on prices
             entitlements: params.entitlements.clone(),
+            minimum_override: params.minimum_override.clone(),
+            drop_minimum: false,
+            tax_inclusive_rate: context.tax_inclusive_rates.first().copied().flatten(),
         })
     }
 
@@ -310,7 +368,14 @@ impl Services {
             }
         });
 
-        let net_terms = sub.subscription.net_terms.unwrap_or(plan.net_terms as u32);
+        let sells_credit = sub.components.iter().any(|c| c.fee.sells_credit())
+            || sub.add_ons.iter().any(|a| a.fee.sells_credit());
+        let net_terms = sub.subscription.net_terms.unwrap_or_else(|| {
+            crate::domain::subscriptions::default_net_terms(
+                sells_credit,
+                u32::try_from(plan.net_terms).unwrap_or(0),
+            )
+        });
 
         let activated_at = match sub.subscription.activation_condition {
             SubscriptionActivationCondition::OnStart => {
@@ -551,11 +616,21 @@ impl Services {
             quote_id,
             effective_trial_duration,
             imported_at,
+            tax_inclusive_rate: sub.tax_inclusive_rate,
         };
 
         let subscription_row = enriched.map_to_row()?;
 
         let subscription_coupons = self.process_coupons(&subscription_row, &sub.coupons)?;
+
+        let minimum_for_mrr = creation_minimum_for_mrr(
+            &sub.components,
+            context
+                .minimums_by_plan_version
+                .get(&sub.subscription.plan_version_id),
+            sub.minimum_override.as_ref(),
+            sub.drop_minimum,
+        );
 
         let event = self.build_subscription_event(
             &subscription_row,
@@ -563,7 +638,23 @@ impl Services {
             &sub.add_ons,
             &context.all_coupons,
             sub.currency.precision,
+            minimum_for_mrr.as_ref(),
+            period,
         )?;
+
+        // A subscription born already Completed (migration of an already-ended subscription) is
+        // stamped activated_at = start_date (trigger emits +1 at start). Emit the matching Ended
+        // (-1) at its end_date for the active-count curve. mrr_delta stays None: a migrated sub
+        // skips invoices, so its Created event booked no MRR movement to churn.
+        let ended_event = (subscription_row.status
+            == diesel_models::enums::SubscriptionStatusEnum::Completed)
+            .then(|| {
+                let applies_to = subscription_row
+                    .end_date
+                    .or(subscription_row.current_period_end)
+                    .unwrap_or(subscription_row.start_date);
+                SubscriptionEventRow::ended(subscription_row.id, applies_to, None)
+            });
 
         let components = sub
             .components
@@ -608,12 +699,18 @@ impl Services {
             })
             .collect::<Vec<_>>();
 
+        let minimum = context
+            .minimums_by_plan_version
+            .get(&sub.subscription.plan_version_id)
+            .cloned();
+
         Ok(ProcessedSubscription {
             subscription: subscription_row,
             components,
             add_ons: subscription_add_ons,
             coupons: subscription_coupons,
             event,
+            ended_event,
             slot_transactions,
             scheduled_events,
             pending_materializations: sub.pending_materializations.clone(),
@@ -621,6 +718,10 @@ impl Services {
             skip_checkout_session: sub.subscription.skip_checkout_session,
             skip_past_invoices: sub.subscription.skip_past_invoices,
             entitlements: sub.entitlements.clone(),
+            minimum,
+            minimum_override: sub.minimum_override.clone(),
+            drop_minimum: sub.drop_minimum,
+            start_deferred: false,
         })
     }
 
@@ -647,6 +748,7 @@ impl Services {
             &context.price_components_by_plan_version,
             subscription,
             &context.products_by_id,
+            &context.credit_units,
             resolved,
             plan.product_family_id,
             &plan.currency,
@@ -676,6 +778,7 @@ impl Services {
             &context.all_add_ons,
             &context.products_by_id,
             &context.addon_prices_by_id,
+            &context.credit_units,
             plan.product_family_id,
             &plan.currency,
             effective_from,
@@ -697,18 +800,21 @@ impl Services {
         add_ons: &[SubscriptionAddOnNewInternal],
         _coupons: &[Coupon],
         precision: u8,
+        minimum: Option<&(i64, crate::domain::plan_minimums::MinimumScope)>,
+        period: crate::domain::enums::BillingPeriodEnum,
     ) -> Result<SubscriptionEventRow, StoreErrorReport> {
-        let cmrr: i64 = components
-            .iter()
-            .map(|c| calculate_mrr(&c.fee, &c.period, precision))
-            .sum();
-
-        let ao_mrr: i64 = add_ons
-            .iter()
-            .map(|c| calculate_mrr(&c.fee, &c.period, precision) * c.quantity as i64)
-            .sum();
-
-        let mrr_delta = cmrr + ao_mrr;
+        // Floor the MRR by the minimum commitment: a subscription whose line spend is below its
+        // committed floor still recognizes the floor as recurring revenue (e.g. rate 80 / minimum
+        // 90 ⇒ MRR 90), mirroring the invoice shortfall line.
+        let mrr_delta =
+            crate::services::subscriptions::utils::calculate_subscription_mrr_with_floor(
+                components,
+                add_ons,
+                minimum,
+                period,
+                precision,
+                subscription.tax_inclusive_rate,
+            );
 
         // TODO w need a single request for all possible currency conversions here (or just filter out), and reuse the conn
         let final_mrr = mrr_delta;
@@ -733,6 +839,115 @@ impl Services {
             applies_to: subscription.start_date,
         })
     }
+}
+
+fn filter_of(row: &SubscriptionRowNew) -> StoreResult<Option<crate::domain::UsageFilter>> {
+    crate::domain::UsageFilter::from_columns(
+        row.usage_filter_property.clone(),
+        row.usage_filter_value.clone(),
+    )?
+    .map(|filter| crate::domain::UsageFilter::new(filter.property, filter.value))
+    .transpose()
+}
+
+/// A usage filter is unique per customer over overlapping lifetimes, among the new subscriptions
+/// as against the existing ones, checked under the customers' locks (the caller takes them).
+async fn ensure_usage_filters_available(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    rows: &[SubscriptionRowNew],
+) -> StoreResult<()> {
+    use crate::repositories::subscriptions::usage_attribution::{
+        ensure_usage_filter_available, midnight,
+    };
+
+    let mut filtered = Vec::new();
+    for row in rows {
+        if let Some(filter) = filter_of(row)? {
+            filtered.push((row, filter));
+        }
+    }
+
+    for (index, (row, filter)) in filtered.iter().enumerate() {
+        let overlapping = filtered[..index].iter().any(|(other, other_filter)| {
+            other.customer_id == row.customer_id
+                && other_filter == filter
+                && other.end_date.is_none_or(|end| row.start_date < end)
+                && row
+                    .end_date
+                    .is_none_or(|row_end| other.start_date < row_end)
+        });
+        if overlapping {
+            bail!(StoreError::InvalidArgument(format!(
+                "two new subscriptions of a customer bill the events where {} is {}",
+                filter.property, filter.value
+            )));
+        }
+        ensure_usage_filter_available(
+            conn,
+            tenant_id,
+            row.customer_id,
+            row.id,
+            filter,
+            midnight(row.start_date),
+            row.end_date.map(midnight),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// Records the usage filter of each new subscription from its start, refusing one that would
+/// move events another subscription of the customer has already invoiced.
+async fn record_created_usage_filters(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    rows: &[SubscriptionRowNew],
+) -> StoreResult<()> {
+    use crate::repositories::subscriptions::usage_attribution::{
+        midnight, record_usage_filter_version, usage_filter_effective_from,
+    };
+
+    let created = rows.iter().map(|row| row.id).collect::<HashSet<_>>();
+    for row in rows {
+        let Some(filter) = filter_of(row)? else {
+            continue;
+        };
+        let stored = SubscriptionRow::get_subscription_by_id(conn, &tenant_id, row.id)
+            .await
+            .map_err(Into::<StoreErrorReport>::into)?
+            .subscription;
+        let start = midnight(row.start_date);
+        let from = usage_filter_effective_from(
+            conn,
+            tenant_id,
+            &SubscriptionRow {
+                usage_filter_property: None,
+                usage_filter_value: None,
+                ..stored
+            },
+            start,
+            Some(&filter),
+            &created,
+        )
+        .await?;
+        if from > start {
+            // A start date is a day: the first one whose midnight is not before `from`.
+            let earliest = if from.time() == chrono::NaiveTime::MIN {
+                from.date()
+            } else {
+                from.date() + chrono::Days::new(1)
+            };
+            bail!(StoreError::InvalidArgument(format!(
+                "a usage filter cannot apply before {}: other subscriptions of this customer have \
+                 invoiced the usage it would claim up to then. Start the subscription on or after \
+                 that date, or create it without a usage filter",
+                earliest.format("%b %-d, %Y")
+            )));
+        }
+        record_usage_filter_version(conn, tenant_id, row.id, Some(&filter), start).await?;
+    }
+    Ok(())
 }
 
 fn process_slot_transactions(
@@ -763,13 +978,14 @@ impl Services {
     pub(crate) async fn persist_subscriptions(
         &self,
         conn: &mut PgConn,
+        actor: &Actor,
         processed: &[ProcessedSubscription],
         tenant_id: TenantId,
         jwt_secret: &SecretString,
         public_url: &String,
     ) -> StoreResult<Vec<CreatedSubscription>> {
         self.persist_subscriptions_internal(
-            conn, processed, tenant_id, jwt_secret, public_url, false,
+            conn, actor, processed, tenant_id, jwt_secret, public_url, false, None,
         )
         .await
     }
@@ -780,29 +996,59 @@ impl Services {
     pub(crate) async fn persist_subscriptions_skip_coupon_validation(
         &self,
         conn: &mut PgConn,
+        actor: &Actor,
         processed: &[ProcessedSubscription],
         tenant_id: TenantId,
         jwt_secret: &SecretString,
         public_url: &String,
     ) -> StoreResult<Vec<CreatedSubscription>> {
         self.persist_subscriptions_internal(
-            conn, processed, tenant_id, jwt_secret, public_url, true,
+            conn, actor, processed, tenant_id, jwt_secret, public_url, true, None,
         )
         .await
     }
 
+    /// `persist_subscriptions` whose coupons are checked and redeemed as of `redeemed_at`, a
+    /// sandbox replay's start of the subscriptions.
+    pub(crate) async fn persist_subscriptions_at(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        processed: &[ProcessedSubscription],
+        tenant_id: TenantId,
+        jwt_secret: &SecretString,
+        public_url: &String,
+        redeemed_at: chrono::DateTime<chrono::Utc>,
+    ) -> StoreResult<Vec<CreatedSubscription>> {
+        self.persist_subscriptions_internal(
+            conn,
+            actor,
+            processed,
+            tenant_id,
+            jwt_secret,
+            public_url,
+            false,
+            Some(redeemed_at),
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
     async fn persist_subscriptions_internal(
         &self,
         conn: &mut PgConn,
+        actor: &Actor,
         processed: &[ProcessedSubscription],
         tenant_id: TenantId,
         jwt_secret: &SecretString,
         public_url: &String,
         skip_coupon_validation: bool,
+        redeemed_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> StoreResult<Vec<CreatedSubscription>> {
+        // A subscription billed at once is finalized under its customer's lock: its metering is
+        // read first (outermost when inserted on a connection of its own).
         let res = self
-            .store
-            .transaction_with(conn, |conn| {
+            .transaction_reading_usage_first(conn, |services, conn| {
                 async move {
                     // Materialize pending products/prices inside the transaction.
                     // Builds a map of (sub_idx, comp_idx) → (product_id, price_id) for patching.
@@ -876,7 +1122,52 @@ impl Services {
                     }
 
                     // Flatten collections for batch insertion, patching materialized components.
-                    let subscriptions: Vec<_> = processed.iter().map(|p| &p.subscription).collect();
+                    // Validate/normalize any user-supplied custom properties against the tenant's
+                    // subscription definitions; a null bag (system/import flows) falls back to {}.
+                    let mut owned_subscriptions: Vec<SubscriptionRowNew> =
+                        Vec::with_capacity(processed.len());
+                    for p in processed.iter() {
+                        let mut row = p.subscription.clone();
+                        row.custom_properties = self
+                            .store
+                            .internal
+                            .validate_and_normalize_custom_properties(
+                                conn,
+                                tenant_id,
+                                CustomPropertyEntityType::Subscription,
+                                &row.custom_properties,
+                                &serde_json::json!({}),
+                                CustomPropertyMode::Replace,
+                            )
+                            .await?;
+                        owned_subscriptions.push(row);
+                    }
+                    // Every customer of the batch first, in id order: the usage filter checks, the
+                    // coupons (tenant rows) and the billing below all come after it.
+                    let mut customers = owned_subscriptions
+                        .iter()
+                        .map(|row| row.customer_id)
+                        .collect::<Vec<_>>();
+                    customers.sort_by_key(|id| id.as_uuid());
+                    customers.dedup();
+                    let mut locks = Vec::with_capacity(customers.len());
+                    for customer_id in customers {
+                        locks.push(
+                            crate::repositories::credit::customer_credit::lock_customer_tx(
+                                conn,
+                                tenant_id,
+                                customer_id,
+                            )
+                            .await?,
+                        );
+                    }
+                    diesel_models::query::credit_inputs::bump_customers(
+                        conn,
+                        &locks.iter().collect::<Vec<_>>(),
+                    )
+                    .await?;
+                    ensure_usage_filters_available(conn, tenant_id, &owned_subscriptions).await?;
+                    let subscriptions: Vec<_> = owned_subscriptions.iter().collect();
 
                     let mut patched_components: Vec<SubscriptionComponentRowNew> = Vec::new();
                     for (sub_idx, proc) in processed.iter().enumerate() {
@@ -913,7 +1204,10 @@ impl Services {
                     }
                     let add_ons: Vec<_> = patched_add_ons.iter().collect();
                     let coupons: Vec<_> = processed.iter().flat_map(|p| &p.coupons).collect();
-                    let events: Vec<_> = processed.iter().map(|p| &p.event).collect();
+                    let events: Vec<_> = processed
+                        .iter()
+                        .flat_map(|p| std::iter::once(&p.event).chain(p.ended_event.iter()))
+                        .collect();
                     let slot_transactions: Vec<_> = processed
                         .iter()
                         .flat_map(|p| &p.slot_transactions)
@@ -941,18 +1235,117 @@ impl Services {
                         .map_err(Into::<StoreErrorReport>::into)
                         .await?;
 
+                    // Snapshot plan minimums onto subscriptions (mirrors the component snapshot).
+                    {
+                        use diesel_models::subscription_adjustments::{
+                            SubscriptionAdjustmentComponentRowNew, SubscriptionAdjustmentRowNew,
+                        };
+
+                        let mut minimum_rows: Vec<SubscriptionAdjustmentRowNew> = Vec::new();
+                        let mut minimum_component_rows: Vec<SubscriptionAdjustmentComponentRowNew> =
+                            Vec::new();
+                        for (sub_idx, proc) in processed.iter().enumerate() {
+                            // A creation-time override supersedes the plan snapshot entirely;
+                            // an explicit drop suppresses the plan snapshot (no floor at all).
+                            //
+                            // The override scope is unresolved: it may name inline new-product
+                            // extras whose product ids only exist after materialization above.
+                            // Resolve them here against this subscription's components (existing
+                            // product ids + the freshly-minted ones in `materialized`).
+                            let effective: Option<(
+                                i64,
+                                crate::domain::plan_minimums::MinimumScope,
+                                bool,
+                            )> = match &proc.minimum_override {
+                                Some((amount_subunit, create_scope)) => {
+                                    let scope = if create_scope.is_all_components() {
+                                        crate::domain::plan_minimums::MinimumScope::AllComponents
+                                    } else {
+                                        // (name, product_id) for this sub's components (existing
+                                        // product ids + the freshly-minted ones in `materialized`).
+                                        // resolve() rejects names that are ambiguous across them.
+                                        let named_products: Vec<(
+                                            String,
+                                            common_domain::ids::ProductId,
+                                        )> = proc
+                                            .components
+                                            .iter()
+                                            .enumerate()
+                                            .filter_map(|(comp_idx, comp)| {
+                                                materialized
+                                                    .get(&(sub_idx, comp_idx))
+                                                    .map(|(p, _)| *p)
+                                                    .or(comp.product_id)
+                                                    .map(|pid| (comp.name.clone(), pid))
+                                            })
+                                            .collect();
+                                        create_scope.resolve(&named_products).map_err(|e| {
+                                            Report::new(StoreError::InvalidArgument(e))
+                                        })?
+                                    };
+                                    Some((*amount_subunit, scope, true))
+                                }
+                                None if proc.drop_minimum => None,
+                                None => proc
+                                    .minimum
+                                    .as_ref()
+                                    .map(|pm| (pm.amount_subunit, pm.scope.clone(), false)),
+                            };
+
+                            if let Some((amount_subunit, scope, is_override)) = effective {
+                                let subscription_id = proc.subscription.id;
+                                minimum_rows.push(SubscriptionAdjustmentRowNew {
+                                    subscription_id,
+                                    kind: diesel_models::enums::AdjustmentKindEnum::Minimum,
+                                    amount_subunit,
+                                    includes_all_components: matches!(
+                                        scope,
+                                        crate::domain::plan_minimums::MinimumScope::AllComponents
+                                    ),
+                                    is_override,
+                                });
+                                if let crate::domain::plan_minimums::MinimumScope::Products(ids) =
+                                    &scope
+                                {
+                                    for &product_id in ids {
+                                        minimum_component_rows.push(
+                                            SubscriptionAdjustmentComponentRowNew {
+                                                subscription_id,
+                                                kind: diesel_models::enums::AdjustmentKindEnum::Minimum,
+                                                product_id,
+                                            },
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        use diesel_models::subscription_adjustments::SubscriptionAdjustmentComponentRow;
+                        SubscriptionAdjustmentRowNew::insert_batch(conn, &minimum_rows)
+                            .map_err(Into::<StoreErrorReport>::into)
+                            .await?;
+                        SubscriptionAdjustmentComponentRow::insert_batch(
+                            conn,
+                            &minimum_component_rows,
+                        )
+                        .map_err(Into::<StoreErrorReport>::into)
+                        .await?;
+                    }
+
                     SubscriptionAddOnRow::insert_batch(conn, add_ons)
                         .map_err(Into::<StoreErrorReport>::into)
                         .await?;
 
+                    record_created_usage_filters(conn, tenant_id, &owned_subscriptions).await?;
+
                     if skip_coupon_validation {
-                        apply_coupons_without_validation(conn, &coupons)
-                            .map_err(Into::<StoreErrorReport>::into)
-                            .await?;
+                        apply_coupons_without_validation(conn, &*services.store.hooks.credit, &coupons, tenant_id).await?;
                     } else {
-                        apply_coupons(conn, &coupons, &inserted, tenant_id)
-                            .map_err(Into::<StoreErrorReport>::into)
-                            .await?;
+                        match redeemed_at {
+                            Some(at) => {
+                                apply_coupons_at(conn, &*services.store.hooks.credit, &coupons, &inserted, tenant_id, at).await?
+                            }
+                            None => apply_coupons(conn, &*services.store.hooks.credit, &coupons, &inserted, tenant_id).await?,
+                        };
                     }
 
                     SubscriptionEventRow::insert_batch(conn, events)
@@ -976,13 +1369,8 @@ impl Services {
                             .await?;
                     }
 
-                    self.insert_created_outbox_events_tx(
-                        conn,
-                        &Actor::System,
-                        &inserted,
-                        tenant_id,
-                    )
-                    .await?;
+                    services.insert_created_outbox_events_tx(conn, actor, &inserted, tenant_id)
+                        .await?;
 
                     // For pending_checkout subscriptions, create checkout sessions inside the transaction
                     // so the FK constraint on subscription_id is satisfied.
@@ -1024,6 +1412,8 @@ impl Services {
                                 checkout_type: CheckoutType::SubscriptionActivation,
                                 subscription_id: Some(sub.id),
                                 change_date: None,
+                                success_url: None,
+                                cancel_url: None,
                             };
 
                             let session_row: CheckoutSessionRowNew =
@@ -1045,7 +1435,13 @@ impl Services {
                         // The subscription is set up with current_period_end = today,
                         // so the cycle processing worker will pick it up and generate
                         // the invoice for the next period.
-                        if proc.skip_past_invoices {
+                        if proc.skip_past_invoices || proc.start_deferred {
+                            continue;
+                        }
+
+                        // A subscription starting later is invoiced when the lifecycle starts it,
+                        // on its start date (Stripe subscription schedules, Lago pending).
+                        if sub.status == SubscriptionStatusEnum::PendingActivation {
                             continue;
                         }
 
@@ -1065,13 +1461,15 @@ impl Services {
                             // Paid trial: fall through to billing
                         }
 
-                        self.bill_subscription_tx(
+                        services.bill_subscription_tx(
                             conn,
+                            actor,
                             tenant_id,
                             sub.id,
                             InvoiceBillingMode::Immediate,
                         )
                         .await?;
+                        services.book_created_mrr_tx(conn, tenant_id, sub.id).await?;
                     }
 
                     Ok::<_, StoreErrorReport>(inserted)
@@ -1085,23 +1483,23 @@ impl Services {
         let mut inserted_with_checkout_urls = Vec::with_capacity(res.len());
 
         for mut sub in res {
-            if sub.pending_checkout {
-                // Query for the checkout session that was created for this subscription
-                let mut conn = self.store.get_conn().await?;
-                if let Some(session) =
-                    CheckoutSessionRow::get_by_subscription(&mut conn, tenant_id, sub.id)
+            if sub.pending_checkout
+                && let Some(session) =
+                    CheckoutSessionRow::get_by_subscription(conn, tenant_id, sub.id)
                         .await
                         .ok()
                         .flatten()
-                {
-                    let token = generate_portal_token(
-                        jwt_secret,
-                        tenant_id,
-                        ResourceAccess::CheckoutSession(session.id),
-                    )?;
-                    let checkout_url = format!("{}/checkout?token={}", public_url, token);
-                    sub.checkout_url = Some(checkout_url);
-                }
+            {
+                let token = generate_portal_token(
+                    jwt_secret,
+                    tenant_id,
+                    ResourceAccess::CheckoutSession(session.id),
+                    None,
+                    None,
+                    false,
+                )?;
+                let checkout_url = format!("{}/checkout?token={}", public_url, token);
+                sub.checkout_url = Some(checkout_url);
             }
             inserted_with_checkout_urls.push(sub);
         }

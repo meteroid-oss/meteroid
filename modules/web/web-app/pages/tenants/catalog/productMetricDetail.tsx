@@ -29,8 +29,11 @@ import { ReactNode, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { Gate } from '@/components/Gate'
 import { EntityActivityTimeline } from '@/features/activity/EntityActivityTimeline'
 import { BillableMetricStatusBadge } from '@/features/productCatalog/metrics/BillableMetricStatusBadge'
+import { MetricCustomersCard } from '@/features/productCatalog/metrics/MetricCustomersCard'
+import { MetricPreview } from '@/features/productCatalog/metrics/MetricPreview'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { copyToClipboard } from '@/lib/helpers'
@@ -194,40 +197,42 @@ export const ProductMetricDetail = () => {
               <BillableMetricStatusBadge isArchived={isArchived} />
             </div>
           </div>
-          <div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="primary" className="gap-2" size="sm" hasIcon>
-                  Actions <ChevronDown className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {!isArchived && (
-                  <DropdownMenuItem onClick={() => navigate(`${basePath}/metrics/edit/${data.id}`)}>
-                    <EditIcon size={16} className="mr-2" />
-                    Edit Metric
-                  </DropdownMenuItem>
-                )}
-                {isArchived ? (
-                  <DropdownMenuItem onClick={handleUnarchive}>
-                    <ArchiveRestoreIcon size={16} className="mr-2" />
-                    Unarchive
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuItem onClick={handleArchive}>
-                    <ArchiveIcon size={16} className="mr-2" />
-                    Archive
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+          <Gate perm="catalog:manage">
+            <div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="primary" className="gap-2" size="sm" hasIcon>
+                    Actions <ChevronDown className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {!isArchived && (
+                    <DropdownMenuItem onClick={() => navigate(`${basePath}/metrics/edit/${data.id}`)}>
+                      <EditIcon size={16} className="mr-2" />
+                      Edit Metric
+                    </DropdownMenuItem>
+                  )}
+                  {isArchived ? (
+                    <DropdownMenuItem onClick={handleUnarchive}>
+                      <ArchiveRestoreIcon size={16} className="mr-2" />
+                      Unarchive
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem onClick={handleArchive}>
+                      <ArchiveIcon size={16} className="mr-2" />
+                      Archive
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </Gate>
         </div>
 
         {/* Overview card */}
         <div className="bg-card rounded-lg shadow-sm p-6 mb-6">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-medium text-foreground">Overview</h3>
+            <h3 className="text-md font-medium text-foreground">Overview</h3>
           </div>
           <div className="grid grid-cols-1 gap-6">
             <div className="grid grid-cols-3 gap-6">
@@ -264,32 +269,27 @@ export const ProductMetricDetail = () => {
           </div>
         </div>
 
-        {/* Analytics placeholder - Future implementation */}
+        {/* Usage analytics - chart, period aggregate, and the raw events feeding it */}
         <div className="bg-card rounded-lg shadow-sm p-6 mb-6">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-medium text-foreground">Usage Analytics</h3>
+            <h3 className="text-md font-medium text-foreground">Usage Analytics</h3>
           </div>
-          <div className="flex items-center justify-center h-32 text-muted-foreground">
-            <div className="text-center">
-              <div className="text-sm">Analytics coming soon</div>
-              <div className="text-xs mt-1">View usage data and trends for this metric</div>
-            </div>
-          </div>
+          <MetricPreview
+            code={data.code}
+            aggregation={data.aggregation}
+            segmentationMatrix={data.segmentationMatrix}
+            filters={data.filters}
+            usageGroupKey={data.usageGroupKey}
+            exploreLinkKey={`bm:${data.id}`}
+          />
         </div>
 
-        {/* Customer Data placeholder - Future implementation */}
-        <div className="bg-card rounded-lg shadow-sm mb-6">
-          <div className="p-4 border-b border-border">
-            <h3 className="text-md font-medium text-foreground">Customer Data</h3>
+        {/* Customer usage - how customers are using this metric */}
+        <div className="bg-card rounded-lg shadow-sm p-6 mb-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-md font-medium text-foreground">Customer Usage</h3>
           </div>
-          <div className="p-6">
-            <div className="flex items-center justify-center h-32 text-muted-foreground">
-              <div className="text-center">
-                <div className="text-sm">Customer data coming soon</div>
-                <div className="text-xs mt-1">View how customers are using this metric</div>
-              </div>
-            </div>
-          </div>
+          <MetricCustomersCard metricId={data.id} aggregationType={aggregationType} />
         </div>
 
         {/* Activity */}

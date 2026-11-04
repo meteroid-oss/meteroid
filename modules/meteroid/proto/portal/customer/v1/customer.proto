@@ -23,7 +23,34 @@ message ListInvoicesResponse {
   common.v1.PaginationResponse pagination_meta = 2;
 }
 
+message ListLicensesRequest {}
+
+message ListLicensesResponse {
+  repeated PortalLicense licenses = 1;
+  // Where installations activate licenses, for display next to the activation code.
+  optional string activation_url = 2;
+}
+
+// Reveals the activation code of a license that wasn't activated yet (manage scope).
+message GetLicenseActivationCodeRequest {
+  string license_id = 1;
+}
+
+message GetLicenseActivationCodeResponse {
+  string activation_code = 1;
+}
+
+message ListUsageLimitsRequest {}
+
+message ListUsageLimitsResponse {
+  repeated UsageLimitStatus limits = 1;
+}
+
 service PortalCustomerService {
   rpc GetCustomerPortalOverview(GetCustomerPortalOverviewRequest) returns (GetCustomerPortalOverviewResponse);
   rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse);
+  rpc ListLicenses(ListLicensesRequest) returns (ListLicensesResponse);
+  rpc GetLicenseActivationCode(GetLicenseActivationCodeRequest) returns (GetLicenseActivationCodeResponse);
+  // The entitlement limits, from the plan or set for the account, that cap the customer's usage.
+  rpc ListUsageLimits(ListUsageLimitsRequest) returns (ListUsageLimitsResponse);
 }

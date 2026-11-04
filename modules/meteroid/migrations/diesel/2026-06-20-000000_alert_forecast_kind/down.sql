@@ -1,0 +1,2 @@
+-- Postgres cannot drop a value from an enum type; this is a no-op. Removing the
+-- 'FORECAST' value would require recreating the type and rewriting dependents.

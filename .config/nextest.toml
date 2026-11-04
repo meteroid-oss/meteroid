@@ -1,0 +1,11 @@
+# Tests that run for tens of seconds start first, so none of them is the last one running.
+# A test that takes more than ~20 s in CI belongs here. The ClickHouse and Kafka tests are left
+# out: started all at once they crowd the runner, and spread over the run they take ~10-20 s.
+[[profile.default.overrides]]
+filter = '''
+    test(/^model::credit_engine_matches_the_reference_model/)
+    | test(/^subscription::lock_stress::/)
+    | test(/^test_usage_monitors_(stack|e2e)::/)
+    | test(/^test_sandbox_(credits|signals)::/)
+'''
+priority = 50

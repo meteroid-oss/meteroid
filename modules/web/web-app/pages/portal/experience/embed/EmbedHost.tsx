@@ -4,7 +4,6 @@ import { toast } from 'sonner'
 
 import { useQuery } from '@/lib/connectrpc'
 import { AddPaymentMethodDialog } from '@/pages/portal/customer/AddPaymentMethodDialog'
-import { InvoicePaymentStatus, InvoiceStatus } from '@/rpc/api/invoices/v1/models_pb'
 import { setDefaultPaymentMethod } from '@/rpc/portal/shared/v1/shared-PortalSharedService_connectquery'
 import { getSubscriptionDetails } from '@/rpc/portal/subscription/v1/subscription-PortalSubscriptionService_connectquery'
 import { PendingEventType } from '@/rpc/portal/subscription/v1/subscription_pb'
@@ -12,9 +11,11 @@ import { PendingEventType } from '@/rpc/portal/subscription/v1/subscription_pb'
 import { BrandChip } from '../PaymentMethodChip'
 import { PortalApp } from '../PortalApp'
 import { usePortalConfig } from '../PortalThemeProvider'
-import { date, feeLabel, money, pmLabel, pmSubLabel, subStatusBadge } from '../format'
+import { date, feeLabel, invoiceBadge, money, pmLabel, pmSubLabel, subStatusBadge } from '../format'
 import { useInvoices, usePortalOverview } from '../hooks'
+import { planPriceShort } from '../planPrice'
 import { Card, CenterState, Eyebrow, Mono, PanelCard, PButton, Pill, Spinner } from '../primitives'
+import { PlanPriceHeadline } from '../screens/PlanPriceHeadline'
 import { UsageList } from '../screens/UsageScreen'
 
 import { useAutoHeight } from './useAutoHeight'
@@ -22,7 +23,6 @@ import { useAutoHeight } from './useAutoHeight'
 import type { StatusBadge } from '../format'
 import type {
   CustomerPortalOverview,
-  InvoiceSummary,
   SubscriptionSummary,
 } from '@/rpc/portal/customer/v1/models_pb'
 import type { CSSProperties } from 'react'
@@ -182,11 +182,7 @@ const PlanEmbed = ({ overview }: { overview: CustomerPortalOverview }) => {
         <CenterState
           title="No active plan"
           hint="There's no active subscription on this account yet."
-          action={
-            <PButton size="sm" onClick={() => requestNavigate('subscriptions')}>
-              Manage billing
-            </PButton>
-          }
+          action={<PButton size="sm" onClick={() => requestNavigate('subscriptions')}>Manage billing</PButton>}
         />
       </Card>
     )
@@ -194,14 +190,7 @@ const PlanEmbed = ({ overview }: { overview: CustomerPortalOverview }) => {
 
   return (
     <Card pad={20} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          gap: 12,
-        }}
-      >
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
           <Eyebrow>Current plan</Eyebrow>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -216,18 +205,13 @@ const PlanEmbed = ({ overview }: { overview: CustomerPortalOverview }) => {
         </PButton>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <Mono style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-0.03em' }}>
-          {money(primary.mrrCents, primary.currency)}
-        </Mono>
-        <span style={{ fontSize: 13, color: 'var(--mtp-text-2)' }}>/ mo</span>
-      </div>
+      {primary.planPrice && <PlanPriceHeadline price={primary.planPrice} size={26} />}
 
       {expanded ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {primary.nextBillingDate && (
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
-              <span style={{ color: 'var(--mtp-text-2)' }}>Next charge</span>
+              <span style={{ color: 'var(--mtp-text-2)' }}>Renews</span>
               <span style={{ color: 'var(--mtp-text)' }}>{date(primary.nextBillingDate)}</span>
             </div>
           )}
@@ -319,7 +303,7 @@ const SubscriptionsEmbed = ({ overview }: { overview: CustomerPortalOverview }) 
                 ? `renews ${date(sub.nextBillingDate)}`
                 : undefined
           }
-          value={`${money(sub.mrrCents, sub.currency)} / mo`}
+          value={sub.planPrice ? planPriceShort(sub.planPrice) : ''}
           badge={subStatusBadge(sub.status)}
         />
       ))}
@@ -352,11 +336,7 @@ const SubscriptionEmbed = () => {
 
   const sub = query.data?.subscription
   if (!sub) {
-    return (
-      <Card>
-        <CenterState title="Subscription not found" hint="It may have been removed." />
-      </Card>
-    )
+    return <Card><CenterState title="Subscription not found" hint="It may have been removed." /></Card>
   }
 
   const headline = feeLabel(sub.headlineFee, sub.currency)
@@ -365,14 +345,7 @@ const SubscriptionEmbed = () => {
 
   return (
     <Card pad={20} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          gap: 12,
-        }}
-      >
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
           <Eyebrow>Subscription</Eyebrow>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -411,23 +384,6 @@ const UsageEmbed = ({ overview }: { overview: CustomerPortalOverview }) => (
 )
 
 /* ----------------------------------------------------------- invoices widget */
-
-const invoiceBadge = (invoice: InvoiceSummary): StatusBadge => {
-  if (invoice.status === InvoiceStatus.DRAFT) return { label: 'Draft', tone: 'neutral' }
-  switch (invoice.paymentStatus) {
-    case InvoicePaymentStatus.PAID:
-      return { label: 'Paid', tone: 'neutral' }
-    case InvoicePaymentStatus.PARTIALLY_PAID:
-      return { label: 'Partially paid', tone: 'warn' }
-    case InvoicePaymentStatus.ERRORED:
-      return { label: 'Errored', tone: 'danger' }
-    case InvoicePaymentStatus.PROCESSING:
-      return { label: 'Processing', tone: 'warn' }
-    case InvoicePaymentStatus.UNPAID:
-    default:
-      return { label: 'Unpaid', tone: 'warn' }
-  }
-}
 
 /** Rows per page for the invoices widget; from `?count=`, clamped to 1..20. */
 const getInvoiceCount = (): number => {
@@ -690,12 +646,7 @@ const PoweredBy = () => (
       href="https://meteroid.com/?utm_source=portal-embed"
       target="_blank"
       rel="noopener noreferrer"
-      style={{
-        fontSize: 11.5,
-        fontWeight: 600,
-        color: 'var(--mtp-text-2)',
-        textDecoration: 'none',
-      }}
+      style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--mtp-text-2)', textDecoration: 'none' }}
     >
       Meteroid
     </a>
@@ -733,7 +684,7 @@ export const EmbedHost = ({ view }: { view: EmbedView }) => {
           render={(o, refetch) => <PaymentMethodsEmbed overview={o} refetch={refetch} />}
         />
       )}
-      {branding.showPoweredBy !== false && <PoweredBy />}
+      {branding.showPoweredBy === true && <PoweredBy />}
     </div>
   )
 }

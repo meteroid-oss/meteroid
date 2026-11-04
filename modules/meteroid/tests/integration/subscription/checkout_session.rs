@@ -69,6 +69,8 @@ async fn test_checkout_session_paid_trial_invoice_dates(#[future] test_env: Test
             checkout_type: CheckoutType::SelfServe,
             subscription_id: None,
             change_date: None,
+            success_url: None,
+            cancel_url: None,
         })
         .await
         .expect("Failed to create checkout session");
@@ -88,6 +90,9 @@ async fn test_checkout_session_paid_trial_invoice_dates(#[future] test_env: Test
         .expect("Checkout should succeed");
 
     let subscription_id = match result {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::Completed {
             subscription_id,
             transaction,
@@ -127,7 +132,7 @@ async fn test_checkout_session_paid_trial_invoice_dates(#[future] test_env: Test
         .invoice_at(0)
         .with_context("Invoice 1: at checkout")
         .has_total(9900) // Full $99 - NOT prorated for paid trial
-        .has_invoice_date(start_date)
+        .has_billing_period_start(start_date)
         .has_period(expected_period_start, expected_period_end)
         .check_prorated(false);
 
@@ -156,7 +161,7 @@ async fn test_checkout_session_paid_trial_invoice_dates(#[future] test_env: Test
         .invoice_at(1)
         .with_context("Invoice 2: first renewal")
         .has_total(9900)
-        .has_invoice_date(expected_period_2_start)
+        .has_billing_period_start(expected_period_2_start)
         .has_period(expected_period_2_start, expected_period_2_end)
         .check_prorated(false);
 
@@ -164,7 +169,7 @@ async fn test_checkout_session_paid_trial_invoice_dates(#[future] test_env: Test
     let trial_end_date = NaiveDate::from_ymd_opt(2024, 1, 22).unwrap();
     for invoice in invoices.iter() {
         assert_ne!(
-            invoice.invoice_date, trial_end_date,
+            invoice.billing_period_start, trial_end_date,
             "No invoice should be dated at trial end"
         );
     }
@@ -189,7 +194,7 @@ async fn test_checkout_session_paid_trial_invoice_dates(#[future] test_env: Test
         .invoice_at(2)
         .with_context("Invoice 3: second renewal")
         .has_total(9900)
-        .has_invoice_date(expected_period_3_start)
+        .has_billing_period_start(expected_period_3_start)
         .has_period(expected_period_3_start, expected_period_3_end)
         .check_prorated(false);
 }
@@ -242,6 +247,8 @@ async fn test_checkout_session_free_trial_invoice_dates(#[future] test_env: Test
             checkout_type: CheckoutType::SelfServe,
             subscription_id: None,
             change_date: None,
+            success_url: None,
+            cancel_url: None,
         })
         .await
         .expect("Failed to create checkout session");
@@ -261,6 +268,9 @@ async fn test_checkout_session_free_trial_invoice_dates(#[future] test_env: Test
         .expect("Checkout should succeed");
 
     let subscription_id = match result {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::Completed {
             subscription_id,
             transaction,
@@ -320,7 +330,7 @@ async fn test_checkout_session_free_trial_invoice_dates(#[future] test_env: Test
     invoices
         .assert()
         .invoice_at(0)
-        .has_invoice_date(expected_period_1_start)
+        .has_billing_period_start(expected_period_1_start)
         .has_period(expected_period_1_start, expected_period_1_end)
         .check_prorated(true); // First invoice IS prorated due to anchor alignment
 
@@ -369,7 +379,7 @@ async fn test_checkout_session_free_trial_invoice_dates(#[future] test_env: Test
         .assert()
         .invoice_at(1)
         .has_total(4900) // Full $49.00 - no proration
-        .has_invoice_date(expected_period_2_start)
+        .has_billing_period_start(expected_period_2_start)
         .has_period(expected_period_2_start, expected_period_2_end)
         .check_prorated(false);
 
@@ -421,6 +431,8 @@ async fn test_checkout_session_free_trial_no_anchor(#[future] test_env: TestEnv)
             checkout_type: CheckoutType::SelfServe,
             subscription_id: None,
             change_date: None,
+            success_url: None,
+            cancel_url: None,
         })
         .await
         .expect("Failed to create checkout session");
@@ -440,6 +452,9 @@ async fn test_checkout_session_free_trial_no_anchor(#[future] test_env: TestEnv)
         .expect("Checkout should succeed");
 
     let subscription_id = match result {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::Completed {
             subscription_id,
             transaction,
@@ -494,7 +509,7 @@ async fn test_checkout_session_free_trial_no_anchor(#[future] test_env: TestEnv)
         .assert()
         .invoice_at(0)
         .has_total(4900) // Full $49.00 - NO proration
-        .has_invoice_date(expected_period_1_start)
+        .has_billing_period_start(expected_period_1_start)
         .has_period(expected_period_1_start, expected_period_1_end)
         .check_prorated(false);
 
@@ -526,7 +541,7 @@ async fn test_checkout_session_free_trial_no_anchor(#[future] test_env: TestEnv)
         .assert()
         .invoice_at(1)
         .has_total(4900)
-        .has_invoice_date(expected_period_2_start)
+        .has_billing_period_start(expected_period_2_start)
         .has_period(expected_period_2_start, expected_period_2_end)
         .check_prorated(false);
 
@@ -585,6 +600,8 @@ async fn test_checkout_session_no_trial_invoice_dates(#[future] test_env: TestEn
             checkout_type: CheckoutType::SelfServe,
             subscription_id: None,
             change_date: None,
+            success_url: None,
+            cancel_url: None,
         })
         .await
         .expect("Failed to create checkout session");
@@ -604,6 +621,9 @@ async fn test_checkout_session_no_trial_invoice_dates(#[future] test_env: TestEn
         .expect("Checkout should succeed");
 
     let subscription_id = match result {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::Completed {
             subscription_id,
             transaction,
@@ -640,7 +660,7 @@ async fn test_checkout_session_no_trial_invoice_dates(#[future] test_env: TestEn
         .assert()
         .invoice_at(0)
         .has_total(3500)
-        .has_invoice_date(start_date)
+        .has_billing_period_start(start_date)
         .has_period(expected_period_start, expected_period_end)
         .check_prorated(false);
 
@@ -661,7 +681,7 @@ async fn test_checkout_session_no_trial_invoice_dates(#[future] test_env: TestEn
         .assert()
         .invoice_at(1)
         .has_total(3500)
-        .has_invoice_date(expected_period_2_start)
+        .has_billing_period_start(expected_period_2_start)
         .has_period(expected_period_2_start, expected_period_2_end)
         .check_prorated(false);
 
@@ -721,6 +741,8 @@ async fn test_checkout_session_100_percent_coupon(#[future] test_env: TestEnv) {
             checkout_type: CheckoutType::SelfServe,
             subscription_id: None,
             change_date: None,
+            success_url: None,
+            cancel_url: None,
         })
         .await
         .expect("Failed to create checkout session");
@@ -740,6 +762,9 @@ async fn test_checkout_session_100_percent_coupon(#[future] test_env: TestEnv) {
         .expect("Checkout with 100% coupon should succeed");
 
     let subscription_id = match result {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::Completed {
             subscription_id,
             transaction,
@@ -833,6 +858,8 @@ async fn test_checkout_declined_charge_persists_failed_transaction(#[future] tes
             checkout_type: CheckoutType::SelfServe,
             subscription_id: None,
             change_date: None,
+            success_url: None,
+            cancel_url: None,
         })
         .await
         .expect("Failed to create checkout session");

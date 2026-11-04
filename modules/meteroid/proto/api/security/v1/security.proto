@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package meteroid.api.security.v1;
+
+// Mirror of the existing api.activity.v1.ActorType to keep this service
+// usable without depending on the activity module's enum (decouples
+// security-log evolution from the entity-activity service).
+enum ActorType {
+  ACTOR_TYPE_UNSPECIFIED = 0;
+  SYSTEM = 1;
+  USER = 2;
+  API_TOKEN = 3;
+  CUSTOMER = 4;
+  QUOTE_RECIPIENT = 5;
+  OAUTH_APP = 6;
+}
+
+// `event_type` is a free-form string (e.g. "auth.login.succeeded") so
+// adding new event types is a code-only change. The set of stable
+// identifiers lives in the server-side `SecurityEventType` enum.
+message SecurityAuditEntry {
+  string id = 1;
+  string organization_id = 2;
+  string event_type = 3;
+  ActorType actor_type = 4;
+  optional string actor_id = 5;
+  optional string actor_email = 6;
+  optional string target_user_id = 7;
+  optional string target_email = 8;
+  // Display names resolved live from current user records; absent when the
+  // actor/target isn't a known user (failed login, departed member, system).
+  optional string actor_name = 16;
+  optional string target_name = 17;
+  // JSON-encoded event-specific payload.
+  optional string metadata_json = 9;
+  optional string ip_address = 10;
+  optional string user_agent = 11;
+  optional string ua_browser = 12;
+  optional string ua_os = 13;
+  optional string ua_device = 14;
+  string occurred_at = 15;
+}
+
+message ListSecurityAuditRequest {
+  // Filter to a specific subset of event types. Empty = all events.
+  repeated string event_types = 1;
+  optional ActorType actor_type = 2;
+  optional string actor_id = 3;
+  // Restrict to events about a specific member.
+  optional string target_user_id = 4;
+  // RFC3339 timestamps.
+  optional string occurred_after = 5;
+  optional string occurred_before = 6;
+  optional string cursor = 7;
+  optional uint32 limit = 8;
+}
+
+message ListSecurityAuditResponse {
+  repeated SecurityAuditEntry entries = 1;
+  optional string next_cursor = 2;
+}
+
+service SecurityAuditService {
+  // Lists security audit entries for the caller's current organization,
+  // newest-first. Admin-only.
+  rpc ListSecurityAudit(ListSecurityAuditRequest) returns (ListSecurityAuditResponse) {}
+}

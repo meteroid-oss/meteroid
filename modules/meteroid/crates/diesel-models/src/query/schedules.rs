@@ -6,9 +6,7 @@ use crate::{DbResult, PgConn};
 use error_stack::ResultExt;
 
 use common_domain::ids::{PlanVersionId, SubscriptionId, TenantId};
-use diesel::{
-    ExpressionMethods, Insertable, IntoSql, JoinOnDsl, QueryDsl, SelectableHelper, debug_query,
-};
+use diesel::{ExpressionMethods, Insertable, IntoSql, JoinOnDsl, QueryDsl, SelectableHelper};
 
 impl ScheduleRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ScheduleRow> {
@@ -17,7 +15,7 @@ impl ScheduleRowNew {
 
         let query = diesel::insert_into(schedule).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -44,7 +42,7 @@ impl ScheduleRow {
                 ),
             );
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -62,7 +60,7 @@ impl ScheduleRow {
 
         let query = diesel::insert_into(schedule).values(&batch);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -89,7 +87,7 @@ impl ScheduleRow {
             .filter(subscription::tenant_id.eq(tenant_id_params))
             .select(ScheduleRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -114,7 +112,7 @@ impl ScheduleRow {
             .filter(pv_dsl::tenant_id.eq(tenant_id))
             .select(ScheduleRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -151,7 +149,7 @@ impl ScheduleRow {
                 s_dsl::ramps,
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -179,7 +177,7 @@ impl SchedulePatchRow {
             )
             .set(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)

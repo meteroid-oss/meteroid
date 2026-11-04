@@ -1,20 +1,28 @@
 import { timestampDate } from '@bufbuild/protobuf/wkt'
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { Badge, Button, Card } from '@md/ui'
+import { Badge, Button, Card, Tooltip, TooltipContent, TooltipTrigger } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { Edit2, RefreshCw } from 'lucide-react'
+import { AlertTriangle, BadgeCheck, Edit2, Loader2, RefreshCw, XCircle } from 'lucide-react'
 import { ReactNode } from 'react'
 import { toast } from 'sonner'
 
 import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
+import { useQuery } from '@/lib/connectrpc'
 import {
   getCustomerById,
   refreshVatValidation,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import { CustomerSchema, VatNumberValidationStatus } from '@/rpc/api/customers/v1/models_pb'
+import {
+  CustomerSchema,
+  CustomerTaxStatus,
+  VatNumberValidationStatus,
+} from '@/rpc/api/customers/v1/models_pb'
+import { listInvoicingEntities } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
+import { EInvoicingFormat } from '@/rpc/api/invoicingentities/v1/models_pb'
 
 import type { MessageInitShape } from '@bufbuild/protobuf'
 import type { Timestamp } from '@bufbuild/protobuf/wkt'
+import type { LucideIcon } from 'lucide-react'
 
 interface BillingInfoCardProps {
   customer: MessageInitShape<typeof CustomerSchema>
@@ -24,31 +32,37 @@ interface BillingInfoCardProps {
   cardVariant?: 'default' | 'accent' | 'accent2'
 }
 
-const VAT_BADGES: Partial<
-  Record<
-    VatNumberValidationStatus,
-    { label: string; variant: 'success' | 'destructive' | 'warning' | 'ghost'; title: string }
-  >
-> = {
+type VatBadgeConfig = {
+  label: string
+  variant: 'success' | 'destructive' | 'warning' | 'ghost'
+  icon: LucideIcon
+  description: string
+}
+
+const VAT_BADGES: Partial<Record<VatNumberValidationStatus, VatBadgeConfig>> = {
   [VatNumberValidationStatus.PENDING]: {
     label: 'Verifying…',
     variant: 'ghost',
-    title: 'Verification against VIES is in progress',
+    icon: Loader2,
+    description: 'Verification against VIES is in progress.',
   },
   [VatNumberValidationStatus.VALID]: {
     label: 'VIES verified',
     variant: 'success',
-    title: 'VAT number is registered in VIES',
+    icon: BadgeCheck,
+    description: 'This VAT number is registered in the EU VIES database.',
   },
   [VatNumberValidationStatus.INVALID]: {
     label: 'Not in VIES',
     variant: 'destructive',
-    title: 'VIES has no active registration for this VAT number',
+    icon: XCircle,
+    description: 'VIES has no active registration for this VAT number.',
   },
   [VatNumberValidationStatus.UNAVAILABLE]: {
     label: 'Unverified',
     variant: 'warning',
-    title: 'VIES was unreachable — verification is retried automatically',
+    icon: AlertTriangle,
+    description: 'VIES could not be reached. The check retries automatically.',
   },
 }
 
@@ -77,26 +91,42 @@ export const VatValidationBadge = ({
   const badge = status ? VAT_BADGES[status] : undefined
   if (!badge) return null
 
+  const Icon = badge.icon
+  const isPending = status === VatNumberValidationStatus.PENDING
+
   const checkedAt = customer.vatNumberCheckedAt
     ? timestampDate(customer.vatNumberCheckedAt as Timestamp).toLocaleDateString()
     : undefined
 
-  const title = [
-    badge.title,
-    customer.vatNumberRegisteredName && `Registered as: ${customer.vatNumberRegisteredName}`,
-    customer.vatNumberConsultationNumber &&
-      `VIES ref: ${customer.vatNumberConsultationNumber}`,
-    checkedAt && `Last checked ${checkedAt}`,
-  ]
-    .filter(Boolean)
-    .join(' — ')
-
   return (
     <span className="inline-flex items-center gap-1 ml-1.5 align-middle">
-      <Badge variant={badge.variant} size="sm" title={title}>
-        {badge.label}
-      </Badge>
-      {status !== VatNumberValidationStatus.PENDING && customerId && (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex cursor-help">
+            <Badge variant={badge.variant} size="sm">
+              <Icon className={isPending ? 'animate-spin' : ''} />
+              {badge.label}
+            </Badge>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs space-y-1">
+          <p>{badge.description}</p>
+          {customer.vatNumberRegisteredName && (
+            <p>
+              <span className="opacity-60">Registered as </span>
+              {customer.vatNumberRegisteredName}
+            </p>
+          )}
+          {customer.vatNumberConsultationNumber && (
+            <p>
+              <span className="opacity-60">VIES ref </span>
+              {customer.vatNumberConsultationNumber}
+            </p>
+          )}
+          {checkedAt && <p className="opacity-60">Last checked {checkedAt}</p>}
+        </TooltipContent>
+      </Tooltip>
+      {!isPending && customerId && (
         <Button
           variant="ghost"
           size="sm"
@@ -105,7 +135,7 @@ export const VatValidationBadge = ({
           disabled={refreshMutation.isPending}
           onClick={() => refreshMutation.mutate({ customerId })}
         >
-          <RefreshCw size={12} />
+          <RefreshCw size={12} className={refreshMutation.isPending ? 'animate-spin' : ''} />
         </Button>
       )}
     </span>
@@ -119,6 +149,13 @@ export const BillingInfoCard = ({
   actions,
   cardVariant = 'accent',
 }: BillingInfoCardProps) => {
+  // Whether the customer's invoicing entity issues e-invoices at all. Unknown while
+  // loading, which reads as off: better no warning for a moment than a flash of one.
+  const entitiesQuery = useQuery(listInvoicingEntities)
+  const entity = entitiesQuery.data?.entities.find(e => e.id === customer.invoicingEntityId)
+  const einvoicingOn =
+    !!entity && entity.einvoicingFormat !== EInvoicingFormat.EINVOICING_FORMAT_UNSPECIFIED
+
   return (
     <>
       <div className="text-sm font-medium">{title}</div>
@@ -155,6 +192,30 @@ export const BillingInfoCard = ({
                 <VatValidationBadge customer={customer} />
               </div>
             )}
+            {customer.legalNumber && (
+              <div className="pt-1">
+                <span className="text-muted-foreground">Reg. no: </span>
+                {customer.legalNumber}
+              </div>
+            )}
+            {/* On a reverse-charge invoice the buyer accounts for the tax, so EN 16931
+                requires the buyer to be identifiable: BR-AE-02 accepts the tax ID *or*
+                the registration number. With neither, the invoice is still valid and is
+                still sent — it just cannot also be issued as an e-invoice, and by then
+                it is finalized and immutable. Say so while it is still fixable — and only
+                where it applies: an entity with e-invoicing off issues no e-invoice to miss. */}
+            {einvoicingOn &&
+              customer.taxStatus === CustomerTaxStatus.REVERSE_CHARGE &&
+              !customer.vatNumber &&
+              !customer.legalNumber && (
+                <div className="mt-2 flex items-start gap-1.5 text-[13px] text-amber-700 dark:text-amber-500">
+                  <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                  <span>
+                    Reverse-charge customers need a tax ID or a registration number, or their
+                    invoices cannot be issued as e-invoices.
+                  </span>
+                </div>
+              )}
           </div>
           <div className="flex items-center space-x-2">
             {actions}

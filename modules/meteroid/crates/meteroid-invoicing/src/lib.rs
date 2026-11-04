@@ -1,8 +1,13 @@
 pub mod credit_note_model;
 pub mod credit_note_render;
+pub mod einvoicing;
 pub mod errors;
+mod format;
+mod glyphs;
+pub mod lang;
+pub mod legal;
 pub mod model;
 pub mod pdf;
 pub mod svg;
 pub mod typst_render;
-pub mod xml_facturx;
+mod typst_value;

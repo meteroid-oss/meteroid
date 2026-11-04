@@ -1,4 +1,4 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   Badge,
   Button,
@@ -26,18 +26,27 @@ import { useNavigate } from 'react-router-dom'
 
 import { Combobox } from '@/components/Combobox'
 import ConfirmationModal from '@/components/ConfirmationModal'
+import {
+  INVOICE_LANGUAGE_DEFAULT,
+  invoiceLanguageToLocales,
+} from '@/components/InvoiceLanguageSelect'
 import { Loading } from '@/components/Loading'
+import { Slot } from '@/edition'
+import { OwnerField, useSaveOwner } from '@/features/customers/OwnerPicker'
 import { CustomerFormFields } from '@/features/customers/form/CustomerFormFields'
+import { serializeCustomProperties } from '@/features/customproperties/CustomPropertiesFields'
 import { getCountryFlagEmoji } from '@/features/settings/utils'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { schemas } from '@/lib/schemas'
-import { CreateCustomerSchema, taxStatusToProto } from '@/lib/schemas/customers'
+import { CreateCustomerSchema, customerName, taxStatusToProto } from '@/lib/schemas/customers'
 import { percentToRate } from '@/lib/utils/numbers'
 import {
   createCustomer,
   listCustomers,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { CustomerType } from '@/rpc/api/customers/v1/models_pb'
 import { listInvoicingEntities } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
 import { listTenantCurrencies } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
 
@@ -50,13 +59,18 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [isClosingPanel, setIsClosingPanel] = useState(false)
+  const isExpress = useIsExpressOrganization()
+  const saveOwner = useSaveOwner()
+  const [owner, setOwner] = useState<string>()
 
   const createCustomerMut = useMutation(createCustomer, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: listCustomers.parent,
-        cardinality: undefined
-      }) })
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: listCustomers.parent,
+          cardinality: undefined,
+        }),
+      })
     },
   })
 
@@ -70,6 +84,8 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
     defaultValues: {
       customTaxes: [],
       taxStatus: 'TAXABLE',
+      preferredLanguage: INVOICE_LANGUAGE_DEFAULT,
+      customerType: 'COMPANY',
     },
   })
 
@@ -88,7 +104,7 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
 
   const safeClosePanel = () => {
     const isDirty = methods.formState.isDirty
-    if (isDirty) {
+    if (isDirty || owner) {
       setIsClosingPanel(true)
     } else {
       methods.reset()
@@ -99,13 +115,18 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
   const handleConfirmClose = () => {
     setIsClosingPanel(false)
     methods.reset()
+    setOwner(undefined)
     closePanel()
   }
 
   const onSubmit = async (values: CreateCustomerSchema) => {
     const res = await createCustomerMut.mutateAsync({
       data: {
-        name: values.name,
+        name: customerName(values),
+        customerType:
+          values.customerType === 'INDIVIDUAL' ? CustomerType.INDIVIDUAL : CustomerType.COMPANY,
+        firstName: values.customerType === 'INDIVIDUAL' ? values.firstName || undefined : undefined,
+        lastName: values.customerType === 'INDIVIDUAL' ? values.lastName || undefined : undefined,
         alias: values.alias || undefined,
         billingEmail: values.email || undefined,
         invoicingEmails: values.invoicingEmail ? [values.invoicingEmail] : [],
@@ -113,6 +134,8 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
         currency: values.currency,
         invoicingEntityId: values.invoicingEntity,
         vatNumber: values.vatNumber || undefined,
+        legalNumber: values.legalNumber || undefined,
+        buyerReference: values.buyerReference || undefined,
         customTaxes: (values.customTaxes || []).map(tax => ({
           taxCode: tax.taxCode,
           name: tax.name,
@@ -123,9 +146,13 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
         billingAddress: values.billingAddress,
         shippingAddress: values.shippingAddress,
         connectedAccountId: values.connectedAccountId || undefined,
+        preferredLocales: invoiceLanguageToLocales(values.preferredLanguage),
+        customProperties: serializeCustomProperties(values.customProperties),
       },
     })
     if (res.customer?.id) {
+      if (!isExpress) await saveOwner(res.customer.id, undefined, owner)
+      setOwner(undefined)
       navigate(`./${res.customer.id}`)
     }
   }
@@ -191,7 +218,7 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>
-                                Currency <span className="text-destructive">*</span>
+                                Account currency <span className="text-destructive">*</span>
                               </FormLabel>
                               <Select onValueChange={field.onChange} defaultValue={field.value}>
                                 <FormControl>
@@ -211,6 +238,8 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
                             </FormItem>
                           )}
                         />
+                        <Slot name="customerCreate.fields" control={methods.control} />
+                        {!isExpress && <OwnerField value={owner} onChange={setOwner} />}
                       </div>
 
                       {/* Shared customer form fields */}

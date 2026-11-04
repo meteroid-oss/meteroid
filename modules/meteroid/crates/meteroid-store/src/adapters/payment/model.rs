@@ -1,4 +1,5 @@
 use crate::domain::PaymentMethodTypeEnum;
+pub use crate::domain::enums::DeclineKind;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use common_domain::ids::PaymentTransactionId;
 use secrecy::SecretString;
@@ -114,19 +115,41 @@ pub struct ChargeRequest<'a> {
     pub webhook_url: Option<String>,
 }
 
-/// `/webhooks/v1/{tenant}/{alias}`, built per payment from the configured base.
+/// Phase 1 of a wallet top-up: the provider intent is created WITHOUT being confirmed, so its id
+/// is persisted before anything can charge. A lost reply here charges nothing.
+#[derive(Debug, Clone)]
+pub struct PrepareWalletChargeRequest<'a> {
+    pub transaction_id: PaymentTransactionId,
+    pub customer_external_id: &'a str,
+    pub payment_method_external_id: &'a str,
+    pub payment_method_type: PaymentMethodTypeEnum,
+    pub amount_minor: i64,
+    pub currency: &'a str,
+    /// Protects only the create call; the charge identity is the pinned intent id.
+    pub idempotency_key: IdempotencyKey,
+}
+
+/// Where the provider sends this connector's webhooks, per its [`ConnectorWebhookRouteEnum`];
+/// `None` for connectors that receive none.
+///
+/// [`ConnectorWebhookRouteEnum`]: crate::domain::enums::ConnectorWebhookRouteEnum
 pub fn connector_webhook_url(
     webhook_base_url: &str,
-    tenant_id: common_domain::ids::TenantId,
-    alias: &str,
-) -> String {
+    connector: &crate::domain::connectors::Connector,
+) -> Option<String> {
+    use crate::domain::enums::ConnectorWebhookRouteEnum;
     use common_domain::ids::BaseId;
-    format!(
-        "{}/webhooks/v1/{}/{}",
-        webhook_base_url.trim_end_matches('/'),
-        tenant_id.as_base62(),
-        urlencoding::encode(alias)
-    )
+    let base = webhook_base_url.trim_end_matches('/');
+    connector.webhook_route.map(|route| match route {
+        ConnectorWebhookRouteEnum::ConnectorId => {
+            format!("{base}/webhooks/v1/payments/{}", connector.id.as_base62())
+        }
+        ConnectorWebhookRouteEnum::TenantAlias => format!(
+            "{base}/webhooks/v1/{}/{}",
+            connector.tenant_id.as_base62(),
+            urlencoding::encode(&connector.alias)
+        ),
+    })
 }
 
 /// Customer-facing context of a payment: who pays and for what.
@@ -200,27 +223,18 @@ pub struct ChargeFailure {
     pub provider_request_id: Option<String>,
 }
 
-/// Coarse failure category for retry policy and messaging, without leaking
-/// provider-specific decline codes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DeclineKind {
-    InsufficientFunds,
-    DoNotHonor,
-    CardExpired,
-    AuthenticationRequired,
-    MandateInactive,
-    Fraud,
-    ProcessingError,
-    Other,
-}
-
 #[derive(Debug, Clone)]
 pub struct RefundRequest<'a> {
     pub external_transaction_id: &'a str,
     pub amount_minor: i64,
     pub currency: &'a str,
     pub reason: Option<RefundReason>,
+    /// Derived from the refund row id so retries reuse the same key.
     pub idempotency_key: IdempotencyKey,
+    /// Correlation stamped on the provider refund object (`meteroid.refund_id`,
+    /// `meteroid.tenant_id`, `meteroid.transaction_id`), the way charges stamp theirs.
+    /// Providers without a metadata bag ignore it.
+    pub metadata: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone)]
@@ -259,15 +273,33 @@ pub struct RefundFailure {
     pub provider_request_id: Option<String>,
 }
 
-/// A webhook-observed refund resolved at the provider (the event itself carried
-/// no amounts — GoCardless refund events only link the refund id).
+/// A refund as the provider currently sees it. Resolves a webhook that carried no amounts
+/// (GoCardless refund events only link the refund id) and backs the reconcile sweep's second
+/// pass over Pending refund rows.
 #[derive(Debug, Clone)]
 pub struct RefundSnapshot {
     /// Provider id of the parent payment/charge.
     pub external_transaction_id: String,
-    /// The parent payment's cumulative refunded total, in minor units.
-    pub cumulative_refunded_minor: i64,
+    pub external_refund_id: String,
+    pub amount_minor: i64,
+    pub status: RemoteRefundStatus,
+    /// The parent payment's cumulative refunded total, when the provider reports one;
+    /// `None` when only this refund can be resolved (Stripe).
+    pub cumulative_refunded_minor: Option<i64>,
     pub currency: String,
+}
+
+/// Authoritative refund status at the provider. `Canceled` is a refund the provider gave up on
+/// (funds never left); the row is Failed either way, `Canceled` just carries no error text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoteRefundStatus {
+    Pending,
+    Succeeded,
+    Failed {
+        code: Option<String>,
+        message: String,
+    },
+    Canceled,
 }
 
 /// `secret` is the signing secret for future events; we persist it on the connector.
@@ -316,6 +348,34 @@ pub struct MandateSetupRequest<'a> {
     pub descriptor: Option<PaymentDescriptor>,
     /// See [`ChargeRequest::webhook_url`].
     pub webhook_url: Option<String>,
+    /// Stamped on an embedded setup intent so its webhook knows what the method is for.
+    pub purpose: SetupPurpose,
+}
+
+/// Why the customer sets up a method: to pay with it right away, or on its own (portal settings).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetupPurpose {
+    Payment,
+    Settings,
+}
+
+impl SetupPurpose {
+    pub const METADATA_KEY: &'static str = "meteroid.setup_purpose";
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Payment => "payment",
+            Self::Settings => "settings",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "payment" => Some(Self::Payment),
+            "settings" => Some(Self::Settings),
+            _ => None,
+        }
+    }
 }
 
 /// Context for a combined mandate + first-payment hosted checkout. Threaded into
@@ -371,7 +431,10 @@ pub enum RemoteTransactionStatus {
         currency: String,
         processed_at: NaiveDateTime,
     },
+    /// Pending, possibly on the customer (3DS, a redirect, a mandate approval).
     Pending,
+    /// Pending on the provider alone (a debit clearing): no customer action is awaited.
+    Processing,
     Failed {
         code: Option<String>,
         message: String,
@@ -386,17 +449,46 @@ pub enum RemoteTransactionStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::connectors::{ConnectorConfig, CredentialState, PaymentConnectorConfig};
     use common_domain::ids::{BaseId, TenantId};
 
     #[test]
-    fn connector_webhook_url_is_tenant_and_alias_scoped() {
-        let tenant = TenantId::new();
+    fn connector_webhook_url_uses_the_id_unless_legacy() {
+        use crate::domain::connectors::Connector;
+        use crate::domain::enums::{ConnectorStatusEnum, ConnectorWebhookRouteEnum};
+        use common_domain::ids::ConnectorId;
+
+        let mut connector = Connector {
+            id: ConnectorId::new(),
+            created_at: chrono::Utc::now().naive_utc(),
+            tenant_id: TenantId::new(),
+            alias: "mollie eu".to_string(),
+            config: ConnectorConfig::Payment(PaymentConnectorConfig::draft(
+                crate::domain::enums::PaymentProvider::Mollie,
+            )),
+            status: ConnectorStatusEnum::Active,
+            credentials: CredentialState::Unverified,
+            webhook_route: Some(ConnectorWebhookRouteEnum::ConnectorId),
+        };
         assert_eq!(
-            connector_webhook_url("https://api.example.com/", tenant, "mollie eu"),
-            format!(
+            connector_webhook_url("https://api.example.com/", &connector),
+            Some(format!(
+                "https://api.example.com/webhooks/v1/payments/{}",
+                connector.id.as_base62()
+            ))
+        );
+        connector.webhook_route = Some(ConnectorWebhookRouteEnum::TenantAlias);
+        assert_eq!(
+            connector_webhook_url("https://api.example.com/", &connector),
+            Some(format!(
                 "https://api.example.com/webhooks/v1/{}/mollie%20eu",
-                tenant.as_base62()
-            )
+                connector.tenant_id.as_base62()
+            ))
+        );
+        connector.webhook_route = None;
+        assert_eq!(
+            connector_webhook_url("https://api.example.com/", &connector),
+            None
         );
     }
 }

@@ -14,6 +14,9 @@ message CreateBillableMetricRequest {
   optional string usage_group_key = 6;
   string family_local_id = 7;
   optional string product_id = 8;
+  repeated MetricFilter filters = 9;
+  // Both labels or neither; blank labels mean none.
+  MetricUnitLabel unit_label = 10;
 }
 
 message CreateBillableMetricResponse {
@@ -61,10 +64,42 @@ message UpdateBillableMetricRequest {
   optional string description = 3;
   optional Aggregation.UnitConversion unit_conversion = 4;
   optional SegmentationMatrixValuesUpdate segmentation_matrix_values = 5;
+  // Absent = leave filters untouched; present (even empty) = replace the metric's filters.
+  optional MetricFilterList filters = 6;
+  // Absent = leave the label untouched; both labels blank = remove it.
+  optional MetricUnitLabel unit_label = 7;
 }
 
 message UpdateBillableMetricResponse {
   BillableMetric billable_metric = 1;
+}
+
+// Window size for a usage time series.
+enum UsageGrain {
+  USAGE_GRAIN_UNSPECIFIED = 0;
+  USAGE_GRAIN_HOUR = 1;
+  USAGE_GRAIN_DAY = 2;
+}
+
+message GetBillableMetricUsageRequest {
+  string id = 1;
+  // ISO-8601 date (yyyy-mm-dd), inclusive lower bound. Defaults to 30 grains ago.
+  optional string from = 2;
+  // ISO-8601 date (yyyy-mm-dd), exclusive upper bound. Defaults to now.
+  optional string to = 3;
+  UsageGrain grain = 4;
+}
+
+// One point of a usage time series. Mirrors analytics.v1 ExplorePoint.
+message UsageDataPoint {
+  // ISO-8601 datetime of the window bounds.
+  string window_start = 1;
+  string window_end = 2;
+  double value = 3;
+}
+
+message GetBillableMetricUsageResponse {
+  repeated UsageDataPoint data = 1;
 }
 
 service BillableMetricsService {
@@ -74,4 +109,10 @@ service BillableMetricsService {
   rpc UpdateBillableMetric (UpdateBillableMetricRequest) returns (UpdateBillableMetricResponse) {}
   rpc ArchiveBillableMetric (ArchiveBillableMetricRequest) returns (ArchiveBillableMetricResponse) {}
   rpc UnarchiveBillableMetric (UnarchiveBillableMetricRequest) returns (UnarchiveBillableMetricResponse) {}
+
+  // Tenant-scoped usage time series for one billable metric, aggregated across
+  // all customers. Loads the metric (tenant-scoped), builds a QueryMeter over the
+  // raw events for its `code`/`aggregation_type`/`aggregation_key`, windowed by
+  // `grain`. Tenant scope comes from the authenticated request, never the body.
+  rpc GetBillableMetricUsage (GetBillableMetricUsageRequest) returns (GetBillableMetricUsageResponse) {}
 }

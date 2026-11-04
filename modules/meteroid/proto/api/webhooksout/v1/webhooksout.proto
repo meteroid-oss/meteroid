@@ -2,13 +2,184 @@ syntax = "proto3";
 
 package meteroid.api.webhooks.out.v1;
 
+import "common/v1/pagination.proto";
 import "api/webhooksout/v1/models.proto";
 
-message WebhookPortalAccessRequest {}
-message WebhookPortalAccessResponse {
-  api.webhooks.out.v1.PortalAccess access = 1;
+message ListWebhookEndpointsRequest {}
+message ListWebhookEndpointsResponse {
+  repeated WebhookEndpoint endpoints = 1;
+}
+
+message GetWebhookEndpointRequest {
+  string id = 1;
+}
+message GetWebhookEndpointResponse {
+  WebhookEndpoint endpoint = 1;
+}
+
+message CreateWebhookEndpointRequest {
+  string url = 1;
+  optional string description = 2;
+  // Empty subscribes the endpoint to every event type except Beta ones.
+  repeated string event_types = 3;
+  repeated WebhookHeaderInput headers = 4;
+  optional int32 rate_limit_per_sec = 5;
+}
+message CreateWebhookEndpointResponse {
+  WebhookEndpoint endpoint = 1;
+  // Plaintext signing secret, returned once at creation.
+  string secret = 2;
+}
+
+// Wrapper giving the repeated field presence: an absent list leaves the
+// endpoint's subscriptions untouched, an empty one subscribes to all events.
+message WebhookEventTypeList {
+  repeated string event_types = 1;
+}
+
+// Wrapper giving the header list presence: absent leaves the headers untouched, an
+// empty list removes them all.
+message WebhookHeaderList {
+  repeated WebhookHeaderInput headers = 1;
+}
+
+// Wrapper giving the rate limit presence: absent leaves it untouched, an unset value
+// removes it.
+message WebhookRateLimit {
+  optional int32 per_sec = 1;
+}
+
+message UpdateWebhookEndpointRequest {
+  string id = 1;
+  optional string url = 2;
+  // Absent = unchanged; empty string clears.
+  optional string description = 3;
+  WebhookEventTypeList event_types = 4;
+  optional bool disabled = 5;
+  WebhookHeaderList headers = 6;
+  WebhookRateLimit rate_limit = 7;
+}
+message UpdateWebhookEndpointResponse {
+  WebhookEndpoint endpoint = 1;
+  reserved 2;
+}
+
+// Lifts a pause now, e.g. once the receiver is back up.
+message ResumeWebhookEndpointRequest {
+  string id = 1;
+}
+message ResumeWebhookEndpointResponse {
+  WebhookEndpoint endpoint = 1;
+}
+
+message ArchiveWebhookEndpointRequest {
+  string id = 1;
+}
+message ArchiveWebhookEndpointResponse {}
+
+message GetWebhookEndpointSecretRequest {
+  string id = 1;
+}
+message GetWebhookEndpointSecretResponse {
+  string secret = 1;
+}
+
+message RotateWebhookEndpointSecretRequest {
+  string id = 1;
+}
+message RotateWebhookEndpointSecretResponse {
+  string secret = 1;
+}
+
+message ListWebhookEventTypesRequest {}
+message ListWebhookEventTypesResponse {
+  repeated WebhookEventType event_types = 1;
+}
+
+message ListWebhookDeliveriesRequest {
+  string endpoint_id = 1;
+  optional WebhookDeliveryStatusEnum status = 2;
+  meteroid.common.v1.Pagination pagination = 3;
+}
+message ListWebhookDeliveriesResponse {
+  repeated WebhookDelivery deliveries = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+message GetWebhookDeliveryRequest {
+  string id = 1;
+}
+message GetWebhookDeliveryResponse {
+  WebhookDelivery delivery = 1;
+  // The signed JSON envelope, as sent.
+  string payload = 2;
+  repeated WebhookAttempt attempts = 3;
+}
+
+message ResendWebhookDeliveryRequest {
+  string id = 1;
+}
+message ResendWebhookDeliveryResponse {
+  WebhookDelivery delivery = 1;
+}
+
+message SendTestWebhookRequest {
+  string endpoint_id = 1;
+  // Send this event type's example payload (from the event catalog) instead of the
+  // generic `webhook.test` event.
+  optional string event_type = 2;
+}
+message SendTestWebhookResponse {
+  WebhookDelivery delivery = 1;
+}
+
+// Deliveries by outcome. `retrying` ones have failed and are still being retried;
+// `cancelled` ones were dropped, e.g. when their endpoint was disabled.
+message WebhookDailyStats {
+  // YYYY-MM-DD
+  string day = 1;
+  int64 succeeded = 2;
+  int64 failed = 3;
+  int64 retrying = 4;
+  int64 cancelled = 5;
+}
+
+// Deliveries of the last 7 days by outcome, per day (days without any are absent).
+message GetWebhookEndpointStatsRequest {
+  string endpoint_id = 1;
+}
+message GetWebhookEndpointStatsResponse {
+  repeated WebhookDailyStats days = 1;
+}
+
+message WebhookEndpointStats {
+  string endpoint_id = 1;
+  int64 succeeded = 2;
+  int64 failed = 3;
+  int64 retrying = 4;
+  int64 cancelled = 5;
+}
+
+// Deliveries of the last 7 days by outcome, for every endpoint that has some.
+message ListWebhookEndpointStatsRequest {}
+message ListWebhookEndpointStatsResponse {
+  repeated WebhookEndpointStats endpoints = 1;
 }
 
 service WebhooksService {
-  rpc GetWebhookPortalAccess(WebhookPortalAccessRequest) returns (WebhookPortalAccessResponse) {};
+  rpc ListWebhookEndpoints(ListWebhookEndpointsRequest) returns (ListWebhookEndpointsResponse) {};
+  rpc GetWebhookEndpoint(GetWebhookEndpointRequest) returns (GetWebhookEndpointResponse) {};
+  rpc CreateWebhookEndpoint(CreateWebhookEndpointRequest) returns (CreateWebhookEndpointResponse) {};
+  rpc UpdateWebhookEndpoint(UpdateWebhookEndpointRequest) returns (UpdateWebhookEndpointResponse) {};
+  rpc ResumeWebhookEndpoint(ResumeWebhookEndpointRequest) returns (ResumeWebhookEndpointResponse) {};
+  rpc ArchiveWebhookEndpoint(ArchiveWebhookEndpointRequest) returns (ArchiveWebhookEndpointResponse) {};
+  rpc GetWebhookEndpointSecret(GetWebhookEndpointSecretRequest) returns (GetWebhookEndpointSecretResponse) {};
+  rpc RotateWebhookEndpointSecret(RotateWebhookEndpointSecretRequest) returns (RotateWebhookEndpointSecretResponse) {};
+  rpc ListWebhookEventTypes(ListWebhookEventTypesRequest) returns (ListWebhookEventTypesResponse) {};
+  rpc ListWebhookDeliveries(ListWebhookDeliveriesRequest) returns (ListWebhookDeliveriesResponse) {};
+  rpc GetWebhookDelivery(GetWebhookDeliveryRequest) returns (GetWebhookDeliveryResponse) {};
+  rpc ResendWebhookDelivery(ResendWebhookDeliveryRequest) returns (ResendWebhookDeliveryResponse) {};
+  rpc SendTestWebhook(SendTestWebhookRequest) returns (SendTestWebhookResponse) {};
+  rpc GetWebhookEndpointStats(GetWebhookEndpointStatsRequest) returns (GetWebhookEndpointStatsResponse) {};
+  rpc ListWebhookEndpointStats(ListWebhookEndpointStatsRequest) returns (ListWebhookEndpointStatsResponse) {};
 }

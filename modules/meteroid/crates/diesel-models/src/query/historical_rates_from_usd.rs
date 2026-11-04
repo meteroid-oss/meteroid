@@ -4,7 +4,7 @@ use crate::historical_rates_from_usd::{HistoricalRatesFromUsdRow, HistoricalRate
 use crate::{DbResult, PgConn};
 use diesel::query_dsl::methods::{FilterDsl, LimitDsl, OrderDsl};
 use diesel::upsert::excluded;
-use diesel::{ExpressionMethods, OptionalExtension, debug_query};
+use diesel::{ExpressionMethods, OptionalExtension};
 use error_stack::ResultExt;
 
 impl HistoricalRatesFromUsdRowNew {
@@ -17,7 +17,7 @@ impl HistoricalRatesFromUsdRowNew {
             .on_conflict(r_dsl::date)
             .do_update()
             .set(r_dsl::rates.eq(&self.rates));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -39,7 +39,7 @@ impl HistoricalRatesFromUsdRowNew {
             .do_update()
             .set(r_dsl::rates.eq(excluded(r_dsl::rates)));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -62,7 +62,7 @@ impl HistoricalRatesFromUsdRow {
             .filter(r_dsl::date.le(date))
             .order(r_dsl::date.desc())
             .limit(1);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -72,12 +72,38 @@ impl HistoricalRatesFromUsdRow {
             .into_db_result()
     }
 
+    /// The rows in force on each of `dates` (latest on or before it), each once.
+    pub async fn list_in_force_on(
+        dates: &[chrono::NaiveDate],
+        conn: &mut PgConn,
+    ) -> DbResult<Vec<HistoricalRatesFromUsdRow>> {
+        use diesel_async::RunQueryDsl;
+
+        diesel::sql_query(
+            r"
+            SELECT DISTINCT ON (r.id) r.id, r.date, r.rates, r.updated_at
+            FROM unnest($1::date[]) AS d(day)
+            CROSS JOIN LATERAL (
+                SELECT * FROM historical_rates_from_usd h
+                WHERE h.date <= d.day
+                ORDER BY h.date DESC
+                LIMIT 1
+            ) r
+            ",
+        )
+        .bind::<diesel::sql_types::Array<diesel::sql_types::Date>, _>(dates)
+        .get_results(conn)
+        .await
+        .attach("Error while listing historical_rates_from_usd in force on dates")
+        .into_db_result()
+    }
+
     pub async fn latest(conn: &mut PgConn) -> DbResult<Option<HistoricalRatesFromUsdRow>> {
         use crate::schema::historical_rates_from_usd::dsl as r_dsl;
         use diesel_async::RunQueryDsl;
 
         let query = r_dsl::historical_rates_from_usd.order(r_dsl::date.desc());
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)

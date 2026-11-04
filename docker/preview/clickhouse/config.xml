@@ -1,0 +1,72 @@
+<clickhouse>
+  <!-- Low-memory single-node ClickHouse for previews. Keeps the `meteroid`
+       cluster + embedded Keeper + macros the metering/analytics migrations need
+       (ON CLUSTER + ReplicatedMergeTree), but caps memory and quiets logs. -->
+  <logger>
+    <level>warning</level>
+    <console>1</console>
+    <size>50M</size>
+    <count>1</count>
+  </logger>
+  <display_name>clickhouse_preview</display_name>
+  <listen_host>0.0.0.0</listen_host>
+  <http_port>8123</http_port>
+  <tcp_port>9000</tcp_port>
+
+  <!-- Memory caps: tiny caches + a hard server ceiling (~512MB). -->
+  <max_server_memory_usage>536870912</max_server_memory_usage>
+  <mark_cache_size>67108864</mark_cache_size>
+  <uncompressed_cache_size>0</uncompressed_cache_size>
+  <mmap_cache_size>128</mmap_cache_size>
+  <compiled_expression_cache_size>0</compiled_expression_cache_size>
+  <concurrent_threads_soft_limit_num>2</concurrent_threads_soft_limit_num>
+  <background_pool_size>2</background_pool_size>
+  <background_schedule_pool_size>2</background_schedule_pool_size>
+  <tables_loader_foreground_pool_size>1</tables_loader_foreground_pool_size>
+
+  <!-- Embedded Keeper (single node, no separate ZooKeeper needed) -->
+  <keeper_server>
+    <tcp_port>9181</tcp_port>
+    <server_id>1</server_id>
+    <log_storage_path>/var/lib/clickhouse/coordination/log</log_storage_path>
+    <snapshot_storage_path>/var/lib/clickhouse/coordination/snapshots</snapshot_storage_path>
+    <coordination_settings>
+      <operation_timeout_ms>10000</operation_timeout_ms>
+      <session_timeout_ms>30000</session_timeout_ms>
+      <raft_logs_level>warning</raft_logs_level>
+    </coordination_settings>
+    <raft_configuration>
+      <server>
+        <id>1</id>
+        <hostname>localhost</hostname>
+        <port>9234</port>
+      </server>
+    </raft_configuration>
+  </keeper_server>
+
+  <zookeeper>
+    <node>
+      <host>localhost</host>
+      <port>9181</port>
+    </node>
+  </zookeeper>
+
+  <!-- Single-node cluster -->
+  <remote_servers>
+    <meteroid>
+      <shard>
+        <replica>
+          <host>localhost</host>
+          <port>9000</port>
+        </replica>
+      </shard>
+    </meteroid>
+  </remote_servers>
+
+  <!-- Macros substituted in ReplicatedMergeTree paths and ON CLUSTER DDL -->
+  <macros>
+    <cluster>meteroid</cluster>
+    <shard>1</shard>
+    <replica>replica-1</replica>
+  </macros>
+</clickhouse>

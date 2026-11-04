@@ -50,6 +50,7 @@ async fn test_checkout_setup_intent_is_descriptor_only_for_mollie(#[future] test
             None,
             None,
             true,
+            false,
         )
         .await
         .expect("the checkout render must not reach Mollie");
@@ -69,6 +70,7 @@ async fn test_checkout_setup_intent_is_descriptor_only_for_mollie(#[future] test
                 None,
                 None,
                 None,
+                false,
                 false,
             )
             .await
@@ -94,6 +96,7 @@ async fn test_checkout_setup_intent_is_descriptor_only_for_stancer(#[future] tes
             None,
             None,
             true,
+            false,
         )
         .await
         .expect("the checkout render must not reach Stancer");
@@ -130,6 +133,7 @@ async fn test_invoice_setup_intent_is_side_effect_free_for_stancer(#[future] tes
             None,
             None,
             false,
+            false,
         )
         .await
         .expect(
@@ -163,6 +167,7 @@ async fn test_invoice_setup_intent_is_side_effect_free_for_stancer(#[future] tes
             Some(invoice_id),
             None,
             None,
+            false,
             false,
         )
         .await
@@ -227,6 +232,10 @@ async fn insert_invoice_tx(
         initiated_by_customer_id: Some(CUST_UBER_ID),
         pending_provider_intent_id: marker.map(str::to_string),
         pending_connection_id: marker.map(|_| CUST_UBER_CONNECTION_STANCER_ID),
+        parent_transaction_id: None,
+        credit_note_id: None,
+        refund_mode: None,
+        reversal_reason: None,
     };
     let mut conn = env.conn().await;
     row.insert(&mut conn).await.expect("insert transaction row");
@@ -352,6 +361,10 @@ async fn insert_marked_tx(
         initiated_by_customer_id: None,
         pending_provider_intent_id: marker.map(str::to_string),
         pending_connection_id: marker.map(|_| CUST_UBER_CONNECTION_STANCER_ID),
+        parent_transaction_id: None,
+        credit_note_id: None,
+        refund_mode: None,
+        reversal_reason: None,
     };
     let mut conn = env.conn().await;
     row.insert(&mut conn).await.expect("insert transaction row");
@@ -395,6 +408,8 @@ async fn test_settled_row_with_marker_stays_sweepable_until_released(#[future] t
             checkout_type: CheckoutType::SelfServe,
             subscription_id: None,
             change_date: None,
+            success_url: None,
+            cancel_url: None,
         })
         .await
         .expect("create checkout session");

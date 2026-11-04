@@ -1,0 +1,157 @@
+syntax = "proto3";
+
+package meteroid.portal.wallets.v1;
+
+import "api/invoices/v1/models.proto";
+import "common/v1/pagination.proto";
+import "google/protobuf/timestamp.proto";
+import "portal/subscription/v1/subscription.proto";
+import "portal/wallets/v1/models.proto";
+
+// The customer of the portal token, and only that customer: no request names a customer.
+service PortalWalletsService {
+  rpc GetBalances(GetBalancesRequest) returns (GetBalancesResponse);
+  rpc ListLedger(ListLedgerRequest) returns (ListLedgerResponse);
+  // Each wallet with its grants, this period's usage and what comes next.
+  rpc GetCreditOverview(GetCreditOverviewRequest) returns (GetCreditOverviewResponse);
+  // The price of a top-up; charges nothing.
+  rpc QuoteTopUp(QuoteTopUpRequest) returns (QuoteTopUpResponse);
+  // Charges a saved payment method for credit. A retry with the same key never charges twice.
+  rpc TopUpWallet(TopUpWalletRequest) returns (TopUpWalletResponse);
+  // Where the top-up sent under a key stands; charges nothing.
+  rpc GetTopUp(GetTopUpRequest) returns (GetTopUpResponse);
+  // Redeems a promo code that adds credit, on one of the customer's active subscriptions.
+  rpc RedeemCode(RedeemCodeRequest) returns (RedeemCodeResponse);
+}
+
+message RedeemCodeRequest {
+  string code = 1;
+  // The subscription the code is redeemed on; needed when the code applies to one subscription
+  // and several qualify. Absent: the oldest one it applies to.
+  optional string subscription_id = 2;
+}
+message RedeemCodeResponse {
+  oneof outcome {
+    RedeemedCredit redeemed = 1;
+    // Nothing was redeemed: the code applies to one subscription and several qualify.
+    SubscriptionRequired subscription_required = 2;
+  }
+}
+message RedeemedCredit {
+  // The credit added, in minor units of `currency`.
+  int64 amount = 1;
+  string currency = 2;
+  optional google.protobuf.Timestamp expires_at = 3;
+}
+message SubscriptionRequired {
+  // The subscriptions the code may be redeemed on, oldest first.
+  repeated RedeemableSubscription subscriptions = 1;
+}
+message RedeemableSubscription {
+  string id = 1;
+  string plan_name = 2;
+  // YYYY-MM-DD.
+  string start_date = 3;
+}
+
+message GetBalancesRequest {}
+message GetBalancesResponse {
+  repeated Wallet wallets = 1;
+  // Set by the merchant: whether the portal offers top-ups and automatic top-ups.
+  bool top_up_enabled = 2;
+  bool auto_top_up_enabled = 3;
+  // The customer's billing currency: a top-up without a wallet buys money credit in it.
+  string customer_currency = 4;
+  // Whether the merchant's plan lets automatic top-ups be turned on or changed. False still lets
+  // the customer turn one off.
+  bool auto_top_up_configurable = 5;
+}
+
+message GetCreditOverviewRequest {}
+message GetCreditOverviewResponse {
+  repeated WalletOverview wallets = 1;
+  bool top_up_enabled = 2;
+  bool auto_top_up_enabled = 3;
+  // A subscription funds usage from credit: a recurring credit pack, or credit usage stops at.
+  bool credit_funded = 4;
+  // The next invoice of each active subscription, from the same computation as the usage above.
+  repeated meteroid.portal.subscription.v1.PortalUpcomingInvoice upcoming_invoices = 5;
+  // Subscriptions whose next invoice cannot be computed right now; absent from `upcoming_invoices`.
+  repeated string unavailable_upcoming_subscription_ids = 6;
+  // The customer's billing currency: a top-up without a wallet buys money credit in it.
+  string customer_currency = 7;
+  // Whether the merchant's plan lets automatic top-ups be turned on or changed. False still lets
+  // the customer turn one off.
+  bool auto_top_up_configurable = 8;
+}
+
+message ListLedgerRequest {
+  string wallet_id = 1;
+  meteroid.common.v1.Pagination pagination = 2;
+}
+message ListLedgerResponse {
+  repeated LedgerEntry entries = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+message QuoteTopUpRequest {
+  // Empty: the customer's money wallet in their billing currency, opened on first use.
+  string wallet_id = 1;
+  // Minor units of the wallet: money, or credits for a credit unit wallet.
+  int64 amount = 2;
+}
+message QuoteTopUpResponse { TopUpQuote quote = 1; }
+
+message TopUpQuote {
+  // What the payment method is charged, tax included.
+  int64 charge = 1;
+  string currency = 2;
+  int64 net = 3;
+  int64 tax = 4;
+}
+
+message TopUpWalletRequest {
+  // Empty: the customer's money wallet in their billing currency, opened on first use.
+  string wallet_id = 1;
+  int64 amount = 2;
+  string payment_method_id = 3;
+  // Client-generated; reuse it only to retry the same top-up.
+  string idempotency_key = 4;
+  // The price the customer reviewed: a changed price is refused before charging.
+  optional TopUpQuote expected_quote = 5;
+  // Without `payment_method_id`: where the hosted payment page sends the customer back, paid or
+  // not. An absolute http(s) URL.
+  optional string return_url = 6;
+}
+
+enum TopUpStatus {
+  TOP_UP_STATUS_UNSPECIFIED = 0;
+  TOP_UP_STATUS_SUCCEEDED = 1;
+  // The charge is settling; the credit is added when it does.
+  TOP_UP_STATUS_PENDING = 2;
+  // Complete `next_action`, then the credit is added when the charge settles.
+  TOP_UP_STATUS_REQUIRES_ACTION = 3;
+  // The charge failed; a new top-up, under a new key, is needed.
+  TOP_UP_STATUS_FAILED = 4;
+}
+
+message TopUpWalletResponse {
+  optional string checkout_url = 6;
+  TopUpStatus status = 1;
+  int64 charged_amount = 2;
+  string currency = 3;
+  // The invoice documenting the purchase.
+  string invoice_id = 4;
+  optional meteroid.api.invoices.v1.PaymentActionRequired next_action = 5;
+}
+
+message GetTopUpRequest {
+  string wallet_id = 1;
+  string idempotency_key = 2;
+}
+message GetTopUpResponse {
+  // Unset when no top-up was sent under the key.
+  optional TopUpStatus status = 1;
+  // Why it failed, safe to show; set when FAILED.
+  optional string failure_reason = 2;
+}

@@ -24,9 +24,11 @@ import {
   ChevronDown,
   Copy,
   CopyIcon,
+  CopyPlus,
   Download,
   ExternalLink,
   FileText,
+  Pencil,
   Send,
   XCircle,
 } from 'lucide-react'
@@ -35,10 +37,18 @@ import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { EntityActivityTimeline } from '@/features/activity/EntityActivityTimeline'
+import {
+  MinimumCommitmentDisplay,
+  productScopeOptions,
+} from '@/features/billing/minimumCommitment'
+import { CustomPropertyValue } from '@/features/customproperties/CustomPropertyValue'
+import { useCustomPropertyRows } from '@/features/customproperties/useCustomPropertyRows'
 import { ResolvedEntitlementsPanel } from '@/features/entitlements/resolved/ResolvedEntitlementsPanel'
+import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
 import { QuoteStatusBadge } from '@/features/quotes/QuoteStatusBadge'
 import { QuoteView } from '@/features/quotes/QuoteView'
 import { SendQuoteDialog } from '@/features/quotes/SendQuoteDialog'
+import { isQuoteEditable } from '@/features/quotes/quoteEditable'
 import {
   formatSubscriptionFee,
   formatSubscriptionFeeBillingPeriod,
@@ -46,6 +56,9 @@ import {
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
+import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
+import { MinimumCommitment } from '@/rpc/api/plans/v1/models_pb'
+import { getPlanWithVersionByVersionId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import {
   DetailedQuote,
   QuoteComponent,
@@ -97,7 +110,23 @@ interface Props {
 export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
   const basePath = useBasePath()
 
+  const customPropertyRows = useCustomPropertyRows(
+    CustomPropertyEntityType.QUOTE,
+    quote.quote?.customProperties
+  )
+
   const queryClient = useQueryClient()
+
+  // Effective contract term shown on the quote = the quote-level override when set, otherwise the
+  // plan's default floor (the term that applies at conversion). Edited from the edit-quote form.
+  const planQuery = useQuery(
+    getPlanWithVersionByVersionId,
+    { localId: quote.quote?.planVersionId ?? '' },
+    { enabled: Boolean(quote.quote?.planVersionId) }
+  )
+  const effectiveMinimum: MinimumCommitment | undefined =
+    quote.minimumCommitment ?? planQuery.data?.plan?.version?.minimumCommitment
+  const minimumComponentOptions = productScopeOptions(quote.components ?? [])
 
   const publishQuoteMutation = useMutation(publishQuote, {
     onSuccess: async () => {
@@ -126,11 +155,13 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
   })
 
   const canPublish = quote.quote?.status === QuoteStatus.DRAFT
+  const canEdit = isQuoteEditable(quote)
   const canSend =
     quote.quote?.status === QuoteStatus.DRAFT || quote.quote?.status === QuoteStatus.PENDING
   const canCancel =
     quote.quote?.status === QuoteStatus.DRAFT || quote.quote?.status === QuoteStatus.PENDING
   const canConvert = quote.quote?.status === QuoteStatus.ACCEPTED
+  const quoteEmailEnabled = quote.quoteEmailEnabled !== false
 
   const [showTokenDialog, setShowTokenDialog] = useState(false)
   const [recipientEmail, setRecipientEmail] = useState('')
@@ -174,7 +205,7 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
       await publishQuoteMutation.mutateAsync({
         id: quote.quote.id,
       })
-      toast.success('Quote published successfully')
+      toast.success('Quote published')
       // Optionally refetch the quote to update the status
       window.location.reload() // Simple reload, or you could use the query's refetch
     } catch (error) {
@@ -267,34 +298,45 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
   }
 
   return (
-    <Flex className="h-full">
+    <Flex className="flex-col lg:flex-row lg:h-full">
       {/* Left Panel - Quote Details */}
-      <Flex direction="column" className="w-1/3 border-r border-border">
+      <Flex
+        direction="column"
+        className="w-full lg:w-1/3 border-b lg:border-b-0 lg:border-r border-border"
+      >
         {/* Fixed Header */}
         <Flex direction="column" className="gap-2 p-6 border-b border-border">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
+          <div className="flex justify-between items-start gap-2">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
               <QuoteStatusBadge status={quote.quote?.status || QuoteStatus.DRAFT} />
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="secondary" size="sm" hasIcon>
+                <Button variant="secondary" size="sm" hasIcon className="shrink-0">
                   Actions
                   <ChevronDown className="w-4 h-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {canEdit && (
+                  <DropdownMenuItem asChild>
+                    <Link to={`${basePath}/quotes/${quote.quote?.id}/edit`}>
+                      <Pencil size="16" className="mr-2" />
+                      Edit Quote
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 {canPublish && (
                   <DropdownMenuItem onClick={handlePublishQuote}>
                     <FileText size="16" className="mr-2" />
-                    Publish Quote
+                    Publish without sending
                   </DropdownMenuItem>
                 )}
                 {canSend && (
                   <>
-                    <DropdownMenuItem onClick={openSendDialog}>
+                    <DropdownMenuItem onClick={openSendDialog} disabled={!quoteEmailEnabled}>
                       <Send size="16" className="mr-2" />
-                      Send to Customer
+                      {quoteEmailEnabled ? 'Send to Customer' : 'Send to Customer (email off)'}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
 
@@ -311,6 +353,12 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
                     Convert to Subscription
                   </DropdownMenuItem>
                 )}
+                <DropdownMenuItem asChild>
+                  <Link to={`${basePath}/quotes/create?from=${quote.quote?.id}`}>
+                    <CopyPlus size="16" className="mr-2" />
+                    Use as Template
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem disabled={true}>
                   <Download size="16" className="mr-2" />
                   Download PDF
@@ -492,6 +540,36 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
             <QuoteComponents components={quote.components || []} quote={quote} />
           </Flex>
 
+          {effectiveMinimum && quote.quote?.currency && (
+            <>
+              <Separator className="-my-3" />
+              <Flex direction="column" className="gap-2 p-6">
+                <div className="text-[15px] font-medium">Contract terms</div>
+                <MinimumCommitmentDisplay
+                  commitment={effectiveMinimum}
+                  currency={quote.quote.currency}
+                  components={minimumComponentOptions}
+                />
+              </Flex>
+            </>
+          )}
+
+          {customPropertyRows.length > 0 && (
+            <>
+              <Separator className="-my-3" />
+              <Flex direction="column" className="gap-2 p-6">
+                <div className="text-[15px] font-medium">Custom properties</div>
+                {customPropertyRows.map(row => (
+                  <FlexDetails
+                    key={row.key}
+                    title={row.label}
+                    value={<CustomPropertyValue def={row.def} value={row.raw} />}
+                  />
+                ))}
+              </Flex>
+            </>
+          )}
+
           {(quote.quote?.overview ||
             quote.quote?.termsAndServices ||
             quote.quote?.internalNotes) && (
@@ -544,9 +622,9 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
       </Flex>
 
       {/* Right Panel - Quote Preview */}
-      <div className="w-2/3 flex flex-col">
+      <div className="w-full lg:w-2/3 flex flex-col">
         <div className="flex-1 overflow-auto p-6">
-          <QuoteView quote={quote} mode="detailed" />
+          <QuoteView quote={quote} mode="detailed" minimumCommitment={effectiveMinimum} />
         </div>
       </div>
 
@@ -615,6 +693,7 @@ export const QuoteDetailView: React.FC<Props> = ({ quote }) => {
         onCustomMessageChange={setCustomMessage}
         onConfirm={handleSendQuote}
         isPending={sendQuoteMutation.isPending}
+        emailEnabled={quote.quoteEmailEnabled}
       />
     </Flex>
   )
@@ -644,9 +723,10 @@ const QuoteComponentCard: React.FC<{
   component: QuoteComponent
   quote: DetailedQuote
 }> = ({ component, quote }) => {
+  const creditUnits = useCreditUnits()
   if (!quote.quote?.currency) return null
 
-  const formatted = formatSubscriptionFee(component.fee, quote.quote.currency)
+  const formatted = formatSubscriptionFee(component.fee, quote.quote.currency, creditUnits)
 
   return (
     <div className="py-2">

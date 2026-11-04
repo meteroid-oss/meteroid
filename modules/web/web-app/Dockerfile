@@ -8,7 +8,10 @@ RUN apk update
 WORKDIR /app
 RUN yarn global add turbo
 COPY . .
-RUN (cd modules/web/ && turbo prune --scope=@md/web --docker)
+# ee/ exists only in the enterprise repository; an empty one keeps the COPY below valid in OSS.
+RUN mkdir -p ee
+# Prune @md/web plus @md/portal-embed (the embed loader served at /embed.js).
+RUN (cd modules/web/ && turbo prune @md/web @md/portal-embed --docker)
 
 
 FROM base AS installer
@@ -35,6 +38,7 @@ COPY --link --from=builder /app/modules/meteroid/proto/ modules/meteroid/proto/
 COPY --link --from=builder /app/modules/metering/proto/ modules/metering/proto/
 COPY --link --from=builder /app/crates/common-grpc/proto/ crates/common-grpc/proto/
 COPY --link --from=builder /app/buf.work.yaml buf.work.yaml
+COPY --link --from=builder /app/ee/ ee/
 # Run all the postinstall scripts
 RUN cd modules/web && pnpm install
 # Re-run postinstall scripts skipped by --ignore-scripts above:
@@ -42,12 +46,24 @@ RUN cd modules/web && pnpm install
 #   @md/web:   buf-generated connect-query proto bindings under web-app/src/rpc
 RUN cd modules/web && pnpm --filter @md/icons run build
 RUN cd modules/web && pnpm --filter @md/web run generate:proto
-RUN cd modules/web/web-app && pnpm run build:js
+# The Enterprise edition when its entry is present, the OSS edition otherwise.
+RUN cd modules/web/web-app && \
+    if [ -f ../../../ee/web/editions/enterprise.ts ]; then \
+      (cd ../../../ee/web && pnpm run generate:proto) && \
+      WEB_EDITION=../../../ee/web/editions/enterprise.ts WEB_EDITION_ROOT=../../../ee pnpm run build:js; \
+    else \
+      pnpm run build:js; \
+    fi
+# Build the same-origin embed loader (served at /embed.js by nginx below).
+RUN cd modules/web && pnpm --filter @md/portal-embed run build
 
 # nginx state for serving content
-FROM nginx:stable-alpine AS production
+FROM nginx:stable-alpine AS runtime
+RUN apk upgrade --no-cache
 # Copy from build stage
 COPY --from=installer /app/modules/web/web-app/dist /usr/share/nginx/html
+# Serve the customer-portal embed loader same-origin at /embed.js.
+COPY --from=installer /app/modules/web/packages/embed/dist/embed.global.js /usr/share/nginx/html/embed.js
 COPY --from=installer /app/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=installer /app/gzip.conf /etc/nginx/conf.d/gzip.conf
 COPY --from=installer /app/init-docker-env.sh /init-docker-env.sh

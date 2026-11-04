@@ -1,16 +1,17 @@
 use crate::enums::QuoteStatusEnum;
 use crate::errors::IntoDbResult;
+use crate::extend::filtering::{ListFilter, render_list_filter};
 use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::quotes::{
-    QuoteComponentRow, QuoteComponentRowNew, QuoteRow, QuoteRowNew, QuoteRowUpdate,
-    QuoteSignatureRow, QuoteSignatureRowNew, QuoteWithCustomerRow,
+    QuoteComponentRow, QuoteComponentRowNew, QuoteRow, QuoteRowNew, QuoteRowReplace,
+    QuoteRowUpdate, QuoteSignatureRow, QuoteSignatureRowNew, QuoteWithCustomerRow,
 };
 use crate::{DbResult, PgConn};
 use common_domain::ids::{CustomerId, ProductId, QuoteId, StoredDocumentId, TenantId};
 use diesel::{
     BoolExpressionMethods, JoinOnDsl, PgSortExpressionMethods, PgTextExpressionMethods,
-    SelectableHelper, debug_query,
+    SelectableHelper,
 };
 use diesel::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
@@ -22,7 +23,7 @@ impl QuoteRowNew {
 
         let query = diesel::insert_into(quote).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -37,7 +38,7 @@ impl QuoteRowNew {
 
         let query = diesel::insert_into(quote).values(rows);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -60,7 +61,7 @@ impl QuoteRow {
             .filter(tenant_id.eq(param_tenant_id))
             .filter(id.eq(param_quote_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -84,7 +85,7 @@ impl QuoteRow {
             .filter(q_dsl::id.eq(param_quote_id))
             .select(QuoteWithCustomerRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -99,6 +100,7 @@ impl QuoteRow {
         param_customer_id: Option<CustomerId>,
         param_status: Option<QuoteStatusEnum>,
         search: Option<String>,
+        filters: Vec<ListFilter>,
         order_by: Option<&str>,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<QuoteWithCustomerRow>> {
@@ -125,6 +127,10 @@ impl QuoteRow {
                     .or(q_dsl::internal_notes.ilike(search_pattern.clone()))
                     .or(c_dsl::name.ilike(search_pattern)),
             );
+        }
+
+        for f in filters {
+            query = query.filter(render_list_filter(f, "quote.custom_properties"));
         }
 
         let order = OrderByParam::parse(order_by, "created_at.desc");
@@ -165,7 +171,7 @@ impl QuoteRow {
 
         let query = query.select(QuoteWithCustomerRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .paginate(pagination)
@@ -181,7 +187,7 @@ impl QuoteRow {
 
         let query = quote.filter(id.eq_any(ids));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -204,12 +210,36 @@ impl QuoteRow {
             .filter(tenant_id.eq(param_tenant_id))
             .set(update);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
             .await
             .attach("Error while updating quote")
+            .into_db_result()
+    }
+
+    pub async fn replace_editable(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_quote_id: QuoteId,
+        replace: QuoteRowReplace,
+    ) -> DbResult<QuoteRow> {
+        use crate::schema::quote::dsl::{id, quote, status, tenant_id};
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(quote)
+            .filter(id.eq(param_quote_id))
+            .filter(tenant_id.eq(param_tenant_id))
+            .filter(status.eq_any([QuoteStatusEnum::Draft, QuoteStatusEnum::Pending]))
+            .set(replace);
+
+        crate::debug_sql(&query);
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while replacing quote")
             .into_db_result()
     }
 
@@ -234,7 +264,7 @@ impl QuoteRow {
                 updated_at.eq(chrono::Utc::now().naive_utc()),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -272,7 +302,7 @@ impl QuoteRow {
                 updated_at.eq(Some(now)),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -296,7 +326,7 @@ impl QuoteRow {
             .filter(id.eq(param_quote_id))
             .for_update();
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -325,7 +355,7 @@ impl QuoteRow {
                 updated_at.eq(Some(now)),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -342,7 +372,7 @@ impl QuoteSignatureRowNew {
 
         let query = diesel::insert_into(quote_signature).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -364,7 +394,7 @@ impl QuoteSignatureRow {
             .filter(quote_id.eq(param_quote_id))
             .order(signed_at.desc());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -397,7 +427,7 @@ impl QuoteComponentRow {
             .filter(not(qc_dsl::product_id.is_null()))
             .select(qc_dsl::product_id);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         let rows: Vec<Option<ProductId>> = query
             .get_results(conn)
@@ -419,13 +449,29 @@ impl QuoteComponentRow {
             .filter(quote_id.eq(param_quote_id))
             .order(id.asc());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
             .await
             .attach("Error while listing quote components")
             .into_db_result()
+    }
+
+    pub async fn delete_by_quote_id(conn: &mut PgConn, param_quote_id: QuoteId) -> DbResult<()> {
+        use crate::schema::quote_component::dsl::{quote_component, quote_id};
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::delete(quote_component.filter(quote_id.eq(param_quote_id)));
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while deleting quote components")
+            .into_db_result()
+            .map(|_| ())
     }
 }
 
@@ -436,7 +482,7 @@ impl QuoteComponentRowNew {
 
         let query = diesel::insert_into(quote_component).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -454,7 +500,7 @@ impl QuoteComponentRowNew {
 
         let query = diesel::insert_into(quote_component).values(rows);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)

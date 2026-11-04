@@ -1,3 +1,5 @@
+ 
+
 <div align="center">
 
 
@@ -8,7 +10,6 @@
   </picture>
   </a>
 </div>
-
 
 <h3 align="center">
   Cloud-native pricing and billing platform for SaaS, Infrastructure, and AI companies 🔥.
@@ -32,7 +33,6 @@
   </a>
 </p>
 
-
 <div>
 <span>
 
@@ -40,15 +40,14 @@ Meteroid addresses the complexities and limitations of traditional billing syste
 transitioning to usage-based models or product-led-growth principles.
 It eliminates the gap between customer usage and billing, ensuring accuracy and transparency.
 
-
 </span>
 </div>
 
 <br/>
 <div align="center">
-
-**We'd love your support or contribution! Leave a star ⭐ and join our Discord!**
-
+ 
+  **We'd love your support or contribution! Leave a star ⭐ and join our Discord!**
+   
 </div>
 
 <div align="center">
@@ -59,9 +58,6 @@ on [Meteroid Cloud](https://app.meteroid.com/registration?source=github-readme-h
 </div>
 
 ---
-
-
-
 
 <p align="center">
   <img src="assets/meteroid-banner.png" alt="Meteroid Billing Infrastructure Banner" width="1012" >
@@ -78,8 +74,7 @@ Meteroid integrates with your existing systems via a simple API, collecting data
 This data fuels the Meteroid billing engine, applying your custom pricing models to generate accurate, timely invoices.
 
 Our platform simplifies the creation, scaling and maintenance of complex billing models, automates invoice generation,
-and provides *clear, actionable insights* for achieving your KPIs.
-
+and provides _clear, actionable insights_ for achieving your KPIs.
 
 <p align="center">
 <img
@@ -134,19 +129,20 @@ Meteroid is the complete monetization platform for modern SaaS. Key capabilities
   Monitor your revenue in real time and identify what's driving growth with actionable insights, without waiting
   for month-end exports. *(Coming soon)*
 
+
 ## For whom ?
 
 Whether you're product-led or sales-led, or running both motions at once,
 Meteroid is your single source of truth for monetization.
 
-- **Engineering teams** that have been through the pain of building and maintaining a
-  billing system from scratch.
-
 - **Product-led teams** that want to ship usage-based or complex or hybrid pricing from day one,
   without building custom billing infrastructure.
-
+  
 - **Sales-led teams** that need to close custom deals fast, automate quote-to-cash,
   and keep finance in sync with no manual handovers between sales and billing.
+  
+- **Engineering teams** that have been through the pain of building and maintaining a
+  billing system from scratch.
 
 ## Build for Sustainable Growth
 
@@ -167,17 +163,39 @@ SaaS industries.
 
 Please refer to the [contributing guide](CONTRIBUTING.md) for how to install Meteroid from sources.
 
-## Deployment
+## Self-hosting
 
-> ☁️ **Just testing?** Skip self-hosting entirely — spin up a free workspace on
-> [**Meteroid Cloud**](https://app.meteroid.com/registration?source=github-readme-deploy)
-> in seconds. No infra to run, no config, no credit card. Come back here when you're
-> ready to self-host in production.
+The [self-hosting guides](https://docs.meteroid.com/self-hosting) cover installation, configuration
+and upgrades:
 
-We provide a Docker Compose and a Helm Chart setup for easy self-hosting:
+- **Docker Compose**: [`docker/deploy`](docker/deploy), see
+  [Deploy with Docker Compose](https://docs.meteroid.com/self-hosting/docker-compose).
+- **Kubernetes (Helm)**: [`k8s/meteroid`](k8s/meteroid), see
+  [Deploy on Kubernetes](https://docs.meteroid.com/self-hosting/kubernetes).
+- **Upgrading from 0.19 or a 1.0.0 release candidate**: see
+  [Upgrading to 2.0](https://docs.meteroid.com/self-hosting/upgrading-to-2-0).
 
-- **Docker Compose**: See [`docker/deploy`](docker/deploy)  (minimal setup for testing/development)
-- **Kubernetes (Helm)**: See [`k8s/meteroid`](k8s/meteroid)
+### Editions and images
+
+The official images (`ghcr.io/meteroid-oss/meteroid-api`, `meteroid-worker`, `metering-api` and
+`meteroid-web`) are Meteroid Enterprise: the code of this repository plus the Enterprise modules.
+They are free to run without a license, and a license unlocks the paid features. See
+[Editions](https://docs.meteroid.com/self-hosting/editions).
+
+This repository is the open-source edition, under the AGPL V3. No images of it are published:
+the Dockerfiles build it from this repository, and both editions share the same database, so you
+can switch between them by changing the images.
+
+### Git Hooks
+
+To install the pre-push hook (prevents direct pushes to main):
+
+```bash
+cp pre-push .git/hooks/pre-push
+chmod +x .git/hooks/pre-push
+```
+
+Bypass when needed: `ALLOW_MAIN=1 git push`
 
 ## License
 
@@ -185,7 +203,9 @@ Copyright 2026 Meteroid
 
 Licensed under the AGPL V3 License. <br/> See [LICENSE](LICENSE) for more information.
 
-For enterprise support, addons or custom licensing options, please contact us.
+The official images are Meteroid Enterprise, see [Editions and images](#editions-and-images). For
+enterprise support, licenses or custom licensing options, contact us at
+[hey@meteroid.com](mailto:hey@meteroid.com).
 
 ## Contributors ✨
 

@@ -4,10 +4,15 @@ use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
 use chrono::NaiveDate;
 use common_domain::country::CountryCode;
-use meteroid_mailer::service::MockMailerService;
 use meteroid_store::Services;
 use meteroid_store::clients::usage::MockUsageClient;
 use meteroid_store::domain::coupons::{CouponDiscount, CouponNew};
+use meteroid_store::domain::enums::FeeTypeEnum;
+use meteroid_store::domain::price_components::{PriceEntry, PriceInput, ProductRef};
+use meteroid_store::domain::prices::{FeeStructure, Pricing};
+use meteroid_store::domain::subscription_components::{
+    CreateSubscriptionComponents, ExtraComponent,
+};
 use meteroid_store::domain::subscription_coupons::CreateSubscriptionCoupon;
 use meteroid_store::domain::{
     CreateSubscription, CreateSubscriptionCoupons, CustomerTaxRate, InvoicingEntityPatch,
@@ -17,6 +22,7 @@ use meteroid_store::repositories::SubscriptionInterface;
 use meteroid_store::repositories::coupons::CouponInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::store::PgConn;
+use meteroid_testkit::mailer::MockMailerService;
 use rust_decimal_macros::dec;
 use serde_json::json;
 use std::str::FromStr;
@@ -25,7 +31,8 @@ use std::sync::Arc;
 #[tokio::test]
 async fn test_compute_invoice_scenarios() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
 
     let mock_mailer = Arc::new(MockMailerService::new());
     let setup = meteroid_it::container::start_meteroid_with_clients(
@@ -45,6 +52,7 @@ async fn test_compute_invoice_scenarios() {
     test_compute_invoice_with_reverse_charge(&services, &store, &mut conn).await;
     test_compute_invoice_with_manual_tax_and_coupon(&services, &store, &mut conn).await;
     test_compute_invoice_with_tax_category_custom_tax(&services, &store, &mut conn).await;
+    test_compute_invoice_rounds_vat_once_over_the_invoice(&services, &store, &mut conn).await;
 }
 
 async fn test_compute_invoice_basic(
@@ -75,11 +83,15 @@ async fn test_compute_invoice_basic(
                     backdate_invoices: false,
                     skip_checkout_session: false,
                     skip_past_invoices: false,
+                    usage_filter: None,
+                    custom_properties: serde_json::Value::Null,
                 },
                 price_components: None,
                 add_ons: None,
                 coupons: None,
                 entitlements: vec![],
+                minimum_override: None,
+                drop_minimum: false,
             },
             TENANT_ID,
         )
@@ -94,7 +106,12 @@ async fn test_compute_invoice_basic(
 
     let invoice_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
     let result = services
-        .compute_invoice(&invoice_date, &subscription_details, None)
+        .compute_invoice(
+            &invoice_date,
+            &subscription_details,
+            None,
+            meteroid_store::domain::enums::InvoiceType::Recurring,
+        )
         .await
         .unwrap();
 
@@ -127,7 +144,12 @@ async fn test_compute_invoice_basic(
     // Test with a full month
     let full_month = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let result2 = services
-        .compute_invoice(&full_month, &subscription_details, None)
+        .compute_invoice(
+            &full_month,
+            &subscription_details,
+            None,
+            meteroid_store::domain::enums::InvoiceType::Recurring,
+        )
         .await
         .unwrap();
 
@@ -143,7 +165,12 @@ async fn test_compute_invoice_basic(
     // Test with prepaid amount
     let prepaid_amount = 1000u64; // 10.00 in cents
     let result3 = services
-        .compute_invoice(&invoice_date, &subscription_details, Some(prepaid_amount))
+        .compute_invoice(
+            &invoice_date,
+            &subscription_details,
+            Some(prepaid_amount),
+            meteroid_store::domain::enums::InvoiceType::Recurring,
+        )
         .await
         .unwrap();
 
@@ -208,11 +235,15 @@ async fn test_compute_invoice_with_eu_vat(
                     backdate_invoices: false,
                     skip_checkout_session: false,
                     skip_past_invoices: false,
+                    usage_filter: None,
+                    custom_properties: serde_json::Value::Null,
                 },
                 price_components: None,
                 add_ons: None,
                 coupons: None,
                 entitlements: vec![],
+                minimum_override: None,
+                drop_minimum: false,
             },
             TENANT_ID,
         )
@@ -227,7 +258,12 @@ async fn test_compute_invoice_with_eu_vat(
 
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let result = services
-        .compute_invoice(&invoice_date, &subscription_details, None)
+        .compute_invoice(
+            &invoice_date,
+            &subscription_details,
+            None,
+            meteroid_store::domain::enums::InvoiceType::Recurring,
+        )
         .await
         .unwrap();
 
@@ -246,7 +282,12 @@ async fn test_compute_invoice_with_eu_vat(
             exemption_type: None,
             exemption_reason: None,
             tax_reference: None,
-            overridden: false
+            overridden: false,
+            supply_basis: None,
+            // The engine records what kind of tax the rate is, so the renderer can
+            // word the breakdown row in the document's own language.
+            tax_kind: Some(meteroid_store::domain::TaxKind::Vat),
+            prepaid_credit: false,
         }],
         "Tax breakdown should contain VAT at 20%"
     );
@@ -286,7 +327,6 @@ async fn create_french_b2b_customer(
         created_at: Some(chrono::Utc::now().naive_utc()),
         tenant_id: TENANT_ID,
         alias: None,
-        balance_value_cents: 0,
         currency: "EUR".to_string(),
         invoicing_entity_id: INVOICING_ENTITY_ID,
         billing_address: Some(serde_json::to_value(&french_address).unwrap()),
@@ -294,6 +334,8 @@ async fn create_french_b2b_customer(
         billing_email: None,
         current_payment_method_id: None,
         vat_number: Some("FR12345678901".to_string()),
+        legal_number: None,
+        buyer_reference: None,
         custom_taxes: json!([]),
         invoicing_emails: vec![],
         phone: None,
@@ -302,6 +344,11 @@ async fn create_french_b2b_customer(
         vat_number_format_valid: true,
         connected_account_id: None,
         vat_number_validation_status: None,
+        custom_properties: serde_json::Value::Null,
+        preferred_locales: vec![],
+        customer_type: diesel_models::enums::CustomerTypeEnum::Company,
+        first_name: None,
+        last_name: None,
     };
 
     customer_row.insert(conn).await.unwrap();
@@ -353,11 +400,15 @@ async fn test_compute_invoice_with_reverse_charge(
                     backdate_invoices: false,
                     skip_checkout_session: false,
                     skip_past_invoices: false,
+                    usage_filter: None,
+                    custom_properties: serde_json::Value::Null,
                 },
                 price_components: None,
                 add_ons: None,
                 coupons: None,
                 entitlements: vec![],
+                minimum_override: None,
+                drop_minimum: false,
             },
             TENANT_ID,
         )
@@ -372,7 +423,12 @@ async fn test_compute_invoice_with_reverse_charge(
 
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let result = services
-        .compute_invoice(&invoice_date, &subscription_details, None)
+        .compute_invoice(
+            &invoice_date,
+            &subscription_details,
+            None,
+            meteroid_store::domain::enums::InvoiceType::Recurring,
+        )
         .await
         .unwrap();
 
@@ -452,6 +508,8 @@ async fn test_compute_invoice_with_manual_tax_and_coupon(
                     backdate_invoices: false,
                     skip_checkout_session: false,
                     skip_past_invoices: false,
+                    usage_filter: None,
+                    custom_properties: serde_json::Value::Null,
                 },
                 price_components: None,
                 add_ons: None,
@@ -459,6 +517,8 @@ async fn test_compute_invoice_with_manual_tax_and_coupon(
                     coupons: vec![CreateSubscriptionCoupon { coupon_id }],
                 }),
                 entitlements: vec![],
+                minimum_override: None,
+                drop_minimum: false,
             },
             TENANT_ID,
         )
@@ -473,7 +533,12 @@ async fn test_compute_invoice_with_manual_tax_and_coupon(
 
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let result = services
-        .compute_invoice(&invoice_date, &subscription_details, None)
+        .compute_invoice(
+            &invoice_date,
+            &subscription_details,
+            None,
+            meteroid_store::domain::enums::InvoiceType::Recurring,
+        )
         .await
         .unwrap();
 
@@ -511,6 +576,220 @@ async fn test_compute_invoice_with_manual_tax_and_coupon(
         result.total, expected_total,
         "Total calculation should be consistent with manual tax and coupon"
     );
+
+    // The same subscription, sold tax-included: the customer pays the quoted 35.00 less
+    // the coupon's 10% — 31.50 to the cent — and the 8.25% is carved out of that instead
+    // of being added to it.
+    let mut inclusive_details = subscription_details.clone();
+    inclusive_details.subscription.tax_inclusive = true;
+    let inclusive = services
+        .compute_invoice(
+            &invoice_date,
+            &inclusive_details,
+            None,
+            meteroid_store::domain::enums::InvoiceType::Recurring,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        inclusive.total, 3150,
+        "Total is the quoted price after the coupon"
+    );
+    // 31.50 * 0.0825 / 1.0825 = 2.4007
+    assert_eq!(
+        inclusive.tax_amount, 240,
+        "Tax is carved out of the quoted price"
+    );
+    assert_eq!(
+        inclusive.subtotal - inclusive.discount + inclusive.tax_amount,
+        inclusive.total,
+        "The invoice still reads net: subtotal - discount + tax = total"
+    );
+    assert_eq!(
+        inclusive.subtotal - inclusive.discount,
+        2910,
+        "Net of tax and discount"
+    );
+    assert!(
+        inclusive.subtotal < result.subtotal,
+        "The stored subtotal is net of the tax the quoted price contained"
+    );
+    assert_eq!(
+        inclusive.applied_coupons[0].value, inclusive.discount,
+        "The coupon row is restated net, in step with the discount"
+    );
+    assert_eq!(
+        inclusive.applied_coupons[0].consumed_value(),
+        350,
+        "The coupon is drawn down by what it took off the quoted price"
+    );
+    for line in &inclusive.invoice_lines {
+        let quote = line
+            .tax_inclusive_quote
+            .as_ref()
+            .expect("A netted line keeps the figures it was quoted in");
+        assert!(quote.amount_subtotal > line.amount_subtotal);
+        assert_eq!(line.amount_total, line.taxable_amount + line.tax_amount);
+    }
+    assert_eq!(
+        inclusive
+            .invoice_lines
+            .iter()
+            .map(|line| line.amount_total)
+            .sum::<i64>(),
+        inclusive.total,
+        "Lines add up to the quoted total"
+    );
+}
+
+/// A rate is rounded once over the invoice's whole taxable base. Lines that would each
+/// round down on their own must not shave a cent off the VAT the customer checks by
+/// applying the rate to the subtotal.
+async fn test_compute_invoice_rounds_vat_once_over_the_invoice(
+    services: &Services,
+    store: &meteroid_store::Store,
+    conn: &mut PgConn,
+) {
+    store
+        .patch_invoicing_entity(
+            common_domain::actor::Actor::System,
+            InvoicingEntityPatch {
+                id: INVOICING_ENTITY_ID,
+                tax_resolver: Some(meteroid_store::domain::enums::TaxResolverEnum::MeteroidEuVat),
+                ..Default::default()
+            },
+            TENANT_ID,
+        )
+        .await
+        .unwrap();
+
+    let customer_id = create_french_b2b_customer(services, conn).await;
+
+    // The plan's own component is dropped so the invoice is exactly two lines whose VAT
+    // at 20% ends in .4 of a cent (3.024 and 2.034): rounded per line they would bill
+    // 5.05 instead of the 5.06 owed on the 25.29 base.
+    let subscription_id = services
+        .insert_subscription(
+            common_domain::actor::Actor::System,
+            CreateSubscription {
+                subscription: SubscriptionNew {
+                    customer_id,
+                    plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
+                    net_terms: None,
+                    invoice_memo: None,
+                    invoice_threshold: None,
+                    start_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    end_date: None,
+                    billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
+                    activation_condition: SubscriptionActivationCondition::OnStart,
+                    trial_duration: None,
+                    billing_day_anchor: None,
+                    payment_methods_config: None,
+                    auto_advance_invoices: true,
+                    charge_automatically: false,
+                    purchase_order: None,
+                    backdate_invoices: false,
+                    skip_checkout_session: false,
+                    skip_past_invoices: false,
+                    usage_filter: None,
+                    custom_properties: serde_json::Value::Null,
+                },
+                price_components: Some(CreateSubscriptionComponents {
+                    parameterized_components: vec![],
+                    overridden_components: vec![],
+                    extra_components: vec![
+                        extra_eur_rate_component("VAT split A", 1512),
+                        extra_eur_rate_component("VAT split B", 1017),
+                    ],
+                    remove_components: vec![COMP_LEETCODE_RATE_ID],
+                }),
+                add_ons: None,
+                coupons: None,
+                entitlements: vec![],
+                minimum_override: None,
+                drop_minimum: false,
+            },
+            TENANT_ID,
+        )
+        .await
+        .unwrap()
+        .id;
+
+    let subscription_details = store
+        .get_subscription_details_with_conn(conn, TENANT_ID, subscription_id)
+        .await
+        .unwrap();
+
+    let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+    let result = services
+        .compute_invoice(
+            &invoice_date,
+            &subscription_details,
+            None,
+            meteroid_store::domain::enums::InvoiceType::Recurring,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        result.invoice_lines.len(),
+        2,
+        "only the two extra components bill"
+    );
+    assert_eq!(result.subtotal, 2529);
+    assert_eq!(
+        result.tax_amount, 506,
+        "VAT is 20% of the subtotal rounded once (505.8), not the sum of per-line roundings (505)"
+    );
+    assert_eq!(result.total, 3035);
+
+    assert_eq!(
+        result
+            .invoice_lines
+            .iter()
+            .map(|line| line.tax_amount)
+            .sum::<i64>(),
+        result.tax_amount,
+        "line tax amounts must add up to the invoice VAT"
+    );
+    assert_eq!(
+        result
+            .invoice_lines
+            .iter()
+            .map(|line| line.amount_total)
+            .sum::<i64>(),
+        result.total,
+        "line totals must add up to the invoice total"
+    );
+
+    assert_eq!(result.tax_breakdown.len(), 1);
+    assert_eq!(result.tax_breakdown[0].taxable_amount, 2529);
+    assert_eq!(
+        result.tax_breakdown[0].tax_amount, 506,
+        "the breakdown must match the invoice VAT"
+    );
+    assert_eq!(result.tax_breakdown[0].tax_rate, dec!(0.2));
+}
+
+/// An ad-hoc monthly EUR rate component, so a test can pick the exact line amounts.
+fn extra_eur_rate_component(name: &str, rate_cents: i64) -> ExtraComponent {
+    ExtraComponent {
+        name: name.to_string(),
+        product_ref: ProductRef::New {
+            name: format!("{name} Product"),
+            fee_type: FeeTypeEnum::Rate,
+            fee_structure: FeeStructure::Rate {},
+        },
+        price_entry: PriceEntry::New(PriceInput {
+            cadence: meteroid_store::domain::enums::BillingPeriodEnum::Monthly,
+            currency: "EUR".to_string(),
+            pricing: Pricing::Rate {
+                rate: rust_decimal::Decimal::new(rate_cents, 2),
+            },
+            credit_unit: None,
+        }),
+    }
 }
 
 async fn create_german_b2b_customer(
@@ -538,7 +817,6 @@ async fn create_german_b2b_customer(
         created_at: Some(chrono::Utc::now().naive_utc()),
         tenant_id: TENANT_ID,
         alias: None,
-        balance_value_cents: 0,
         currency: "EUR".to_string(),
         invoicing_entity_id: INVOICING_ENTITY_ID,
         billing_address: Some(serde_json::to_value(&german_address).unwrap()),
@@ -546,6 +824,8 @@ async fn create_german_b2b_customer(
         billing_email: None,
         current_payment_method_id: None,
         vat_number: Some("DE123456789".to_string()),
+        legal_number: None,
+        buyer_reference: None,
         custom_taxes: json!([]),
         invoicing_emails: vec![],
         phone: None,
@@ -554,6 +834,11 @@ async fn create_german_b2b_customer(
         vat_number_format_valid: true,
         connected_account_id: None,
         vat_number_validation_status: None,
+        custom_properties: serde_json::Value::Null,
+        preferred_locales: vec![],
+        customer_type: diesel_models::enums::CustomerTypeEnum::Company,
+        first_name: None,
+        last_name: None,
     };
 
     customer_row.insert(conn).await.unwrap();
@@ -586,7 +871,6 @@ async fn create_customer_with_custom_tax_rate(
         created_at: Some(chrono::Utc::now().naive_utc()),
         tenant_id: TENANT_ID,
         alias: None,
-        balance_value_cents: 0,
         currency: "USD".to_string(),
         invoicing_entity_id: INVOICING_ENTITY_ID,
         billing_address: Some(serde_json::to_value(&address).unwrap()),
@@ -594,6 +878,8 @@ async fn create_customer_with_custom_tax_rate(
         billing_email: None,
         current_payment_method_id: None,
         vat_number: None,
+        legal_number: None,
+        buyer_reference: None,
         custom_taxes: serde_json::to_value(vec![CustomerTaxRate {
             tax_code: "custom".to_string(),
             name: "Custom Tax".to_string(),
@@ -607,6 +893,11 @@ async fn create_customer_with_custom_tax_rate(
         vat_number_format_valid: false,
         connected_account_id: None,
         vat_number_validation_status: None,
+        custom_properties: serde_json::Value::Null,
+        preferred_locales: vec![],
+        customer_type: diesel_models::enums::CustomerTypeEnum::Company,
+        first_name: None,
+        last_name: None,
     };
 
     customer_row.insert(conn).await.unwrap();
@@ -748,11 +1039,15 @@ async fn test_compute_invoice_with_tax_category_custom_tax(
                     backdate_invoices: false,
                     skip_checkout_session: false,
                     skip_past_invoices: false,
+                    usage_filter: None,
+                    custom_properties: serde_json::Value::Null,
                 },
                 price_components: None,
                 add_ons: None,
                 coupons: None,
                 entitlements: vec![],
+                minimum_override: None,
+                drop_minimum: false,
             },
             TENANT_ID,
         )
@@ -767,7 +1062,12 @@ async fn test_compute_invoice_with_tax_category_custom_tax(
 
     let invoice_date = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
     let result = services
-        .compute_invoice(&invoice_date, &subscription_details, None)
+        .compute_invoice(
+            &invoice_date,
+            &subscription_details,
+            None,
+            meteroid_store::domain::enums::InvoiceType::Recurring,
+        )
         .await
         .unwrap();
 

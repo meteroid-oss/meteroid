@@ -21,8 +21,12 @@ export const createInvoiceSchema = z.object({
   dueDate: z.date().optional(),
   currency: z.string(),
   purchaseOrder: z.string().optional(),
+  memo: z.string().optional(),
+  reference: z.string().optional(),
   discount: z.number().min(0, "Discount must be 0 or greater").optional(),
+  taxInclusive: z.boolean().optional(),
   lines: z.array(invoiceLineSchema).min(1, "At least one invoice line is required"),
+  customProperties: z.record(z.string(), z.unknown()).optional(),
 })
 
 const baseLineItemObject = z.object({
@@ -132,6 +136,7 @@ export const updateInvoiceSchema = z.object({
   discount: z.number().min(0, "Discount must be 0 or greater").optional(),
   lines: z.array(z.union([updateInvoiceLineSchema, updateInvoiceLineWithSublinesSchema])).min(1, "At least one invoice line is required").optional(),
   customerDetails: updateInlineCustomerSchema.optional(),
+  customProperties: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type InvoiceLineSchema = z.infer<typeof invoiceLineSchema>

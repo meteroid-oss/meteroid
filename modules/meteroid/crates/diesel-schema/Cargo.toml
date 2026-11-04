@@ -1,0 +1,12 @@
+[package]
+name = "diesel-schema"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+common-domain.workspace = true
+diesel-derive-enum.workspace = true
+diesel = { workspace = true, features = ["postgres_backend", "64-column-tables"] }
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }

@@ -24,9 +24,23 @@ export const registerSchema = z.object({
   password: z.string().min(8, '8 characters minimum').max(64, '64 characters maximum'),
 })
 
-export const accountSchema = z.object({
-  firstName: z.string().min(1, 'First name is required'),
-  lastName: z.string().min(1, 'Last name is required'),
-  department: z.string(),
-  knowUsFrom: z.string(),
-})
+// Cloud asks for the department and how the user heard of us; self-hosted installations don't.
+export const accountSchema = (asksAboutUser: boolean) =>
+  z
+    .object({
+      firstName: z.string().min(1, 'First name is required'),
+      lastName: z.string().min(1, 'Last name is required'),
+      department: z.string().optional(),
+      heardFrom: z.string().optional(),
+    })
+    .superRefine((data, ctx) => {
+      if (!asksAboutUser) return
+      if (!data.department) {
+        ctx.addIssue({ code: 'custom', message: 'Required', path: ['department'] })
+      }
+      if (!data.heardFrom) {
+        ctx.addIssue({ code: 'custom', message: 'Required', path: ['heardFrom'] })
+      }
+    })
+
+export type AccountValues = z.infer<ReturnType<typeof accountSchema>>

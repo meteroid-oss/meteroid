@@ -73,6 +73,8 @@ export interface CSVImportDialogProps<TConfig extends CSVImportConfig> {
   showRejectOnError?: boolean
 
   rowSchema?: z.ZodObject<z.ZodRawShape>
+  /** Lines starting with it are skipped, as the import does. */
+  commentChar?: string
 
   entityName: string
   dialogTitle: string
@@ -100,6 +102,7 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
   fileMaxSizeBytes = 10 * 1024 * 1024,
   showRejectOnError = false,
   rowSchema,
+  commentChar,
   entityName,
   dialogTitle,
   dialogDescription,
@@ -123,7 +126,8 @@ export function CSVImportDialog<TConfig extends CSVImportConfig = CSVImportConfi
         csvOptions.delimiter,
         requiredColumns,
         optionalColumns,
-        rowSchema
+        rowSchema,
+        commentChar
       )
       setPreview(result)
       setPreviewError(null)

@@ -5,6 +5,7 @@ import { useSetAtom } from 'jotai'
 import { useHydrateAtoms } from 'jotai/utils'
 import { ScopeProvider } from 'jotai-scope'
 import { ReactNode, useMemo } from 'react'
+import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { usePlanWithVersion } from '@/features/plans/hooks/usePlan'
@@ -13,9 +14,11 @@ import { extractStructuralInfo } from '@/features/plans/pricecomponents/ProductB
 import {
   PriceComponentFormContent,
   buildDefaultsFromPrices,
+  creditPackContext,
   getComponentSchema,
 } from '@/features/plans/pricecomponents/ProductPricingForm'
 import { editedComponentsAtom, useCurrency } from '@/features/plans/pricecomponents/utils'
+import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
 import {
   buildPriceInputs,
   wrapAsNewPriceEntries,
@@ -23,6 +26,7 @@ import {
 } from '@/features/pricing/conversions'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
+import { rpcErrorMessage } from '@/lib/rpcError'
 import { getResolvedEntitlementsForPlanVersion } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import {
   editPriceComponent as editPriceComponentMutation,
@@ -53,6 +57,8 @@ function deriveFeeType(component: ProtoPriceComponent): ComponentFeeType {
         return 'extraRecurring'
       case 'oneTimePricing':
         return 'oneTime'
+      case 'creditPricing':
+        return 'credit'
     }
   }
   return 'rate'
@@ -101,9 +107,17 @@ export const EditPriceComponent = ({ component }: EditPriceComponentProps) => {
     [feeType, component.prices]
   )
 
+  const creditUnits = useCreditUnits()
   const schema = useMemo(
-    () => getComponentSchema(feeType, hasProduct ? 'pricingOnly' : 'full', usageModelFromPrices),
-    [feeType, hasProduct, usageModelFromPrices]
+    () =>
+      getComponentSchema(
+        feeType,
+        hasProduct ? 'pricingOnly' : 'full',
+        usageModelFromPrices,
+        undefined,
+        creditPackContext(currency, creditUnits)
+      ),
+    [feeType, hasProduct, usageModelFromPrices, currency, creditUnits]
   )
 
   const methods = useZodForm({ schema: schema as z.ZodType, defaultValues })
@@ -126,6 +140,7 @@ export const EditPriceComponent = ({ component }: EditPriceComponentProps) => {
         cardinality: undefined
       }) })
     },
+    onError: error => toast.error(rpcErrorMessage(error, 'The price component could not be saved')),
   })
 
   const cancel = () => {

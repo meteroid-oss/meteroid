@@ -1,12 +1,17 @@
-import { PaginationState, SortingState } from '@tanstack/react-table'
-import { FunctionComponent, useCallback, useEffect, useMemo, useState } from 'react'
-import { Outlet } from 'react-router-dom'
+import { PlusIcon } from '@md/icons'
+import { Button } from '@md/ui'
+import { SortingState } from '@tanstack/react-table'
+import { FunctionComponent, useCallback, useMemo, useState } from 'react'
+import { Outlet, useNavigate } from 'react-router-dom'
 
+import { Gate } from '@/components/Gate'
+import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'
 import { MultiFilter, SingleFilter } from '@/features/TablePage'
-import { PlansHeader } from '@/features/plans/PlansHeader'
 import { PlansTable } from '@/features/plans/PlansTable'
 import { useDebounceValue } from '@/hooks/useDebounce'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { ARRAY_SERDE, useQueryState } from '@/hooks/useQueryState'
+import { useListPagination, useResetPageOnChange } from '@/hooks/useTablePreferences'
 import { useQuery } from '@/lib/connectrpc'
 import { sortingStateToOrderBy } from '@/lib/utils/sorting'
 import { PlanStatus, PlanType } from '@/rpc/api/plans/v1/models_pb'
@@ -17,13 +22,12 @@ const DEFAULT_STATUSES = ['active', 'draft']
 const DEFAULT_TYPES = ['free', 'standard', 'custom']
 
 export const Plans: FunctionComponent = () => {
+  const navigate = useNavigate()
+  const isExpress = useIsExpressOrganization()
   const productFamiliesQuery = useQuery(listProductFamilies)
 
-  const [search] = useQueryState<string | undefined>('q', undefined)
-  const [pagination, setPagination] = useState<PaginationState>({
-    pageIndex: 0,
-    pageSize: 20,
-  })
+  const [search, setSearch] = useQueryState<string | undefined>('q', undefined)
+  const [pagination, setPagination] = useListPagination()
 
   const [status, setStatus] = useQueryState('status', DEFAULT_STATUSES, ARRAY_SERDE)
   const [type, setType] = useQueryState('type', DEFAULT_TYPES, ARRAY_SERDE)
@@ -42,9 +46,7 @@ export const Plans: FunctionComponent = () => {
 
   const [sorting, setSorting] = useState<SortingState>([])
 
-  useEffect(() => {
-    setPagination(prev => ({ ...prev, pageIndex: 0 }))
-  }, [debouncedSearch, status, type, line])
+  useResetPageOnChange(setPagination, [debouncedSearch, status, type, line])
 
   const handleSortingChange = useCallback(
     (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => {
@@ -53,7 +55,7 @@ export const Plans: FunctionComponent = () => {
       )
       setPagination(prev => ({ ...prev, pageIndex: 0 }))
     },
-    []
+    [setPagination]
   )
 
   const plansQuery = useQuery(listPlans, {
@@ -71,29 +73,47 @@ export const Plans: FunctionComponent = () => {
   })
 
   return (
-    <>
-      <PlansHeader
-        count={plansQuery.data?.paginationMeta?.totalItems}
-        isLoading={plansQuery.isLoading}
-        refetch={() => plansQuery.refetch()}
-      >
-        <MultiFilter
-          emptyLabel="All statuses"
-          entries={['active', 'draft', 'inactive', 'archived']}
-          hook={[status, setStatus]}
-        />
-        <MultiFilter
-          emptyLabel="All types"
-          entries={['free', 'standard', 'custom']}
-          hook={[type, setType]}
-        />
-
-        <SingleFilter
-          emptyLabel="All product lines"
-          entries={productFamilyData}
-          hook={[line, setLine]}
-        />
-      </PlansHeader>
+    <ListPageLayout
+      title="Plans"
+      count={plansQuery.data?.paginationMeta?.totalItems}
+      actions={
+        isExpress ? undefined : (
+          <Gate perm="catalog:manage">
+            <Button variant="primary" size="sm" hasIcon onClick={() => navigate('add-plan')}>
+              <PlusIcon className="w-4 h-4" /> New plan
+            </Button>
+          </Gate>
+        )
+      }
+      toolbar={
+        <>
+          <ListToolbarSearch
+            value={search ?? ''}
+            onChange={setSearch}
+            placeholder="Search plans"
+            className="max-w-[220px]"
+          />
+          <MultiFilter
+            emptyLabel="All statuses"
+            entries={['active', 'draft', 'inactive', 'archived']}
+            hook={[status, setStatus]}
+          />
+          <MultiFilter
+            emptyLabel="All types"
+            entries={['free', 'standard', 'custom']}
+            hook={[type, setType]}
+          />
+          <SingleFilter
+            emptyLabel="All product lines"
+            entries={productFamilyData}
+            hook={[line, setLine]}
+          />
+        </>
+      }
+      toolbarTrailing={
+        <RefreshButton isLoading={plansQuery.isLoading} onClick={() => plansQuery.refetch()} />
+      }
+    >
       <PlansTable
         plansQuery={plansQuery}
         pagination={pagination}
@@ -102,7 +122,7 @@ export const Plans: FunctionComponent = () => {
         onSortingChange={handleSortingChange}
       />
       <Outlet />
-    </>
+    </ListPageLayout>
   )
 }
 

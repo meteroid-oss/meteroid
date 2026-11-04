@@ -1,0 +1,79 @@
+name: Replay to enterprise
+
+# Runs in the public repository only, where the OSS export brings this file. Pull requests are not
+# merged here: a maintainer labels a CLA-signed one `replay` (or runs this by hand), and it is
+# replayed on the same paths as a pull request in meteroid-oss/enterprise. The export brings the
+# change back and closes the pull request. The logic is enterprise's
+# scripts/editions/replay-public-pr.py; no code of the pull request is checked out or run (its
+# commits are only fetched as data). Off until ENTERPRISE_REPLAY_ENABLED is 'true'.
+
+on:
+  pull_request_target:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: read
+
+concurrency:
+  group: replay-to-enterprise-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  replay:
+    name: Replay to enterprise
+    if: >-
+      github.repository_owner == 'meteroid-oss'
+      && vars.ENTERPRISE_REPLAY_ENABLED == 'true'
+      && (github.event_name == 'workflow_dispatch' || github.event.label.name == 'replay')
+    runs-on: ubuntu-latest
+    environment: enterprise-replay
+    env:
+      PR: ${{ github.event.pull_request.number || inputs.pr }}
+    steps:
+      - name: Token for meteroid-oss/enterprise
+        id: token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.ENTERPRISE_REPLAY_APP_ID }}
+          private-key: ${{ secrets.ENTERPRISE_REPLAY_APP_PRIVATE_KEY }}
+          owner: meteroid-oss
+          repositories: enterprise
+          permission-contents: write
+          permission-pull-requests: write
+      # The base branch only; the pull request's commits are fetched as objects, never checked out.
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          path: public
+          persist-credentials: false
+      - name: Fetch the pull request
+        working-directory: public
+        run: |
+          [[ "$PR" =~ ^[0-9]+$ ]] || { echo "not a pull request number: $PR" >&2; exit 1; }
+          git fetch --quiet origin "+refs/pull/${PR}/head:refs/pull/${PR}/head"
+      - uses: actions/checkout@v6
+        with:
+          repository: meteroid-oss/enterprise
+          ref: main
+          token: ${{ steps.token.outputs.token }}
+          fetch-depth: 0
+          path: enterprise
+      - name: Replay
+        working-directory: enterprise
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          PUBLIC_GH_TOKEN: ${{ github.token }}
+          APP_SLUG: ${{ steps.token.outputs.app-slug }}
+        run: |
+          user_id=$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq .id)
+          export REPLAY_BOT_NAME="${APP_SLUG}[bot]"
+          export REPLAY_BOT_EMAIL="${user_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+          python3 scripts/editions/replay-public-pr.py --push --pr "$PR" --public-url "$GITHUB_WORKSPACE/public"

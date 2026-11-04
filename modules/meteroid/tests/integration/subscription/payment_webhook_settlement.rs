@@ -4,25 +4,22 @@
 //! in `payment_methods_config.rs` don't: a charge that comes back `Pending`
 //! (SEPA/ACH-style) or `requires_action` (3DS/SCA) settles only when the
 //! provider's webhook arrives. We drive the real production dispatcher
-//! ([`handle_normalized_event`]) with events produced by the `MockConnector`'s
+//! (`TestEnv::deliver_mock_webhook`) with events produced by the `MockConnector`'s
 //! own `parse_event`, so the test exercises parse → consolidate → outbox →
 //! settlement orchestration → invoice paid, exactly as the HTTP webhook route
 //! does (minus signature verification, which is unit-tested per adapter).
 
-use http::HeaderMap;
 use rstest::rstest;
 
 use chrono::NaiveDate;
 
 use crate::data::ids::*;
-use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
+use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, test_env};
 
-use meteroid::api_rest::webhooks::event_handler::handle_normalized_event;
-use meteroid_store::adapters::payment::initialize_payment_connector;
 use meteroid_store::domain::PaymentStatusEnum;
-use meteroid_store::domain::connectors::{Connector, MockPublicData, ProviderData};
+use meteroid_store::domain::connectors::MockChargeBehavior;
 use meteroid_store::domain::enums::{
-    ConnectorProviderEnum, ConnectorTypeEnum, InvoicePaymentStatus, InvoiceStatusEnum,
+    InvoicePaymentStatus, InvoiceStatusEnum, PaymentTypeEnum, RefundMode, ReversalKind,
 };
 use meteroid_store::domain::outbox_event::OutboxEvent;
 use meteroid_store::domain::pgmq::PgmqQueue;
@@ -30,59 +27,38 @@ use meteroid_store::repositories::payment_transactions::PaymentTransactionInterf
 use meteroid_store::repositories::pgmq::PgmqInterface;
 
 use common_domain::ids::{BaseId, InvoiceId, PaymentTransactionId};
-use common_domain::pgmq::{MessageId, MessageReadQty, MessageReadVtSec};
-
-/// The mock Connector domain object, matching what `seed_mock_payment_provider`
-/// writes. The dispatcher only reads `tenant_id`/`provider` from it; the
-/// `MockConnector` built from it ignores the data for the succeeded/failed path.
-fn mock_connector() -> Connector {
-    Connector {
-        id: MOCK_CONNECTOR_ID,
-        created_at: chrono::Utc::now().naive_utc(),
-        tenant_id: TENANT_ID,
-        alias: "mock-payment-provider".to_string(),
-        connector_type: ConnectorTypeEnum::PaymentProvider,
-        provider: ConnectorProviderEnum::Mock,
-        data: Some(ProviderData::Mock(MockPublicData::default())),
-        sensitive: None,
-    }
-}
-
-/// Parse a mock webhook envelope and run it through the real dispatcher, then
-/// drain the outbox so the settlement orchestration runs.
-async fn deliver_webhook(env: &TestEnv, payload: &[u8]) {
-    let connector = mock_connector();
-    let connector_impl = initialize_payment_connector(&connector).expect("mock connector init");
-
-    let event = connector_impl
-        .parse_event(&connector, payload, &HeaderMap::new())
-        .expect("parse_event ok")
-        .expect("an event was produced");
-
-    handle_normalized_event(
-        event,
-        &connector,
-        connector_impl.as_ref(),
-        env.store().clone(),
-        env.services(),
-    )
-    .await
-    .expect("dispatcher handled the event");
-
-    env.run_outbox_and_orchestration().await;
-}
+use common_domain::pgmq::{MessageReadQty, MessageReadVtSec};
 
 async fn transaction_for_invoice(
     env: &TestEnv,
     invoice_id: InvoiceId,
 ) -> meteroid_store::domain::payment_transactions::PaymentTransaction {
-    let txs = env
+    let mut txs: Vec<_> = env
         .store()
         .list_payment_tx_by_invoice_id(TENANT_ID, invoice_id)
         .await
-        .expect("list payment transactions");
+        .expect("list payment transactions")
+        .into_iter()
+        .map(|t| t.transaction)
+        .filter(|t| t.payment_type == PaymentTypeEnum::Payment)
+        .collect();
     assert_eq!(txs.len(), 1, "expected exactly one payment transaction");
-    txs.into_iter().next().unwrap().transaction
+    txs.remove(0)
+}
+
+/// The REFUND children recorded against `parent_id`, oldest first.
+async fn refunds_of(
+    env: &TestEnv,
+    parent_id: PaymentTransactionId,
+) -> Vec<meteroid_store::domain::payment_transactions::PaymentTransaction> {
+    use diesel_models::payments::PaymentTransactionRow;
+    let mut conn = env.conn().await;
+    PaymentTransactionRow::list_refunds_by_parent(&mut conn, parent_id, TENANT_ID)
+        .await
+        .expect("list refunds of a transaction")
+        .into_iter()
+        .map(Into::into)
+        .collect()
 }
 
 /// The persisted `next_action` JSONB column. The domain `PaymentTransaction`
@@ -98,27 +74,6 @@ async fn persisted_next_action(
         .await
         .expect("get payment transaction row")
         .next_action
-}
-
-/// Set up a card subscription whose first invoice is finalized but unpaid, and
-/// return `(sub_id, invoice_id)`.
-async fn unpaid_card_invoice(env: &TestEnv) -> (common_domain::ids::SubscriptionId, InvoiceId) {
-    env.seed_payments().await;
-
-    let sub_id = subscription()
-        .plan_version(PLAN_VERSION_1_LEETCODE_ID) // $35/month
-        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
-        .on_start()
-        .no_trial()
-        .no_auto_charge()
-        .create(env.services())
-        .await;
-
-    let invoices = env.get_invoices(sub_id).await;
-    invoices.assert().has_count(1);
-    invoices.assert().invoice_at(0).is_finalized_unpaid();
-    let invoice_id = invoices[0].id;
-    (sub_id, invoice_id)
 }
 
 fn succeeded_payload(tx_id: PaymentTransactionId, external_id: &str) -> Vec<u8> {
@@ -138,10 +93,11 @@ fn succeeded_payload(tx_id: PaymentTransactionId, external_id: &str) -> Vec<u8> 
 #[tokio::test]
 async fn test_async_charge_settles_via_webhook(#[future] test_env: TestEnv) {
     let env = test_env.await;
-    let (sub_id, invoice_id) = unpaid_card_invoice(&env).await;
+    let (sub_id, invoice_id) = env.unpaid_card_invoice().await;
 
     // Async provider: the charge is accepted but settles later.
-    env.set_mock_charge_behavior("pending").await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Pending)
+        .await;
 
     let (tx, next_action) = env
         .services()
@@ -169,7 +125,8 @@ async fn test_async_charge_settles_via_webhook(#[future] test_env: TestEnv) {
         .is_finalized_unpaid();
 
     // Provider confirms the payment via webhook.
-    deliver_webhook(&env, &succeeded_payload(tx.id, &external_id)).await;
+    env.deliver_mock_webhook(&succeeded_payload(tx.id, &external_id))
+        .await;
 
     // Transaction settled, invoice paid.
     let settled = transaction_for_invoice(&env, invoice_id).await;
@@ -189,10 +146,11 @@ async fn test_async_charge_settles_via_webhook(#[future] test_env: TestEnv) {
 #[tokio::test]
 async fn test_requires_action_persists_then_clears_on_settlement(#[future] test_env: TestEnv) {
     let env = test_env.await;
-    let (sub_id, invoice_id) = unpaid_card_invoice(&env).await;
+    let (sub_id, invoice_id) = env.unpaid_card_invoice().await;
 
     // Charge comes back needing 3DS/SCA.
-    env.set_mock_charge_behavior("requires_action").await;
+    env.set_mock_charge_behavior(MockChargeBehavior::RequiresAction)
+        .await;
 
     let (tx, next_action) = env
         .services()
@@ -225,7 +183,8 @@ async fn test_requires_action_persists_then_clears_on_settlement(#[future] test_
         .unwrap_or_default();
 
     // Customer completes 3DS; provider confirms via webhook.
-    deliver_webhook(&env, &succeeded_payload(tx.id, &external_id)).await;
+    env.deliver_mock_webhook(&succeeded_payload(tx.id, &external_id))
+        .await;
 
     let settled = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(settled.status, PaymentStatusEnum::Settled);
@@ -250,9 +209,10 @@ async fn test_async_charge_failure_errors_invoice_and_schedules_dunning(
     #[future] test_env: TestEnv,
 ) {
     let env = test_env.await;
-    let (sub_id, invoice_id) = unpaid_card_invoice(&env).await;
+    let (sub_id, invoice_id) = env.unpaid_card_invoice().await;
 
-    env.set_mock_charge_behavior("pending").await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Pending)
+        .await;
 
     let (tx, _) = env
         .services()
@@ -272,7 +232,7 @@ async fn test_async_charge_failure_errors_invoice_and_schedules_dunning(
         tx = tx.id.as_base62(),
     )
     .into_bytes();
-    deliver_webhook(&env, &payload).await;
+    env.deliver_mock_webhook(&payload).await;
 
     let failed = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(failed.status, PaymentStatusEnum::Failed);
@@ -303,9 +263,10 @@ async fn test_success_webhook_for_a_rolled_back_transaction_settles_by_provider_
     #[future] test_env: TestEnv,
 ) {
     let env = test_env.await;
-    let (sub_id, invoice_id) = unpaid_card_invoice(&env).await;
+    let (sub_id, invoice_id) = env.unpaid_card_invoice().await;
 
-    env.set_mock_charge_behavior("pending").await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Pending)
+        .await;
     env.services()
         .complete_invoice_payment(
             TENANT_ID,
@@ -323,7 +284,8 @@ async fn test_success_webhook_for_a_rolled_back_transaction_settles_by_provider_
         .expect("the pending charge carries the provider id");
 
     let rolled_back = PaymentTransactionId::new();
-    deliver_webhook(&env, &succeeded_payload(rolled_back, &external_id)).await;
+    env.deliver_mock_webhook(&succeeded_payload(rolled_back, &external_id))
+        .await;
 
     assert_eq!(
         transaction_for_invoice(&env, invoice_id).await.status,
@@ -343,7 +305,7 @@ async fn test_hosted_attempt_failure_keeps_invoice_payable_without_dunning(
     #[future] test_env: TestEnv,
 ) {
     let env = test_env.await;
-    let (sub_id, invoice_id) = unpaid_card_invoice(&env).await;
+    let (sub_id, invoice_id) = env.unpaid_card_invoice().await;
     let invoice = env.get_invoices(sub_id).await.remove(0);
 
     let tx_id = PaymentTransactionId::new();
@@ -367,6 +329,10 @@ async fn test_hosted_attempt_failure_keeps_invoice_payable_without_dunning(
             initiated_by_customer_id: None,
             pending_provider_intent_id: None,
             pending_connection_id: None,
+            parent_transaction_id: None,
+            credit_note_id: None,
+            refund_mode: None,
+            reversal_reason: None,
         }
         .insert(&mut conn)
         .await
@@ -378,7 +344,7 @@ async fn test_hosted_attempt_failure_keeps_invoice_payable_without_dunning(
         tx = tx_id.as_base62(),
     )
     .into_bytes();
-    deliver_webhook(&env, &payload).await;
+    env.deliver_mock_webhook(&payload).await;
 
     assert_eq!(
         transaction_for_invoice(&env, invoice_id).await.status,
@@ -398,37 +364,172 @@ async fn test_hosted_attempt_failure_keeps_invoice_payable_without_dunning(
     );
 }
 
+/// Cancelled attempts are aborted, not declined: they must not consume dunning budget.
+/// Three prior Cancelled attempts + the first genuine failure must still schedule the
+/// first retry (counting Cancelled would read 4 attempts and exhaust the 3-slot ladder).
+#[rstest]
+#[tokio::test]
+async fn test_cancelled_attempts_do_not_consume_dunning_budget(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let (sub_id, invoice_id) = env.unpaid_card_invoice().await;
+
+    let mut conn = env.conn().await;
+    for i in 0..3 {
+        diesel_models::payments::PaymentTransactionRowNew {
+            id: PaymentTransactionId::new(),
+            tenant_id: TENANT_ID,
+            invoice_id: Some(invoice_id),
+            provider_transaction_id: Some(format!("pi_cancelled_{i}")),
+            amount: 3500,
+            currency: "EUR".to_string(),
+            payment_method_id: Some(CUST_UBER_PAYMENT_METHOD_ID),
+            status: diesel_models::enums::PaymentStatusEnum::Cancelled,
+            payment_type: diesel_models::enums::PaymentTypeEnum::Payment,
+            error_type: None,
+            processed_at: None,
+            checkout_session_id: None,
+            pending_plan_version_id: None,
+            next_action: None,
+            initiated_by_customer_id: None,
+            pending_provider_intent_id: None,
+            pending_connection_id: None,
+            parent_transaction_id: None,
+            credit_note_id: None,
+            refund_mode: None,
+            reversal_reason: None,
+        }
+        .insert(&mut conn)
+        .await
+        .expect("seed cancelled attempt");
+    }
+    drop(conn);
+
+    env.set_mock_charge_behavior(MockChargeBehavior::Pending)
+        .await;
+    let (tx, _) = env
+        .services()
+        .complete_invoice_payment(
+            TENANT_ID,
+            invoice_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            false,
+            None,
+        )
+        .await
+        .expect("charge accepted despite cancelled history");
+    assert_eq!(tx.status, PaymentStatusEnum::Pending);
+
+    let payload = format!(
+        r#"{{"id":"evt_fail_{tx}","kind":"payment_failed","transaction_id":"{tx}","external_id":"pi_fail_after_cancels"}}"#,
+        tx = tx.id.as_base62(),
+    )
+    .into_bytes();
+    env.deliver_mock_webhook(&payload).await;
+
+    env.run_outbox_and_orchestration().await;
+    let retries = env.pending_payment_retries(sub_id, invoice_id).await;
+    assert_eq!(
+        retries, 1,
+        "the first genuine failure must schedule a retry; cancelled attempts don't count"
+    );
+}
+
+/// A Cancelled off-session attempt was aborted, not declined: no Errored, no dunning.
+#[rstest]
+#[tokio::test]
+async fn test_cancelled_attempt_keeps_invoice_payable_without_dunning(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let (sub_id, invoice_id) = env.unpaid_card_invoice().await;
+
+    env.set_mock_charge_behavior(MockChargeBehavior::Cancelled)
+        .await;
+    let _ = env
+        .services()
+        .complete_invoice_payment(
+            TENANT_ID,
+            invoice_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            false,
+            None,
+        )
+        .await;
+
+    assert_eq!(
+        transaction_for_invoice(&env, invoice_id).await.status,
+        PaymentStatusEnum::Cancelled
+    );
+    env.run_outbox_and_orchestration().await;
+    env.get_invoices(sub_id)
+        .await
+        .assert()
+        .invoice_at(0)
+        .has_status(InvoiceStatusEnum::Finalized)
+        .has_payment_status(InvoicePaymentStatus::Unpaid);
+    assert_eq!(
+        env.pending_payment_retries(sub_id, invoice_id).await,
+        0,
+        "a cancelled attempt must not start dunning"
+    );
+}
+
 // =============================================================================
-// Money reversals: a settled payment clawed back must reopen its invoice.
+// Money reversals: a payment lost to a dispute keeps its invoice paid; a failed
+// collection (a debit the bank returned after it settled) reopens it.
 // =============================================================================
 
-/// GoCardless-style full reversal (chargeback / late failure). The event carries
-/// no metadata, so it resolves the local transaction by the provider charge id —
-/// exactly the empty-metadata shape real GoCardless sends.
-fn reversed_payload(external_id: &str) -> Vec<u8> {
+/// GoCardless-style `late_failure_settled`: the bank reports the debit failed after it settled.
+fn late_failure_payload(external_id: &str) -> Vec<u8> {
     format!(
-        r#"{{"id":"evt_cb","kind":"payment_reversed","external_id":"{ext}"}}"#,
+        r#"{{"id":"evt_lf","kind":"payment_late_failure","external_id":"{ext}"}}"#,
         ext = external_id
     )
     .into_bytes()
 }
 
-/// Full reversal pinning `occurred_at`, so a redelivery carries the SAME provider
+/// A Stripe ACH/SEPA/Bacs debit returned after it succeeded, reported as a dispute whose reason
+/// says the funds were missing: a failed collection.
+fn bank_return_payload(
+    external_id: &str,
+    amount: i64,
+    occurred_at: chrono::DateTime<chrono::Utc>,
+) -> Vec<u8> {
+    format!(
+        r#"{{"id":"evt_br_{amt}","kind":"dispute_funds_withdrawn","external_id":"{ext}","amount":{amt},"currency":"EUR","reason":"insufficient_funds","occurred_at":"{at}"}}"#,
+        ext = external_id,
+        amt = amount,
+        at = occurred_at.to_rfc3339(),
+    )
+    .into_bytes()
+}
+
+/// GoCardless-style full claw-back (`charged_back`). The event carries no metadata, so it
+/// resolves the local transaction by the provider charge id — exactly the empty-metadata shape
+/// real GoCardless sends.
+fn reversed_payload(external_id: &str) -> Vec<u8> {
+    format!(
+        r#"{{"id":"evt_cb","kind":"payment_charged_back","external_id":"{ext}"}}"#,
+        ext = external_id
+    )
+    .into_bytes()
+}
+
+/// Full claw-back pinning `occurred_at`, so a redelivery carries the SAME provider
 /// timestamp as the original (a real redelivered webhook does), letting the
 /// reversal-cycle high-water guard reject it.
 fn reversed_payload_at(external_id: &str, occurred_at: chrono::DateTime<chrono::Utc>) -> Vec<u8> {
     format!(
-        r#"{{"id":"evt_cb","kind":"payment_reversed","external_id":"{ext}","occurred_at":"{at}"}}"#,
+        r#"{{"id":"evt_cb","kind":"payment_charged_back","external_id":"{ext}","occurred_at":"{at}"}}"#,
         ext = external_id,
         at = occurred_at.to_rfc3339(),
     )
     .into_bytes()
 }
 
-/// Stripe-style refund carrying the charge's cumulative refunded total.
+/// Stripe-style `charge.refunded`: the charge's cumulative refunded total plus the refund that
+/// triggered it.
 fn refunded_payload(external_id: &str, cumulative_minor: i64) -> Vec<u8> {
     format!(
-        r#"{{"id":"evt_re_{amt}","kind":"payment_refunded","external_id":"{ext}","amount":{amt},"currency":"EUR"}}"#,
+        r#"{{"id":"evt_re_{amt}","kind":"payment_refunded","external_id":"{ext}","amount":{amt},"currency":"EUR","refunds":[{{"id":"mock_re_dash_{amt}","amount":{amt},"succeeded":true}}]}}"#,
         ext = external_id,
         amt = cumulative_minor,
     )
@@ -444,38 +545,6 @@ fn failed_payload(tx_id: PaymentTransactionId, external_id: &str, evt: &str) -> 
     .into_bytes()
 }
 
-/// Seed a card subscription and pay its first invoice in full (synchronous mock
-/// success). Returns `(sub_id, invoice_id, settled_tx, invoice_total)`.
-async fn settled_paid_invoice(
-    env: &TestEnv,
-) -> (
-    common_domain::ids::SubscriptionId,
-    InvoiceId,
-    meteroid_store::domain::payment_transactions::PaymentTransaction,
-    i64,
-) {
-    let (sub_id, invoice_id) = unpaid_card_invoice(env).await;
-
-    let (tx, _) = env
-        .services()
-        .complete_invoice_payment(
-            TENANT_ID,
-            invoice_id,
-            CUST_UBER_PAYMENT_METHOD_ID,
-            false,
-            None,
-        )
-        .await
-        .expect("charge accepted");
-    assert_eq!(tx.status, PaymentStatusEnum::Settled);
-    env.run_outbox_and_orchestration().await;
-
-    let invoices = env.get_invoices(sub_id).await;
-    invoices.assert().invoice_at(0).is_finalized_paid();
-    let total = invoices[0].total;
-    (sub_id, invoice_id, tx, total)
-}
-
 /// Settle an invoice through the async settlement path (pending charge, then a
 /// succeeded webhook) and return `(sub_id, invoice_id, tx_id, external_id, total)`.
 async fn settled_invoice(
@@ -487,10 +556,11 @@ async fn settled_invoice(
     String,
     i64,
 ) {
-    let (sub_id, invoice_id) = unpaid_card_invoice(env).await;
+    let (sub_id, invoice_id) = env.unpaid_card_invoice().await;
     let total = env.get_invoices(sub_id).await[0].total;
 
-    env.set_mock_charge_behavior("pending").await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Pending)
+        .await;
     let (tx, _) = env
         .services()
         .complete_invoice_payment(
@@ -507,7 +577,8 @@ async fn settled_invoice(
         .clone()
         .expect("async charge records a provider id");
 
-    deliver_webhook(env, &succeeded_payload(tx.id, &external_id)).await;
+    env.deliver_mock_webhook(&succeeded_payload(tx.id, &external_id))
+        .await;
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().invoice_at(0).is_finalized_paid();
     invoices.assert().invoice_at(0).has_amount_due(0);
@@ -515,33 +586,83 @@ async fn settled_invoice(
     (sub_id, invoice_id, tx.id, external_id, total)
 }
 
-/// (a) settle → chargeback → transaction reversed, invoice back to unpaid with
-/// its full amount_due.
+/// (a) settle → chargeback → transaction reversed and lost to the dispute; the invoice stays
+/// paid and records the dispute.
 #[rstest]
 #[tokio::test]
-async fn test_chargeback_reverses_settled_payment_and_reopens_invoice(#[future] test_env: TestEnv) {
+async fn test_chargeback_reverses_settled_payment_and_keeps_invoice_paid(
+    #[future] test_env: TestEnv,
+) {
     let env = test_env.await;
-    let (sub_id, invoice_id, tx, total) = settled_paid_invoice(&env).await;
+    let (sub_id, invoice_id, tx, _total) = env.settled_paid_card_invoice().await;
     let external_id = tx
         .provider_transaction_id
         .clone()
         .expect("a settled charge records a provider id");
 
-    deliver_webhook(&env, &reversed_payload(&external_id)).await;
+    env.deliver_mock_webhook(&reversed_payload(&external_id))
+        .await;
 
     let reversed = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(reversed.status, PaymentStatusEnum::Refunded);
     assert_eq!(
-        reversed.amount_refunded, reversed.amount,
-        "a full reversal records the whole amount as refunded"
+        reversed.amount_reversed, reversed.amount,
+        "a full claw-back records the whole amount as involuntarily reversed"
+    );
+    assert_eq!(
+        reversed.amount_disputed, reversed.amount,
+        "all of it lost to the payer's claim"
+    );
+    assert_eq!(reversed.amount_reversed_excess, 0);
+    assert_eq!(
+        reversed.amount_refunded, 0,
+        "nothing was given back voluntarily"
+    );
+    assert_eq!(reversed.reversal_kind, Some(ReversalKind::Chargeback));
+    assert_eq!(reversed.reversal_reason.as_deref(), Some("mock_chargeback"));
+    assert!(
+        refunds_of(&env, reversed.id).await.is_empty(),
+        "an involuntary reversal mutates the payment instead of writing a refund row"
+    );
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().invoice_at(0).is_finalized_paid();
+    invoices.assert().invoice_at(0).has_amount_due(0);
+    assert!(
+        invoices[0].payment_disputed_at.is_some(),
+        "the invoice records the dispute"
+    );
+}
+
+/// (a') settle → late failure → the debit never really landed: the invoice reopens for its total.
+#[rstest]
+#[tokio::test]
+async fn test_late_failure_reverses_settled_payment_and_reopens_invoice(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    let (sub_id, invoice_id, tx, total) = env.settled_paid_card_invoice().await;
+    let external_id = tx.provider_transaction_id.clone().unwrap();
+
+    env.deliver_mock_webhook(&late_failure_payload(&external_id))
+        .await;
+
+    let reversed = transaction_for_invoice(&env, invoice_id).await;
+    assert_eq!(reversed.status, PaymentStatusEnum::Refunded);
+    assert_eq!(reversed.amount_reversed, reversed.amount);
+    assert_eq!(reversed.amount_disputed, 0);
+    assert_eq!(
+        reversed.reversal_kind,
+        Some(ReversalKind::InsufficientFunds)
     );
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().invoice_at(0).is_finalized_unpaid();
     assert_eq!(
         invoices[0].amount_due, total,
-        "the invoice reopens for its full total once the payment is clawed back"
+        "the invoice reopens for its full total once the collection failed"
     );
+    assert!(invoices[0].payment_disputed_at.is_none());
 }
 
 /// (b) redelivering the chargeback must not double-reverse (idempotent).
@@ -549,35 +670,36 @@ async fn test_chargeback_reverses_settled_payment_and_reopens_invoice(#[future] 
 #[tokio::test]
 async fn test_chargeback_redelivery_is_idempotent(#[future] test_env: TestEnv) {
     let env = test_env.await;
-    let (sub_id, invoice_id, tx, total) = settled_paid_invoice(&env).await;
+    let (sub_id, invoice_id, tx, _total) = env.settled_paid_card_invoice().await;
     let external_id = tx.provider_transaction_id.clone().unwrap();
 
-    deliver_webhook(&env, &reversed_payload(&external_id)).await;
-    deliver_webhook(&env, &reversed_payload(&external_id)).await;
+    env.deliver_mock_webhook(&reversed_payload(&external_id))
+        .await;
+    env.deliver_mock_webhook(&reversed_payload(&external_id))
+        .await;
 
     let reversed = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(reversed.status, PaymentStatusEnum::Refunded);
+    assert_eq!(reversed.amount_disputed, reversed.amount);
     let invoices = env.get_invoices(sub_id).await;
-    invoices.assert().invoice_at(0).is_finalized_unpaid();
-    assert_eq!(
-        invoices[0].amount_due, total,
-        "a redelivered reversal is a no-op — amount_due must not double or go negative"
-    );
+    invoices.assert().invoice_at(0).is_finalized_paid();
+    invoices.assert().invoice_at(0).has_amount_due(0);
 }
 
-/// (c) Stripe partial refund keeps the transaction settled and nets the invoice;
-/// a subsequent full refund reverses it entirely.
+/// (c) A provider-side (dashboard) refund is VOLUNTARY: it records REFUND children against the
+/// payment and tracks the provider's cumulative figure on `amount_refunded`. The invoice keeps
+/// its balance — what reduces an invoice is the Refund credit note, not the money movement —
+/// so it stays paid even once the whole charge has been given back.
 #[rstest]
 #[tokio::test]
 async fn test_partial_then_full_refund_tracks_net_amount_due(#[future] test_env: TestEnv) {
     let env = test_env.await;
-    let (sub_id, invoice_id, tx, total) = settled_paid_invoice(&env).await;
+    let (sub_id, invoice_id, tx, total) = env.settled_paid_card_invoice().await;
     let external_id = tx.provider_transaction_id.clone().unwrap();
 
-    // Partial refund of 1000 (of the full charge): the transaction stays settled
-    // with the refunded amount recorded; the invoice is only partially paid.
     let partial = 1000;
-    deliver_webhook(&env, &refunded_payload(&external_id, partial)).await;
+    env.deliver_mock_webhook(&refunded_payload(&external_id, partial))
+        .await;
 
     let after_partial = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(
@@ -586,44 +708,84 @@ async fn test_partial_then_full_refund_tracks_net_amount_due(#[future] test_env:
         "a partial refund keeps the transaction settled"
     );
     assert_eq!(after_partial.amount_refunded, partial);
-    let invoices = env.get_invoices(sub_id).await;
-    invoices
-        .assert()
-        .invoice_at(0)
-        .has_payment_status(InvoicePaymentStatus::PartiallyPaid);
     assert_eq!(
-        invoices[0].amount_due, partial,
-        "amount_due reflects the net (total minus the still-settled remainder)"
+        after_partial.amount_reversed, 0,
+        "a refund is not a claw-back"
     );
 
-    // Cumulative refund now equals the full charge → full reversal.
-    deliver_webhook(&env, &refunded_payload(&external_id, after_partial.amount)).await;
+    let refunds = refunds_of(&env, after_partial.id).await;
+    assert_eq!(refunds.len(), 1, "the observed refund is recorded as a row");
+    assert_eq!(refunds[0].amount, partial);
+    assert_eq!(refunds[0].status, PaymentStatusEnum::Settled);
+    assert_eq!(refunds[0].refund_mode, Some(RefundMode::Online));
+    assert!(
+        refunds[0].credit_note_id.is_none(),
+        "a refund observed at the provider is not drawn on any credit note"
+    );
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().invoice_at(0).is_finalized_paid();
+    assert_eq!(
+        invoices[0].amount_due, 0,
+        "a voluntary refund never reopens the invoice"
+    );
+
+    // The provider reports a new cumulative total: only the delta becomes a new row.
+    env.deliver_mock_webhook(&refunded_payload(&external_id, total))
+        .await;
 
     let after_full = transaction_for_invoice(&env, invoice_id).await;
-    assert_eq!(after_full.status, PaymentStatusEnum::Refunded);
+    assert_eq!(
+        after_full.status,
+        PaymentStatusEnum::Refunded,
+        "nothing is left in the merchant's hands"
+    );
+    assert_eq!(after_full.amount_refunded, total);
+
+    let refunds = refunds_of(&env, after_full.id).await;
+    assert_eq!(refunds.len(), 2);
+    assert_eq!(
+        refunds[1].amount,
+        total - partial,
+        "only the delta above the known refunds is recorded"
+    );
+
     let invoices = env.get_invoices(sub_id).await;
-    invoices.assert().invoice_at(0).is_finalized_unpaid();
-    assert_eq!(invoices[0].amount_due, total);
+    invoices.assert().invoice_at(0).is_finalized_paid();
+    invoices.assert().invoice_at(0).has_amount_due(0);
 }
 
-/// (d) A partially refunded invoice must stay collectable: the live-payment
-/// fence (auto-charge / dunning) no longer counts the netted-out settlement,
-/// and a new payment for the reopened balance is accepted instead of being
-/// rejected as an over-payment.
+/// (d) A partially reversed invoice must stay collectable: a bank return reported as a partial
+/// dispute is a failed collection, the live-payment fence (auto-charge / dunning) no longer
+/// counts the returned part, and a new payment for the reopened balance is accepted.
 #[rstest]
 #[tokio::test]
-async fn test_partial_refund_reopened_balance_is_recollectable(#[future] test_env: TestEnv) {
+async fn test_partially_reversed_balance_is_recollectable(#[future] test_env: TestEnv) {
     let env = test_env.await;
-    let (sub_id, invoice_id, tx, _total) = settled_paid_invoice(&env).await;
+    let (sub_id, invoice_id, tx, _total) = env.settled_paid_card_invoice().await;
     let external_id = tx.provider_transaction_id.clone().unwrap();
 
-    let partial = 1000;
-    deliver_webhook(&env, &refunded_payload(&external_id, partial)).await;
+    let clawed_back = 1000;
+    env.deliver_mock_webhook(&bank_return_payload(
+        &external_id,
+        clawed_back,
+        chrono::Utc::now(),
+    ))
+    .await;
+    let returned = transaction_for_invoice(&env, invoice_id).await;
+    assert_eq!(
+        (returned.amount_reversed, returned.amount_disputed),
+        (clawed_back, 0)
+    );
+    assert_eq!(
+        returned.reversal_kind,
+        Some(ReversalKind::InsufficientFunds)
+    );
     let invoices = env.get_invoices(sub_id).await;
-    assert_eq!(invoices[0].amount_due, partial);
+    assert_eq!(invoices[0].amount_due, clawed_back);
 
     // The re-collection fences (auto-charge orchestration, dunning retry) all
-    // gate on this predicate: the partially refunded settlement must not own
+    // gate on this predicate: the partially reversed settlement must not own
     // the invoice while a reopened balance is outstanding.
     {
         use diesel_models::payments::PaymentTransactionRow;
@@ -633,7 +795,7 @@ async fn test_partial_refund_reopened_balance_is_recollectable(#[future] test_en
             .expect("live-payment check");
         assert!(
             !live,
-            "a partially refunded settlement must not block re-collection"
+            "a partially reversed settlement must not block re-collection"
         );
     }
 
@@ -651,7 +813,7 @@ async fn test_partial_refund_reopened_balance_is_recollectable(#[future] test_en
         .expect("re-collection of the reopened balance is accepted");
     assert_eq!(tx2.status, PaymentStatusEnum::Settled);
     assert_eq!(
-        tx2.amount, partial,
+        tx2.amount, clawed_back,
         "the new charge collects only the reopened balance"
     );
     env.run_outbox_and_orchestration().await;
@@ -661,9 +823,168 @@ async fn test_partial_refund_reopened_balance_is_recollectable(#[future] test_en
     invoices.assert().invoice_at(0).has_amount_due(0);
 }
 
+/// A 1000 partial dispute the previous release applied (no movement row, its event time kept as
+/// the reversal mark, the invoice reopened as that release did) is re-emitted after the deploy by a
+/// Mollie re-read and redelivered by Stripe: nothing is clawed back a second time.
+#[rstest]
+#[tokio::test]
+async fn test_a_dispute_the_previous_release_applied_is_not_applied_again(
+    #[future] test_env: TestEnv,
+) {
+    use diesel_async::SimpleAsyncConnection;
+    let env = test_env.await;
+    let (sub_id, invoice_id, tx, _total) = env.settled_paid_card_invoice().await;
+    let external_id = tx.provider_transaction_id.clone().unwrap();
+    let t1 = chrono::Utc::now() - chrono::Duration::hours(1);
+    env.conn()
+        .await
+        .batch_execute(&format!(
+            "UPDATE payment_transaction SET amount_reversed = 1000, reversal_kind = 'DISPUTE',
+                    refunded_at = '{at}'
+             WHERE id = '{tx}';
+             UPDATE invoice SET amount_due = 1000, payment_status = 'PARTIALLY_PAID', paid_at = NULL
+             WHERE id = '{invoice}';",
+            at = t1.naive_utc(),
+            tx = tx.id.as_uuid(),
+            invoice = invoice_id.as_uuid(),
+        ))
+        .await
+        .expect("the previous release's dispute");
+
+    for _ in 0..2 {
+        env.deliver_mock_webhook(&dispute_withdrawn_payload(&external_id, 1000, t1))
+            .await;
+        let payment = transaction_for_invoice(&env, invoice_id).await;
+        assert_eq!(
+            (payment.amount_reversed, payment.amount_disputed),
+            (1000, 0),
+            "the re-emitted dispute is already applied"
+        );
+        let invoices = env.get_invoices(sub_id).await;
+        assert_eq!(
+            (invoices[0].amount_due, invoices[0].payment_status),
+            (1000, InvoicePaymentStatus::PartiallyPaid),
+            "nothing more is owed"
+        );
+    }
+}
+
+/// A payment fails late, a replacement pays the invoice, then the merchant refunds 300 of the
+/// replacement from the provider's dashboard (no credit note). Nothing was collected above the
+/// invoice when the refund was made: the invoice stays paid, even after the reversal sweep.
+#[rstest]
+#[tokio::test]
+async fn test_a_dashboard_refund_after_a_replaced_late_failure_keeps_the_invoice_paid(
+    #[future] test_env: TestEnv,
+) {
+    use meteroid_store::repositories::credit::CustomerCreditWalletsInterface;
+    let env = test_env.await;
+    let (sub_id, invoice_id, tx, total) = env.settled_paid_card_invoice().await;
+    let external_id = tx.provider_transaction_id.clone().unwrap();
+    env.deliver_mock_webhook(&late_failure_payload(&external_id))
+        .await;
+    assert_eq!(env.get_invoices(sub_id).await[0].amount_due, total);
+
+    let (replacement, _) = env
+        .services()
+        .complete_invoice_payment(
+            TENANT_ID,
+            invoice_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            false,
+            None,
+        )
+        .await
+        .expect("the replacement payment");
+    env.run_outbox_and_orchestration().await;
+    env.get_invoices(sub_id)
+        .await
+        .assert()
+        .invoice_at(0)
+        .is_finalized_paid();
+
+    let replacement_external = replacement
+        .provider_transaction_id
+        .clone()
+        .expect("a provider id");
+    env.deliver_mock_webhook(&refunded_payload(&replacement_external, 300))
+        .await;
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().invoice_at(0).is_finalized_paid();
+    invoices.assert().invoice_at(0).has_amount_due(0);
+
+    env.store()
+        .reconcile_reversed_credit_purchases(100)
+        .await
+        .expect("sweep");
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().invoice_at(0).is_finalized_paid();
+    invoices.assert().invoice_at(0).has_amount_due(0);
+}
+
+/// The provider delivers a dispute's reinstatement before its withdrawal: the reinstatement is
+/// held under the dispute and cancels the withdrawal when it arrives; redelivering either changes
+/// nothing. The invoice never loses the money.
+#[rstest]
+#[tokio::test]
+async fn test_a_reinstatement_delivered_before_its_withdrawal_cancels_it(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    let (sub_id, invoice_id, tx, _total) = env.settled_paid_card_invoice().await;
+    let external_id = tx.provider_transaction_id.clone().unwrap();
+    let t1 = chrono::Utc::now();
+    let t2 = t1 + chrono::Duration::minutes(5);
+
+    for _ in 0..2 {
+        env.deliver_mock_webhook(&dispute_reinstated_payload(&external_id, 1000, t2))
+            .await;
+        env.deliver_mock_webhook(&dispute_withdrawn_payload(&external_id, 1000, t1))
+            .await;
+        let payment = transaction_for_invoice(&env, invoice_id).await;
+        assert_eq!(
+            (payment.amount_reversed, payment.amount_disputed),
+            (0, 0),
+            "the dispute was won before its withdrawal was handled"
+        );
+        let invoices = env.get_invoices(sub_id).await;
+        invoices.assert().invoice_at(0).is_finalized_paid();
+        assert!(invoices[0].payment_disputed_at.is_none());
+    }
+}
+
+/// A partial dispute leaves nothing to collect: the invoice stays paid and its settled payment
+/// still owns it.
+#[rstest]
+#[tokio::test]
+async fn test_partial_dispute_leaves_nothing_to_collect(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let (sub_id, invoice_id, tx, _total) = env.settled_paid_card_invoice().await;
+    let external_id = tx.provider_transaction_id.clone().unwrap();
+
+    env.deliver_mock_webhook(&dispute_withdrawn_payload(
+        &external_id,
+        1000,
+        chrono::Utc::now(),
+    ))
+    .await;
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().invoice_at(0).is_finalized_paid();
+    invoices.assert().invoice_at(0).has_amount_due(0);
+    let mut conn = env.conn().await;
+    assert!(
+        diesel_models::payments::PaymentTransactionRow::exists_live_for_invoice(
+            &mut conn, invoice_id, TENANT_ID
+        )
+        .await
+        .expect("live-payment check"),
+        "the disputed payment still paid the invoice"
+    );
+}
+
 // =============================================================================
-// Dispute lifecycle: funds withdrawn claws back only the disputed amount;
-// funds reinstated (merchant won) restores it and re-closes the invoice.
+// Dispute lifecycle: funds withdrawn claws back only the disputed amount and
+// keeps the invoice paid; funds reinstated (merchant won) restores it.
 // =============================================================================
 
 fn dispute_withdrawn_payload(
@@ -705,7 +1026,7 @@ fn reinstated_payload(external_id: &str, occurred_at: chrono::DateTime<chrono::U
 }
 
 /// (a) A partial dispute withdraws only the disputed amount (not the whole
-/// charge); winning it reinstates the funds and re-closes the invoice; a
+/// charge) and keeps the invoice paid; winning it reinstates the funds; a
 /// redelivered reinstatement has no double effect.
 #[rstest]
 #[tokio::test]
@@ -713,7 +1034,7 @@ async fn test_partial_dispute_withdrawn_then_reinstated_recloses_invoice(
     #[future] test_env: TestEnv,
 ) {
     let env = test_env.await;
-    let (sub_id, invoice_id, tx, total) = settled_paid_invoice(&env).await;
+    let (sub_id, invoice_id, tx, total) = env.settled_paid_card_invoice().await;
     let external_id = tx.provider_transaction_id.clone().unwrap();
 
     let disputed = 1000;
@@ -722,7 +1043,8 @@ async fn test_partial_dispute_withdrawn_then_reinstated_recloses_invoice(
     let t2 = t1 + chrono::Duration::minutes(5);
 
     // Funds withdrawn for the disputed amount only.
-    deliver_webhook(&env, &dispute_withdrawn_payload(&external_id, disputed, t1)).await;
+    env.deliver_mock_webhook(&dispute_withdrawn_payload(&external_id, disputed, t1))
+        .await;
 
     let after_withdraw = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(
@@ -730,27 +1052,32 @@ async fn test_partial_dispute_withdrawn_then_reinstated_recloses_invoice(
         PaymentStatusEnum::Settled,
         "a partial dispute must not reverse the whole transaction"
     );
-    assert_eq!(after_withdraw.amount_refunded, disputed);
-    let invoices = env.get_invoices(sub_id).await;
-    invoices
-        .assert()
-        .invoice_at(0)
-        .has_payment_status(InvoicePaymentStatus::PartiallyPaid);
+    assert_eq!(after_withdraw.amount_reversed, disputed);
+    assert_eq!(after_withdraw.amount_disputed, disputed);
+    assert_eq!(after_withdraw.reversal_kind, Some(ReversalKind::Dispute));
     assert_eq!(
-        invoices[0].amount_due, disputed,
-        "only the disputed amount reopens"
+        after_withdraw.reversal_reason.as_deref(),
+        Some("dispute.mock_dispute")
     );
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().invoice_at(0).is_finalized_paid();
+    invoices.assert().invoice_at(0).has_amount_due(0);
+    assert!(invoices[0].payment_disputed_at.is_some());
 
     // Merchant wins: the withdrawn funds come back.
-    deliver_webhook(
-        &env,
-        &dispute_reinstated_payload(&external_id, disputed, t2),
-    )
-    .await;
+    env.deliver_mock_webhook(&dispute_reinstated_payload(&external_id, disputed, t2))
+        .await;
 
     let after_reinstate = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(after_reinstate.status, PaymentStatusEnum::Settled);
-    assert_eq!(after_reinstate.amount_refunded, 0);
+    assert_eq!(after_reinstate.amount_reversed, 0);
+    assert_eq!(after_reinstate.amount_disputed, 0);
+    assert!(
+        env.get_invoices(sub_id).await[0]
+            .payment_disputed_at
+            .is_none(),
+        "nothing stays disputed"
+    );
     assert!(
         after_reinstate.refunded_at.is_some(),
         "a full reinstatement keeps the reversal-cycle high-water mark so a redelivered original reversal (older timestamp) is rejected"
@@ -760,29 +1087,27 @@ async fn test_partial_dispute_withdrawn_then_reinstated_recloses_invoice(
     invoices.assert().invoice_at(0).has_amount_due(0);
 
     // Redelivered reinstatement must not double-reduce anything.
-    deliver_webhook(
-        &env,
-        &dispute_reinstated_payload(&external_id, disputed, t2),
-    )
-    .await;
+    env.deliver_mock_webhook(&dispute_reinstated_payload(&external_id, disputed, t2))
+        .await;
     let after_redelivery = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(after_redelivery.status, PaymentStatusEnum::Settled);
-    assert_eq!(after_redelivery.amount_refunded, 0);
+    assert_eq!(after_redelivery.amount_reversed, 0);
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().invoice_at(0).is_finalized_paid();
     invoices.assert().invoice_at(0).has_amount_due(0);
 }
 
-/// (b) A dispute stacking on a prior partial refund claws back refund + dispute
-/// cumulatively; reinstating the dispute restores only the disputed part, and a
-/// redelivered reinstatement (same event timestamp) must not double-reduce.
+/// (b) A dispute on a charge that was already partially refunded is tracked apart from it:
+/// the voluntary refund sits on `amount_refunded`, the dispute claws back its own amount on
+/// `amount_reversed`, and neither touches the invoice. Reinstating the dispute restores it,
+/// and a redelivered reinstatement must not double-reduce.
 #[rstest]
 #[tokio::test]
-async fn test_dispute_on_partially_refunded_charge_is_cumulative_and_reinstates_once(
+async fn test_dispute_on_partially_refunded_charge_is_tracked_apart_and_reinstates_once(
     #[future] test_env: TestEnv,
 ) {
     let env = test_env.await;
-    let (sub_id, invoice_id, tx, _total) = settled_paid_invoice(&env).await;
+    let (sub_id, invoice_id, tx, _total) = env.settled_paid_card_invoice().await;
     let external_id = tx.provider_transaction_id.clone().unwrap();
 
     let refunded = 500;
@@ -791,69 +1116,68 @@ async fn test_dispute_on_partially_refunded_charge_is_cumulative_and_reinstates_
     let t2 = t1 + chrono::Duration::minutes(5);
     let t3 = t1 + chrono::Duration::minutes(10);
 
-    // Prior partial refund (cumulative total), then a dispute on top of it.
-    deliver_webhook(&env, &refunded_payload(&external_id, refunded)).await;
-    deliver_webhook(&env, &dispute_withdrawn_payload(&external_id, disputed, t2)).await;
+    // Prior provider-side refund (cumulative total), then a dispute on top of it.
+    env.deliver_mock_webhook(&refunded_payload(&external_id, refunded))
+        .await;
+    env.deliver_mock_webhook(&dispute_withdrawn_payload(&external_id, disputed, t2))
+        .await;
 
     let after_withdraw = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(
-        after_withdraw.amount_refunded,
-        refunded + disputed,
-        "the dispute delta stacks on the prior refund instead of being swallowed by the cumulative max"
+        after_withdraw.amount_refunded, refunded,
+        "the dispute must not be folded into the voluntary refunded total"
     );
+    assert_eq!(after_withdraw.amount_reversed, disputed);
+    assert_eq!(after_withdraw.reversal_kind, Some(ReversalKind::Dispute));
+    assert_eq!(after_withdraw.amount_disputed, disputed);
     let invoices = env.get_invoices(sub_id).await;
-    assert_eq!(invoices[0].amount_due, refunded + disputed);
+    invoices.assert().invoice_at(0).is_finalized_paid();
+    invoices.assert().invoice_at(0).has_amount_due(0);
 
-    // The dispute is won: only the disputed part returns.
-    deliver_webhook(
-        &env,
-        &dispute_reinstated_payload(&external_id, disputed, t3),
-    )
-    .await;
+    // The dispute is won: the clawed-back part returns, the refund stays given back.
+    env.deliver_mock_webhook(&dispute_reinstated_payload(&external_id, disputed, t3))
+        .await;
     let after_reinstate = transaction_for_invoice(&env, invoice_id).await;
+    assert_eq!(after_reinstate.amount_reversed, 0);
     assert_eq!(after_reinstate.amount_refunded, refunded);
     let invoices = env.get_invoices(sub_id).await;
-    invoices
-        .assert()
-        .invoice_at(0)
-        .has_payment_status(InvoicePaymentStatus::PartiallyPaid);
-    assert_eq!(invoices[0].amount_due, refunded);
+    invoices.assert().invoice_at(0).is_finalized_paid();
+    invoices.assert().invoice_at(0).has_amount_due(0);
 
     // Redelivery of the same reinstatement event must be a no-op.
-    deliver_webhook(
-        &env,
-        &dispute_reinstated_payload(&external_id, disputed, t3),
-    )
-    .await;
+    env.deliver_mock_webhook(&dispute_reinstated_payload(&external_id, disputed, t3))
+        .await;
     let after_redelivery = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(
-        after_redelivery.amount_refunded, refunded,
-        "a redelivered reinstatement must not double-reduce the refunded total"
+        after_redelivery.amount_reversed, 0,
+        "a redelivered reinstatement must not double-reduce the reversed total"
     );
+    assert_eq!(after_redelivery.amount_refunded, refunded);
     let invoices = env.get_invoices(sub_id).await;
-    assert_eq!(invoices[0].amount_due, refunded);
+    invoices.assert().invoice_at(0).has_amount_due(0);
 }
 
-/// (c) GoCardless-style: a full chargeback flips the transaction to Refunded and
-/// reopens the invoice; `chargeback_cancelled` restores the settlement and
-/// re-closes it. Redelivery is a no-op.
+/// (c) GoCardless-style: a full chargeback flips the transaction to Refunded and keeps
+/// the invoice paid; `chargeback_cancelled` restores the settlement. Redelivery is a no-op.
 #[rstest]
 #[tokio::test]
 async fn test_chargeback_cancelled_restores_settlement_and_recloses_invoice(
     #[future] test_env: TestEnv,
 ) {
     let env = test_env.await;
-    let (sub_id, invoice_id, tx, total) = settled_paid_invoice(&env).await;
+    let (sub_id, invoice_id, tx, _total) = env.settled_paid_card_invoice().await;
     let external_id = tx.provider_transaction_id.clone().unwrap();
     let t2 = chrono::Utc::now() + chrono::Duration::minutes(5);
 
-    deliver_webhook(&env, &reversed_payload(&external_id)).await;
+    env.deliver_mock_webhook(&reversed_payload(&external_id))
+        .await;
     let invoices = env.get_invoices(sub_id).await;
-    invoices.assert().invoice_at(0).is_finalized_unpaid();
-    assert_eq!(invoices[0].amount_due, total);
+    invoices.assert().invoice_at(0).is_finalized_paid();
+    assert!(invoices[0].payment_disputed_at.is_some());
 
     // The bank cancels the chargeback: everything comes back.
-    deliver_webhook(&env, &reinstated_payload(&external_id, t2)).await;
+    env.deliver_mock_webhook(&reinstated_payload(&external_id, t2))
+        .await;
 
     let reinstated = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(
@@ -861,7 +1185,7 @@ async fn test_chargeback_cancelled_restores_settlement_and_recloses_invoice(
         PaymentStatusEnum::Settled,
         "a cancelled chargeback must restore the settlement"
     );
-    assert_eq!(reinstated.amount_refunded, 0);
+    assert_eq!(reinstated.amount_reversed, 0);
     assert!(
         reinstated.refunded_at.is_some(),
         "a cancelled chargeback keeps the reversal-cycle high-water mark for redelivery protection"
@@ -871,10 +1195,11 @@ async fn test_chargeback_cancelled_restores_settlement_and_recloses_invoice(
     invoices.assert().invoice_at(0).has_amount_due(0);
 
     // Redelivery must not change anything.
-    deliver_webhook(&env, &reinstated_payload(&external_id, t2)).await;
+    env.deliver_mock_webhook(&reinstated_payload(&external_id, t2))
+        .await;
     let after_redelivery = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(after_redelivery.status, PaymentStatusEnum::Settled);
-    assert_eq!(after_redelivery.amount_refunded, 0);
+    assert_eq!(after_redelivery.amount_reversed, 0);
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().invoice_at(0).is_finalized_paid();
 }
@@ -884,10 +1209,7 @@ async fn test_chargeback_cancelled_restores_settlement_and_recloses_invoice(
 /// (vt=0), so calling before/after an action yields exactly what that action
 /// emitted.
 async fn payment_tx_saved_count(env: &TestEnv, tx_id: PaymentTransactionId) -> usize {
-    // The outbox dispatcher fans out to `webhook_out` by reference: each message
-    // only carries the archived `outbox_event` msg id in its headers, so resolve
-    // the bodies from the archive before matching.
-    let outbox_ids: Vec<MessageId> = env
+    let msgs = env
         .store()
         .pgmq_read(
             PgmqQueue::WebhookOut,
@@ -895,18 +1217,9 @@ async fn payment_tx_saved_count(env: &TestEnv, tx_id: PaymentTransactionId) -> u
             MessageReadVtSec(0),
         )
         .await
-        .expect("read webhook_out queue")
-        .into_iter()
-        .filter_map(|m| m.headers)
-        .filter_map(|h| h.0.get("outbox_msg_id").and_then(|v| v.as_i64()))
-        .map(MessageId)
-        .collect();
+        .expect("read webhook_out queue");
 
-    env.store()
-        .pgmq_list_archived(PgmqQueue::OutboxEvent, outbox_ids)
-        .await
-        .expect("read archived outbox events")
-        .into_iter()
+    msgs.into_iter()
         .filter_map(|m| m.message)
         .filter_map(|m| serde_json::from_value::<OutboxEvent>(m.0).ok())
         .filter(|e| {
@@ -929,31 +1242,33 @@ async fn test_redelivered_chargeback_after_reinstatement_does_not_reopen(
     #[future] test_env: TestEnv,
 ) {
     let env = test_env.await;
-    let (sub_id, invoice_id, tx, total) = settled_paid_invoice(&env).await;
+    let (sub_id, invoice_id, tx, _total) = env.settled_paid_card_invoice().await;
     let external_id = tx.provider_transaction_id.clone().unwrap();
     let t1 = chrono::Utc::now();
     let t2 = t1 + chrono::Duration::minutes(5);
 
-    // Original chargeback (full) at t1 reopens the invoice.
-    deliver_webhook(&env, &reversed_payload_at(&external_id, t1)).await;
+    // Original chargeback (full) at t1: lost to the dispute, the invoice stays paid.
+    env.deliver_mock_webhook(&reversed_payload_at(&external_id, t1))
+        .await;
     let reversed = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(reversed.status, PaymentStatusEnum::Refunded);
     let invoices = env.get_invoices(sub_id).await;
-    invoices.assert().invoice_at(0).is_finalized_unpaid();
-    assert_eq!(invoices[0].amount_due, total);
+    invoices.assert().invoice_at(0).is_finalized_paid();
 
     // Chargeback cancelled at t2 > t1: settlement restored, invoice re-closed.
-    deliver_webhook(&env, &reinstated_payload(&external_id, t2)).await;
+    env.deliver_mock_webhook(&reinstated_payload(&external_id, t2))
+        .await;
     let reinstated = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(reinstated.status, PaymentStatusEnum::Settled);
-    assert_eq!(reinstated.amount_refunded, 0);
+    assert_eq!(reinstated.amount_reversed, 0);
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().invoice_at(0).is_finalized_paid();
     invoices.assert().invoice_at(0).has_amount_due(0);
 
     // The provider redelivers the ORIGINAL chargeback (same t1 timestamp) after
     // the reinstatement. It must be a no-op: no re-claw, invoice stays paid.
-    deliver_webhook(&env, &reversed_payload_at(&external_id, t1)).await;
+    env.deliver_mock_webhook(&reversed_payload_at(&external_id, t1))
+        .await;
 
     let after_redelivery = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(
@@ -962,8 +1277,8 @@ async fn test_redelivered_chargeback_after_reinstatement_does_not_reopen(
         "a redelivered original chargeback after reinstatement must not re-reverse"
     );
     assert_eq!(
-        after_redelivery.amount_refunded, 0,
-        "amount_refunded must stay 0 — the stale chargeback is rejected by the high-water guard"
+        after_redelivery.amount_reversed, 0,
+        "amount_reversed must stay 0 — the stale chargeback is rejected by the high-water guard"
     );
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().invoice_at(0).is_finalized_paid();
@@ -971,7 +1286,7 @@ async fn test_redelivered_chargeback_after_reinstatement_does_not_reopen(
 }
 
 /// (e) C1: a full reinstatement must not re-emit a `payment_transaction.saved`
-/// event. Such an event carries the (Settled, `amount_refunded == 0`) shape that
+/// event. Such an event carries the (Settled, `amount_reversed == 0`) shape that
 /// the settled handler's first orchestration arm matches, which would re-run
 /// `on_payment_transaction_settled` and re-apply a deferred plan change (gated
 /// only on `pending_plan_version_id`, never cleared from the row).
@@ -985,22 +1300,24 @@ async fn test_redelivered_chargeback_after_reinstatement_does_not_reopen(
 #[tokio::test]
 async fn test_reinstatement_does_not_reemit_settled_event(#[future] test_env: TestEnv) {
     let env = test_env.await;
-    let (sub_id, invoice_id, tx, _total) = settled_paid_invoice(&env).await;
+    let (sub_id, invoice_id, tx, _total) = env.settled_paid_card_invoice().await;
     let external_id = tx.provider_transaction_id.clone().unwrap();
     let t2 = chrono::Utc::now() + chrono::Duration::minutes(5);
 
-    // Full chargeback reopens the invoice and (like every reversal) emits a
+    // A full chargeback (like every reversal that moves money) emits a
     // payment_transaction.saved event — the positive control.
-    deliver_webhook(&env, &reversed_payload(&external_id)).await;
+    env.deliver_mock_webhook(&reversed_payload(&external_id))
+        .await;
     let baseline = payment_tx_saved_count(&env, tx.id).await;
     assert!(
         baseline >= 1,
         "the reversal path emits a payment_transaction.saved event"
     );
 
-    // Cancel the chargeback: the reinstatement re-closes the invoice synchronously
-    // and must NOT emit a payment_transaction.saved event.
-    deliver_webhook(&env, &reinstated_payload(&external_id, t2)).await;
+    // Cancel the chargeback: the reinstatement does its work synchronously and must
+    // NOT emit a payment_transaction.saved event.
+    env.deliver_mock_webhook(&reinstated_payload(&external_id, t2))
+        .await;
 
     let after = payment_tx_saved_count(&env, tx.id).await;
     assert_eq!(
@@ -1011,7 +1328,7 @@ async fn test_reinstatement_does_not_reemit_settled_event(#[future] test_env: Te
     // ...and it still did its synchronous work: the invoice is paid again.
     let reinstated = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(reinstated.status, PaymentStatusEnum::Settled);
-    assert_eq!(reinstated.amount_refunded, 0);
+    assert_eq!(reinstated.amount_reversed, 0);
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().invoice_at(0).is_finalized_paid();
     invoices.assert().invoice_at(0).has_amount_due(0);
@@ -1036,8 +1353,10 @@ async fn test_stale_payment_failed_after_settlement_is_ignored(#[future] test_en
     // A late/out-of-order failure event (Stripe describes an earlier failed
     // attempt; delivery order is not guaranteed). Deliver it twice for good
     // measure — it must never claw back the settled funds.
-    deliver_webhook(&env, &failed_payload(tx_id, &external_id, "stale1")).await;
-    deliver_webhook(&env, &failed_payload(tx_id, &external_id, "stale2")).await;
+    env.deliver_mock_webhook(&failed_payload(tx_id, &external_id, "stale1"))
+        .await;
+    env.deliver_mock_webhook(&failed_payload(tx_id, &external_id, "stale2"))
+        .await;
 
     let tx = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(
@@ -1061,9 +1380,10 @@ async fn test_stale_payment_failed_after_settlement_is_ignored(#[future] test_en
 #[tokio::test]
 async fn test_out_of_order_success_after_failure_settles(#[future] test_env: TestEnv) {
     let env = test_env.await;
-    let (sub_id, invoice_id) = unpaid_card_invoice(&env).await;
+    let (sub_id, invoice_id) = env.unpaid_card_invoice().await;
 
-    env.set_mock_charge_behavior("pending").await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Pending)
+        .await;
     let (tx, _) = env
         .services()
         .complete_invoice_payment(
@@ -1077,14 +1397,16 @@ async fn test_out_of_order_success_after_failure_settles(#[future] test_env: Tes
         .expect("charge accepted");
     let external_id = tx.provider_transaction_id.clone().unwrap();
 
-    deliver_webhook(&env, &failed_payload(tx.id, &external_id, "ooo")).await;
+    env.deliver_mock_webhook(&failed_payload(tx.id, &external_id, "ooo"))
+        .await;
     assert_eq!(
         transaction_for_invoice(&env, invoice_id).await.status,
         PaymentStatusEnum::Failed
     );
 
     // The success event arrives late: the money was captured, so it must win.
-    deliver_webhook(&env, &succeeded_payload(tx.id, &external_id)).await;
+    env.deliver_mock_webhook(&succeeded_payload(tx.id, &external_id))
+        .await;
 
     let settled = transaction_for_invoice(&env, invoice_id).await;
     assert_eq!(
@@ -1099,22 +1421,23 @@ async fn test_out_of_order_success_after_failure_settles(#[future] test_env: Tes
         .is_finalized_paid();
 }
 
-/// (c) a stale Settled orchestration event redelivered after a full reversal
+/// (c) a stale Settled orchestration event redelivered after a full failed collection
 /// (pgmq at-least-once / unordered batch) recomputes amount_due == total; the
 /// reopened invoice must stay Unpaid, not get relabeled PartiallyPaid.
 #[rstest]
 #[tokio::test]
 async fn test_stale_settled_event_after_reversal_keeps_invoice_unpaid(#[future] test_env: TestEnv) {
     let env = test_env.await;
-    let (sub_id, _invoice_id, tx, total) = settled_paid_invoice(&env).await;
+    let (sub_id, _invoice_id, tx, total) = env.settled_paid_card_invoice().await;
     let external_id = tx.provider_transaction_id.clone().unwrap();
 
     // Snapshot the Settled event as it sat on the queue before the reversal.
     let stale_event: meteroid_store::domain::outbox_event::PaymentTransactionEvent =
         tx.clone().into();
 
-    // Full claw-back reopens the invoice as Unpaid.
-    deliver_webhook(&env, &reversed_payload(&external_id)).await;
+    // A full late failure reopens the invoice as Unpaid.
+    env.deliver_mock_webhook(&late_failure_payload(&external_id))
+        .await;
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().invoice_at(0).is_finalized_unpaid();
 
@@ -1202,7 +1525,7 @@ async fn test_debt_cancellation_survives_later_settlement(#[future] test_env: Te
     use meteroid_store::domain::enums::CreditType;
 
     let env = test_env.await;
-    let (sub_id, invoice_id) = unpaid_card_invoice(&env).await;
+    let (sub_id, invoice_id) = env.unpaid_card_invoice().await;
 
     let cn = amend_remove_rate_component(&env, sub_id, invoice_id).await;
     assert_eq!(cn.credit_type, CreditType::DebtCancellation);
@@ -1253,9 +1576,10 @@ async fn test_amendment_with_in_flight_debit_credits_balance(#[future] test_env:
     use meteroid_store::domain::enums::CreditType;
 
     let env = test_env.await;
-    let (sub_id, invoice_id) = unpaid_card_invoice(&env).await;
+    let (sub_id, invoice_id) = env.unpaid_card_invoice().await;
     env.seed_uber_sepa_payment_method().await;
-    env.set_mock_charge_behavior("pending").await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Pending)
+        .await;
 
     let (tx, _) = env
         .services()
@@ -1265,12 +1589,12 @@ async fn test_amendment_with_in_flight_debit_credits_balance(#[future] test_env:
     assert_eq!(tx.status, PaymentStatusEnum::Pending);
     let external_id = tx.provider_transaction_id.clone().expect("provider id");
 
-    let balance_before = env.get_customer(CUST_UBER_ID).await.balance_value_cents;
+    let balance_before = env.invoice_credit_balance_minor(CUST_UBER_ID).await;
 
     let cn = amend_remove_rate_component(&env, sub_id, invoice_id).await;
     assert_eq!(cn.credit_type, CreditType::CreditToBalance);
     assert!(cn.credited_amount_cents > 0);
-    let balance_after = env.get_customer(CUST_UBER_ID).await.balance_value_cents;
+    let balance_after = env.invoice_credit_balance_minor(CUST_UBER_ID).await;
     assert_eq!(balance_after - balance_before, cn.credited_amount_cents);
 
     // The in-flight debit still collects the full amount; nothing was cancelled.
@@ -1280,7 +1604,8 @@ async fn test_amendment_with_in_flight_debit_credits_balance(#[future] test_env:
         .invoice_at(0)
         .has_amount_due(3500);
 
-    deliver_webhook(&env, &succeeded_payload_for(tx.id, &external_id, 3500)).await;
+    env.deliver_mock_webhook(&succeeded_payload_for(tx.id, &external_id, 3500))
+        .await;
 
     env.get_invoices(sub_id)
         .await
@@ -1290,7 +1615,7 @@ async fn test_amendment_with_in_flight_debit_credits_balance(#[future] test_env:
         .has_amount_due(0);
     // The credit stays on the balance: no money is eaten by the settlement.
     assert_eq!(
-        env.get_customer(CUST_UBER_ID).await.balance_value_cents,
+        env.invoice_credit_balance_minor(CUST_UBER_ID).await,
         balance_after
     );
 }
@@ -1304,7 +1629,7 @@ async fn test_amendment_on_processing_invoice_credits_balance(#[future] test_env
     use meteroid_store::domain::enums::CreditType;
 
     let env = test_env.await;
-    let (sub_id, invoice_id) = unpaid_card_invoice(&env).await;
+    let (sub_id, invoice_id) = env.unpaid_card_invoice().await;
     {
         let mut conn = env.conn().await;
         InvoiceRow::apply_payment_status(
@@ -1346,7 +1671,8 @@ async fn test_selfserve_checkout_with_existing_mandate_activates_in_flight(
     env.seed_payments().await;
     env.seed_uber_sepa_payment_method().await;
     // Direct debit never settles inline: accepted now, confirmed by webhook later.
-    env.set_mock_charge_behavior("pending").await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Pending)
+        .await;
 
     let session = env
         .store()
@@ -1374,6 +1700,8 @@ async fn test_selfserve_checkout_with_existing_mandate_activates_in_flight(
             checkout_type: CheckoutType::SelfServe,
             subscription_id: None,
             change_date: None,
+            success_url: None,
+            cancel_url: None,
         })
         .await
         .expect("create checkout session");
@@ -1392,6 +1720,9 @@ async fn test_selfserve_checkout_with_existing_mandate_activates_in_flight(
         .expect("checkout completes on an accepted debit");
 
     let (sub_id, tx) = match result {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::Completed {
             subscription_id,
             transaction,
@@ -1427,7 +1758,8 @@ async fn test_selfserve_checkout_with_existing_mandate_activates_in_flight(
 
     // Settlement closes the invoice through the invoice path (no second materialization).
     let external_id = linked.provider_transaction_id.clone().expect("provider id");
-    deliver_webhook(&env, &succeeded_payload(tx.id, &external_id)).await;
+    env.deliver_mock_webhook(&succeeded_payload(tx.id, &external_id))
+        .await;
 
     assert_eq!(
         transaction_for_invoice(&env, invoice_id).await.status,
@@ -1463,7 +1795,8 @@ async fn test_deferred_checkout_materialization_prices_at_charge_date(#[future] 
     env.seed_payments().await;
     // Card that reports "processing": not an accepted debit, so nothing is
     // materialized until the settlement webhook (the deferred path).
-    env.set_mock_charge_behavior("pending").await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Pending)
+        .await;
 
     let session = env
         .store()
@@ -1491,6 +1824,8 @@ async fn test_deferred_checkout_materialization_prices_at_charge_date(#[future] 
             checkout_type: CheckoutType::SelfServe,
             subscription_id: None,
             change_date: None,
+            success_url: None,
+            cancel_url: None,
         })
         .await
         .expect("create checkout session");
@@ -1508,6 +1843,9 @@ async fn test_deferred_checkout_materialization_prices_at_charge_date(#[future] 
         .await
         .expect("checkout accepted")
     {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::AwaitingPayment { transaction, .. } => transaction,
         CheckoutCompletionResult::Completed { .. } => panic!("card processing must defer"),
     };
@@ -1526,7 +1864,8 @@ async fn test_deferred_checkout_materialization_prices_at_charge_date(#[future] 
             .expect("backdate transaction");
     }
 
-    deliver_webhook(&env, &succeeded_payload(tx.id, &external_id)).await;
+    env.deliver_mock_webhook(&succeeded_payload(tx.id, &external_id))
+        .await;
 
     let session = env
         .store()
@@ -1555,4 +1894,128 @@ async fn test_deferred_checkout_materialization_prices_at_charge_date(#[future] 
         .invoice_at(0)
         .is_finalized_paid()
         .has_amount_due(0);
+}
+
+// =============================================================================
+// Disabled connector: an auto-charge refuses cleanly, and a settlement still lands
+// =============================================================================
+
+#[rstest]
+#[tokio::test]
+async fn test_disabled_connector_starts_no_charge_but_still_settles(#[future] test_env: TestEnv) {
+    use common_domain::actor::Actor;
+    use meteroid_store::errors::StoreError;
+    use meteroid_store::repositories::connectors::ConnectorsInterface;
+
+    let env = test_env.await;
+    let (sub_id, invoice_id) = env.unpaid_card_invoice().await;
+    let charge = || {
+        env.services().complete_invoice_payment(
+            TENANT_ID,
+            invoice_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            false,
+            None,
+        )
+    };
+
+    // Disabled: nothing new starts, and the refusal is final rather than retryable.
+    env.store()
+        .disable_connector(Actor::System, TENANT_ID, MOCK_CONNECTOR_ID)
+        .await
+        .unwrap();
+    let err = charge()
+        .await
+        .expect_err("a disabled connector starts no charge");
+    assert!(matches!(
+        err.current_context(),
+        StoreError::ConnectorNotActive(_)
+    ));
+    assert!(
+        env.store()
+            .list_payment_tx_by_invoice_id(TENANT_ID, invoice_id)
+            .await
+            .unwrap()
+            .is_empty(),
+        "the refused charge leaves no transaction behind"
+    );
+    // The queued-charge fallback (invoice email with a payment link) succeeds.
+    env.services()
+        .fall_back_to_manual_payment(TENANT_ID, invoice_id)
+        .await
+        .unwrap();
+
+    // Re-enabled, a charge goes out; disabled again while it is still pending.
+    env.store()
+        .enable_connector(Actor::System, TENANT_ID, MOCK_CONNECTOR_ID)
+        .await
+        .unwrap();
+    env.set_mock_charge_behavior(MockChargeBehavior::Pending)
+        .await;
+    let (tx, _) = charge().await.expect("charge accepted");
+    let external_id = tx.provider_transaction_id.clone().unwrap();
+    env.store()
+        .disable_connector(Actor::System, TENANT_ID, MOCK_CONNECTOR_ID)
+        .await
+        .unwrap();
+
+    // The in-flight payment still settles.
+    env.deliver_mock_webhook(&succeeded_payload(tx.id, &external_id))
+        .await;
+    env.get_invoices(sub_id)
+        .await
+        .assert()
+        .invoice_at(0)
+        .is_finalized_paid();
+}
+
+// =============================================================================
+// Revoked key: the charge fails promptly and flags the connector
+// =============================================================================
+
+/// The charge holds a lock on the connector while it runs; recording the rejection must not wait
+/// on that lock, or the charge hangs.
+#[rstest]
+#[tokio::test]
+async fn test_rejected_credentials_during_a_charge_flag_the_connector(#[future] test_env: TestEnv) {
+    use meteroid_store::repositories::connectors::ConnectorsInterface;
+
+    let env = test_env.await;
+    let (_sub_id, invoice_id) = env.unpaid_card_invoice().await;
+    env.set_mock_charge_behavior(MockChargeBehavior::RejectedCredentials)
+        .await;
+
+    let charge = env.services().complete_invoice_payment(
+        TENANT_ID,
+        invoice_id,
+        CUST_UBER_PAYMENT_METHOD_ID,
+        false,
+        None,
+    );
+    let result = tokio::time::timeout(std::time::Duration::from_secs(20), charge)
+        .await
+        .expect("the charge must not hang on its own connector lock");
+    assert!(result.is_err(), "a rejected key fails the charge");
+
+    let connector = env
+        .store()
+        .get_connector_with_data(MOCK_CONNECTOR_ID, TENANT_ID)
+        .await
+        .unwrap();
+    assert!(
+        connector
+            .credentials_error()
+            .as_ref()
+            .is_some_and(|e| e.message.contains("rejected")),
+        "the rejection is recorded: {:?}",
+        connector.credentials_error()
+    );
+    assert!(
+        env.store()
+            .list_payment_tx_by_invoice_id(TENANT_ID, invoice_id)
+            .await
+            .unwrap()
+            .is_empty(),
+        "the failed charge leaves no transaction behind"
+    );
 }

@@ -1,5 +1,5 @@
 use chrono::{NaiveDate, NaiveDateTime};
-use diesel::{Identifiable, Insertable, Queryable};
+use diesel::{Identifiable, Insertable, Queryable, QueryableByName};
 use uuid::Uuid;
 
 #[derive(Debug, Insertable)]
@@ -12,7 +12,7 @@ pub struct HistoricalRatesFromUsdRowNew {
     pub updated_at: NaiveDateTime,
 }
 
-#[derive(Debug, Queryable, Identifiable)]
+#[derive(Debug, Queryable, QueryableByName, Identifiable)]
 #[diesel(table_name = crate::schema::historical_rates_from_usd)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct HistoricalRatesFromUsdRow {

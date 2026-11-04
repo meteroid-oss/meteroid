@@ -7,6 +7,7 @@ enum BatchJobType {
   CUSTOMER_CSV_IMPORT = 1;
   SUBSCRIPTION_CSV_IMPORT = 2;
   SUBSCRIPTION_PLAN_MIGRATION = 3;
+  TAX_REPORT_EXPORT = 4;
 }
 
 enum BatchJobStatus {
@@ -44,6 +45,9 @@ message BatchJob {
   optional string input_file_name = 13;
   optional string created_by_display_name = 14;
   optional string input_file_token = 15;
+  // Present once a job's output artifact (e.g. the tax-report CSV) is ready; used to
+  // build the tokened download URL.
+  optional string output_token = 16;
 }
 
 message BatchJobChunkEvent {

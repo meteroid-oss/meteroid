@@ -1,4 +1,4 @@
-import { create, type MessageInitShape } from '@bufbuild/protobuf';
+import { create } from '@bufbuild/protobuf';
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
@@ -15,6 +15,7 @@ import { toast } from 'sonner'
 
 import { EntityEntitlementDialog } from '@/features/entitlements/EntityEntitlementDialog'
 import { InheritedIcon } from '@/features/entitlements/InheritedIcon'
+import { LimitTermsBadges, termsOfValue } from '@/features/entitlements/LimitTermsBadges'
 import { entitlementTooltip } from '@/features/entitlements/entitlementTooltips'
 import {
   toEntitlementEntity,
@@ -109,23 +110,9 @@ export const AddonEntitlementsSection = ({ addonId }: Props) => {
   const handleToggleDisable = (r: ResolvedEntitlement) => {
     const featureId = r.feature?.id
     if (!featureId) return
-    const currentlyDisabled = isEntitlementDisabled(r.value)
-    let flippedValue: MessageInitShape<typeof EntitlementValueSchema>
-    if (r.value.case === 'boolean') {
-      flippedValue = { value: { case: 'booleanValue' as const, value: { enabled: currentlyDisabled } } }
-    } else if (r.value.case === 'metered') {
-      const m = r.value.value
-      flippedValue = { value: { case: 'meteredValue' as const,
-          value: {
-            limit: m.limit,
-            resetPeriod: m.resetPeriod,
-            enabled: currentlyDisabled
-          }
-        }
-      }
-    } else {
-      return
-    }
+    if (r.value.case !== 'boolean' && r.value.case !== 'metered') return
+    const flippedValue = entitlementValueToSpec(r.value, isEntitlementDisabled(r.value))
+
     const local = localEntitlements.find(e => e.featureId === featureId)
     if (isPinnedHere(r, addonId) && local) {
       updateMutation.mutate({ id: local.id, value: create(EntitlementValueSchema, flippedValue) })
@@ -211,6 +198,7 @@ export const AddonEntitlementsSection = ({ addonId }: Props) => {
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="font-medium truncate">{r.feature?.name ?? featureId}</span>
                     {!pinned && <InheritedIcon tooltip="Inherited from product"/>}
+                    <LimitTermsBadges terms={termsOfValue(r.value)} />
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0 ml-3">
                     <span>{formatResolvedValue(r.value)}</span>

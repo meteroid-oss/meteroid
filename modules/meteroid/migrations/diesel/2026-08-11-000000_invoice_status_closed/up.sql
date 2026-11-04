@@ -1,0 +1,1 @@
+ALTER TYPE "InvoiceStatusEnum" ADD VALUE IF NOT EXISTS 'CLOSED';

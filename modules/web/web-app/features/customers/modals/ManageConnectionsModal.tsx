@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@connectrpc/connect-query'
+import { skipToken, useMutation, useQuery } from '@connectrpc/connect-query'
 import {
   Button,
   Dialog,
@@ -12,11 +12,12 @@ import {
   Separator,
 } from '@ui/components'
 import { Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
 import { connectorDisplayName } from '@/features/payments/providers'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
+import { ConnectorStatusEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
   deleteCustomerConnection,
   upsertCustomerConnection,
@@ -42,7 +43,14 @@ export const ManageConnectionsModal = ({
 }: ManageConnectionsModalProps) => {
   const [formData, setFormData] = useState<Record<string, ConnectionFormData>>({})
 
-  const connectorsQuery = useQuery(listConnectors, {})
+  // Only fetch connectors while the modal is open — otherwise every customer
+  // page load fires this (and 403s for roles without settings access).
+  const connectorsQuery = useQuery(listConnectors, visible ? {} : skipToken)
+  // Unfinished connections have no customers to map yet.
+  const connectors = useMemo(
+    () => connectorsQuery.data?.connectors.filter(c => c.status !== ConnectorStatusEnum.DRAFT),
+    [connectorsQuery.data]
+  )
 
   const upsertMutation = useMutation(upsertCustomerConnection, {
     onSuccess: () => {
@@ -66,11 +74,11 @@ export const ManageConnectionsModal = ({
 
   // Initialize form data when customer or connectors change
   useEffect(() => {
-    if (!customer || !connectorsQuery.data?.connectors) return
+    if (!customer || !connectors) return
 
     const newFormData: Record<string, ConnectionFormData> = {}
 
-    connectorsQuery.data.connectors.forEach(connector => {
+    connectors.forEach(connector => {
       const existingConnection = customer.customerConnections?.find(
         conn => conn.connectorId === connector.id
       )
@@ -83,7 +91,7 @@ export const ManageConnectionsModal = ({
     })
 
     setFormData(newFormData)
-  }, [customer, connectorsQuery.data])
+  }, [customer, connectors])
 
   const handleSave = async (connectorId: string) => {
     if (!customer) return
@@ -151,7 +159,7 @@ export const ManageConnectionsModal = ({
             <div className="text-sm text-muted-foreground">Loading connectors...</div>
           )}
 
-          {connectorsQuery.data?.connectors.map(connector => {
+          {connectors?.map(connector => {
             const data = formData[connector.id]
             const hasExistingConnection = !!data?.existingConnectionId
 
@@ -198,7 +206,7 @@ export const ManageConnectionsModal = ({
             )
           })}
 
-          {connectorsQuery.data?.connectors.length === 0 && (
+          {connectors?.length === 0 && (
             <div className="text-sm text-muted-foreground">No connectors configured.</div>
           )}
         </div>

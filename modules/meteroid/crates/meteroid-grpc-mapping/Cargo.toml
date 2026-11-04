@@ -1,0 +1,39 @@
+[package]
+name = "meteroid-grpc-mapping"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+meteroid-app.workspace = true
+error-stack.workspace = true
+thiserror.workspace = true
+chrono = { workspace = true, features = ["clock"] }
+common-grpc = { workspace = true, features = ["server"] }
+common-grpc-error-as-tonic-macros-impl = { workspace = true }
+meteroid-grpc = { path = "../meteroid-grpc", features = ["server"] }
+prost-types.workspace = true
+serde_json.workspace = true
+time.workspace = true
+tonic.workspace = true
+uuid = { workspace = true, features = ["v7"] }
+base64.workspace = true
+
+secrecy.workspace = true
+
+rust_decimal = { workspace = true, features = ["serde_json", "serde-with-float", "serde-with-str"] }
+common-domain = { workspace = true, features = ["utoipa", "tonic"] }
+common-utils = { workspace = true, features = ["error-stack-conv"] }
+meteroid-store.workspace = true
+meteroid-invoicing.workspace = true
+
+common-grpc-error-as-tonic-macros = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
+
+[package.metadata.cargo-machete]
+# companion crate for ErrorAsTonic — its functions are called by generated code, not direct imports
+ignored = ["common-grpc-error-as-tonic-macros"]
+
+[package.metadata.cargo-shear]
+ignored = ["common-grpc-error-as-tonic-macros"]

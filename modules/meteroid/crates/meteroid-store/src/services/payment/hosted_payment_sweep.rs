@@ -188,7 +188,7 @@ impl Services {
                     // ── lock the anchor, dispatching on the tx's linkage ──
                     let session = match (checkout_session_id, invoice_id) {
                         (Some(session_id), _) => {
-                            let session = CheckoutSessionRow::get_by_id_for_update(
+                            let (_, session) = CheckoutSessionRow::get_by_id_for_update(
                                 conn, tenant_id, session_id,
                             )
                             .await

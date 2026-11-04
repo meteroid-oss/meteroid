@@ -25,6 +25,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SwitchFormField,
+  Textarea,
 } from '@ui/components'
 import { Edit, XIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -36,6 +38,10 @@ import { z } from 'zod'
 import PageHeading from '@/components/PageHeading/PageHeading'
 import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import { CustomerSelect } from '@/features/customers/CustomerSelect'
+import {
+  CustomPropertiesFields,
+  serializeCustomProperties,
+} from '@/features/customproperties/CustomPropertiesFields'
 import { DatePickerWithRange } from '@/features/dashboard/DateRangePicker'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useZodForm } from '@/hooks/useZodForm'
@@ -46,6 +52,7 @@ import { InvoiceLineSchema } from '@/lib/schemas/invoices'
 import { percentToRate } from '@/lib/utils/numbers'
 import { resizeSvgContent } from '@/pages/tenants/invoice/utils'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 import {
   createInvoice,
   listInvoices,
@@ -68,11 +75,13 @@ const AddLineItemModal = ({
   onClose,
   onAdd,
   currency,
+  taxInclusive,
 }: {
   isOpen: boolean
   onClose: () => void
   onAdd: (item: InvoiceLineSchema) => void
   currency: string
+  taxInclusive: boolean
 }) => {
   const [formData, setFormData] = useState<InvoiceLineSchema>(() => {
     const startDate = new Date()
@@ -187,7 +196,9 @@ const AddLineItemModal = ({
             />
           </div>
           <div className="pt-2">
-            <div className="text-sm font-medium mb-2">Total (excl. tax)</div>
+            <div className="text-sm font-medium mb-2">
+              Total ({taxInclusive ? 'incl. tax' : 'excl. tax'})
+            </div>
             <div className="text-right font-medium">
               {formatCurrency(Number(formData.quantity) * Number(formData.unitPrice), currency)}
             </div>
@@ -211,12 +222,14 @@ const EditLineItemModal = ({
   onClose,
   onSave,
   currency,
+  taxInclusive,
   initialData,
 }: {
   isOpen: boolean
   onClose: () => void
   onSave: (item: InvoiceLineSchema) => void
   currency: string
+  taxInclusive: boolean
   initialData: InvoiceLineSchema
 }) => {
   const [formData, setFormData] = useState<InvoiceLineSchema>(initialData)
@@ -312,7 +325,9 @@ const EditLineItemModal = ({
             />
           </div>
           <div className="pt-2">
-            <div className="text-sm font-medium mb-2">Total (excl. tax)</div>
+            <div className="text-sm font-medium mb-2">
+              Total ({taxInclusive ? 'incl. tax' : 'excl. tax'})
+            </div>
             <div className="text-right font-medium">
               {formatCurrency(Number(formData.quantity) * Number(formData.unitPrice), currency)}
             </div>
@@ -403,6 +418,7 @@ const InvoiceLineTable = ({
     control: methods.control,
     name: 'lines',
   })
+  const taxInclusive = methods.watch('taxInclusive') ?? false
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
@@ -453,6 +469,7 @@ const InvoiceLineTable = ({
         onClose={() => setIsModalOpen(false)}
         onAdd={addInvoiceLine}
         currency={currency}
+        taxInclusive={taxInclusive}
       />
 
       {editingIndex !== null && (
@@ -463,6 +480,7 @@ const InvoiceLineTable = ({
             setEditingIndex(null)
           }}
           onSave={saveEditedLine}
+          taxInclusive={taxInclusive}
           currency={currency}
           initialData={fields[editingIndex]}
         />
@@ -482,7 +500,10 @@ const CreateInvoicePreview = ({
   const watchedInvoiceDate = methods.watch('invoiceDate')
   const watchedDueDate = methods.watch('dueDate')
   const watchedDiscount = methods.watch('discount')
+  const watchedTaxInclusive = methods.watch('taxInclusive')
   const watchedPurchaseOrder = methods.watch('purchaseOrder')
+  const watchedMemo = methods.watch('memo')
+  const watchedReference = methods.watch('reference')
 
   const [previewSvgs, setPreviewSvgs] = useState<string[]>([])
   const previewInvoiceMutation = useMutation(previewNewInvoiceSvg)
@@ -501,7 +522,10 @@ const CreateInvoicePreview = ({
           dueDate: watchedDueDate ? mapDatev2(watchedDueDate) : undefined,
           currency: watchedCurrency,
           purchaseOrder: methods.getValues('purchaseOrder') || undefined,
+          memo: watchedMemo || undefined,
+          reference: watchedReference || undefined,
           discount: watchedDiscount ? watchedDiscount.toString() : undefined,
+          taxInclusive: watchedTaxInclusive ?? false,
           lineItems: watchedLines?.map(line => ({
             product: line.product,
             startDate: mapDatev2(line.startDate),
@@ -532,10 +556,13 @@ const CreateInvoicePreview = ({
     watchedCustomerId,
     watchedLines,
     watchedDiscount,
+    watchedTaxInclusive,
     watchedCurrency,
     watchedInvoiceDate,
     watchedDueDate,
     watchedPurchaseOrder,
+    watchedMemo,
+    watchedReference,
   ])
 
   useEffect(() => {
@@ -601,6 +628,7 @@ export const InvoiceCreate = () => {
     invoiceDate: new Date(),
     lines: [],
     discount: 0,
+    taxInclusive: false,
     ...(customerIdFromQuery && customerIdFromQuery.trim() !== ''
       ? { customerId: customerIdFromQuery }
       : {}),
@@ -656,7 +684,10 @@ export const InvoiceCreate = () => {
           dueDate: data.dueDate ? mapDatev2(data.dueDate) : undefined,
           currency: data.currency,
           purchaseOrder: data.purchaseOrder,
+          memo: data.memo || undefined,
+          reference: data.reference || undefined,
           discount: data.discount ? data.discount.toString() : undefined,
+          taxInclusive: data.taxInclusive ?? false,
           lineItems: data.lines?.map(line => ({
             product: line.product,
             startDate: mapDatev2(line.startDate),
@@ -665,6 +696,7 @@ export const InvoiceCreate = () => {
             unitPrice: line.unitPrice.toString(),
             taxRate: percentToRate(line.taxRate || 0),
           })),
+          customProperties: serializeCustomProperties(data.customProperties),
         },
       })
       toast.success('Invoice created')
@@ -727,9 +759,12 @@ export const InvoiceCreate = () => {
   return (
     <>
       <PageHeading>Create invoice</PageHeading>
-      <Flex className="h-full">
+      <Flex className="flex-col lg:flex-row lg:h-full">
         {/* Left Panel - Invoice Form */}
-        <Flex direction="column" className="w-1/3 border-r border-border">
+        <Flex
+          direction="column"
+          className="w-full lg:w-1/3 border-b lg:border-b-0 lg:border-r border-border"
+        >
           <div className="flex-1 overflow-auto p-6">
             <Form {...methods}>
               <form onSubmit={methods.handleSubmit(onSubmit)}>
@@ -807,6 +842,41 @@ export const InvoiceCreate = () => {
                       />
                     )}
                   />
+                  <GenericFormField
+                    control={methods.control}
+                    layout="horizontal"
+                    label="Reference"
+                    name="reference"
+                    render={({ field }) => (
+                      <Input
+                        {...field}
+                        placeholder="Reference (optional)"
+                        className="min-w-[13em]"
+                        autoComplete="off"
+                      />
+                    )}
+                  />
+                  <GenericFormField
+                    control={methods.control}
+                    layout="horizontal"
+                    label="Memo"
+                    name="memo"
+                    render={({ field }) => (
+                      <Textarea
+                        {...field}
+                        placeholder="Internal notes... (optional)"
+                        className="min-w-[13em]"
+                        rows={2}
+                      />
+                    )}
+                  />
+
+                  <CustomPropertiesFields
+                    control={methods.control}
+                    entityType={CustomPropertyEntityType.INVOICE}
+                    layout="horizontal"
+                    title={null}
+                  />
 
                   <div className="space-y-2 border-t pt-4">
                     <div>
@@ -823,7 +893,13 @@ export const InvoiceCreate = () => {
                       currency={methods.watch('currency') || 'USD'}
                     />
 
-                    <div className="border-t pt-4">
+                    <div className="border-t pt-4 space-y-4">
+                      <SwitchFormField
+                        name="taxInclusive"
+                        control={methods.control}
+                        label="Prices include tax"
+                        description="Line prices and the discount are entered tax-included; the tax is carved out of them instead of being added on top."
+                      />
                       <GenericFormField
                         control={methods.control}
                         layout="horizontal"
@@ -866,7 +942,7 @@ export const InvoiceCreate = () => {
         </Flex>
 
         {/* Right Panel - Invoice Preview */}
-        <div className="w-2/3 flex flex-col">
+        <div className="w-full lg:w-2/3 flex flex-col">
           <div className="flex-1 overflow-auto p-6">
             <CreateInvoicePreview methods={methods} />
           </div>

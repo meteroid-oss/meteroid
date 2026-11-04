@@ -1,0 +1,59 @@
+[package]
+name = "meteroid-testkit"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+meteroid-app.workspace = true
+meteroid = { path = "../.." }
+anyhow.workspace = true
+async-trait.workspace = true
+backon = { workspace = true }
+bollard = { workspace = true }
+bytes.workspace = true
+chrono = { workspace = true, features = ["clock"] }
+clickhouse = { workspace = true, features = ["chrono"] }
+common-config = { workspace = true }
+common-domain = { workspace = true, features = ["utoipa", "tonic"] }
+common-grpc = { workspace = true, features = ["server"] }
+common-logging = { workspace = true }
+diesel = { workspace = true, features = ["postgres"] }
+diesel-async = { workspace = true, features = ["postgres", "migrations"] }
+diesel-models.workspace = true
+envconfig.workspace = true
+error-stack.workspace = true
+http = { workspace = true }
+kafka = { workspace = true }
+log.workspace = true
+mockall.workspace = true
+axum = { workspace = true }
+meteroid-grpc = { workspace = true, features = ["server", "client"] }
+meteroid-mailer = { workspace = true }
+meteroid-middleware = { workspace = true, features = ["server"] }
+meteroid-oauth = { workspace = true }
+meteroid-seeder = { workspace = true }
+meteroid-store = { workspace = true }
+metering = { workspace = true, features = ["clickhouse", "kafka"] }
+metering-grpc = { workspace = true }
+metering-server = { workspace = true }
+rate-limiter = { workspace = true, features = ["tonic", "axum"] }
+rdkafka = { workspace = true }
+rstest = { workspace = true }
+rust_decimal = { workspace = true, features = ["serde_json", "serde-with-float", "serde-with-str"] }
+rust_decimal_macros = { workspace = true }
+secrecy.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2.workspace = true
+testcontainers = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio-util = { workspace = true }
+tonic.workspace = true
+tonic-health.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+uuid = { workspace = true, features = ["v7"] }
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }

@@ -1,0 +1,80 @@
+[package]
+name = "meteroid-api"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+meteroid-grpc-mapping.workspace = true
+meteroid-rest-common.workspace = true
+meteroid-kit.workspace = true
+meteroid-app.workspace = true
+error-stack.workspace = true
+thiserror.workspace = true
+chrono = { workspace = true, features = ["clock"] }
+common-grpc = { workspace = true, features = ["server"] }
+egress-http = { workspace = true }
+rate-limiter = { workspace = true, features = ["tonic", "axum"] }
+common-grpc-error-as-tonic-macros-impl = { workspace = true }
+meteroid-grpc = { path = "../meteroid-grpc", features = ["server"] }
+meteroid-middleware = { path = "../meteroid-middleware", features = ["server"] }
+futures.workspace = true
+log.workspace = true
+nanoid.workspace = true
+prost-types.workspace = true
+prost.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+tonic-health.workspace = true
+tonic-reflection.workspace = true
+tonic.workspace = true
+tonic-web.workspace = true
+tonic-tracing-opentelemetry.workspace = true
+tower-http.workspace = true
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }
+base64.workspace = true
+http = { workspace = true }
+
+secrecy.workspace = true
+anyhow.workspace = true
+
+rust_decimal = { workspace = true, features = ["serde_json", "serde-with-float", "serde-with-str"] }
+rust_decimal_macros = { workspace = true }
+
+metering-grpc = { workspace = true }
+meteroid-oauth = { workspace = true }
+meteroid-tax = { workspace = true }
+common-domain = { workspace = true, features = ["utoipa", "tonic"] }
+common-eventbus = { workspace = true }
+common-utils = { workspace = true, features = ["error-stack-conv"] }
+bytes.workspace = true
+url.workspace = true
+image = { workspace = true }
+meteroid-store.workspace = true
+meteroid-invoicing.workspace = true
+meteroid-mailer.workspace = true
+lazy-regex.workspace = true
+meteroid-money.workspace = true
+moka = { workspace = true, features = ["future"] }
+sha2.workspace = true
+hex.workspace = true
+
+
+strum = { workspace = true, features = ["derive"] }
+validator = { workspace = true, features = ["derive"] }
+fred = { workspace = true }
+common-grpc-error-as-tonic-macros = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
+
+[dev-dependencies]
+meteroid-app = { workspace = true }
+
+[package.metadata.cargo-machete]
+# companion crate for ErrorAsTonic — its functions are called by generated code, not direct imports
+ignored = ["common-grpc-error-as-tonic-macros"]
+
+[package.metadata.cargo-shear]
+ignored = ["common-grpc-error-as-tonic-macros"]

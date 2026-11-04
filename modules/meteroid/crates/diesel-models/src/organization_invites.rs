@@ -1,6 +1,6 @@
 use chrono::DateTime;
 use chrono::Utc;
-use common_domain::ids::{OrganizationId, OrganizationInviteId};
+use common_domain::ids::{OrganizationId, OrganizationInviteId, RoleId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use uuid::Uuid;
 
@@ -19,6 +19,8 @@ pub struct OrganizationInviteRow {
     pub expires_at: DateTime<Utc>,
     pub accepted_at: Option<DateTime<Utc>>,
     pub revoked_at: Option<DateTime<Utc>>,
+    /// Custom role granted on accept; null keeps the built-in `role` tier.
+    pub role_id: Option<RoleId>,
 }
 
 #[derive(Debug, Insertable)]
@@ -31,4 +33,5 @@ pub struct OrganizationInviteRowNew {
     pub invited_by: Uuid,
     pub role: OrganizationUserRole,
     pub expires_at: DateTime<Utc>,
+    pub role_id: Option<RoleId>,
 }

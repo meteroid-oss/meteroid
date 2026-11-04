@@ -1,5 +1,5 @@
 import { create } from '@bufbuild/protobuf';
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { useMutation } from '@connectrpc/connect-query'
 import {
   Badge,
   Button,
@@ -31,15 +31,16 @@ import {
   wrapAsNewPriceEntries,
 } from '@/features/pricing'
 import { InvoicePreviewCard } from '@/features/subscriptions/UpcomingInvoiceCard'
-import {
-  formatSubscriptionFeeBillingPeriod,
-  formatSubscriptionFeeCompact,
-} from '@/features/subscriptions/utils/fees'
+import { invalidateSubscriptionBilling } from '@/features/subscriptions/invalidateSubscriptionBilling'
+import { formatSubscriptionFeeBillingPeriod } from '@/features/subscriptions/utils/fees'
 import { useQuery } from '@/lib/connectrpc'
 import { priceToSubscriptionFee } from '@/lib/mapping/priceToSubscriptionFee'
+import { rpcErrorMessage } from '@/lib/rpcError'
 import { formatCurrency } from '@/lib/utils/numbers'
+import { formatAmendFee } from '@/pages/tenants/subscription/amend/StepEditChanges'
 import { amendSubscriptionAtom } from '@/pages/tenants/subscription/amend/state'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
+import { listCreditUnits } from '@/rpc/api/creditunits/v1/creditunits-CreditUnitsService_connectquery'
 import {
   CreateSubscriptionAddOnSchema,
   CreateSubscriptionAddOn_AddOnPriceOverrideSchema,
@@ -64,6 +65,7 @@ import type {
   EditComponentDraft,
   ExtraComponentDraft,
 } from '@/pages/tenants/subscription/amend/state'
+import type { CreditUnit } from '@/rpc/api/creditunits/v1/models_pb'
 import type { CreateSubscriptionAddOn } from '@/rpc/api/subscriptions/v1/models_pb';
 import type { AmendmentAddComponent, AmendmentEditAddOn, AmendmentEditComponent } from '@/rpc/api/subscriptions/v1/subscriptions_pb';
 import type { MessageInitShape } from '@bufbuild/protobuf'
@@ -137,12 +139,14 @@ const buildAddOnChanges = (
 const formatNewFee = (
   feeType: EditComponentDraft['feeType'],
   formData: Record<string, unknown>,
-  currency: string
+  currency: string,
+  creditUnits?: CreditUnit[]
 ): string => {
   try {
-    return formatSubscriptionFeeCompact(
-      priceToSubscriptionFee(formDataToPrice(feeType, formData, currency)),
-      currency
+    return formatAmendFee(
+      priceToSubscriptionFee(formDataToPrice(feeType, formData, currency), { creditUnits }),
+      currency,
+      creditUnits
     )
   } catch {
     return ''
@@ -160,13 +164,6 @@ type ChangeItem = {
   before?: string
   /** New value, shown highlighted, for edits. */
   after?: string
-}
-
-// Connect/gRPC errors surface as "[code] message"; drop the machine code prefix
-// so the user sees a readable reason (e.g. the max-instances validation error).
-const cleanRpcMessage = (error: unknown): string => {
-  const raw = error instanceof Error ? error.message : 'Could not compute the preview'
-  return raw.replace(/^\[[a-z_]+\]\s*/i, '');
 }
 
 const termToPeriodLabel = (term: unknown): string | undefined => {
@@ -211,6 +208,7 @@ export const StepReviewApply = () => {
     { subscriptionId: state.subscriptionId },
     { enabled: Boolean(state.subscriptionId) }
   )
+  const creditUnits = useQuery(listCreditUnits, { includeArchived: true }).data?.units
   const catalogQuery = useQuery(listAddOns, { pagination: { perPage: 100, page: 0 } })
 
   const componentById = new Map((subQuery.data?.priceComponents ?? []).map(c => [c.id, c]))
@@ -241,8 +239,8 @@ export const StepReviewApply = () => {
         kind: 'edit' as const,
         label: 'Price updated',
         name: c.name || componentNameById.get(c.subscriptionComponentId) || 'Component',
-        before: live ? formatSubscriptionFeeCompact(live.fee, currency) : undefined,
-        after: formatNewFee(c.feeType, c.formData, currency),
+        before: live ? formatAmendFee(live.fee, currency, creditUnits) : undefined,
+        after: formatNewFee(c.feeType, c.formData, currency, creditUnits),
         period: componentPeriod(c.subscriptionComponentId),
       }
     }),
@@ -250,7 +248,7 @@ export const StepReviewApply = () => {
       kind: 'add' as const,
       label: 'Component added',
       name: c.name,
-      detail: formatNewFee(c.feeType, c.formData, currency),
+      detail: formatNewFee(c.feeType, c.formData, currency, creditUnits),
       period: termToPeriodLabel(c.formData.term),
     })),
     ...state.componentChanges.removedComponentIds.map(id => {
@@ -259,14 +257,14 @@ export const StepReviewApply = () => {
         kind: 'remove' as const,
         label: 'Component removed',
         name: componentNameById.get(id) ?? 'Component',
-        detail: live ? formatSubscriptionFeeCompact(live.fee, currency) : undefined,
+        detail: live ? formatAmendFee(live.fee, currency, creditUnits) : undefined,
         period: componentPeriod(id),
       }
     }),
     ...state.addOnChanges.added.map(a => {
       const cat = catalogById.get(a.addOnId)
       const price = cat
-        ? priceSummaryBadges(feeTypeEnumToComponentFeeType(cat.feeType), cat.price, currency).join(
+        ? priceSummaryBadges(feeTypeEnumToComponentFeeType(cat.feeType), cat.price, currency, creditUnits).join(
             ' / '
           )
         : ''
@@ -280,7 +278,7 @@ export const StepReviewApply = () => {
     }),
     ...state.addOnChanges.edited.map(a => {
       const live = addOnById.get(a.subscriptionAddOnId)
-      const livePrice = live ? formatSubscriptionFeeCompact(live.fee, currency) : undefined
+      const livePrice = live ? formatAmendFee(live.fee, currency, creditUnits) : undefined
       // Price override: old → new fee. Quantity change: old → new count (with the
       // unit price kept as plain detail, mirroring the editor row).
       if (a.priceOverride) {
@@ -289,7 +287,7 @@ export const StepReviewApply = () => {
           label: 'Price updated',
           name: a.name || addOnNameById.get(a.subscriptionAddOnId) || 'Add-on',
           before: livePrice,
-          after: formatNewFee(a.priceOverride.feeType, a.priceOverride.formData, currency),
+          after: formatNewFee(a.priceOverride.feeType, a.priceOverride.formData, currency, creditUnits),
           period: addOnPeriod(a.subscriptionAddOnId),
         }
       }
@@ -309,7 +307,7 @@ export const StepReviewApply = () => {
         kind: 'remove' as const,
         label: 'Add-on removed',
         name: addOnNameById.get(id) ?? 'Add-on',
-        detail: live ? formatSubscriptionFeeCompact(live.fee, currency) : undefined,
+        detail: live ? formatAmendFee(live.fee, currency, creditUnits) : undefined,
         period: addOnPeriod(id),
       }
     }),
@@ -348,7 +346,7 @@ export const StepReviewApply = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deltaSignature, state.subscriptionId])
 
-  const previewError = previewMut.isError ? cleanRpcMessage(previewMut.error) : null
+  const previewError = previewMut.isError ? rpcErrorMessage(previewMut.error, 'Could not compute the preview') : null
 
   const preview = state.preview
 
@@ -371,17 +369,7 @@ export const StepReviewApply = () => {
           `Amendment scheduled for ${result.effectiveDate ? parseAndFormatDate(result.effectiveDate) : 'end of current period'}`
         )
       }
-      await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey({
-          schema: getSubscriptionDetails,
-
-          input: {
-            subscriptionId: state.subscriptionId,
-          },
-
-          cardinality: 'finite'
-        }),
-      })
+      await invalidateSubscriptionBilling(queryClient, state.subscriptionId)
       navigate(`../${state.subscriptionId}`, { replace: true })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to apply amendment'

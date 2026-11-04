@@ -2,16 +2,19 @@ use crate::domain::customer_payment_methods::CustomerPaymentMethod;
 use crate::domain::subscriptions::PaymentMethodsConfig;
 use crate::domain::{CustomerPaymentMethodNew, ResolvedPaymentMethod};
 use crate::errors::StoreError;
+use crate::services::orchestration::payment_transaction_failed::rearm_refreshed_card_retries;
 use crate::{Store, StoreResult};
 use common_domain::ids::{
     ConnectorId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, SubscriptionId,
     TenantId,
 };
+use diesel_models::connectors::ConnectorRow;
 use diesel_models::customer_payment_methods::{
     CustomerPaymentMethodRow, CustomerPaymentMethodRowNew,
 };
 use diesel_models::customers::CustomerRow;
 use diesel_models::enums::PaymentMethodTypeEnum as DieselPaymentMethodTypeEnum;
+use diesel_models::query::credit_inputs;
 use scoped_futures::ScopedFutureExt;
 
 #[async_trait::async_trait]
@@ -132,8 +135,12 @@ impl CustomerPaymentMethodsInterface for Store {
         method: CustomerPaymentMethodNew,
     ) -> StoreResult<CustomerPaymentMethod> {
         self.transaction(|conn| {
-            async move { self.persist_payment_method(conn, method.into(), true).await }
-                .scope_boxed()
+            async move {
+                let saved_for_payment = method.saved_for_payment;
+                self.persist_payment_method(conn, method.into(), true, saved_for_payment)
+                    .await
+            }
+            .scope_boxed()
         })
         .await
     }
@@ -144,7 +151,8 @@ impl CustomerPaymentMethodsInterface for Store {
     ) -> StoreResult<CustomerPaymentMethod> {
         self.transaction(|conn| {
             async move {
-                self.persist_payment_method(conn, method.into(), false)
+                let saved_for_payment = method.saved_for_payment;
+                self.persist_payment_method(conn, method.into(), false, saved_for_payment)
                     .await
             }
             .scope_boxed()
@@ -161,24 +169,53 @@ impl CustomerPaymentMethodsInterface for Store {
         card_exp_month: Option<i32>,
         card_exp_year: Option<i32>,
     ) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
-        let updated = CustomerPaymentMethodRow::update_card_details(
-            &mut conn,
-            tenant_id,
-            external_payment_method_id,
-            card_brand,
-            card_last4,
-            card_exp_month,
-            card_exp_year,
-        )
+        let external_id = external_payment_method_id.to_string();
+        self.transaction(|conn| {
+            async move {
+                let Some(method) =
+                    CustomerPaymentMethodRow::get_by_external_id(conn, &tenant_id, &external_id)
+                        .await
+                        .map_err(|err| StoreError::DatabaseError(err.error))?
+                else {
+                    log::warn!("payment_method.updated for unknown external id {external_id}");
+                    return Ok(());
+                };
+                // Unchanged details are a no-op; a new number or expiry stamps `card_refreshed_at`.
+                let card_changed = (
+                    method.card_last4.as_deref(),
+                    method.card_exp_month,
+                    method.card_exp_year,
+                ) != (card_last4.as_deref(), card_exp_month, card_exp_year);
+                if !card_changed && method.card_brand == card_brand {
+                    return Ok(());
+                }
+                CustomerPaymentMethodRow::update_card_details(
+                    conn,
+                    tenant_id,
+                    &external_id,
+                    card_brand,
+                    card_last4,
+                    card_exp_month,
+                    card_exp_year,
+                    card_changed,
+                )
+                .await
+                .map_err(|err| StoreError::DatabaseError(err.error))?;
+                if card_changed && method.archived_at.is_none() {
+                    rearm_refreshed_card_retries(
+                        self,
+                        conn,
+                        tenant_id,
+                        method.customer_id,
+                        method.id,
+                    )
+                    .await?;
+                }
+                Ok(())
+            }
+            .scope_boxed()
+        })
         .await
-        .map_err(|err| StoreError::DatabaseError(err.error))?;
-        if updated == 0 {
-            log::warn!(
-                "payment_method.updated for unknown external id {external_payment_method_id}"
-            );
-        }
-        Ok(())
     }
 
     async fn detach_payment_method_by_external_id(
@@ -196,6 +233,7 @@ impl CustomerPaymentMethodsInterface for Store {
                 else {
                     return Ok(None);
                 };
+                let lock = CustomerRow::lock(conn, tenant_id, method.customer_id).await?;
 
                 // Soft-archive only: historical payment_transaction rows FK it.
                 CustomerPaymentMethodRow::archive(conn, &tenant_id, &method.id)
@@ -204,6 +242,7 @@ impl CustomerPaymentMethodsInterface for Store {
                 CustomerRow::clear_current_payment_method(conn, tenant_id, &method.id)
                     .await
                     .map_err(|err| StoreError::DatabaseError(err.error))?;
+                credit_inputs::bump_customer(conn, &lock).await?;
 
                 Ok(Some(method.id))
             }
@@ -253,6 +292,7 @@ impl CustomerPaymentMethodsInterface for Store {
                     &mut conn,
                     &tenant_id,
                     &context.customer_id,
+                    context.current_payment_method_id,
                     context.card_provider_id,
                     context.direct_debit_provider_id,
                     online_config.as_ref(),
@@ -271,7 +311,10 @@ impl Store {
         conn: &mut crate::store::PgConn,
         row: CustomerPaymentMethodRowNew,
         overwrite_existing: bool,
+        saved_for_payment: bool,
     ) -> StoreResult<CustomerPaymentMethod> {
+        // A top-up waits on a missing payment method: the customer's methods are a credit input.
+        let lock = CustomerRow::lock(conn, row.tenant_id, row.customer_id).await?;
         let existing = CustomerPaymentMethodRow::get_by_external_id(
             conn,
             &row.tenant_id,
@@ -282,22 +325,45 @@ impl Store {
         .filter(|existing| existing.connection_id == row.connection_id);
 
         let saved = match existing {
-            Some(existing) if !overwrite_existing => Ok(existing),
+            Some(existing) if !overwrite_existing => {
+                // The provider's webhook can record a method before the portal reports it.
+                self.mark_saved_for_payment(conn, &existing, saved_for_payment)
+                    .await?;
+                return Ok(existing.into());
+            }
             Some(_) => row.upsert(conn).await,
             None if row.fingerprint.is_some() => row.upsert_by_fingerprint(conn).await,
             None => row.upsert(conn).await,
         }
         .map_err(|err| StoreError::DatabaseError(err.error))?;
+        self.mark_saved_for_payment(conn, &saved, saved_for_payment)
+            .await?;
+        credit_inputs::bump_customer(conn, &lock).await?;
 
         Ok(saved.into())
     }
 
-    /// Prefers card over direct debit.
+    async fn mark_saved_for_payment(
+        &self,
+        conn: &mut crate::store::PgConn,
+        method: &CustomerPaymentMethodRow,
+        saved_for_payment: bool,
+    ) -> StoreResult<()> {
+        if saved_for_payment {
+            CustomerPaymentMethodRow::mark_saved_for_payment(conn, method.tenant_id, method.id)
+                .await
+                .map_err(|err| StoreError::DatabaseError(err.error))?;
+        }
+        Ok(())
+    }
+
+    /// Prefers card over direct debit, and the customer's default method within each.
     async fn resolve_online_payment_method(
         &self,
         conn: &mut crate::store::PgConn,
         tenant_id: &TenantId,
         customer_id: &CustomerId,
+        default_method_id: Option<CustomerPaymentMethodId>,
         card_provider_id: Option<ConnectorId>,
         direct_debit_provider_id: Option<ConnectorId>,
         online_config: Option<&crate::domain::subscriptions::OnlineMethodsConfig>,
@@ -311,6 +377,22 @@ impl Store {
             .and_then(|c| c.direct_debit.as_ref())
             .map(|m| m.enabled)
             .unwrap_or(true);
+
+        // A routed connector that isn't active (disabled, deleted) collects nothing: resolve as
+        // if the rail weren't routed, so billing leaves the invoice for manual payment.
+        let routed: Vec<ConnectorId> = card_provider_id
+            .into_iter()
+            .chain(direct_debit_provider_id)
+            .collect();
+        let active = if routed.is_empty() {
+            routed
+        } else {
+            ConnectorRow::filter_active_ids(conn, *tenant_id, &routed)
+                .await
+                .map_err(|err| StoreError::DatabaseError(err.error))?
+        };
+        let card_provider_id = card_provider_id.filter(|id| active.contains(id));
+        let direct_debit_provider_id = direct_debit_provider_id.filter(|id| active.contains(id));
 
         let mut valid_provider_ids: Vec<ConnectorId> = Vec::new();
 
@@ -339,9 +421,11 @@ impl Store {
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
-        let mut best_method = None;
+        let mut best_card = None;
+        let mut best_direct_debit = None;
 
         for method in &matching_methods {
+            let is_default = default_method_id == Some(method.id);
             let is_card = method.payment_method_type == DieselPaymentMethodTypeEnum::Card;
             let is_direct_debit = matches!(
                 method.payment_method_type,
@@ -355,15 +439,17 @@ impl Store {
             let provider_matches_dd = direct_debit_enabled
                 && direct_debit_provider_id.is_some_and(|p| p == method.connector_id);
 
-            if is_card && provider_matches_card {
-                best_method = Some(method.id);
-                break;
-            } else if is_direct_debit && provider_matches_dd && best_method.is_none() {
-                best_method = Some(method.id);
+            if is_card && provider_matches_card && (best_card.is_none() || is_default) {
+                best_card = Some(method.id);
+            } else if is_direct_debit
+                && provider_matches_dd
+                && (best_direct_debit.is_none() || is_default)
+            {
+                best_direct_debit = Some(method.id);
             }
         }
 
-        match best_method {
+        match best_card.or(best_direct_debit) {
             Some(payment_method_id) => Ok(ResolvedPaymentMethod::CustomerPaymentMethod(
                 payment_method_id,
             )),

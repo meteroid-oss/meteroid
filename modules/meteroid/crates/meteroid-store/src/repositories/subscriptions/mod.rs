@@ -1,17 +1,21 @@
 use crate::StoreResult;
+use crate::domain::credit_units::CreditUnitsById;
+use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::enums::SubscriptionFeeBillingPeriod;
+use crate::domain::outbox_event::{OutboxEvent, SubscriptionEvent, SubscriptionUpdateType};
 use crate::domain::prices::{Price, fee_type_billing_period, resolve_subscription_fee};
 use crate::domain::products::Product;
 use crate::domain::subscriptions::{AmendmentSummary, PaymentMethodsConfig, PendingScheduledEvent};
 use crate::domain::{
     BillableMetric, ConnectorProviderEnum, Customer, InvoicingEntity, PaginatedVec,
-    PaginationRequest, Schedule, Subscription, SubscriptionComponent, SubscriptionComponentNew,
-    SubscriptionDetails, SubscriptionPatch, TrialConfig,
+    PaginationRequest, Schedule, Subscription, SubscriptionComponent, SubscriptionDetails,
+    SubscriptionPatch, TrialConfig, UsageFilter,
 };
+use crate::repositories::credit_units::load_credit_units;
 use chrono::NaiveDate;
 use common_domain::ids::{
-    ConnectorId, CustomerId, EntitlementEntityId, PlanId, PriceId, ProductId, SubscriptionId,
-    TenantId,
+    BaseId, ConnectorId, CreditUnitId, CustomerId, EntitlementEntityId, PlanId, PriceId, ProductId,
+    SubscriptionId, TenantId,
 };
 use std::collections::HashMap;
 
@@ -30,9 +34,7 @@ use diesel_models::prices::PriceRow;
 use diesel_models::products::ProductRow;
 use diesel_models::schedules::ScheduleRow;
 use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
-use diesel_models::subscription_components::{
-    SubscriptionComponentRow, SubscriptionComponentRowNew,
-};
+use diesel_models::subscription_components::SubscriptionComponentRow;
 use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowPatch};
 // TODO we need to always pass the tenant id and match it with the resource, if not within the resource.
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
@@ -47,6 +49,7 @@ use diesel_models::scheduled_events::ScheduledEventRowNew;
 use meteroid_store_macros::with_conn_delegate;
 
 pub mod slots;
+pub(crate) mod usage_attribution;
 use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventData, ScheduledEventNew};
 use diesel_models::scheduled_events::ScheduledEventRow;
 pub use slots::SubscriptionSlotsInterface;
@@ -54,6 +57,9 @@ pub use slots::SubscriptionSlotsInterface;
 pub enum CancellationEffectiveAt {
     EndOfBillingPeriod,
     Date(NaiveDate),
+    /// Terminate now: settles the current period through the actual instant, so usage consumed on
+    /// the termination day is billed rather than dropped by the date-granular midnight window.
+    Immediate,
 }
 
 #[with_conn_delegate]
@@ -78,13 +84,6 @@ pub trait SubscriptionInterface {
         subscription_id: SubscriptionId,
     ) -> StoreResult<Subscription>;
 
-    async fn insert_subscription_components(
-        &self,
-        tenant_id: TenantId,
-        batch: Vec<SubscriptionComponentNew>,
-    ) -> StoreResult<Vec<SubscriptionComponent>>;
-
-    #[allow(clippy::too_many_arguments)]
     async fn list_subscriptions(
         &self,
         tenant_id: TenantId,
@@ -92,12 +91,13 @@ pub trait SubscriptionInterface {
         plan_id: Option<PlanId>,
         status: Option<Vec<crate::domain::enums::SubscriptionStatusEnum>>,
         search: Option<String>,
+        filters: Vec<crate::domain::filters::Filter>,
         order_by: Option<String>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>>;
 
-    /// Map of subscription_id -> next scheduled cancellation date, for the given
-    /// subscriptions. Only subscriptions with a pending cancellation are present.
+    /// Map of subscription_id -> next scheduled cancellation date, for the given subscriptions.
+    /// Only subscriptions with a pending cancellation are present in the map.
     async fn list_pending_cancellations(
         &self,
         tenant_id: TenantId,
@@ -140,6 +140,7 @@ pub trait SubscriptionInterface {
         &self,
         tenant_id: TenantId,
         patch: SubscriptionPatch,
+        actor: Actor,
     ) -> StoreResult<Subscription>;
 }
 
@@ -188,6 +189,9 @@ impl SubscriptionInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?
             .into();
 
+        let usage_scopes =
+            usage_attribution::subscription_usage_scopes(conn, &subscription).await?;
+
         Ok(SubscriptionDetails {
             subscription,
             customer,
@@ -197,10 +201,12 @@ impl SubscriptionInterface for Store {
             add_ons: vec![],
             applied_coupons: vec![],
             metrics: vec![],
+            usage_scopes,
             checkout_url: None,
             trial_config: None,
             pending_events: vec![],
             entitlements: vec![],
+            minimum: None,
         })
     }
 
@@ -281,6 +287,7 @@ impl SubscriptionInterface for Store {
                     .chain(addon_rows_with_price.iter().filter_map(|r| r.product_id)),
             )
             .await?;
+            let units = fetch_price_credit_units(conn, tenant_id, &prices_by_id).await?;
 
             for row in comp_rows_with_price {
                 let resolved = resolve_fee_from_maps(
@@ -288,6 +295,7 @@ impl SubscriptionInterface for Store {
                     row.product_id,
                     &prices_by_id,
                     &products_by_id,
+                    &units,
                 );
 
                 let component = if let Some((period, fee)) = resolved {
@@ -318,6 +326,7 @@ impl SubscriptionInterface for Store {
                     row.product_id,
                     &prices_by_id,
                     &products_by_id,
+                    &units,
                 );
 
                 let add_on = if let Some((period, fee)) = resolved {
@@ -367,12 +376,17 @@ impl SubscriptionInterface for Store {
                 .map(std::convert::TryInto::try_into)
                 .collect::<Result<Vec<_>, Report<_>>>()?;
 
+        let usage_scopes =
+            usage_attribution::subscription_usage_scopes(conn, &subscription).await?;
         let billable_metrics: Vec<BillableMetric> =
             BillableMetricRow::get_by_ids(conn, &metric_ids, &subscription.tenant_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
-                .map(std::convert::TryInto::try_into)
+                .map(|row| {
+                    TryInto::<BillableMetric>::try_into(row)
+                        .map(|metric| usage_scopes.apply(metric))
+                })
                 .collect::<Result<Vec<_>, Report<_>>>()?;
 
         // Look up the linked CheckoutSession to get the checkout URL
@@ -390,6 +404,9 @@ impl SubscriptionInterface for Store {
                     &self.settings.jwt_secret,
                     tenant_id,
                     ResourceAccess::CheckoutSession(session.id),
+                    None,
+                    None,
+                    false,
                 )?;
                 Some(format!(
                     "{}/checkout?token={}",
@@ -492,7 +509,7 @@ impl SubscriptionInterface for Store {
                         pending.new_plan_name = Some(plan_with_version.plan.name);
                         pending.new_plan_version_id = Some(*new_plan_version_id);
                     }
-                    ScheduledEventData::CancelSubscription { reason } => {
+                    ScheduledEventData::CancelSubscription { reason, .. } => {
                         pending.cancel_reason = reason.clone();
                     }
                     ScheduledEventData::ApplyAmendment {
@@ -555,12 +572,15 @@ impl SubscriptionInterface for Store {
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
 
+        let minimum = load_subscription_minimum(conn, subscription.id).await?;
+
         Ok(SubscriptionDetails {
             subscription,
             price_components: subscription_components,
             add_ons: subscription_add_ons,
             applied_coupons,
             metrics: billable_metrics,
+            usage_scopes,
             schedules,
             checkout_url,
             customer,
@@ -568,37 +588,10 @@ impl SubscriptionInterface for Store {
             trial_config,
             pending_events,
             entitlements,
+            minimum,
         })
     }
 
-    async fn insert_subscription_components(
-        &self,
-        _tenant_id: TenantId,
-        batch: Vec<SubscriptionComponentNew>,
-    ) -> StoreResult<Vec<SubscriptionComponent>> {
-        let mut conn = self.get_conn().await?;
-
-        // TODO update mrr
-
-        let insertable_batch: Vec<SubscriptionComponentRowNew> = batch
-            .into_iter()
-            .map(std::convert::TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        SubscriptionComponentRow::insert_subscription_component_batch(
-            &mut conn,
-            insertable_batch.iter().collect(),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)
-        .map(|v| {
-            v.into_iter()
-                .map(std::convert::TryInto::try_into)
-                .collect::<Result<Vec<_>, _>>()
-        })?
-    }
-
-    #[allow(clippy::too_many_arguments)]
     async fn list_subscriptions(
         &self,
         tenant_id: TenantId,
@@ -606,12 +599,32 @@ impl SubscriptionInterface for Store {
         plan_id: Option<PlanId>,
         status: Option<Vec<crate::domain::enums::SubscriptionStatusEnum>>,
         search: Option<String>,
+        filters: Vec<crate::domain::filters::Filter>,
         order_by: Option<String>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>> {
         let mut conn = self.get_conn().await?;
 
         let status_filter = status.map(|s| s.into_iter().map(|x| x.into()).collect());
+
+        let cp_filters = if filters.is_empty() {
+            vec![]
+        } else {
+            let definitions = self
+                .internal
+                .custom_property_definitions
+                .load_active(
+                    &mut conn,
+                    tenant_id,
+                    crate::domain::enums::CustomPropertyEntityType::Subscription,
+                )
+                .await?;
+            crate::repositories::filter_resolution::resolve_list_filters(
+                crate::repositories::filter_resolution::ListEntity::Subscription,
+                definitions.as_slice(),
+                filters,
+            )?
+        };
 
         let db_subscriptions = SubscriptionRow::list_subscriptions(
             &mut conn,
@@ -620,6 +633,7 @@ impl SubscriptionInterface for Store {
             plan_id,
             status_filter,
             search,
+            cp_filters,
             order_by.as_deref(),
             pagination.into(),
         )
@@ -784,6 +798,7 @@ impl SubscriptionInterface for Store {
         &self,
         tenant_id: TenantId,
         patch: SubscriptionPatch,
+        actor: Actor,
     ) -> StoreResult<Subscription> {
         use crate::domain::SubscriptionStatusEnum;
 
@@ -819,6 +834,15 @@ impl SubscriptionInterface for Store {
                 StoreError::SerdeError(format!("Failed to parse payment_methods_config: {}", e), e)
             })?;
 
+        // Snapshot pre-patch values so the entity.updated audit row records only the
+        // fields whose value actually changes — clients round-trip the whole form.
+        let before_charge_automatically = existing.subscription.charge_automatically;
+        let before_auto_advance_invoices = existing.subscription.auto_advance_invoices;
+        let before_net_terms = existing.subscription.net_terms;
+        let before_invoice_memo = existing.subscription.invoice_memo.clone();
+        let before_purchase_order = existing.subscription.purchase_order.clone();
+        let before_payment_methods_config = existing_payment_methods_config.clone();
+
         let effective_payment_methods_config = match &patch.payment_methods_config {
             Some(new_config) => new_config.clone(),
             None => existing_payment_methods_config,
@@ -841,6 +865,22 @@ impl SubscriptionInterface for Store {
             )?;
         }
 
+        let custom_properties = match &patch.custom_properties {
+            Some(provided) => Some(
+                self.internal
+                    .validate_and_normalize_custom_properties(
+                        &mut conn,
+                        tenant_id,
+                        crate::domain::enums::CustomPropertyEntityType::Subscription,
+                        provided,
+                        &existing.subscription.custom_properties,
+                        crate::domain::custom_property_definitions::CustomPropertyMode::Merge,
+                    )
+                    .await?,
+            ),
+            None => None,
+        };
+
         let row_patch = SubscriptionRowPatch {
             charge_automatically: patch.charge_automatically,
             auto_advance_invoices: patch.auto_advance_invoices,
@@ -858,16 +898,153 @@ impl SubscriptionInterface for Store {
                     })
                 })
                 .transpose()?,
+            custom_properties,
+            usage_filter_property: None,
+            usage_filter_value: None,
+            usage_filter_since: None,
         };
 
-        SubscriptionRow::patch(&mut conn, &tenant_id, patch.id, &row_patch)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let subscription_id = patch.id;
+        let customer_id = existing.subscription.customer_id;
+        let before_usage_filter = UsageFilter::from_columns(
+            existing.subscription.usage_filter_property.clone(),
+            existing.subscription.usage_filter_value.clone(),
+        )?;
+        let usage_filter_change = patch
+            .usage_filter
+            .clone()
+            .filter(|new| *new != before_usage_filter);
 
-        SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, patch.id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .try_into()
+        // Patch and the resulting `subscription.updated` webhook must commit atomically:
+        // the transactional outbox guarantees the event is published iff the row changed.
+        use scoped_futures::ScopedFutureExt;
+        self.transaction(|conn| {
+            let row_patch = &row_patch;
+            let actor = &actor;
+            let before_invoice_memo = &before_invoice_memo;
+            let before_purchase_order = &before_purchase_order;
+            let before_payment_methods_config = &before_payment_methods_config;
+            let before_usage_filter = &before_usage_filter;
+            let usage_filter_change = &usage_filter_change;
+            async move {
+                let mut row_patch = row_patch.clone();
+                // Serializes with the customer's other filter changes and creations.
+                let lock = crate::repositories::credit::customer_credit::lock_customer_tx(
+                    conn,
+                    tenant_id,
+                    customer_id,
+                )
+                .await?;
+                diesel_models::query::credit_inputs::bump_customer(conn, &lock).await?;
+                if let Some(new) = usage_filter_change {
+                    let row =
+                        SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?
+                            .subscription;
+                    let from = usage_attribution::usage_filter_effective_from(
+                        conn,
+                        tenant_id,
+                        &row,
+                        usage_attribution::midnight(row.current_period_start),
+                        new.as_ref(),
+                        &std::collections::HashSet::new(),
+                    )
+                    .await?;
+                    if let Some(filter) = new {
+                        usage_attribution::ensure_usage_filter_available(
+                            conn,
+                            tenant_id,
+                            customer_id,
+                            subscription_id,
+                            filter,
+                            from,
+                            usage_attribution::life_end(&row),
+                        )
+                        .await?;
+                    }
+                    usage_attribution::record_usage_filter_version(
+                        conn,
+                        tenant_id,
+                        subscription_id,
+                        new.as_ref(),
+                        from,
+                    )
+                    .await?;
+                    row_patch.usage_filter_property =
+                        Some(new.as_ref().map(|f| f.property.clone()));
+                    row_patch.usage_filter_value = Some(new.as_ref().map(|f| f.value.clone()));
+                    row_patch.usage_filter_since = Some(Some(from));
+                }
+                if !row_patch.is_empty() {
+                    SubscriptionRow::patch(conn, &tenant_id, subscription_id, &row_patch)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                }
+
+                let updated: Subscription =
+                    SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?
+                        .try_into()?;
+
+                let mut changed_fields: Vec<&'static str> = Vec::new();
+                if before_charge_automatically != updated.charge_automatically {
+                    changed_fields.push("charge_automatically");
+                }
+                if before_auto_advance_invoices != updated.auto_advance_invoices {
+                    changed_fields.push("auto_advance_invoices");
+                }
+                if before_net_terms != updated.net_terms as i32 {
+                    changed_fields.push("net_terms");
+                }
+                if before_invoice_memo != &updated.invoice_memo {
+                    changed_fields.push("invoice_memo");
+                }
+                if before_purchase_order != &updated.purchase_order {
+                    changed_fields.push("purchase_order");
+                }
+                if before_payment_methods_config != &updated.payment_methods_config {
+                    changed_fields.push("payment_methods_config");
+                }
+                if before_usage_filter != &updated.usage_filter {
+                    changed_fields.push("usage_filter");
+                }
+
+                if !changed_fields.is_empty() {
+                    let activity = Activity::new(
+                        ActivityType::EntityUpdated,
+                        EntityType::Subscription,
+                        subscription_id.as_uuid(),
+                    )
+                    .agg_customer(updated.customer_id)
+                    .with_metadata(serde_json::json!({
+                        "changes": changed_fields
+                            .iter()
+                            .map(|f| serde_json::json!({ "field": f }))
+                            .collect::<Vec<_>>(),
+                    }));
+                    self.internal
+                        .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                        .await?;
+                }
+
+                let mut event: SubscriptionEvent = updated.clone().into();
+                event.change_type = Some(SubscriptionUpdateType::BillingConfigurationUpdated);
+                self.internal
+                    .record_outbox_batch_tx(
+                        conn,
+                        tenant_id,
+                        actor,
+                        vec![OutboxEvent::subscription_updated(event)],
+                    )
+                    .await?;
+
+                Ok(updated)
+            }
+            .scope_boxed()
+        })
+        .await
     }
 }
 
@@ -934,17 +1111,145 @@ pub(crate) async fn fetch_prices_and_products(
     Ok((prices_by_id, products_by_id))
 }
 
+/// The credit units the prices are expressed in, or their credit packs grant, by id.
+pub(crate) async fn fetch_price_credit_units(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    prices_by_id: &HashMap<PriceId, Price>,
+) -> StoreResult<CreditUnitsById> {
+    load_credit_units(
+        conn,
+        tenant_id,
+        prices_by_id.values().flat_map(Price::credit_unit_ids),
+    )
+    .await
+}
+
+/// Gives a stored fee (a closed component's or add-on's) the credit unit of its price when it was
+/// stored without it, so its credits are never billed as money. Fees already carrying their unit,
+/// and fees of prices without one, are left as stored.
+pub(crate) async fn restore_stored_fee_credit_units(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    fees: Vec<(Option<PriceId>, &mut crate::domain::SubscriptionFee)>,
+) -> StoreResult<()> {
+    use crate::domain::SubscriptionFee;
+    let unresolved: Vec<(PriceId, &mut SubscriptionFee)> = fees
+        .into_iter()
+        .filter_map(|(price_id, fee)| {
+            let unresolved = matches!(
+                fee,
+                SubscriptionFee::Usage {
+                    credit_unit: None,
+                    ..
+                } | SubscriptionFee::Capacity {
+                    credit_unit: None,
+                    ..
+                } | SubscriptionFee::Credit {
+                    credit_unit: None,
+                    ..
+                }
+            );
+            Some((price_id?, fee)).filter(|_| unresolved)
+        })
+        .collect();
+    if unresolved.is_empty() {
+        return Ok(());
+    }
+    let price_ids: Vec<PriceId> = unresolved.iter().map(|(id, _)| *id).unique().collect();
+    let prices: HashMap<PriceId, Price> = PriceRow::list_by_ids(conn, &price_ids, tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .map(|row| Price::try_from(row).map(|price| (price.id, price)))
+        .collect::<StoreResult<_>>()?;
+    let units = fetch_price_credit_units(conn, tenant_id, &prices).await?;
+    let unit = |unit_id: &CreditUnitId| {
+        units
+            .get(unit_id)
+            .ok_or_else(|| Report::new(StoreError::ValueNotFound(format!("credit unit {unit_id}"))))
+    };
+    for (price_id, fee) in unresolved {
+        let Some(price) = prices.get(&price_id) else {
+            continue;
+        };
+        match (fee, &price.credit_unit, &price.pricing) {
+            (
+                SubscriptionFee::Usage { credit_unit, .. }
+                | SubscriptionFee::Capacity { credit_unit, .. },
+                Some(priced_in),
+                _,
+            ) => {
+                let unit = unit(&priced_in.unit_id)?;
+                *credit_unit = Some(crate::domain::credit_units::FeeCreditUnit {
+                    unit_id: unit.id,
+                    code: unit.code.as_str().to_owned(),
+                    precision: unit.precision,
+                    rate: priced_in.rate,
+                });
+            }
+            (
+                SubscriptionFee::Credit { credit_unit, .. },
+                _,
+                crate::domain::prices::Pricing::Credit {
+                    credit_unit_id: Some(unit_id),
+                    ..
+                },
+            ) => *credit_unit = Some(unit(unit_id)?.reference()),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// `None` when the price, its product or the credit unit it is expressed in is missing.
 pub(crate) fn resolve_fee_from_maps(
     price_id: Option<PriceId>,
     product_id: Option<ProductId>,
     prices_by_id: &HashMap<PriceId, Price>,
     products_by_id: &HashMap<ProductId, Product>,
+    units: &CreditUnitsById,
 ) -> Option<(SubscriptionFeeBillingPeriod, crate::domain::SubscriptionFee)> {
     let price = prices_by_id.get(&price_id?)?;
     let product = products_by_id.get(&product_id?)?;
     let fee_structure = &product.fee_structure;
-    let fee = resolve_subscription_fee(fee_structure, &price.pricing, None).ok()?;
+    let fee = resolve_subscription_fee(
+        fee_structure,
+        &price.pricing,
+        price.credit_unit.as_ref(),
+        units,
+        None,
+    )
+    .ok()?;
     let period = fee_type_billing_period(fee_structure)
         .unwrap_or_else(|| price.cadence.as_subscription_billing_period());
     Some((period, fee))
+}
+
+pub(crate) async fn load_subscription_minimum(
+    conn: &mut PgConn,
+    subscription_id: common_domain::ids::SubscriptionId,
+) -> StoreResult<Option<crate::domain::subscription_minimums::SubscriptionMinimum>> {
+    use diesel_models::subscription_adjustments::{
+        SubscriptionAdjustmentComponentRow, SubscriptionAdjustmentRow,
+    };
+
+    let Some(row) = SubscriptionAdjustmentRow::find_by_subscription_id(conn, &subscription_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+    else {
+        return Ok(None);
+    };
+
+    let components = if row.includes_all_components {
+        vec![]
+    } else {
+        SubscriptionAdjustmentComponentRow::list_by_subscription_id(conn, &subscription_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+    };
+
+    Ok(Some(
+        crate::domain::subscription_minimums::SubscriptionMinimum::from_rows(row, components),
+    ))
 }

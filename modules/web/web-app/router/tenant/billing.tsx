@@ -6,12 +6,13 @@ import { BillingOutlet } from '@/pages/tenants/billing'
 import { CreditNote, CreditNotes } from '@/pages/tenants/creditnote'
 import { Invoice, Invoices } from '@/pages/tenants/invoice'
 import { InvoiceCreate } from '@/pages/tenants/invoice/invoiceCreate'
-import { CreateQuote, Quote, Quotes } from '@/pages/tenants/quotes'
+import { EditQuote, NewQuote, Quote, Quotes } from '@/pages/tenants/quotes'
 import { Subscriptions } from '@/pages/tenants/subscription'
 import { AmendSubscriptionWizard } from '@/pages/tenants/subscription/amend/AmendSubscriptionWizard'
 import { ChangePlanWizard } from '@/pages/tenants/subscription/changePlan/ChangePlanWizard'
 import { Subscription } from '@/pages/tenants/subscription/subscription'
 import { SubscriptionCreate } from '@/pages/tenants/subscription/subscriptionCreate'
+import { Wallets } from '@/pages/tenants/wallets'
 
 export const billingRoutes: RouteObject = {
   element: <BillingOutlet />,
@@ -67,8 +68,9 @@ export const billingRoutes: RouteObject = {
           path: 'quotes',
           children: [
             { index: true, element: <Quotes />, handle: { title: 'Quotes' } },
-            { path: 'create', element: <CreateQuote />, handle: { title: 'New quote' } },
+            { path: 'create', element: <NewQuote />, handle: { title: 'New quote' } },
             { path: ':quoteId', element: <Quote />, handle: { title: 'Quote' } },
+            { path: ':quoteId/edit', element: <EditQuote />, handle: { title: 'Edit quote' } },
           ],
         },
         {
@@ -82,6 +84,7 @@ export const billingRoutes: RouteObject = {
             },
           ],
         },
+        { path: 'wallets', element: <Wallets />, handle: { title: 'Wallets' } },
       ],
     },
     { path: '*', element: <NotImplemented /> },

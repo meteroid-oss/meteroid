@@ -44,8 +44,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tonic_prost_build::configure()
         .build_server(true)
         .build_client(true)
-        .client_mod_attribute(".", r#"#[cfg(feature = "client")]"#)
-        .server_mod_attribute(".", r#"#[cfg(feature = "server")]"#)
         .extern_path(".meteroid.common", "::common_grpc::meteroid::common")
         .protoc_arg("--experimental_allow_proto3_optional")
         .compile_protos(

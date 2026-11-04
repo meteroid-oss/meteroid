@@ -2,6 +2,7 @@ import { Skeleton } from '@md/ui'
 import { useAtom } from 'jotai'
 import { useResetAtom } from 'jotai/utils'
 import { Fragment, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Wizard } from 'react-use-wizard'
 
 import PageHeading from '@/components/PageHeading/PageHeading'
@@ -16,6 +17,9 @@ export const AmendSubscriptionWizard = () => {
   const resetState = useResetAtom(amendSubscriptionAtom)
   const [, setState] = useAtom(amendSubscriptionAtom)
   const { subscriptionId } = useTypedParams()
+  // `?addOnId=` (e.g. from a signal's option) starts the amendment with that add-on added.
+  const [params] = useSearchParams()
+  const presetAddOnId = params.get('addOnId')
 
   const subscriptionQuery = useQuery(
     getSubscriptionDetails,
@@ -31,6 +35,13 @@ export const AmendSubscriptionWizard = () => {
         ...prev,
         subscriptionId: subscription.id,
         currency: subscription.currency,
+        addOnChanges:
+          presetAddOnId && !prev.addOnChanges.added.some(a => a.addOnId === presetAddOnId)
+            ? {
+                ...prev.addOnChanges,
+                added: [...prev.addOnChanges.added, { addOnId: presetAddOnId, quantity: 1 }],
+              }
+            : prev.addOnChanges,
       }))
     }
   }, [subscription?.id])

@@ -3,6 +3,8 @@ use common_config::common::CommonConfig;
 use envconfig::Envconfig;
 use std::net::SocketAddr;
 
+pub use metric_core::config::ClickhouseConfig;
+
 #[cfg(feature = "kafka")]
 use kafka::config::KafkaConnectionConfig;
 #[cfg(feature = "kafka")]
@@ -24,11 +26,46 @@ pub struct Config {
     #[envconfig(nested)]
     pub clickhouse: ClickhouseConfig,
 
+    #[cfg(feature = "clickhouse")]
+    #[envconfig(nested)]
+    pub consumer: ConsumerConfig,
+
     #[envconfig(nested)]
     pub common: CommonConfig,
 
     #[envconfig(nested)]
     pub internal_auth: InternalAuthConfig,
+}
+
+#[cfg(feature = "clickhouse")]
+#[derive(Envconfig, Clone, Debug)]
+pub struct ConsumerConfig {
+    /// `auto` is a majority of replicas. `1` resumes writes during a replica outage on two
+    /// replicas, at the risk of duplicates (ADR-0011).
+    #[envconfig(from = "CLICKHOUSE_CONSUMER_INSERT_QUORUM", default = "auto")]
+    pub insert_quorum: String,
+
+    #[envconfig(
+        from = "CLICKHOUSE_CONSUMER_INSERT_QUORUM_TIMEOUT_MS",
+        default = "30000"
+    )]
+    pub insert_quorum_timeout_ms: u64,
+
+    /// How long a failed insert is retried with the same batch before the consumer restarts.
+    #[envconfig(
+        from = "CLICKHOUSE_CONSUMER_INSERT_RETRY_BUDGET_MS",
+        default = "240000"
+    )]
+    pub insert_retry_budget_ms: u64,
+
+    #[envconfig(
+        from = "CLICKHOUSE_RAW_EVENTS_LOCAL_TABLE",
+        default = "raw_events_local_v2"
+    )]
+    pub raw_events_local_table: String,
+
+    #[envconfig(from = "CLICKHOUSE_EVENT_IDS_LOCAL_TABLE", default = "event_ids_local")]
+    pub event_ids_local_table: String,
 }
 
 #[cfg(feature = "kafka")]
@@ -49,10 +86,10 @@ pub struct KafkaConfig {
     pub kafka_producer_linger_ms: u32, // Maximum time between producer batches during low traffic
 
     #[envconfig(from = "KAFKA_PRODUCER_QUEUE_MIB", default = "400")]
-    pub kafka_producer_queue_mib: u32, // Size of the in-memory producer queue in mebibytes
+    pub kafka_producer_queue_mib: u32,
 
     #[envconfig(from = "KAFKA_MESSAGE_TIMEOUT_MS", default = "20000")]
-    pub kafka_message_timeout_ms: u32, // Time before we stop retrying producing a message: 20 seconds
+    pub kafka_message_timeout_ms: u32,
 
     #[envconfig(from = "KAFKA_COMPRESSION_CODEC", default = "none")]
     pub kafka_compression_codec: String, // none, gzip, snappy, lz4, zstd
@@ -77,29 +114,4 @@ impl KafkaConfig {
 
         client_config
     }
-}
-
-#[derive(Envconfig, Clone)]
-pub struct ClickhouseConfig {
-    #[envconfig(from = "CLICKHOUSE_DATABASE", default = "meteroid")]
-    pub database: String,
-
-    #[envconfig(from = "CLICKHOUSE_HTTP_ADDRESS", default = "http://127.0.0.1:8123")]
-    pub http_address: String,
-
-    #[envconfig(from = "CLICKHOUSE_TCP_ADDRESS", default = "127.0.0.1:9000")]
-    pub tcp_address: String,
-
-    #[envconfig(from = "CLICKHOUSE_USERNAME", default = "default")]
-    pub username: String,
-
-    #[envconfig(from = "CLICKHOUSE_PASSWORD", default = "default")]
-    pub password: String,
-
-    #[envconfig(from = "CLICKHOUSE_CLUSTER_NAME", default = "meteroid")]
-    pub cluster_name: String,
-
-    #[envconfig(from = "CLICKHOUSE_RAW_EVENTS_TABLE", default = "raw_events_v2")]
-    pub raw_events_table: String,
-    // TODO TLS
 }

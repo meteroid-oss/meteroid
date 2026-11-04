@@ -1,4 +1,5 @@
-use crate::domain::PaymentMethodTypeEnum;
+use super::model::RemoteRefundStatus;
+use crate::domain::{DeclineKind, ObservedRefundStatus, PaymentMethodTypeEnum, ReversalKind};
 use chrono::{DateTime, Utc};
 
 /// Provider-agnostic webhook event the core reacts to. Adapters parse their
@@ -23,8 +24,8 @@ pub enum NormalizedEventKind {
     PaymentPending(PaymentPendingEvent),
     PaymentRequiresAction(PaymentRequiresActionEvent),
     PaymentRefunded(PaymentRefundedEvent),
-    /// A settled payment fully clawed back by the bank (GoCardless
-    /// `charged_back` / `late_failure_settled`). Full-amount, no partial.
+    /// A settled payment fully clawed back by the bank (GoCardless `charged_back`, a dispute, or
+    /// `late_failure_settled`, a failed collection). Full-amount, no partial.
     PaymentReversed(PaymentReversedEvent),
     /// Inverse of [`Self::PaymentReversed`]: the bank cancelled the chargeback
     /// and returned the funds (GoCardless `chargeback_cancelled`). Full-amount.
@@ -36,6 +37,9 @@ pub enum NormalizedEventKind {
     RefundObserved {
         external_refund_id: String,
     },
+    /// A refund we issued changed state at the provider (Stripe `refund.updated` /
+    /// `charge.refund.updated`). Settles or fails the REFUND row it names.
+    RefundStatusChanged(RefundStatusChangedEvent),
 
     // ── mandate / payment-method lifecycle ────────────────────────────
     /// Stripe: `setup_intent.succeeded`. GoCardless: `mandates.active`.
@@ -98,6 +102,7 @@ pub struct PaymentFailedEvent {
     pub code: Option<String>,
     pub message: String,
     pub retryable: bool,
+    pub decline_kind: DeclineKind,
     pub meteroid_transaction_id: Option<String>,
 }
 
@@ -105,6 +110,8 @@ pub struct PaymentFailedEvent {
 pub struct PaymentPendingEvent {
     pub external_transaction_id: String,
     pub meteroid_transaction_id: Option<String>,
+    /// The customer may still have to act; false once the provider alone processes it.
+    pub awaiting_customer: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -115,12 +122,34 @@ pub struct PaymentRequiresActionEvent {
     pub meteroid_transaction_id: Option<String>,
 }
 
+/// A voluntary refund observed at the provider. `amount_refunded_minor` is the parent payment's
+/// CUMULATIVE refunded total (what providers report on the charge), not this refund's amount;
+/// `refunds` lists the individual refunds the event carried, so the handler can match the ones
+/// it already knows and only record the delta.
 #[derive(Debug, Clone)]
 pub struct PaymentRefundedEvent {
     pub external_transaction_id: String,
     pub external_refund_id: String,
     pub amount_refunded_minor: i64,
     pub currency: String,
+    pub refunds: Vec<ObservedRefundOnWire>,
+}
+
+/// One refund as it appeared on the wire (Stripe `refunds.data[]`). `amount_minor` is `None`
+/// for providers that only name the refund.
+#[derive(Debug, Clone)]
+pub struct ObservedRefundOnWire {
+    pub external_refund_id: String,
+    pub amount_minor: Option<i64>,
+    pub status: ObservedRefundStatus,
+}
+
+#[derive(Debug, Clone)]
+pub struct RefundStatusChangedEvent {
+    pub external_refund_id: String,
+    pub external_transaction_id: Option<String>,
+    pub status: RemoteRefundStatus,
+    pub amount_minor: Option<i64>,
 }
 
 /// A settled payment fully reversed by the bank. Full-amount by nature (GC
@@ -130,6 +159,11 @@ pub struct PaymentReversedEvent {
     pub external_transaction_id: String,
     pub meteroid_transaction_id: Option<String>,
     pub reason: String,
+    pub kind: ReversalKind,
+    /// A claim by the payer (the invoice stays paid); otherwise a failed collection (it reopens).
+    pub disputed: bool,
+    /// The provider's own cause code behind `kind`, kept verbatim for support.
+    pub cause: Option<String>,
 }
 
 /// Inverse of [`PaymentReversedEvent`]: the previously clawed-back funds were
@@ -148,6 +182,8 @@ pub struct PaymentMethodAttachedEvent {
     pub payment_method_type: PaymentMethodTypeEnum,
     pub meteroid_connection_id: Option<String>,
     pub meteroid_customer_id: Option<String>,
+    /// `None` for a setup intent created before its purpose was recorded.
+    pub purpose: Option<super::model::SetupPurpose>,
 }
 
 #[derive(Debug, Clone)]
@@ -178,4 +214,7 @@ pub struct DisputeEvent {
     pub amount_minor: i64,
     pub currency: String,
     pub reason: Option<String>,
+    /// Set when the provider's reason says the debit failed (a bank return reported as a
+    /// dispute): the invoice reopens like a late failure, with this kind. `None`: a dispute.
+    pub failure: Option<ReversalKind>,
 }

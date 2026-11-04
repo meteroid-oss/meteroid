@@ -24,14 +24,19 @@ import { cn } from '@ui/lib'
 import { format } from 'date-fns'
 import { CalendarIcon, InfoIcon } from 'lucide-react'
 import { customAlphabet } from 'nanoid'
-import { FunctionComponent } from 'react'
+import { FunctionComponent, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { CurrencySelect } from '@/components/CurrencySelect'
+import { AdvancedSection, useHasFieldErrors } from '@/components/form'
+import { CREDIT_COUPON_HINT } from '@/features/productCatalog/coupons/discountLabel'
 import { CatalogEditPanel } from '@/features/productCatalog/generic/CatalogEditPanel'
 import { useZodForm } from '@/hooks/useZodForm'
+import { rpcErrorMessage } from '@/lib/rpcError'
 import { schemas } from '@/lib/schemas'
 import { createCoupon, listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
+import { CouponDiscount_CreditScope } from '@/rpc/api/coupons/v1/models_pb'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 
 const nanoid = customAlphabet('23456789ABCDEFGHJKLMNPQRSTUVWXYZ')
@@ -56,6 +61,7 @@ export const CouponCreatePanel: FunctionComponent = () => {
         cardinality: undefined
       }) })
     },
+    onError: error => toast.error(rpcErrorMessage(error, 'The coupon could not be created')),
   })
 
   const plansQuery = useQuery(listPlans, {})
@@ -75,6 +81,18 @@ export const CouponCreatePanel: FunctionComponent = () => {
   })
 
   const discountType = methods.watch('discountType')
+  const creditAdvancedError = useHasFieldErrors(methods.control, [
+    'creditExpiresInDays',
+    'creditSubscriptionOnly',
+  ])
+
+  // A credit coupon is redeemed once per customer: the hidden limits must not linger.
+  useEffect(() => {
+    if (discountType === 'credit') {
+      methods.setValue('recurringValue', undefined)
+      methods.setValue('reusable', false)
+    }
+  }, [discountType])
 
   return (
     <CatalogEditPanel
@@ -97,15 +115,27 @@ export const CouponCreatePanel: FunctionComponent = () => {
                         currency: a.currency,
                       },
                     }
-                  : {
-                      case: 'percentage' as const,
-                      value: { percentage: a.percentage },
-                    },
+                  : a.discountType === 'credit'
+                    ? {
+                        case: 'credit' as const,
+                        value: {
+                          amount: a.creditAmount,
+                          currency: a.currency,
+                          expiresInDays: a.creditExpiresInDays,
+                          scope: a.creditSubscriptionOnly
+                            ? CouponDiscount_CreditScope.SUBSCRIPTION
+                            : CouponDiscount_CreditScope.CUSTOMER,
+                        },
+                      }
+                    : {
+                        case: 'percentage' as const,
+                        value: { percentage: a.percentage },
+                      },
             },
             expiresAt: a.expiresAt ? format(a.expiresAt, "y-MM-dd'T'HH:mm:ss") : undefined, // TODO time & timezone, to UTC
-            recurringValue: a.recurringValue,
+            recurringValue: a.discountType === 'credit' ? undefined : a.recurringValue,
             redemptionLimit: a.redemptionLimit,
-            reusable: a.reusable,
+            reusable: a.discountType === 'credit' ? false : a.reusable,
             planIds: a.planIds ?? [],
           })
           .then(() => void 0)
@@ -155,6 +185,9 @@ export const CouponCreatePanel: FunctionComponent = () => {
               <SelectItem value="fixed" key="fixed">
                 Fixed amount
               </SelectItem>
+              <SelectItem value="credit" key="credit">
+                Promotional credit
+              </SelectItem>
             </SelectFormField>
 
             {discountType === 'percentage' && (
@@ -189,6 +222,56 @@ export const CouponCreatePanel: FunctionComponent = () => {
                   control={methods.control}
                   placeholder="Currency"
                 />
+              </>
+            )}
+
+            {discountType === 'credit' && (
+              <>
+                <p className="text-xs text-muted-foreground">{CREDIT_COUPON_HINT}</p>
+                <InputFormField
+                  name="creditAmount"
+                  required
+                  label="Amount"
+                  layout="horizontal"
+                  control={methods.control}
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                />
+                <CurrencySelect
+                  name="currency"
+                  label="Currency"
+                  required
+                  layout="horizontal"
+                  control={methods.control}
+                  placeholder="Currency"
+                />
+                <AdvancedSection
+                  defaultOpen={
+                    !!methods.getValues('creditExpiresInDays') ||
+                    !!methods.getValues('creditSubscriptionOnly')
+                  }
+                  forceOpen={creditAdvancedError}
+                >
+                  <InputFormField
+                    name="creditExpiresInDays"
+                    label="Credit expires after (days)"
+                    layout="horizontal"
+                    control={methods.control}
+                    type="number"
+                    min={1}
+                    max={3660}
+                    placeholder="Never"
+                    inputMode="numeric"
+                  />
+                  <CheckboxFormField
+                    name="creditSubscriptionOnly"
+                    label="Only the subscription it is redeemed on"
+                    control={methods.control}
+                    layout="horizontal"
+                    description="The credit ends with that subscription."
+                  />
+                </AdvancedSection>
               </>
             )}
           </div>
@@ -249,21 +332,23 @@ export const CouponCreatePanel: FunctionComponent = () => {
               }
             />
 
-            <InputFormField
-              name="recurringValue"
-              label="Billing cycles"
-              layout="horizontal"
-              control={methods.control}
-              type="number"
-              placeholder="Forever"
-              inputMode="numeric"
-              labelTooltip={
-                <InfoTooltip>
-                  Number of billing cycles the discount applies. After this, the subscription
-                  continues at full price.
-                </InfoTooltip>
-              }
-            />
+            {discountType !== 'credit' && (
+              <InputFormField
+                name="recurringValue"
+                label="Billing cycles"
+                layout="horizontal"
+                control={methods.control}
+                type="number"
+                placeholder="Forever"
+                inputMode="numeric"
+                labelTooltip={
+                  <InfoTooltip>
+                    Number of billing cycles the discount applies. After this, the subscription
+                    continues at full price.
+                  </InfoTooltip>
+                }
+              />
+            )}
           </div>
         </section>
 
@@ -273,13 +358,20 @@ export const CouponCreatePanel: FunctionComponent = () => {
         <section className="space-y-4 pb-4">
           <h3 className="text-sm font-medium text-muted-foreground">Restrictions</h3>
           <div className="space-y-4">
-            <CheckboxFormField
-              name="reusable"
-              label="Reusable"
-              control={methods.control}
-              layout="horizontal"
-              description="Same customer can use on multiple subscriptions"
-            />
+            {discountType === 'credit' ? (
+              <div className="grid gap-2 md:grid-cols-12 items-center text-sm">
+                <span className="md:col-span-4 text-muted-foreground">Per customer</span>
+                <span className="md:col-span-8">Once per customer</span>
+              </div>
+            ) : (
+              <CheckboxFormField
+                name="reusable"
+                label="Reusable"
+                control={methods.control}
+                layout="horizontal"
+                description="Same customer can use on multiple subscriptions"
+              />
+            )}
 
             <MultiSelectFormField
               name="planIds"

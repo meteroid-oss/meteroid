@@ -16,9 +16,15 @@ import { z } from 'zod'
 
 import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import { usePlanOverview } from '@/features/plans/hooks/usePlan'
+import {
+  CreditUnitPriceFields,
+  useCreditUnits,
+  useSelectedCreditUnit,
+} from '@/features/pricing/CreditUnitPriceFields'
 import { PricingFields } from '@/features/pricing/PricingFields'
 import {
   CapacityComponentSchema,
+  CreditComponentSchema,
   ExtraRecurringComponentSchema,
   OneTimeComponentSchema,
   RateComponentSchema,
@@ -28,6 +34,8 @@ import {
 import { pricesToFormData, toPricingTypeFromFeeType } from '@/features/pricing/conversions'
 import {
   CapacityPricingSchema,
+  CreditPricingSchema,
+  CreditUnitPricingSchema,
   ExtraRecurringPricingSchema,
   MatrixPricingSchema,
   OneTimePricingSchema,
@@ -37,6 +45,8 @@ import {
   SlotPricingSchema,
   TierRowSchema,
   pricingDefaults,
+  refineCreditPricing,
+  refineCreditUnitPricing,
 } from '@/features/pricing/schemas'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useMatrixDimensions } from '@/hooks/useMatrixDimensions'
@@ -48,6 +58,8 @@ import {
 } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 
 import type { ComponentFeeType } from '@/features/pricing/conversions'
+import type { CreditPackContext } from '@/features/pricing/schemas'
+import type { CreditUnit } from '@/rpc/api/creditunits/v1/models_pb'
 import type { Price } from '@/rpc/api/prices/v1/models_pb'
 
 // --- Schemas ---
@@ -62,47 +74,75 @@ const fullSchemas: Record<ComponentFeeType, z.ZodType> = {
   usage: UsageFormSchema,
   extraRecurring: ExtraRecurringComponentSchema,
   oneTime: OneTimeComponentSchema,
+  credit: CreditComponentSchema,
 }
 
 // Pricing-only schemas (library products — no structural fields)
 const pricingOnlySchemas: Record<string, z.ZodType> = {
   rate: z.object({ term: Cadence, ...RatePricingSchema.shape }),
   slot: z.object({ term: Cadence, ...SlotPricingSchema.shape }),
-  capacity: z.object({
-    term: Cadence,
-    thresholds: z.array(CapacityPricingSchema).min(1),
-  }),
+  capacity: z
+    .object({
+      term: Cadence,
+      thresholds: z.array(CapacityPricingSchema).min(1),
+      ...CreditUnitPricingSchema.shape,
+    })
+    .superRefine(refineCreditUnitPricing),
   extraRecurring: z.object({ term: Cadence, ...ExtraRecurringPricingSchema.shape }),
   oneTime: z.object({ ...OneTimePricingSchema.shape }),
+  credit: z
+    .object({ term: Cadence, ...CreditPricingSchema.shape })
+    .superRefine(refineCreditPricing),
 }
 
 // Flat capacity schema for overrides — single threshold, no thresholds array
-const capacityOverrideSchema = z.object({
-  term: Cadence,
-  ...CapacityPricingSchema.shape,
-})
+const capacityOverrideSchema = z
+  .object({
+    term: Cadence,
+    ...CapacityPricingSchema.shape,
+    ...CreditUnitPricingSchema.shape,
+  })
+  .superRefine(refineCreditUnitPricing)
 
 // Usage pricing-only schemas keyed by usage model — no metricId/usageModel (those live on the product)
 const usagePricingOnlySchemas: Record<string, z.ZodType> = {
-  per_unit: z.object({ term: Cadence, ...PerUnitPricingSchema.shape }),
-  tiered: z.object({
-    term: Cadence,
-    rows: z.array(TierRowSchema).min(2, 'At least 2 tiers required'),
-  }),
-  volume: z.object({
-    term: Cadence,
-    rows: z.array(TierRowSchema).min(2, 'At least 2 tiers required'),
-  }),
-  package: z.object({ term: Cadence, ...PackagePricingSchema.shape }),
-  matrix: z.object({ term: Cadence, ...MatrixPricingSchema.shape }),
+  per_unit: z
+    .object({ term: Cadence, ...PerUnitPricingSchema.shape, ...CreditUnitPricingSchema.shape })
+    .superRefine(refineCreditUnitPricing),
+  tiered: z
+    .object({
+      term: Cadence,
+      rows: z.array(TierRowSchema).min(2, 'At least 2 tiers required'),
+      ...CreditUnitPricingSchema.shape,
+    })
+    .superRefine(refineCreditUnitPricing),
+  volume: z
+    .object({
+      term: Cadence,
+      rows: z.array(TierRowSchema).min(2, 'At least 2 tiers required'),
+      ...CreditUnitPricingSchema.shape,
+    })
+    .superRefine(refineCreditUnitPricing),
+  package: z
+    .object({ term: Cadence, ...PackagePricingSchema.shape, ...CreditUnitPricingSchema.shape })
+    .superRefine(refineCreditUnitPricing),
+  matrix: z
+    .object({ term: Cadence, ...MatrixPricingSchema.shape, ...CreditUnitPricingSchema.shape })
+    .superRefine(refineCreditUnitPricing),
 }
 
 export function getComponentSchema(
   feeType: ComponentFeeType,
   mode: 'full' | 'pricingOnly',
   usageModel?: string,
-  isOverride?: boolean
+  isOverride?: boolean,
+  creditPack?: CreditPackContext
 ): z.ZodType {
+  if (feeType === 'credit' && creditPack) {
+    return z
+      .object({ term: Cadence, ...CreditPricingSchema.shape })
+      .superRefine((data, ctx) => refineCreditPricing(data, ctx, creditPack))
+  }
   if (mode === 'full') return fullSchemas[feeType]
   if (feeType === 'capacity' && isOverride) return capacityOverrideSchema
   if (feeType === 'usage') return usagePricingOnlySchemas[usageModel ?? 'per_unit']
@@ -110,6 +150,14 @@ export function getComponentSchema(
 }
 
 // --- Helpers ---
+
+export const creditPackContext = (
+  currency: string,
+  units: CreditUnit[] | undefined
+): CreditPackContext => ({
+  currency,
+  unitPrecision: id => units?.find(unit => unit.id === id)?.precision,
+})
 
 export interface StructuralInfo {
   metricId?: string
@@ -134,7 +182,8 @@ const usageModelProtoToForm: Record<string, string> = {
 export function buildDefaults(
   feeType: ComponentFeeType,
   existingPrice?: Price,
-  isOverride?: boolean
+  isOverride?: boolean,
+  usageModel?: string
 ): Record<string, unknown> {
   if (!existingPrice) {
     if (feeType === 'capacity' && isOverride) {
@@ -158,28 +207,57 @@ export function buildDefaults(
           term: 'MONTHLY',
           thresholds: [{ included: 0, rate: '0.00', overageRate: '0.00000000' }],
         }
-      case 'usage':
-        return { metricId: '', usageModel: 'per_unit', term: 'MONTHLY', unitPrice: '0.00000000' }
+      case 'usage': {
+        const model = usageModel ?? 'per_unit'
+        return {
+          metricId: '',
+          usageModel: model,
+          term: 'MONTHLY',
+          ...pricingDefaults(toPricingTypeFromFeeType('usage', model)),
+        }
+      }
       case 'extraRecurring':
         return { term: 'MONTHLY', billingType: 'ADVANCE', unitPrice: '0.00', quantity: 1 }
       case 'oneTime':
         return { unitPrice: '0.00', quantity: 1 }
+      case 'credit':
+        return {
+          term: 'MONTHLY',
+          unitPrice: '0.00',
+          quantity: 1,
+          creditAmount: '0.00',
+          grantCreditUnitId: '',
+          expiryUnit: 'BILLING_PERIOD',
+          expiryValue: 1,
+          rolloverEnabled: false,
+          rolloverMaxAmount: '',
+          rolloverExpiryUnit: 'MONTH',
+          rolloverExpiryValue: 1,
+          once: false,
+        }
     }
   }
 
-  const usageModel = deriveUsageModelFromPrice(existingPrice)
-  const pricingType = toPricingTypeFromFeeType(feeType, usageModel)
+  const priceUsageModel = deriveUsageModelFromPrice(existingPrice)
+  const pricingType = toPricingTypeFromFeeType(feeType, priceUsageModel)
   const formData = pricesToFormData([existingPrice], pricingType)
 
   // For capacity overrides, flatten thresholds to a single threshold
   if (feeType === 'capacity' && isOverride && formData.thresholds) {
     const thresholds = formData.thresholds as { included: number; rate: string; overageRate: string }[]
     const t = thresholds[0] ?? { included: 0, rate: '0.00', overageRate: '0.00000000' }
-    return { term: formData.term, rate: t.rate, included: t.included, overageRate: t.overageRate }
+    return {
+      term: formData.term,
+      rate: t.rate,
+      included: t.included,
+      overageRate: t.overageRate,
+      creditUnitId: formData.creditUnitId ?? '',
+      creditUnitRate: formData.creditUnitRate ?? '',
+    }
   }
 
-  if (feeType === 'usage' && usageModel) {
-    return { ...formData, usageModel: usageModelProtoToForm[usageModel] ?? 'per_unit' }
+  if (feeType === 'usage' && priceUsageModel) {
+    return { ...formData, usageModel: usageModelProtoToForm[priceUsageModel] ?? 'per_unit' }
   }
 
   return formData
@@ -282,19 +360,22 @@ export const ProductPricingForm = ({
   const structural = structuralInfo ?? {}
 
   const defaults = useMemo(
-    () => initialFormData ?? buildDefaults(feeType, existingPrice, isOverride),
-    [initialFormData, feeType, existingPrice, isOverride]
+    () =>
+      initialFormData ?? buildDefaults(feeType, existingPrice, isOverride, structural.usageModel),
+    [initialFormData, feeType, existingPrice, isOverride, structural.usageModel]
   )
 
+  const creditUnits = useCreditUnits()
   const schema = useMemo(
     () =>
       getComponentSchema(
         feeType,
         editableStructure ? 'full' : 'pricingOnly',
         structural.usageModel,
-        isOverride
+        isOverride,
+        creditPackContext(currency, creditUnits)
       ),
-    [feeType, editableStructure, structural.usageModel, isOverride]
+    [feeType, editableStructure, structural.usageModel, isOverride, currency, creditUnits]
   )
 
   const methods = useZodForm({ schema: schema as z.ZodType, defaultValues: defaults })
@@ -326,7 +407,13 @@ export const ProductPricingForm = ({
           type="button"
           variant={submitVariant}
           onClick={methods.handleSubmit(
-            data => onSubmit(data as Record<string, unknown>),
+            data =>
+              onSubmit(
+                // The pricing-only usage schemas strip the metric and model, which live on the product.
+                feeType === 'usage' && !editableStructure
+                  ? { metricId: structural.metricId, usageModel: structural.usageModel, ...data }
+                  : (data as Record<string, unknown>)
+              ),
             errors => {
               console.error('Form validation errors:', errors)
               console.error('Current form values:', methods.getValues())
@@ -342,7 +429,7 @@ export const ProductPricingForm = ({
 
 // --- Editable structural fields ---
 
-const EditableStructuralFields = ({
+export const EditableStructuralFields = ({
   feeType,
   methods,
   disabled,
@@ -594,6 +681,8 @@ const PricingFormFields = ({
       return <ExtraRecurringInline methods={methods} currency={currency} />
     case 'oneTime':
       return <PricingFields pricingType="oneTime" control={methods.control} currency={currency} />
+    case 'credit':
+      return <CreditInline methods={methods} currency={currency} />
   }
 }
 
@@ -665,12 +754,21 @@ const CapacityPricingInline = ({
 }: {
   methods: Methods<z.ZodType>
   currency: string
-}) => (
-  <div className="space-y-4">
-    <CadenceSelect methods={methods} />
-    <PricingFields pricingType="capacity" control={methods.control} currency={currency} />
-  </div>
-)
+}) => {
+  const creditUnit = useSelectedCreditUnit(methods.control)
+  return (
+    <div className="space-y-4">
+      <CadenceSelect methods={methods} />
+      <CreditUnitPriceFields control={methods.control} currency={currency} overageOnly />
+      <PricingFields
+        pricingType="capacity"
+        control={methods.control}
+        currency={currency}
+        overageCurrency={creditUnit?.code}
+      />
+    </div>
+  )
+}
 
 // Flat capacity fields for overrides — single committed threshold
 const CapacityOverrideInline = ({
@@ -679,34 +777,43 @@ const CapacityOverrideInline = ({
 }: {
   methods: Methods<z.ZodType>
   currency: string
-}) => (
-  <div className="space-y-4">
-    <CadenceSelect methods={methods} />
-    <InputFormField
-      name="included"
-      label="Included units"
-      type="number"
-      control={methods.control}
-      className="max-w-xs"
-    />
-    <GenericFormField
-      control={methods.control}
-      name="rate"
-      label="Rate"
-      render={({ field }) => (
-        <UncontrolledPriceInput {...field} currency={currency} className="max-w-xs" />
-      )}
-    />
-    <GenericFormField
-      control={methods.control}
-      name="overageRate"
-      label="Overage rate"
-      render={({ field }) => (
-        <UncontrolledPriceInput {...field} currency={currency} className="max-w-xs" precision={8} />
-      )}
-    />
-  </div>
-)
+}) => {
+  const creditUnit = useSelectedCreditUnit(methods.control)
+  return (
+    <div className="space-y-4">
+      <CadenceSelect methods={methods} />
+      <CreditUnitPriceFields control={methods.control} currency={currency} overageOnly />
+      <InputFormField
+        name="included"
+        label="Included units"
+        type="number"
+        control={methods.control}
+        className="max-w-xs"
+      />
+      <GenericFormField
+        control={methods.control}
+        name="rate"
+        label="Rate"
+        render={({ field }) => (
+          <UncontrolledPriceInput {...field} currency={currency} className="max-w-xs" />
+        )}
+      />
+      <GenericFormField
+        control={methods.control}
+        name="overageRate"
+        label="Overage rate"
+        render={({ field }) => (
+          <UncontrolledPriceInput
+            {...field}
+            currency={creditUnit?.code ?? currency}
+            className="max-w-xs"
+            precision={8}
+          />
+        )}
+      />
+    </div>
+  )
+}
 
 // --- Usage inline ---
 
@@ -729,6 +836,7 @@ const UsagePricingInline = ({
   const pricingType = toPricingTypeFromFeeType('usage', usageModel)
 
   const prevModel = useRef(usageModel)
+  const { setValue } = methods
   useEffect(() => {
     if (usageModel && usageModel !== prevModel.current) {
       const newType = toPricingTypeFromFeeType('usage', usageModel)
@@ -739,16 +847,17 @@ const UsagePricingInline = ({
       const skipRows = usageModel === 'matrix'
       for (const key of pricingFieldKeys) {
         if (key === 'rows' && skipRows) continue
-        methods.setValue(key, key === 'rows' ? [] : undefined, { shouldValidate: false })
+        setValue(key, key === 'rows' ? [] : undefined, { shouldValidate: false })
       }
       for (const [key, val] of Object.entries(defaults)) {
         if (key === 'rows' && skipRows) continue
-        methods.setValue(key, val, { shouldValidate: false })
+        setValue(key, val, { shouldValidate: false })
       }
       prevModel.current = usageModel
     }
-  }, [usageModel, methods])
+  }, [usageModel, setValue])
 
+  const creditUnit = useSelectedCreditUnit(methods.control)
   const metricQuery = useQuery(getBillableMetric, metricId ? { id: metricId } : skipToken)
   const { dimensionHeaders, validCombinations } = useMatrixDimensions(
     usageModel === 'matrix' ? metricQuery.data?.billableMetric : undefined
@@ -761,6 +870,7 @@ const UsagePricingInline = ({
   return (
     <div className="space-y-4">
       <CadenceSelect methods={methods} />
+      <CreditUnitPriceFields control={methods.control} currency={currency} />
       {showMatrixEmpty ? (
         <p className="text-sm text-muted-foreground py-4">
           {metricId
@@ -772,7 +882,7 @@ const UsagePricingInline = ({
           key={usageModel}
           pricingType={pricingType}
           control={methods.control}
-          currency={currency}
+          currency={creditUnit?.code ?? currency}
           dimensionHeaders={dimensionHeaders}
           validCombinations={validCombinations}
         />
@@ -782,6 +892,13 @@ const UsagePricingInline = ({
 }
 
 // --- Extra recurring inline ---
+
+const CreditInline = ({ methods, currency }: { methods: Methods<z.ZodType>; currency: string }) => (
+  <div className="space-y-4">
+    <CadenceSelect methods={methods} />
+    <PricingFields pricingType="credit" control={methods.control} currency={currency} />
+  </div>
+)
 
 const ExtraRecurringInline = ({
   methods,

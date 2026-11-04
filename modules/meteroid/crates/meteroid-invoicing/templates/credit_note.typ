@@ -1,5 +1,10 @@
 #import sys: inputs
 
+// A value counts as set only when it is neither none nor empty. Cleared text fields
+// can still reach us as "", and a section gated on `!= none` alone would then print
+// its heading with nothing under it.
+#let present(value) = value != none and value != ""
+
 // Main credit note function with modern, clean design
 #let credit_note(
   lang,
@@ -27,6 +32,11 @@
   show_legal_info: true,
   show_footer_custom_info: true,
   whitelabel: false,
+  debt_cancelled_amount: 0,
+  promotional_credit_restored: 0,
+  // Between the subtotal and the tax, in the note's sign: subtotal + both + tax = total.
+  discount: 0,
+  promotional_credit: 0,
 ) = {
   // Define color palette with named variables
   let color = (
@@ -46,14 +56,18 @@
     debt_cancellation_badge: rgb(107, 114, 128),
   )
 
-  // Format currency values
+  // Amounts are decimals scaled by the renderer, the template only places the currency symbol
   let format_amount = (amount) => {
-    let formatted = calc.round(amount, digits: 2)
     if lang.starts-with("fr") {
-      str(formatted) + " " + currency_symbol
+      str(amount) + "\u{00A0}" + currency_symbol
     } else {
-      currency_symbol + " " + str(formatted)
+      currency_symbol + "\u{00A0}" + str(amount)
     }
+  }
+
+  // A summary adjustment carries its sign: on a negative note a reversed reduction adds back.
+  let format_signed = (amount) => {
+    if amount > 0 { "+" + format_amount(amount) } else { format_amount(amount) }
   }
 
   // Import custom font
@@ -133,15 +147,22 @@
 
     ..if organization.tax_id != none {
       (
-        [#text(fill: color.accent, weight: "medium", translations.seller_vat_id)],
+        [#text(fill: color.accent, weight: "medium", translations.seller_tax_label)],
         [#text(weight: "medium", organization.tax_id)],
       )
     },
 
     ..if customer.tax_id != none {
       (
-        [#text(fill: color.accent, weight: "medium", translations.customer_vat_id)],
+        [#text(fill: color.accent, weight: "medium", translations.customer_tax_label)],
         [#text(weight: "medium", customer.tax_id)],
+      )
+    },
+
+    ..if present(customer.legal_number) {
+      (
+        [#text(fill: color.accent, weight: "medium", translations.at("customer_registration", default: "Customer registration number"))],
+        [#text(weight: "medium", customer.legal_number)],
       )
     },
   )
@@ -195,7 +216,7 @@
 
         // Credit type badge
         #let type_text = if credit_type == "refund" {
-          translations.refunded
+          translations.refund
         } else if credit_type == "debt_cancellation" {
           translations.debt_cancellation
         } else {
@@ -240,7 +261,7 @@
 
   // Table header
   grid(
-    columns: (4fr, 1fr, 1fr, 0.8fr, 1.2fr),
+    columns: (3.6fr, 0.85fr, 1.5fr, 0.8fr, 1.25fr),
     column-gutter: 2pt,
     row-gutter: 0pt,
 
@@ -257,7 +278,7 @@
   // Line items
   for (index, item) in lines.enumerate() {
     grid(
-      columns: (4fr, 1fr, 1fr, 0.8fr, 1.2fr),
+      columns: (3.6fr, 0.85fr, 1.5fr, 0.8fr, 1.25fr),
       column-gutter: 6pt,
       row-gutter: 0pt,
 
@@ -291,7 +312,7 @@
         [
           #for (sub_index, sub_item) in item.sub_lines.enumerate() {
             grid(
-              columns: (4fr, 1fr, 1fr, 0.8fr, 1.2fr),
+              columns: (3.6fr, 0.85fr, 1.5fr, 0.8fr, 1.25fr),
               column-gutter: 6pt,
               row-gutter: 0pt,
 
@@ -335,25 +356,24 @@
       #line(length: 100%, stroke: 0pt)
       #v(12pt)
 
-      #if refunded_amount > 0 or credited_amount > 0 {
+      #let effects = (
+        (translations.amount_to_refund, refunded_amount),
+        (translations.credited_amount, credited_amount),
+        (translations.promotional_credit_restored, promotional_credit_restored),
+        (translations.debt_cancelled_amount, debt_cancelled_amount),
+      ).filter(effect => effect.at(1) > 0)
+
+      #if effects.len() > 0 {
         grid(
           columns: (auto, auto),
           column-gutter: 20pt,
           row-gutter: 8pt,
-
-          if refunded_amount > 0 [
-            #text(fill: color.accent, translations.refunded_amount)
-          ],
-          if refunded_amount > 0 [
-            #text(weight: "medium", format_amount(refunded_amount))
-          ],
-
-          if credited_amount > 0 [
-            #text(fill: color.accent, translations.credited_amount)
-          ],
-          if credited_amount > 0 [
-            #text(weight: "medium", format_amount(credited_amount))
-          ],
+          ..for (label, value) in effects {
+            (
+              text(fill: color.accent, label),
+              text(weight: "medium", format_amount(value)),
+            )
+          }
         )
       }
     ]),
@@ -371,6 +391,20 @@
 
         text(fill: color.accent, translations.subtotal),
         align(right, text(weight: "regular", format_amount(subtotal))),
+
+        ..if discount != 0 {
+          (
+            text(fill: color.accent, translations.discount),
+            align(right, text(weight: "regular", format_signed(discount))),
+          )
+        },
+
+        ..if promotional_credit != 0 {
+          (
+            text(fill: color.accent, translations.promotional_credit),
+            align(right, text(weight: "regular", format_signed(promotional_credit))),
+          )
+        },
 
         ..if tax_breakdown.len() > 0 and calc.abs(tax_amount) > 0 {
           for tax_item in tax_breakdown {
@@ -405,25 +439,48 @@
             #v(4pt)
 
             #let has_reverse_charge = tax_breakdown.any(item => item.at("exemption_type", default: none) == "reverse_charge")
+            #let has_export = tax_breakdown.any(item => item.at("exemption_type", default: none) == "export")
+            // Out of scope without leaving the seller's territory (Guyane, Mayotte):
+            // the same headline as an export, but its own citation, CGI art. 294-1.
+            #let has_no_vat_territory = tax_breakdown.any(item => item.at("exemption_type", default: none) == "no_vat_territory")
             #let has_tax_exempt = tax_breakdown.any(item => item.at("exemption_type", default: none) == "tax_exempt")
 
-            #if has_reverse_charge {
-              text(size: 9pt, translations.tax_reverse_charge)
-              linebreak()
-              text(size: 8pt, fill: color.footer_text, translations.at("reverse_charge_notice", default: ""))
-            } else if has_tax_exempt {
-              text(size: 9pt, translations.vat_exempt_legal)
-              linebreak()
-              text(size: 8pt, fill: color.footer_text, translations.at("vat_exempt_notice", default: ""))
-            } else if tax_breakdown.len() == 0 {
-              text(size: 9pt, translations.at("no_tax_applied", default: "No tax applied"))
-            } else {
-              text(size: 9pt, translations.at("tax_included_text", default: "All prices include tax"))
+            // The merchant's own legal mention for the exemption, where one is
+            // configured. It replaces the derived statutory headline AND citation —
+            // the precedence the EN 16931 mapping gives BT-120 — so the PDF and the
+            // embedded XML never state two different tax positions on one document.
+            #let merchant_mention = tax_breakdown.map(item => item.at("exemption_reason", default: none)).find(present)
+
+            // The mention itself always renders — a credit note must state its tax
+            // treatment. Only the supporting citation is dropped when absent, so a
+            // missing bundle key leaves no dangling blank line under the heading.
+            #let citation = (footnote) => {
+              if present(footnote) {
+                linebreak()
+                text(size: 8pt, fill: color.footer_text, footnote)
+              }
             }
 
-            #if customer.tax_id != none and organization.tax_id != none {
-              v(6pt)
-              text(size: 8pt, fill: color.footer_text, translations.at("credit_note_vat_directive_notice", default: ""))
+            #if (has_reverse_charge or has_export or has_no_vat_territory or has_tax_exempt) and merchant_mention != none {
+              text(size: 9pt, merchant_mention)
+            } else if has_reverse_charge {
+              text(size: 9pt, translations.tax_reverse_charge)
+              citation(translations.at("reverse_charge_notice", default: ""))
+            } else if has_export {
+              text(size: 9pt, translations.at("vat_not_applicable_legal", default: "VAT not applicable"))
+              citation(translations.at("export_notice_resolved", default: ""))
+            } else if has_no_vat_territory {
+              text(size: 9pt, translations.at("vat_not_applicable_legal", default: "VAT not applicable"))
+              citation(translations.at("no_vat_territory_notice_resolved", default: ""))
+            } else if has_tax_exempt {
+              // An exemption is not an out-of-scope supply: its own headline, or a
+              // document labels an exempt supply as one the tax simply does not reach.
+              text(size: 9pt, translations.at("vat_exempt_legal", default: "Tax exempt"))
+              citation(translations.at("vat_exempt_notice_resolved", default: ""))
+            } else if calc.abs(tax_amount) > 0 {
+              text(size: 9pt, translations.at("tax_included_resolved", default: "All prices include tax"))
+            } else {
+              text(size: 9pt, translations.at("no_tax_applied", default: "No tax applied"))
             }
           ]
         )
@@ -431,18 +488,30 @@
     )
   }
 
-  v(16pt)
+  // Trailing footer sections. The leading spacing is emitted only when at least one
+  // of them has content, and weakly at that: on its own it is enough to spill a page
+  // carrying nothing but the page footer, when the body ends near the bottom margin.
+  let has_legal_number = show_legal_info and present(organization.legal_number)
+  let has_legal_info = show_legal_info and present(organization.footer_legal)
+  let has_footer_info = show_footer_custom_info and present(organization.footer_info)
+  let has_exchange_rate = organization.exchange_rate != none and organization.accounting_currency_code != none and present(translations.at("exchange_rate_info", default: none))
+
+  if has_legal_info or has_legal_number or has_footer_info or has_exchange_rate {
+    v(16pt, weak: true)
+  }
 
   // Legal information
-  if show_legal_info and organization.footer_legal != none {
+  if has_legal_info or has_legal_number {
     grid(
       columns: (1fr),
       [
         #text(fill: color.heading, weight: "medium", size: 10pt, translations.legal_info)
         #v(4pt)
-        #text(size: 8pt, fill: color.footer_text, organization.footer_legal)
+        #if has_legal_info {
+          text(size: 8pt, fill: color.footer_text, organization.footer_legal)
+        }
 
-        #if organization.legal_number != none {
+        #if has_legal_number {
           v(4pt)
           text(size: 8pt, fill: color.footer_text, [
             #translations.at("company_registration", default: "Registration"): #organization.legal_number
@@ -453,13 +522,13 @@
   }
 
   // Footer custom information
-  if show_footer_custom_info and organization.footer_info != none {
+  if has_footer_info {
     v(16pt)
     text(size: 8pt, fill: color.footer_text, organization.footer_info)
   }
 
   // Exchange rate info
-  if organization.exchange_rate != none and organization.accounting_currency_code != none and translations.at("exchange_rate_info", default: none) != none {
+  if has_exchange_rate {
     v(8pt)
     text(size: 8pt, fill: color.footer_text, translations.exchange_rate_info)
   }

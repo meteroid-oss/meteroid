@@ -81,6 +81,7 @@ pub trait ProductInterface {
         family_id: Option<ProductFamilyId>,
         query: &str,
         catalog_only: bool,
+        archived: bool,
         pagination: PaginationRequest,
         order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<Product>>;
@@ -94,7 +95,6 @@ pub trait ProductInterface {
 
     async fn unarchive_product(&self, id: ProductId, tenant_id: TenantId) -> StoreResult<Product>;
 
-    #[allow(clippy::too_many_arguments)]
     async fn list_products_with_latest_price(
         &self,
         auth_tenant_id: TenantId,
@@ -171,10 +171,9 @@ impl ProductInterface for Store {
     }
 
     async fn update_product(&self, actor: Actor, update: ProductUpdate) -> StoreResult<Product> {
-        let mut conn = self.get_conn().await?;
         let tenant_id = update.tenant_id;
 
-        self.transaction_with(&mut conn, |conn| {
+        self.transaction_bumping_tenant(tenant_id, |conn| {
             let actor = &actor;
             async move {
                 let existing =
@@ -360,6 +359,7 @@ impl ProductInterface for Store {
         family_id: Option<ProductFamilyId>,
         query: &str,
         catalog_only: bool,
+        archived: bool,
         pagination: PaginationRequest,
         order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<Product>> {
@@ -371,6 +371,7 @@ impl ProductInterface for Store {
             family_id,
             query,
             catalog_only,
+            archived,
             &[],
             pagination.into(),
             order_by.as_deref(),
@@ -388,7 +389,6 @@ impl ProductInterface for Store {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn list_products_with_latest_price(
         &self,
         auth_tenant_id: TenantId,
@@ -413,6 +413,7 @@ impl ProductInterface for Store {
                     family_id,
                     q,
                     catalog_only,
+                    false,
                     &db_fee_types,
                     pagination.into(),
                     Some("name.asc"),

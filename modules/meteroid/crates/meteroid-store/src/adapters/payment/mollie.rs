@@ -2,30 +2,34 @@
 //! `recurring` payments on it. Webhooks are unsigned `id=tr_…` notifications, authenticated by
 //! a per-connector URL token and resolved by re-reading the payment.
 
+use super::account::ValidatedCredentials;
 use super::connector::{
-    ConnectorCapabilities, ConnectorIdentity, CredentialOps, CustomerOps, HostedSetupCompletion,
-    MandateOps, MandateSetupMode, PaymentOps, REQUEST_QUERY_HEADER, ReconcileOps, RefundOps,
-    WebhookOps,
+    ConnectorIdentity, ConnectorRef, CredentialOps, CustomerOps, HostedSetupCompletion,
+    InboundWebhooks, MandateOps, MandateSetup, PaymentCapabilities, PaymentOps,
+    REQUEST_QUERY_HEADER, ReconcileOps, RefundOps, RefundSupport, WebhookOps,
 };
 use super::error::{
-    ConnectorError, CustomerFacingMessage, HostedSetupFailed, HostedSetupNotCompleted,
-    HostedSetupPending,
+    ConnectorError, CredentialsRejected, CustomerFacingMessage, HostedSetupFailed,
+    HostedSetupNotCompleted, HostedSetupPending,
 };
 use super::events::{
     DisputeEvent, NormalizedEventKind, NormalizedEventSubscription, NormalizedWebhookEvent,
-    PaymentFailedEvent, PaymentPendingEvent, PaymentRefundedEvent, PaymentSucceededEvent,
+    ObservedRefundOnWire, PaymentFailedEvent, PaymentPendingEvent, PaymentRefundedEvent,
+    PaymentSucceededEvent,
 };
 use super::model::{
     ChargeAcknowledged, ChargeCancelled, ChargeFailure, ChargeOutcome, ChargeReceipt,
     ChargeRequest, CreateCustomerRequest, DeclineKind, ExternalCustomerRef,
-    MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot, RefundOutcome,
-    RefundRequest, RefundSnapshot, RegisteredWebhook, RemoteTransactionStatus, WebhookDeliveryUnit,
+    MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot, RefundAcknowledged,
+    RefundFailure, RefundOutcome, RefundReceipt, RefundRequest, RefundSnapshot, RegisteredWebhook,
+    RemoteRefundStatus, RemoteTransactionStatus, WebhookDeliveryUnit,
 };
 use crate::domain::connectors::{
-    Connector, MolliePublicData, MollieSensitiveData, ProviderData, ProviderSensitiveData,
+    MethodState, MolliePublicData, MollieSensitiveData, PaymentConnectorPublicData,
+    PaymentMethodAvailability, ProviderAccount,
 };
-use crate::domain::enums::ConnectorProviderEnum;
-use crate::domain::{Customer, CustomerConnection, PaymentMethodTypeEnum};
+use crate::domain::enums::{PaymentProvider, ReversalKind};
+use crate::domain::{Customer, CustomerConnection, ObservedRefundStatus, PaymentMethodTypeEnum};
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use common_domain::ids::BaseId;
@@ -37,40 +41,49 @@ use mollie_client::client::MollieClient;
 use mollie_client::customers::CreateCustomer as MollieCreateCustomer;
 use mollie_client::error::MollieError;
 use mollie_client::mandates::{MandateStatus, MollieMandate};
+use mollie_client::methods::{MethodList, MethodStatus};
 use mollie_client::payments::{
     CreatePayment, MolliePayment, PaymentStatus, SequenceType, UpdatePayment,
 };
+use mollie_client::refunds::{CreateRefund, MollieRefund, RefundStatus as MollieRefundStatus};
 use mollie_client::webhook::parse_classic_ping;
 use secrecy::{ExposeSecret, SecretString};
 use std::collections::HashMap;
+use std::num::NonZeroU32;
 use std::sync::OnceLock;
 
-pub(super) const MOLLIE_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
-    supports_cards: true,
-    supports_mandates: true,
-    // Refunds are not wired into billing for any provider yet.
-    supports_refunds: false,
-    supports_partial_refunds: false,
-    // 3DS runs on the hosted first payment; renewals are merchant-initiated.
-    supports_3ds: true,
-    supports_disputes: true,
-    // Webhook URL is set per payment; nothing to register.
-    supports_self_webhook_registration: false,
-    asynchronous_settlement: true,
+pub(super) const MOLLIE_CAPABILITIES: PaymentCapabilities = PaymentCapabilities {
     supported_payment_methods: &[
         PaymentMethodTypeEnum::Card,
         // Bacs is in beta at Mollie: not offered.
         PaymentMethodTypeEnum::DirectDebitSepa,
     ],
-    mandate_setup_mode: MandateSetupMode::HostedRedirect,
-    // Notifications have no timestamp; replays are harmless (idempotent re-read).
-    webhook_replay_tolerance_secs: 3600,
-    // The payment webhook completes a hosted setup even if the return is lost.
-    hosted_setup_completion: HostedSetupCompletion::WebhookBacked,
-    // A first payment tagged with `meteroid.transaction_id` is the invoice payment: never recharge.
-    supports_hosted_invoice_payment: true,
+    supports_mandates: true,
+    refunds: RefundSupport::Partial,
+    // Mollie forgets an Idempotency-Key after an hour.
+    refund_replay_window: Some(std::time::Duration::from_secs(45 * 60)),
+    // 3DS runs on the hosted first payment; renewals are merchant-initiated.
+    supports_3ds: true,
+    supports_disputes: true,
+    webhooks: Some(InboundWebhooks {
+        // Unsigned: the per-connector URL token authenticates them, and we generate it.
+        requires_secret: false,
+        // Webhook URL is set per payment; nothing to register.
+        self_registration: false,
+        // Notifications have no timestamp; replays are harmless (idempotent re-read).
+        replay_tolerance_secs: NonZeroU32::new(3600).unwrap(),
+    }),
+    asynchronous_settlement: true,
+    mandate_setup: MandateSetup::HostedRedirect {
+        // The payment webhook completes a hosted setup even if the return is lost.
+        completion: HostedSetupCompletion::WebhookBacked,
+        // A first payment tagged with `meteroid.transaction_id` is the invoice payment:
+        // never recharge.
+        invoice_payment: true,
+    },
     supports_hosted_checkout: true,
     pending_charge_accepted: true,
+    is_test_gateway: false,
 };
 
 /// Mollie's `cancelUrl` marker, mirroring GoCardless' `exit_uri`.
@@ -112,74 +125,168 @@ fn rail_currency(rail: SetupRail) -> Option<&'static str> {
     }
 }
 
-/// The API key prefix selects test/live, so one client serves all tenants.
-#[derive(Debug, Clone, Copy)]
-pub struct MollieConnector;
+/// Mollie has no public data: the API key prefix selects test/live, so one client serves all
+/// tenants and the adapter only needs its connector's identity and its secrets.
+#[derive(Debug, Clone)]
+pub struct MollieConnector {
+    connector: ConnectorRef,
+    sensitive: MollieSensitiveData,
+}
 
 impl MollieConnector {
-    pub fn new() -> Self {
-        MollieConnector
+    pub fn new(connector: ConnectorRef, sensitive: MollieSensitiveData) -> Self {
+        Self {
+            connector,
+            sensitive,
+        }
     }
 
     fn client() -> &'static MollieClient {
         static CLIENT: OnceLock<MollieClient> = OnceLock::new();
         CLIENT.get_or_init(MollieClient::new)
     }
-}
 
-impl Default for MollieConnector {
-    fn default() -> Self {
-        Self::new()
+    fn api_key(&self) -> SecretString {
+        self.sensitive.api_key.clone()
+    }
+
+    /// Inbound webhook endpoint plus the per-connector auth token.
+    pub fn webhook_url(&self, endpoint: Option<&str>) -> Option<String> {
+        Some(with_query_param(
+            endpoint?,
+            "token",
+            self.sensitive.webhook_token.expose_secret(),
+        ))
+    }
+
+    /// Without a webhook, a hosted checkout capture could never settle.
+    fn required_webhook_url(
+        &self,
+        endpoint: Option<&str>,
+    ) -> Result<String, Report<ConnectorError>> {
+        self.webhook_url(endpoint).ok_or_else(|| {
+            Report::new(ConnectorError::Configuration(
+                "no webhook_url for the mollie payment; it would have no settlement callback"
+                    .into(),
+            ))
+        })
     }
 }
 
 impl ConnectorIdentity for MollieConnector {
-    fn provider(&self) -> ConnectorProviderEnum {
-        ConnectorProviderEnum::Mollie
+    fn provider(&self) -> PaymentProvider {
+        PaymentProvider::Mollie
     }
-    fn capabilities(&self) -> &ConnectorCapabilities {
+    fn capabilities(&self) -> &PaymentCapabilities {
         &MOLLIE_CAPABILITIES
     }
 }
 
 #[async_trait]
 impl CredentialOps for MollieConnector {
-    /// `GET /v2/methods`: malformed key → 400, unknown → 401, no access → 403. Network errors and
-    /// 5xx say nothing about the key.
-    async fn validate_credentials(
-        &self,
-        connector: &Connector,
-    ) -> Result<ProviderData, Report<ConnectorError>> {
-        let api_key = extract_api_key(connector)?;
-        Self::client()
-            .list_methods(&api_key)
-            .await
-            .map_err(|err| {
-                match &err {
-                MollieError::Mollie(req) if matches!(req.status, 400 | 401 | 403) => {
-                    Report::new(ConnectorError::Configuration(
-                        "Mollie rejected this API key. Check that it is a valid test_ or live_ key."
-                            .to_string(),
-                    ))
+    /// `GET /v2/methods/all`: malformed key → 400, unknown → 401, no access → 403. Network errors and
+    /// 5xx say nothing about the key. The profile is the account.
+    async fn validate_credentials(&self) -> Result<ValidatedCredentials, Report<ConnectorError>> {
+        let api_key = self.api_key();
+        let client = Self::client();
+        let classify = |err: MollieError| match &err {
+            MollieError::Mollie(req) if matches!(req.status, 400 | 401 | 403) => {
+                let report =
+                    Report::new(ConnectorError::Configuration("Invalid API key".to_string()))
+                        .attach(err.to_string());
+                if req.status == 400 {
+                    report
+                } else {
+                    report.attach_opaque(CredentialsRejected)
                 }
-                _ => Report::new(ConnectorError::Transport(format!(
-                    "Couldn't reach Mollie to verify the key: {err}"
-                ))),
             }
-            })?;
-        Ok(ProviderData::Mollie(MolliePublicData::default()))
+            _ => Report::new(ConnectorError::Transport(format!(
+                "Couldn't reach Mollie to verify the key: {err}"
+            ))),
+        };
+        // Every method's status in one call; it alone decides whether the key works.
+        let methods = client.list_all_methods(&api_key).await.map_err(classify)?;
+        // Account details only: a failure here must not reject a working key.
+        let profile = client
+            .current_profile(&api_key)
+            .await
+            .inspect_err(|e| log::warn!("Mollie profile unavailable: {e}"))
+            .ok();
+        let api_key = secrecy::ExposeSecret::expose_secret(&api_key);
+        Ok(ValidatedCredentials {
+            public: PaymentConnectorPublicData::Mollie(MolliePublicData::default()),
+            account: ProviderAccount {
+                account_id: profile.as_ref().map(|p| p.id.clone()),
+                display_name: profile.and_then(|p| p.name),
+                livemode: api_key.starts_with("live_"),
+                key_hint: Some(crate::adapters::payment::account::mask_secret(api_key)),
+                methods: mollie_methods(&methods),
+                checked_at: chrono::Utc::now().naive_utc(),
+            },
+        })
     }
+}
+
+/// A card needs `creditcard`. A SEPA mandate needs `directdebit` for the recurring charges plus a
+/// bank method to collect the first payment with.
+fn mollie_methods(methods: &MethodList) -> Vec<PaymentMethodAvailability> {
+    let state = |status| match status {
+        MethodStatus::Activated => MethodState::Enabled,
+        MethodStatus::Pending => MethodState::Pending,
+        MethodStatus::NotEnabled => MethodState::Unavailable,
+    };
+    let card = match methods.status(CARD_METHOD) {
+        MethodStatus::NotEnabled => (
+            MethodState::Unavailable,
+            Some("Cards aren't enabled on this Mollie profile".to_string()),
+        ),
+        status => (state(status), None),
+    };
+    let best_bank_method = SEPA_FIRST_PAYMENT_METHODS
+        .iter()
+        .map(|m| methods.status(m))
+        .min_by_key(|status| match status {
+            MethodStatus::Activated => 0,
+            MethodStatus::Pending => 1,
+            MethodStatus::NotEnabled => 2,
+        })
+        .unwrap_or(MethodStatus::NotEnabled);
+    let sepa = match (methods.status("directdebit"), best_bank_method) {
+        (MethodStatus::NotEnabled, _) => (
+            MethodState::Unavailable,
+            Some("SEPA Direct Debit isn't enabled on this Mollie profile".to_string()),
+        ),
+        (_, MethodStatus::NotEnabled) => (
+            MethodState::Unavailable,
+            Some(
+                "Enable a bank method (iDEAL, Bancontact…) on this Mollie profile to start SEPA mandates"
+                    .to_string(),
+            ),
+        ),
+        (MethodStatus::Activated, MethodStatus::Activated) => (MethodState::Enabled, None),
+        _ => (MethodState::Pending, None),
+    };
+    [
+        (PaymentMethodTypeEnum::Card, card),
+        (PaymentMethodTypeEnum::DirectDebitSepa, sepa),
+    ]
+    .into_iter()
+    .map(|(method, (state, reason))| PaymentMethodAvailability {
+        method,
+        state,
+        reason,
+    })
+    .collect()
 }
 
 #[async_trait]
 impl CustomerOps for MollieConnector {
     async fn create_customer(
         &self,
-        connector: &Connector,
         customer: &Customer,
         request: CreateCustomerRequest,
     ) -> Result<ExternalCustomerRef, Report<ConnectorError>> {
-        let api_key = extract_api_key(connector)?;
+        let api_key = self.api_key();
 
         let metadata = HashMap::from([
             ("meteroid.customer_id".to_string(), customer.id.as_base62()),
@@ -192,7 +299,7 @@ impl CustomerOps for MollieConnector {
         let created = Self::client()
             .create_customer(
                 MollieCreateCustomer {
-                    name: Some(customer.name.clone()),
+                    name: Some(customer.display_name()),
                     email: customer.billing_email.clone(),
                     locale: None,
                     metadata: Some(metadata),
@@ -216,11 +323,10 @@ impl MandateOps for MollieConnector {
     /// a webhook. A duplicate on retry is harmless: only one checkout URL is shown.
     async fn initiate_mandate_setup(
         &self,
-        connector: &Connector,
         connection: &CustomerConnection,
         request: MandateSetupRequest<'_>,
     ) -> Result<MandateSetupInstruction, Report<ConnectorError>> {
-        let api_key = extract_api_key(connector)?;
+        let api_key = self.api_key();
         let client = Self::client();
 
         let rail = setup_rail(request.payment_methods)
@@ -280,9 +386,9 @@ impl MandateOps for MollieConnector {
             "Direct debit mandate".to_string()
         };
         let description = payment_description(request.descriptor.as_ref(), &purpose);
-        let webhook_url = required_webhook_url(connector, request.webhook_url.as_deref())?;
+        let webhook_url = self.required_webhook_url(request.webhook_url.as_deref())?;
 
-        let metadata = setup_payment_metadata(connector, connection, &request);
+        let metadata = setup_payment_metadata(&self.connector, connection, &request);
         let cancel_url = with_query_param(&return_url, "error", ABANDONED_MARKER);
 
         let payment = client
@@ -313,7 +419,7 @@ impl MandateOps for MollieConnector {
             log::error!(
                 "Mollie connector {}: offered `{}` instead of the requested {methods:?} for a \
                  {rail:?} mandate; activate {} on the Mollie profile",
-                connector.id,
+                self.connector.id,
                 payment.method.as_deref().unwrap_or_default(),
                 match rail {
                     SetupRail::Card => "Cards",
@@ -364,11 +470,10 @@ impl MandateOps for MollieConnector {
 
     async fn fetch_payment_method(
         &self,
-        connector: &Connector,
         external_payment_method_id: &str,
         external_customer_id: &str,
     ) -> Result<PaymentMethodSnapshot, Report<ConnectorError>> {
-        let api_key = extract_api_key(connector)?;
+        let api_key = self.api_key();
         let mandate = Self::client()
             .get_mandate(external_customer_id, external_payment_method_id, &api_key)
             .await
@@ -380,10 +485,9 @@ impl MandateOps for MollieConnector {
     /// Incomplete payment → retryable ([`HostedSetupPending`]); dead payment → terminal.
     async fn complete_mandate_setup(
         &self,
-        connector: &Connector,
         intent_id: &str,
     ) -> Result<PaymentMethodSnapshot, Report<ConnectorError>> {
-        let api_key = extract_api_key(connector)?;
+        let api_key = self.api_key();
         let client = Self::client();
 
         let payment = client
@@ -426,12 +530,8 @@ impl MandateOps for MollieConnector {
 
     /// Errors if the payment could still capture and can't be cancelled, so the caller completes it
     /// instead of creating a second payment.
-    async fn cancel_mandate_setup(
-        &self,
-        connector: &Connector,
-        intent_id: &str,
-    ) -> Result<(), Report<ConnectorError>> {
-        let api_key = extract_api_key(connector)?;
+    async fn cancel_mandate_setup(&self, intent_id: &str) -> Result<(), Report<ConnectorError>> {
+        let api_key = self.api_key();
         let client = Self::client();
         let payment = match client.get_payment(intent_id, &api_key).await {
             Ok(payment) => payment,
@@ -495,10 +595,9 @@ impl PaymentOps for MollieConnector {
     /// checks prevent double charges.
     async fn charge_off_session(
         &self,
-        connector: &Connector,
         request: ChargeRequest<'_>,
     ) -> Result<ChargeOutcome, Report<ConnectorError>> {
-        let api_key = extract_api_key(connector)?;
+        let api_key = self.api_key();
 
         // Unacceptable charges fail the attempt (dunning) instead of retrying into the dead-letter
         // queue.
@@ -524,7 +623,7 @@ impl PaymentOps for MollieConnector {
         let metadata = HashMap::from([
             (
                 "meteroid.tenant_id".to_string(),
-                connector.tenant_id.as_base62(),
+                self.connector.tenant_id.as_base62(),
             ),
             (
                 "meteroid.transaction_id".to_string(),
@@ -533,7 +632,7 @@ impl PaymentOps for MollieConnector {
         ]);
 
         let amount = amount_from_minor(request.amount_minor, request.currency)?;
-        let webhook_url = required_webhook_url(connector, request.webhook_url.as_deref())?;
+        let webhook_url = self.required_webhook_url(request.webhook_url.as_deref())?;
         let client = Self::client();
         let created = client
             .create_payment(
@@ -585,40 +684,116 @@ impl PaymentOps for MollieConnector {
     }
 }
 
+/// No unconfirmed intents: wallet top-ups are offered on providers that can pin one.
+impl super::connector::WalletOps for MollieConnector {}
+
 #[async_trait]
 impl RefundOps for MollieConnector {
     async fn refund(
         &self,
-        _connector: &Connector,
-        _request: RefundRequest<'_>,
+        request: RefundRequest<'_>,
     ) -> Result<RefundOutcome, Report<ConnectorError>> {
-        Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Mollie,
-            capability: "refund",
-        }))
+        let refund = Self::client()
+            .create_payment_refund(
+                request.external_transaction_id,
+                CreateRefund {
+                    amount: amount_from_minor(request.amount_minor, request.currency)?,
+                    description: None,
+                    metadata: Some(request.metadata.into_iter().collect()),
+                },
+                &self.api_key(),
+                request.idempotency_key.as_str(),
+            )
+            .await
+            .map_err(|e| map_mollie_error(MollieOp::Refund, e))?;
+
+        refund_outcome(&refund)
     }
 
-    /// Refunds are read from the payment's `amountRefunded`; unused.
     async fn fetch_refund(
         &self,
-        _connector: &Connector,
-        _external_refund_id: &str,
+        external_refund_id: &str,
+        external_transaction_id: Option<&str>,
     ) -> Result<RefundSnapshot, Report<ConnectorError>> {
-        Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Mollie,
-            capability: "fetch_refund",
-        }))
+        let Some(payment_id) = external_transaction_id else {
+            return Err(Report::new(ConnectorError::Unsupported {
+                provider: self.provider().into(),
+                capability: "fetching a refund without its payment",
+            }));
+        };
+        let refund = Self::client()
+            .get_payment_refund(payment_id, external_refund_id, &self.api_key())
+            .await
+            .map_err(|e| map_mollie_error(MollieOp::Refund, e))?;
+
+        Ok(RefundSnapshot {
+            external_transaction_id: payment_id.to_string(),
+            amount_minor: parse_amount(&refund.amount, &refund.id)?,
+            status: remote_refund_status(refund.status),
+            cumulative_refunded_minor: None,
+            currency: refund.amount.currency.clone(),
+            external_refund_id: refund.id,
+        })
     }
+}
+
+fn remote_refund_status(status: MollieRefundStatus) -> RemoteRefundStatus {
+    match status {
+        MollieRefundStatus::Refunded => RemoteRefundStatus::Succeeded,
+        MollieRefundStatus::Failed => RemoteRefundStatus::Failed {
+            code: Some("failed".to_string()),
+            message: "Mollie could not process the refund".to_string(),
+        },
+        MollieRefundStatus::Canceled => RemoteRefundStatus::Canceled,
+        MollieRefundStatus::Queued
+        | MollieRefundStatus::Pending
+        | MollieRefundStatus::Processing
+        | MollieRefundStatus::Unknown => RemoteRefundStatus::Pending,
+    }
+}
+
+fn observed_refund_status(status: MollieRefundStatus) -> ObservedRefundStatus {
+    match remote_refund_status(status) {
+        RemoteRefundStatus::Succeeded => ObservedRefundStatus::Succeeded,
+        RemoteRefundStatus::Pending => ObservedRefundStatus::Pending,
+        RemoteRefundStatus::Failed { .. } | RemoteRefundStatus::Canceled => {
+            ObservedRefundStatus::Failed
+        }
+    }
+}
+
+fn refund_outcome(refund: &MollieRefund) -> Result<RefundOutcome, Report<ConnectorError>> {
+    Ok(match remote_refund_status(refund.status) {
+        RemoteRefundStatus::Succeeded => RefundOutcome::Succeeded(RefundReceipt {
+            external_refund_id: refund.id.clone(),
+            amount_refunded_minor: parse_amount(&refund.amount, &refund.id)?,
+            processed_at: Utc::now().naive_utc(),
+            provider_request_id: None,
+        }),
+        RemoteRefundStatus::Pending => RefundOutcome::Pending(RefundAcknowledged {
+            external_refund_id: refund.id.clone(),
+            provider_request_id: None,
+        }),
+        RemoteRefundStatus::Failed { code, message } => RefundOutcome::Failed(RefundFailure {
+            code,
+            message,
+            provider_request_id: None,
+        }),
+        RemoteRefundStatus::Canceled => RefundOutcome::Failed(RefundFailure {
+            code: Some("canceled".to_string()),
+            message: "Cancelled by Mollie".to_string(),
+            provider_request_id: None,
+        }),
+    })
 }
 
 #[async_trait]
 impl ReconcileOps for MollieConnector {
     async fn fetch_transaction_status(
         &self,
-        connector: &Connector,
         external_transaction_id: &str,
     ) -> Result<RemoteTransactionStatus, Report<ConnectorError>> {
-        let api_key = extract_api_key(connector)?;
+        let api_key = self.api_key();
 
         match Self::client()
             .get_payment(external_transaction_id, &api_key)
@@ -637,35 +812,29 @@ impl ReconcileOps for MollieConnector {
 impl WebhookOps for MollieConnector {
     async fn register_webhook(
         &self,
-        _connector: &Connector,
         _url: &str,
         _subscriptions: &[NormalizedEventSubscription],
     ) -> Result<RegisteredWebhook, Report<ConnectorError>> {
         Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Mollie,
+            provider: self.provider().into(),
             capability: "webhook.register (webhooks are per-payment)",
         }))
     }
 
-    async fn unregister_webhook(
-        &self,
-        _connector: &Connector,
-        _endpoint_id: &str,
-    ) -> Result<(), Report<ConnectorError>> {
+    async fn unregister_webhook(&self, _endpoint_id: &str) -> Result<(), Report<ConnectorError>> {
         Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Mollie,
+            provider: self.provider().into(),
             capability: "webhook.unregister",
         }))
     }
 
     async fn sync_webhook_events(
         &self,
-        _connector: &Connector,
         _endpoint_id: &str,
         _subscriptions: &[NormalizedEventSubscription],
     ) -> Result<(), Report<ConnectorError>> {
         Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Mollie,
+            provider: self.provider().into(),
             capability: "webhook.sync",
         }))
     }
@@ -673,7 +842,6 @@ impl WebhookOps for MollieConnector {
     /// Notifications are `id=tr_…` form posts with no event id; one is sent per status change.
     fn split_delivery(
         &self,
-        _connector: &Connector,
         payload: &[u8],
     ) -> Result<Vec<WebhookDeliveryUnit>, Report<ConnectorError>> {
         Ok(vec![WebhookDeliveryUnit {
@@ -686,7 +854,6 @@ impl WebhookOps for MollieConnector {
     /// passed on by the router via [`REQUEST_QUERY_HEADER`].
     fn verify_signature(
         &self,
-        _connector: &Connector,
         _payload: &[u8],
         headers: &HeaderMap,
         secret: &SecretString,
@@ -706,20 +873,15 @@ impl WebhookOps for MollieConnector {
 
     fn parse_event(
         &self,
-        connector: &Connector,
         payload: &[u8],
         headers: &HeaderMap,
     ) -> Result<Option<NormalizedWebhookEvent>, Report<ConnectorError>> {
-        Ok(self
-            .parse_events(connector, payload, headers)?
-            .into_iter()
-            .next())
+        Ok(self.parse_events(payload, headers)?.into_iter().next())
     }
 
     /// Only the payment id is read from the request; state comes from `resolve_resource_change`.
     fn parse_events(
         &self,
-        _connector: &Connector,
         payload: &[u8],
         _headers: &HeaderMap,
     ) -> Result<Vec<NormalizedWebhookEvent>, Report<ConnectorError>> {
@@ -742,10 +904,9 @@ impl WebhookOps for MollieConnector {
     /// Unknown ids are acked, not retried: a payment we can't read isn't ours.
     async fn resolve_resource_change(
         &self,
-        connector: &Connector,
         resource_ref: &str,
     ) -> Result<Vec<NormalizedWebhookEvent>, Report<ConnectorError>> {
-        let api_key = extract_api_key(connector)?;
+        let api_key = self.api_key();
         let client = Self::client();
 
         let payment = match client.get_payment(resource_ref, &api_key).await {
@@ -773,7 +934,19 @@ impl WebhookOps for MollieConnector {
             Vec::new()
         };
 
-        let mut events = events_for_payment(&payment, &chargebacks)?;
+        let has_refunds = payment.amount_refunded.is_some()
+            || payment.links.as_ref().is_some_and(|l| l.refunds.is_some());
+        let refunds = if has_refunds {
+            client
+                .list_payment_refunds(&payment.id, &api_key)
+                .await
+                .map_err(|e| map_mollie_error(MollieOp::Refund, e))?
+                .into_refunds()
+        } else {
+            Vec::new()
+        };
+
+        let mut events = events_for_payment(&payment, &chargebacks, &refunds)?;
 
         // Mollie has no mandate webhook: after a failed renewal, re-read the mandate and detach it
         // if revoked, otherwise every later cycle fails on it.
@@ -816,35 +989,6 @@ fn mandate_detached_event(payment: &MolliePayment, mandate_id: &str) -> Normaliz
     }
 }
 
-fn extract_sensitive(
-    connector: &Connector,
-) -> Result<&MollieSensitiveData, Report<ConnectorError>> {
-    match &connector.sensitive {
-        Some(ProviderSensitiveData::Mollie(d)) => Ok(d),
-        Some(_) => Err(Report::new(ConnectorError::Configuration(
-            "connector is not a mollie connector".into(),
-        ))),
-        None => Err(Report::new(ConnectorError::Configuration(
-            "mollie connector has no api_key".into(),
-        ))),
-    }
-}
-
-fn extract_api_key(connector: &Connector) -> Result<SecretString, Report<ConnectorError>> {
-    Ok(SecretString::from(
-        extract_sensitive(connector)?.api_key.clone(),
-    ))
-}
-
-/// Inbound webhook endpoint plus the per-connector auth token.
-pub fn webhook_url(connector: &Connector, endpoint: Option<&str>) -> Option<String> {
-    let token = match &connector.sensitive {
-        Some(ProviderSensitiveData::Mollie(d)) => d.webhook_token.clone(),
-        _ => return None,
-    };
-    Some(with_query_param(endpoint?, "token", &token))
-}
-
 /// SEPA mandates collect EUR only; Bacs (beta) and ACH are not offered.
 fn validate_charge_rail(method: &PaymentMethodTypeEnum, currency: &str) -> Result<(), String> {
     let required = match method {
@@ -865,21 +1009,9 @@ fn validate_charge_rail(method: &PaymentMethodTypeEnum, currency: &str) -> Resul
     }
 }
 
-/// Without a webhook, a hosted checkout capture could never settle.
-fn required_webhook_url(
-    connector: &Connector,
-    endpoint: Option<&str>,
-) -> Result<String, Report<ConnectorError>> {
-    webhook_url(connector, endpoint).ok_or_else(|| {
-        Report::new(ConnectorError::Configuration(
-            "no webhook_url for the mollie payment; it would have no settlement callback".into(),
-        ))
-    })
-}
-
 /// Minor-unit exponent from the ISO 4217 table.
 fn currency_exponent(currency: &str) -> Result<u32, Report<ConnectorError>> {
-    rusty_money::iso::find(&currency.to_ascii_uppercase())
+    meteroid_money::iso::find(&currency.to_ascii_uppercase())
         .map(|c| c.exponent)
         .ok_or_else(|| {
             Report::new(ConnectorError::Configuration(format!(
@@ -952,7 +1084,7 @@ fn hosted_capture<'a>(request: &'a MandateSetupRequest<'_>) -> Option<(i64, &'a 
 }
 
 fn setup_payment_metadata(
-    connector: &Connector,
+    connector: &ConnectorRef,
     connection: &CustomerConnection,
     request: &MandateSetupRequest<'_>,
 ) -> HashMap<String, String> {
@@ -1242,10 +1374,8 @@ fn remote_status_from_payment(
             currency: payment.amount.currency.clone(),
             processed_at: processed_at(payment),
         },
-        PaymentStatus::Open
-        | PaymentStatus::Pending
-        | PaymentStatus::Authorized
-        | PaymentStatus::Unknown => RemoteTransactionStatus::Pending,
+        PaymentStatus::Pending | PaymentStatus::Authorized => RemoteTransactionStatus::Processing,
+        PaymentStatus::Open | PaymentStatus::Unknown => RemoteTransactionStatus::Pending,
         PaymentStatus::Canceled => RemoteTransactionStatus::Cancelled,
         PaymentStatus::Failed | PaymentStatus::Expired => {
             let code = failure_code(payment);
@@ -1273,6 +1403,7 @@ fn acknowledged(payment_id: &str, reason: &'static str) -> NormalizedWebhookEven
 fn events_for_payment(
     payment: &MolliePayment,
     chargebacks: &[MollieChargeback],
+    refunds: &[MollieRefund],
 ) -> Result<Vec<NormalizedWebhookEvent>, Report<ConnectorError>> {
     let owner_tenant_id = payment.metadata.get("meteroid.tenant_id").cloned();
     let meteroid_tx = payment.metadata.get("meteroid.transaction_id").cloned();
@@ -1338,6 +1469,7 @@ fn events_for_payment(
                 code: failure_code(payment),
                 message: failure_message(payment),
                 retryable: false,
+                decline_kind: decline_kind_for(failure_code(payment).as_deref()),
                 meteroid_transaction_id: meteroid_tx.clone(),
             })
         }
@@ -1346,6 +1478,7 @@ fn events_for_payment(
             code: Some("canceled".into()),
             message: "Payment cancelled".into(),
             retryable: false,
+            decline_kind: DeclineKind::Other,
             meteroid_transaction_id: meteroid_tx.clone(),
         }),
         PaymentStatus::Open
@@ -1354,6 +1487,11 @@ fn events_for_payment(
         | PaymentStatus::Unknown => NormalizedEventKind::PaymentPending(PaymentPendingEvent {
             external_transaction_id: payment.id.clone(),
             meteroid_transaction_id: meteroid_tx.clone(),
+            // Open: the customer has not completed the payment page yet.
+            awaiting_customer: matches!(
+                payment.status,
+                PaymentStatus::Open | PaymentStatus::Unknown
+            ),
         }),
     };
     let state_at = match payment.status {
@@ -1372,7 +1510,19 @@ fn events_for_payment(
         Some(amount) => parse_amount(amount, &format!("{} amountRefunded", payment.id))?,
         None => 0,
     };
-    if refunded > 0 {
+    // Refunds are listed too: a refund of ours that failed leaves `amountRefunded` unchanged, and
+    // only its own status settles or fails the row we hold for it.
+    let on_wire = refunds
+        .iter()
+        .map(|r| {
+            Ok(ObservedRefundOnWire {
+                external_refund_id: r.id.clone(),
+                amount_minor: Some(parse_amount(&r.amount, &r.id)?),
+                status: observed_refund_status(r.status),
+            })
+        })
+        .collect::<Result<Vec<_>, Report<ConnectorError>>>()?;
+    if refunded > 0 || !on_wire.is_empty() {
         reversals.push(event(
             "refunded",
             Utc::now(),
@@ -1381,6 +1531,7 @@ fn events_for_payment(
                 external_refund_id: format!("{}:refunds", payment.id),
                 amount_refunded_minor: refunded,
                 currency: payment.amount.currency.clone(),
+                refunds: on_wire,
             }),
         ));
     }
@@ -1393,6 +1544,7 @@ fn events_for_payment(
             amount_minor: amount.abs(),
             currency: chargeback.amount.currency.clone(),
             reason: chargeback.reason.as_ref().and_then(|r| r.code.clone()),
+            failure: chargeback_failure(chargeback.reason.as_ref().and_then(|r| r.code.as_deref())),
         };
         match &chargeback.reversed_at {
             None => reversals.push(event(
@@ -1413,6 +1565,27 @@ fn events_for_payment(
     Ok(events)
 }
 
+/// SEPA reason codes of a chargeback that are the payer's claim (refund request, no mandate,
+/// refused by the debtor): the invoice stays paid.
+const DISPUTE_CODES: &[&str] = &["MD06", "MD01", "MS02"];
+
+/// A SEPA Direct Debit the bank returned after Mollie reported it paid arrives as a chargeback
+/// with one of these codes: a failed collection, so the invoice reopens. A card chargeback has no
+/// code; an unknown code is a dispute.
+fn chargeback_failure(code: Option<&str>) -> Option<ReversalKind> {
+    match code? {
+        "AM04" => Some(ReversalKind::InsufficientFunds),
+        "AC01" | "AC04" | "AC06" => Some(ReversalKind::Returned),
+        known if DISPUTE_CODES.contains(&known) => None,
+        unknown => {
+            log::warn!(
+                "Mollie chargeback reason '{unknown}' is not classified: treated as a dispute, the invoice stays paid"
+            );
+            None
+        }
+    }
+}
+
 /// Maps a 4xx to the matching `ConnectorError`, not always a failed charge.
 #[derive(Clone, Copy, Debug)]
 enum MollieOp {
@@ -1420,6 +1593,7 @@ enum MollieOp {
     Mandate,
     PaymentMethod,
     Charge,
+    Refund,
 }
 
 impl MollieOp {
@@ -1429,6 +1603,7 @@ impl MollieOp {
             MollieOp::Mandate => ConnectorError::MandateSetup(msg),
             MollieOp::PaymentMethod => ConnectorError::CustomerOp(msg),
             MollieOp::Charge => ConnectorError::Charge(msg),
+            MollieOp::Refund => ConnectorError::Refund(msg),
         }
     }
 }
@@ -1500,6 +1675,7 @@ fn map_mollie_error(op: MollieOp, e: MollieError) -> Report<ConnectorError> {
                 "mollie rejected credentials ({}): {req_err}",
                 req_err.status
             )))
+            .attach_opaque(CredentialsRejected)
         }
         // Throttled, timed out, or duplicate in flight: retry with the same key.
         MollieError::Mollie(req_err) if matches!(req_err.status, 408 | 409 | 429) => Report::new(
@@ -1516,28 +1692,110 @@ fn map_mollie_error(op: MollieOp, e: MollieError) -> Report<ConnectorError> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn sepa_returns_reported_as_chargebacks_are_failed_collections() {
+        use super::chargeback_failure;
+        use crate::domain::enums::ReversalKind;
+        assert_eq!(
+            chargeback_failure(Some("AM04")),
+            Some(ReversalKind::InsufficientFunds)
+        );
+        for code in ["AC01", "AC04", "AC06"] {
+            assert_eq!(chargeback_failure(Some(code)), Some(ReversalKind::Returned));
+        }
+        for code in ["MD06", "MD01", "MS02", "ZZ99"] {
+            assert_eq!(chargeback_failure(Some(code)), None, "{code}");
+        }
+        assert_eq!(chargeback_failure(None), None, "a card chargeback");
+    }
+
+    #[test]
+    fn mollie_methods_follow_the_profile_statuses() {
+        use super::{MethodState, PaymentMethodTypeEnum, mollie_methods};
+        let list = |json: &str| -> mollie_client::methods::MethodList {
+            serde_json::from_str(&format!(r#"{{"_embedded":{{"methods":{json}}}}}"#)).unwrap()
+        };
+        let state = |methods: &mollie_client::methods::MethodList, m: PaymentMethodTypeEnum| {
+            mollie_methods(methods)
+                .into_iter()
+                .find(|a| a.method == m)
+                .unwrap()
+                .state
+        };
+
+        let all_on = list(
+            r#"[{"id":"creditcard","status":"activated"},{"id":"ideal","status":"activated"},
+               {"id":"directdebit","status":"activated"}]"#,
+        );
+        assert_eq!(
+            state(&all_on, PaymentMethodTypeEnum::Card),
+            MethodState::Enabled
+        );
+        assert_eq!(
+            state(&all_on, PaymentMethodTypeEnum::DirectDebitSepa),
+            MethodState::Enabled
+        );
+
+        // Direct debit without a bank method to start the mandate with.
+        let no_bank = list(
+            r#"[{"id":"creditcard","status":null},{"id":"directdebit","status":"activated"}]"#,
+        );
+        assert_eq!(
+            state(&no_bank, PaymentMethodTypeEnum::Card),
+            MethodState::Unavailable
+        );
+        assert_eq!(
+            state(&no_bank, PaymentMethodTypeEnum::DirectDebitSepa),
+            MethodState::Unavailable
+        );
+
+        // Still under review at Mollie.
+        let reviewing = list(
+            r#"[{"id":"ideal","status":"activated"},{"id":"directdebit","status":"pending-review"}]"#,
+        );
+        assert_eq!(
+            state(&reviewing, PaymentMethodTypeEnum::DirectDebitSepa),
+            MethodState::Pending
+        );
+    }
+
+    use super::super::connector::MandateSetupMode;
     use super::*;
-    use crate::domain::connectors::{Connector, MolliePublicData, ProviderData};
-    use crate::domain::enums::ConnectorTypeEnum;
+    use crate::domain::connectors::Connector;
+    use crate::domain::connectors::{
+        ConnectorConfig, CredentialState, PaymentConnectorConfig, PaymentProviderConfig,
+    };
+
     use common_domain::ids::{ConnectorId, TenantId};
     use mollie_client::mandates::MandateDetails;
     use mollie_client::payments::PaymentDetails;
 
     const TOKEN: &str = "0123456789abcdef0123456789abcdef";
 
+    fn test_sensitive() -> MollieSensitiveData {
+        MollieSensitiveData {
+            api_key: "test_unit".into(),
+            webhook_token: TOKEN.into(),
+        }
+    }
+
+    /// The adapter as the factory builds it: bound to the connector's identity and its secrets.
+    fn test_adapter(connector: &Connector) -> MollieConnector {
+        MollieConnector::new(ConnectorRef::from(connector), test_sensitive())
+    }
+
     fn test_connector() -> Connector {
         Connector {
+            status: crate::domain::enums::ConnectorStatusEnum::Active,
+            credentials: CredentialState::Unverified,
+            webhook_route: None,
             id: ConnectorId::new(),
             created_at: NaiveDateTime::default(),
             tenant_id: TenantId::new(),
             alias: "mollie-test".into(),
-            connector_type: ConnectorTypeEnum::PaymentProvider,
-            provider: ConnectorProviderEnum::Mollie,
-            data: Some(ProviderData::Mollie(MolliePublicData {})),
-            sensitive: Some(ProviderSensitiveData::Mollie(MollieSensitiveData {
-                api_key: "test_unit".into(),
-                webhook_token: TOKEN.into(),
-            })),
+            config: ConnectorConfig::Payment(PaymentConnectorConfig::configured(
+                PaymentProviderConfig::Mollie(test_sensitive()),
+            )),
         }
     }
 
@@ -1757,6 +2015,18 @@ mod tests {
         assert_eq!(other.code.as_deref(), Some("mollie_422"));
     }
 
+    #[test]
+    fn an_open_payment_still_awaits_the_customer() {
+        let awaiting =
+            |status| match &events_for_payment(&payment(status, "1.00"), &[], &[]).unwrap()[0].kind
+            {
+                NormalizedEventKind::PaymentPending(pending) => pending.awaiting_customer,
+                other => panic!("expected a pending payment, got {other:?}"),
+            };
+        assert!(awaiting(PaymentStatus::Open));
+        assert!(!awaiting(PaymentStatus::Pending));
+    }
+
     fn payment(status: PaymentStatus, value: &str) -> MolliePayment {
         serde_json::from_value(serde_json::json!({
             "id": "tr_test1",
@@ -1782,46 +2052,43 @@ mod tests {
 
     #[test]
     fn capabilities_match_provider_reality() {
-        let caps = MollieConnector::new().capabilities().clone();
-        assert!(caps.supports_cards);
+        let caps = test_adapter(&test_connector()).capabilities().clone();
+        assert!(caps.supports_cards());
         assert!(caps.supports_mandates);
-        assert!(!caps.supports_refunds);
+        assert!(caps.supports_partial_refunds());
+        assert!(
+            caps.refund_replay_window
+                .is_some_and(|w| w < std::time::Duration::from_secs(3600)),
+            "replays must stay inside Mollie's one-hour idempotency window"
+        );
         assert!(caps.supports_3ds);
         assert!(caps.supports_disputes);
-        assert!(!caps.supports_self_webhook_registration);
+        assert!(!caps.supports_self_webhook_registration());
         assert!(caps.asynchronous_settlement);
-        assert_eq!(caps.mandate_setup_mode, MandateSetupMode::HostedRedirect);
+        assert_eq!(caps.mandate_setup_mode(), MandateSetupMode::HostedRedirect);
         assert_eq!(
-            caps.hosted_setup_completion,
-            HostedSetupCompletion::WebhookBacked
+            caps.hosted_setup_completion(),
+            Some(HostedSetupCompletion::WebhookBacked)
         );
     }
 
     #[test]
     fn webhook_url_carries_the_token() {
-        let connector = test_connector();
+        let mollie = test_adapter(&test_connector());
         let endpoint = "https://api.example.invalid/webhooks/v1/7ZKs3fwYtrG/mollie-test";
         assert_eq!(
-            webhook_url(&connector, Some(endpoint)).as_deref(),
+            mollie.webhook_url(Some(endpoint)).as_deref(),
             Some(&*format!("{endpoint}?token={TOKEN}"))
         );
-        assert_eq!(
-            webhook_url(&connector, None),
-            None,
-            "no endpoint, no payment"
-        );
-        let mut not_mollie = test_connector();
-        not_mollie.sensitive = None;
-        assert_eq!(webhook_url(&not_mollie, Some(endpoint)), None);
+        assert_eq!(mollie.webhook_url(None), None, "no endpoint, no payment");
     }
 
     /// A notification has no event id; it must be enqueued as one non-deduplicated unit.
     #[test]
     fn form_ping_ingests_as_one_undeduped_unit() {
-        let connector = test_connector();
         let body = b"id=tr_7UhSN1zuXS";
-        let units = MollieConnector::new()
-            .split_delivery(&connector, body)
+        let units = test_adapter(&test_connector())
+            .split_delivery(body)
             .unwrap();
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].event_id, None);
@@ -1847,8 +2114,7 @@ mod tests {
 
     #[test]
     fn classic_ping_is_authenticated_by_the_url_token() {
-        let connector = test_connector();
-        let mollie = MollieConnector::new();
+        let mollie = test_adapter(&test_connector());
         let secret = SecretString::from(TOKEN.to_string());
         let body = b"id=tr_abc";
 
@@ -1857,17 +2123,13 @@ mod tests {
             REQUEST_QUERY_HEADER,
             format!("token={TOKEN}").parse().unwrap(),
         );
-        assert!(
-            mollie
-                .verify_signature(&connector, body, &headers, &secret)
-                .is_ok()
-        );
+        assert!(mollie.verify_signature(body, &headers, &secret).is_ok());
 
         let mut wrong = HeaderMap::new();
         wrong.insert(REQUEST_QUERY_HEADER, "token=nope".parse().unwrap());
         assert!(matches!(
             mollie
-                .verify_signature(&connector, body, &wrong, &secret)
+                .verify_signature(body, &wrong, &secret)
                 .unwrap_err()
                 .current_context(),
             ConnectorError::SignatureVerification
@@ -1875,7 +2137,7 @@ mod tests {
 
         assert!(matches!(
             mollie
-                .verify_signature(&connector, body, &HeaderMap::new(), &secret)
+                .verify_signature(body, &HeaderMap::new(), &secret)
                 .unwrap_err()
                 .current_context(),
             ConnectorError::SignatureMissing
@@ -1884,11 +2146,10 @@ mod tests {
 
     #[test]
     fn parse_events_reduces_pings_to_resource_changed() {
-        let connector = test_connector();
-        let mollie = MollieConnector::new();
+        let mollie = test_adapter(&test_connector());
 
         let ping = mollie
-            .parse_events(&connector, b"id=tr_ping", &HeaderMap::new())
+            .parse_events(b"id=tr_ping", &HeaderMap::new())
             .unwrap();
         assert_eq!(ping.len(), 1);
         assert!(matches!(
@@ -1898,7 +2159,7 @@ mod tests {
 
         assert!(matches!(
             mollie
-                .parse_events(&connector, b"garbage", &HeaderMap::new())
+                .parse_events(b"garbage", &HeaderMap::new())
                 .unwrap_err()
                 .current_context(),
             ConnectorError::PayloadDecode(_)
@@ -1995,6 +2256,10 @@ mod tests {
         }
         assert!(matches!(
             remote_status_from_payment(&payment(PaymentStatus::Pending, "1.00")).unwrap(),
+            RemoteTransactionStatus::Processing
+        ));
+        assert!(matches!(
+            remote_status_from_payment(&payment(PaymentStatus::Open, "1.00")).unwrap(),
             RemoteTransactionStatus::Pending
         ));
         assert!(matches!(
@@ -2171,6 +2436,7 @@ mod tests {
             MandateSetupRequest {
                 descriptor: None,
                 webhook_url: None,
+                purpose: crate::adapters::payment::model::SetupPurpose::Settings,
                 payment_methods: &[PaymentMethodTypeEnum::Card],
                 idempotency_key: IdempotencyKey::new("k"),
                 return_url: Some("https://api.example.invalid/return".into()),
@@ -2191,7 +2457,8 @@ mod tests {
                 currency: "EUR".into(),
             }),
         );
-        let metadata = setup_payment_metadata(&connector, &connection, &checkout);
+        let metadata =
+            setup_payment_metadata(&ConnectorRef::from(&connector), &connection, &checkout);
         assert_eq!(
             metadata
                 .get("meteroid.checkout_session_id")
@@ -2209,7 +2476,8 @@ mod tests {
         assert!(!metadata.contains_key("meteroid.invoice_id"));
 
         let invoice = request(Some("invB62".into()), None);
-        let metadata = setup_payment_metadata(&connector, &connection, &invoice);
+        let metadata =
+            setup_payment_metadata(&ConnectorRef::from(&connector), &connection, &invoice);
         assert_eq!(
             metadata.get("meteroid.invoice_id").map(String::as_str),
             Some("invB62")
@@ -2222,7 +2490,7 @@ mod tests {
         let mut save = payment(PaymentStatus::Paid, "0.00");
         save.sequence_type = Some(SequenceType::First);
         save.metadata.remove("meteroid.transaction_id");
-        let events = events_for_payment(&save, &[]).unwrap();
+        let events = events_for_payment(&save, &[], &[]).unwrap();
         assert_eq!(events.len(), 1);
         assert!(matches!(
             &events[0].kind,
@@ -2232,7 +2500,7 @@ mod tests {
 
         let mut checkout = payment(PaymentStatus::Paid, "42.00");
         checkout.sequence_type = Some(SequenceType::First);
-        let events = events_for_payment(&checkout, &[]).unwrap();
+        let events = events_for_payment(&checkout, &[], &[]).unwrap();
         assert_eq!(events.len(), 2);
         assert!(matches!(
             events[0].kind,
@@ -2250,14 +2518,14 @@ mod tests {
         open_save.sequence_type = Some(SequenceType::First);
         open_save.metadata.remove("meteroid.transaction_id");
         assert!(matches!(
-            events_for_payment(&open_save, &[]).unwrap()[0].kind,
+            events_for_payment(&open_save, &[], &[]).unwrap()[0].kind,
             NormalizedEventKind::Acknowledged { .. }
         ));
 
         let mut declined_checkout =
             with_failure(payment(PaymentStatus::Failed, "42.00"), "card_declined");
         declined_checkout.sequence_type = Some(SequenceType::First);
-        let events = events_for_payment(&declined_checkout, &[]).unwrap();
+        let events = events_for_payment(&declined_checkout, &[], &[]).unwrap();
         assert_eq!(events.len(), 1);
         assert!(matches!(
             events[0].kind,
@@ -2268,7 +2536,7 @@ mod tests {
     #[test]
     fn events_for_recurring_payment_and_reversals() {
         let paid = payment(PaymentStatus::Paid, "10.00");
-        let events = events_for_payment(&paid, &[]).unwrap();
+        let events = events_for_payment(&paid, &[], &[]).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].provider_event_type, "payment.paid");
         assert!(matches!(
@@ -2277,10 +2545,12 @@ mod tests {
         ));
 
         assert!(matches!(
-            events_for_payment(&payment(PaymentStatus::Pending, "10.00"), &[]).unwrap()[0].kind,
+            events_for_payment(&payment(PaymentStatus::Pending, "10.00"), &[], &[]).unwrap()[0]
+                .kind,
             NormalizedEventKind::PaymentPending(_)
         ));
-        match &events_for_payment(&payment(PaymentStatus::Canceled, "10.00"), &[]).unwrap()[0].kind
+        match &events_for_payment(&payment(PaymentStatus::Canceled, "10.00"), &[], &[]).unwrap()[0]
+            .kind
         {
             NormalizedEventKind::PaymentFailed(e) => {
                 assert_eq!(e.code.as_deref(), Some("canceled"))
@@ -2299,7 +2569,7 @@ mod tests {
              "createdAt": "2026-08-20T08:00:00+00:00", "reversedAt": "2026-08-25T08:00:00+00:00"}
         ]))
         .unwrap();
-        let events = events_for_payment(&refunded, &chargebacks).unwrap();
+        let events = events_for_payment(&refunded, &chargebacks, &[]).unwrap();
         assert_eq!(events.len(), 4);
         // Sorted by date regardless of Mollie's listing order.
         assert!(
@@ -2321,6 +2591,11 @@ mod tests {
                 assert_eq!(d.external_dispute_id, "chb_1");
                 assert_eq!(d.amount_minor, 1000);
                 assert_eq!(d.reason.as_deref(), Some("AC01"));
+                assert_eq!(
+                    d.failure,
+                    Some(crate::domain::enums::ReversalKind::Returned),
+                    "a returned SEPA debit reopens the invoice"
+                );
             }
             other => panic!("expected DisputeFundsWithdrawn, got {other:?}"),
         }
@@ -2329,21 +2604,105 @@ mod tests {
             "2026-09-01T08:00:00+00:00"
         );
         match &events[3].kind {
-            NormalizedEventKind::PaymentRefunded(e) => assert_eq!(e.amount_refunded_minor, 400),
+            NormalizedEventKind::PaymentRefunded(e) => {
+                assert_eq!(e.amount_refunded_minor, 400);
+                assert!(e.refunds.is_empty());
+            }
             other => panic!("expected PaymentRefunded, got {other:?}"),
         }
+    }
+
+    /// Every refund on the payment is named with its own status, so the handler settles or fails
+    /// the refund rows it holds, including a failed one `amountRefunded` no longer counts.
+    #[test]
+    fn refunds_are_listed_with_their_status() {
+        let mut paid = payment(PaymentStatus::Paid, "10.00");
+        paid.amount_refunded = Some(Amount::from_minor(400, "EUR", 2));
+        let refunds: Vec<MollieRefund> = serde_json::from_value(serde_json::json!([
+            {"id": "re_ok", "amount": {"currency": "EUR", "value": "4.00"}, "status": "refunded"},
+            {"id": "re_wait", "amount": {"currency": "EUR", "value": "1.00"}, "status": "queued"},
+            {"id": "re_ko", "amount": {"currency": "EUR", "value": "2.00"}, "status": "failed"}
+        ]))
+        .unwrap();
+        let events = events_for_payment(&paid, &[], &refunds).unwrap();
+        let NormalizedEventKind::PaymentRefunded(e) = &events.last().unwrap().kind else {
+            panic!(
+                "expected PaymentRefunded, got {:?}",
+                events.last().unwrap().kind
+            );
+        };
+        assert_eq!(e.amount_refunded_minor, 400);
+        let seen: Vec<_> = e
+            .refunds
+            .iter()
+            .map(|r| (r.external_refund_id.as_str(), r.amount_minor, r.status))
+            .collect();
+        assert_eq!(
+            seen,
+            vec![
+                ("re_ok", Some(400), ObservedRefundStatus::Succeeded),
+                ("re_wait", Some(100), ObservedRefundStatus::Pending),
+                ("re_ko", Some(200), ObservedRefundStatus::Failed),
+            ]
+        );
+
+        // A payment whose only refund failed still names it, with nothing refunded.
+        let failed_only = payment(PaymentStatus::Paid, "10.00");
+        let events = events_for_payment(&failed_only, &[], &refunds[2..]).unwrap();
+        assert!(matches!(
+            &events.last().unwrap().kind,
+            NormalizedEventKind::PaymentRefunded(e) if e.amount_refunded_minor == 0 && e.refunds.len() == 1
+        ));
+    }
+
+    #[test]
+    fn refund_outcome_follows_the_refund_status() {
+        let refund = |status: &str| -> MollieRefund {
+            serde_json::from_value(serde_json::json!({
+                "id": "re_1", "amount": {"currency": "EUR", "value": "2.50"}, "status": status
+            }))
+            .unwrap()
+        };
+        for pending in ["queued", "pending", "processing"] {
+            assert!(matches!(
+                refund_outcome(&refund(pending)).unwrap(),
+                RefundOutcome::Pending(ref a) if a.external_refund_id == "re_1"
+            ));
+        }
+        assert!(matches!(
+            refund_outcome(&refund("refunded")).unwrap(),
+            RefundOutcome::Succeeded(ref r) if r.amount_refunded_minor == 250
+        ));
+        for refused in ["failed", "canceled"] {
+            assert!(matches!(
+                refund_outcome(&refund(refused)).unwrap(),
+                RefundOutcome::Failed(_)
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn fetch_refund_needs_the_payment() {
+        let err = test_adapter(&test_connector())
+            .fetch_refund("re_1", None)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err.current_context(),
+            ConnectorError::Unsupported { .. }
+        ));
     }
 
     #[test]
     fn unparseable_amount_is_an_error_not_zero() {
         let mut checkout = payment(PaymentStatus::Paid, "42.005");
         checkout.sequence_type = Some(SequenceType::First);
-        assert!(events_for_payment(&checkout, &[]).is_err());
+        assert!(events_for_payment(&checkout, &[], &[]).is_err());
         assert!(payment_to_outcome(&checkout).is_err());
         assert!(remote_status_from_payment(&checkout).is_err());
         let mut unknown_currency = payment(PaymentStatus::Paid, "10.00");
         unknown_currency.amount.currency = "XXX".into();
-        assert!(events_for_payment(&unknown_currency, &[]).is_err());
+        assert!(events_for_payment(&unknown_currency, &[], &[]).is_err());
     }
 
     #[test]
@@ -2352,7 +2711,7 @@ mod tests {
         assert_eq!(amount.value.to_string(), "1500");
         let mut paid = payment(PaymentStatus::Paid, "1500");
         paid.amount = amount;
-        match &events_for_payment(&paid, &[]).unwrap()[0].kind {
+        match &events_for_payment(&paid, &[], &[]).unwrap()[0].kind {
             NormalizedEventKind::PaymentSucceeded(e) => {
                 assert_eq!(e.amount_received_minor, 1500);
                 assert_eq!(e.currency, "JPY");
@@ -2408,7 +2767,7 @@ mod tests {
             "paidAt": "2026-09-11T10:00:00+00:00"
         }))
         .unwrap();
-        let events = events_for_payment(&verification, &[]).unwrap();
+        let events = events_for_payment(&verification, &[], &[]).unwrap();
         assert_eq!(events.len(), 1);
         assert!(matches!(
             events[0].kind,
@@ -2416,7 +2775,7 @@ mod tests {
         ));
 
         verification.status = PaymentStatus::Expired;
-        let events = events_for_payment(&verification, &[]).unwrap();
+        let events = events_for_payment(&verification, &[], &[]).unwrap();
         assert_eq!(events.len(), 1);
         assert!(matches!(
             events[0].kind,
@@ -2437,14 +2796,14 @@ mod tests {
             external_customer_id: "cst_ext".into(),
             supported_payment_types: Some(vec![PaymentMethodTypeEnum::DirectDebitSepa]),
         };
-        let mollie = MollieConnector::new();
+        let mollie = test_adapter(&connector);
         let usd_checkout = mollie
             .initiate_mandate_setup(
-                &connector,
                 &connection,
                 MandateSetupRequest {
                     descriptor: None,
                     webhook_url: None,
+                    purpose: crate::adapters::payment::model::SetupPurpose::Settings,
                     payment_methods: &[PaymentMethodTypeEnum::DirectDebitSepa],
                     idempotency_key: IdempotencyKey::new("k"),
                     return_url: Some("https://api.example.invalid/return".into()),
@@ -2467,21 +2826,18 @@ mod tests {
         ));
 
         let usd_charge = mollie
-            .charge_off_session(
-                &connector,
-                ChargeRequest {
-                    descriptor: None,
-                    webhook_url: None,
-                    transaction_id: PaymentTransactionId::new(),
-                    customer_external_id: "cst_ext",
-                    payment_method_external_id: "mdt_dd",
-                    payment_method_type: PaymentMethodTypeEnum::DirectDebitSepa,
-                    amount_minor: 100,
-                    currency: "USD",
-                    idempotency_key: IdempotencyKey::new("k"),
-                    on_session: false,
-                },
-            )
+            .charge_off_session(ChargeRequest {
+                descriptor: None,
+                webhook_url: None,
+                transaction_id: PaymentTransactionId::new(),
+                customer_external_id: "cst_ext",
+                payment_method_external_id: "mdt_dd",
+                payment_method_type: PaymentMethodTypeEnum::DirectDebitSepa,
+                amount_minor: 100,
+                currency: "USD",
+                idempotency_key: IdempotencyKey::new("k"),
+                on_session: false,
+            })
             .await;
         assert!(matches!(usd_charge, Ok(ChargeOutcome::Failed(_))));
     }
@@ -2502,6 +2858,7 @@ mod tests {
         let request = MandateSetupRequest {
             descriptor: None,
             webhook_url: None,
+            purpose: crate::adapters::payment::model::SetupPurpose::Settings,
             payment_methods: &[PaymentMethodTypeEnum::DirectDebitSepa],
             idempotency_key: IdempotencyKey::new("k"),
             return_url: Some("https://api.example.invalid/return".into()),
@@ -2516,7 +2873,8 @@ mod tests {
             currency: Some("EUR".into()),
         };
         assert_eq!(hosted_capture(&request), Some((12_000, "EUR")));
-        let metadata = setup_payment_metadata(&connector, &connection, &request);
+        let metadata =
+            setup_payment_metadata(&ConnectorRef::from(&connector), &connection, &request);
         assert_eq!(
             metadata.get("meteroid.transaction_id").map(String::as_str),
             Some("txB62")
@@ -2533,8 +2891,7 @@ mod tests {
         use super::super::model::IdempotencyKey;
         use common_domain::ids::{CustomerConnectionId, CustomerId, PaymentTransactionId};
 
-        let mut connector = test_connector();
-        connector.data = Some(ProviderData::Mollie(MolliePublicData::default()));
+        let connector = test_connector();
         let connection = CustomerConnection {
             id: CustomerConnectionId::new(),
             customer_id: CustomerId::new(),
@@ -2542,14 +2899,14 @@ mod tests {
             external_customer_id: "cst_ext".into(),
             supported_payment_types: Some(vec![PaymentMethodTypeEnum::Card]),
         };
-        let mollie = MollieConnector::new();
+        let mollie = test_adapter(&connector);
         let setup = mollie
             .initiate_mandate_setup(
-                &connector,
                 &connection,
                 MandateSetupRequest {
                     descriptor: None,
                     webhook_url: None,
+                    purpose: crate::adapters::payment::model::SetupPurpose::Settings,
                     payment_methods: &[PaymentMethodTypeEnum::Card],
                     idempotency_key: IdempotencyKey::new("k"),
                     return_url: Some("https://api.example.invalid/return".into()),
@@ -2565,21 +2922,18 @@ mod tests {
             Some(ConnectorError::Configuration(_))
         ));
         let charge = mollie
-            .charge_off_session(
-                &connector,
-                ChargeRequest {
-                    descriptor: None,
-                    webhook_url: None,
-                    transaction_id: PaymentTransactionId::new(),
-                    customer_external_id: "cst_ext",
-                    payment_method_external_id: "mdt_1",
-                    payment_method_type: PaymentMethodTypeEnum::Card,
-                    amount_minor: 100,
-                    currency: "EUR",
-                    idempotency_key: IdempotencyKey::new("k"),
-                    on_session: false,
-                },
-            )
+            .charge_off_session(ChargeRequest {
+                descriptor: None,
+                webhook_url: None,
+                transaction_id: PaymentTransactionId::new(),
+                customer_external_id: "cst_ext",
+                payment_method_external_id: "mdt_1",
+                payment_method_type: PaymentMethodTypeEnum::Card,
+                amount_minor: 100,
+                currency: "EUR",
+                idempotency_key: IdempotencyKey::new("k"),
+                on_session: false,
+            })
             .await;
         assert!(matches!(
             charge.as_ref().err().map(|r| r.current_context()),
@@ -2589,29 +2943,25 @@ mod tests {
 
     #[tokio::test]
     async fn charges_mollie_cannot_accept_fail_without_calling_mollie() {
-        let connector = test_connector();
-        let mollie = MollieConnector::new();
+        let mollie = test_adapter(&test_connector());
         for (method, amount_minor, currency) in [
             (PaymentMethodTypeEnum::DirectDebitSepa, 100, "USD"),
             (PaymentMethodTypeEnum::DirectDebitBacs, 100, "GBP"),
             (PaymentMethodTypeEnum::Card, 0, "EUR"),
         ] {
             let outcome = mollie
-                .charge_off_session(
-                    &connector,
-                    ChargeRequest {
-                        descriptor: None,
-                        webhook_url: None,
-                        transaction_id: common_domain::ids::PaymentTransactionId::new(),
-                        customer_external_id: "cst_ext",
-                        payment_method_external_id: "mdt_1",
-                        payment_method_type: method.clone(),
-                        amount_minor,
-                        currency,
-                        idempotency_key: crate::adapters::payment::model::IdempotencyKey::new("k"),
-                        on_session: false,
-                    },
-                )
+                .charge_off_session(ChargeRequest {
+                    descriptor: None,
+                    webhook_url: None,
+                    transaction_id: common_domain::ids::PaymentTransactionId::new(),
+                    customer_external_id: "cst_ext",
+                    payment_method_external_id: "mdt_1",
+                    payment_method_type: method.clone(),
+                    amount_minor,
+                    currency,
+                    idempotency_key: crate::adapters::payment::model::IdempotencyKey::new("k"),
+                    on_session: false,
+                })
                 .await
                 .expect("a failed outcome, not an error");
             assert!(
@@ -2662,27 +3012,8 @@ mod tests {
 
     #[tokio::test]
     async fn unsupported_ops_error_instead_of_panic() {
-        let connector = test_connector();
-        let mollie = MollieConnector::new();
-        let refund = mollie
-            .refund(
-                &connector,
-                RefundRequest {
-                    external_transaction_id: "tr_x",
-                    amount_minor: 100,
-                    currency: "EUR",
-                    reason: None,
-                    idempotency_key: super::super::model::IdempotencyKey::new("k"),
-                },
-            )
-            .await;
-        assert!(matches!(
-            refund.as_ref().err().map(|r| r.current_context()),
-            Some(ConnectorError::Unsupported { .. })
-        ));
-        let registered = mollie
-            .register_webhook(&connector, "https://x.invalid", &[])
-            .await;
+        let mollie = test_adapter(&test_connector());
+        let registered = mollie.register_webhook("https://x.invalid", &[]).await;
         assert!(matches!(
             registered.as_ref().err().map(|r| r.current_context()),
             Some(ConnectorError::Unsupported { .. })
@@ -2702,14 +3033,14 @@ mod tests {
             external_customer_id: "cst_ext".into(),
             supported_payment_types: Some(vec![PaymentMethodTypeEnum::Card]),
         };
-        let mollie = MollieConnector::new();
+        let mollie = test_adapter(&connector);
         let dd = mollie
             .initiate_mandate_setup(
-                &connector,
                 &connection,
                 MandateSetupRequest {
                     descriptor: None,
                     webhook_url: None,
+                    purpose: crate::adapters::payment::model::SetupPurpose::Settings,
                     payment_methods: &[PaymentMethodTypeEnum::DirectDebitAch],
                     idempotency_key: IdempotencyKey::new("k"),
                     return_url: Some("https://api.example.invalid/return".into()),

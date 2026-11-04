@@ -12,6 +12,9 @@ interface MrrCrosshairProps {
   containerRef: React.RefObject<HTMLDivElement>
   serie: ComputedSerie[]
   tooltip: TooltipProps
+  // Left margin of the nivo chart. `position.x` is relative to the inner
+  // drawing area, so we offset by it to align with the container.
+  marginLeft?: number
 }
 
 interface TooltipProps {
@@ -25,6 +28,7 @@ export const MrrCrosshair: React.FC<MrrCrosshairProps> = ({
   interval,
   containerRef,
   tooltip,
+  marginLeft = 0,
 }: MrrCrosshairProps) => {
   const { formatAmount } = useCurrency()
 
@@ -42,11 +46,11 @@ export const MrrCrosshair: React.FC<MrrCrosshairProps> = ({
 
     const offset = 8
 
-    return keepWithinRange(first?.data[0].position.x + offset, {
+    return keepWithinRange(first?.data[0].position.x + marginLeft + offset, {
       min: 0,
       max: windowWidth - (containerBox?.left ?? 0) - tooltipRect.width - offset,
     })
-  }, [first, tooltipRef.current, containerRef.current])
+  }, [first, marginLeft, tooltipRef.current, containerRef.current])
 
   if (!serie || !serie[0]) {
     return null
@@ -56,7 +60,7 @@ export const MrrCrosshair: React.FC<MrrCrosshairProps> = ({
     <>
       <Crosshair.Line
         style={{
-          left: `${serie[0].data[0].position.x}px`,
+          left: `${serie[0].data[0].position.x + marginLeft}px`,
         }}
       />
       <Crosshair.Tooltip style={{ left: tooltipLeft }} ref={tooltipRef}>

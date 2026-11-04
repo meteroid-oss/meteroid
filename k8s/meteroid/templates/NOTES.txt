@@ -1,0 +1,3 @@
+{{- if .Values.scheduler }}
+WARNING: the `scheduler` key is deprecated and read until 2.1 only. Move its settings to `worker`.
+{{- end }}

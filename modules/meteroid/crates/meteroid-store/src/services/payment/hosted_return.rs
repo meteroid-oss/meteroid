@@ -3,7 +3,7 @@
 //! frontend.
 
 use crate::StoreResult;
-use crate::adapters::payment::{HostedSetupCompletion, provider_capabilities};
+use crate::adapters::payment::{HostedSetupCompletion, payment_capabilities};
 use crate::domain::connectors::Connector;
 use crate::errors::StoreError;
 use crate::services::Services;
@@ -48,7 +48,7 @@ impl Services {
         drop(conn);
         let provider = connection_row.connector.provider.clone().into();
 
-        let caps = provider_capabilities(&provider)
+        let caps = payment_capabilities(&provider)
             .filter(|caps| caps.is_hosted_redirect())
             .ok_or_else(|| {
                 Report::new(StoreError::InvalidArgument(
@@ -62,8 +62,8 @@ impl Services {
             (false, _) => return Ok(HostedReturnOutcome::Completed),
         };
 
-        Ok(match caps.hosted_setup_completion {
-            HostedSetupCompletion::PollingRequired => {
+        Ok(match caps.hosted_setup_completion() {
+            Some(HostedSetupCompletion::PollingRequired) => {
                 match self
                     .complete_hosted_setup_for_connection(
                         connection_row,
@@ -89,7 +89,8 @@ impl Services {
                     }
                 }
             }
-            HostedSetupCompletion::WebhookBacked => {
+            // A provider with no hosted redirect never reaches here: the guard above returned.
+            _ => {
                 match self
                     .complete_webhook_backed_setup(connection_row, intent_id)
                     .await?

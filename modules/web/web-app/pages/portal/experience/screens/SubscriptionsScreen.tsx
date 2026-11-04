@@ -1,5 +1,12 @@
 import { usePortalNav } from '../context'
-import { date, money, subStatusBadge } from '../format'
+import { date, subStatusBadge } from '../format'
+import {
+  PAY_AS_YOU_GO,
+  isPayAsYouGo,
+  perCadence,
+  planPriceAmount,
+  usageRatesLine,
+} from '../planPrice'
 import { Card, LinkButton, Mono, PButton, Pill } from '../primitives'
 
 const SubGlyph = ({ size = 44 }: { size?: number }) => (
@@ -45,6 +52,11 @@ export const SubscriptionsScreen = () => {
                 <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.01em' }}>
                   {s.planName}
                 </span>
+                {s.usageFilter && (
+                  <Mono style={{ fontSize: 12, color: 'var(--mtp-text-2)' }}>
+                    {s.usageFilter.property} = {s.usageFilter.value}
+                  </Mono>
+                )}
                 <Pill badge={subStatusBadge(s.status)} dot />
               </div>
               <span style={{ fontSize: 13, color: 'var(--mtp-text-2)' }}>
@@ -59,12 +71,22 @@ export const SubscriptionsScreen = () => {
                 )}
               </span>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-              <Mono style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.02em' }}>
-                {money(s.mrrCents, s.currency)}
-              </Mono>
-              <span style={{ fontSize: 11.5, color: 'var(--mtp-text-3)' }}>per month</span>
-            </div>
+            {s.planPrice && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                {isPayAsYouGo(s.planPrice) ? (
+                  <span style={{ fontSize: 16, fontWeight: 600 }}>{PAY_AS_YOU_GO}</span>
+                ) : (
+                  <Mono style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.02em' }}>
+                    {planPriceAmount(s.planPrice)}
+                  </Mono>
+                )}
+                <span style={{ fontSize: 11.5, color: 'var(--mtp-text-3)' }}>
+                  {isPayAsYouGo(s.planPrice)
+                    ? usageRatesLine(s.planPrice.usageRates!)
+                    : perCadence(s.planPrice)}
+                </span>
+              </div>
+            )}
           </div>
           <div
             style={{

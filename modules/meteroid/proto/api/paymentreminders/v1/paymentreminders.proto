@@ -1,0 +1,181 @@
+syntax = "proto3";
+
+package meteroid.api.paymentreminders.v1;
+
+import "api/paymentreminders/v1/models.proto";
+
+// Lazily seeds the entity's default sequence (disabled) before listing.
+message ListPaymentReminderSequencesRequest {
+  string invoicing_entity_id = 1;
+  bool include_archived = 2;
+}
+
+message ListPaymentReminderSequencesResponse {
+  repeated PaymentReminderSequence sequences = 1;
+}
+
+message GetPaymentReminderSequenceRequest {
+  string id = 1;
+}
+
+message GetPaymentReminderSequenceResponse {
+  PaymentReminderSequence sequence = 1;
+}
+
+message CreatePaymentReminderSequenceRequest {
+  string invoicing_entity_id = 1;
+  string name = 2;
+  bool enabled = 3;
+  // Audience JSON (see models.proto); required, the default sequence is never created here.
+  optional string audience = 4;
+  repeated PaymentReminderStepInput steps = 5;
+}
+
+message CreatePaymentReminderSequenceResponse {
+  PaymentReminderSequence sequence = 1;
+}
+
+message UpdatePaymentReminderSequenceRequest {
+  string id = 1;
+  optional string name = 2;
+  optional bool enabled = 3;
+  // "" clears the audience, which is only legal for the default sequence.
+  optional string audience = 4;
+  // Replaces every step; frozen invoices are re-armed in the same transaction.
+  optional PaymentReminderStepList steps = 5;
+}
+
+message UpdatePaymentReminderSequenceResponse {
+  PaymentReminderSequence sequence = 1;
+}
+
+message ReorderPaymentReminderSequencesRequest {
+  string invoicing_entity_id = 1;
+  // Every live non-default sequence of the entity, in evaluation order; the default stays last.
+  repeated string ids = 2;
+}
+
+message ReorderPaymentReminderSequencesResponse {
+  repeated PaymentReminderSequence sequences = 1;
+}
+
+// Refused for the default sequence. Stops in-flight invoices and clears customer overrides.
+message ArchivePaymentReminderSequenceRequest {
+  string id = 1;
+}
+
+message ArchivePaymentReminderSequenceResponse {
+  int32 stopped_invoices = 1;
+}
+
+message PreviewPaymentReminderAudienceRequest {
+  string invoicing_entity_id = 1;
+  // Audience JSON (see models.proto).
+  string audience = 2;
+  // When set, sequences positioned before it are the ones that can claim invoices first.
+  optional string sequence_id = 3;
+}
+
+message PreviewPaymentReminderAudienceResponse {
+  AudiencePreview preview = 1;
+}
+
+message GetInvoiceRemindersRequest {
+  string invoice_id = 1;
+}
+
+message GetInvoiceRemindersResponse {
+  InvoiceReminderState state = 1;
+}
+
+message PreviewInvoiceReminderResolutionRequest {
+  string invoice_id = 1;
+}
+
+message PreviewInvoiceReminderResolutionResponse {
+  repeated SequenceResolutionRow rows = 1;
+}
+
+message PauseInvoiceRemindersRequest {
+  string invoice_id = 1;
+  // RFC 3339; the last elapsed step is sent at the next send slot after expiry.
+  string until = 2;
+}
+
+message PauseInvoiceRemindersResponse {
+  InvoiceReminderState state = 1;
+}
+
+message ResumeInvoiceRemindersRequest {
+  string invoice_id = 1;
+}
+
+message ResumeInvoiceRemindersResponse {
+  InvoiceReminderState state = 1;
+}
+
+message StopInvoiceRemindersRequest {
+  string invoice_id = 1;
+}
+
+message StopInvoiceRemindersResponse {
+  InvoiceReminderState state = 1;
+}
+
+// Bumps the generation, re-resolves the sequence and executes the last elapsed step next.
+message RestartInvoiceRemindersRequest {
+  string invoice_id = 1;
+}
+
+message RestartInvoiceRemindersResponse {
+  InvoiceReminderState state = 1;
+}
+
+// Requires an enrolled invoice; a stale or absent row needs a Restart first.
+message SendInvoiceReminderNowRequest {
+  string invoice_id = 1;
+  int32 offset_days = 2;
+  string request_id = 3;
+}
+
+message SendInvoiceReminderNowResponse {}
+
+message GetCustomerReminderPreferenceRequest {
+  string customer_id = 1;
+}
+
+message GetCustomerReminderPreferenceResponse {
+  CustomerReminderPreference preference = 1;
+}
+
+// opt_out = true stops the customer's in-flight invoices in the same transaction.
+message SetCustomerReminderPreferenceRequest {
+  string customer_id = 1;
+  bool opt_out = 2;
+  optional string sequence_id = 3;
+}
+
+message SetCustomerReminderPreferenceResponse {
+  CustomerReminderPreference preference = 1;
+}
+
+service PaymentRemindersService {
+  rpc ListPaymentReminderSequences(ListPaymentReminderSequencesRequest) returns (ListPaymentReminderSequencesResponse) {}
+  rpc GetPaymentReminderSequence(GetPaymentReminderSequenceRequest) returns (GetPaymentReminderSequenceResponse) {}
+  rpc CreatePaymentReminderSequence(CreatePaymentReminderSequenceRequest) returns (CreatePaymentReminderSequenceResponse) {}
+  rpc UpdatePaymentReminderSequence(UpdatePaymentReminderSequenceRequest) returns (UpdatePaymentReminderSequenceResponse) {}
+  rpc ReorderPaymentReminderSequences(ReorderPaymentReminderSequencesRequest) returns (ReorderPaymentReminderSequencesResponse) {}
+  rpc ArchivePaymentReminderSequence(ArchivePaymentReminderSequenceRequest) returns (ArchivePaymentReminderSequenceResponse) {}
+  rpc PreviewPaymentReminderAudience(PreviewPaymentReminderAudienceRequest) returns (PreviewPaymentReminderAudienceResponse) {}
+
+  rpc GetInvoiceReminders(GetInvoiceRemindersRequest) returns (GetInvoiceRemindersResponse) {}
+  rpc PreviewInvoiceReminderResolution(PreviewInvoiceReminderResolutionRequest) returns (PreviewInvoiceReminderResolutionResponse) {}
+  rpc PauseInvoiceReminders(PauseInvoiceRemindersRequest) returns (PauseInvoiceRemindersResponse) {}
+  rpc ResumeInvoiceReminders(ResumeInvoiceRemindersRequest) returns (ResumeInvoiceRemindersResponse) {}
+  rpc StopInvoiceReminders(StopInvoiceRemindersRequest) returns (StopInvoiceRemindersResponse) {}
+  rpc RestartInvoiceReminders(RestartInvoiceRemindersRequest) returns (RestartInvoiceRemindersResponse) {}
+  rpc SendInvoiceReminderNow(SendInvoiceReminderNowRequest) returns (SendInvoiceReminderNowResponse) {}
+
+  rpc GetCustomerReminderPreference(GetCustomerReminderPreferenceRequest) returns (GetCustomerReminderPreferenceResponse) {}
+  rpc SetCustomerReminderPreference(SetCustomerReminderPreferenceRequest) returns (SetCustomerReminderPreferenceResponse) {}
+}

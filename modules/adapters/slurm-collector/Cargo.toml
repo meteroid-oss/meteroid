@@ -16,9 +16,10 @@ log = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 futures = { workspace = true }
 futures-util = { workspace = true }
-metering-grpc = { workspace = true, features = ["client"] }
+metering-grpc = { workspace = true }
 tonic.workspace = true
 common-grpc = { workspace = true, features = ["client"] }
+workspace-hack = { version = "0.1", path = "../../../crates/workspace-hack" }
 
 
 [dev-dependencies]

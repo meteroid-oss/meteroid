@@ -1,0 +1,384 @@
+//! Payment test helpers.
+//!
+//! Provides TestEnv methods for seeding and querying payment-related test data.
+//! The actual seed logic lives in `data/payment.rs`.
+
+use chrono::NaiveDate;
+use common_domain::ids::{
+    CheckoutSessionId, ConnectorId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId,
+    InvoiceId, SubscriptionId,
+};
+use diesel_models::customer_connection::CustomerConnectionRow;
+use diesel_models::invoicing_entities::InvoicingEntityRowProvidersPatch;
+use diesel_models::payments::PaymentTransactionRow;
+use http::HeaderMap;
+use meteroid::api_rest::webhooks::event_handler::handle_normalized_event;
+use meteroid_store::adapters::payment::initialize_payment_connector;
+use meteroid_store::domain::PaymentStatusEnum;
+use meteroid_store::domain::connectors::{
+    Connector, ConnectorConfig, CredentialState, MockChargeBehavior, MockPublicData,
+    MockReconcileStatus, MockRefundBehavior, MockSensitiveData, PaymentConnectorConfig,
+    PaymentProviderConfig,
+};
+use meteroid_store::domain::payment_transactions::PaymentTransaction;
+
+use crate::data::ids;
+
+use super::{InvoicesAssertExt, TestEnv, subscription};
+
+impl TestEnv {
+    // ========================================================================
+    // Seed methods (thin wrappers around data::payment functions)
+    // ========================================================================
+
+    /// Seed the mock payment provider.
+    pub async fn seed_mock_payment_provider(&self, fail_payment_intent: bool) {
+        crate::data::payment::run_mock_payment_provider_seed(self.pool(), fail_payment_intent)
+            .await;
+    }
+
+    /// Update the mock payment provider's fail_payment_intent flag.
+    pub async fn set_mock_payment_failure(&self, fail: bool) {
+        crate::data::payment::update_mock_payment_provider_fail(self.pool(), fail).await;
+    }
+
+    /// Set the mock provider's charge behavior, e.g. [`MockChargeBehavior::Pending`] (async
+    /// settlement), `RequiresAction` (3DS) or `Unknown` (transport error — the outcome is
+    /// uncertain, not a decline).
+    pub async fn set_mock_charge_behavior(&self, charge_behavior: MockChargeBehavior) {
+        crate::data::payment::set_mock_charge_behavior(self.pool(), charge_behavior).await;
+    }
+
+    /// Set what the provider reports to the reconciliation sweep.
+    pub async fn set_mock_reconcile_status(&self, reconcile_status: MockReconcileStatus) {
+        crate::data::payment::set_mock_reconcile_status(self.pool(), reconcile_status).await;
+    }
+
+    /// Set what the provider does with a refund, e.g. [`MockRefundBehavior::Pending`] (settled
+    /// later by a webhook) or `Failed` (refused).
+    pub async fn set_mock_refund_behavior(&self, refund_behavior: MockRefundBehavior) {
+        crate::data::payment::set_mock_refund_behavior(self.pool(), refund_behavior).await;
+    }
+
+    /// Seed the second mock payment provider.
+    pub async fn seed_mock_payment_provider_2(&self) {
+        crate::data::payment::run_mock_payment_provider_2_seed(self.pool()).await;
+    }
+
+    /// Seed customer payment methods for Uber & Spotify.
+    pub async fn seed_customer_payment_methods(&self) {
+        crate::data::payment::run_customer_payment_methods_seed(self.pool()).await;
+    }
+
+    /// Seed customer payment methods for the secondary provider.
+    pub async fn seed_customer_payment_methods_provider_2(&self) {
+        crate::data::payment::run_customer_payment_methods_provider_2_seed(self.pool()).await;
+    }
+
+    /// Seed a SEPA direct debit method for Uber and make it the default, so checkout
+    /// charges go down the async rail instead of the card one.
+    pub async fn seed_uber_sepa_payment_method(&self) {
+        let connection_id = crate::data::payment::get_or_create_customer_connection(
+            self.pool(),
+            ids::CUST_UBER_ID,
+            ids::CUST_UBER_CONNECTION_ID,
+            ids::MOCK_CONNECTOR_ID,
+            "mock_cus_uber",
+        )
+        .await;
+
+        crate::data::payment::create_customer_sepa_payment_method(
+            self.pool(),
+            ids::CUST_UBER_ID,
+            connection_id,
+            ids::CUST_UBER_SEPA_METHOD_ID,
+            "mock_pm_uber_sepa",
+        )
+        .await;
+
+        crate::data::payment::set_customer_default_payment_method(
+            self.pool(),
+            ids::CUST_UBER_ID,
+            ids::CUST_UBER_SEPA_METHOD_ID,
+        )
+        .await;
+    }
+
+    /// Number of dunning retries queued for this invoice.
+    pub async fn pending_payment_retries(
+        &self,
+        subscription_id: common_domain::ids::SubscriptionId,
+        invoice_id: common_domain::ids::InvoiceId,
+    ) -> usize {
+        use meteroid_store::domain::scheduled_events::ScheduledEventData;
+
+        let mut conn = self.conn().await;
+        let events = diesel_models::scheduled_events::ScheduledEventRow::
+            get_pending_events_for_subscription(&mut conn, subscription_id, &ids::TENANT_ID)
+                .await
+                .expect("failed to list pending scheduled events");
+
+        events
+            .into_iter()
+            .filter(|row| {
+                matches!(
+                    serde_json::from_value::<ScheduledEventData>(row.event_data.clone()),
+                    Ok(ScheduledEventData::RetryPayment { invoice_id: queued }) if queued == invoice_id
+                )
+            })
+            .count()
+    }
+
+    /// Seed both payment provider and customer payment methods.
+    pub async fn seed_payments(&self) {
+        self.seed_mock_payment_provider(false).await;
+        self.seed_customer_payment_methods().await;
+    }
+
+    /// Seed both providers and customer payment methods for both.
+    pub async fn seed_dual_providers(&self) {
+        self.seed_mock_payment_provider(false).await;
+        self.seed_mock_payment_provider_2().await;
+        self.seed_customer_payment_methods().await;
+        self.seed_customer_payment_methods_provider_2().await;
+    }
+
+    /// Seed a Stancer connector as the card provider, with a pre-existing
+    /// connection + payment method (see `run_stancer_provider_seed`).
+    pub async fn seed_stancer_payments(&self) {
+        crate::data::payment::run_stancer_provider_seed(self.pool()).await;
+        crate::data::payment::run_customer_payment_methods_stancer_seed(self.pool()).await;
+    }
+
+    /// Seed Mollie as the card provider, with Uber's connection (no credentials).
+    pub async fn seed_mollie_payments(&self) {
+        crate::data::payment::run_mollie_provider_seed(self.pool()).await;
+    }
+
+    /// Seed direct debit provider (only DD, no card).
+    pub async fn seed_direct_debit_provider(&self) {
+        crate::data::payment::run_direct_debit_provider_seed(self.pool()).await;
+    }
+
+    /// Seed same provider for both card and direct debit.
+    pub async fn seed_card_and_direct_debit_same_provider(&self) {
+        crate::data::payment::run_card_and_dd_same_provider_seed(self.pool()).await;
+    }
+
+    /// Seed a bank account for bank transfer testing.
+    pub async fn seed_bank_account(&self) {
+        crate::data::payment::run_bank_account_seed(self.pool()).await;
+    }
+
+    // ========================================================================
+    // Query methods
+    // ========================================================================
+
+    /// Get payment method details (connection_id, connector_id) if found.
+    #[allow(dead_code)]
+    pub async fn get_payment_method_provider(
+        &self,
+        payment_method_id: CustomerPaymentMethodId,
+    ) -> Option<(CustomerConnectionId, ConnectorId)> {
+        use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
+
+        let mut conn = self
+            .pool()
+            .get()
+            .await
+            .expect("couldn't get db connection from pool");
+
+        let payment_method =
+            CustomerPaymentMethodRow::get_by_id(&mut conn, &ids::TENANT_ID, &payment_method_id)
+                .await
+                .ok()?;
+
+        let connections = CustomerConnectionRow::list_connections_by_customer_id(
+            &mut conn,
+            &ids::TENANT_ID,
+            &payment_method.customer_id,
+        )
+        .await
+        .expect("Failed to list connections");
+
+        let connection = connections
+            .into_iter()
+            .find(|c| c.id == payment_method.connection_id)?;
+
+        Some((connection.id, connection.connector_id))
+    }
+
+    /// List payment transactions linked to a checkout session.
+    pub async fn get_transactions_by_checkout_session(
+        &self,
+        checkout_session_id: CheckoutSessionId,
+    ) -> Vec<PaymentTransactionRow> {
+        use diesel::prelude::*;
+        use diesel_async::RunQueryDsl;
+        use diesel_models::schema::payment_transaction::dsl as pt;
+
+        let mut conn = self
+            .pool()
+            .get()
+            .await
+            .expect("couldn't get db connection from pool");
+
+        pt::payment_transaction
+            .filter(pt::checkout_session_id.eq(checkout_session_id))
+            .load(&mut conn)
+            .await
+            .expect("Failed to query payment transactions")
+    }
+
+    /// Switch the invoicing entity to use the secondary payment provider.
+    pub async fn switch_to_provider_2(&self) {
+        let mut conn = self
+            .pool()
+            .get()
+            .await
+            .expect("couldn't get db connection from pool");
+
+        InvoicingEntityRowProvidersPatch {
+            id: ids::INVOICING_ENTITY_ID,
+            card_provider_id: Some(Some(ids::MOCK_CONNECTOR_2_ID)),
+            direct_debit_provider_id: None,
+            bank_account_id: None,
+        }
+        .patch_invoicing_entity_providers(&mut conn, ids::TENANT_ID)
+        .await
+        .expect("Failed to switch provider");
+    }
+
+    /// Switch the invoicing entity back to the primary payment provider.
+    #[allow(dead_code)]
+    pub async fn switch_to_provider_1(&self) {
+        let mut conn = self
+            .pool()
+            .get()
+            .await
+            .expect("couldn't get db connection from pool");
+
+        InvoicingEntityRowProvidersPatch {
+            id: ids::INVOICING_ENTITY_ID,
+            card_provider_id: Some(Some(ids::MOCK_CONNECTOR_ID)),
+            direct_debit_provider_id: None,
+            bank_account_id: None,
+        }
+        .patch_invoicing_entity_providers(&mut conn, ids::TENANT_ID)
+        .await
+        .expect("Failed to switch provider");
+    }
+
+    /// Get all customer connections for a customer.
+    pub async fn get_customer_connections(
+        &self,
+        customer_id: CustomerId,
+    ) -> Vec<CustomerConnectionRow> {
+        let mut conn = self
+            .pool()
+            .get()
+            .await
+            .expect("couldn't get db connection from pool");
+
+        CustomerConnectionRow::list_connections_by_customer_id(
+            &mut conn,
+            &ids::TENANT_ID,
+            &customer_id,
+        )
+        .await
+        .expect("Failed to list connections")
+    }
+}
+
+impl TestEnv {
+    /// A card subscription ($35/month, no trial, no auto-charge) whose first invoice is
+    /// finalized but unpaid — the starting point of every payment path test.
+    pub async fn unpaid_card_invoice(&self) -> (SubscriptionId, InvoiceId) {
+        self.seed_payments().await;
+
+        let sub_id = subscription()
+            .plan_version(ids::PLAN_VERSION_1_LEETCODE_ID)
+            .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+            .on_start()
+            .no_trial()
+            .no_auto_charge()
+            .create(self.services())
+            .await;
+
+        let invoices = self.get_invoices(sub_id).await;
+        invoices.assert().has_count(1);
+        invoices.assert().invoice_at(0).is_finalized_unpaid();
+        (sub_id, invoices[0].id)
+    }
+
+    /// The same invoice, paid in full by a synchronous mock card charge. Returns
+    /// `(sub_id, invoice_id, settled_tx, invoice_total)`.
+    pub async fn settled_paid_card_invoice(
+        &self,
+    ) -> (SubscriptionId, InvoiceId, PaymentTransaction, i64) {
+        let (sub_id, invoice_id) = self.unpaid_card_invoice().await;
+
+        let (tx, _) = self
+            .services()
+            .complete_invoice_payment(
+                ids::TENANT_ID,
+                invoice_id,
+                ids::CUST_UBER_PAYMENT_METHOD_ID,
+                false,
+                None,
+            )
+            .await
+            .expect("charge accepted");
+        assert_eq!(tx.status, PaymentStatusEnum::Settled);
+        self.run_outbox_and_orchestration().await;
+
+        let invoices = self.get_invoices(sub_id).await;
+        invoices.assert().invoice_at(0).is_finalized_paid();
+        (sub_id, invoice_id, tx, invoices[0].total)
+    }
+}
+
+/// The mock Connector domain object, matching what `seed_mock_payment_provider` writes. The
+/// dispatcher only reads `tenant_id`/`provider` from it; the `MockConnector` built from it takes
+/// its behaviour from the stored config instead.
+pub fn mock_connector() -> Connector {
+    Connector {
+        status: meteroid_store::domain::enums::ConnectorStatusEnum::Active,
+        credentials: CredentialState::Unverified,
+        webhook_route: None,
+        id: ids::MOCK_CONNECTOR_ID,
+        created_at: chrono::Utc::now().naive_utc(),
+        tenant_id: ids::TENANT_ID,
+        alias: "mock-payment-provider".to_string(),
+        config: ConnectorConfig::Payment(PaymentConnectorConfig::configured(
+            PaymentProviderConfig::Mock(MockPublicData::default(), MockSensitiveData {}),
+        )),
+    }
+}
+
+impl TestEnv {
+    /// Parse a mock webhook envelope and run it through the real dispatcher, then drain the
+    /// outbox so the settlement orchestration runs. This is the production path an HTTP webhook
+    /// takes, minus signature verification (unit-tested per adapter).
+    pub async fn deliver_mock_webhook(&self, payload: &[u8]) {
+        let connector = mock_connector();
+        let connector_impl = initialize_payment_connector(&connector).expect("mock connector init");
+
+        let event = connector_impl
+            .parse_event(payload, &HeaderMap::new())
+            .expect("parse_event ok")
+            .expect("an event was produced");
+
+        handle_normalized_event(
+            event,
+            &connector,
+            connector_impl.as_ref(),
+            self.store().clone(),
+            self.services(),
+        )
+        .await
+        .expect("dispatcher handled the event");
+
+        self.run_outbox_and_orchestration().await;
+    }
+}

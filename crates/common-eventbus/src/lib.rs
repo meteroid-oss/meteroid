@@ -292,10 +292,19 @@ impl Event {
         )
     }
 
-    pub fn user_created(actor: Option<Actor>, user_id: UserId) -> Self {
+    pub fn user_created(
+        actor: Option<Actor>,
+        user_id: UserId,
+        signup_source: Option<String>,
+    ) -> Self {
+        let mut metadata = HashMap::new();
+        if let Some(signup_source) = signup_source {
+            metadata.insert("signup_source".to_string(), signup_source);
+        }
         Self::new(
-            EventData::UserCreated(EventDataDetails {
+            EventData::UserCreated(EventDataWithMetadataDetails {
                 entity_id: user_id.as_uuid(),
+                metadata,
             }),
             actor,
         )
@@ -305,7 +314,7 @@ impl Event {
         actor: Actor,
         user_id: UserId,
         department: Option<String>,
-        know_us_from: Option<String>,
+        heard_from: Option<String>,
     ) -> Self {
         Self::new(
             EventData::UserUpdated(EventDataWithMetadataDetails {
@@ -316,8 +325,8 @@ impl Event {
                         department.unwrap_or("undefined".to_string()),
                     ),
                     (
-                        "know_us_from".to_string(),
-                        know_us_from.unwrap_or("undefined".to_string()),
+                        "heard_from".to_string(),
+                        heard_from.unwrap_or("undefined".to_string()),
                     ),
                 ]),
             }),
@@ -349,7 +358,7 @@ pub enum EventData {
     SubscriptionCreated(TenantEventDataDetails),
     SubscriptionCanceled(TenantEventDataDetails),
     TenantCreated(TenantEventDataDetails),
-    UserCreated(EventDataDetails),
+    UserCreated(EventDataWithMetadataDetails),
     UserUpdated(EventDataWithMetadataDetails),
 }
 

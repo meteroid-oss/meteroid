@@ -1,11 +1,13 @@
 use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::subscription_changes::{
-    AddedComponent, ChangeDirection, MatchedComponent, ProrationLineItem, ProrationResult,
-    RemovedComponent,
+    AddedComponent, ChangeDirection, MatchedComponent, PackGrant, ProrationLineItem,
+    ProrationResult, RemovedComponent,
 };
 use crate::domain::subscription_components::SubscriptionFee;
 use chrono::NaiveDate;
 use common_utils::decimals::ToSubunit;
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::{Decimal, RoundingStrategy};
 
 /// Per-period advance-billed amount (cents). Returns 0 for arrears/usage/onetime.
 /// Mirrors the pattern from calculate_mrr.
@@ -40,7 +42,11 @@ pub fn component_advance_amount_cents(
             unit_rate,
             ..
         } => i64::from(*initial_slots) * unit_rate.to_subunit_opt(precision).unwrap_or(0),
-        SubscriptionFee::OneTime { .. } | SubscriptionFee::Usage { .. } => 0,
+        // A pack is never prorated on a plan change: an adjustment line funds no credit, so
+        // prorating would charge without a grant or refund a charge whose credit was granted.
+        SubscriptionFee::Credit { .. }
+        | SubscriptionFee::OneTime { .. }
+        | SubscriptionFee::Usage { .. } => 0,
     }
 }
 
@@ -67,21 +73,94 @@ pub(crate) fn fee_instance_count(fee: &SubscriptionFee) -> rust_decimal::Decimal
         SubscriptionFee::Slot { initial_slots, .. } => Decimal::from(*initial_slots),
         SubscriptionFee::Recurring { quantity, .. } => Decimal::from(*quantity),
         SubscriptionFee::OneTime { quantity, .. } => Decimal::from(*quantity),
+        SubscriptionFee::Credit { quantity, .. } => Decimal::from(*quantity),
         SubscriptionFee::Rate { .. }
         | SubscriptionFee::Capacity { .. }
         | SubscriptionFee::Usage { .. } => Decimal::ONE,
     }
 }
 
+/// A share of a period as whole days over whole days. Amounts are prorated as
+/// `amount × num / den` in Decimal, rounded half away from zero to the minor unit like every
+/// invoice line, so a true half-cent is never flipped by an inexact factor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DayFraction {
+    num: i64,
+    den: i64,
+}
+
+impl DayFraction {
+    pub const WHOLE: DayFraction = DayFraction { num: 1, den: 1 };
+    pub const NONE: DayFraction = DayFraction { num: 0, den: 1 };
+
+    /// `num / den` clamped to [0, 1]; an empty period is none of it.
+    pub fn new(num: i64, den: i64) -> Self {
+        if den <= 0 {
+            return Self::NONE;
+        }
+        DayFraction {
+            num: num.clamp(0, den),
+            den,
+        }
+    }
+
+    /// What is left of `[period_start, period_end)` from `at` on.
+    pub fn remaining(period_start: NaiveDate, period_end: NaiveDate, at: NaiveDate) -> Self {
+        Self::new(
+            (period_end - at).num_days(),
+            (period_end - period_start).num_days(),
+        )
+    }
+
+    pub fn is_whole(&self) -> bool {
+        self.num == self.den
+    }
+
+    pub fn prorate(&self, amount_minor: i64) -> i64 {
+        (Decimal::from(amount_minor) * Decimal::from(self.num) / Decimal::from(self.den))
+            .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
+            .to_i64()
+            .unwrap_or(amount_minor)
+    }
+
+    pub fn as_f64(&self) -> f64 {
+        self.num as f64 / self.den as f64
+    }
+
+    /// `amount × num / den`, multiplied before dividing so a whole-day share of a price is exact
+    /// before the caller rounds it (1/28 first would truncate to 28 digits: 0.135 read 0.1349…).
+    pub fn prorate_decimal(&self, amount: Decimal) -> Decimal {
+        amount * Decimal::from(self.num) / Decimal::from(self.den)
+    }
+
+    /// This share of `other`'s share, still exact in whole days.
+    pub fn of(self, other: DayFraction) -> Self {
+        match (
+            self.num.checked_mul(other.num),
+            self.den.checked_mul(other.den),
+        ) {
+            (Some(num), Some(den)) => Self::new(num, den),
+            _ => Self::new(
+                other
+                    .prorate_decimal(Decimal::from(self.num))
+                    .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
+                    .to_i64()
+                    .unwrap_or(self.num),
+                self.den,
+            ),
+        }
+    }
+}
+
 /// Nominal length, in days, of a billing period. Used to prorate components
 /// whose billing cadence differs from the subscription's current period.
-fn nominal_period_days(period: &SubscriptionFeeBillingPeriod) -> f64 {
+fn nominal_period_days(period: &SubscriptionFeeBillingPeriod) -> i64 {
     match period {
-        SubscriptionFeeBillingPeriod::Monthly => 30.0,
-        SubscriptionFeeBillingPeriod::Quarterly => 91.0,
-        SubscriptionFeeBillingPeriod::Semiannual => 182.0,
-        SubscriptionFeeBillingPeriod::Annual => 365.0,
-        SubscriptionFeeBillingPeriod::OneTime => 0.0,
+        SubscriptionFeeBillingPeriod::Monthly => 30,
+        SubscriptionFeeBillingPeriod::Quarterly => 91,
+        SubscriptionFeeBillingPeriod::Semiannual => 182,
+        SubscriptionFeeBillingPeriod::Annual => 365,
+        SubscriptionFeeBillingPeriod::OneTime => 0,
     }
 }
 
@@ -93,56 +172,307 @@ fn nominal_period_days(period: &SubscriptionFeeBillingPeriod) -> f64 {
 /// component added to a monthly subscription), we prorate against the
 /// component's own nominal period length, so a yearly fee is charged for
 /// `days_remaining / 365` rather than `days_remaining / days_in_month`.
-fn component_proration_factor(
+pub(crate) fn component_proration_factor(
     period: &SubscriptionFeeBillingPeriod,
-    days_remaining: f64,
-    days_in_period: f64,
-    base_factor: f64,
-) -> f64 {
+    days_remaining: i64,
+    days_in_period: i64,
+    base_factor: DayFraction,
+) -> DayFraction {
     let nominal = nominal_period_days(period);
-    if nominal <= 0.0 {
+    if nominal <= 0 {
         return base_factor;
     }
-    // Treat the component as aligned with the subscription period when the
-    // current period length is within 25% of the component's nominal length.
-    if (days_in_period - nominal).abs() <= nominal * 0.25 {
+    // Aligned with the subscription period when within 25% of the nominal length.
+    if (days_in_period - nominal).abs() * 4 <= nominal {
         base_factor
     } else {
-        (days_remaining / nominal).clamp(0.0, 1.0)
+        DayFraction::new(days_remaining, nominal)
     }
 }
 
-/// Detect upgrade/downgrade by comparing total advance-billed amounts.
+/// Monthly share of an amount billed every `period`, for comparisons only.
+fn per_month(amount: Decimal, period: &SubscriptionFeeBillingPeriod) -> Decimal {
+    match period.as_months() {
+        0 => Decimal::ZERO,
+        months => amount / Decimal::from(months),
+    }
+}
+
+/// What a credit pack adds per month to its denomination, compared per denomination.
+#[derive(Default, Clone, Copy)]
+struct PackTotals {
+    fee: Decimal,
+    credit: Decimal,
+    /// `None` within `Some`: rolls over everything left.
+    rollover: Option<Option<Decimal>>,
+}
+
+impl PackTotals {
+    fn add(&mut self, fee: &SubscriptionFee, period: &SubscriptionFeeBillingPeriod) {
+        let SubscriptionFee::Credit {
+            rate,
+            quantity,
+            credit_amount,
+            rollover,
+            ..
+        } = fee
+        else {
+            return;
+        };
+        let units = Decimal::from(*quantity);
+        self.fee += per_month(*rate * units, period);
+        if is_period_tied(fee) {
+            self.credit += per_month(*credit_amount * units, period);
+        }
+        if let Some(rollover) = rollover {
+            let cap = rollover
+                .max_amount
+                .map(|max| per_month(max * units, period));
+            self.rollover = Some(match (self.rollover, cap) {
+                (Some(None), _) | (_, None) => None,
+                (Some(Some(total)), Some(cap)) => Some(total + cap),
+                (None, Some(cap)) => Some(cap),
+            });
+        }
+    }
+}
+
+fn rollover_cmp(new: Option<Option<Decimal>>, old: Option<Option<Decimal>>) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    match (new, old) {
+        (None, None) | (Some(None), Some(None)) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
+        (Some(None), Some(Some(_))) => Ordering::Greater,
+        (Some(Some(_)), Some(None)) => Ordering::Less,
+        (Some(Some(new)), Some(Some(old))) => new.cmp(&old),
+    }
+}
+
+/// A pack whose credit ends with the billing period (with or without rollover): billed and
+/// granted by the share of the period it covers. Any other pack is bought whole.
+pub fn is_period_tied(fee: &SubscriptionFee) -> bool {
+    matches!(
+        fee,
+        SubscriptionFee::Credit {
+            expiry: Some(crate::domain::price_components::CreditExpiry::BillingPeriod),
+            once: false,
+            ..
+        }
+    )
+}
+
+fn pack_denomination(fee: &SubscriptionFee) -> Option<String> {
+    match fee {
+        SubscriptionFee::Credit {
+            once: false,
+            credit_unit,
+            ..
+        } => Some(
+            credit_unit
+                .as_ref()
+                .map_or_else(String::new, |u| u.code.clone()),
+        ),
+        _ => None,
+    }
+}
+
+/// Upgrade, downgrade or lateral, compared per month at the price the plan lists (the MRR basis):
+/// the fixed fees in total, then per credit denomination the packs' fees, the credit of the packs
+/// tied to the period and their rollover cap, and the billing period's length. Any decrease, a
+/// credit denomination removed, or a shorter period is a downgrade, even beside an increase;
+/// otherwise any increase is an upgrade. Usage prices are not compared.
 pub fn detect_change_direction(
     matched: &[MatchedComponent],
     added: &[AddedComponent],
     removed: &[RemovedComponent],
     precision: u8,
 ) -> ChangeDirection {
-    let old_total: i64 =
-        matched
-            .iter()
-            .map(|m| component_advance_amount_cents(&m.current_fee, &m.current_period, precision))
-            .chain(removed.iter().map(|r| {
-                component_advance_amount_cents(&r.current_fee, &r.current_period, precision)
-            }))
-            .sum();
+    use std::cmp::Ordering;
+    use std::collections::BTreeMap;
 
-    let new_total: i64 = matched
-        .iter()
-        .map(|m| component_advance_amount_cents(&m.new_fee, &m.new_period, precision))
-        .chain(
-            added
-                .iter()
-                .map(|a| component_advance_amount_cents(&a.fee, &a.period, precision)),
+    let fee = |fee: &SubscriptionFee, period: &SubscriptionFeeBillingPeriod| {
+        per_month(
+            Decimal::from(component_advance_amount_cents(fee, period, precision)),
+            period,
         )
-        .sum();
+    };
+    let mut outcomes: Vec<Ordering> = Vec::new();
+    let mut old_packs: BTreeMap<String, PackTotals> = BTreeMap::new();
+    let mut new_packs: BTreeMap<String, PackTotals> = BTreeMap::new();
+    let mut old_period: Option<i32> = None;
+    let mut new_period: Option<i32> = None;
+    let shortest = |acc: &mut Option<i32>, period: &SubscriptionFeeBillingPeriod| {
+        if period.as_months() > 0 {
+            *acc = Some(acc.map_or(period.as_months(), |m| m.min(period.as_months())));
+        }
+    };
 
-    match new_total.cmp(&old_total) {
-        std::cmp::Ordering::Greater => ChangeDirection::Upgrade,
-        std::cmp::Ordering::Less => ChangeDirection::Downgrade,
-        std::cmp::Ordering::Equal => ChangeDirection::Lateral,
+    let mut old_side = |f: &SubscriptionFee, p: &SubscriptionFeeBillingPeriod| {
+        shortest(&mut old_period, p);
+        if let Some(key) = pack_denomination(f) {
+            old_packs.entry(key).or_default().add(f, p);
+        }
+    };
+    for m in matched {
+        old_side(&m.current_fee, &m.current_period);
     }
+    for r in removed {
+        old_side(&r.current_fee, &r.current_period);
+    }
+    let mut new_side = |f: &SubscriptionFee, p: &SubscriptionFeeBillingPeriod| {
+        shortest(&mut new_period, p);
+        if let Some(key) = pack_denomination(f) {
+            new_packs.entry(key).or_default().add(f, p);
+        }
+    };
+    for m in matched {
+        new_side(&m.new_fee, &m.new_period);
+    }
+    for a in added {
+        new_side(&a.fee, &a.period);
+    }
+
+    // Fixed fees compare in total, whatever products carry them: catalogs bill the base fee of
+    // each plan under its own product.
+    let fixed = |fee_and_period: &mut dyn Iterator<
+        Item = (&SubscriptionFee, &SubscriptionFeeBillingPeriod),
+    >| {
+        fee_and_period
+            .filter(|(f, _)| !matches!(f, SubscriptionFee::Credit { .. }))
+            .map(|(f, p)| fee(f, p))
+            .sum::<Decimal>()
+    };
+    let old_fixed = fixed(
+        &mut matched
+            .iter()
+            .map(|m| (&m.current_fee, &m.current_period))
+            .chain(removed.iter().map(|r| (&r.current_fee, &r.current_period))),
+    );
+    let new_fixed = fixed(
+        &mut matched
+            .iter()
+            .map(|m| (&m.new_fee, &m.new_period))
+            .chain(added.iter().map(|a| (&a.fee, &a.period))),
+    );
+    outcomes.push(new_fixed.cmp(&old_fixed));
+    for (key, old) in &old_packs {
+        match new_packs.get(key) {
+            None => outcomes.push(Ordering::Less),
+            Some(new) => {
+                outcomes.push(new.fee.cmp(&old.fee));
+                outcomes.push(new.credit.cmp(&old.credit));
+                outcomes.push(rollover_cmp(new.rollover, old.rollover));
+            }
+        }
+    }
+    if new_packs.keys().any(|key| !old_packs.contains_key(key)) {
+        outcomes.push(Ordering::Greater);
+    }
+    if let (Some(old), Some(new)) = (old_period, new_period)
+        && new < old
+    {
+        outcomes.push(Ordering::Less);
+    }
+
+    if outcomes.contains(&Ordering::Less) {
+        ChangeDirection::Downgrade
+    } else if outcomes.contains(&Ordering::Greater) {
+        ChangeDirection::Upgrade
+    } else {
+        ChangeDirection::Lateral
+    }
+}
+
+/// The fee credited back for an old pack tied to the period: its unused time, but never more than
+/// its unused paid credit is worth, so spending the credit and then changing plan refunds nothing.
+pub fn capped_pack_fee_credit(
+    fee_minor: i64,
+    unused_time: DayFraction,
+    unused_paid: i64,
+    paid_face: i64,
+) -> i64 {
+    let by_time = unused_time.prorate(fee_minor);
+    if paid_face <= 0 {
+        return by_time;
+    }
+    by_time.min(DayFraction::new(unused_paid, paid_face).prorate(fee_minor))
+}
+
+/// The adjustment-invoice line of a pack the target plan adds: a pack tied to the period is
+/// billed and granted by the share of the period left, any other pack whole.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn pack_charge_line(
+    name: &str,
+    fee: &SubscriptionFee,
+    factor: DayFraction,
+    precision: u8,
+    product_id: Option<common_domain::ids::ProductId>,
+    price_component_id: Option<common_domain::ids::PriceComponentId>,
+    billed_component_id: Option<common_domain::ids::SubscriptionPriceComponentId>,
+) -> crate::StoreResult<Option<ProrationLineItem>> {
+    use crate::services::invoice_lines::component::{pack_credit_minor, pack_rollover};
+    let SubscriptionFee::Credit {
+        rate,
+        quantity,
+        credit_amount,
+        expiry,
+        credit_unit,
+        rollover,
+        ..
+    } = fee
+    else {
+        return Ok(None);
+    };
+    let factor = if is_period_tied(fee) {
+        factor
+    } else {
+        DayFraction::WHOLE
+    };
+    let units = Decimal::from(*quantity);
+    let credit_precision = credit_unit
+        .as_ref()
+        .map_or(precision, |unit| unit.precision);
+    let credit_minor = factor.prorate(pack_credit_minor(*credit_amount, units, credit_precision)?);
+    if credit_minor <= 0 {
+        return Ok(None);
+    }
+    let full_fee = (*rate * units)
+        .to_subunit_opt(precision)
+        .ok_or_else(|| error_stack::Report::new(crate::errors::StoreError::InvalidDecimal))?;
+    let included = rate.is_zero();
+    let rollover = match rollover {
+        Some(rollover) if included => Some(pack_rollover(rollover, units, credit_precision)?),
+        _ => None,
+    };
+    let prorated = !factor.is_whole();
+    Ok(Some(ProrationLineItem {
+        period_end: None,
+        name: if prorated {
+            format!("{name} (prorated)")
+        } else {
+            name.to_owned()
+        },
+        amount_cents: factor.prorate(full_fee),
+        full_period_amount_cents: full_fee,
+        is_credit: false,
+        is_prorated: prorated,
+        quantity: Some(units),
+        unit_price: None,
+        product_id: crate::services::subscriptions::utils::fee_tax_product(fee, product_id),
+        price_component_id,
+        net_key: None,
+        sub_component_id: billed_component_id,
+        sub_add_on_id: None,
+        charge_type: Some(fee.charge_type()),
+        pack: Some(PackGrant {
+            credit_minor,
+            unit: credit_unit.clone(),
+            expiry: *expiry,
+            included,
+            rollover,
+        }),
+    }))
 }
 
 /// Calculate proration for all advance-billed components.
@@ -159,14 +489,69 @@ pub fn calculate_proration(
     change_date: NaiveDate,
     precision: u8,
 ) -> ProrationResult {
-    let days_in_period = (period_end - period_start).num_days() as f64;
-    let days_remaining = (period_end - change_date).num_days() as f64;
+    let days_in_period = (period_end - period_start).num_days();
+    let days_remaining = (period_end - change_date).num_days();
+    let proration_factor = DayFraction::remaining(period_start, period_end, change_date);
+    calculate_proration_by(
+        matched,
+        added,
+        removed,
+        (period_start, period_end),
+        change_date,
+        precision,
+        |period| {
+            (
+                component_proration_factor(
+                    period,
+                    days_remaining,
+                    days_in_period,
+                    proration_factor,
+                ),
+                None,
+            )
+        },
+    )
+}
 
-    let proration_factor = if days_in_period > 0.0 {
-        days_remaining / days_in_period
-    } else {
-        0.0
-    };
+/// The stub a fee of `period` bills from `change_date`: on the subscription's cadence, what is
+/// left of `current`; on another, what is left of its own period on the grid from `billing_start`.
+pub(crate) fn stub_on_own_grid(
+    current: (NaiveDate, NaiveDate),
+    cadence: crate::domain::enums::BillingPeriodEnum,
+    billing_start: NaiveDate,
+    billing_day: u32,
+    change_date: NaiveDate,
+) -> impl Fn(&SubscriptionFeeBillingPeriod) -> (DayFraction, Option<NaiveDate>) {
+    move |period| {
+        let (start, end) = match period.as_billing_period_opt() {
+            Some(own) if own.as_months() != cadence.as_months() => {
+                let own = crate::utils::periods::find_period_containing_date(
+                    billing_start,
+                    change_date,
+                    &own,
+                    billing_day,
+                );
+                (own.start, own.end)
+            }
+            _ => current,
+        };
+        (DayFraction::remaining(start, end, change_date), Some(end))
+    }
+}
+
+/// [`calculate_proration`] with each fee's share and stub end given by `stub`.
+pub(crate) fn calculate_proration_by(
+    matched: &[MatchedComponent],
+    added: &[AddedComponent],
+    removed: &[RemovedComponent],
+    (period_start, period_end): (NaiveDate, NaiveDate),
+    change_date: NaiveDate,
+    precision: u8,
+    stub: impl Fn(&SubscriptionFeeBillingPeriod) -> (DayFraction, Option<NaiveDate>),
+) -> ProrationResult {
+    let proration_factor = DayFraction::remaining(period_start, period_end, change_date);
+    let factor_of = |period: &SubscriptionFeeBillingPeriod| stub(period).0;
+    let end_of = |period: &SubscriptionFeeBillingPeriod| stub(period).1;
 
     let mut lines = Vec::new();
 
@@ -177,15 +562,10 @@ pub fn calculate_proration(
         let new_amount = component_advance_amount_cents(&m.new_fee, &m.new_period, precision);
 
         if old_amount > 0 {
-            let factor = component_proration_factor(
-                &m.current_period,
-                days_remaining,
-                days_in_period,
-                proration_factor,
-            );
-            let credit = -((old_amount as f64 * factor).round() as i64);
+            let credit = -factor_of(&m.current_period).prorate(old_amount);
             if credit != 0 {
                 lines.push(ProrationLineItem {
+                    period_end: end_of(&m.current_period),
                     name: format!("{} (credit)", m.current_name),
                     amount_cents: credit,
                     full_period_amount_cents: old_amount,
@@ -195,23 +575,20 @@ pub fn calculate_proration(
                     unit_price: None,
                     product_id: Some(m.product_id),
                     price_component_id: None,
-                    net_key: None,
+                    net_key: m.current_net_key.clone(),
                     sub_component_id: None,
                     sub_add_on_id: None,
+                    charge_type: Some(m.current_fee.charge_type()),
+                    pack: None,
                 });
             }
         }
 
         if new_amount > 0 {
-            let factor = component_proration_factor(
-                &m.new_period,
-                days_remaining,
-                days_in_period,
-                proration_factor,
-            );
-            let charge = (new_amount as f64 * factor).round() as i64;
+            let charge = factor_of(&m.new_period).prorate(new_amount);
             if charge != 0 {
                 lines.push(ProrationLineItem {
+                    period_end: end_of(&m.new_period),
                     name: format!("{} (prorated)", m.new_name),
                     amount_cents: charge,
                     full_period_amount_cents: new_amount,
@@ -220,10 +597,12 @@ pub fn calculate_proration(
                     quantity: None,
                     unit_price: None,
                     product_id: Some(m.product_id),
-                    price_component_id: None,
+                    price_component_id: m.price_component_id,
                     net_key: None,
-                    sub_component_id: None,
+                    sub_component_id: m.billed_component_id,
                     sub_add_on_id: None,
+                    charge_type: Some(m.new_fee.charge_type()),
+                    pack: None,
                 });
             }
         }
@@ -234,15 +613,10 @@ pub fn calculate_proration(
         let old_amount =
             component_advance_amount_cents(&r.current_fee, &r.current_period, precision);
         if old_amount > 0 {
-            let factor = component_proration_factor(
-                &r.current_period,
-                days_remaining,
-                days_in_period,
-                proration_factor,
-            );
-            let credit = -((old_amount as f64 * factor).round() as i64);
+            let credit = -factor_of(&r.current_period).prorate(old_amount);
             if credit != 0 {
                 lines.push(ProrationLineItem {
+                    period_end: end_of(&r.current_period),
                     name: format!("{} (credit)", r.name),
                     amount_cents: credit,
                     full_period_amount_cents: old_amount,
@@ -255,6 +629,8 @@ pub fn calculate_proration(
                     net_key: r.net_key.clone(),
                     sub_component_id: None,
                     sub_add_on_id: None,
+                    charge_type: Some(r.current_fee.charge_type()),
+                    pack: None,
                 });
             }
         }
@@ -267,6 +643,7 @@ pub fn calculate_proration(
             let amount = component_onetime_amount_cents(&a.fee, precision);
             if amount != 0 {
                 lines.push(ProrationLineItem {
+                    period_end: None,
                     name: format!("{} (one-time)", a.name),
                     amount_cents: amount,
                     full_period_amount_cents: amount,
@@ -275,10 +652,12 @@ pub fn calculate_proration(
                     quantity: Some(rust_decimal::Decimal::from(*quantity)),
                     unit_price: Some(*rate),
                     product_id: None,
-                    price_component_id: None,
+                    price_component_id: a.price_component_id,
                     net_key: a.net_key.clone(),
                     sub_component_id: a.billed_component_id,
                     sub_add_on_id: a.billed_add_on_id,
+                    charge_type: Some(a.fee.charge_type()),
+                    pack: None,
                 });
             }
             continue;
@@ -286,13 +665,7 @@ pub fn calculate_proration(
 
         let new_amount = component_advance_amount_cents(&a.fee, &a.period, precision);
         if new_amount > 0 {
-            let factor = component_proration_factor(
-                &a.period,
-                days_remaining,
-                days_in_period,
-                proration_factor,
-            );
-            let charge = (new_amount as f64 * factor).round() as i64;
+            let charge = factor_of(&a.period).prorate(new_amount);
             if charge != 0 {
                 // For multi-instance add-ons carry the instance count so the
                 // adjustment invoice displays qty × unit_price. unit_price is
@@ -302,6 +675,7 @@ pub fn calculate_proration(
                     .instance_quantity
                     .filter(|&n| n > rust_decimal::Decimal::ONE);
                 lines.push(ProrationLineItem {
+                    period_end: end_of(&a.period),
                     name: format!("{} (prorated)", a.name),
                     amount_cents: charge,
                     full_period_amount_cents: new_amount,
@@ -310,10 +684,12 @@ pub fn calculate_proration(
                     quantity: display_qty,
                     unit_price: None,
                     product_id: None,
-                    price_component_id: None,
+                    price_component_id: a.price_component_id,
                     net_key: a.net_key.clone(),
                     sub_component_id: a.billed_component_id,
                     sub_add_on_id: a.billed_add_on_id,
+                    charge_type: Some(a.fee.charge_type()),
+                    pack: None,
                 });
             }
         }
@@ -327,7 +703,7 @@ pub fn calculate_proration(
         change_date,
         period_start,
         period_end,
-        proration_factor,
+        proration_factor: proration_factor.as_f64(),
     }
 }
 
@@ -351,6 +727,7 @@ pub fn net_override_lines(lines: &[ProrationLineItem]) -> Vec<ProrationLineItem>
                         netted[idx].is_prorated = line.is_prorated;
                         netted[idx].product_id = line.product_id;
                         netted[idx].price_component_id = line.price_component_id;
+                        netted[idx].period_end = line.period_end;
                     }
                 } else {
                     index_by_key.insert(key.clone(), netted.len());
@@ -373,7 +750,11 @@ pub fn net_override_lines(lines: &[ProrationLineItem]) -> Vec<ProrationLineItem>
         }
     }
 
-    netted.into_iter().filter(|l| l.amount_cents != 0).collect()
+    // An included pack bills nothing but grants its credit.
+    netted
+        .into_iter()
+        .filter(|l| l.amount_cents != 0 || l.pack.is_some())
+        .collect()
 }
 
 #[cfg(test)]
@@ -392,6 +773,7 @@ mod tests {
         SubscriptionFee::Usage {
             metric_id: common_domain::ids::BillableMetricId::new(),
             model: crate::domain::UsagePricingModel::PerUnit { rate: Decimal::ONE },
+            credit_unit: None,
         }
     }
 
@@ -426,6 +808,9 @@ mod tests {
             new_name: "Pro".to_string(),
             new_fee: rate_fee(200),
             new_period: monthly(),
+            current_net_key: None,
+            billed_component_id: None,
+            price_component_id: None,
         }];
 
         let result = calculate_proration(
@@ -460,6 +845,9 @@ mod tests {
             new_name: "Basic".to_string(),
             new_fee: rate_fee(100),
             new_period: monthly(),
+            current_net_key: None,
+            billed_component_id: None,
+            price_component_id: None,
         }];
 
         let direction = detect_change_direction(&matched, &[], &[], 2);
@@ -477,6 +865,9 @@ mod tests {
             new_name: "Pro".to_string(),
             new_fee: rate_fee(200),
             new_period: monthly(),
+            current_net_key: None,
+            billed_component_id: None,
+            price_component_id: None,
         }];
 
         let direction = detect_change_direction(&matched, &[], &[], 2);
@@ -494,6 +885,9 @@ mod tests {
             new_name: "Plan B".to_string(),
             new_fee: rate_fee(100),
             new_period: monthly(),
+            current_net_key: None,
+            billed_component_id: None,
+            price_component_id: None,
         }];
 
         let direction = detect_change_direction(&matched, &[], &[], 2);
@@ -511,6 +905,9 @@ mod tests {
             new_name: "API Calls".to_string(),
             new_fee: usage_fee(),
             new_period: monthly(),
+            current_net_key: None,
+            billed_component_id: None,
+            price_component_id: None,
         }];
 
         let result = calculate_proration(
@@ -539,6 +936,9 @@ mod tests {
             new_name: "Pro".to_string(),
             new_fee: rate_fee(200),
             new_period: monthly(),
+            current_net_key: None,
+            billed_component_id: None,
+            price_component_id: None,
         }];
 
         let result = calculate_proration(
@@ -569,6 +969,9 @@ mod tests {
             new_name: "Pro".to_string(),
             new_fee: rate_fee(200),
             new_period: monthly(),
+            current_net_key: None,
+            billed_component_id: None,
+            price_component_id: None,
         }];
 
         let result = calculate_proration(
@@ -597,6 +1000,9 @@ mod tests {
             new_name: "Pro".to_string(),
             new_fee: rate_fee(600),
             new_period: monthly(),
+            current_net_key: None,
+            billed_component_id: None,
+            price_component_id: None,
         }];
 
         let result = calculate_proration(
@@ -628,6 +1034,9 @@ mod tests {
             new_name: "Base Pro".to_string(),
             new_fee: rate_fee(200),
             new_period: monthly(),
+            current_net_key: None,
+            billed_component_id: None,
+            price_component_id: None,
         }];
 
         let added = vec![AddedComponent {
@@ -638,6 +1047,7 @@ mod tests {
             billed_component_id: None,
             billed_add_on_id: None,
             instance_quantity: None,
+            price_component_id: None,
         }];
 
         let removed = vec![RemovedComponent {
@@ -679,6 +1089,9 @@ mod tests {
             new_name: "Seats".to_string(),
             new_fee: slot_fee(10, 10), // 10 seats * $10 = $100
             new_period: monthly(),
+            current_net_key: None,
+            billed_component_id: None,
+            price_component_id: None,
         }];
 
         let result = calculate_proration(
@@ -709,6 +1122,7 @@ mod tests {
             billed_component_id: None,
             billed_add_on_id: None,
             instance_quantity: None,
+            price_component_id: None,
         }];
 
         let direction = detect_change_direction(&[], &added, &[], 2);
@@ -742,6 +1156,7 @@ mod tests {
             billed_component_id: None,
             billed_add_on_id: None,
             instance_quantity: None,
+            price_component_id: None,
         }];
 
         // Only 8 of 30 days remain — must not scale the one-time charge.
@@ -774,6 +1189,7 @@ mod tests {
             billed_component_id: None,
             billed_add_on_id: None,
             instance_quantity: None,
+            price_component_id: None,
         }];
 
         let result = calculate_proration(
@@ -802,6 +1218,7 @@ mod tests {
             billed_component_id: None,
             billed_add_on_id: None,
             instance_quantity: None,
+            price_component_id: None,
         }];
 
         let result = calculate_proration(
@@ -834,6 +1251,7 @@ mod tests {
             billed_component_id: None,
             billed_add_on_id: Some(aid),
             instance_quantity: None,
+            price_component_id: None,
         }];
         let result = calculate_proration(
             &[],
@@ -863,6 +1281,7 @@ mod tests {
             billed_component_id: Some(cid),
             billed_add_on_id: None,
             instance_quantity: None,
+            price_component_id: None,
         }];
         let result = calculate_proration(
             &[],
@@ -892,6 +1311,7 @@ mod tests {
             billed_component_id: None,
             billed_add_on_id: None,
             instance_quantity: Some(dec!(3)),
+            price_component_id: None,
         }];
 
         let result = calculate_proration(
@@ -924,6 +1344,7 @@ mod tests {
             billed_component_id: None,
             billed_add_on_id: None,
             instance_quantity: Some(rust_decimal::Decimal::ONE),
+            price_component_id: None,
         }];
 
         let result = calculate_proration(
@@ -945,6 +1366,7 @@ mod tests {
 
     fn line(name: &str, amount: i64, is_credit: bool, net_key: Option<&str>) -> ProrationLineItem {
         ProrationLineItem {
+            period_end: None,
             name: name.to_string(),
             amount_cents: amount,
             full_period_amount_cents: amount.abs(),
@@ -957,6 +1379,8 @@ mod tests {
             net_key: net_key.map(str::to_string),
             sub_component_id: None,
             sub_add_on_id: None,
+            charge_type: None,
+            pack: None,
         }
     }
 
@@ -1030,5 +1454,313 @@ mod tests {
         // Flat / countless fees are a single unit (shared match arm: Rate | Capacity | Usage).
         assert_eq!(fee_instance_count(&rate_fee(100)), dec!(1));
         assert_eq!(fee_instance_count(&usage_fee()), dec!(1));
+    }
+
+    fn pack(
+        rate: i64,
+        credit: i64,
+        expiry: Option<crate::domain::price_components::CreditExpiry>,
+        unit: Option<&str>,
+        rollover_cap: Option<i64>,
+    ) -> SubscriptionFee {
+        use crate::domain::price_components::{CreditExpiry, CreditRollover};
+        SubscriptionFee::Credit {
+            rate: Decimal::new(rate, 0),
+            quantity: 1,
+            credit_amount: Decimal::new(credit, 0),
+            expiry,
+            credit_unit: unit.map(|code| crate::domain::credit_units::CreditUnitRef {
+                unit_id: {
+                    use common_domain::ids::BaseId;
+                    common_domain::ids::CreditUnitId::new()
+                },
+                code: code.to_owned(),
+                precision: 2,
+                product_id: None,
+            }),
+            rollover: rollover_cap.map(|cap| CreditRollover {
+                max_amount: Some(Decimal::new(cap, 0)),
+                expiry: CreditExpiry::Month(1),
+            }),
+            once: false,
+        }
+    }
+
+    fn period_pack(rate: i64, credit: i64) -> SubscriptionFee {
+        pack(
+            rate,
+            credit,
+            Some(crate::domain::price_components::CreditExpiry::BillingPeriod),
+            None,
+            None,
+        )
+    }
+
+    fn matched(current: SubscriptionFee, new: SubscriptionFee) -> MatchedComponent {
+        MatchedComponent {
+            product_id: product_id(),
+            current_name: "Current".to_string(),
+            current_fee: current,
+            current_period: monthly(),
+            new_name: "New".to_string(),
+            new_fee: new,
+            new_period: monthly(),
+            current_net_key: None,
+            billed_component_id: None,
+            price_component_id: None,
+        }
+    }
+
+    fn added(fee: SubscriptionFee) -> AddedComponent {
+        AddedComponent {
+            name: "Added".to_string(),
+            fee,
+            period: monthly(),
+            net_key: None,
+            billed_component_id: None,
+            billed_add_on_id: None,
+            instance_quantity: None,
+            price_component_id: None,
+        }
+    }
+
+    fn removed(fee: SubscriptionFee) -> RemovedComponent {
+        RemovedComponent {
+            name: "Removed".to_string(),
+            current_fee: fee,
+            current_period: monthly(),
+            net_key: None,
+        }
+    }
+
+    #[test]
+    fn a_day_fraction_rounds_the_exact_ratio_half_away_from_zero() {
+        let f = DayFraction::remaining(
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2024, 1, 16).unwrap(),
+        );
+        // 50000 × 16 / 31 = 25806.45…; 55000 × 16 / 31 = 28387.09…
+        assert_eq!(f.prorate(50_000), 25_806);
+        assert_eq!(f.prorate(55_000), 28_387);
+        assert_eq!(f.prorate(-50_000), -25_806);
+        // 15 of 30 days of 1 cent is exactly half a cent: away from zero, both ways.
+        let half = DayFraction::new(15, 30);
+        assert_eq!(half.prorate(1), 1);
+        assert_eq!(half.prorate(-1), -1);
+        assert_eq!(half.prorate(3), 2);
+        assert_eq!(DayFraction::new(40, 30).prorate(3_000), 3_000);
+        assert_eq!(DayFraction::new(5, 0).prorate(1_000), 0);
+    }
+
+    #[test]
+    fn a_pack_fee_credit_is_capped_by_the_unused_paid_credit() {
+        let half = DayFraction::new(15, 30);
+        // Nothing used: the unused time decides.
+        assert_eq!(capped_pack_fee_credit(50_000, half, 50_000, 50_000), 25_000);
+        // A fifth left: a fifth of the fee, though half the period is left.
+        assert_eq!(capped_pack_fee_credit(50_000, half, 10_000, 50_000), 10_000);
+        // Everything spent, then the change: nothing back.
+        assert_eq!(capped_pack_fee_credit(50_000, half, 0, 50_000), 0);
+        // Never a grant (unpaid): only time.
+        assert_eq!(capped_pack_fee_credit(50_000, half, 0, 0), 25_000);
+        // Rounding of the cap: 50000 × 1 / 3 = 16666.67.
+        assert_eq!(
+            capped_pack_fee_credit(50_000, DayFraction::WHOLE, 1, 3),
+            16_667
+        );
+    }
+
+    #[test]
+    fn a_period_pack_is_billed_and_granted_by_the_share_left_and_any_other_whole() {
+        let f = DayFraction::new(16, 31);
+        let line = pack_charge_line(
+            "Monthly credit",
+            &period_pack(500, 550),
+            f,
+            2,
+            None,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(line.amount_cents, 25_806);
+        assert_eq!(line.pack.as_ref().unwrap().credit_minor, 28_387);
+        assert!(line.is_prorated);
+
+        let yearly = pack(
+            500,
+            550,
+            Some(crate::domain::price_components::CreditExpiry::Month(12)),
+            None,
+            None,
+        );
+        let line = pack_charge_line("Annual credit", &yearly, f, 2, None, None, None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(line.amount_cents, 50_000);
+        assert_eq!(line.pack.as_ref().unwrap().credit_minor, 55_000);
+        assert!(!line.is_prorated);
+
+        let included = pack(
+            0,
+            5_000,
+            Some(crate::domain::price_components::CreditExpiry::BillingPeriod),
+            Some("CREDITS"),
+            Some(1_000),
+        );
+        let line = pack_charge_line("Monthly credits", &included, f, 2, None, None, None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(line.amount_cents, 0);
+        let grant = line.pack.unwrap();
+        assert!(grant.included);
+        assert_eq!(grant.credit_minor, 258_065);
+        assert_eq!(
+            grant.rollover.unwrap().max_minor,
+            Some(100_000),
+            "the rollover cap is a ceiling, kept whole"
+        );
+    }
+
+    #[test]
+    fn direction_compares_packs_per_denomination() {
+        let studio_credits = pack(
+            0,
+            5_000,
+            Some(crate::domain::price_components::CreditExpiry::BillingPeriod),
+            Some("CREDITS"),
+            Some(1_000),
+        );
+        // Scale -> Studio: the EUR pack goes, Studio's fees are lower.
+        assert_eq!(
+            detect_change_direction(
+                &[matched(rate_fee(124), rate_fee(39))],
+                &[added(studio_credits.clone())],
+                &[removed(period_pack(500, 550))],
+                2
+            ),
+            ChangeDirection::Downgrade
+        );
+        // Studio -> Scale: higher fees and a EUR pack, but the CREDITS unit is removed.
+        assert_eq!(
+            detect_change_direction(
+                &[matched(rate_fee(39), rate_fee(124))],
+                &[added(period_pack(500, 550))],
+                &[removed(studio_credits.clone())],
+                2
+            ),
+            ChangeDirection::Downgrade
+        );
+        // Free -> Scale: only additions.
+        assert_eq!(
+            detect_change_direction(&[], &[added(period_pack(500, 550))], &[], 2),
+            ChangeDirection::Upgrade
+        );
+        // Scale -> a bigger EUR pack under another product: compared per denomination.
+        assert_eq!(
+            detect_change_direction(
+                &[],
+                &[added(period_pack(1_000, 1_100))],
+                &[removed(period_pack(500, 550))],
+                2
+            ),
+            ChangeDirection::Upgrade
+        );
+        // Same pack fee, less credit.
+        assert_eq!(
+            detect_change_direction(
+                &[matched(period_pack(500, 550), period_pack(500, 500))],
+                &[],
+                &[],
+                2
+            ),
+            ChangeDirection::Downgrade
+        );
+        // A lower rollover cap alone is a downgrade.
+        let lower_cap = pack(
+            0,
+            5_000,
+            Some(crate::domain::price_components::CreditExpiry::BillingPeriod),
+            Some("CREDITS"),
+            Some(500),
+        );
+        assert_eq!(
+            detect_change_direction(&[matched(studio_credits.clone(), lower_cap)], &[], &[], 2),
+            ChangeDirection::Downgrade
+        );
+        // Mixed: fixed fees up in total, the pack's credit down.
+        assert_eq!(
+            detect_change_direction(
+                &[
+                    matched(rate_fee(100), rate_fee(200)),
+                    matched(period_pack(500, 550), period_pack(500, 500))
+                ],
+                &[],
+                &[],
+                2
+            ),
+            ChangeDirection::Downgrade
+        );
+        // A pack removed, nothing else changes.
+        assert_eq!(
+            detect_change_direction(
+                &[matched(rate_fee(100), rate_fee(100))],
+                &[],
+                &[removed(studio_credits)],
+                2
+            ),
+            ChangeDirection::Downgrade
+        );
+        // The same plan: lateral.
+        assert_eq!(
+            detect_change_direction(
+                &[matched(period_pack(500, 550), period_pack(500, 550))],
+                &[],
+                &[],
+                2
+            ),
+            ChangeDirection::Lateral
+        );
+    }
+
+    #[test]
+    fn fixed_fees_compare_in_total_across_products() {
+        // Starter's 29 base fee and Pro's 99 under different products: an upgrade.
+        assert_eq!(
+            detect_change_direction(&[], &[added(rate_fee(99))], &[removed(rate_fee(29))], 2),
+            ChangeDirection::Upgrade
+        );
+        // A recurring fee and a slot fee replaced by a single higher rate: still an upgrade.
+        assert_eq!(
+            detect_change_direction(
+                &[],
+                &[added(rate_fee(150))],
+                &[removed(rate_fee(29)), removed(slot_fee(5, 10))],
+                2
+            ),
+            ChangeDirection::Upgrade
+        );
+        // Lower in total: a downgrade.
+        assert_eq!(
+            detect_change_direction(&[], &[added(slot_fee(2, 10))], &[removed(rate_fee(29))], 2),
+            ChangeDirection::Downgrade
+        );
+        // Same total: lateral.
+        assert_eq!(
+            detect_change_direction(&[], &[added(rate_fee(29))], &[removed(rate_fee(29))], 2),
+            ChangeDirection::Lateral
+        );
+    }
+
+    #[test]
+    fn a_shorter_period_is_a_downgrade_even_at_the_same_monthly_price() {
+        let mut m = matched(rate_fee(1_200), rate_fee(100));
+        m.current_period = SubscriptionFeeBillingPeriod::Annual;
+        assert_eq!(
+            detect_change_direction(&[m], &[], &[], 2),
+            ChangeDirection::Downgrade
+        );
     }
 }

@@ -1,0 +1,19 @@
+[package]
+name = "license-protocol"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+# Signing errors, for the license generator and the cloud issuer.
+issuer = []
+
+[dependencies]
+ed25519-dalek = { workspace = true, features = ["pkcs8", "pem", "std"] }
+base64.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+chrono = { workspace = true, features = ["clock", "serde"] }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

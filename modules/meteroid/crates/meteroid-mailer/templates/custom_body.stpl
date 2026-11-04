@@ -1,0 +1,28 @@
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr>
+    <td class="md" style="font-size:15px;line-height:24px;color:#414651;">
+      <%- html_fragment %>
+    </td>
+  </tr>
+<% if let Some(summary) = summary { %>
+  <tr>
+    <td style="padding-top:12px;">
+      <%+ summary %>
+    </td>
+  </tr>
+<% } %>
+<% if let Some(cta) = cta { %>
+  <tr>
+    <td style="padding-top:28px;">
+      <%+ cta %>
+    </td>
+  </tr>
+<% } %>
+<% if let Some(hedge) = hedge { %>
+  <tr>
+    <td style="padding-top:20px;">
+      <p style="margin:0;font-size:13px;line-height:20px;color:#6b7079;"><%= hedge %></p>
+    </td>
+  </tr>
+<% } %>
+</table>

@@ -11,16 +11,22 @@ import {
   Textarea,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFieldArray } from 'react-hook-form'
 import { toast } from 'sonner'
 
 import { UncontrolledPriceInput } from '@/components/form/PriceInput'
+import { Slot } from '@/edition'
 import {
   BillingInfoFormValues,
   billingInfoSchema,
 } from '@/features/customers/components/BillingInfoForm'
 import { InvoiceEditBillingInfo } from '@/features/customers/components/InvoiceEditBillingInfo'
+import {
+  CustomPropertiesFields,
+  parseCustomProperties,
+  serializeCustomProperties,
+} from '@/features/customproperties/CustomPropertiesFields'
 import { DeleteConfirmDialog } from '@/features/invoices/edit/DeleteConfirmDialog'
 import { EditInvoicePreview } from '@/features/invoices/edit/EditInvoicePreview'
 import { LineItemDisplay } from '@/features/invoices/edit/LineItemDisplay'
@@ -43,6 +49,7 @@ import { percentToRate, rateToPercent , formatCurrency, minorToMajorUnit } from 
 import { resizeSvgContent } from '@/pages/tenants/invoice/utils'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { AddressSchema } from '@/rpc/api/customers/v1/models_pb';
+import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 import {
   getInvoice,
   previewInvoiceUpdate,
@@ -51,10 +58,12 @@ import {
 } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
 import {
   DetailedInvoice,
+  InvoiceAnnex,
   SubLineItemSchema,
   UpdateInlineCustomerSchema,
   UpdateInvoiceLineItemSchema,
   UpdateInvoiceRequestSchema,
+  UpdateInvoiceRequest_UpdatedAnnexesSchema,
   UpdateInvoiceRequest_UpdatedLineItemsSchema,
 } from '@/rpc/api/invoices/v1/models_pb';
 
@@ -68,14 +77,22 @@ interface InvoiceEditFormProps {
 }
 
 const mapBillingInfoToAddress = (values: BillingInfoFormValues): Address | undefined => {
-  if (!values.line1 && !values.city && !values.country) return undefined
+  if (
+    !values.line1 &&
+    !values.line2 &&
+    !values.city &&
+    !values.country &&
+    !values.state &&
+    !values.zipCode
+  )
+    return undefined
 
   return create(AddressSchema, {
     line1: values.line1 || undefined,
     line2: values.line2 || undefined,
     city: values.city || undefined,
     country: values.country || undefined,
-    state: undefined,
+    state: values.state || undefined,
     zipCode: values.zipCode || undefined,
   });
 }
@@ -124,6 +141,18 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
     () => new Map(invoice.lineItems.map(item => [item.id, item]))
   )
 
+  /**
+   * A correction reissues a fully credited invoice from a detached clone of its lines, so its
+   * annexes are a frozen snapshot the operator owns. Every other draft re-derives them from the
+   * event stream, and an edit here would be overwritten on the next refresh.
+   */
+  const isCorrection = !!invoice.parentInvoiceId
+  // Lines priced in credits are only settled against the wallet at finalization, so their
+  // amounts (and a discount over them) cannot be frozen by hand; other fields stay editable.
+  const billingLocked = invoice.lineItems.some(item => item.creditUnit !== undefined)
+  const [annexes, setAnnexes] = useState<InvoiceAnnex[]>(invoice.annexes)
+  const [annexesEdited, setAnnexesEdited] = useState(false)
+
   const billingMethods = useZodForm({
     schema: billingInfoSchema,
     defaultValues: {
@@ -132,6 +161,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
       line1: invoice.customerDetails?.billingAddress?.line1 || '',
       line2: invoice.customerDetails?.billingAddress?.line2 || '',
       city: invoice.customerDetails?.billingAddress?.city || '',
+      state: invoice.customerDetails?.billingAddress?.state || '',
       zipCode: invoice.customerDetails?.billingAddress?.zipCode || '',
       country: invoice.customerDetails?.billingAddress?.country || undefined,
       vatNumber: invoice.customerDetails?.vatNumber || '',
@@ -139,7 +169,18 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
   })
 
   const convertLineItemsToForm = useCallback((): UpdateInvoiceSchema['lines'] => {
-    return invoice.lineItems.map(item => {
+    return invoice.lineItems.map(storedItem => {
+      // A tax-inclusive invoice is edited in the figures it was quoted in: the stored line is
+      // net, but the operator sees and types tax-included prices, and the backend carves the
+      // tax back out on save.
+      const quote = storedItem.taxInclusiveQuote
+      const item = quote
+        ? {
+            ...storedItem,
+            unitPrice: quote.unitPrice,
+            subLineItems: quote.subLineItems,
+          }
+        : storedItem
       const hasSublines = item.subLineItems && item.subLineItems.length > 0
 
       if (hasSublines) {
@@ -182,8 +223,9 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
       reference: invoice.reference || '',
       purchaseOrder: invoice.purchaseOrder || '',
       dueDate: invoice.dueAt ? parseDate(invoice.dueAt) : undefined,
-      discount: minorToMajorUnit(invoice.discount, invoice.currency),
+      discount: minorToMajorUnit(invoice.quotedDiscount ?? invoice.discount, invoice.currency),
       lines: convertLineItemsToForm(),
+      customProperties: parseCustomProperties(invoice.customProperties),
     },
   })
 
@@ -191,6 +233,16 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
     control: methods.control,
     name: 'lines',
   })
+
+  // The prefilled due date is the projected value; only persist it when the operator actually
+  // changed it, so we don't echo the projection back and defeat the emission-date rebase.
+  // Compare the yyyy-MM-dd strings that actually get sent (value-based and timezone-consistent),
+  // not the Date objects — parseDate yields UTC midnight while a picker emits local midnight.
+  const dueDateOverridden = (d?: Date) => {
+    const projected = invoice.dueAt ? mapDatev2(parseDate(invoice.dueAt)) : undefined
+    const current = d ? mapDatev2(d) : undefined
+    return projected !== current
+  }
 
   const updateInvoiceMutation = useMutation(updateInvoice, {
     onSuccess: async () => {
@@ -222,6 +274,48 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
   const previewMutation = useMutation(previewInvoiceUpdate)
   const svgPreviewMutation = useMutation(previewNewInvoiceSvg)
 
+  /**
+   * Set by "Refresh from customer record" and cleared by any subsequent manual billing edit.
+   * A ref rather than state: `callPreview` fires in the same tick as the click, before a state
+   * update would be visible to it.
+   */
+  const resyncFromCustomerRef = useRef(false)
+
+  /**
+   * `refreshFromCustomer` makes the backend re-read the customer and drop this invoice's override;
+   * the proto ignores the inline fields in that case, so they're omitted rather than sent stale.
+   */
+  const buildCustomerDetailsPayload = () => {
+    if (resyncFromCustomerRef.current) {
+      return create(UpdateInlineCustomerSchema, { refreshFromCustomer: true })
+    }
+
+    const details = mapCustomerDetailsForApi(billingMethods.getValues())
+    return create(UpdateInlineCustomerSchema, {
+      refreshFromCustomer: false,
+      name: details.name || undefined,
+      vatNumber: details.vatNumber || undefined,
+      billingAddress: details.billingAddress,
+    })
+  }
+
+  const buildAnnexesPayload = () =>
+    isCorrection && annexesEdited
+      ? create(UpdateInvoiceRequest_UpdatedAnnexesSchema, { items: annexes })
+      : undefined
+
+  const handleAnnexesChange = (next: InvoiceAnnex[]) => {
+    setAnnexes(next)
+    setAnnexesEdited(true)
+    callPreview(methods.getValues())
+  }
+
+  const handleAnnexesRegenerated = (next: InvoiceAnnex[]) => {
+    setAnnexes(next)
+    setAnnexesEdited(false)
+    callPreview(methods.getValues())
+  }
+
   const callPreview = useDebouncedCallback(async (formData: UpdateInvoiceSchema) => {
     try {
       setIsPreviewLoading(true)
@@ -251,21 +345,19 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
         memo: formData.memo || undefined,
         reference: formData.reference || undefined,
         purchaseOrder: formData.purchaseOrder || undefined,
-        dueDate: formData.dueDate ? mapDatev2(formData.dueDate) : undefined,
-        discount: formData.discount ? formData.discount.toString() : undefined,
+        dueDate:
+          dueDateOverridden(formData.dueDate) && formData.dueDate
+            ? mapDatev2(formData.dueDate)
+            : undefined,
+        discount: !billingLocked && formData.discount ? formData.discount.toString() : undefined,
         lineItems:
-          lineItems.length > 0
+          !billingLocked && lineItems.length > 0
             ? create(UpdateInvoiceRequest_UpdatedLineItemsSchema, { items: lineItems })
             : undefined,
+        annexes: buildAnnexesPayload(),
       })
 
-      const customerDetails = mapCustomerDetailsForApi(billingMethods.getValues())
-      updateRequest.customerDetails = create(UpdateInlineCustomerSchema, {
-        refreshFromCustomer: false,
-        name: customerDetails.name || undefined,
-        vatNumber: customerDetails.vatNumber || undefined,
-        billingAddress: customerDetails.billingAddress,
-      })
+      updateRequest.customerDetails = buildCustomerDetailsPayload()
 
       const result = await previewMutation.mutateAsync({ updateRequest })
       if (result.preview) {
@@ -281,11 +373,21 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
         }
       }
 
-      const svgCustomerDetails = mapCustomerDetailsForApi(billingMethods.getValues())
+      // Omitted while re-syncing so the backend renders from the customer record, matching what
+      // the save will persist. Otherwise the operator's edited bill-to is what should be drawn.
+      const svgCustomerDetails = resyncFromCustomerRef.current
+        ? undefined
+        : mapCustomerDetailsForApi(billingMethods.getValues())
       const svgResult = await svgPreviewMutation.mutateAsync({
         invoice: {
           customerId: invoice.customerId,
-          invoiceDate: mapDatev2(invoice.invoiceDate ? parseDate(invoice.invoiceDate) : new Date()),
+          // invoice.invoiceDate is already a yyyy-MM-dd string; pass it through rather than
+          // round-tripping via a UTC-parsed Date, which formats to the previous day in negative
+          // UTC offsets.
+          invoiceDate: invoice.invoiceDate || mapDatev2(new Date()),
+          // This is a pure rendering payload (not an update), so send the due date unconditionally
+          // — omitting it would blank the due date in the preview PDF. The override guard belongs
+          // only on the two UpdateInvoiceRequest payloads.
           dueDate: formData.dueDate ? mapDatev2(formData.dueDate) : undefined,
           currency: invoice.currency,
           purchaseOrder: formData.purchaseOrder || undefined,
@@ -310,6 +412,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
             }
           }),
           customerDetails: svgCustomerDetails,
+          annexes,
         },
       })
 
@@ -338,11 +441,13 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
         memo: data.memo || undefined,
         reference: data.reference || undefined,
         purchaseOrder: data.purchaseOrder || undefined,
-        dueDate: data.dueDate ? mapDatev2(data.dueDate) : undefined,
-        discount: data.discount ? data.discount.toString() : undefined,
+        dueDate:
+          dueDateOverridden(data.dueDate) && data.dueDate ? mapDatev2(data.dueDate) : undefined,
+        discount: !billingLocked && data.discount ? data.discount.toString() : undefined,
+        customProperties: serializeCustomProperties(data.customProperties),
       })
 
-      if (data.lines && data.lines.length > 0) {
+      if (!billingLocked && data.lines && data.lines.length > 0) {
         const lineItems: MessageInitShape<typeof UpdateInvoiceLineItemSchema>[] = data.lines.map(line => {
           const lineWithSublines = line as UpdateInvoiceLineSchemaWithSublines
           const hasSublines = !!lineWithSublines.subLines && lineWithSublines.subLines.length > 0
@@ -367,15 +472,11 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
         })
       }
 
-      const submitCustomerDetails = mapCustomerDetailsForApi(billingMethods.getValues())
-      updateRequest.customerDetails = create(UpdateInlineCustomerSchema, {
-        refreshFromCustomer: false,
-        name: submitCustomerDetails.name || undefined,
-        vatNumber: submitCustomerDetails.vatNumber || undefined,
-        billingAddress: submitCustomerDetails.billingAddress,
-      })
+      updateRequest.customerDetails = buildCustomerDetailsPayload()
+      updateRequest.annexes = buildAnnexesPayload()
 
       await updateInvoiceMutation.mutateAsync(updateRequest)
+      resyncFromCustomerRef.current = false
     } catch (error) {
       console.error('Failed to update invoice:', error)
     }
@@ -428,12 +529,17 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
           line1: result.customer.billingAddress?.line1 || '',
           line2: result.customer.billingAddress?.line2 || '',
           city: result.customer.billingAddress?.city || '',
+          state: result.customer.billingAddress?.state || '',
           zipCode: result.customer.billingAddress?.zipCode || '',
           country: result.customer.billingAddress?.country || undefined,
           vatNumber: result.customer.vatNumber || '',
         })
 
         setIsEditingBilling(true)
+
+        // Tells the backend to drop this invoice's override on the next preview/save, so the
+        // fields the form can't show (email, language) re-sync too.
+        resyncFromCustomerRef.current = true
 
         toast.success('Customer details reloaded from customer record')
         callPreview(methods.getValues())
@@ -445,6 +551,13 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
   }
 
   const handleBillingInfoChange = async (_values: BillingInfoFormValues) => {
+    // A manual edit outranks a pending re-sync — but only a real one. The shared form fires
+    // onBlur on every field exit, and handleRefreshCustomer resets the form (clearing dirty),
+    // so without this check merely tabbing through would downgrade the re-sync to an inline
+    // edit and leave email / preferred locales diverged on an already-overridden draft.
+    if (billingMethods.formState.isDirty) {
+      resyncFromCustomerRef.current = false
+    }
     callPreview(methods.getValues())
   }
 
@@ -454,6 +567,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
     return {
       subtotal: previewData.subtotal,
       discount: previewData.discount,
+      promotionalCredits: previewData.promotionalCredits,
       tax: previewData.taxAmount,
       total: previewData.total,
     }
@@ -464,9 +578,12 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
   }, [])
 
   return (
-    <Flex className="h-full">
+    <Flex className="flex-col lg:flex-row lg:h-full">
       {/* Left Panel - Edit Form */}
-      <Flex direction="column" className="w-1/3 border-r border-border">
+      <Flex
+        direction="column"
+        className="w-full lg:w-1/3 border-b lg:border-b-0 lg:border-r border-border"
+      >
         <div className="flex-1 overflow-auto p-6">
           <Form {...methods}>
             <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-6">
@@ -491,6 +608,20 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
               {/* Line Items Section */}
               <div className="space-y-4">
                 <div className="text-[15px] font-medium">Line Items</div>
+                {invoice.taxInclusive && (
+                  <div className="text-xs text-muted-foreground">
+                    Prices and the discount on this invoice include tax. The tax is carved out of
+                    them, so the total is what you enter.
+                  </div>
+                )}
+                {billingLocked && (
+                  <div className="text-xs text-muted-foreground">
+                    This draft bills usage priced in credits. What the credit balance covers is
+                    only settled when the invoice is finalized, so its lines and discount cannot
+                    be edited by hand. Change the subscription instead, or issue a credit note
+                    once it is finalized.
+                  </div>
+                )}
 
                 {methods.formState.errors.lines && (
                   <div className="text-[0.8rem] font-medium text-destructive">
@@ -514,6 +645,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
                         onEdit={handleEditLine}
                         isUsageBased={!!field.metricId}
                         originalItem={originalItem}
+                        readOnly={billingLocked}
                       />
                     )
                   })}
@@ -525,20 +657,22 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
                   )}
                 </div>
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setEditingLineIndex(null)
-                    setIsLineItemModalOpen(true)
-                  }}
-                  className="w-full"
-                >
-                  + Add Line Item
-                </Button>
+                {!billingLocked && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setEditingLineIndex(null)
+                      setIsLineItemModalOpen(true)
+                    }}
+                    className="w-full"
+                  >
+                    + Add Line Item
+                  </Button>
+                )}
               </div>
 
-              {showDiscount || invoice.discount > 0 ? (
+              {billingLocked ? null : showDiscount || invoice.discount > 0 ? (
                 <div className="space-y-2 w-full flex justify-between items-center">
                   <GenericFormField
                     control={methods.control}
@@ -571,6 +705,15 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
                   + Add Discount
                 </Button>
               )}
+
+              <Slot
+                name="invoiceEdit.annexes"
+                invoiceId={invoice.id}
+                annexes={annexes}
+                isCorrection={isCorrection}
+                onChange={handleAnnexesChange}
+                onRegenerated={handleAnnexesRegenerated}
+              />
 
               <Separator />
 
@@ -640,6 +783,11 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
                     />
                   )}
                 />
+
+                <CustomPropertiesFields
+                  control={methods.control}
+                  entityType={CustomPropertyEntityType.INVOICE}
+                />
               </div>
 
               <Separator />
@@ -662,6 +810,14 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Discount</span>
                           <span>-{formatCurrency(totals.discount, invoice.currency)}</span>
+                        </div>
+                      )}
+                      {totals.promotionalCredits > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Promotional credit</span>
+                          <span>
+                            -{formatCurrency(totals.promotionalCredits, invoice.currency)}
+                          </span>
                         </div>
                       )}
                       <div className="flex justify-between">
@@ -699,7 +855,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
       </Flex>
 
       {/* Right Panel - Invoice Preview */}
-      <div className="w-2/3 flex flex-col">
+      <div className="w-full lg:w-2/3 flex flex-col">
         <div className="flex-1 overflow-auto p-6">
           <EditInvoicePreview previewData={previewSvgs} isLoading={isSvgPreviewLoading} />
         </div>
@@ -715,12 +871,15 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
         }}
         onSave={editingLineIndex !== null ? handleSaveEditedLine : handleAddLine}
         currency={invoice.currency}
+        taxInclusive={invoice.taxInclusive}
         initialData={
           editingLineIndex !== null
             ? (fields[editingLineIndex] as UpdateInvoiceLineSchema)
             : undefined
         }
-        isUsageBased={editingLineIndex !== null ? !!fields[editingLineIndex].metricId : false}
+        isUsageBased={
+          editingLineIndex !== null && !isCorrection ? !!fields[editingLineIndex].metricId : false
+        }
         hasSublines={
           editingLineIndex !== null
             ? !!(fields[editingLineIndex] as UpdateInvoiceLineSchemaWithSublines).subLines?.length

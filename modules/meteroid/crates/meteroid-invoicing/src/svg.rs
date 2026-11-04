@@ -4,14 +4,13 @@ use crate::errors::InvoicingResult;
 use crate::model::Invoice;
 use crate::typst_render::TypstInvoiceRenderer;
 use async_trait::async_trait;
-use typst_layout::PagedDocument;
+use typst::layout::PagedDocument;
 
 fn generate_svg_from_document(document: &PagedDocument) -> Vec<String> {
-    let opts = typst_svg::SvgOptions::default();
     document
-        .pages()
+        .pages
         .iter()
-        .map(|page| typst_svg::svg(page, &opts))
+        .map(typst_svg::svg)
         .collect::<Vec<String>>()
 }
 

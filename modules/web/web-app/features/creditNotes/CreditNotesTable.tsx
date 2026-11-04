@@ -4,13 +4,18 @@ import { MoreVerticalIcon } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
-import { StandardTable } from '@/components/table/StandardTable'
+import { ColumnState, StandardTable } from '@/components/table/StandardTable'
 import { CreditNoteStatusBadge } from '@/features/creditNotes/CreditNoteStatusBadge'
+import {
+  ACTIONS_COLUMN_ID,
+  useCustomPropertyColumns,
+  withCustomPropertyColumns,
+} from '@/features/customproperties/useCustomPropertyColumns'
 import { useBasePath } from '@/hooks/useBasePath'
 import { formatCurrency } from '@/lib/utils/numbers'
 import { CreditNote } from '@/rpc/api/creditnotes/v1/models_pb'
+import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
-
 
 interface CreditNotesTableProps {
   data: CreditNote[]
@@ -20,6 +25,8 @@ interface CreditNotesTableProps {
   isLoading?: boolean
   sorting?: SortingState
   onSortingChange?: OnChangeFn<SortingState>
+  /** Column visibility controlled by an active saved view. */
+  columnState?: ColumnState
 }
 
 export const CreditNotesTable = ({
@@ -30,10 +37,14 @@ export const CreditNotesTable = ({
   isLoading,
   sorting,
   onSortingChange,
+  columnState,
 }: CreditNotesTableProps) => {
   const basePath = useBasePath()
 
-  const columns = useMemo<ColumnDef<CreditNote>[]>(
+  const { columns: customPropertyColumns, hiddenIds: customPropertyHiddenIds } =
+    useCustomPropertyColumns<CreditNote>(CustomPropertyEntityType.CREDIT_NOTE)
+
+  const baseColumns = useMemo<ColumnDef<CreditNote>[]>(
     () => [
       {
         id: 'credit_note_number',
@@ -67,6 +78,7 @@ export const CreditNotesTable = ({
         cell: ({ row }) => <CreditNoteStatusBadge status={row.original.status} />,
       },
       {
+        id: ACTIONS_COLUMN_ID,
         accessorKey: 'id',
         header: '',
         className: 'w-2',
@@ -91,8 +103,15 @@ export const CreditNotesTable = ({
     [basePath]
   )
 
+  const columns = useMemo(
+    () => withCustomPropertyColumns(baseColumns, customPropertyColumns),
+    [baseColumns, customPropertyColumns]
+  )
+
   return (
     <StandardTable
+      tableKey="credit_notes"
+      columnState={columnState}
       columns={columns}
       data={data}
       sortable={true}
@@ -102,6 +121,7 @@ export const CreditNotesTable = ({
       setPagination={setPagination}
       totalCount={totalCount}
       isLoading={isLoading}
+      defaultHidden={customPropertyHiddenIds}
       rowLink={row => `${basePath}/credit-notes/${row.original.id}`}
     />
   )

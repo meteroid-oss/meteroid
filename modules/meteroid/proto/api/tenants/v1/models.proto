@@ -8,7 +8,22 @@ message Tenant {
   string slug = 3;
   string reporting_currency = 4;
   TenantEnvironmentEnum environment = 5;
+  // Deprecated: read email_delivery_mode. True unless the mode is LIVE.
   bool disable_emails = 6;
+  TenantStatusEnum status = 7;
+  // Minimum seconds between alert evaluations. 0 = grain-derived default
+  // (fine grains every tick, day-grain/signals hourly). Drives how often
+  // signals/monitors evaluate and how incidents are batched.
+  int32 alert_evaluation_interval_secs = 8;
+  EmailDeliveryMode email_delivery_mode = 9;
+  // Addresses, or "@domain" for a whole domain, that TEST mode also delivers to.
+  repeated string email_test_recipients = 10;
+  // A re-sent event id replaces the earlier copy instead of being ignored.
+  bool keep_last_events = 11;
+}
+
+message EmailTestRecipients {
+  repeated string recipients = 1;
 }
 
 message TenantUpdate {
@@ -17,7 +32,16 @@ message TenantUpdate {
   optional string slug = 3;
   optional string reporting_currency = 4;
   optional TenantEnvironmentEnum environment = 5;
+  // Deprecated and ignored: set email_delivery_mode.
   optional bool disable_emails = 6;
+  // 0 resets to the grain-derived default (NULL); a positive value sets the
+  // cadence in seconds; omitted leaves it unchanged.
+  optional int32 alert_evaluation_interval_secs = 7;
+  optional EmailDeliveryMode email_delivery_mode = 8;
+  // Replaces the whole list when set.
+  optional EmailTestRecipients email_test_recipients = 9;
+  // Setting it to true requires the keep_last_events feature.
+  optional bool keep_last_events = 10;
 }
 
 enum TenantEnvironmentEnum {
@@ -27,4 +51,22 @@ enum TenantEnvironmentEnum {
   DEVELOPMENT = 3;
   SANDBOX = 4;
   DEMO = 5;
+}
+
+// Where a workspace's customer emails go.
+enum EmailDeliveryMode {
+  // To the customers.
+  LIVE = 0;
+  // Only to the organization's members and the test recipients.
+  TEST = 1;
+  // To nobody.
+  OFF = 2;
+}
+
+enum TenantStatusEnum {
+  ACTIVE = 0;
+  PAUSED = 1;
+  ARCHIVED = 2;
+  MARKED_FOR_DELETION = 3;
+  PENDING_DELETION = 4;
 }

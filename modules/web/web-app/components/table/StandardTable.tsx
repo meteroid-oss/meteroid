@@ -2,6 +2,7 @@ import { TableCell, TableRow } from '@md/ui'
 import {
   ColumnDef,
   OnChangeFn,
+  VisibilityState,
   PaginationState,
   Row,
   SortingState,
@@ -11,6 +12,7 @@ import { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import { CustomTable } from '@/components/table/CustomTable'
+import { useTableDensity, useTablePreferences } from '@/hooks/useTablePreferences'
 
 interface StandardTableProps<A> {
   columns: ColumnDef<A>[]
@@ -25,7 +27,28 @@ interface StandardTableProps<A> {
   isLoading?: boolean
   rowLink?: (row: Row<A>) => string
   rowClassName?: (row: Row<A>) => string
+  // When set, enables per-user column visibility (persisted under this key) and
+  // the discreet view-options menu. Omit to keep the plain table. Row height is
+  // a separate global preference and applies regardless of this key.
+  tableKey?: string
+  defaultHidden?: string[]
+  enableSelection?: boolean
+  getRowId?: (originalRow: A, index: number) => string
+  renderSelectionActions?: (rows: Row<A>[]) => ReactNode
+  /** Optional full-width metric strip above the rows, toggled from the view-options
+   *  menu and remembered per table (needs `tableKey`). */
+  chart?: ReactNode
+  /** Externally controlled column visibility (e.g. an active saved view). Overrides the
+   *  per-user preference while set; needs `tableKey`. */
+  columnState?: ColumnState
 }
+
+export interface ColumnState {
+  visibility: VisibilityState
+  onChange: OnChangeFn<VisibilityState>
+  onReset: () => void
+}
+
 export const StandardTable = <A extends object>({
   columns,
   data,
@@ -39,7 +62,21 @@ export const StandardTable = <A extends object>({
   isLoading,
   rowLink,
   rowClassName,
+  tableKey,
+  defaultHidden,
+  enableSelection,
+  getRowId,
+  renderSelectionActions,
+  chart,
+  columnState,
 }: StandardTableProps<A>) => {
+  const enabled = !!tableKey
+  const { columnVisibility, setColumnVisibility, showChart, setShowChart, reset } =
+    useTablePreferences(tableKey ?? '', {
+      defaultHidden,
+    })
+  const { density, setDensity } = useTableDensity()
+
   return (
     <CustomTable
       columns={columns}
@@ -53,6 +90,27 @@ export const StandardTable = <A extends object>({
       emptyMessage={emptyMessage}
       rowRenderer={row => standardRowRenderer(row, rowLink, rowClassName)}
       isLoading={isLoading}
+      columnVisibility={enabled ? (columnState?.visibility ?? columnVisibility) : undefined}
+      onColumnVisibilityChange={
+        enabled ? (columnState?.onChange ?? setColumnVisibility) : undefined
+      }
+      density={density}
+      onDensityChange={setDensity}
+      showViewOptions={enabled}
+      onResetPreferences={
+        columnState
+          ? () => {
+              columnState.onReset()
+              setShowChart(true)
+            }
+          : reset
+      }
+      enableSelection={enableSelection}
+      getRowId={getRowId}
+      renderSelectionActions={renderSelectionActions}
+      chart={chart}
+      showChart={showChart}
+      onShowChartChange={setShowChart}
     />
   )
 }

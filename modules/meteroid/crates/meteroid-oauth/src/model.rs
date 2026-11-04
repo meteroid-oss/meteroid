@@ -99,6 +99,51 @@ pub struct OauthProviderConfig {
     pub user_info_url: Option<String>,
 }
 
+/// Per-organization OIDC connection, resolved from a stored SSO row rather
+/// than server config. Endpoints arrive already resolved from the IdP's
+/// well-known document, so the sign-in path performs no live discovery.
+#[derive(Debug, Clone)]
+pub struct OidcSsoConfig {
+    pub client_id: String,
+    pub client_secret: String,
+    pub authorize_url: String,
+    pub token_url: String,
+    pub userinfo_url: String,
+    pub callback_url: String,
+    pub scopes: Vec<String>,
+}
+
+/// Relevant fields of an IdP's `.well-known/openid-configuration`. All optional
+/// so a partial document still parses and the caller can report precisely which
+/// endpoint the provider failed to advertise.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OidcDiscoveryDocument {
+    pub authorization_endpoint: Option<String>,
+    pub token_endpoint: Option<String>,
+    pub userinfo_endpoint: Option<String>,
+}
+
+/// Standard OIDC `userinfo` claims. Only the subset we need to identify the
+/// member; unknown claims are ignored.
+#[derive(Debug, Deserialize)]
+pub struct OidcUserInfo {
+    pub sub: String,
+    pub email: String,
+    #[serde(default)]
+    pub email_verified: Option<bool>,
+}
+
+impl From<OidcUserInfo> for OAuthUser {
+    fn from(val: OidcUserInfo) -> Self {
+        OAuthUser {
+            id: val.sub,
+            email: val.email,
+            company_id: "-".to_string(),
+            picture_url: None,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AuthorizeUrl {
     pub url: SecretString,

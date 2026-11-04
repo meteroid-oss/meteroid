@@ -1,2 +1,12 @@
 large-error-threshold = 256 # todo remove after tonic migrates to Result<_, Box<Status>>
 too-many-arguments-threshold = 12
+disallowed-methods = [
+    { path = "diesel_models::subscriptions::SubscriptionRow::activate_subscription", reason = "start a subscription with meteroid-store's mark_subscription_started_tx, which also funds what is owed at start" },
+    { path = "diesel_models::subscriptions::SubscriptionRow::transition_trial_expired_to_active", reason = "start a subscription with meteroid-store's mark_subscription_started_tx, which also funds what is owed at start" },
+    # reqwest and jsonwebtoken are compiled without a crypto backend and panic until one is installed.
+    { path = "reqwest::Client::new", reason = "use http_client_tracing::client, which installs the TLS crypto provider" },
+    { path = "reqwest::Client::builder", reason = "use http_client_tracing::client_builder, which installs the TLS crypto provider" },
+    { path = "reqwest::ClientBuilder::new", reason = "use http_client_tracing::client_builder, which installs the TLS crypto provider" },
+    { path = "jsonwebtoken::encode", reason = "use meteroid_store::jwt::encode, which installs the HS256 backend" },
+    { path = "jsonwebtoken::decode", reason = "use meteroid_store::jwt::decode, which installs the HS256 backend" },
+]

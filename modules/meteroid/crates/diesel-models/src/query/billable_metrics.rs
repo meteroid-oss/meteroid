@@ -7,7 +7,7 @@ use crate::{DbResult, PgConn};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use common_domain::ids::{BillableMetricId, ProductFamilyId, TenantId};
 use diesel::{BoolExpressionMethods, ExpressionMethods, PgTextExpressionMethods, QueryDsl};
-use diesel::{JoinOnDsl, SelectableHelper, debug_query};
+use diesel::{JoinOnDsl, SelectableHelper};
 use error_stack::ResultExt;
 
 impl BillableMetricRowNew {
@@ -17,7 +17,7 @@ impl BillableMetricRowNew {
 
         let query = diesel::insert_into(billable_metric).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -39,7 +39,7 @@ impl BillableMetricRow {
         let query = billable_metric
             .filter(id.eq(param_billable_metric_id))
             .filter(tenant_id.eq(param_tenant_id));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -130,7 +130,7 @@ impl BillableMetricRow {
 
         let paginated_query = query.paginate(pagination);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated_query));
+        crate::debug_sql(&paginated_query);
 
         paginated_query
             .load_and_count_pages(conn)
@@ -189,7 +189,7 @@ impl BillableMetricRow {
             .filter(tenant_id.eq(param_tenant_id))
             .set(archived_at.eq(Some(Utc::now().naive_utc())));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -213,7 +213,7 @@ impl BillableMetricRow {
             .filter(tenant_id.eq(param_tenant_id))
             .set(archived_at.eq::<Option<chrono::NaiveDateTime>>(None));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -238,7 +238,7 @@ impl BillableMetricRow {
             .filter(tenant_id.eq(param_tenant_id))
             .set(&patch);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)

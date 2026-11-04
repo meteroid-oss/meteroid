@@ -7,18 +7,55 @@ use crate::domain::prices::{LegacyPricingData, extract_legacy_pricing};
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store};
 use common_domain::ids::{
-    BaseId, PlanVersionId, PriceComponentId, PriceId, ProductFamilyId, ProductId, TenantId,
+    BaseId, CreditUnitId, PlanVersionId, PriceComponentId, PriceId, ProductFamilyId, ProductId,
+    TenantId,
 };
+use diesel_models::credit_units::CreditUnitRow;
 use diesel_models::plan_component_prices::{PlanComponentPriceRow, PlanComponentPriceRowNew};
 use diesel_models::plan_versions::PlanVersionRow;
 use diesel_models::price_components::{PriceComponentRow, PriceComponentRowNew};
 use diesel_models::prices::{PriceRow, PriceRowNew};
 use diesel_models::products::ProductRowNew;
 use error_stack::Report;
+use meteroid_store_macros::with_conn_delegate;
 use scoped_futures::ScopedFutureExt;
 use std::collections::HashMap;
 
 pub use crate::domain::price_components::PriceInput;
+
+/// Refuses a credit unit the tenant does not have, or archived: no new price may use it.
+pub(crate) async fn ensure_credit_units_usable(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    unit_ids: impl Iterator<Item = CreditUnitId>,
+) -> StoreResult<()> {
+    let mut ids: Vec<CreditUnitId> = unit_ids.collect();
+    ids.sort_by_key(|id| id.as_uuid());
+    ids.dedup();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let units = CreditUnitRow::list_by_ids(conn, tenant_id, &ids)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    for id in ids {
+        match units.iter().find(|unit| unit.id == id) {
+            None => {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "credit unit {id} not found"
+                ))));
+            }
+            Some(unit) if unit.archived_at.is_some() => {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "credit unit {} is archived",
+                    unit.code
+                ))));
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(())
+}
 
 /// Resolve a PriceComponentNewInternal into (ProductId, Vec<PriceId>).
 /// 1. Resolve ProductRef → ProductId (insert if New)
@@ -102,6 +139,24 @@ pub async fn resolve_component_internal(
                         input.currency, expected_currency
                     ))));
                 }
+                crate::domain::prices::validate_pricing(&input.pricing, &input.currency)?;
+                crate::domain::prices::validate_price_credit_unit(
+                    &input.pricing,
+                    input.credit_unit.as_ref(),
+                )?;
+                ensure_credit_units_usable(
+                    conn,
+                    tenant_id,
+                    input.credit_unit.iter().map(|unit| unit.unit_id),
+                )
+                .await?;
+                crate::services::credit::unit_wallets::ensure_credit_packs_usable(
+                    conn,
+                    tenant_id,
+                    &input.currency,
+                    [&input.pricing],
+                )
+                .await?;
                 let pricing_json = serde_json::to_value(&input.pricing).map_err(|e| {
                     Report::new(StoreError::SerdeError(
                         "Failed to serialize pricing".to_string(),
@@ -116,6 +171,8 @@ pub async fn resolve_component_internal(
                     pricing: pricing_json,
                     tenant_id,
                     catalog,
+                    credit_unit_id: input.credit_unit.as_ref().map(|unit| unit.unit_id),
+                    credit_unit_rate: input.credit_unit.as_ref().map(|unit| unit.rate),
                 }
                 .insert(conn)
                 .await
@@ -128,8 +185,30 @@ pub async fn resolve_component_internal(
     Ok((product_id, price_ids))
 }
 
+/// Locks a plan version for a change of its components, refused unless it is a draft: a published
+/// version's components price live subscriptions. A concurrent publish waits for the change.
+async fn lock_draft_version_tx(
+    conn: &mut PgConn,
+    plan_version_id: PlanVersionId,
+    tenant_id: TenantId,
+) -> StoreResult<PlanVersionRow> {
+    let version =
+        PlanVersionRow::select_for_update_by_id_and_tenant(conn, plan_version_id, tenant_id)
+            .await?;
+    if !version.is_draft_version {
+        return Err(Report::new(StoreError::FailedPrecondition(
+            "The price components of a published plan version cannot change. Create a draft \
+             version instead."
+                .to_string(),
+        )));
+    }
+    Ok(version)
+}
+
+#[with_conn_delegate]
 #[async_trait::async_trait]
 pub trait PriceComponentInterface {
+    #[delegated]
     async fn list_price_components(
         &self,
         plan_version_id: PlanVersionId,
@@ -145,6 +224,7 @@ pub trait PriceComponentInterface {
     async fn create_price_component(
         &self,
         price_component: PriceComponentNew,
+        tenant_id: TenantId,
     ) -> StoreResult<PriceComponent>;
 
     /// Create a price component with associated Price entities.
@@ -159,14 +239,8 @@ pub trait PriceComponentInterface {
     async fn create_price_component_batch(
         &self,
         price_component: Vec<PriceComponentNew>,
-    ) -> StoreResult<Vec<PriceComponent>>;
-
-    async fn update_price_component(
-        &self,
-        price_component: PriceComponent,
         tenant_id: TenantId,
-        plan_version_id: PlanVersionId,
-    ) -> StoreResult<Option<PriceComponent>>;
+    ) -> StoreResult<Vec<PriceComponent>>;
 
     async fn delete_price_component(
         &self,
@@ -199,15 +273,14 @@ pub trait PriceComponentInterface {
 
 #[async_trait::async_trait]
 impl PriceComponentInterface for Store {
-    async fn list_price_components(
+    async fn list_price_components_with_conn(
         &self,
+        conn: &mut PgConn,
         plan_version_id: PlanVersionId,
         tenant_id: TenantId,
     ) -> StoreResult<Vec<PriceComponent>> {
-        let mut conn = self.get_conn().await?;
-
         let component_rows =
-            PriceComponentRow::list_by_plan_version_id(&mut conn, tenant_id, plan_version_id)
+            PriceComponentRow::list_by_plan_version_id(conn, tenant_id, plan_version_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -216,13 +289,13 @@ impl PriceComponentInterface for Store {
         let mut prices_by_component: HashMap<PriceComponentId, Vec<Price>> = HashMap::new();
 
         if !component_ids.is_empty() {
-            let pcp_rows = PlanComponentPriceRow::list_by_component_ids(&mut conn, &component_ids)
+            let pcp_rows = PlanComponentPriceRow::list_by_component_ids(conn, &component_ids)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
             if !pcp_rows.is_empty() {
                 let price_ids: Vec<PriceId> = pcp_rows.iter().map(|pcp| pcp.price_id).collect();
-                let price_rows = PriceRow::list_by_ids(&mut conn, &price_ids, tenant_id)
+                let price_rows = PriceRow::list_by_ids(conn, &price_ids, tenant_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -251,10 +324,9 @@ impl PriceComponentInterface for Store {
             .iter()
             .any(|r| !prices_by_component.contains_key(&r.id) && r.legacy_fee.is_some());
         if has_v1 {
-            let pv =
-                PlanVersionRow::find_by_id_and_tenant_id(&mut conn, plan_version_id, tenant_id)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+            let pv = PlanVersionRow::find_by_id_and_tenant_id(conn, plan_version_id, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
             for row in &component_rows {
                 if !prices_by_component.contains_key(&row.id)
@@ -301,14 +373,20 @@ impl PriceComponentInterface for Store {
     async fn create_price_component(
         &self,
         price_component: PriceComponentNew,
+        tenant_id: TenantId,
     ) -> StoreResult<PriceComponent> {
-        let mut conn = self.get_conn().await?;
-        let price_component = price_component.try_into()?;
-        let inserted = PriceComponentRow::insert(&mut conn, price_component)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        inserted.try_into()
+        let price_component: PriceComponentRowNew = price_component.try_into()?;
+        self.transaction(|conn| {
+            async move {
+                lock_draft_version_tx(conn, price_component.plan_version_id, tenant_id).await?;
+                PriceComponentRow::insert(conn, price_component)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+                    .try_into()
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn create_price_component_with_prices(
@@ -330,6 +408,11 @@ impl PriceComponentInterface for Store {
         let price_rows_new: Vec<PriceRowNew> = prices
             .iter()
             .map(|pi| {
+                crate::domain::prices::validate_pricing(&pi.pricing, &pi.currency)?;
+                crate::domain::prices::validate_price_credit_unit(
+                    &pi.pricing,
+                    pi.credit_unit.as_ref(),
+                )?;
                 let pricing_json = serde_json::to_value(&pi.pricing).map_err(|e| {
                     Report::new(StoreError::SerdeError(
                         "Failed to serialize pricing".to_string(),
@@ -344,6 +427,8 @@ impl PriceComponentInterface for Store {
                     pricing: pricing_json,
                     tenant_id,
                     catalog: true,
+                    credit_unit_id: pi.credit_unit.as_ref().map(|unit| unit.unit_id),
+                    credit_unit_rate: pi.credit_unit.as_ref().map(|unit| unit.rate),
                 })
             })
             .collect::<Result<Vec<_>, Report<StoreError>>>()?;
@@ -354,15 +439,25 @@ impl PriceComponentInterface for Store {
                 ProductRow::find_by_id_and_tenant_id(conn, product_id, tenant_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+                ensure_credit_units_usable(
+                    conn,
+                    tenant_id,
+                    price_rows_new.iter().filter_map(|row| row.credit_unit_id),
+                )
+                .await?;
+                for price in &prices {
+                    crate::services::credit::unit_wallets::ensure_credit_packs_usable(
+                        conn,
+                        tenant_id,
+                        &price.currency,
+                        [&price.pricing],
+                    )
+                    .await?;
+                }
 
                 // Validate price currencies match plan version
-                let pv = PlanVersionRow::find_by_id_and_tenant_id(
-                    conn,
-                    component_row_new.plan_version_id,
-                    tenant_id,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+                let pv = lock_draft_version_tx(conn, component_row_new.plan_version_id, tenant_id)
+                    .await?;
                 for pi in &prices {
                     if pi.currency != pv.currency {
                         return Err(Report::new(StoreError::InvalidArgument(format!(
@@ -412,48 +507,33 @@ impl PriceComponentInterface for Store {
     async fn create_price_component_batch(
         &self,
         price_components: Vec<PriceComponentNew>,
+        tenant_id: TenantId,
     ) -> StoreResult<Vec<PriceComponent>> {
-        let mut conn = self.get_conn().await?;
-        let price_components = price_components
+        let price_components: Vec<PriceComponentRowNew> = price_components
             .into_iter()
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
-        let inserted = PriceComponentRow::insert_batch(&mut conn, price_components)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-        inserted
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()
-    }
-
-    async fn update_price_component(
-        &self,
-        price_component: PriceComponent,
-        tenant_id: TenantId,
-        plan_version_id: PlanVersionId,
-    ) -> StoreResult<Option<PriceComponent>> {
-        let mut conn = self.get_conn().await?;
-        let price_component_row = PriceComponentRow {
-            id: price_component.id,
-            plan_version_id,
-            name: price_component.name,
-            product_id: price_component.product_id,
-            legacy_fee: None,
-            billable_metric_id: None,
-        };
-        let updated = price_component_row
-            .update(&mut conn, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        match updated {
-            None => Ok(None),
-            Some(updated) => {
-                let updated = updated.try_into()?;
-                Ok(Some(updated))
+        self.transaction(|conn| {
+            async move {
+                let mut versions: Vec<PlanVersionId> = price_components
+                    .iter()
+                    .map(|component| component.plan_version_id)
+                    .collect();
+                versions.sort_by_key(|version| version.as_uuid());
+                versions.dedup();
+                for version in versions {
+                    lock_draft_version_tx(conn, version, tenant_id).await?;
+                }
+                PriceComponentRow::insert_batch(conn, price_components)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<Vec<_>, _>>()
             }
-        }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn delete_price_component(
@@ -461,11 +541,18 @@ impl PriceComponentInterface for Store {
         component_id: PriceComponentId,
         tenant_id: TenantId,
     ) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
-        PriceComponentRow::delete_by_id_and_tenant(&mut conn, component_id, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-        Ok(())
+        self.transaction_bumping_tenant(tenant_id, |conn| {
+            async move {
+                let component = PriceComponentRow::get_by_id(conn, tenant_id, component_id).await?;
+                // The delete cascades to the subscription components priced by it: only a draft
+                // has none.
+                lock_draft_version_tx(conn, component.plan_version_id, tenant_id).await?;
+                PriceComponentRow::delete_by_id_and_tenant(conn, component_id, tenant_id).await?;
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn update_price_component_with_prices(
@@ -496,6 +583,11 @@ impl PriceComponentInterface for Store {
         let price_rows_new: Vec<PriceRowNew> = prices
             .iter()
             .map(|pi| {
+                crate::domain::prices::validate_pricing(&pi.pricing, &pi.currency)?;
+                crate::domain::prices::validate_price_credit_unit(
+                    &pi.pricing,
+                    pi.credit_unit.as_ref(),
+                )?;
                 let pricing_json = serde_json::to_value(&pi.pricing).map_err(|e| {
                     Report::new(StoreError::SerdeError(
                         "Failed to serialize pricing".to_string(),
@@ -510,6 +602,8 @@ impl PriceComponentInterface for Store {
                     pricing: pricing_json,
                     tenant_id,
                     catalog: true,
+                    credit_unit_id: pi.credit_unit.as_ref().map(|unit| unit.unit_id),
+                    credit_unit_rate: pi.credit_unit.as_ref().map(|unit| unit.rate),
                 })
             })
             .collect::<Result<Vec<_>, Report<StoreError>>>()?;
@@ -520,11 +614,30 @@ impl PriceComponentInterface for Store {
                 ProductRow::find_by_id_and_tenant_id(conn, product_id, tenant_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+                ensure_credit_units_usable(
+                    conn,
+                    tenant_id,
+                    price_rows_new.iter().filter_map(|row| row.credit_unit_id),
+                )
+                .await?;
+                for price in &prices {
+                    crate::services::credit::unit_wallets::ensure_credit_packs_usable(
+                        conn,
+                        tenant_id,
+                        &price.currency,
+                        [&price.pricing],
+                    )
+                    .await?;
+                }
 
                 // Validate price currencies match plan version
-                let pv = PlanVersionRow::find_by_id_and_tenant_id(conn, plan_version_id, tenant_id)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                let current = PriceComponentRow::get_by_id(conn, tenant_id, component_id).await?;
+                if current.plan_version_id != plan_version_id {
+                    return Err(Report::new(StoreError::InvalidArgument(
+                        "the price component belongs to another plan version".to_string(),
+                    )));
+                }
+                let pv = lock_draft_version_tx(conn, plan_version_id, tenant_id).await?;
                 for pi in &prices {
                     if pi.currency != pv.currency {
                         return Err(Report::new(StoreError::InvalidArgument(format!(
@@ -596,10 +709,7 @@ impl PriceComponentInterface for Store {
 
         self.transaction(|conn| {
             async move {
-                let plan_version =
-                    PlanVersionRow::find_by_id_and_tenant_id(conn, plan_version_id, tenant_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
+                let plan_version = lock_draft_version_tx(conn, plan_version_id, tenant_id).await?;
                 let product_family_id =
                     PlanVersionRow::get_product_family_id(conn, plan_version_id, tenant_id)
                         .await

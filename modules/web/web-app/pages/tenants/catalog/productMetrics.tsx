@@ -1,36 +1,38 @@
-import { PaginationState, SortingState } from '@tanstack/react-table'
-import { Fragment, FunctionComponent, useCallback, useEffect, useState } from 'react'
+import { PlusIcon } from '@md/icons'
+import { Button } from '@md/ui'
+import { SortingState } from '@tanstack/react-table'
+import { FunctionComponent, useCallback, useState } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 
-import { ProductMetricsPageHeader } from '@/features/productCatalog/metrics/ProductMetricsPageHeader'
+import { Gate } from '@/components/Gate'
+import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'
+import { BaseFilter } from '@/features/TablePage'
 import { BillableMetricTable } from '@/features/productCatalog/metrics/ProductMetricsTable'
 import { useDebounceValue } from '@/hooks/useDebounce'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
+import { useListPagination, useResetPageOnChange } from '@/hooks/useTablePreferences'
 import { useQuery } from '@/lib/connectrpc'
 import { sortingStateToOrderBy } from '@/lib/utils/sorting'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 
 export const ProductMetrics: FunctionComponent = () => {
   const navigate = useNavigate()
+  const isExpress = useIsExpressOrganization()
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebounceValue(search, 400)
 
-  const [pagination, setPagination] = useState<PaginationState>({
-    pageIndex: 0,
-    pageSize: 20,
-  })
+  const [pagination, setPagination] = useListPagination()
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('active')
   const [sorting, setSorting] = useState<SortingState>([])
 
-  useEffect(() => {
-    setPagination(prev => ({ ...prev, pageIndex: 0 }))
-  }, [statusFilter, debouncedSearch])
+  useResetPageOnChange(setPagination, [statusFilter, debouncedSearch])
 
   const handleSortingChange = useCallback(
     (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => {
       setSorting(prev => (typeof updaterOrValue === 'function' ? updaterOrValue(prev) : updaterOrValue))
       setPagination(prev => ({ ...prev, pageIndex: 0 }))
     },
-    []
+    [setPagination]
   )
 
   const archivedParam = statusFilter === 'all' ? undefined : statusFilter === 'archived'
@@ -54,29 +56,51 @@ export const ProductMetrics: FunctionComponent = () => {
   }
 
   return (
-    <Fragment>
-      <div className="flex flex-col gap-8">
-        <ProductMetricsPageHeader
-          setEditPanelVisible={() => navigate('add-metric')}
-          isLoading={isLoading}
-          refetch={refetch}
-          statusFilter={statusFilter}
-          onStatusFilterChange={setStatusFilter}
-          totalCount={totalCount}
-          search={search}
-          setSearch={setSearch}
-        />
-        <BillableMetricTable
-          data={data}
-          totalCount={totalCount}
-          pagination={pagination}
-          setPagination={setPagination}
-          sorting={sorting}
-          onSortingChange={handleSortingChange}
-          isLoading={isLoading}
-        />
-      </div>
+    <ListPageLayout
+      title="Metrics"
+      count={totalCount}
+      actions={
+        isExpress ? undefined : (
+          <Gate perm="catalog:manage">
+            <Button variant="primary" size="sm" hasIcon onClick={() => navigate('add-metric')}>
+              <PlusIcon className="w-4 h-4" /> New metric
+            </Button>
+          </Gate>
+        )
+      }
+      toolbar={
+        <>
+          <ListToolbarSearch
+            value={search}
+            onChange={setSearch}
+            placeholder="Search metrics"
+            className="max-w-[220px]"
+          />
+          <BaseFilter
+            entries={[
+              { label: 'Active', value: 'active' },
+              { label: 'Archived', value: 'archived' },
+            ]}
+            emptyLabel="All"
+            selected={statusFilter !== 'all' ? [statusFilter] : []}
+            onSelectionChange={(value, checked) =>
+              setStatusFilter(checked ? (value as 'active' | 'archived') : 'all')
+            }
+          />
+        </>
+      }
+      toolbarTrailing={<RefreshButton isLoading={isLoading} onClick={refetch} />}
+    >
+      <BillableMetricTable
+        data={data}
+        totalCount={totalCount}
+        pagination={pagination}
+        setPagination={setPagination}
+        sorting={sorting}
+        onSortingChange={handleSortingChange}
+        isLoading={isLoading}
+      />
       <Outlet />
-    </Fragment>
+    </ListPageLayout>
   )
 }

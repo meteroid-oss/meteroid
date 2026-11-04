@@ -1,0 +1,234 @@
+syntax = "proto3";
+
+package meteroid.api.alerts.v1;
+
+import "api/alerts/v1/models.proto";
+
+message ListAlertDefinitionsRequest {
+  optional string metric_key = 1;
+  optional bool enabled = 2;
+  // Include built-in signal rows (seeded on first request). Default: excluded.
+  bool include_builtin = 3;
+}
+
+message ListAlertDefinitionsResponse {
+  repeated AlertDefinition alert_definitions = 1;
+}
+
+message GetAlertDefinitionRequest {
+  string id = 1;
+}
+
+message GetAlertDefinitionResponse {
+  AlertDefinition alert_definition = 1;
+}
+
+message CreateAlertDefinitionRequest {
+  string name = 1;
+  string metric_key = 2;
+  AlertConditionKindEnum condition_kind = 3;
+  string condition = 4;
+  string grain = 5;
+  optional string filters = 6;
+  optional string cohort = 7;
+  string channels = 8;
+  AlertSeverityEnum severity = 9;
+  int32 cooldown_secs = 10;
+  bool enabled = 11;
+  // "risk" | "opportunity" | "operational" (defaults to operational when empty).
+  string kind = 12;
+  // Custom signals only: "expansion" | "risk" | "contracts" | "billing".
+  optional string category = 13;
+  // Monitors only: a member of the organization.
+  optional string owner_user_id = 14;
+  // Monitors only: "first_time" (default) fires when the condition starts to hold,
+  // "every_window" on each window it holds.
+  optional string notify = 15;
+}
+
+message CreateAlertDefinitionResponse {
+  AlertDefinition alert_definition = 1;
+}
+
+message UpdateAlertDefinitionRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string metric_key = 3;
+  optional AlertConditionKindEnum condition_kind = 4;
+  optional string condition = 5;
+  optional string grain = 6;
+  optional string filters = 7;
+  optional string cohort = 8;
+  optional string channels = 9;
+  optional AlertSeverityEnum severity = 10;
+  optional int32 cooldown_secs = 11;
+  optional bool enabled = 12;
+  optional string kind = 13;
+  // Custom signals only: "expansion" | "risk" | "contracts" | "billing".
+  optional string category = 14;
+  // Monitors only. Absent keeps the owner; empty clears it.
+  optional string owner_user_id = 15;
+  // Monitors only: "first_time" or "every_window". Absent keeps it.
+  optional string notify = 16;
+}
+
+message UpdateAlertDefinitionResponse {
+  AlertDefinition alert_definition = 1;
+}
+
+message DeleteAlertDefinitionRequest {
+  string id = 1;
+}
+
+message DeleteAlertDefinitionResponse {}
+
+message ListAlertEventsRequest {
+  optional string alert_definition_id = 1;
+  optional string customer_id = 2;
+  // Built-in events are excluded unless this is set or alert_definition_id names a built-in.
+  bool include_builtin = 3;
+  // Metric monitors' firings only: no built-in or segment signal.
+  bool monitors_only = 4;
+  // Only firings at or after this moment (RFC 3339).
+  optional string since = 5;
+  // The next page: firings older than this event (the last one of the previous page).
+  optional string before_id = 6;
+  // At most this many (capped at 1000, the default).
+  optional uint32 limit = 7;
+}
+
+message ListAlertEventsResponse {
+  repeated AlertEvent alert_events = 1;
+  // More firings are older than the last one returned.
+  bool has_more = 2;
+}
+
+// A customer's live membership of a per-customer segment alert ("this customer is
+// currently flagged by these signals").
+message CustomerSegmentMembership {
+  string alert_definition_id = 1;
+  string name = 2;
+  // "risk" | "opportunity" | "operational"
+  string kind = 3;
+  AlertSeverityEnum severity = 4;
+  string entered_at = 5;
+}
+
+message ListCustomerSegmentMembershipsRequest {
+  string customer_id = 1;
+}
+
+message ListCustomerSegmentMembershipsResponse {
+  repeated CustomerSegmentMembership memberships = 1;
+}
+
+// One customer's active segment-signal kind, tenant-wide — the lean shape the
+// customer list needs to badge accounts by their strongest signal.
+message TenantSegmentSignal {
+  string customer_id = 1;
+  // "risk" | "opportunity" (operational memberships are excluded).
+  string kind = 2;
+}
+
+message ListTenantSegmentMembershipsRequest {}
+
+message ListTenantSegmentMembershipsResponse {
+  repeated TenantSegmentSignal signals = 1;
+}
+
+message AcknowledgeAlertEventRequest {
+  string id = 1;
+}
+
+message AcknowledgeAlertEventResponse {
+  AlertEvent alert_event = 1;
+}
+
+message UpdateBuiltinSignalRequest {
+  string builtin_code = 1;
+  optional bool enabled = 2;
+  // JSON object; "{}" resets to defaults; absent = unchanged.
+  optional string settings = 3;
+  // JSON array, same shape as AlertDefinition.channels; absent = unchanged.
+  optional string channels = 4;
+}
+
+message UpdateBuiltinSignalResponse {
+  AlertDefinition alert_definition = 1;
+}
+
+// Run one definition through the worker's exact evaluation path right now, instead
+// of waiting for the next ~5-minute tick — for instant verification after editing.
+message EvaluateAlertDefinitionRequest {
+  string id = 1;
+}
+
+message EvaluateAlertDefinitionResponse {
+  // The definition refreshed with the just-written last_* evaluation cache.
+  AlertDefinition alert_definition = 1;
+  // How many new events this evaluation fired (0 when already firing / not breaching).
+  uint32 fired = 2;
+  // Built-in signals: the customers this run checked, out of `candidates` (absent when not
+  // counted). `complete` is false when the rest is left to the scheduled runs.
+  optional uint32 evaluated = 3;
+  optional uint32 candidates = 4;
+  bool complete = 5;
+}
+
+message MuteAlertDefinitionRequest {
+  string id = 1;
+  // RFC 3339. Absent unmutes.
+  optional string until = 2;
+}
+
+message MuteAlertDefinitionResponse {
+  AlertDefinition alert_definition = 1;
+}
+
+message GetMonitorSeriesRequest {
+  string id = 1;
+}
+
+// A monitor not saved yet, as the dialog has it: when its condition would have held over the
+// last 30 days.
+message PreviewMonitorSeriesRequest {
+  string metric_key = 1;
+  AlertConditionKindEnum condition_kind = 2;
+  string condition = 3;
+  string grain = 4;
+  optional string filters = 5;
+  optional string cohort = 6;
+}
+
+// The quantity a metric monitor evaluates over the last 30 days, at its grain, with the line
+// it compares against and the windows it fires on: the same numbers the worker judges.
+message GetMonitorSeriesResponse {
+  MonitorQuantity quantity = 1;
+  optional double line = 2;
+  repeated MonitorPoint points = 3;
+  // Set when the values are money.
+  optional string currency = 4;
+  // Broken down: the points are the total, the breaches the worst segment's.
+  bool grouped = 5;
+  string grain = 6;
+}
+
+service AlertsService {
+  rpc ListAlertDefinitions(ListAlertDefinitionsRequest) returns (ListAlertDefinitionsResponse) {}
+  rpc GetAlertDefinition(GetAlertDefinitionRequest) returns (GetAlertDefinitionResponse) {}
+  rpc CreateAlertDefinition(CreateAlertDefinitionRequest) returns (CreateAlertDefinitionResponse) {}
+  rpc UpdateAlertDefinition(UpdateAlertDefinitionRequest) returns (UpdateAlertDefinitionResponse) {}
+  rpc DeleteAlertDefinition(DeleteAlertDefinitionRequest) returns (DeleteAlertDefinitionResponse) {}
+  rpc EvaluateAlertDefinition(EvaluateAlertDefinitionRequest) returns (EvaluateAlertDefinitionResponse) {}
+
+  rpc MuteAlertDefinition(MuteAlertDefinitionRequest) returns (MuteAlertDefinitionResponse) {}
+  rpc GetMonitorSeries(GetMonitorSeriesRequest) returns (GetMonitorSeriesResponse) {}
+  rpc PreviewMonitorSeries(PreviewMonitorSeriesRequest) returns (GetMonitorSeriesResponse) {}
+  rpc ListAlertEvents(ListAlertEventsRequest) returns (ListAlertEventsResponse) {}
+  rpc AcknowledgeAlertEvent(AcknowledgeAlertEventRequest) returns (AcknowledgeAlertEventResponse) {}
+  rpc ListCustomerSegmentMemberships(ListCustomerSegmentMembershipsRequest) returns (ListCustomerSegmentMembershipsResponse) {}
+  rpc ListTenantSegmentMemberships(ListTenantSegmentMembershipsRequest) returns (ListTenantSegmentMembershipsResponse) {}
+
+  // Enable / tune a built-in signal; built-ins are not editable through UpdateAlertDefinition.
+  rpc UpdateBuiltinSignal(UpdateBuiltinSignalRequest) returns (UpdateBuiltinSignalResponse) {}
+}

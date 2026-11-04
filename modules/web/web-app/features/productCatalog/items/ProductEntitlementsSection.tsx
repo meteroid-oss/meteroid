@@ -8,14 +8,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@md/ui'
-import { useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useQueryClient } from '@tanstack/react-query'
 import { CirclePower, Pencil, Plus } from 'lucide-react'
 import { useState } from 'react'
 
 import { EntityEntitlementDialog } from '@/features/entitlements/EntityEntitlementDialog'
 import { entitlementTooltip } from '@/features/entitlements/entitlementTooltips'
 import { FeatureCreateSheet } from '@/features/entitlements/features/FeatureCreateSheet'
-import { entitlementValueLabel } from '@/features/entitlements/utils'
+import { entitlementValueLabel, meteredValueToWrite } from '@/features/entitlements/utils'
 import { useQuery } from '@/lib/connectrpc'
 import {
   listEntitlementsByEntity,
@@ -62,8 +62,7 @@ const ProductFeatureRow = ({ feature }: ProductFeatureRowProps) => {
     if (v.case === 'booleanValue') {
       flipped = { value: { case: 'booleanValue' as const, value: { enabled: !v.value.enabled } } }
     } else if (v.case === 'meteredValue') {
-      const m = v.value
-      flipped = { value: { case: 'meteredValue' as const, value: { limit: m.limit, resetPeriod: m.resetPeriod, enabled: !m.enabled } } }
+      flipped = meteredValueToWrite(v.value, !v.value.enabled)
     } else {
       return
     }
@@ -136,16 +135,20 @@ interface Props {
   productId: string
 }
 
+const PAGE_SIZE = 100
+
 export const ProductEntitlementsSection = ({ productId }: Props) => {
   const queryClient = useQueryClient()
   const [addOpen, setAddOpen] = useState(false)
+  const [shown, setShown] = useState(PAGE_SIZE)
 
   const featuresQuery = useQuery(listFeatures, {
     productId,
-    pagination: { page: 0, perPage: 100 },
-    statuses: [FeatureStatus.ACTIVE],
-  })
+    pagination: { page: 0, perPage: shown },
+    statuses: [FeatureStatus.ACTIVE, FeatureStatus.DISABLED],
+  }, { placeholderData: keepPreviousData })
   const features = featuresQuery.data?.features ?? []
+  const total = featuresQuery.data?.paginationMeta?.totalItems ?? 0
 
   const invalidateFeatures = () =>
     queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
@@ -179,6 +182,19 @@ export const ProductEntitlementsSection = ({ productId }: Props) => {
           {features.map(f => (
             <ProductFeatureRow key={f.id} feature={f} />
           ))}
+        </div>
+      )}
+      {total > features.length && (
+        <div className="flex justify-center mt-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={featuresQuery.isFetching}
+            onClick={() => setShown(n => n + PAGE_SIZE)}
+          >
+            Show more ({total - features.length} left)
+          </Button>
         </div>
       )}
 

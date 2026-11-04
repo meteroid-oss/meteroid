@@ -10,7 +10,11 @@ import {
   MatrixPricingSchema,
   ExtraRecurringPricingSchema,
   OneTimePricingSchema,
+  CreditPricingSchema,
+  CreditUnitPricingSchema,
   TierRowSchema,
+  refineCreditPricing,
+  refineCreditUnitPricing,
 } from './schemas'
 
 const Cadence = z.enum(['MONTHLY', 'QUARTERLY', 'SEMIANNUAL', 'ANNUAL'])
@@ -41,11 +45,14 @@ const CapacityThresholdSchema = z.object({
   overageRate: pricePrecision8,
 })
 
-export const CapacityComponentSchema = z.object({
-  metricId: z.string().min(1, 'Metric is required'),
-  term: Cadence,
-  thresholds: z.array(CapacityThresholdSchema).min(1, 'At least one threshold is required'),
-})
+export const CapacityComponentSchema = z
+  .object({
+    metricId: z.string().min(1, 'Metric is required'),
+    term: Cadence,
+    thresholds: z.array(CapacityThresholdSchema).min(1, 'At least one threshold is required'),
+    ...CreditUnitPricingSchema.shape,
+  })
+  .superRefine(refineCreditUnitPricing)
 export type CapacityComponentData = z.infer<typeof CapacityComponentSchema>
 
 // Usage: the pricing sub-schema is dynamic based on the model
@@ -107,8 +114,10 @@ export const UsageFormSchema = z
     // package
     packagePrice: z.string().optional(),
     blockSize: z.coerce.number().optional(),
+    ...CreditUnitPricingSchema.shape,
   })
   .superRefine((data, ctx) => {
+    refineCreditUnitPricing(data, ctx)
     switch (data.usageModel) {
       case 'per_unit': {
         const result = PerUnitPricingSchema.safeParse({ unitPrice: data.unitPrice })
@@ -161,6 +170,15 @@ export const OneTimeComponentSchema = z.object({
 })
 export type OneTimeComponentData = z.infer<typeof OneTimeComponentSchema>
 
+// A pack bills every period of its cadence, so it carries a term.
+export const CreditComponentSchema = z
+  .object({
+    term: Cadence,
+    ...CreditPricingSchema.shape,
+  })
+  .superRefine(refineCreditPricing)
+export type CreditComponentData = z.infer<typeof CreditComponentSchema>
+
 // Schema lookup by fee type
 export const componentSchemas = {
   rate: RateComponentSchema,
@@ -169,4 +187,5 @@ export const componentSchemas = {
   usage: UsageComponentSchema,
   extraRecurring: ExtraRecurringComponentSchema,
   oneTime: OneTimeComponentSchema,
+  credit: CreditComponentSchema,
 } as const

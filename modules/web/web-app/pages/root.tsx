@@ -2,6 +2,8 @@ import { Button } from '@ui/components'
 import { Navigate } from 'react-router-dom'
 
 import { Loading } from '@/components/Loading'
+import { INVITE_TOKEN_KEY } from '@/features/auth/invite'
+import { useUserPreferences } from '@/features/updates/useUserPreferences'
 import { useLogout } from '@/hooks/useLogout'
 import { useQuery } from '@/lib/connectrpc'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
@@ -15,10 +17,17 @@ export const Root: React.FC = () => {
 
   const meQuery = useQuery(me)
   const getInstanceQuery = useQuery(getInstance)
+  const { preferences } = useUserPreferences()
 
   const organizations = (meQuery.data?.organizations ?? []).sort(
     (a, b) => Number(a.createdAt) - Number(b.createdAt)
   )
+
+  // Post-auth redirects race to '/' (e.g. AnonymousRoutes vs LoginForm), so an
+  // invite stashed before sign-in is resumed here instead of being dropped.
+  if (sessionStorage.getItem(INVITE_TOKEN_KEY)) {
+    return <Navigate to="/invite-authenticated" replace />
+  }
 
   if (meQuery.isError) {
     return logout('Failed to load user organizations (/me)')
@@ -28,9 +37,10 @@ export const Root: React.FC = () => {
     return <Loading />
   }
 
-  // TODO last accessed organization/tenant
   if (organizations.length >= 1) {
-    return <Navigate to={`/${organizations[0].slug}`} />
+    const lastVisited = organizations.find(o => o.slug === preferences.lastOrganizationSlug)
+    const target = lastVisited ?? organizations[0]
+    return <Navigate to={`/${target.slug}`} />
   }
 
   if (getInstanceQuery.data?.instanceInitiated && !getInstanceQuery.data.multiOrganizationEnabled) {

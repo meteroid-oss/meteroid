@@ -52,6 +52,7 @@ export const ListPlanVersionTab = () => {
 
   return (
     <StandardTable
+      tableKey="plan_versions"
       columns={columns}
       data={data}
       sortable={true}

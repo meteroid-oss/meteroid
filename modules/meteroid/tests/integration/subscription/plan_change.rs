@@ -23,11 +23,28 @@ use meteroid_store::domain::subscription_components::{
     ComponentParameterization, ComponentParameters,
 };
 use meteroid_store::domain::{BillingType, SlotUpgradeBillingMode, UsagePeriod, UsagePricingModel};
+use meteroid_store::repositories::CreditNoteInterface;
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 use meteroid_store::repositories::subscriptions::{
     CancellationEffectiveAt, SubscriptionInterfaceAuto,
 };
 use rust_decimal::Decimal;
+
+/// What the change's credit notes credited on the subscription's invoices, tax included.
+async fn credited_by_notes(env: &TestEnv, sub_id: SubscriptionId) -> i64 {
+    let mut credited = 0;
+    for invoice in env.get_invoices(sub_id).await {
+        for note in env
+            .store()
+            .list_credit_notes_by_invoice_id(TENANT_ID, invoice.id)
+            .await
+            .expect("credit notes")
+        {
+            credited += note.total.abs();
+        }
+    }
+    credited
+}
 
 // =============================================================================
 // PREVIEW
@@ -677,26 +694,24 @@ async fn test_immediate_plan_change_upgrade(#[future] test_env: TestEnv) {
         .check_prorated(true);
 
     // Hardcoded expected proration: 16 days remaining out of 31-day period (Jan 1→Feb 1)
-    // Credit Platform: -(2900 × 16/31).round() = -1497
-    // Credit Seats:    -(1000 × 16/31).round() = -516
+    // Credit Platform: -(2900 × 16/31).round() = -1497 } on a note cancelling that much of the
+    // Credit Seats:    -(1000 × 16/31).round() = -516  } unpaid Starter invoice
     // Charge Platform:  (9900 × 16/31).round() = 5110
     // Charge Seats:     (2500 × 16/31).round() = 1290
-    // Net: 4387
+    // Net: 6400 - 2013 = 4387
+    assert_eq!(credited_by_notes(&env, sub_id).await, 2013);
     invoices
         .assert()
         .invoice_at(1)
         .with_context("upgrade adjustment")
-        .has_total(4387)
-        .has_amount_due(4387)
+        .has_total(6400)
+        .has_amount_due(6400)
         .has_payment_status(meteroid_store::domain::InvoicePaymentStatus::Unpaid);
 
     // Customer balance should be unchanged (no credit for upgrades)
     let sub = env.get_subscription(sub_id).await;
-    let customer = env.get_customer(sub.customer_id).await;
-    assert_eq!(
-        customer.balance_value_cents, 0,
-        "customer balance should remain 0 after upgrade"
-    );
+    let balance = env.invoice_credit_balance_minor(sub.customer_id).await;
+    assert_eq!(balance, 0, "customer balance should remain 0 after upgrade");
 }
 
 /// Immediate downgrade: Pro→Starter produces a negative adjustment (credit).
@@ -759,21 +774,27 @@ async fn test_immediate_plan_change_downgrade(#[future] test_env: TestEnv) {
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(2);
 
-    // Negative total, zero amount_due, marked as Paid
+    // Pro's unused 6400 cancels that much of its unpaid invoice; Starter's 2013 is billed.
     invoices
         .assert()
         .invoice_at(1)
         .with_context("downgrade adjustment")
-        .has_total(-4387)
-        .has_amount_due(0)
-        .has_payment_status(meteroid_store::domain::InvoicePaymentStatus::Paid);
+        .has_total(2013)
+        .has_amount_due(2013)
+        .has_payment_status(meteroid_store::domain::InvoicePaymentStatus::Unpaid);
+    assert_eq!(credited_by_notes(&env, sub_id).await, 6400);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("Pro invoice, its unused part cancelled")
+        .has_amount_due(12400 - 6400);
 
-    // Customer balance should be credited with the absolute value of the negative total
+    // Owed in all: 6000 + 2013 = 12400 - 4387, as the netted proration was; no balance credit.
     let sub = env.get_subscription(sub_id).await;
-    let customer = env.get_customer(sub.customer_id).await;
+    let balance = env.invoice_credit_balance_minor(sub.customer_id).await;
     assert_eq!(
-        customer.balance_value_cents, 4387,
-        "customer balance should be credited 4387 cents from downgrade"
+        balance, 0,
+        "an unpaid invoice's debt is cancelled, not credited"
     );
 }
 
@@ -1211,9 +1232,11 @@ async fn test_immediate_plan_change_preserves_slot_count(#[future] test_env: Tes
     // Net: 7484
     let invoices = env.get_invoices(sub_id).await;
     let adj = &invoices[invoices.len() - 1];
+    assert_eq!(adj.total, 11562, "Pro's 5110 + 6452");
     assert_eq!(
-        adj.total, 7484,
-        "adjustment should be 7484 cents for 5-seat Starter→Pro mid-period upgrade"
+        credited_by_notes(&env, sub_id).await,
+        4078,
+        "Starter's 1497 + 2581 for 5 seats, across the lines that billed them: net 7484"
     );
 }
 
@@ -1404,9 +1427,11 @@ async fn test_immediate_plan_change_rate_only_to_plan_with_slots(#[future] test_
     //   Net: 2272
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(2);
+    assert_eq!(invoices[1].total, 4078, "Starter's 1497 + 2581");
     assert_eq!(
-        invoices[1].total, 2272,
-        "adjustment should be 2272 cents for LeetCode→5-seat Starter mid-period change"
+        credited_by_notes(&env, sub_id).await,
+        1806,
+        "LeetCode's rate credited on a note: net 2272"
     );
 
     // 7. Verify subscription is now on Starter
@@ -1589,9 +1614,11 @@ async fn test_immediate_plan_change_usage_temporal_split() {
     //   Credit old rate €10: -(1000 × 0.5) = -500
     //   Charge new rate €20: +(2000 × 0.5) = 1000
     //   Net: 500
+    assert_eq!(adj.total, 1000, "the new rate's half period");
     assert_eq!(
-        adj.total, 500,
-        "adjustment should be 500 cents for prorated Rate upgrade (€10→€20, half period)"
+        credited_by_notes(&env, sub_id).await,
+        500,
+        "the old rate's half period on a note: net 500"
     );
 
     // --- Verify component temporal bounds after Feb 15 change ---
@@ -2172,9 +2199,11 @@ async fn test_immediate_plan_change_mixed_alpha_to_beta() {
     //   Net: -2500 + 4000 + -1500 + 2500 = 2500
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(3);
+    assert_eq!(invoices[2].total, 6500, "4000 + 2500 charged");
     assert_eq!(
-        invoices[2].total, 2500,
-        "adjustment should be 2500 cents for prorated Capacity base + ExtraRec/Advance upgrade"
+        credited_by_notes(&env, sub_id).await,
+        4000,
+        "2500 + 1500 credited on a note: net 2500"
     );
 
     // Verify subscription switched to Beta
@@ -2509,9 +2538,11 @@ async fn test_immediate_plan_change_mixed_beta_to_alpha_downgrade() {
     //   Net: -4000 + 2500 + -2500 + 1500 = -2500
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(3);
+    assert_eq!(invoices[2].total, 4000, "2500 + 1500 charged");
     assert_eq!(
-        invoices[2].total, -2500,
-        "adjustment should be -2500 cents for prorated downgrade"
+        credited_by_notes(&env, sub_id).await,
+        6500,
+        "4000 + 2500 credited on a note: net -2500"
     );
 
     // Verify subscription switched to Alpha
@@ -2646,18 +2677,22 @@ async fn test_immediate_plan_change_capacity_tier_upgrade() {
 
     // Adjustment: only Capacity base rate differs
     // Period [Feb 1, Mar 1] = 28 days, remaining after Feb 15 = 14 days, factor = 0.5
-    //   Credit Capacity:       -(5000 × 0.5) = -2500
+    //   Credit Capacity:       -(5000 × 0.5) = -2500, on a credit note
     //   Charge Capacity:       (12000 × 0.5) = 6000
-    //   Credit ExtraRec/Adv:   -(3000 × 0.5) = -1500
-    //   Charge ExtraRec/Adv:    (3000 × 0.5) = 1500
+    //   ExtraRec/Adv:          3000 both sides, carried over: neither credited nor charged
     //   OneTime: 0 (both plans have it, advance_amount = 0)
     //   Rec/Arrears: 0 (is_pure_arrears, excluded)
     //   Net: -2500 + 6000 + -1500 + 1500 = 3500
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(3);
     assert_eq!(
-        invoices[2].total, 3500,
-        "adjustment should be 3500 cents for Capacity base upgrade proration"
+        invoices[2].total, 6000,
+        "the new capacity base; the unchanged ExtraRec/Advance is carried over"
+    );
+    assert_eq!(
+        credited_by_notes(&env, sub_id).await,
+        2500,
+        "the old capacity base on a note: net 3500"
     );
 
     // Verify subscription switched
@@ -3478,6 +3513,9 @@ async fn test_plan_change_monthly_to_annual(#[future] test_env: TestEnv) {
                 trialing_plan_id: None,
                 trial_is_free: true,
                 uses_product_pricing: true,
+                tax_inclusive: false,
+                credit_exhausted_rule: None,
+                credit_exhausted_caps: serde_json::json!({}),
             }
             .insert(tx)
             .await?;
@@ -3490,6 +3528,7 @@ async fn test_plan_change_monthly_to_annual(#[future] test_env: TestEnv) {
                 active_version_id: Some(Some(annual_plan_version_id)),
                 draft_version_id: None,
                 self_service_rank: None,
+                issues_license: None,
             }
             .update(tx)
             .await?;

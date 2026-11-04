@@ -1,5 +1,6 @@
 import { atomWithReset } from 'jotai/utils'
 
+import { ComponentChoice } from '@/pages/tenants/subscription/changePlan/componentChoices'
 import {
   PlanChangeApplyMode,
   PreviewPlanChangeResponse,
@@ -14,6 +15,7 @@ export interface ChangePlanState {
   targetPlanName?: string
   preview?: PreviewPlanChangeResponse
   applyMode: PlanChangeApplyMode
+  componentChoices: Record<string, ComponentChoice>
 }
 
 export const changePlanAtom = atomWithReset<ChangePlanState>({
@@ -25,4 +27,5 @@ export const changePlanAtom = atomWithReset<ChangePlanState>({
   targetPlanName: undefined,
   preview: undefined,
   applyMode: PlanChangeApplyMode.END_OF_PERIOD,
+  componentChoices: {},
 })

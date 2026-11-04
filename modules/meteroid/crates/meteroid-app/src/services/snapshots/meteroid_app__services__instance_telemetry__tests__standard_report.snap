@@ -1,0 +1,45 @@
+---
+source: modules/meteroid/crates/meteroid-app/src/services/instance_telemetry.rs
+expression: report
+---
+{
+  "schema": 1,
+  "instance_id": "5f0c3a9e-8b1d-4c2e-9f3a-0d1e2f3a4b5c",
+  "sent_at": "2026-11-02T03:12:00Z",
+  "install": {
+    "installed_on": "2026-10-14",
+    "first_version": "v1.4.0"
+  },
+  "build": {
+    "version": "v1.5.2",
+    "edition": "oss",
+    "os": "linux",
+    "arch": "x86_64"
+  },
+  "deployment": "docker-compose",
+  "infra": {
+    "postgres_major": 16,
+    "object_storage": "s3"
+  },
+  "usage": {
+    "organizations": 1,
+    "tenants_live": 1,
+    "tenants_other": 2,
+    "users": 4,
+    "customers": 812,
+    "subscriptions_active": 640,
+    "plans_published": 6,
+    "billable_metrics": 9,
+    "invoices_finalized_30d": 701,
+    "currencies": [
+      "EUR",
+      "USD"
+    ],
+    "billed_30d_usd": "100k-1M"
+  },
+  "integrations": [
+    "hubspot",
+    "stripe"
+  ],
+  "modules": []
+}

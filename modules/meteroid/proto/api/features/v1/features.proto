@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package meteroid.api.features.v1;
+
+// Request to get feature entitlements for the current organization
+message GetFeaturesRequest {}
+
+// How an enabled feature came to be enabled for the requesting tenant.
+enum EntitlementGrant {
+  ENTITLEMENT_GRANT_UNSPECIFIED = 0;
+  // Owned: granted by the organization's plan / entitlements.
+  ENTITLEMENT_GRANT_ENTITLEMENT = 1;
+  // Opened by the environment policy for this tenant (e.g. a sandbox trying an
+  // add-on the org does not own). Clients should mark these surfaces as paid.
+  ENTITLEMENT_GRANT_ENVIRONMENT = 2;
+}
+
+// A single resolved entitlement, as it applies to the requesting tenant.
+// `limit`/`remaining` are decimal strings, set only for metered features;
+// carried now so quota display does not require a wire break.
+message FeatureEntitlement {
+  string code = 1;
+  bool enabled = 2;
+  optional string limit = 3;
+  optional string remaining = 4;
+  // Unspecified when the feature is disabled.
+  EntitlementGrant granted_by = 5;
+}
+
+message GetFeaturesResponse {
+  repeated FeatureEntitlement entitlements = 1;
+  // Invoicing entities the requesting tenant may hold. Unset when uncapped.
+  optional uint32 invoicing_entity_limit = 2;
+  // Production tenants the organization may hold. Unset when uncapped.
+  optional uint32 production_tenant_limit = 3;
+}
+
+// The feature gates of the current organization, as the edition resolves them.
+service FeaturesService {
+  rpc GetFeatures(GetFeaturesRequest) returns (GetFeaturesResponse) {}
+}

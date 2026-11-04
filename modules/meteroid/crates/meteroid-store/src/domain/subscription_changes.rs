@@ -2,7 +2,8 @@ use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::subscription_components::SubscriptionFee;
 use chrono::NaiveDate;
 use common_domain::ids::{
-    InvoiceId, PriceComponentId, ProductId, SubscriptionAddOnId, SubscriptionPriceComponentId,
+    CreditNoteId, InvoiceId, PriceComponentId, ProductId, SubscriptionAddOnId,
+    SubscriptionPriceComponentId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +33,8 @@ pub struct PlanChangePreviewExtended {
     pub preview: PlanChangePreview,
     pub proration: Option<ProrationSummary>,
     pub change_direction: ChangeDirection,
+    /// False when a minimum commitment holds the change to the period's end.
+    pub immediate_allowed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,11 +59,41 @@ pub struct ProrationSummary {
     pub proration_factor: f64,
     pub days_remaining: u32,
     pub days_in_period: u32,
+    /// What the change does to credit packs: new packs billed, old packs' credit removed and
+    /// the fee credited back for it.
+    #[serde(default)]
+    pub pack_changes: Vec<PackChange>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PackChangeKind {
+    /// A new pack billed on the adjustment invoice, with the credit it grants.
+    Charge,
+    /// An old pack's unused credit for the period, removed.
+    CreditRemoved,
+    /// The fee credited back for an old pack, never above what its unused paid credit is worth.
+    FeeCredit,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackChange {
+    pub name: String,
+    pub kind: PackChangeKind,
+    /// Money, in the subscription currency's minor units; negative for a fee credit.
+    pub amount_cents: i64,
+    /// Credit granted or removed, in minor units of `credit_unit` (or of the currency).
+    pub credit_minor: i64,
+    pub credit_unit: Option<crate::domain::credit_units::CreditUnitRef>,
+    /// Decimal places of `credit_minor`: the unit's, or the currency's.
+    pub credit_precision: u8,
+    pub promotional: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct ImmediatePlanChangeResult {
     pub adjustment_invoice_id: Option<InvoiceId>,
+    /// Notes crediting the old plan's unused fees against the invoices that billed them.
+    pub credit_note_ids: Vec<CreditNoteId>,
     /// First invoice created when plan change ends a free trial.
     pub first_invoice_id: Option<InvoiceId>,
     pub effective_date: NaiveDate,
@@ -75,6 +108,14 @@ pub struct MatchedComponent {
     pub new_name: String,
     pub new_fee: SubscriptionFee,
     pub new_period: SubscriptionFeeBillingPeriod,
+    /// Lineage root of the current component, matching the lines that billed it.
+    #[serde(default)]
+    pub current_net_key: Option<String>,
+    /// Id the new component is inserted with, stamped on the line billing it.
+    #[serde(default)]
+    pub billed_component_id: Option<SubscriptionPriceComponentId>,
+    #[serde(default)]
+    pub price_component_id: Option<PriceComponentId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +146,8 @@ pub struct AddedComponent {
     /// 1 × total. `None` for price-component adds (which have no instance count).
     #[serde(default)]
     pub instance_quantity: Option<rust_decimal::Decimal>,
+    #[serde(default)]
+    pub price_component_id: Option<PriceComponentId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,6 +168,7 @@ pub struct ProrationResult {
     pub change_date: NaiveDate,
     pub period_start: NaiveDate,
     pub period_end: NaiveDate,
+    /// Display only: amounts are prorated by the exact day ratio in Decimal.
     pub proration_factor: f64,
 }
 
@@ -156,4 +200,22 @@ pub struct ProrationLineItem {
     /// Subscription-add-on id this line bills (genuine immediate adds only).
     /// See `AddedComponent::billed_add_on_id`.
     pub sub_add_on_id: Option<SubscriptionAddOnId>,
+    /// Revenue taxonomy resolved from the originating fee variant, carried onto the
+    /// adjustment-invoice line so analytics classifies it correctly.
+    pub charge_type: Option<crate::domain::ChargeType>,
+    /// A credit pack's line: the credit it grants once billed.
+    pub pack: Option<PackGrant>,
+    /// Where the prorated stub this line bills ends, when not at the proration's period end:
+    /// a fee on another cadence than the subscription's runs to the end of its own period.
+    pub period_end: Option<NaiveDate>,
+}
+
+/// The credit a pack line sells, frozen on its invoice line like a period invoice's pack line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackGrant {
+    pub credit_minor: i64,
+    pub unit: Option<crate::domain::credit_units::CreditUnitRef>,
+    pub expiry: Option<crate::domain::price_components::CreditExpiry>,
+    pub included: bool,
+    pub rollover: Option<crate::domain::credit::GrantRollover>,
 }

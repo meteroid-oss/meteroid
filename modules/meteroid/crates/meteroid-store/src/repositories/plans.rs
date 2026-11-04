@@ -2,6 +2,7 @@ use crate::StoreResult;
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::store::{PgConn, Store};
 
+use crate::domain::credit_exhausted::CreditExhaustedRule;
 use crate::domain::entitlements::Entitlement;
 use crate::domain::price_components::FeeType;
 use crate::domain::prices::{
@@ -14,6 +15,7 @@ use crate::domain::{
     ProductFamilyOverview, SelfServicePlan, TrialPatch,
 };
 use crate::errors::StoreError;
+use crate::hooks::USAGE_CONTROLS_UNAVAILABLE;
 use crate::repositories::entitlements::insert_entitlement_specs;
 use crate::repositories::price_components::resolve_component_internal;
 use common_domain::ids::{
@@ -35,9 +37,11 @@ use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::products::{ProductRow, ProductRowNew};
 use diesel_models::tenants::TenantRow;
 use error_stack::Report;
+use meteroid_store_macros::with_conn_delegate;
 use scoped_futures::ScopedFutureExt;
 use std::collections::HashMap;
 
+#[with_conn_delegate]
 #[async_trait::async_trait]
 pub trait PlansInterface {
     async fn insert_plan(&self, actor: Actor, plan: FullPlanNew) -> StoreResult<FullPlan>;
@@ -49,6 +53,7 @@ pub trait PlansInterface {
         version_filter: PlanVersionFilter,
     ) -> StoreResult<PlanWithVersion>;
 
+    #[delegated]
     async fn get_plan_by_version_id(
         &self,
         id: PlanVersionId,
@@ -175,7 +180,30 @@ pub trait PlansInterface {
         price_components: Vec<crate::domain::price_components::PriceComponentNewInternal>,
         add_on_attachments: Vec<crate::domain::plan_version_add_ons::PlanVersionAddOnNew>,
         publish: bool,
+        minimum: Option<crate::domain::plan_minimums::ReplacePlanMinimumInput>,
     ) -> StoreResult<FullPlan>;
+
+    async fn get_plan_minimum(
+        &self,
+        plan_version_id: PlanVersionId,
+        auth_tenant_id: TenantId,
+    ) -> StoreResult<Option<crate::domain::plan_minimums::PlanMinimum>>;
+
+    /// Set or replace the plan-level minimum for a draft plan version. Errors if the
+    /// version is published or if any listed component does not belong to the version.
+    async fn set_plan_minimum(
+        &self,
+        plan_version_id: PlanVersionId,
+        auth_tenant_id: TenantId,
+        amount_subunit: i64,
+        scope: crate::domain::plan_minimums::MinimumScope,
+    ) -> StoreResult<crate::domain::plan_minimums::PlanMinimum>;
+
+    async fn clear_plan_minimum(
+        &self,
+        plan_version_id: PlanVersionId,
+        auth_tenant_id: TenantId,
+    ) -> StoreResult<()>;
 }
 
 /// Convert a FullPlanRow into a FullPlan with prices and products loaded.
@@ -304,6 +332,7 @@ async fn convert_full_plan_row(
 
     let mut version = version;
     version.entitlements = entitlements;
+    version.minimum = load_plan_minimum(conn, version.id).await?;
 
     Ok(FullPlan {
         plan,
@@ -312,6 +341,157 @@ async fn convert_full_plan_row(
         product_family,
         products,
     })
+}
+
+/// Copy `plan_version_minimum` (and its product scope) from `src_id` to `dst_id`. The scope is
+/// keyed by product, and products are shared across plan versions, so the product ids carry over
+/// unchanged — we just keep the scoped products the destination version still has a component for.
+/// If that leaves the scope empty, the minimum is upgraded to `AllComponents` rather than written
+/// with an empty list (which would mean "nothing counts"), and a warning is logged for review.
+pub(crate) async fn clone_plan_minimum(
+    conn: &mut PgConn,
+    src_id: PlanVersionId,
+    dst_id: PlanVersionId,
+    _src_components: &[diesel_models::price_components::PriceComponentRow],
+    dst_components: &[diesel_models::price_components::PriceComponentRow],
+) -> StoreResult<()> {
+    use diesel_models::plan_version_adjustments::{
+        PlanVersionAdjustmentComponentRow, PlanVersionAdjustmentComponentRowNew,
+        PlanVersionAdjustmentRowNew,
+    };
+
+    let Some(src_min) = load_plan_minimum(conn, src_id).await? else {
+        return Ok(());
+    };
+
+    let (includes_all_components, dst_product_ids) = match &src_min.scope {
+        crate::domain::plan_minimums::MinimumScope::AllComponents => (true, vec![]),
+        crate::domain::plan_minimums::MinimumScope::Products(ids) => {
+            // Keep the scoped products the destination version still has a component for.
+            let dst_products: std::collections::HashSet<_> =
+                dst_components.iter().filter_map(|c| c.product_id).collect();
+            let mapped: Vec<_> = ids
+                .iter()
+                .copied()
+                .filter(|pid| dst_products.contains(pid))
+                .collect();
+            let dropped = ids.len() - mapped.len();
+
+            if mapped.is_empty() {
+                tracing::warn!(
+                    src_plan_version_id = %src_id,
+                    dst_plan_version_id = %dst_id,
+                    dropped,
+                    "All scoped products dropped during plan-version clone; \
+                     widening minimum scope to AllComponents",
+                );
+                (true, vec![])
+            } else {
+                if dropped > 0 {
+                    tracing::warn!(
+                        src_plan_version_id = %src_id,
+                        dst_plan_version_id = %dst_id,
+                        dropped,
+                        "Some scoped products dropped during plan-version clone",
+                    );
+                }
+                (false, mapped)
+            }
+        }
+    };
+
+    PlanVersionAdjustmentRowNew {
+        plan_version_id: dst_id,
+        kind: diesel_models::enums::AdjustmentKindEnum::Minimum,
+        amount_subunit: src_min.amount_subunit,
+        includes_all_components,
+    }
+    .upsert(conn)
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?;
+
+    if !includes_all_components {
+        let rows: Vec<PlanVersionAdjustmentComponentRowNew> = dst_product_ids
+            .into_iter()
+            .map(|product_id| PlanVersionAdjustmentComponentRowNew {
+                plan_version_id: dst_id,
+                kind: diesel_models::enums::AdjustmentKindEnum::Minimum,
+                product_id,
+            })
+            .collect();
+        PlanVersionAdjustmentComponentRow::insert_batch(conn, &rows)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+    }
+
+    Ok(())
+}
+
+impl Store {
+    /// Pausing usage once the credit runs out, or invoicing it up to a cap, is enforced live by
+    /// the usage controls: without them the API refuses such a rule. Stored rules still bill, and
+    /// internal seeding may still write them.
+    pub fn ensure_credit_rule_enforceable(
+        &self,
+        rule: Option<&CreditExhaustedRule>,
+    ) -> StoreResult<()> {
+        match rule {
+            Some(CreditExhaustedRule::Pause | CreditExhaustedRule::InvoiceUpTo { .. })
+                if !self.hooks.credit.available() =>
+            {
+                Err(Report::new(StoreError::InvalidArgument(format!(
+                    "{USAGE_CONTROLS_UNAVAILABLE}: usage beyond the credit can only be invoiced"
+                ))))
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
+/// Credits beyond the balance are invoiced at the price's rate, unless the version pauses usage
+/// once credit runs out: only then may a credit unit price leave its rate empty (zero).
+pub(crate) async fn ensure_rated_beyond_credit(
+    conn: &mut PgConn,
+    version: &PlanVersionRow,
+) -> StoreResult<()> {
+    if version.credit_exhausted_rule != Some(diesel_models::enums::CreditExhaustedRuleEnum::Pause)
+        && PlanVersionRow::has_unrated_credit_price(conn, version.tenant_id, version.id).await?
+    {
+        return Err(Report::new(StoreError::InvalidArgument(
+            "a price in credits needs a price per credit beyond the balance unless usage pauses \
+             once the credit runs out"
+                .to_owned(),
+        )));
+    }
+    Ok(())
+}
+
+pub(crate) async fn load_plan_minimum(
+    conn: &mut PgConn,
+    plan_version_id: PlanVersionId,
+) -> StoreResult<Option<crate::domain::plan_minimums::PlanMinimum>> {
+    use diesel_models::plan_version_adjustments::{
+        PlanVersionAdjustmentComponentRow, PlanVersionAdjustmentRow,
+    };
+
+    let Some(row) = PlanVersionAdjustmentRow::find_by_plan_version_id(conn, &plan_version_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+    else {
+        return Ok(None);
+    };
+
+    let components = if row.includes_all_components {
+        vec![]
+    } else {
+        PlanVersionAdjustmentComponentRow::list_by_plan_version_id(conn, &plan_version_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+    };
+
+    Ok(Some(crate::domain::plan_minimums::PlanMinimum::from_rows(
+        row, components,
+    )))
 }
 
 #[async_trait::async_trait]
@@ -377,6 +557,7 @@ impl PlansInterface for Store {
                         active_version_id,
                         draft_version_id,
                         self_service_rank: None,
+                        issues_license: None,
                     }
                     .update(conn)
                     .await
@@ -428,6 +609,25 @@ impl PlansInterface for Store {
                     }
 
                     let inserted_price_components = all_inserted_components;
+                    if !inserted_plan_version_new.is_draft_version {
+                        PlanVersionRow::settle_credit_exhausted_rule(
+                            conn,
+                            inserted.tenant_id,
+                            inserted_plan_version_new.id,
+                            self.hooks.credit.available(),
+                        )
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                        let row = PlanVersionRow::find_by_id_and_tenant_id(
+                            conn,
+                            inserted_plan_version_new.id,
+                            inserted.tenant_id,
+                        )
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                        ensure_rated_beyond_credit(conn, &row).await?;
+                        inserted_plan_version_new = row.into();
+                    }
 
                     if !version_entitlements.is_empty() {
                         inserted_plan_version_new.entitlements = insert_entitlement_specs(
@@ -497,23 +697,36 @@ impl PlansInterface for Store {
     ) -> StoreResult<PlanWithVersion> {
         let mut conn = self.get_conn().await?;
 
-        PlanRow::get_with_version_by_id(&mut conn, id, auth_tenant_id, version_filter.into())
-            .await
-            .map_err(Into::into)
-            .map(Into::into)
+        let mut plan: PlanWithVersion =
+            PlanRow::get_with_version_by_id(&mut conn, id, auth_tenant_id, version_filter.into())
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into();
+
+        if let Some(version) = plan.version.as_mut() {
+            version.minimum = load_plan_minimum(&mut conn, version.id).await?;
+        }
+
+        Ok(plan)
     }
 
-    async fn get_plan_by_version_id(
+    async fn get_plan_by_version_id_with_conn(
         &self,
+        conn: &mut PgConn,
         id: PlanVersionId,
         auth_tenant_id: TenantId,
     ) -> StoreResult<PlanWithVersion> {
-        let mut conn = self.get_conn().await?;
+        let mut plan: PlanWithVersion =
+            PlanRow::get_with_version_by_version_id(conn, id, auth_tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into();
 
-        PlanRow::get_with_version_by_version_id(&mut conn, id, auth_tenant_id)
-            .await
-            .map_err(Into::into)
-            .map(Into::into)
+        if let Some(version) = plan.version.as_mut() {
+            version.minimum = load_plan_minimum(conn, version.id).await?;
+        }
+
+        Ok(plan)
     }
 
     async fn get_plan_overview(
@@ -683,6 +896,7 @@ impl PlansInterface for Store {
                     active_version_id: None,
                     draft_version_id: Some(None),
                     self_service_rank: None,
+                    issues_license: None,
                 }
                 .update(conn)
                 .await
@@ -714,6 +928,9 @@ impl PlansInterface for Store {
                     currency: original.currency,
                     billing_cycles: original.billing_cycles,
                     uses_product_pricing: true,
+                    tax_inclusive: original.tax_inclusive,
+                    credit_exhausted_rule: original.credit_exhausted_rule,
+                    credit_exhausted_caps: original.credit_exhausted_caps,
                 }
                 .insert(conn)
                 .await
@@ -854,6 +1071,8 @@ impl PlansInterface for Store {
                                     })?,
                                     tenant_id: auth_tenant_id,
                                     catalog: true,
+                                    credit_unit_id: None,
+                                    credit_unit_rate: None,
                                 }
                                 .insert(conn)
                                 .await
@@ -895,6 +1114,20 @@ impl PlansInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
+                // Carry invoice annex bindings forward to the new draft version.
+                diesel_models::invoice_annex_templates::PlanVersionAnnexTemplateRowNew::clone_all(
+                    conn,
+                    original.id,
+                    new.id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+                // Carry the plan minimum forward, remapping component IDs by (name, product_id)
+                // — same mapping strategy used above for plan_component_price.
+                clone_plan_minimum(conn, original.id, new.id, &src_components, &dst_components)
+                    .await?;
+
                 PlanRowPatch {
                     id: original.plan_id,
                     tenant_id: original.tenant_id,
@@ -903,6 +1136,7 @@ impl PlansInterface for Store {
                     active_version_id: None,
                     draft_version_id: Some(Some(new.id)),
                     self_service_rank: None,
+                    issues_license: None,
                 }
                 .update(conn)
                 .await
@@ -922,14 +1156,23 @@ impl PlansInterface for Store {
         auth_tenant_id: TenantId,
     ) -> StoreResult<PlanVersion> {
         let res: PlanVersion = self
-            .transaction(|conn| {
+            .transaction_bumping_tenant(auth_tenant_id, |conn| {
                 let actor = &actor;
                 async move {
                     // TODO validations
                     // - all components on committed must have values for all periods
+                    PlanVersionRow::settle_credit_exhausted_rule(
+                        conn,
+                        auth_tenant_id,
+                        plan_version_id,
+                        self.hooks.credit.available(),
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
                     let published = PlanVersionRow::publish(conn, plan_version_id, auth_tenant_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
+                    ensure_rated_beyond_credit(conn, &published).await?;
 
                     PlanRow::activate(conn, published.plan_id, auth_tenant_id)
                         .await
@@ -943,6 +1186,7 @@ impl PlansInterface for Store {
                         active_version_id: Some(Some(published.id)),
                         draft_version_id: Some(None),
                         self_service_rank: None,
+                        issues_license: None,
                     }
                     .update(conn)
                     .await
@@ -1017,6 +1261,7 @@ impl PlansInterface for Store {
                     active_version_id: None,
                     draft_version_id: Some(None),
                     self_service_rank: None,
+                    issues_license: None,
                 }
                 .update(conn)
                 .await
@@ -1065,22 +1310,19 @@ impl PlansInterface for Store {
         patch: PlanPatch,
     ) -> StoreResult<PlanOverview> {
         let patch: PlanRowPatch = patch.into();
-        let mut changed: Vec<&'static str> = Vec::new();
-        if patch.name.is_some() {
-            changed.push("name");
-        }
-        if patch.description.is_some() {
-            changed.push("description");
-        }
-        if patch.self_service_rank.is_some() {
-            changed.push("self_service_rank");
-        }
 
         self.transaction(|conn| {
             let actor = &actor;
             let patch = &patch;
-            let changed = &changed;
             async move {
+                // Snapshot before the update so the entity.updated audit row records only
+                // fields whose value actually changes — the plan form submits every field.
+                let before: PlanOverview =
+                    PlanRow::get_overview_by_id(conn, patch.id, patch.tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)
+                        .map(Into::into)?;
+
                 let plan = patch
                     .update(conn)
                     .await
@@ -1091,6 +1333,20 @@ impl PlansInterface for Store {
                         .await
                         .map_err(Into::<Report<StoreError>>::into)
                         .map(Into::into)?;
+
+                let mut changed: Vec<&'static str> = Vec::new();
+                if before.name != overview.name {
+                    changed.push("name");
+                }
+                if before.description != overview.description {
+                    changed.push("description");
+                }
+                if before.self_service_rank != overview.self_service_rank {
+                    changed.push("self_service_rank");
+                }
+                if before.issues_license != overview.issues_license {
+                    changed.push("issues_license");
+                }
 
                 if !changed.is_empty() {
                     let activity = Activity::new(
@@ -1145,6 +1401,7 @@ impl PlansInterface for Store {
                     description: patch.description,
                     active_version_id: None,
                     self_service_rank: None,
+                    issues_license: None,
                 }
                 .into();
 
@@ -1181,7 +1438,7 @@ impl PlansInterface for Store {
     }
 
     async fn patch_trial(&self, actor: Actor, patch: TrialPatch) -> StoreResult<PlanWithVersion> {
-        self.transaction(|conn| {
+        self.transaction_bumping_tenant(patch.tenant_id, |conn| {
             let actor = &actor;
             async move {
                 let trial_patch: PlanVersionTrialRowPatch = match patch.trial {
@@ -1382,8 +1639,10 @@ impl PlansInterface for Store {
         price_components: Vec<crate::domain::price_components::PriceComponentNewInternal>,
         add_on_attachments: Vec<crate::domain::plan_version_add_ons::PlanVersionAddOnNew>,
         publish: bool,
+        minimum: Option<crate::domain::plan_minimums::ReplacePlanMinimumInput>,
     ) -> StoreResult<FullPlan> {
         let mut conn = self.get_conn().await?;
+        let version_entitlements = version.entitlements.clone();
 
         // Load plan metadata (version-agnostic) to get draft_version_id and product_family_id
         let plan_overview: PlanOverview =
@@ -1424,8 +1683,10 @@ impl PlansInterface for Store {
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
+        drop(conn);
+
         let res = self
-            .transaction_with(&mut conn, |conn| {
+            .transaction_bumping_tenants(|conn| {
                 let typed_actor = &typed_actor;
                 async move {
                     // Update plan name/description
@@ -1437,6 +1698,7 @@ impl PlansInterface for Store {
                         active_version_id: None,
                         draft_version_id: None,
                         self_service_rank: None,
+                        issues_license: None,
                     }
                     .update(conn)
                     .await
@@ -1452,6 +1714,7 @@ impl PlansInterface for Store {
                             active_version_id: None,
                             draft_version_id: Some(None),
                             self_service_rank: None,
+                            issues_license: None,
                         }
                         .update(conn)
                         .await
@@ -1482,7 +1745,13 @@ impl PlansInterface for Store {
                         .map(Into::into)
                         .map_err(Into::<Report<StoreError>>::into)?;
 
-                    // Insert price components
+                    // Insert price components, capturing name → id mapping for the minimum.
+                    // name -> product_id: the minimum scope is keyed by product, and component
+                    // names are unique within a plan version, so this also serves the dup check.
+                    let mut inserted_components_by_name: std::collections::HashMap<
+                        String,
+                        common_domain::ids::ProductId,
+                    > = std::collections::HashMap::new();
                     for p in &price_components {
                         let (product_id, price_ids) = resolve_component_internal(
                             conn,
@@ -1506,6 +1775,17 @@ impl PlansInterface for Store {
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
 
+                        if inserted_components_by_name
+                            .insert(p.name.clone(), product_id)
+                            .is_some()
+                        {
+                            return Err(Report::new(StoreError::InvalidArgument(format!(
+                                "Duplicate price component name '{}' — names must be unique \
+                                 within a plan version",
+                                p.name
+                            ))));
+                        }
+
                         if !price_ids.is_empty() {
                             let pcp_rows: Vec<PlanComponentPriceRowNew> = price_ids
                                 .iter()
@@ -1515,6 +1795,62 @@ impl PlansInterface for Store {
                                 })
                                 .collect();
                             PlanComponentPriceRowNew::insert_batch(conn, &pcp_rows)
+                                .await
+                                .map_err(Into::<Report<StoreError>>::into)?;
+                        }
+                    }
+
+                    // Persist plan-level minimum commitment if requested.
+                    if let Some(min_input) = minimum.as_ref() {
+                        use crate::domain::plan_minimums::{
+                            PlanMinimumNew, ReplacePlanMinimumScope,
+                        };
+
+                        if min_input.amount_subunit <= 0 {
+                            return Err(Report::new(StoreError::InvalidArgument(
+                                "minimum_commitment.amount_subunit must be > 0".to_string(),
+                            )));
+                        }
+
+                        let scope = match &min_input.scope {
+                            ReplacePlanMinimumScope::AllComponents => {
+                                crate::domain::plan_minimums::MinimumScope::AllComponents
+                            }
+                            ReplacePlanMinimumScope::Products(names) => {
+                                if names.is_empty() {
+                                    return Err(Report::new(StoreError::InvalidArgument(
+                                        "Scope=Components requires at least one component name"
+                                            .to_string(),
+                                    )));
+                                }
+                                let mut ids = Vec::with_capacity(names.len());
+                                for n in names {
+                                    let id = inserted_components_by_name.get(n).ok_or_else(|| {
+                                        Report::new(StoreError::InvalidArgument(format!(
+                                            "minimum_commitment.scope references unknown \
+                                             component '{}'",
+                                            n
+                                        )))
+                                    })?;
+                                    ids.push(*id);
+                                }
+                                crate::domain::plan_minimums::MinimumScope::Products(ids)
+                            }
+                        };
+
+                        let new = PlanMinimumNew {
+                            plan_version_id: inserted_version.id,
+                            amount_subunit: min_input.amount_subunit,
+                            scope,
+                        };
+                        new.to_row()
+                            .upsert(conn)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+                        let comp_rows = new.component_rows();
+                        if !comp_rows.is_empty() {
+                            use diesel_models::plan_version_adjustments::PlanVersionAdjustmentComponentRow;
+                            PlanVersionAdjustmentComponentRow::insert_batch(conn, &comp_rows)
                                 .await
                                 .map_err(Into::<Report<StoreError>>::into)?;
                         }
@@ -1540,11 +1876,35 @@ impl PlansInterface for Store {
                             .map_err(Into::<Report<StoreError>>::into)?;
                     }
 
+                    // Entitlements belong to a version, so a replacement that mints one has to
+                    // carry them over or the new version silently grants nothing.
+                    if !version_entitlements.is_empty() {
+                        insert_entitlement_specs(
+                            conn,
+                            version_entitlements.clone(),
+                            common_domain::ids::EntitlementEntityId::PlanVersion(
+                                inserted_version.id,
+                            ),
+                            tenant_id,
+                        )
+                        .await?;
+                    }
+
                     // Publish or set as draft
                     if publish {
-                        PlanVersionRow::publish(conn, inserted_version.id, tenant_id)
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?;
+                        PlanVersionRow::settle_credit_exhausted_rule(
+                            conn,
+                            tenant_id,
+                            inserted_version.id,
+                            self.hooks.credit.available(),
+                        )
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                        let published =
+                            PlanVersionRow::publish(conn, inserted_version.id, tenant_id)
+                                .await
+                                .map_err(Into::<Report<StoreError>>::into)?;
+                        ensure_rated_beyond_credit(conn, &published).await?;
 
                         PlanRow::activate(conn, plan_id, tenant_id)
                             .await
@@ -1558,6 +1918,7 @@ impl PlansInterface for Store {
                             active_version_id: Some(Some(inserted_version.id)),
                             draft_version_id: Some(None),
                             self_service_rank: None,
+                            issues_license: None,
                         }
                         .update(conn)
                         .await
@@ -1596,13 +1957,15 @@ impl PlansInterface for Store {
                             active_version_id: None,
                             draft_version_id: Some(Some(inserted_version.id)),
                             self_service_rank: None,
+                            issues_license: None,
                         }
                         .update(conn)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
                     }
 
-                    Ok(inserted_version)
+                    // A published version is the active one trialing subscriptions read.
+                    Ok((inserted_version, publish.then_some(tenant_id).into_iter().collect()))
                 }
                 .scope_boxed()
             })
@@ -1639,4 +2002,164 @@ impl PlansInterface for Store {
 
         Ok(full)
     }
+
+    async fn get_plan_minimum(
+        &self,
+        plan_version_id: PlanVersionId,
+        auth_tenant_id: TenantId,
+    ) -> StoreResult<Option<crate::domain::plan_minimums::PlanMinimum>> {
+        let mut conn = self.get_conn().await?;
+        ensure_plan_version_in_tenant(&mut conn, plan_version_id, auth_tenant_id).await?;
+        load_plan_minimum(&mut conn, plan_version_id).await
+    }
+
+    async fn set_plan_minimum(
+        &self,
+        plan_version_id: PlanVersionId,
+        auth_tenant_id: TenantId,
+        amount_subunit: i64,
+        scope: crate::domain::plan_minimums::MinimumScope,
+    ) -> StoreResult<crate::domain::plan_minimums::PlanMinimum> {
+        use crate::domain::plan_minimums::{MinimumScope, PlanMinimumNew};
+        use diesel_models::plan_version_adjustments::PlanVersionAdjustmentComponentRow;
+        use diesel_models::plan_versions::PlanVersionRow;
+
+        // Pre-validate without DB roundtrip; deeper checks happen inside the transaction
+        // under a row lock so we don't race a concurrent publish.
+        if amount_subunit <= 0 {
+            return Err(error_stack::Report::new(StoreError::InvalidArgument(
+                "Minimum amount must be > 0".to_string(),
+            )));
+        }
+        if let MinimumScope::Products(ids) = &scope
+            && ids.is_empty()
+        {
+            return Err(error_stack::Report::new(StoreError::InvalidArgument(
+                "Scope=Products requires at least one product id (use AllComponents \
+                     to include all)."
+                    .to_string(),
+            )));
+        }
+
+        let new = PlanMinimumNew {
+            plan_version_id,
+            amount_subunit,
+            scope: scope.clone(),
+        };
+
+        self.transaction(|conn| {
+            let new = new.clone();
+            let scope = scope.clone();
+            async move {
+                // Lock the plan_version row for the duration of the transaction to prevent
+                // a concurrent `publish_plan_version` from flipping is_draft_version under us.
+                let version = PlanVersionRow::select_for_update_by_id_and_tenant(
+                    conn,
+                    plan_version_id,
+                    auth_tenant_id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+                if !version.is_draft_version {
+                    return Err(Report::new(StoreError::InvalidArgument(
+                        "Cannot edit minimum commitment on a published plan version. Create a \
+                         draft version instead."
+                            .to_string(),
+                    )));
+                }
+
+                // Validate product scope inside the transaction, after the lock.
+                if let MinimumScope::Products(ids) = &scope {
+                    let rows = PriceComponentRow::list_by_plan_version_id(
+                        conn,
+                        auth_tenant_id,
+                        plan_version_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                    let valid: std::collections::HashSet<common_domain::ids::ProductId> =
+                        rows.iter().filter_map(|r| r.product_id).collect();
+                    for id in ids {
+                        if !valid.contains(id) {
+                            return Err(Report::new(StoreError::InvalidArgument(format!(
+                                "Product {} is not used by any component of this plan version",
+                                id
+                            ))));
+                        }
+                    }
+                }
+
+                let row = new.to_row().upsert(conn).await?;
+                PlanVersionAdjustmentComponentRow::delete_by_plan_version_id(
+                    conn,
+                    &plan_version_id,
+                )
+                .await?;
+                let comp_rows = new.component_rows();
+                if !comp_rows.is_empty() {
+                    PlanVersionAdjustmentComponentRow::insert_batch(conn, &comp_rows).await?;
+                }
+                let components = if row.includes_all_components {
+                    vec![]
+                } else {
+                    PlanVersionAdjustmentComponentRow::list_by_plan_version_id(
+                        conn,
+                        &plan_version_id,
+                    )
+                    .await?
+                };
+                Ok(crate::domain::plan_minimums::PlanMinimum::from_rows(
+                    row, components,
+                ))
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+
+    async fn clear_plan_minimum(
+        &self,
+        plan_version_id: PlanVersionId,
+        auth_tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        use diesel_models::plan_version_adjustments::PlanVersionAdjustmentRow;
+        use diesel_models::plan_versions::PlanVersionRow;
+
+        self.transaction(|conn| {
+            async move {
+                let version = PlanVersionRow::select_for_update_by_id_and_tenant(
+                    conn,
+                    plan_version_id,
+                    auth_tenant_id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+                if !version.is_draft_version {
+                    return Err(Report::new(StoreError::InvalidArgument(
+                        "Cannot remove minimum commitment from a published plan version"
+                            .to_string(),
+                    )));
+                }
+
+                PlanVersionAdjustmentRow::delete_by_plan_version_id(conn, &plan_version_id).await?;
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+}
+
+async fn ensure_plan_version_in_tenant(
+    conn: &mut PgConn,
+    plan_version_id: PlanVersionId,
+    auth_tenant_id: TenantId,
+) -> StoreResult<crate::domain::PlanVersion> {
+    use diesel_models::plan_versions::PlanVersionRow;
+    let row = PlanVersionRow::find_by_id_and_tenant_id(conn, plan_version_id, auth_tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    Ok(row.into())
 }

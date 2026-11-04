@@ -1,5 +1,5 @@
 import { create, type MessageInitShape } from '@bufbuild/protobuf';
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query';
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
@@ -7,13 +7,20 @@ import {
   EntitlementDialog,
   EntitlementFormValues,
 } from '@/features/entitlements/EntitlementDialog'
-import { slugifyCode } from '@/features/entitlements/utils'
+import {
+  buildConfigValue,
+  buildMeteredPolicy,
+  configFeatureTypeValue,
+  meteredPolicyToFields,
+  parseConfigMap,
+} from '@/features/entitlements/creation/types'
+import { featureKindFromProto, slugifyCode } from '@/features/entitlements/utils'
 import { useQuery } from '@/lib/connectrpc'
 import {
   createEntitlement,
   createFeature,
+  getFeature,
   listEntitlementsByEntity,
-  listFeatures,
   updateEntitlement,
 } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import {
@@ -22,7 +29,6 @@ import {
   EntitlementEntity,
   EntitlementEntitySchema,
   EntitlementValueSchema,
-  FeatureStatus,
   ResetPeriodSchema,
 } from '@/rpc/api/entitlements/v1/models_pb';
 
@@ -45,9 +51,12 @@ interface Props {
 
 function valueToFormValues(value: EntitlementValue | undefined): Partial<EntitlementFormValues> {
   const v = value?.value
-  const isBoolean = v?.case !== 'meteredValue'
   const metered = v?.case === 'meteredValue' ? v.value : undefined
   const boolVal = v?.case === 'booleanValue' ? v.value : undefined
+  const config = v?.case === 'configValue' ? v.value : undefined
+
+  const featureType: EntitlementFormValues['featureType'] =
+    v?.case === 'meteredValue' ? 'metered' : v?.case === 'configValue' ? 'config' : 'boolean'
 
   const rp = metered?.resetPeriod?.Inner
   const resetPeriodType =
@@ -61,8 +70,12 @@ function valueToFormValues(value: EntitlementValue | undefined): Partial<Entitle
 
   const hasInterval = rp?.case === 'calendar' || rp?.case === 'fixedWindow' || rp?.case === 'slidingWindow'
 
+  const cv = config?.value
+  // A `json` value that is a flat object round-trips through the friendly map editor.
+  const mapEntries = cv?.case === 'json' ? parseConfigMap(cv.value) : null
+
   return {
-    featureType: isBoolean ? 'boolean' : 'metered',
+    featureType,
     boolEnabled: boolVal ? boolVal.enabled : true,
     limit: metered?.limit ?? '',
     resetPeriodType: resetPeriodType as EntitlementFormValues['resetPeriodType'],
@@ -73,26 +86,53 @@ function valueToFormValues(value: EntitlementValue | undefined): Partial<Entitle
       ? (rp as { case: string; value: { interval: number } }).value.interval
       : 1,
     meteredEnabled: metered?.enabled ?? true,
+    groupBy: metered?.groupBy ?? '',
+    ...(metered ? meteredPolicyToFields(metered) : {}),
+    configKind: cv?.case === 'json' ? (mapEntries ? 'map' : 'json') : (cv?.case ?? 'number'),
+    configNumber: cv?.case === 'number' ? cv.value : undefined,
+    configBoolean: cv?.case === 'boolean' ? cv.value : undefined,
+    configText: cv?.case === 'text' ? cv.value : undefined,
+    // Populate both editors' state; the feature's declared type picks which one renders.
+    configJson: cv?.case === 'json' ? cv.value : undefined,
+    configEntries: mapEntries ?? undefined,
   }
 }
 
 function buildValue(
-  isBoolean: boolean,
   data: Pick<
     EntitlementFormValues,
+    | 'featureType'
     | 'boolEnabled'
     | 'limit'
     | 'resetPeriodType'
     | 'resetUnit'
     | 'resetInterval'
     | 'meteredEnabled'
+    | 'groupBy'
+    | 'overageType'
+    | 'gracePct'
+    | 'thresholds'
+    | 'configKind'
+    | 'configNumber'
+    | 'configBoolean'
+    | 'configText'
+    | 'configJson'
+    | 'configEntries'
   >
 ): MessageInitShape<typeof EntitlementValueSchema> {
-  if (isBoolean) {
+  if (data.featureType === 'boolean') {
     return {
       value: {
         case: 'booleanValue' as const,
         value: { enabled: data.boolEnabled ?? true },
+      },
+    }
+  }
+  if (data.featureType === 'config') {
+    return {
+      value: {
+        case: 'configValue' as const,
+        value: buildConfigValue(data),
       },
     }
   }
@@ -114,6 +154,8 @@ function buildValue(
         limit: data.limit || undefined,
         resetPeriod,
         enabled: data.meteredEnabled ?? true,
+        groupBy: data.groupBy?.trim() || undefined,
+        ...buildMeteredPolicy(data),
       },
     },
   }
@@ -132,10 +174,10 @@ export const EntityEntitlementDialog = ({
   const isEdit = !!existing
   const isOverride = !isEdit && !!seedValue
 
-  const featuresQuery = useQuery(listFeatures, { pagination: { page: 0, perPage: 100 }, statuses: [FeatureStatus.ACTIVE] })
-  const featureMap = Object.fromEntries(
-    (featuresQuery.data?.features ?? []).map(f => [f.id, f])
-  )
+  const resolvedFeatureId = featureId ?? existing?.featureId
+  const featureQuery = useQuery(getFeature, resolvedFeatureId ? { id: resolvedFeatureId } : skipToken)
+  const feature = featureQuery.data?.feature
+  const featureMap = feature ? { [feature.id]: feature } : {}
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
@@ -160,26 +202,46 @@ export const EntityEntitlementDialog = ({
     updateMutation.isPending ||
     createFeatureMutation.isPending
 
-  const resolvedFeatureId = featureId ?? existing?.featureId
+  const lockedFeatureType = ((): 'boolean' | 'metered' | 'config' => {
+    if (!resolvedFeatureId) return 'boolean'
+    const ft = featureMap[resolvedFeatureId]?.featureType
+    if (ft) return featureKindFromProto(ft).type
+    if (featureId != null && featureIsMetered) return 'metered'
+    const c = existing?.value?.value?.case ?? seedValue?.value?.case
+    return c === 'meteredValue' ? 'metered' : c === 'configValue' ? 'config' : 'boolean'
+  })()
   const lockedFeature = resolvedFeatureId
     ? {
         id: resolvedFeatureId,
         name: featureMap[resolvedFeatureId]?.name ?? resolvedFeatureId,
-        isMetered: featureId != null
-          ? (featureIsMetered ?? false)
-          : existing?.value?.value?.case === 'meteredValue',
+        featureType: lockedFeatureType,
       }
     : undefined
 
-  const initialValues = existing
+  const featureKind = resolvedFeatureId
+    ? featureKindFromProto(featureMap[resolvedFeatureId]?.featureType)
+    : undefined
+  const featureConfigKind = featureKind?.type === 'config' ? featureKind.valueType : undefined
+  const featureOptions = featureKind?.type === 'config' ? featureKind.options : undefined
+
+  const baseInitialValues = existing
     ? valueToFormValues(existing.value)
     : seedValue
       ? valueToFormValues(seedValue)
       : undefined
+  // The config value type is fixed by the feature — seed it (and select options) so the value
+  // editor matches, overriding whatever kind was inferred from the stored value.
+  const initialValues = featureConfigKind
+    ? {
+        ...(baseInitialValues ?? {}),
+        configKind: featureConfigKind,
+        ...(featureOptions ? { configOptions: featureOptions } : {}),
+      }
+    : baseInitialValues
 
   const handleSubmit = async (data: EntitlementFormValues) => {
     const effectiveFeatureId = data.featureId ?? featureId
-    const value = create(EntitlementValueSchema, buildValue(data.featureType === 'boolean', data))
+    const value = create(EntitlementValueSchema, buildValue(data))
 
     if (isEdit) {
       updateMutation.mutate({
@@ -200,7 +262,17 @@ export const EntityEntitlementDialog = ({
         featureType:
           data.featureType === 'boolean'
             ? { Inner: { case: 'boolean', value: {} } }
-            : { Inner: { case: 'metered', value: { metricId: data.metricId! } } },
+            : data.featureType === 'config'
+              ? {
+                  Inner: {
+                    case: 'config',
+                    value: configFeatureTypeValue(
+                      data.configKind ?? 'number',
+                      data.configOptions ?? []
+                    ),
+                  },
+                }
+              : { Inner: { case: 'metered', value: { metricId: data.metricId! } } },
       })
       createEntitlementMutation.mutate({
         featureId: created.feature!.id,

@@ -1,0 +1,107 @@
+syntax = "proto3";
+
+package meteroid.api.creditunits.v1;
+
+import "api/creditunits/v1/models.proto";
+
+// The tenant's credit unit catalog (S3). Internal, dashboard-only: usage and pricing in a unit
+// are configured elsewhere (prices, credit packs, grants) by referencing its id.
+service CreditUnitsService {
+  rpc ListCreditUnits(ListCreditUnitsRequest) returns (ListCreditUnitsResponse) {}
+  rpc GetCreditUnit(GetCreditUnitRequest) returns (GetCreditUnitResponse) {}
+  rpc CreateCreditUnit(CreateCreditUnitRequest) returns (CreateCreditUnitResponse) {}
+  rpc UpdateCreditUnit(UpdateCreditUnitRequest) returns (UpdateCreditUnitResponse) {}
+  rpc ArchiveCreditUnit(ArchiveCreditUnitRequest) returns (ArchiveCreditUnitResponse) {}
+  // Selling credits: the price of one credit per currency, and the product sales are booked under.
+  rpc ListCreditUnitPrices(ListCreditUnitPricesRequest) returns (ListCreditUnitPricesResponse) {}
+  rpc SetCreditUnitPrice(SetCreditUnitPriceRequest) returns (SetCreditUnitPriceResponse) {}
+  rpc ArchiveCreditUnitPrice(ArchiveCreditUnitPriceRequest) returns (ArchiveCreditUnitPriceResponse) {}
+  rpc SetCreditUnitProduct(SetCreditUnitProductRequest) returns (SetCreditUnitProductResponse) {}
+}
+
+message ListCreditUnitsRequest {
+  bool include_archived = 1;
+}
+message ListCreditUnitsResponse {
+  repeated CreditUnit units = 1;
+}
+
+message GetCreditUnitRequest {
+  string id = 1;
+}
+message GetCreditUnitResponse {
+  CreditUnit unit = 1;
+}
+
+message CreateCreditUnitRequest {
+  // Immutable once created: 4-16 chars, A-Z/0-9/_, starting with a letter. Never an ISO currency
+  // code (those are always 3 letters).
+  string code = 1;
+  string name = 2;
+  string plural_name = 3;
+  optional string symbol = 4;
+  // Immutable once created: 0 to 6.
+  int32 precision = 5;
+}
+message CreateCreditUnitResponse {
+  CreditUnit unit = 1;
+}
+
+// `code` and `precision` have no field here: they are immutable. Each optional field left unset
+// leaves that property unchanged; `symbol` set to the empty string clears it.
+message UpdateCreditUnitRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string plural_name = 3;
+  optional string symbol = 4;
+}
+message UpdateCreditUnitResponse {
+  CreditUnit unit = 1;
+}
+
+// Archiving blocks the unit from new prices, packs and grants; existing ones keep resolving it.
+message ArchiveCreditUnitRequest {
+  string id = 1;
+}
+message ArchiveCreditUnitResponse {
+  CreditUnit unit = 1;
+}
+
+// Every price of the unit, archived ones included when asked, newest first per currency.
+message ListCreditUnitPricesRequest {
+  string credit_unit_id = 1;
+  bool include_archived = 2;
+}
+message ListCreditUnitPricesResponse {
+  repeated CreditUnitPrice prices = 1;
+}
+
+// Replaces the unit's price in `currency`; the previous one is archived.
+message SetCreditUnitPriceRequest {
+  string credit_unit_id = 1;
+  string currency = 2;
+  // Major units of `currency` per credit, as a decimal string; positive, at most 12 decimals.
+  string unit_price = 3;
+}
+message SetCreditUnitPriceResponse {
+  CreditUnit unit = 1;
+}
+
+// The unit stops selling in that currency (top-ups and automatic top-ups included) until a new
+// price is set.
+message ArchiveCreditUnitPriceRequest {
+  string credit_unit_id = 1;
+  string price_id = 2;
+}
+message ArchiveCreditUnitPriceResponse {
+  CreditUnit unit = 1;
+}
+
+// Unset clears the product, which stops the unit from being sold.
+message SetCreditUnitProductRequest {
+  string credit_unit_id = 1;
+  optional string product_id = 2;
+}
+message SetCreditUnitProductResponse {
+  CreditUnit unit = 1;
+}

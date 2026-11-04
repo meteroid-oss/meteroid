@@ -1,8 +1,2 @@
-event_code,customer_id,timestamp,value,projectid
-api_calls,cobalt-industries,2026-03-03T10:00:00Z,1030,projectA
-api_calls,cobalt-industries,2026-03-04T10:00:00Z,2132,projectA
-api_calls,cobalt-industries,2026-03-05T10:00:00Z,104,projectA
-api_calls,cobalt-industries,2026-03-06T10:00:00Z,4112,projectA
-api_calls,cobalt-industries,2026-03-07T10:00:00Z,605,projectA
-api_calls,cobalt-industries,2026-03-08T10:00:00Z,905,projectA
-api_calls,cobalt-industries,2026-03-09T02:00:00Z,6103,projectA
+event_code,customer_id,timestamp,value,region
+ai_actions,harbor-digital,2026-08-01T10:00:00Z,1030,us-east

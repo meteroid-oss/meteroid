@@ -206,7 +206,7 @@
   {
     "code": "BY",
     "name": "Belarus",
-    "currency": "BYR",
+    "currency": "BYN",
     "locale": "be-BY"
   },
   {
@@ -249,7 +249,7 @@
     "code": "CH",
     "name": "Switzerland",
     "currency": "CHF",
-    "locale": "fr-CH"
+    "locale": "de-CH"
   },
   {
     "code": "CI",
@@ -578,7 +578,7 @@
   {
     "code": "HR",
     "name": "Croatia",
-    "currency": "HRK",
+    "currency": "EUR",
     "locale": "hr-HR"
   },
   {
@@ -896,7 +896,7 @@
   {
     "code": "MR",
     "name": "Mauritania",
-    "currency": "MRO",
+    "currency": "MRU",
     "locale": "ar"
   },
   {

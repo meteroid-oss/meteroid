@@ -8,7 +8,8 @@ use crate::meteroid_it::container::SeedLevel;
 async fn test_instance() {
     // Generic setup
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::MINIMAL).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
@@ -49,6 +50,7 @@ async fn test_instance() {
             zip_code: None,
             state: None,
             city: None,
+            invoicing_language: None,
         })
         .await;
 

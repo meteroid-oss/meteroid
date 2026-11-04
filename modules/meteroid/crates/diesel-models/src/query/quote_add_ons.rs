@@ -2,7 +2,7 @@ use crate::errors::IntoDbResult;
 use crate::quote_add_ons::{QuoteAddOnRow, QuoteAddOnRowNew};
 use crate::{DbResult, PgConn};
 use common_domain::ids::{AddOnId, ProductId, QuoteId, TenantId};
-use diesel::{ExpressionMethods, QueryDsl, debug_query};
+use diesel::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
 
 impl QuoteAddOnRowNew {
@@ -12,7 +12,7 @@ impl QuoteAddOnRowNew {
 
         let query = diesel::insert_into(quote_add_on).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -30,7 +30,7 @@ impl QuoteAddOnRowNew {
 
         let query = diesel::insert_into(quote_add_on).values(rows);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -60,7 +60,7 @@ impl QuoteAddOnRow {
             .filter(q_dsl::tenant_id.eq(tenant_id))
             .select(qao_dsl::add_on_id);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -91,7 +91,7 @@ impl QuoteAddOnRow {
             .filter(not(qao_dsl::product_id.is_null()))
             .select(qao_dsl::product_id);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         let rows: Vec<Option<ProductId>> = query
             .get_results(conn)
@@ -113,7 +113,7 @@ impl QuoteAddOnRow {
             .filter(quote_id.eq(param_quote_id))
             .order(id.asc());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -128,7 +128,7 @@ impl QuoteAddOnRow {
 
         let query = diesel::delete(quote_add_on.filter(quote_id.eq(param_quote_id)));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)

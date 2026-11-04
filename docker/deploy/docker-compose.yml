@@ -86,7 +86,8 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_coordination:/var/lib/clickhouse/coordination
-      - ./volume/clickhouse/config.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ./volume/clickhouse/config.xml:/etc/clickhouse-server/config.d/cluster.xml:ro,z
+      - ./volume/clickhouse/users.xml:/etc/clickhouse-server/users.d/named-collections.xml:ro,z
     networks:
       - meteroid_net
     logging: *logging
@@ -134,7 +135,7 @@ services:
   ### Meteroid Application Services
 
   meteroid-api:
-    image: ghcr.io/meteroid-oss/meteroid-api:latest
+    image: ghcr.io/meteroid-oss/meteroid-api:${METEROID_VERSION:-latest}
     depends_on:
       meteroid-db:
         condition: service_healthy
@@ -153,15 +154,19 @@ services:
       - METERING_API_EXTERNAL_URL=http://metering-api:50062
       - ENABLE_MULTI_ORGANIZATION=${ENABLE_MULTI_ORGANIZATION:-false}
       - METEROID_PUBLIC_URL=${METEROID_PUBLIC_URL:-http://localhost:3000}
+      - METEROID_REST_API_EXTERNAL_URL=${VITE_METEROID_REST_API_EXTERNAL_URL:-http://localhost:8084}
       - OBJECT_STORE_URI=${OBJECT_STORE_URI:-file:///data/object-store}
-      - SVIX_JWT_TOKEN=${SVIX_JWT_TOKEN:-}
+      # Anonymous daily usage report, see docs.meteroid.com/self-hosting/telemetry. Uncomment to turn it off.
+      # - METEROID_TELEMETRY=off
+      - METEROID_DEPLOYMENT=docker-compose
     #      # S3/MinIO configuration (only needed if using s3:// OBJECT_STORE_URI)
     #      - AWS_ALLOW_HTTP=${AWS_ALLOW_HTTP:-}
     #      - AWS_ENDPOINT=${AWS_ENDPOINT:-}
     #      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
     #      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
-    #      # Optional: Webhook support via Svix
-    #      - SVIX_SERVER_URL=${SVIX_SERVER_URL:-}
+    #      # Optional: Redis, rate limits and caches shared across replicas
+    #      - REDIS_URL=${REDIS_URL:-}
+    #      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     #      # Optional: OAuth
     #      - OAUTH_GOOGLE_CLIENT_ID=${OAUTH_GOOGLE_CLIENT_ID:-}
     #      - OAUTH_GOOGLE_CLIENT_SECRET=${OAUTH_GOOGLE_CLIENT_SECRET:-}
@@ -171,6 +176,16 @@ services:
     #      - MAILER_SMTP_PASSWORD=${MAILER_SMTP_PASSWORD:-}
     #      - MAILER_SMTP_TLS=${MAILER_SMTP_TLS:-false}
     #      - MAILER_FROM=${MAILER_FROM:-}
+    #      - MAILER_CUSTOMER_FROM_ADDR=${MAILER_CUSTOMER_FROM_ADDR:-}
+    #      - MAILER_REPLY_TO=${MAILER_REPLY_TO:-}
+    #      # Optional: outbound webhooks and alerts
+    #      - WEBHOOK_ALLOW_PRIVATE_DESTINATIONS=${WEBHOOK_ALLOW_PRIVATE_DESTINATIONS:-false}
+    #      - WEBHOOK_EGRESS_PROXY_URL=${WEBHOOK_EGRESS_PROXY_URL:-}
+    #      - EGRESS_USE_PROXY_SSO=${EGRESS_USE_PROXY_SSO:-false}
+    #      - WEBHOOK_DELIVERY_CONCURRENCY=${WEBHOOK_DELIVERY_CONCURRENCY:-32}
+    #      - WEBHOOK_RETENTION_DAYS=${WEBHOOK_RETENTION_DAYS:-30}
+    #      # Optional: name shown in authenticator apps
+    #      - METEROID_MFA_ISSUER=${METEROID_MFA_ISSUER:-Meteroid}
     #      # Optional: Telemetry
     #      - TELEMETRY_TRACING_ENABLED=${TELEMETRY_TRACING_ENABLED:-false}
     #      - TELEMETRY_METRICS_ENABLED=${TELEMETRY_METRICS_ENABLED:-false}
@@ -186,8 +201,8 @@ services:
       - meteroid_net
     logging: *logging
 
-  meteroid-scheduler:
-    image: ghcr.io/meteroid-oss/meteroid-scheduler:latest
+  meteroid-worker:
+    image: ghcr.io/meteroid-oss/meteroid-worker:${METEROID_VERSION:-latest}
     depends_on:
       meteroid-db:
         condition: service_healthy
@@ -203,15 +218,19 @@ services:
       - METERING_API_EXTERNAL_URL=http://metering-api:50062
       - ENABLE_MULTI_ORGANIZATION=${ENABLE_MULTI_ORGANIZATION:-false}
       - METEROID_PUBLIC_URL=${METEROID_PUBLIC_URL:-http://localhost:3000}
+      - METEROID_REST_API_EXTERNAL_URL=${VITE_METEROID_REST_API_EXTERNAL_URL:-http://localhost:8084}
       - OBJECT_STORE_URI=${OBJECT_STORE_URI:-file:///data/object-store}
-      - SVIX_JWT_TOKEN=${SVIX_JWT_TOKEN:-}
+      # Anonymous daily usage report, see docs.meteroid.com/self-hosting/telemetry. Uncomment to turn it off.
+      # - METEROID_TELEMETRY=off
+      - METEROID_DEPLOYMENT=docker-compose
     #      # S3/MinIO configuration (only needed if using s3:// OBJECT_STORE_URI)
     #      - AWS_ALLOW_HTTP=${AWS_ALLOW_HTTP:-}
     #      - AWS_ENDPOINT=${AWS_ENDPOINT:-}
     #      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
     #      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
-    #      # Optional: Webhook support via Svix
-    #      - SVIX_SERVER_URL=${SVIX_SERVER_URL:-}
+    #      # Optional: Redis, rate limits and caches shared across replicas
+    #      - REDIS_URL=${REDIS_URL:-}
+    #      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     #      # Optional: OAuth
     #      - OAUTH_GOOGLE_CLIENT_ID=${OAUTH_GOOGLE_CLIENT_ID:-}
     #      - OAUTH_GOOGLE_CLIENT_SECRET=${OAUTH_GOOGLE_CLIENT_SECRET:-}
@@ -221,16 +240,28 @@ services:
     #      - MAILER_SMTP_PASSWORD=${MAILER_SMTP_PASSWORD:-}
     #      - MAILER_SMTP_TLS=${MAILER_SMTP_TLS:-false}
     #      - MAILER_FROM=${MAILER_FROM:-}
+    #      - MAILER_CUSTOMER_FROM_ADDR=${MAILER_CUSTOMER_FROM_ADDR:-}
+    #      - MAILER_REPLY_TO=${MAILER_REPLY_TO:-}
+    #      # Optional: outbound webhooks and alerts
+    #      - WEBHOOK_ALLOW_PRIVATE_DESTINATIONS=${WEBHOOK_ALLOW_PRIVATE_DESTINATIONS:-false}
+    #      - WEBHOOK_EGRESS_PROXY_URL=${WEBHOOK_EGRESS_PROXY_URL:-}
+    #      - EGRESS_USE_PROXY_SSO=${EGRESS_USE_PROXY_SSO:-false}
+    #      - WEBHOOK_DELIVERY_CONCURRENCY=${WEBHOOK_DELIVERY_CONCURRENCY:-32}
+    #      - WEBHOOK_RETENTION_DAYS=${WEBHOOK_RETENTION_DAYS:-30}
+    #      # Optional: name shown in authenticator apps
+    #      - METEROID_MFA_ISSUER=${METEROID_MFA_ISSUER:-Meteroid}
     #      # Optional: Telemetry
     #      - TELEMETRY_TRACING_ENABLED=${TELEMETRY_TRACING_ENABLED:-false}
     #      - TELEMETRY_METRICS_ENABLED=${TELEMETRY_METRICS_ENABLED:-false}
     #      - TELEMETRY_OTEL_ENDPOINT=${TELEMETRY_OTEL_ENDPOINT:-}
+    volumes:
+      - object_store_data:/data/object-store
     networks:
       - meteroid_net
     logging: *logging
 
   metering-api:
-    image: ghcr.io/meteroid-oss/metering-api:latest
+    image: ghcr.io/meteroid-oss/metering-api:${METEROID_VERSION:-latest}
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -259,7 +290,7 @@ services:
     logging: *logging
 
   meteroid-web:
-    image: ghcr.io/meteroid-oss/meteroid-web:latest
+    image: ghcr.io/meteroid-oss/meteroid-web:${METEROID_VERSION:-latest}
     depends_on:
       meteroid-api:
         condition: service_healthy

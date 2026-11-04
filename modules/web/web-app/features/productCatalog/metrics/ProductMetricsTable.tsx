@@ -15,6 +15,7 @@ import { FC, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { Gate } from '@/components/Gate'
 import { StandardTable } from '@/components/table/StandardTable'
 import { BillableMetricStatusBadge } from '@/features/productCatalog/metrics/BillableMetricStatusBadge'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
@@ -163,7 +164,8 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
               cell: ({ row }: { row: { original: BillableMetricMeta } }) => {
                 const isArchived = !!row.original.archivedAt
                 return (
-                  <DropdownMenu>
+                  <Gate perm="catalog:manage">
+                    <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" size="sm">
                         <MoreVerticalIcon size={16} />
@@ -201,7 +203,8 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
                         </DropdownMenuItem>
                       )}
                     </DropdownMenuContent>
-                  </DropdownMenu>
+                    </DropdownMenu>
+                  </Gate>
                 )
               },
             },
@@ -213,6 +216,7 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
 
   return (
     <StandardTable
+      tableKey="product_metrics"
       columns={columns}
       data={data}
       sortable={true}

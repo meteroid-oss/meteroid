@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+package meteroid.api.invoiceannextemplates.v1;
+
+message AnnexTemplate {
+  string id = 1;
+  string name = 2;
+  AnnexDefinition definition = 3;
+}
+
+message AnnexTemplateData {
+  string name = 1;
+  AnnexDefinition definition = 2;
+}
+
+// The typed annex definition. Its kind is carried by the oneof rather than a separate field.
+message AnnexDefinition {
+  oneof definition {
+    EventTableDefinition event_table = 1;
+    StaticTextDefinition static_text = 2;
+  }
+}
+
+message EventTableDefinition {
+  string title = 1;
+  optional string description = 2;
+  EventSource source = 3;
+  repeated AnnexColumn columns = 4;
+  // When non-empty, the annex switches to aggregated mode: events sharing the same value for every
+  // listed property collapse into a single row. When empty, every event is listed individually.
+  repeated string aggregate_by = 5;
+  // Property names used to group rows (headings in per-event mode, subtotal groups in aggregated mode).
+  repeated string group_by = 6;
+  // Property names used to order rows (ascending), applied before grouping.
+  repeated string sort_by = 7;
+  // Aggregated mode only: emit a subtotal row at the end of each group_by group.
+  bool show_group_subtotals = 8;
+  // Aggregated mode only: emit a grand total row at the end of the table.
+  bool show_total = 9;
+}
+
+message EventSource {
+  repeated string event_codes = 1;
+}
+
+message AnnexColumn {
+  string label = 1;
+  ColumnSource source = 2;
+  optional ColumnTransform transform = 3;
+  // Aggregated mode only: how this column collapses the events of a row. Absent defaults to FIRST.
+  optional ColumnAggregation aggregation = 4;
+}
+
+enum ColumnSourceKind {
+  COLUMN_SOURCE_KIND_UNSPECIFIED = 0;
+  COLUMN_SOURCE_KIND_PROPERTY = 1;
+  COLUMN_SOURCE_KIND_TIMESTAMP = 2;
+  COLUMN_SOURCE_KIND_BILLED_PRICE = 3;
+}
+
+message ColumnSource {
+  ColumnSourceKind kind = 1;
+  // Event property name; set iff kind == COLUMN_SOURCE_KIND_PROPERTY.
+  optional string property = 2;
+}
+
+message ColumnTransform {
+  oneof transform {
+    // chrono strftime format applied to a timestamp source (e.g. "%Y/%m").
+    string timestamp_format = 1;
+  }
+}
+
+enum ColumnAggregation {
+  COLUMN_AGGREGATION_UNSPECIFIED = 0;
+  COLUMN_AGGREGATION_FIRST = 1;
+  COLUMN_AGGREGATION_COUNT = 2;
+  COLUMN_AGGREGATION_SUM = 3;
+  COLUMN_AGGREGATION_PERIOD_RANGE = 4;
+  COLUMN_AGGREGATION_BILLED_AMOUNT = 5;
+}
+
+message StaticTextDefinition {
+  string title = 1;
+  optional string description = 2;
+}

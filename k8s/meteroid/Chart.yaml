@@ -1,14 +1,7 @@
 apiVersion: v2
 name: meteroid
 description: Helm chart for Meteroid
-version: 0.1.0
+# Set from the release tag when the chart is published
+version: 0.0.0
+appVersion: tip
 type: application
-dependencies:
-  - name: postgresql
-    version: "16.x.x"
-    repository: https://charts.bitnami.com/bitnami
-    condition: postgresql.enabled
-  - name: kafka
-    version: "31.3.1"
-    repository: https://charts.bitnami.com/bitnami
-    condition: kafka.enabled

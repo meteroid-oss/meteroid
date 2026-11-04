@@ -1,0 +1,10 @@
+<clickhouse>
+  <!-- named_collection_control lets the analytics V11 migration run
+       CREATE NAMED COLLECTION. It is a per-user flag that must live in users.d;
+       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT only covers access_management. -->
+  <users>
+    <default>
+      <named_collection_control>1</named_collection_control>
+    </default>
+  </users>
+</clickhouse>

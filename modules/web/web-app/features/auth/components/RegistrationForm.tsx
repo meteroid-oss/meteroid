@@ -21,6 +21,7 @@ export const RegistrationForm = ({ invite }: { invite?: string }) => {
   const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
   const returnUrl = searchParams.get('returnUrl')
+  const signupSource = searchParams.get('source') ?? undefined
 
   const { data: inviteData } = useQuery(
     getInviteDetails,
@@ -63,6 +64,7 @@ export const RegistrationForm = ({ invite }: { invite?: string }) => {
     const res = await registerMut.mutateAsync({
       email: data.email,
       inviteKey: invite,
+      signupSource,
     })
 
     if (returnUrl && returnUrl.startsWith('/')) {

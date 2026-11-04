@@ -15,6 +15,10 @@ message User {
   optional string last_name = 4;
   optional string department = 5;
   bool onboarded = 6;
+  bool mfa_enabled = 7;
+  // Opaque per-user preferences, serialized as a JSON object. Shaped and owned
+  // by the frontend (e.g. changelog seen watermark, table column ordering).
+  string preferences = 8;
 }
 
 message UserWithRole {
@@ -25,4 +29,8 @@ message UserWithRole {
   optional string department = 5;
   bool onboarded = 6;
   OrganizationUserRole role = 7;
+  bool mfa_enabled = 8;
+  // Custom role assigned on top of the MEMBER tier, if any. Absent for admins
+  // and for members on the built-in default.
+  optional string custom_role_id = 9;
 }

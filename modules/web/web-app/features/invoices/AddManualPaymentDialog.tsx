@@ -11,6 +11,7 @@ import {
   Label,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
+import { format, formatISO } from 'date-fns'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -74,7 +75,8 @@ export const AddManualPaymentDialog: React.FC<AddManualPaymentDialogProps> = ({
       await addPaymentMutation.mutateAsync({
         invoiceId,
         amount,
-        paymentDate: paymentDate ? paymentDate : undefined,
+        // With the operator's UTC offset: the server refuses a date later than their today.
+        paymentDate: paymentDate ? formatISO(new Date(paymentDate)) : undefined,
         reference: reference || undefined,
       })
 
@@ -143,7 +145,8 @@ export const AddManualPaymentDialog: React.FC<AddManualPaymentDialogProps> = ({
               id="paymentDate"
               type="datetime-local"
               value={paymentDate}
-              onChange={e => setPaymentDate(e.target.value + ':00')}
+              max={format(new Date(), "yyyy-MM-dd'T'23:59")}
+              onChange={e => setPaymentDate(e.target.value)}
               placeholder="Leave empty for current date/time"
             />
             <p className="text-xs text-muted-foreground">

@@ -15,6 +15,9 @@ pub struct RawEvent {
     pub timestamp: NaiveDateTime,
     pub ingested_at: NaiveDateTime,
     pub properties: HashMap<String, String>,
+    /// Kafka-only: the tenant keeps the last copy of an id, so the consumer skips dedup.
+    #[serde(default)]
+    pub keep_last: bool,
 }
 
 impl RawEvent {

@@ -53,6 +53,23 @@ pub struct RequestError {
 
     /// For card errors, a value describing the kind of card error that occurred.
     pub code: Option<String>,
+
+    /// For card declines, the issuer's reason (e.g. `insufficient_funds`).
+    #[serde(default)]
+    pub decline_code: Option<String>,
+
+    /// Stripe's retry advice for a declined card (e.g. `do_not_try_again`).
+    #[serde(default)]
+    pub advice_code: Option<String>,
+
+    /// The PaymentIntent the error relates to, when Stripe created one (e.g. a declined confirm).
+    #[serde(default)]
+    pub payment_intent: Option<ErrorPaymentIntent>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct ErrorPaymentIntent {
+    pub id: String,
 }
 
 /// The structure of the json body when an error is included in

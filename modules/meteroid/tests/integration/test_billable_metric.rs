@@ -8,7 +8,8 @@ use crate::meteroid_it::container::SeedLevel;
 async fn test_billable_metrics_basic() {
     // Generic setup
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::MINIMAL).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
@@ -56,8 +57,10 @@ async fn test_billable_metrics_basic() {
             }),
             segmentation_matrix: None, // todo add
             usage_group_key: Some("usage".to_string()),
+            unit_label: None,
             family_local_id: family.local_id.clone(),
             product_id: None,
+            filters: vec![],
         })
         .await
         .unwrap()

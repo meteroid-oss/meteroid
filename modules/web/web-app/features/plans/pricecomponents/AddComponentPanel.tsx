@@ -14,6 +14,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { CustomCreationFlow, IdentitySchema } from '@/features/addons/CustomCreationFlow'
 import { usePlanWithVersion } from '@/features/plans/hooks/usePlan'
@@ -26,6 +27,7 @@ import {
   wrapAsNewPriceEntries,
 } from '@/features/pricing/conversions'
 import { useZodForm } from '@/hooks/useZodForm'
+import { rpcErrorMessage } from '@/lib/rpcError'
 import { getResolvedEntitlementsForPlanVersion } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import {
   createPriceComponent,
@@ -70,6 +72,7 @@ export const AddComponentPanel = () => {
       }) })
       navigate('..')
     },
+    onError: error => toast.error(rpcErrorMessage(error, 'The price component could not be added')),
   })
 
   // Handle adding an existing product

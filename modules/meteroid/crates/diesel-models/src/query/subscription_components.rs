@@ -5,7 +5,6 @@ use crate::subscription_components::{SubscriptionComponentRow, SubscriptionCompo
 use crate::{DbResult, PgConn};
 
 use chrono::NaiveDate;
-use diesel::debug_query;
 use error_stack::ResultExt;
 
 use common_domain::ids::{
@@ -21,7 +20,7 @@ impl SubscriptionComponentRowNew {
 
         let query = diesel::insert_into(subscription_component).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -41,7 +40,7 @@ impl SubscriptionComponentRow {
 
         let query = diesel::insert_into(subscription_component).values(batch);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -53,6 +52,47 @@ impl SubscriptionComponentRow {
     /// Fetch the lineage root for a set of component ids. Returns `(id, lineage_id)`
     /// pairs; a `None` lineage_id means the row is its own root. Used to match an
     /// amendment credit to the originally-billed invoice line across overrides.
+    pub async fn subscription_of(
+        conn: &mut PgConn,
+        id: SubscriptionPriceComponentId,
+    ) -> DbResult<Option<SubscriptionId>> {
+        use crate::schema::subscription_component::dsl as d;
+        use diesel::OptionalExtension;
+        use diesel_async::RunQueryDsl;
+
+        d::subscription_component
+            .filter(d::id.eq(id))
+            .select(d::subscription_id)
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while reading a subscription component's subscription")
+            .into_db_result()
+    }
+
+    /// When the lineage `root` (the component and those continuing it) stopped: the latest end
+    /// of its rows, or none while one is still active.
+    pub async fn lineage_ended_on(
+        conn: &mut PgConn,
+        root: SubscriptionPriceComponentId,
+    ) -> DbResult<Option<NaiveDate>> {
+        use crate::schema::subscription_component::dsl as d;
+        use diesel_async::RunQueryDsl;
+
+        let ends: Vec<Option<NaiveDate>> = d::subscription_component
+            .filter(d::id.eq(root).or(d::lineage_id.eq(root)))
+            .select(d::effective_to)
+            .load(conn)
+            .await
+            .attach("Error while reading a subscription component lineage's end")
+            .into_db_result()?;
+        Ok(if ends.iter().any(Option::is_none) {
+            None
+        } else {
+            ends.into_iter().flatten().max()
+        })
+    }
+
     pub async fn find_lineage_by_ids(
         conn: &mut PgConn,
         ids: &[SubscriptionPriceComponentId],
@@ -73,7 +113,7 @@ impl SubscriptionComponentRow {
             .filter(d::id.eq_any(ids))
             .select((d::id, d::lineage_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -97,7 +137,7 @@ impl SubscriptionComponentRow {
             .filter(subscription_component_dsl::effective_to.is_null())
             .select(SubscriptionComponentRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -121,7 +161,7 @@ impl SubscriptionComponentRow {
             .filter(subscription_component_dsl::effective_to.is_null())
             .select(SubscriptionComponentRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         let res: Vec<SubscriptionComponentRow> = query
             .get_results(conn)
@@ -131,6 +171,33 @@ impl SubscriptionComponentRow {
 
         let grouped = res.into_iter().into_group_map_by(|c| c.subscription_id);
         Ok(grouped)
+    }
+
+    /// Every component of the subscriptions, closed ones included.
+    pub async fn list_all_by_subscriptions(
+        conn: &mut PgConn,
+        tenant_id_param: TenantId,
+        subscription_ids: &[SubscriptionId],
+    ) -> DbResult<Vec<SubscriptionComponentRow>> {
+        use crate::schema::subscription_component::dsl as subscription_component_dsl;
+        use diesel_async::RunQueryDsl;
+
+        if subscription_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let query = subscription_component_dsl::subscription_component
+            .filter(subscription_component_dsl::subscription_id.eq_any(subscription_ids))
+            .inner_join(crate::schema::subscription::table)
+            .filter(crate::schema::subscription::tenant_id.eq(tenant_id_param))
+            .select(SubscriptionComponentRow::as_select());
+
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing every component of subscriptions")
+            .into_db_result()
     }
 
     pub async fn list_by_product_id(
@@ -148,7 +215,7 @@ impl SubscriptionComponentRow {
             .filter(sc_dsl::effective_to.is_null())
             .select(SubscriptionComponentRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -183,7 +250,7 @@ impl SubscriptionComponentRow {
             .filter(sc_dsl::effective_to.is_null())
             .select(count(sc_dsl::subscription_id).aggregate_distinct());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -214,7 +281,7 @@ impl SubscriptionComponentRow {
                 sc_dsl::period.eq(new_period),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -237,7 +304,7 @@ impl SubscriptionComponentRow {
 
         let query = diesel::delete(sc_dsl::subscription_component).filter(sc_dsl::id.eq_any(ids));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -265,7 +332,7 @@ impl SubscriptionComponentRow {
             .filter(sc_dsl::effective_to.is_null())
             .set(sc_dsl::effective_to.eq(effective_to));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -296,7 +363,7 @@ impl SubscriptionComponentRow {
             )
             .select(SubscriptionComponentRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -328,7 +395,7 @@ impl SubscriptionComponentRow {
             .filter(not(sc_dsl::product_id.is_null()))
             .select(sc_dsl::product_id);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         let rows: Vec<Option<ProductId>> = query
             .get_results(conn)
@@ -337,5 +404,79 @@ impl SubscriptionComponentRow {
             .into_db_result()?;
 
         Ok(rows.into_iter().flatten().collect())
+    }
+}
+
+impl SubscriptionComponentRow {
+    /// The subscription of each of `ids` that belongs to the tenant, historical rows included.
+    pub async fn subscription_ids_by_ids(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        ids: &[SubscriptionPriceComponentId],
+    ) -> DbResult<HashMap<SubscriptionPriceComponentId, SubscriptionId>> {
+        use crate::schema::subscription::dsl as s;
+        use crate::schema::subscription_component::dsl as d;
+        use diesel::JoinOnDsl;
+        use diesel_async::RunQueryDsl;
+
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        d::subscription_component
+            .inner_join(s::subscription.on(s::id.eq(d::subscription_id)))
+            .filter(s::tenant_id.eq(tenant_id))
+            .filter(d::id.eq_any(ids))
+            .select((d::id, d::subscription_id))
+            .load::<(SubscriptionPriceComponentId, SubscriptionId)>(conn)
+            .await
+            .attach("Error while reading the subscriptions of components")
+            .into_db_result()
+            .map(|rows| rows.into_iter().collect())
+    }
+
+    /// Of these components and add-ons, the ones whose fee is a one-time (`once`) credit pack.
+    pub async fn once_credit_of(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        components: &[SubscriptionPriceComponentId],
+        add_ons: &[common_domain::ids::SubscriptionAddOnId],
+    ) -> DbResult<std::collections::HashSet<uuid::Uuid>> {
+        use diesel::sql_types;
+        use diesel_async::RunQueryDsl;
+
+        #[derive(diesel::QueryableByName)]
+        struct Once {
+            #[diesel(sql_type = sql_types::Uuid)]
+            id: uuid::Uuid,
+        }
+
+        if components.is_empty() && add_ons.is_empty() {
+            return Ok(std::collections::HashSet::new());
+        }
+        let components: Vec<uuid::Uuid> = components.iter().map(|id| **id).collect();
+        let add_ons: Vec<uuid::Uuid> = add_ons.iter().map(|id| **id).collect();
+        diesel::sql_query(
+            r#"
+            SELECT sc.id
+            FROM subscription_component sc
+            JOIN subscription s ON s.id = sc.subscription_id
+            WHERE s.tenant_id = $1 AND sc.id = ANY($2)
+              AND sc.legacy_fee @> '{"Credit": {"once": true}}'
+            UNION ALL
+            SELECT sa.id
+            FROM subscription_add_on sa
+            JOIN subscription s ON s.id = sa.subscription_id
+            WHERE s.tenant_id = $1 AND sa.id = ANY($3)
+              AND sa.legacy_fee @> '{"Credit": {"once": true}}'
+            "#,
+        )
+        .bind::<sql_types::Uuid, _>(tenant_id)
+        .bind::<sql_types::Array<sql_types::Uuid>, _>(components)
+        .bind::<sql_types::Array<sql_types::Uuid>, _>(add_ons)
+        .load::<Once>(conn)
+        .await
+        .attach("Error while reading the one-time credit packs of components")
+        .into_db_result()
+        .map(|rows| rows.into_iter().map(|row| row.id).collect())
     }
 }

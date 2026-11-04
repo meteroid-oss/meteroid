@@ -1,3 +1,5 @@
+import { portalTokenScope, readPortalToken } from '@/features/auth/portalToken'
+
 /**
  * Return-URL contract for all hosted-redirect providers: the return handler redirects back with
  * `hosted_status` and, on failure, `hosted_error`. `ok` = method saved (and any payment done or,
@@ -95,16 +97,56 @@ const consumeHostedDeparture = (): HostedDeparture | undefined => {
   }
 }
 
+const CREDENTIAL_PARAM =
+  /token|secret|passw|session|auth|signature|credential|api[-_]?key|^key$|^sig$|^code$/i
+/** Set on a return URL whose credentials were stripped: the page puts its stored token back. */
+export const HOSTED_RETURN_MARKER = 'hosted_return'
+
 /**
- * The current page URL as a hosted-redirect return target, with stale
- * provider params removed. Keeps the portal `?token=`.
+ * Where a provider sends the customer back: this page, without stale provider params and without
+ * the page token or any other credential, which the provider would store. The tab keeps the token
+ * in its session (the auth interceptor saves it) and restores it on return.
  */
-export const hostedReturnUrl = (): string | undefined => {
-  if (typeof window === 'undefined') return undefined
-  const url = new URL(window.location.href)
+export const hostedReturnTarget = (href: string): string => {
+  const url = new URL(href)
+  url.username = ''
+  url.password = ''
+  url.hash = ''
   RETURN_PARAMS.forEach(p => url.searchParams.delete(p))
+  url.searchParams.delete(HOSTED_RETURN_MARKER)
+  let stripped = false
+  for (const name of Array.from(new Set(url.searchParams.keys()))) {
+    if (CREDENTIAL_PARAM.test(name)) {
+      url.searchParams.delete(name)
+      stripped = true
+    }
+  }
+  if (stripped) url.searchParams.set(HOSTED_RETURN_MARKER, '1')
   return url.toString()
 }
+
+export const hostedReturnUrl = (): string | undefined =>
+  typeof window === 'undefined' ? undefined : hostedReturnTarget(window.location.href)
+
+/** The returned page's URL with the token the tab kept; null when there is nothing to change. */
+export const withRestoredToken = (href: string, storedToken: string | null): string | null => {
+  const url = new URL(href)
+  if (!url.searchParams.has(HOSTED_RETURN_MARKER)) return null
+  url.searchParams.delete(HOSTED_RETURN_MARKER)
+  // Without a stored token the page shows its expired-session state.
+  if (storedToken && !url.searchParams.has('token')) url.searchParams.set('token', storedToken)
+  return url.toString()
+}
+
+const restoreTokenAfterHostedReturn = () => {
+  if (typeof window === 'undefined') return
+  const stored = readPortalToken(portalTokenScope(window.location.pathname))
+  const restored = withRestoredToken(window.location.href, stored)
+  if (restored) window.history.replaceState(window.history.state, '', restored)
+}
+
+// On import, so before the router and the pages first read the location.
+restoreTokenAfterHostedReturn()
 
 const PRE_ATTEMPT_KEY = (invoiceId: string) => `hosted_pre_attempt_failed:${invoiceId}`
 

@@ -74,24 +74,71 @@ const simpleSegmentationMatrixSchema = z.object({
 
 export type SimpleSegmentationMatrixFormData = z.infer<typeof simpleSegmentationMatrixSchema>
 
-export const createBillableMetricSchema = z.object({
-  metricName: z.string().min(3),
-  eventCode: z.string().min(3),
-  metricDescription: z.string().optional(),
-  aggregation: simpleAggregationSchema,
-  segmentationMatrix: simpleSegmentationMatrixSchema,
-  productFamilyId: z.string(),
-  usageGroupKey: z
-    .string()
-    .optional()
-    .nullable()
-    .transform(
-      flow(
-        O.map(S.trim),
-        O.filter(s => !S.isEmpty(s))
-      )
-    ),
+// Pre-aggregation property filter. EQUAL/NOT_EQUAL are the single-value forms of IN/NOT_IN;
+// the UI keeps all four for clarity and they collapse to IN/NOT_IN at the engine boundary.
+export const metricFilterSchema = z.object({
+  property: z.string().nonempty('Required'),
+  op: z.enum(['EQUAL', 'NOT_EQUAL', 'IN', 'NOT_IN']),
+  values: dimensionValues,
 })
+export type MetricFilterFormData = z.infer<typeof metricFilterSchema>
+
+// Mirrors server validation: trimmed, max 32 chars, no control chars; singular and plural go together.
+const unitLabelText = z
+  .string()
+  .trim()
+  .max(32, 'Must be 32 characters or fewer')
+  .regex(/^[^\p{Cc}]*$/u, 'Must not contain control characters')
+  .optional()
+
+export const unitLabelFields = {
+  unitSingular: unitLabelText,
+  unitPlural: unitLabelText,
+}
+
+export const refineUnitLabel = (
+  val: { unitSingular?: string; unitPlural?: string },
+  ctx: z.RefinementCtx
+) => {
+  const hasSingular = !!val.unitSingular
+  const hasPlural = !!val.unitPlural
+  if (hasSingular && !hasPlural) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['unitPlural'],
+      message: 'Plural is required with a singular',
+    })
+  } else if (hasPlural && !hasSingular) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['unitSingular'],
+      message: 'Singular is required with a plural',
+    })
+  }
+}
+
+export const createBillableMetricSchema = z
+  .object({
+    metricName: z.string().min(3),
+    eventCode: z.string().min(3),
+    metricDescription: z.string().optional(),
+    aggregation: simpleAggregationSchema,
+    segmentationMatrix: simpleSegmentationMatrixSchema,
+    filters: z.array(metricFilterSchema).optional(),
+    productFamilyId: z.string(),
+    usageGroupKey: z
+      .string()
+      .optional()
+      .nullable()
+      .transform(
+        flow(
+          O.map(S.trim),
+          O.filter(s => !S.isEmpty(s))
+        )
+      ),
+    ...unitLabelFields,
+  })
+  .superRefine(refineUnitLabel)
 export type CreateBillableMetricSchema = typeof createBillableMetricSchema
 export type CreateBillableMetricFormData = z.infer<CreateBillableMetricSchema>
 
@@ -101,6 +148,7 @@ export const updateBillableMetricSchema = z.object({
   metricDescription: z.string().optional().nullable(),
   unitConversion: unitConversion.optional().nullable(),
   segmentationMatrix: simpleSegmentationMatrixSchema.optional(),
+  filters: z.array(metricFilterSchema).optional(),
   usageGroupKey: z
     .string()
     .optional()

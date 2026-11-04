@@ -17,7 +17,7 @@ spec:
     rollingUpdate:
       maxSurge: 1
       maxUnavailable: 0
-  revisionHistoryLimit: {{ .Values.meteroid.revisionHistoryLimit }}
+  revisionHistoryLimit: {{ .Values.meteroid.revisionHistoryLimit | default 10 }}
   selector:
     matchLabels:
       {{- include "meteroid.apiSelectorLabels" . | nindent 6 }}
@@ -49,7 +49,7 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.api.terminationGracePeriodSeconds | default 30 }}
       containers:
         - name: {{ .Chart.Name }}-api
-          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.api.image.pullPolicy }}
           ports:
             - name: http
@@ -63,6 +63,20 @@ spec:
           env:
             {{- with .Values.api.extraEnv }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
+            - name: LICENSE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: license-key
+                  optional: true
+            {{- if .Values.global.licenseServerUrl }}
+            - name: LICENSE_SERVER_URL
+              value: {{ .Values.global.licenseServerUrl | quote }}
+            {{- end }}
+            {{- with .Values.api.config.pgPoolMaxSize }}
+            - name: PG_POOL_MAX_SIZE
+              value: {{ . | quote }}
             {{- end }}
             - name: DATABASE_URL
               valueFrom:
@@ -90,15 +104,22 @@ spec:
               value: http://{{ include "meteroid.metering.internalGrpcUrl" . }}
             - name: METEROID_PUBLIC_URL
               value: {{ .Values.global.publicAppUrl }}
+            {{- include "meteroid.settingsEnv" . | nindent 12 }}
+            {{- range $key, $value := .Values.api.config.rateLimits }}
+            - name: RATE_LIMIT_{{ $key | snakecase | upper }}
+              value: {{ $value | quote }}
+            {{- end }}
             - name: METEROID_API_LISTEN_ADDRESS
               value: 0.0.0.0:{{ .Values.api.service.ports.grpc }}
             - name: METEROID_REST_API_LISTEN_ADDRESS
               value: 0.0.0.0:{{ .Values.api.service.ports.http }}
+            {{- with .Values.api.config.enableMultiOrganization }}
             - name: ENABLE_MULTI_ORGANIZATION
-              value: {{ .Values.api.config.enableMultiOrganization | quote }}
-            {{- if .Values.global.adminOrganizationId }}
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.global.adminOrganizationId }}
             - name: ADMIN_ORGANIZATION_ID
-              value: {{ .Values.global.adminOrganizationId }}
+              value: {{ . }}
             {{- end }}
             - name: TELEMETRY_TRACING_ENABLED
               value: {{ .Values.global.telemetryTracingEnabled | default "false" | quote }}
@@ -106,21 +127,10 @@ spec:
               value: {{ .Values.global.telemetryMetricsEnabled | default "false" | quote }}
             - name: TELEMETRY_OTEL_ENDPOINT
               value: {{ .Values.global.telemetryOtelEndpoint | default "" | quote }}
-            {{- if .Values.api.config.svixServerUrl }}
-            - name: SVIX_SERVER_URL
-              value: {{ .Values.api.config.svixServerUrl }}
-            {{- end }}
-            - name: SVIX_JWT_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "meteroid.secretsName" . }}
-                  key: svix-jwt-token
-            - name: SVIX_OPERATIONAL_WEBHOOK_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "meteroid.secretsName" . }}
-                  key: svix-operational-webhook-secret
-                  optional: true
+            - name: METEROID_DEPLOYMENT
+              value: "helm"
+            - name: METEROID_TELEMETRY
+              value: {{ ternary "on" "off" (ne .Values.global.usageTelemetry false) | quote }}
             - name: OAUTH_GOOGLE_CLIENT_ID
               valueFrom:
                 secretKeyRef:
@@ -165,11 +175,22 @@ spec:
             - name: MAILER_SMTP_HOST
               value: {{ .Values.global.smtp.host }}
             {{- end }}
+            {{- if and .Values.global.smtp .Values.global.smtp.host (not .Values.global.smtp.from) }}
+            {{- fail "global.smtp.from is required when global.smtp.host is set" }}
+            {{- end }}
             {{- if and .Values.global.smtp .Values.global.smtp.from }}
             - name: MAILER_FROM
-              value: {{ .Values.global.smtp.from }}
+              value: {{ .Values.global.smtp.from | quote }}
             {{- end }}
-            {{- if and .Values.global.smtp .Values.global.smtp.tls }}
+            {{- if and .Values.global.smtp .Values.global.smtp.customerFromAddr }}
+            - name: MAILER_CUSTOMER_FROM_ADDR
+              value: {{ .Values.global.smtp.customerFromAddr | quote }}
+            {{- end }}
+            {{- if and .Values.global.smtp .Values.global.smtp.replyTo }}
+            - name: MAILER_REPLY_TO
+              value: {{ .Values.global.smtp.replyTo | quote }}
+            {{- end }}
+            {{- if and .Values.global.smtp (hasKey .Values.global.smtp "tls") }}
             - name: MAILER_SMTP_TLS
               value: {{ .Values.global.smtp.tls | quote }}
             {{- end }}
@@ -186,7 +207,7 @@ spec:
                   key: smtp-password
                   optional: true
             - name: OBJECT_STORE_URI
-              value: {{ .Values.global.objectStore.uri }}
+              value: {{ required "global.objectStore.uri is required" .Values.global.objectStore.uri }}
             {{- if and .Values.global.objectStore .Values.global.objectStore.s3Endpoint }}
             - name: AWS_ENDPOINT
               value: {{ .Values.global.objectStore.s3Endpoint }}
@@ -206,30 +227,33 @@ spec:
             {{- if and .Values.global.redis .Values.global.redis.url }}
             - name: REDIS_URL
               value: {{ .Values.global.redis.url }}
+            {{- end }}
+            {{- if and .Values.global.redis .Values.global.redis.url }}
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: redis-credentials
-                  key: password
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: redis-password
                   optional: true
             {{- end }}
+          # Migrations run at start: a kill mid-migration rolls it back and starts it over.
           startupProbe:
             httpGet:
-              path: {{ .Values.api.httpStartupProbe.path | default "/health" }}
+              path: {{ dig "httpStartupProbe" "path" "/health" .Values.api }}
               port: http
-            initialDelaySeconds: {{ .Values.api.httpStartupProbe.initialDelaySeconds | default 5 }}
-            periodSeconds: {{ .Values.api.httpStartupProbe.periodSeconds | default 5 }}
-            failureThreshold: {{ .Values.api.httpStartupProbe.failureThreshold | default 10 }}
+            initialDelaySeconds: {{ dig "httpStartupProbe" "initialDelaySeconds" 5 .Values.api }}
+            periodSeconds: {{ dig "httpStartupProbe" "periodSeconds" 5 .Values.api }}
+            failureThreshold: {{ dig "httpStartupProbe" "failureThreshold" 360 .Values.api }}
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            periodSeconds: {{ .Values.api.httpLivenessProbe.periodSeconds | default 20 }}
+            periodSeconds: {{ dig "httpLivenessProbe" "periodSeconds" 20 .Values.api }}
           readinessProbe:
             httpGet:
-              path: {{ .Values.api.httpReadinessProbe.path | default "/health" }}
+              path: {{ dig "httpReadinessProbe" "path" "/health" .Values.api }}
               port: http
-            periodSeconds: {{ .Values.api.httpReadinessProbe.periodSeconds | default 10 }}
+            periodSeconds: {{ dig "httpReadinessProbe" "periodSeconds" 10 .Values.api }}
           resources:
             {{- toYaml .Values.api.resources | nindent 12 }}
       {{- with .Values.api.affinity }}

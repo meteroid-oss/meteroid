@@ -39,15 +39,19 @@ Metering requires quite a lot of resources (clickhouse + kafka), so if you don't
   `docker compose -f docker/develop/docker-compose.yml --env-file .env --profile metering up`
 
 - Start the Rust backend
-  `cargo run -p meteroid --bin standalone`.
+  `cargo run -p meteroid-oss-standalone`.
 
   Or if you need Metering:
-  `cargo run -p meteroid --bin standalone --features="metering-server`
+  `cargo run -p meteroid-oss-standalone --features="metering-server`
 
 - Start the Web frontend
   `pnpm --prefix modules/web/web-app run dev`
 
 You can now access the app at http://localhost:5173
+
+The commands above run the OSS edition. In the enterprise repository, run the same binaries from the
+`ee/` workspace to get the Enterprise edition, e.g. `(cd ee && cargo run -p meteroid-enterprise-standalone)`
+(see `ee/README.md`).
 
 ### Run Meteroid (WITH Metering)
 
@@ -55,7 +59,7 @@ You can now access the app at http://localhost:5173
   `docker compose -f docker/develop/docker-compose.yml --env-file .env --profile metering up`
 
 - Start the Rust backend
-  `cargo run -p meteroid --bin standalone --features="metering-server`
+  `cargo run -p meteroid-oss-standalone --features="metering-server`
 
 - Start the Web frontend
   `pnpm --prefix modules/web/web-app run dev`
@@ -80,10 +84,10 @@ section "Install the dependencies & build" of this document.
 ### Updating the Open API Specification
 
 Open API specification is generated from routes annotations found in `modules/meteroid/src/api_rest`
-Generated file is found in `spec/api/v1/openapi.json`
-On every change in the routes, the openapi.json file should be regenerated via the following command:
+Generated files are found in `spec/api/v1/openapi.json` (server API) and `spec/client/v1/openapi.json` (browser-facing client API)
+On every change in the routes, the openapi.json files should be regenerated via the following command:
 
-- `cargo run -p meteroid --bin openapi-generate`
+- `cargo run -p meteroid-oss-openapi`
 
 ### Database Migrations
 

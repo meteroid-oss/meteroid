@@ -7,7 +7,6 @@ use opentelemetry::KeyValue;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tonic::Status;
-use tracing::error;
 
 use crate::cache::CUSTOMER_ID_CACHE;
 use crate::ingest::domain::{FailedEvent, RawEvent};
@@ -42,6 +41,7 @@ impl EventProcessor {
         tenant_id: TenantId,
         allow_backfilling: bool,
         fail_on_error: bool,
+        keep_last: bool,
     ) -> Result<IngestResult, Status> {
         if events.is_empty() {
             return Err(Status::invalid_argument("No events provided"));
@@ -65,17 +65,19 @@ impl EventProcessor {
         let mut failed_events = vec![];
         let mut resolved = vec![];
 
-        let mut unresolved_by_alias: HashMap<String, Vec<(Event, DateTime<Utc>)>> = HashMap::new();
+        let mut unresolved_by_alias: HashMap<String, Vec<(Event, DateTime<Utc>, usize)>> =
+            HashMap::new();
 
         let now = Utc::now();
+        let stamp = |event, customer_id, ts, position| {
+            to_domain_event(event, customer_id, tenant_id, ts, now, position, keep_last)
+        };
 
-        for event in events {
+        for (position, event) in events.into_iter().enumerate() {
             match validate_event(&event, &now, allow_backfilling) {
                 Ok((id, ts)) => match id {
                     ProtoCustomerId::MeteroidCustomerId(id) => match CustomerId::from_proto(id) {
-                        Ok(customer_id) => {
-                            resolved.push(to_domain_event(event, customer_id, tenant_id, ts, now))
-                        }
+                        Ok(customer_id) => resolved.push(stamp(event, customer_id, ts, position)),
                         Err(e) => failed_events.push(FailedEvent {
                             event,
                             reason: e.to_string(),
@@ -84,18 +86,14 @@ impl EventProcessor {
                     ProtoCustomerId::ExternalCustomerAlias(alias) => {
                         let from_cache = CUSTOMER_ID_CACHE.get(&(tenant_id, alias.clone()));
                         match from_cache {
-                            Some(meteroid_id) => resolved.push(to_domain_event(
-                                event,
-                                meteroid_id,
-                                tenant_id,
-                                ts,
-                                now,
-                            )),
+                            Some(meteroid_id) => {
+                                resolved.push(stamp(event, meteroid_id, ts, position))
+                            }
                             None => {
                                 unresolved_by_alias
                                     .entry(alias)
                                     .or_default()
-                                    .push((event, ts));
+                                    .push((event, ts, position));
                             }
                         }
                     }
@@ -110,15 +108,9 @@ impl EventProcessor {
         }
 
         if fail_on_error && !failed_events.is_empty() {
-            let failures: Vec<IngestFailure> = failed_events
-                .into_iter()
-                .map(|e| IngestFailure {
-                    event_id: e.event.id,
-                    reason: e.reason,
-                })
-                .collect();
-
-            return Ok(IngestResult { failures });
+            return Ok(IngestResult {
+                failures: into_failures(failed_events),
+            });
         }
 
         if !unresolved_by_alias.is_empty() {
@@ -148,7 +140,7 @@ impl EventProcessor {
 
             for unresolved_alias in res.unresolved_aliases {
                 if let Some(events_for_alias) = unresolved_by_alias.remove(&unresolved_alias) {
-                    for (event, _) in events_for_alias {
+                    for (event, _, _) in events_for_alias {
                         failed_events.push(FailedEvent {
                             event,
                             reason: format!("Unable to resolve customer alias: {unresolved_alias}"),
@@ -170,20 +162,20 @@ impl EventProcessor {
                         events_for_alias.len()
                     );
 
-                    for (event, ts) in events_for_alias {
-                        resolved.push(to_domain_event(event, customer_id, tenant_id, ts, now));
+                    for (event, ts, position) in events_for_alias {
+                        resolved.push(stamp(event, customer_id, ts, position));
                     }
                 }
             }
 
-            // Handle any remaining unresolved events (shouldn't happen but be defensive)
+            // Defensive: aliases neither resolved nor reported as unresolved (shouldn't happen).
             for (alias, events_for_alias) in unresolved_by_alias {
                 tracing::warn!(
                     "Alias {} was not in resolved or unresolved lists, marking {} events as failed",
                     alias,
                     events_for_alias.len()
                 );
-                for (event, _) in events_for_alias {
+                for (event, _, _) in events_for_alias {
                     failed_events.push(FailedEvent {
                         event,
                         reason: format!("Customer alias not found in resolution response: {alias}"),
@@ -191,19 +183,15 @@ impl EventProcessor {
                 }
             }
 
-            // If fail_on_error is true and we have resolution failures, return immediately
             if fail_on_error && !failed_events.is_empty() {
-                let failures: Vec<IngestFailure> = failed_events
-                    .into_iter()
-                    .map(|e| IngestFailure {
-                        event_id: e.event.id,
-                        reason: e.reason,
-                    })
-                    .collect();
-
-                return Ok(IngestResult { failures });
+                return Ok(IngestResult {
+                    failures: into_failures(failed_events),
+                });
             }
         }
+
+        // Alias lookups put events out of order; Kafka order is what the consumer's first-wins uses.
+        resolved.sort_by_key(|event| event.ingested_at);
 
         let default_attributes = &[KeyValue::new("tenant_id", tenant_id.as_proto())];
 
@@ -224,34 +212,41 @@ impl EventProcessor {
                     .clone()
             })?;
 
-        // Collect all failures
-        let mut failures: Vec<IngestFailure> = failed_events
-            .into_iter()
-            .map(|e| IngestFailure {
-                event_id: e.event.id,
-                reason: e.reason,
-            })
-            .collect();
-
+        let mut failures = into_failures(failed_events);
+        let sink_failures = sink_result.len();
         failures.extend(sink_result.into_iter().map(|rec| IngestFailure {
             event_id: rec.event.id,
             reason: rec.error.to_string(),
         }));
 
-        if !failures.is_empty() {
-            error!("Failed count {}", failures.len());
+        if sink_failures > 0 {
+            tracing::error!("{sink_failures} event(s) failed to reach the sink");
         }
 
         Ok(IngestResult { failures })
     }
 }
 
+fn into_failures(events: Vec<FailedEvent>) -> Vec<IngestFailure> {
+    events
+        .into_iter()
+        .map(|e| IngestFailure {
+            event_id: e.event.id,
+            reason: e.reason,
+        })
+        .collect()
+}
+
+/// `ingested_at` is `now` plus the event's position in the request, so copies sent in one
+/// request never tie and "first" and "last" stay well defined.
 fn to_domain_event(
     event: Event,
     customer_id: CustomerId,
     tenant_id: TenantId,
     ts: DateTime<Utc>,
     now: DateTime<Utc>,
+    position: usize,
+    keep_last: bool,
 ) -> RawEvent {
     RawEvent {
         id: event.id,
@@ -259,8 +254,9 @@ fn to_domain_event(
         customer_id,
         tenant_id,
         timestamp: ts.naive_utc(),
-        ingested_at: now.naive_utc(),
+        ingested_at: (now + chrono::Duration::nanoseconds(position as i64)).naive_utc(),
         properties: event.properties,
+        keep_last,
     }
 }
 
@@ -298,4 +294,154 @@ pub fn validate_event(
     };
 
     Ok((customer.clone(), ts))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ingest::errors::IngestError;
+    use crate::ingest::sinks::FailedRecord;
+    use common_config::auth::InternalAuthConfig;
+    use common_grpc::middleware::client::build_layered_client_service;
+    use meteroid_grpc::meteroid::internal::v1::internal_service_server::{
+        InternalService, InternalServiceServer,
+    };
+    use meteroid_grpc::meteroid::internal::v1::{
+        ListBillableMetricsRequest, ListBillableMetricsResponse, ReportApiKeyUsageRequest,
+        ReportApiKeyUsageResponse, ResolveApiKeyRequest, ResolveApiKeyResponse,
+        ResolveCustomerAliasesResponse, ResolvedId,
+    };
+    use tokio::sync::Mutex;
+    use tonic::transport::Endpoint;
+    use tonic::transport::server::TcpIncoming;
+    use uuid::Uuid;
+
+    struct AliasResolver;
+
+    #[tonic::async_trait]
+    impl InternalService for AliasResolver {
+        async fn resolve_customer_aliases(
+            &self,
+            request: tonic::Request<ResolveCustomerAliasesRequest>,
+        ) -> Result<tonic::Response<ResolveCustomerAliasesResponse>, Status> {
+            let customers = request
+                .into_inner()
+                .aliases
+                .into_iter()
+                .map(|alias| ResolvedId {
+                    alias,
+                    local_id: CustomerId::from(Uuid::from_u128(7)).as_proto(),
+                })
+                .collect();
+            Ok(tonic::Response::new(ResolveCustomerAliasesResponse {
+                customers,
+                unresolved_aliases: vec![],
+            }))
+        }
+
+        async fn resolve_api_key(
+            &self,
+            _: tonic::Request<ResolveApiKeyRequest>,
+        ) -> Result<tonic::Response<ResolveApiKeyResponse>, Status> {
+            Err(Status::unimplemented("unused"))
+        }
+
+        async fn report_api_key_usage(
+            &self,
+            _: tonic::Request<ReportApiKeyUsageRequest>,
+        ) -> Result<tonic::Response<ReportApiKeyUsageResponse>, Status> {
+            Err(Status::unimplemented("unused"))
+        }
+
+        async fn list_billable_metrics(
+            &self,
+            _: tonic::Request<ListBillableMetricsRequest>,
+        ) -> Result<tonic::Response<ListBillableMetricsResponse>, Status> {
+            Err(Status::unimplemented("unused"))
+        }
+    }
+
+    #[derive(Default)]
+    struct CapturingSink(Mutex<Vec<RawEvent>>);
+
+    #[tonic::async_trait]
+    impl Sink for CapturingSink {
+        async fn send(
+            &self,
+            events: Vec<RawEvent>,
+            _: &[KeyValue],
+        ) -> Result<Vec<FailedRecord>, IngestError> {
+            self.0.lock().await.extend(events);
+            Ok(vec![])
+        }
+    }
+
+    fn internal_client() -> InternalServiceClient<LayeredClientService> {
+        let incoming = TcpIncoming::bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        let addr = incoming.local_addr().unwrap();
+        tokio::spawn(
+            tonic::transport::Server::builder()
+                .add_service(InternalServiceServer::new(AliasResolver))
+                .serve_with_incoming(incoming),
+        );
+        let channel = Endpoint::from_shared(format!("http://{addr}"))
+            .unwrap()
+            .connect_lazy();
+        InternalServiceClient::new(build_layered_client_service(
+            channel,
+            &InternalAuthConfig {
+                hmac_secret: "secret".to_string().into(),
+            },
+        ))
+    }
+
+    fn event(id: &str, customer: ProtoCustomerId) -> Event {
+        Event {
+            id: id.to_string(),
+            code: "calls".to_string(),
+            customer_id: Some(customer),
+            timestamp: String::new(),
+            properties: HashMap::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn events_reach_the_sink_in_request_order_across_alias_resolution() {
+        let sink = Arc::new(CapturingSink::default());
+        let processor = EventProcessor::new(internal_client(), sink.clone());
+        let direct =
+            || ProtoCustomerId::MeteroidCustomerId(CustomerId::from(Uuid::from_u128(8)).as_proto());
+        let alias = || ProtoCustomerId::ExternalCustomerAlias(Uuid::now_v7().to_string());
+
+        let events = vec![
+            event("0", alias()),
+            event("1", direct()),
+            event("2", alias()),
+            event("3", direct()),
+        ];
+        let result = processor
+            .process_events(
+                events,
+                TenantId::from(Uuid::from_u128(1)),
+                false,
+                true,
+                true,
+            )
+            .await
+            .unwrap();
+        assert!(result.failures.is_empty());
+
+        let sent = sink.0.lock().await;
+        let sent_order: Vec<&str> = sent.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(sent_order, ["0", "1", "2", "3"]);
+        assert!(sent.iter().all(|e| e.keep_last));
+
+        let start = sent[0].ingested_at;
+        for (position, event) in sent.iter().enumerate() {
+            assert_eq!(
+                event.ingested_at - start,
+                chrono::Duration::nanoseconds(position as i64)
+            );
+        }
+    }
 }

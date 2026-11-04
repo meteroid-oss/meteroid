@@ -63,9 +63,7 @@ export const PortalThemeProvider = ({
       roundness: forceRoundness ?? resolved.roundness,
       accent: forceAccent ?? resolved.accent,
       colors: resolved.colors,
-      // Fold the per-iframe `?branding=false` override into the branding the
-      // footer reads, so portal and compact widgets share one gate.
-      branding: { ...branding, showPoweredBy: resolvePoweredBy(branding, search) },
+      branding: { ...branding, showPoweredBy: resolvePoweredBy(branding) },
     }
   }, [branding, forceTheme, forceRoundness, forceAccent, search])
 

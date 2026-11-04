@@ -9,7 +9,10 @@ inputs:
     description: 'Rust components to install (comma-separated)'
     default: ''
   install-deps:
-    description: 'Install system dependencies (protoc, cmake, etc.)'
+    description: 'Install system dependencies (protoc, clang, etc.)'
+    default: 'true'
+  sccache:
+    description: 'Enable sccache'
     default: 'true'
   mold:
     description: 'Use mold linker'
@@ -23,7 +26,7 @@ runs:
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install -y cmake clang unzip libsasl2-dev
+        sudo apt-get install -y clang unzip
         wget -q https://github.com/protocolbuffers/protobuf/releases/download/v21.8/protoc-21.8-linux-x86_64.zip
         unzip -q protoc*.zip
         sudo mv bin/protoc /usr/local/bin
@@ -34,16 +37,28 @@ runs:
       if: inputs.mold == 'true'
       uses: rui314/setup-mold@v1
 
+    - name: Set up Cargo CI config
+      if: inputs.mold == 'true'
+      shell: bash
+      run: |
+        mkdir -p .cargo && ln -s ../.cargo-templates/ci.toml $_/config.toml
+
     - name: Install toolchain
       uses: dtolnay/rust-toolchain@master
       with:
         toolchain: ${{ inputs.toolchain }}
         components: ${{ inputs.components }}
 
+    # Saved from main only: PR runs claiming the key first left main unable to save, and PRs
+    # can only restore main's caches. The default environment hash covers every toolchain on
+    # the runner image, so it flipped between images; key on the pinned toolchain instead.
     - name: Rust cache
       uses: Swatinem/rust-cache@v2
       with:
-        # Only write the cache from main so PR/dependabot branches restore
-        # main's warm dependency cache instead of evicting it. This is the fix
-        # for the 10GB GHA cache thrashing that caused cold compiles every run.
+        prefix-key: v1-rust-${{ inputs.toolchain }}-${{ hashFiles('rust-toolchain.toml') }}
+        add-rust-environment-hash-key: 'false'
         save-if: ${{ github.ref == 'refs/heads/main' }}
+
+    - name: Run sccache
+      if: inputs.sccache == 'true'
+      uses: mozilla-actions/sccache-action@v0.0.9

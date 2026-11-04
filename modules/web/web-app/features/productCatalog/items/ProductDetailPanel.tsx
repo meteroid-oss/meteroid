@@ -1,6 +1,7 @@
 import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query'
 import {
   Badge,
+  Button,
   Select,
   SelectContent,
   SelectItem,
@@ -20,10 +21,13 @@ import {
   TableRow,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
+import { ArchiveIcon, ArchiveRestoreIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { Gate } from '@/components/Gate'
 import { ProductEntitlementsSection } from '@/features/productCatalog/items/ProductEntitlementsSection'
+import { useProductArchive } from '@/features/productCatalog/items/useProductArchive'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
@@ -85,6 +89,7 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
   )
 
   const queryClient = useQueryClient()
+  const productArchive = useProductArchive()
   const taxCategoriesQuery = useQuery(listTaxCategories, {})
   const updateProductMut = useMutation(updateProduct, {
     onSuccess: () => {
@@ -110,7 +115,34 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
     <Sheet open={!!productId} onOpenChange={() => onClose()}>
       <SheetContent size="medium">
         <SheetHeader className="pb-2">
-          <SheetTitle>Product Details</SheetTitle>
+          <div className="flex items-center justify-between gap-2 pr-8">
+            <SheetTitle>Product Details</SheetTitle>
+            {product && (
+              <Gate perm="catalog:manage">
+                {product.archivedAt ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    hasIcon
+                    disabled={productArchive.isPending}
+                    onClick={() => productArchive.unarchive(product.id)}
+                  >
+                    <ArchiveRestoreIcon size={14} /> Unarchive
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    hasIcon
+                    disabled={productArchive.isPending}
+                    onClick={() => productArchive.archive(product.id)}
+                  >
+                    <ArchiveIcon size={14} /> Archive
+                  </Button>
+                )}
+              </Gate>
+            )}
+          </div>
           <Separator />
         </SheetHeader>
 
@@ -129,6 +161,16 @@ export const ProductDetailPanel = ({ productId, onClose }: ProductDetailPanelPro
               <h3 className="text-sm font-medium text-muted-foreground">Basic Information</h3>
               <div className="flex flex-col gap-2">
                 <DetailRow label="Name" value={product.name} />
+                {product.archivedAt && (
+                  <DetailRow
+                    label="Status"
+                    value={
+                      <Badge variant="secondary">
+                        Archived {parseAndFormatDate(product.archivedAt)}
+                      </Badge>
+                    }
+                  />
+                )}
                 <DetailRow label="Local ID" value={product.localId} mono />
                 {product.description && (
                   <DetailRow label="Description" value={product.description} />
@@ -316,6 +358,12 @@ function FeeStructureDetails({
       )
     case 'oneTime':
       return <p className="text-sm text-muted-foreground">One-time charge with no additional structure parameters.</p>
+    case 'credit':
+      return (
+        <p className="text-sm text-muted-foreground">
+          Credit pack: its price funds invoice credit once paid.
+        </p>
+      )
     default:
       return null
   }

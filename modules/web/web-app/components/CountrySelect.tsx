@@ -14,6 +14,7 @@ interface Props<TFieldValues extends FieldValues, TName extends FieldPath<TField
   containerClassName?: string
   labelClassName?: string
   layout?: 'vertical' | 'horizontal' | null
+  required?: boolean
   clearable?: boolean
 }
 
@@ -30,11 +31,13 @@ export function CountrySelect<
   labelClassName,
   layout = 'vertical',
   clearable,
+  required,
 }: Props<TFieldValues, TName>) {
   const getCountriesQuery = useQuery(getCountries)
 
   return (
     <ComboboxFormField
+      required={required}
       name={name}
       label={label}
       control={control}

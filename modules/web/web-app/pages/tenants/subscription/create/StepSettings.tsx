@@ -29,16 +29,34 @@ import { useWizard } from 'react-use-wizard'
 import { z } from 'zod'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
+import { Slot, hasSlot } from '@/edition'
+import { scopeOptionsWithPending } from '@/features/billing/minimumCommitment'
+import { CustomPropertiesFields } from '@/features/customproperties/CustomPropertiesFields'
+import {
+  UsageFilterFields,
+  refineUsageFilter,
+  usageFilterFormFields,
+  usageFilterFromForm,
+  usageFilterToForm,
+} from '@/features/subscriptions/UsageFilterFields'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
-import { createSubscriptionAtom } from '@/pages/tenants/subscription/create/state'
+import { defaultNetTerms, formatDefaultNetTerms } from '@/lib/mapping/priceToSubscriptionFee'
+import {
+  CreateSubscriptionState,
+  createSubscriptionAtom,
+  effectiveSubscriptionPrices,
+} from '@/pages/tenants/subscription/create/state'
+import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 import { getInvoicingEntityProviders } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
 import { PlanType } from '@/rpc/api/plans/v1/models_pb'
 import {
   getPlanWithVersionByVersionId,
   listPlans,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
 
 const activationConditionToString = (
@@ -71,6 +89,46 @@ const activationConditionFromString = (
   }
 }
 
+/** The prices the subscription will bill, from the plan, the wizard's component changes and add-ons. */
+const useEffectivePrices = (state: CreateSubscriptionState) => {
+  const planQuery = useQuery(
+    getPlanWithVersionByVersionId,
+    { localId: state.planVersionId! },
+    { enabled: !!state.planVersionId }
+  )
+  const componentsQuery = useQuery(
+    listPriceComponents,
+    { planVersionId: state.planVersionId! },
+    { enabled: !!state.planVersionId }
+  )
+  const addOnsQuery = useQuery(
+    listAddOns,
+    state.planVersionId
+      ? { planVersionId: state.planVersionId, pagination: { perPage: 100, page: 0 } }
+      : skipToken
+  )
+  const version = planQuery.data?.plan?.version
+  if (!version || !componentsQuery.data || !addOnsQuery.data) return undefined
+  const addOnPrices = state.addOns.map(
+    selected => addOnsQuery.data.addOns.find(a => a.id === selected.addOnId)?.price
+  )
+  return {
+    prices: effectiveSubscriptionPrices(
+      componentsQuery.data.components,
+      state.components,
+      addOnPrices,
+      version.currency
+    ),
+    planNetTerms: version.netTerms,
+  }
+}
+
+/** The net terms the server applies when none are typed in; undefined while loading. */
+export const useDefaultNetTerms = (state: CreateSubscriptionState) => {
+  const effective = useEffectivePrices(state)
+  return effective && defaultNetTerms(effective.prices, effective.planNetTerms)
+}
+
 export const StepSettings = () => {
   const { previousStep, nextStep } = useWizard()
   const [state, setState] = useAtom(createSubscriptionAtom)
@@ -95,6 +153,18 @@ export const StepSettings = () => {
   const planTrialConfig = planQuery.data?.plan?.version?.trialConfig
   const planType = planQuery.data?.plan?.plan?.planType
   const isFreePlan = planType === PlanType.FREE
+  const planCurrency = planQuery.data?.plan?.version?.currency
+
+  // Plan components for the minimum-commitment scope picker (same query key as elsewhere → cache hit).
+  const minimumComponentsQuery = useQuery(
+    listPriceComponents,
+    { planVersionId: state.planVersionId! },
+    { enabled: !!state.planVersionId && hasSlot('subscriptionCreate.minimumCommitment') }
+  )
+
+  const effectivePrices = useEffectivePrices(state)
+  const netTermsDefault =
+    effectivePrices && defaultNetTerms(effectivePrices.prices, effectivePrices.planNetTerms)
 
   // Resolve trialing plan name
   const trialingPlanName = planTrialConfig?.trialingPlanId
@@ -132,9 +202,11 @@ export const StepSettings = () => {
       invoiceMemo: state.invoiceMemo,
       invoiceThreshold: state.invoiceThreshold,
       purchaseOrder: state.purchaseOrder,
+      ...usageFilterToForm(state.usageFilter),
       autoAdvanceInvoices: state.autoAdvanceInvoices,
       chargeAutomatically: state.chargeAutomatically,
       skipPastInvoices: state.skipPastInvoices,
+      customProperties: state.customProperties,
     },
   })
 
@@ -146,27 +218,29 @@ export const StepSettings = () => {
     'fromDate',
   ])
 
+  const { getValues, setValue } = methods
+
   // Auto-disable chargeAutomatically and reset activationCondition when no online provider
   useEffect(() => {
     if (!isLoadingProviders && !hasOnlinePaymentProvider) {
-      const currentActivation = methods.getValues('activationCondition')
-      const currentCharge = methods.getValues('chargeAutomatically')
+      const currentActivation = getValues('activationCondition')
+      const currentCharge = getValues('chargeAutomatically')
 
       if (currentActivation === 'ON_CHECKOUT') {
-        methods.setValue('activationCondition', 'ON_START')
+        setValue('activationCondition', 'ON_START')
       }
       if (currentCharge) {
-        methods.setValue('chargeAutomatically', false)
+        setValue('chargeAutomatically', false)
       }
     }
-  }, [hasOnlinePaymentProvider, isLoadingProviders, methods])
+  }, [hasOnlinePaymentProvider, isLoadingProviders, getValues, setValue])
 
   // Auto-set payment methods type to Online when OnCheckout is selected
   useEffect(() => {
     if (activationCondition === 'ON_CHECKOUT' && paymentMethodsType !== 'online') {
-      methods.setValue('paymentMethodsType', 'online')
+      setValue('paymentMethodsType', 'online')
     }
-  }, [activationCondition, paymentMethodsType, methods])
+  }, [activationCondition, paymentMethodsType, setValue])
 
   // Auto-disable chargeAutomatically when Bank or External payment methods selected
   useEffect(() => {
@@ -174,23 +248,23 @@ export const StepSettings = () => {
       (paymentMethodsType === 'bankTransfer' || paymentMethodsType === 'external') &&
       chargeAutomatically
     ) {
-      methods.setValue('chargeAutomatically', false)
+      setValue('chargeAutomatically', false)
     }
-  }, [paymentMethodsType, chargeAutomatically, methods])
+  }, [paymentMethodsType, chargeAutomatically, setValue])
 
   // Auto-disable skipPastInvoices when activation condition is not ON_START
   useEffect(() => {
-    if (activationCondition !== 'ON_START' && methods.getValues('skipPastInvoices')) {
-      methods.setValue('skipPastInvoices', false)
+    if (activationCondition !== 'ON_START' && getValues('skipPastInvoices')) {
+      setValue('skipPastInvoices', false)
     }
-  }, [activationCondition, methods])
+  }, [activationCondition, getValues, setValue])
 
   // Reset skipPastInvoices when fromDate changes to future or is undefined
   useEffect(() => {
     if (!fromDate || fromDate >= new Date()) {
-      methods.setValue('skipPastInvoices', false)
+      setValue('skipPastInvoices', false)
     }
-  }, [fromDate, methods])
+  }, [fromDate, setValue])
 
   const onSubmit = async (data: z.infer<typeof schema>) => {
     setState({
@@ -205,9 +279,11 @@ export const StepSettings = () => {
       invoiceMemo: data.invoiceMemo,
       invoiceThreshold: data.invoiceThreshold,
       purchaseOrder: data.purchaseOrder,
+      usageFilter: usageFilterFromForm(data),
       autoAdvanceInvoices: data.autoAdvanceInvoices,
       chargeAutomatically: data.chargeAutomatically,
       skipPastInvoices: data.skipPastInvoices,
+      customProperties: data.customProperties,
     })
     nextStep()
   }
@@ -409,8 +485,14 @@ export const StepSettings = () => {
                   name="netTerms"
                   label="Net Terms (days)"
                   type="number"
-                  placeholder="30"
+                  min={0}
+                  placeholder={netTermsDefault ? String(netTermsDefault.netTerms) : undefined}
                   control={methods.control}
+                  description={
+                    netTermsDefault
+                      ? `Leave empty for the default: ${formatDefaultNetTerms(netTermsDefault)}`
+                      : 'Leave empty for the default terms'
+                  }
                 />
               </CardContent>
             </Card>
@@ -612,10 +694,60 @@ export const StepSettings = () => {
                   placeholder="Enter purchase order..."
                   control={methods.control}
                 />
+                <CustomPropertiesFields
+                  control={methods.control}
+                  entityType={CustomPropertyEntityType.SUBSCRIPTION}
+                  title={null}
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Usage filter</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <UsageFilterFields control={methods.control} />
               </CardContent>
             </Card>
           </div>
         </PageSection>
+
+        {!isFreePlan && planCurrency && hasSlot('subscriptionCreate.minimumCommitment') && (
+          <PageSection
+            header={{
+              title: 'Contract terms',
+              subtitle:
+                'Inherited from the plan by default. You can override the minimum (preserved across plan changes) or drop it for this subscription.',
+            }}
+          >
+            <Card>
+              <CardContent className="pt-6">
+                <Slot
+                  name="subscriptionCreate.minimumCommitment"
+                  currency={planCurrency}
+                  allowDrop
+                  allowPending
+                  components={scopeOptionsWithPending([
+                    // Effective product set for this subscription: plan components minus removed,
+                    // plus ad-hoc extras (so the scope reflects what will actually be billed).
+                    // Inline new-product extras (no id yet) show as disabled "pending" entries.
+                    ...(minimumComponentsQuery.data?.components ?? []).filter(
+                      c => !state.components.removed.includes(c.id)
+                    ),
+                    ...state.components.extra.map(e => ({ name: e.name, productId: e.productId })),
+                  ])}
+                  planDefault={planQuery.data?.plan?.version?.minimumCommitment}
+                  override={state.minimumOverride}
+                  dropped={!!state.dropMinimum}
+                  onChange={({ override, dropped }) =>
+                    setState({ ...state, minimumOverride: override, dropMinimum: dropped })
+                  }
+                />
+              </CardContent>
+            </Card>
+          </PageSection>
+        )}
 
         <div className="flex gap-2 justify-end">
           <Button onClick={previousStep} variant="secondary">
@@ -636,14 +768,20 @@ const schema = z
     trialDuration: z.number().min(0).optional(),
     activationCondition: z.enum(['ON_START', 'ON_CHECKOUT', 'MANUAL']),
     paymentMethodsType: z.enum(['online', 'bankTransfer', 'external']).default('online'),
-    netTerms: z.number().min(0),
+    netTerms: z.preprocess(
+      value => (value === '' || value === null ? undefined : value),
+      z.number().int('Enter a whole number of days').min(0).optional()
+    ),
     invoiceMemo: z.string().optional(),
     invoiceThreshold: z.string().optional(),
     purchaseOrder: z.string().optional(),
+    ...usageFilterFormFields,
     autoAdvanceInvoices: z.boolean().default(true),
     chargeAutomatically: z.boolean().default(true),
     skipPastInvoices: z.boolean().default(false),
+    customProperties: z.record(z.string(), z.unknown()).optional(),
   })
+  .superRefine(refineUsageFilter)
   .refine(data => !data.toDate || data.toDate > data.fromDate, {
     message: 'Must be greater than the start date',
     path: ['toDate'],

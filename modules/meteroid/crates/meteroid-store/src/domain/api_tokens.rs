@@ -22,6 +22,8 @@ pub struct ApiToken {
     pub tenant_id: TenantId,
     pub hash: String,
     pub hint: String,
+    pub first_used_at: Option<NaiveDateTime>,
+    pub last_used_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, o2o)]
@@ -33,4 +35,5 @@ pub struct ApiTokenValidation {
     pub hash: String,
     #[map(~.into())]
     pub environment: TenantEnvironmentEnum,
+    pub keep_last_events: bool,
 }

@@ -1,0 +1,139 @@
+syntax = "proto3";
+
+package meteroid.api.targets.v1;
+
+import "api/targets/v1/models.proto";
+
+message ListTargetsRequest {
+  optional string metric_key = 1;
+  // YYYY-MM-DD.
+  optional string period_start = 2;
+  optional string owner_user_id = 3;
+  // YYYY-MM-DD: only targets whose period contains this day (a month's targets and the quarters
+  // around it).
+  optional string active_on = 4;
+}
+
+message ListTargetsResponse {
+  // Newest period first.
+  repeated TargetRow rows = 1;
+  // The reporting currency.
+  string currency = 2;
+  // YYYY-MM-DD: the Monday `week_start` counts from.
+  string week_start = 3;
+}
+
+message GetTargetRequest {
+  string id = 1;
+}
+
+message GetTargetResponse {
+  TargetDetail detail = 1;
+}
+
+message CreateTargetRequest {
+  // A catalog metric key, or `bm:<billable metric id>` for a usage metric (count or sum).
+  string metric_key = 1;
+  // The customers it counts, a JSON cohort spec, and its name; both absent for the whole business.
+  optional string cohort = 2;
+  optional string scope_label = 3;
+  optional string owner_user_id = 4;
+  TargetPeriodGrain period_grain = 5;
+  string period_start = 6;
+  // Decimal string in the metric's unit: minor units of the reporting currency for money.
+  string target_value = 7;
+}
+
+message CreateTargetResponse {
+  Target target = 1;
+}
+
+// Sets the value and the owner; the metric, scope and period identify the target and do not
+// change. An absent owner leaves the target unowned.
+message UpdateTargetRequest {
+  string id = 1;
+  string target_value = 2;
+  optional string owner_user_id = 3;
+  // Money targets: the currency `target_value` is in. The reporting currency re-pins the target;
+  // the target's own currency is accepted with an unchanged value. Absent: an unchanged value
+  // keeps the target's currency, a changed one is in the reporting currency.
+  optional string value_currency = 4;
+}
+
+message UpdateTargetResponse {
+  Target target = 1;
+}
+
+message DeleteTargetRequest {
+  string id = 1;
+}
+
+message DeleteTargetResponse {}
+
+// The tenant's latest changes to its plan, newest first, whatever the target: the plan's history.
+message ListPlanChangesRequest {
+  uint32 limit = 1;
+  // The next page: changes older than this one (the last of the previous page).
+  optional string before_id = 2;
+}
+
+message PlanChange {
+  TargetChange change = 1;
+  string metric_key = 2;
+  TargetPeriodGrain period_grain = 3;
+  string period_start = 4;
+}
+
+message ListPlanChangesResponse {
+  repeated PlanChange changes = 1;
+  // More changes are older than the last one returned.
+  bool has_more = 2;
+}
+
+// A calendar year's periods with targets, for the period picker.
+message ListTargetPeriodsRequest {
+  int32 year = 1;
+}
+
+// One period and a status per target: Hit or Missed once closed (from its last day's reading),
+// the latest reading's status while running, Not started ahead.
+message TargetPeriodSummary {
+  TargetPeriodGrain period_grain = 1;
+  // YYYY-MM-DD.
+  string period_start = 2;
+  repeated TargetStatus statuses = 3;
+}
+
+message ListTargetPeriodsResponse {
+  repeated TargetPeriodSummary periods = 1;
+}
+
+// Creates each row's target, or replaces the value (and the owner, when the row names one) of the
+// one already set on the same metric, scope and period. All rows or none.
+message ImportTargetsRequest {
+  repeated ImportTargetRow rows = 1;
+  // Reports what would happen without writing.
+  bool dry_run = 2;
+}
+
+message ImportTargetsResponse {
+  repeated ImportTargetResult results = 1;
+}
+
+// A sandbox without a target: the plan a new sandbox gets, owners and history included. It
+// arrives in the background: the plan first, then the days rebuilt behind it.
+message LoadDemoPlanRequest {}
+
+message LoadDemoPlanResponse {}
+
+service TargetsService {
+  rpc ListTargets(ListTargetsRequest) returns (ListTargetsResponse) {}
+  rpc ListTargetPeriods(ListTargetPeriodsRequest) returns (ListTargetPeriodsResponse) {}
+  rpc ListPlanChanges(ListPlanChangesRequest) returns (ListPlanChangesResponse) {}
+  rpc GetTarget(GetTargetRequest) returns (GetTargetResponse) {}
+  rpc CreateTarget(CreateTargetRequest) returns (CreateTargetResponse) {}
+  rpc UpdateTarget(UpdateTargetRequest) returns (UpdateTargetResponse) {}
+  rpc DeleteTarget(DeleteTargetRequest) returns (DeleteTargetResponse) {}
+  rpc ImportTargets(ImportTargetsRequest) returns (ImportTargetsResponse) {}
+  rpc LoadDemoPlan(LoadDemoPlanRequest) returns (LoadDemoPlanResponse) {}
+}

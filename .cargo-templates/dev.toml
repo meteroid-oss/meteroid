@@ -25,7 +25,14 @@ incremental = true
 opt-level = 0
 lto = "off"
 codegen-units = 256
+debug = "line-tables-only"
 
 
 [profile.dev.build-override]
 opt-level = 3
+
+[env]
+# Test threads default to 2MB. Debug builds give every awaited future and every `?`
+# temporary its own stack slot, so the lifecycle → bill → finalize chain already spans
+# ~2MB in `test_lifecycle_billing`. Release frames are a fraction of that.
+RUST_MIN_STACK = "8388608"

@@ -1,65 +1,17 @@
-import { Skeleton } from '@md/ui'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 
-import { useQuery } from '@/lib/connectrpc'
+import { NamedCreditUnitUsageNote } from '@/features/invoices/CreditUnitUsageNote'
 import { SubLineItem } from '@/rpc/api/invoices/v1/models_pb'
-import { getUpcomingInvoice } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 import { UpcomingInvoice } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 import { parseAndFormatDate } from '@/utils/date'
 import { formatCurrency, formatCurrencyNoRounding } from '@/utils/numbers'
 
 import { UsageBarChart } from './UsageBarChart'
 
-interface UpcomingInvoiceCardProps {
-  subscriptionId: string
-  currency: string
-}
-
-export const UpcomingInvoiceCard = ({ subscriptionId, currency }: UpcomingInvoiceCardProps) => {
-  const invoiceQuery = useQuery(
-    getUpcomingInvoice,
-    { subscriptionId },
-    { enabled: Boolean(subscriptionId) }
-  )
-
-  if (invoiceQuery.isLoading) {
-    return (
-      <div className="bg-card rounded-lg border border-border shadow-sm mb-6 p-4">
-        <Skeleton height={20} width={200} className="mb-2" />
-        <Skeleton height={14} width={150} />
-      </div>
-    )
-  }
-
-  if (invoiceQuery.isError) {
-    return (
-      <div className="bg-card rounded-lg border border-border shadow-sm mb-6 p-4 text-sm text-muted-foreground">
-        Failed to load upcoming invoice preview.
-      </div>
-    )
-  }
-
-  if (!invoiceQuery.data?.invoice) {
-    return null
-  }
-
-  return (
-    <div className="mb-6">
-      <InvoicePreviewCard
-        invoice={invoiceQuery.data.invoice}
-        currency={currency}
-        subscriptionId={subscriptionId}
-        title="Upcoming Invoice"
-      />
-    </div>
-  )
-}
-
 /**
- * Presentational, collapsible card for an already-fetched UpcomingInvoice.
- * Used for the live upcoming invoice and for amendment previews (adjustment +
- * next-cycle invoices), where the invoice is computed server-side and passed in.
+ * Collapsible card for an invoice computed server-side: amendment previews (adjustment and
+ * next-cycle invoices) and the first invoice of a subscription being created.
  */
 export const InvoicePreviewCard = ({
   invoice,
@@ -204,6 +156,9 @@ const InvoiceDetails = ({
         {invoice.discount > 0 && (
           <TotalRow label="Discount" amount={-invoice.discount} currency={currency} />
         )}
+        {invoice.promotionalCredits > 0 && (
+          <TotalRow label="Free credit" amount={-invoice.promotionalCredits} currency={currency} />
+        )}
         {invoice.taxAmount > 0 && (
           <TotalRow label="Tax" amount={invoice.taxAmount} currency={currency} />
         )}
@@ -212,7 +167,7 @@ const InvoiceDetails = ({
           <span className="tabular-nums">{formatCurrency(Number(invoice.total), currency)}</span>
         </div>
         {invoice.appliedCredits > 0 && (
-          <TotalRow label="Applied credits" amount={-invoice.appliedCredits} currency={currency} />
+          <TotalRow label="Credits applied" amount={-invoice.appliedCredits} currency={currency} />
         )}
         {invoice.amountDue !== invoice.total && (
           <div className="flex justify-between text-sm font-semibold text-foreground">
@@ -285,6 +240,7 @@ const LineItemRow = ({
           {line.description && (
             <div className="text-[11px] text-muted-foreground">{line.description}</div>
           )}
+          {line.creditUnit && <NamedCreditUnitUsageNote credit={line.creditUnit} />}
         </td>
         {!hasSubLines && (
           <>

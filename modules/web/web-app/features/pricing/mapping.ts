@@ -2,6 +2,8 @@ import { create } from '@bufbuild/protobuf';
 
 import {
   CapacityPricingSchema,
+  CreditPackExpiry_Unit,
+  CreditPricingSchema,
   ExtraRecurringPricingSchema,
   OneTimePricingSchema,
   RatePricingSchema,
@@ -17,17 +19,19 @@ import {
 } from '@/rpc/api/prices/v1/models_pb';
 
 
-import type {
-  CapacityPricingData,
-  ExtraRecurringPricingData,
-  MatrixPricingData,
-  OneTimePricingData,
-  PackagePricingData,
-  PerUnitPricingData,
-  PricingType,
-  RatePricingData,
-  SlotPricingData,
-  TieredPricingData,
+import {
+  packRollsOver,
+  type CapacityPricingData,
+  type CreditPricingData,
+  type ExtraRecurringPricingData,
+  type MatrixPricingData,
+  type OneTimePricingData,
+  type PackagePricingData,
+  type PerUnitPricingData,
+  type PricingType,
+  type RatePricingData,
+  type SlotPricingData,
+  type TieredPricingData,
 } from './schemas'
 
 /**
@@ -178,6 +182,37 @@ export function formDataToProtoPricing(
         }),
       };
     }
+    case 'credit': {
+      const d = data as CreditPricingData
+      return {
+        case: 'creditPricing',
+        value: create(CreditPricingSchema, {
+          unitPrice: d.unitPrice,
+          quantity: d.quantity,
+          creditAmount: d.creditAmount,
+          creditUnitId: d.grantCreditUnitId || undefined,
+          expiry:
+            d.expiryUnit === 'NONE'
+              ? undefined
+              : {
+                  unit: CreditPackExpiry_Unit[d.expiryUnit],
+                  value: d.expiryUnit === 'BILLING_PERIOD' ? 1 : d.expiryValue,
+                },
+          // Only an included (free) pack that expires rolls over; the switch is disabled otherwise.
+          rollover:
+            packRollsOver(d)
+              ? {
+                  maxAmount: d.rolloverMaxAmount.trim() === '' ? undefined : d.rolloverMaxAmount,
+                  expiry: {
+                    unit: CreditPackExpiry_Unit[d.rolloverExpiryUnit],
+                    value: d.rolloverExpiryValue,
+                  },
+                }
+              : undefined,
+          once: d.once,
+        }),
+      };
+    }
   }
 }
 
@@ -283,6 +318,27 @@ export function protoPricingToFormData(pricing: Price['pricing']): {
           quantity: pricing.value.quantity,
         },
       }
+    case 'creditPricing': {
+      const expiry = pricing.value.expiry
+      const rollover = pricing.value.rollover
+      const rolloverUnit = rollover?.expiry ? CreditPackExpiry_Unit[rollover.expiry.unit] : undefined
+      return {
+        pricingType: 'credit',
+        data: {
+          unitPrice: pricing.value.unitPrice,
+          quantity: pricing.value.quantity,
+          creditAmount: pricing.value.creditAmount,
+          grantCreditUnitId: pricing.value.creditUnitId ?? '',
+          expiryUnit: expiry ? CreditPackExpiry_Unit[expiry.unit] : 'NONE',
+          expiryValue: expiry?.value ?? 1,
+          rolloverEnabled: rollover !== undefined,
+          rolloverMaxAmount: rollover?.maxAmount ?? '',
+          rolloverExpiryUnit: rolloverUnit === 'DAY' ? 'DAY' : 'MONTH',
+          rolloverExpiryValue: rollover?.expiry?.value ?? 1,
+          once: pricing.value.once,
+        },
+      }
+    }
     default:
       return null
   }

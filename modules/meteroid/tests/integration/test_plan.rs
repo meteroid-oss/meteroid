@@ -7,7 +7,8 @@ use meteroid_grpc::meteroid::api;
 async fn test_plans_basic() {
     // Generic setup
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PRODUCT).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PRODUCT)
             .await;
@@ -32,6 +33,7 @@ async fn test_plans_basic() {
             plan_type: api::plans::v1::PlanType::Standard as i32,
             currency: "EUR".to_string(),
             entitlements: vec![],
+            tax_inclusive: false,
         })
         .await
         .unwrap()
@@ -158,6 +160,14 @@ async fn test_plans_basic() {
         .unwrap();
 
     assert_eq!(&published_version.is_draft, &false);
+    assert_eq!(
+        published_version
+            .credit_exhausted_rule
+            .as_ref()
+            .map(|rule| rule.kind()),
+        Some(api::plans::v1::credit_exhausted_rule::Kind::Invoice),
+        "publishing a version without credit sets the default: invoice"
+    );
 
     // copy version to draft
     let copied_draft_version = clients
@@ -196,17 +206,53 @@ async fn test_plans_basic() {
     assert_eq!(&last_published_version, &published_version);
 
     // update draft plan
-    let plan_with_version = clients
-        .plans
-        .clone()
-        .update_draft_plan_overview(api::plans::v1::UpdateDraftPlanOverviewRequest {
+    let update = |kind: api::plans::v1::credit_exhausted_rule::Kind, caps| {
+        api::plans::v1::UpdateDraftPlanOverviewRequest {
             plan_id: created_plan.id.clone(),
             plan_version_id: copied_draft_version.id.clone(),
             name: "new-plan-name".to_string(),
             description: Some("new-plan-desc".to_string()),
             currency: "AUD".to_string(),
             net_terms: 5,
-        })
+            tax_inclusive: true,
+            credit_exhausted_rule: Some(api::plans::v1::CreditExhaustedRule {
+                kind: kind.into(),
+                caps,
+            }),
+        }
+    };
+    // Refusing usage at zero or past a cap needs the usage controls, absent from this edition.
+    for refused in [
+        update(api::plans::v1::credit_exhausted_rule::Kind::Pause, vec![]),
+        update(
+            api::plans::v1::credit_exhausted_rule::Kind::InvoiceUpTo,
+            vec![api::plans::v1::CreditCap {
+                denomination: "aud".to_string(),
+                amount: 50_000,
+            }],
+        ),
+    ] {
+        let status = clients
+            .plans
+            .clone()
+            .update_draft_plan_overview(refused)
+            .await
+            .expect_err("a rule the edition cannot enforce");
+        assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status:?}");
+        assert!(
+            status
+                .message()
+                .contains("Usage controls are not available in this edition"),
+            "{status:?}"
+        );
+    }
+    let plan_with_version = clients
+        .plans
+        .clone()
+        .update_draft_plan_overview(update(
+            api::plans::v1::credit_exhausted_rule::Kind::Invoice,
+            vec![],
+        ))
         .await
         .unwrap()
         .into_inner()
@@ -222,6 +268,14 @@ async fn test_plans_basic() {
     assert_eq!(&plan.description, &Some("new-plan-desc".to_string()));
     assert_eq!(&version.currency, "AUD");
     assert_eq!(&version.net_terms, &5);
+    assert!(version.tax_inclusive);
+    assert_eq!(
+        version.credit_exhausted_rule,
+        Some(api::plans::v1::CreditExhaustedRule {
+            kind: api::plans::v1::credit_exhausted_rule::Kind::Invoice.into(),
+            caps: vec![],
+        })
+    );
 
     // discard plan version
     clients
@@ -278,6 +332,7 @@ async fn test_plans_basic() {
             name: "new-plan-name".to_string(),
             description: Some("new-plan-desc".to_string()),
             self_service_rank: None,
+            issues_license: None,
         })
         .await
         .unwrap()
@@ -294,4 +349,110 @@ async fn test_plans_basic() {
 
     // teardown
     // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
+}
+
+/// A published version's components price live subscriptions: removing or adding one is refused
+/// there (removal would cascade to every subscriber's line), allowed on a draft.
+#[tokio::test]
+async fn a_price_component_is_removed_from_a_draft_only() {
+    use crate::data::ids::{
+        COMP_NOTION_SEATS_ID, PLAN_VERSION_NOTION_ID, PRODUCT_SEATS_ID, TENANT_ID,
+    };
+    use meteroid_store::repositories::PlansInterface;
+    use meteroid_store::repositories::price_components::PriceComponentInterfaceAuto;
+
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup =
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
+    let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
+    let clients = meteroid_it::clients::AllClients::from_channel(
+        setup.channel.clone(),
+        auth.token.clone().as_str(),
+        "TESTORG",
+        "testslug",
+    );
+    let remove = |id: String| {
+        let mut client = clients.price_components.clone();
+        async move {
+            client
+                .remove_price_component(api::components::v1::RemovePriceComponentRequest {
+                    price_component_id: id,
+                })
+                .await
+        }
+    };
+
+    let refused = remove(COMP_NOTION_SEATS_ID.as_proto())
+        .await
+        .expect_err("a published version keeps its components");
+    assert_eq!(refused.code(), tonic::Code::FailedPrecondition);
+    let published = setup
+        .store
+        .list_price_components(PLAN_VERSION_NOTION_ID, TENANT_ID)
+        .await
+        .expect("components");
+    assert!(published.iter().any(|c| c.id == COMP_NOTION_SEATS_ID));
+
+    let added = clients
+        .price_components
+        .clone()
+        .create_price_component(api::components::v1::CreatePriceComponentRequest {
+            plan_version_id: PLAN_VERSION_NOTION_ID.as_proto(),
+            name: "One Time".to_string(),
+            product: Some(api::components::v1::ProductRef {
+                r#ref: Some(api::components::v1::product_ref::Ref::ExistingProductId(
+                    PRODUCT_SEATS_ID.as_proto(),
+                )),
+            }),
+            prices: vec![api::components::v1::PriceEntry {
+                entry: Some(api::components::v1::price_entry::Entry::NewPrice(
+                    api::components::v1::PriceInput {
+                        cadence: api::shared::v1::BillingPeriod::Monthly.into(),
+                        currency: "EUR".to_string(),
+                        pricing: Some(api::components::v1::price_input::Pricing::OneTimePricing(
+                            api::prices::v1::OneTimePricing {
+                                unit_price: "1.00".to_string(),
+                                quantity: 1,
+                            },
+                        )),
+                        credit_unit: None,
+                    },
+                )),
+            }],
+        })
+        .await
+        .expect_err("a published version takes no new component");
+    assert_eq!(added.code(), tonic::Code::FailedPrecondition);
+
+    let draft = setup
+        .store
+        .copy_plan_version_to_draft(PLAN_VERSION_NOTION_ID, TENANT_ID)
+        .await
+        .expect("a draft");
+    let seats = setup
+        .store
+        .list_price_components(draft.id, TENANT_ID)
+        .await
+        .expect("components")
+        .into_iter()
+        .find(|c| c.name == "Seats")
+        .expect("the draft's seats");
+    remove(seats.id.as_proto())
+        .await
+        .expect("removed from the draft");
+    let missing = remove(seats.id.as_proto())
+        .await
+        .expect_err("nothing left to remove");
+    assert_eq!(missing.code(), tonic::Code::NotFound);
+    assert!(
+        setup
+            .store
+            .list_price_components(draft.id, TENANT_ID)
+            .await
+            .expect("components")
+            .iter()
+            .all(|c| c.id != seats.id)
+    );
 }

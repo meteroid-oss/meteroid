@@ -1,24 +1,19 @@
 import { useMutation } from '@connectrpc/connect-query'
-import {
-  Button,
-  Card,
-  CheckboxFormField,
-  Form,
-  InputFormField,
-  SelectFormField,
-  SelectItem,
-} from '@md/ui'
+import { Button, Card, Form, InputFormField, SelectFormField, SelectItem } from '@md/ui'
 import { ChevronLeft } from 'lucide-react'
-import { FunctionComponent, useState } from 'react'
+import { FunctionComponent, useEffect, useMemo, useState } from 'react'
 import { useWatch } from 'react-hook-form'
 import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { entitlementCodes, useEntitlement, useFeaturesQuery } from '@/hooks/useEntitlement'
 import { buildSyncParam } from '@/hooks/useSyncQueries'
 import { useZodForm } from '@/hooks/useZodForm'
+import { useQuery } from '@/lib/connectrpc'
 import { TenantEnvironmentEnum } from '@/rpc/api/tenants/v1/models_pb'
-import { createTenant } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
+import { createTenant, listTenants } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
+import { SandboxPreset } from '@/rpc/api/tenants/v1/tenants_pb'
 
 const tenantSchema = z.object({
   name: z.string().min(3).max(50),
@@ -33,7 +28,7 @@ const tenantSchema = z.object({
       })
     }
   }),
-  disableEmails: z.boolean(),
+  sandboxPreset: z.string().transform((val: string) => Number(val) as SandboxPreset),
 })
 
 const environmentPlaceholders: Record<TenantEnvironmentEnum, string> = {
@@ -45,6 +40,11 @@ const environmentPlaceholders: Record<TenantEnvironmentEnum, string> = {
   [TenantEnvironmentEnum.DEMO]: 'Demo',
 }
 
+const sandboxPresetLabels: Record<SandboxPreset, string> = {
+  [SandboxPreset.DEFAULT]: 'Team collaboration SaaS',
+  [SandboxPreset.AI_CREDITS]: 'AI API with prepaid credits (live usage)',
+}
+
 export const TenantNew: FunctionComponent = () => {
   const { organizationSlug } = useParams()
   const methods = useZodForm({
@@ -52,7 +52,7 @@ export const TenantNew: FunctionComponent = () => {
     defaultValues: {
       name: '',
       environment: `${TenantEnvironmentEnum.DEVELOPMENT}` as unknown as TenantEnvironmentEnum,
-      disableEmails: true,
+      sandboxPreset: `${SandboxPreset.DEFAULT}` as unknown as SandboxPreset,
     },
   })
 
@@ -75,6 +75,36 @@ export const TenantNew: FunctionComponent = () => {
     control: methods.control,
     name: 'environment',
   })
+  const sandboxPreset = useWatch({
+    control: methods.control,
+    name: 'sandboxPreset',
+  })
+
+  const features = useFeaturesQuery().data
+  const tenants = useQuery(listTenants).data?.tenants
+  const productionCount =
+    tenants?.filter(t => t.environment === TenantEnvironmentEnum.PRODUCTION).length ?? 0
+  // The first Production tenant comes with the organization (or Cloud's go-live), not from here.
+  const canCreateProduction =
+    features !== undefined &&
+    productionCount > 0 &&
+    (features.productionTenantLimit === undefined ||
+      productionCount < features.productionTenantLimit)
+  const isProduction = Number(environment) === TenantEnvironmentEnum.PRODUCTION
+
+  const adminSandboxes = useEntitlement(entitlementCodes.ADMIN_SANDBOXES)
+  const presets = useMemo(
+    () =>
+      adminSandboxes ? [SandboxPreset.DEFAULT, SandboxPreset.AI_CREDITS] : [SandboxPreset.DEFAULT],
+    [adminSandboxes]
+  )
+  useEffect(() => {
+    if (!presets.includes(Number(sandboxPreset))) {
+      methods.setValue('sandboxPreset', `${SandboxPreset.DEFAULT}` as unknown as SandboxPreset, {
+        shouldValidate: true,
+      })
+    }
+  }, [presets, sandboxPreset, methods])
 
   return (
     <main className="flex  flex-col flex-1 w-full max-w-screen-2xl pl-8 pr-2 mx-auto h-full overflow-x-hidden ">
@@ -96,7 +126,7 @@ export const TenantNew: FunctionComponent = () => {
                 const result = await mut.mutateAsync({
                   name: values.name,
                   environment: values.environment,
-                  disableEmails: values.disableEmails,
+                  sandboxPreset: values.sandboxPreset,
                 })
                 if (result.tenant) {
                   // Add query param for sandbox tenants to trigger data refresh on dashboard
@@ -121,34 +151,50 @@ export const TenantNew: FunctionComponent = () => {
                     />
                   </div>
 
-                  <SelectFormField
-                    name="environment"
-                    label="Environment"
-                    control={methods.control}
-                    placeholder="Select an environment"
-                    className="max-w-xs"
-                  >
-                    <SelectItem value={`${TenantEnvironmentEnum.DEVELOPMENT}`}>
-                      Development
-                    </SelectItem>
-                    <SelectItem value={`${TenantEnvironmentEnum.SANDBOX}`}>
-                      Sandbox (with data)
-                    </SelectItem>
-                    <SelectItem value={`${TenantEnvironmentEnum.STAGING}`}>Staging</SelectItem>
-                    <SelectItem value={`${TenantEnvironmentEnum.QA}`}>QA</SelectItem>
-                    <SelectItem value={`${TenantEnvironmentEnum.PRODUCTION}`}>
-                      Production
-                    </SelectItem>
-                  </SelectFormField>
+                  <div className="space-y-1.5">
+                    <SelectFormField
+                      name="environment"
+                      label="Environment"
+                      control={methods.control}
+                      placeholder="Select an environment"
+                      className="max-w-xs"
+                    >
+                      {canCreateProduction && (
+                        <SelectItem value={`${TenantEnvironmentEnum.PRODUCTION}`}>
+                          Production
+                        </SelectItem>
+                      )}
+                      <SelectItem value={`${TenantEnvironmentEnum.DEVELOPMENT}`}>
+                        Development
+                      </SelectItem>
+                      <SelectItem value={`${TenantEnvironmentEnum.SANDBOX}`}>
+                        Sandbox (with data)
+                      </SelectItem>
+                      <SelectItem value={`${TenantEnvironmentEnum.STAGING}`}>Staging</SelectItem>
+                      <SelectItem value={`${TenantEnvironmentEnum.QA}`}>QA</SelectItem>
+                    </SelectFormField>
+                    <p className="max-w-xs text-xs text-muted-foreground">
+                      {isProduction
+                        ? 'A Production tenant bills your customers for real and sends them their emails.'
+                        : 'Customer emails start in Test mode: only your team receives them. You can change this in Customer emails.'}
+                    </p>
+                  </div>
 
-                  <div className="pt-4 text-sm">Advanced</div>
-
-                  <CheckboxFormField
-                    name="disableEmails"
-                    label="Disable all email notifications"
-                    control={methods.control}
-                    description="Invoices, receipts, payment reminders etc will not be sent to your customers."
-                  />
+                  {Number(environment) === TenantEnvironmentEnum.SANDBOX && (
+                    <SelectFormField
+                      name="sandboxPreset"
+                      label="Example data"
+                      control={methods.control}
+                      placeholder="Select an example"
+                      className="max-w-xs"
+                    >
+                      {presets.map(preset => (
+                        <SelectItem key={preset} value={`${preset}`}>
+                          {sandboxPresetLabels[preset]}
+                        </SelectItem>
+                      ))}
+                    </SelectFormField>
+                  )}
                 </div>
                 {error && <div className="text-destructive text-xs pt-2">{error}</div>}
 

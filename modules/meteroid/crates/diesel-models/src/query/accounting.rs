@@ -5,7 +5,7 @@ use common_domain::ids::{CustomTaxId, InvoicingEntityId, ProductId, TaxCategoryI
 use diesel::upsert::excluded;
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, JoinOnDsl, OptionalExtension, QueryDsl,
-    SelectableHelper, debug_query,
+    SelectableHelper,
 };
 use error_stack::ResultExt;
 
@@ -43,7 +43,7 @@ impl CustomTaxRow {
                 ct_dsl::tax_category_id.eq(excluded(ct_dsl::tax_category_id)),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -70,7 +70,7 @@ impl CustomTaxRow {
                 ),
             );
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -97,7 +97,7 @@ impl CustomTaxRow {
                 ),
             );
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -131,7 +131,7 @@ impl CustomTaxRow {
                 ),
             );
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -168,7 +168,7 @@ impl ProductAccountingRow {
                 pa_dsl::ledger_account_code.eq(excluded(pa_dsl::ledger_account_code)),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -198,7 +198,7 @@ impl ProductAccountingWithTaxRow {
             .left_join(ct_dsl::custom_tax.on(pct_dsl::custom_tax_id.eq(ct_dsl::id)))
             .select(ProductAccountingWithTaxRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -231,7 +231,7 @@ impl ProductAccountingWithTaxRow {
             .left_join(ct_dsl::custom_tax.on(pct_dsl::custom_tax_id.eq(ct_dsl::id)))
             .select(ProductAccountingWithTaxRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)

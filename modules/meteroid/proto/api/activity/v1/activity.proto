@@ -9,6 +9,7 @@ enum ActorType {
   API_TOKEN = 3;
   CUSTOMER = 4;
   QUOTE_RECIPIENT = 5;
+  OAUTH_APP = 6;
 }
 
 // `activity_type` is a free-form string so adding events doesn't roll the proto.
@@ -25,6 +26,10 @@ message ActivityEntry {
   optional string agg_customer_id = 11;
   optional string agg_subscription_id = 12;
   optional string entity_name = 14;
+  // The entity this points at no longer exists (deleted or discarded), so its
+  // name can't be resolved and its detail page is gone. Always false for entity
+  // types that have no resolvable name.
+  bool entity_deleted = 17;
   optional string agg_customer_name = 15;
   optional string agg_subscription_name = 16;
 }
@@ -96,7 +101,10 @@ service ActivityService {
   rpc ListEntityActivity(ListEntityActivityRequest)
     returns (ListEntityActivityResponse) {}
 
-  rpc ListActivity(ListActivityRequest) returns (ListActivityResponse) {}
-
   rpc GetSentEmail(GetSentEmailRequest) returns (GetSentEmailResponse) {}
+}
+
+// The tenant-wide feed, served by the Enterprise `security` module.
+service ActivityFeedService {
+  rpc ListActivity(ListActivityRequest) returns (ListActivityResponse) {}
 }

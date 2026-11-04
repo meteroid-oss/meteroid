@@ -1,0 +1,112 @@
+syntax = "proto3";
+
+package meteroid.api.walletcontrols.v1;
+
+import "api/wallets/v1/models.proto";
+import "google/protobuf/timestamp.proto";
+
+// How long a subscription's credit lasts. Amounts are minor units of the wallet.
+message CreditOutlook {
+  string wallet_id = 1;
+  // The wallet's currency, or its credit unit's code.
+  string currency = 2;
+  string subscription_id = 3;
+  // The subscription's current period end, YYYY-MM-DD.
+  string horizon = 4;
+  google.protobuf.Timestamp as_of = 5;
+  bool stale = 6;
+  // Usable by the subscription, after all unbilled usage.
+  int64 balance = 7;
+  // Of `balance`, the credit that belongs to the subscription ("Included credit").
+  int64 included = 8;
+  // Of `balance`, the credit any of the customer's subscriptions can use ("Shared credit").
+  int64 shared = 9;
+  // The other live subscriptions drawing on the shared credit.
+  repeated string shared_with = 10;
+  // The subscription's usage projected to `horizon`; unset before a full day of usage.
+  optional int64 projected_usage = 11;
+  OutlookVerdict verdict = 12;
+  // Documents billed before `horizon` could not all be priced: the verdict is an estimate.
+  bool partial = 13;
+  // `balance` by kind of credit.
+  repeated CreditOutlookGroup groups = 14;
+}
+
+// The credit of one kind a subscription can still use, once unbilled usage is paid.
+message CreditOutlookGroup {
+  meteroid.api.wallets.v1.CreditGrantKind kind = 1;
+  // Set when the credit belongs to one subscription.
+  optional string subscription_id = 2;
+  string label = 3;
+  string pays_for = 4;
+  int64 amount = 5;
+  // The soonest lapse among its grants.
+  optional google.protobuf.Timestamp lapses_at = 6;
+}
+
+message OutlookVerdict {
+  oneof verdict {
+    Stale stale = 1;
+    UsagePaused usage_paused = 2;
+    TopUpFailing top_up_failing = 3;
+    BeyondCredit beyond_credit = 4;
+    RunsOut runs_out = 5;
+    ProjectedBeyond projected_beyond = 6;
+    AutomaticTopUp automatic_top_up = 7;
+    Covered covered = 8;
+  }
+  // The balance is still catching up with a ledger change.
+  message Stale {}
+  message UsagePaused {
+    google.protobuf.Timestamp since = 1;
+  }
+  message TopUpFailing {
+    string last_error = 1;
+  }
+  // Unbilled usage already exceeds the credit; it is billed.
+  message BeyondCredit {
+    int64 uncovered = 1;
+  }
+  // At the current rate, the credit runs out on `on` (YYYY-MM-DD); usage pauses then if the
+  // wallet blocks.
+  message RunsOut {
+    string on = 1;
+    bool pauses = 2;
+  }
+  // At the current rate, `amount` of usage is billed beyond credit by `by` (YYYY-MM-DD).
+  message ProjectedBeyond {
+    int64 amount = 1;
+    string by = 2;
+  }
+  message AutomaticTopUp {
+    // The target (to-target) or the amount (fixed) of each top-up.
+    int64 target_or_amount = 1;
+    int64 threshold = 2;
+  }
+  // At the current rate, the credit covers the period through `through` (YYYY-MM-DD).
+  message Covered {
+    string through = 1;
+    int64 projected = 2;
+  }
+}
+
+// One subscription's view of a wallet.
+message SubscriptionWalletBalance {
+  string wallet_id = 1;
+  // The credit the subscription can spend once every subscription's unbilled usage is paid, less
+  // its own usage no credit pays. Credit restricted to products it is not charged for is left out.
+  int64 balance = 2;
+  // Of `balance`, the credit that belongs to no subscription.
+  int64 shared = 3;
+  // What its usage not invoiced yet asks of credit, tax included.
+  int64 unbilled = 4;
+  // Of `unbilled`, what no credit it can use pays.
+  int64 uncovered = 9;
+  // No credit it can use is left for some of its usage.
+  bool exhausted = 5;
+  // The rule in effect for its usage pauses it once no credit it can use is left.
+  bool pauses_at_zero = 6;
+  google.protobuf.Timestamp as_of = 7;
+  // False before the live estimate is computed: `balance` is the credit as the ledger holds it.
+  bool projected = 8;
+}

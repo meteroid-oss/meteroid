@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package meteroid.api.sso.v1;
+
+import "api/organizations/v1/models.proto";
+
+// One OIDC SSO connection per organization, as shown to admins. The client
+// secret is write-only: accepted on Upsert, never returned.
+message SsoConnection {
+  string id = 1;
+  string organization_id = 2;
+  // Protocol discriminator; "oidc" today.
+  string provider = 3;
+  // Email domains claimed by the org.
+  repeated string domains = 4;
+  string issuer_url = 5;
+  string authorize_url = 6;
+  string token_url = 7;
+  string userinfo_url = 8;
+  string client_id = 9;
+  // Space-delimited OIDC scopes.
+  string scopes = 10;
+  bool enabled = 11;
+  // When true, password / social login is refused for `domains`.
+  bool enforced = 12;
+  // Auto-provision a member on first successful SSO sign-in.
+  bool jit_provisioning = 13;
+  string created_at = 14;
+  optional string updated_at = 15;
+}
+
+message GetSsoConnectionRequest {}
+message GetSsoConnectionResponse {
+  // Absent when the org has no SSO connection configured.
+  optional SsoConnection connection = 1;
+}
+
+message UpsertSsoConnectionRequest {
+  repeated string domains = 1;
+  string issuer_url = 2;
+  // Endpoints are optional: left empty, they're resolved from the issuer's
+  // `.well-known/openid-configuration` at save time.
+  optional string authorize_url = 3;
+  optional string token_url = 4;
+  optional string userinfo_url = 5;
+  string client_id = 6;
+  // Required on first create; omit on update to keep the stored secret.
+  optional string client_secret = 7;
+  // Defaults to "openid email profile" when empty; "openid" is always added.
+  optional string scopes = 8;
+  bool enabled = 9;
+  bool enforced = 10;
+  bool jit_provisioning = 11;
+}
+message UpsertSsoConnectionResponse {
+  SsoConnection connection = 1;
+}
+
+message DeleteSsoConnectionRequest {}
+message DeleteSsoConnectionResponse {}
+
+// Whether every member must enroll in two-factor authentication. Sign-in enforces the stored
+// flag whatever edition runs.
+message SetMfaRequiredRequest {
+  bool required = 1;
+}
+message SetMfaRequiredResponse {
+  meteroid.api.organizations.v1.Organization organization = 1;
+}
+
+// Admin-only management of how members sign in: the organization's SSO connection and
+// required two-factor authentication. Domain ownership is proven separately via
+// DomainsService; the sign-in handshake is served over REST (`/sso/*`), not this service.
+service SsoService {
+  rpc GetSsoConnection(GetSsoConnectionRequest) returns (GetSsoConnectionResponse) {}
+  rpc UpsertSsoConnection(UpsertSsoConnectionRequest) returns (UpsertSsoConnectionResponse) {}
+  rpc DeleteSsoConnection(DeleteSsoConnectionRequest) returns (DeleteSsoConnectionResponse) {}
+  rpc SetMfaRequired(SetMfaRequiredRequest) returns (SetMfaRequiredResponse) {}
+}

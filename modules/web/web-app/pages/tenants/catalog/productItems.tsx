@@ -1,21 +1,26 @@
-import { Fragment, FunctionComponent, useCallback, useState } from 'react'
+import { PlusIcon } from '@md/icons'
+import { Button } from '@md/ui'
+import { FunctionComponent, useCallback, useState } from 'react'
 
+import { Gate } from '@/components/Gate'
+import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'
+import { BaseFilter } from '@/features/TablePage'
+import { ProductCreatePanel } from '@/features/productCatalog/items/ProductCreatePanel'
 import { ProductDetailPanel } from '@/features/productCatalog/items/ProductDetailPanel'
-import { ProductsHeader } from '@/features/productCatalog/items/ProductItemsHeader'
 import { ProductsTable } from '@/features/productCatalog/items/ProductItemsTable'
+import { useListPagination } from '@/hooks/useTablePreferences'
 import { useQuery } from '@/lib/connectrpc'
 import { sortingStateToOrderBy } from '@/lib/utils/sorting'
 import { searchProducts } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 
-import type { PaginationState, SortingState } from '@tanstack/react-table'
+import type { SortingState } from '@tanstack/react-table'
 
 export const Products: FunctionComponent = () => {
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null)
+  const [isCreating, setIsCreating] = useState(false)
   const [search, setSearch] = useState<string | undefined>(undefined)
-  const [pagination, setPagination] = useState<PaginationState>({
-    pageIndex: 0,
-    pageSize: 20,
-  })
+  const [statusFilter, setStatusFilter] = useState<'active' | 'archived'>('active')
+  const [pagination, setPagination] = useListPagination()
   const [sorting, setSorting] = useState<SortingState>([])
 
   const handleSortingChange = useCallback(
@@ -23,11 +28,12 @@ export const Products: FunctionComponent = () => {
       setSorting(prev => (typeof updaterOrValue === 'function' ? updaterOrValue(prev) : updaterOrValue))
       setPagination(prev => ({ ...prev, pageIndex: 0 }))
     },
-    []
+    [setPagination]
   )
 
   const productsQuery = useQuery(searchProducts, {
     query: search || undefined,
+    archived: statusFilter === 'archived',
     pagination: { perPage: pagination.pageSize, page: pagination.pageIndex },
     orderBy: sortingStateToOrderBy(sorting),
   })
@@ -45,15 +51,41 @@ export const Products: FunctionComponent = () => {
   }
 
   return (
-    <Fragment>
-      <ProductsHeader
-        heading="Product Items"
-        count={totalCount}
-        setEditPanelVisible={() => false}
-        isLoading={isLoading}
-        refetch={refetch}
-        setSearch={handleSearch}
-      />
+    <ListPageLayout
+      title="Products"
+      count={totalCount}
+      actions={
+        <Gate perm="catalog:manage">
+          <Button variant="primary" size="sm" hasIcon onClick={() => setIsCreating(true)}>
+            <PlusIcon className="w-4 h-4" /> New product
+          </Button>
+        </Gate>
+      }
+      toolbar={
+        <>
+          <ListToolbarSearch
+            value={search ?? ''}
+            onChange={handleSearch}
+            placeholder="Search products"
+            className="max-w-[220px]"
+          />
+          <BaseFilter
+            entries={[
+              { label: 'Active', value: 'active' },
+              { label: 'Archived', value: 'archived' },
+            ]}
+            emptyLabel="Active"
+            selected={[statusFilter]}
+            onSelectionChange={(value, checked) => {
+              if (!checked) return
+              setStatusFilter(value as 'active' | 'archived')
+              setPagination(prev => ({ ...prev, pageIndex: 0 }))
+            }}
+          />
+        </>
+      }
+      toolbarTrailing={<RefreshButton isLoading={isLoading} onClick={refetch} />}
+    >
       <ProductsTable
         data={data}
         pagination={pagination}
@@ -68,6 +100,13 @@ export const Products: FunctionComponent = () => {
         productId={selectedProductId}
         onClose={() => setSelectedProductId(null)}
       />
-    </Fragment>
+      <Gate perm="catalog:manage">
+        <ProductCreatePanel
+          visible={isCreating}
+          onClose={() => setIsCreating(false)}
+          onCreated={setSelectedProductId}
+        />
+      </Gate>
+    </ListPageLayout>
   )
 }

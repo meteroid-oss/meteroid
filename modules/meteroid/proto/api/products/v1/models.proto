@@ -14,6 +14,7 @@ message Product {
   optional meteroid.api.prices.v1.FeeStructure fee_structure = 7;
   bool catalog = 8;
   optional string tax_category_id = 9;
+  optional string archived_at = 10;
 }
 
 message ProductMeta {
@@ -24,6 +25,7 @@ message ProductMeta {
   optional string description = 5;
   string created_at = 6;
   bool catalog = 7;
+  optional string archived_at = 8;
 }
 
 message ProductWithPrice {

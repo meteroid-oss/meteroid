@@ -7,6 +7,7 @@ import {
   FeeStructure_BillingType,
   FeeStructure_CapacityStructureSchema,
   FeeStructure_ExtraRecurringStructureSchema,
+  FeeStructure_CreditStructureSchema,
   FeeStructure_OneTimeStructureSchema,
   FeeStructure_RateStructureSchema,
   FeeStructure_SlotStructureSchema,
@@ -53,9 +54,48 @@ function protoToCadence(period: BillingPeriod): Cadence {
   }
 }
 
+// --- Credit unit helpers ---
+
+const creditPricedTypes: PricingType[] = [
+  'capacity',
+  'perUnit',
+  'tiered',
+  'volume',
+  'package',
+  'matrix',
+]
+
+/** The credit unit a usage or capacity price is expressed in, from its form data. */
+function creditUnitFromForm(
+  pricingType: PricingType,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  formData: Record<string, any>
+) {
+  if (!creditPricedTypes.includes(pricingType) || !formData.creditUnitId) return undefined
+  // An empty rate is stored as 0: the server then bills overage at the unit's value, or nothing
+  // where access is denied at zero.
+  const rate = String(formData.creditUnitRate ?? '').trim() || '0'
+  return { creditUnitId: formData.creditUnitId as string, rate }
+}
+
+function creditUnitToForm(price: Price | undefined) {
+  return {
+    creditUnitId: price?.creditUnit?.creditUnitId ?? '',
+    creditUnitRate:
+      price?.creditUnit?.rate && Number(price.creditUnit.rate) !== 0 ? price.creditUnit.rate : '',
+  }
+}
+
 // --- Fee type helpers ---
 
-export type ComponentFeeType = 'rate' | 'slot' | 'capacity' | 'usage' | 'extraRecurring' | 'oneTime'
+export type ComponentFeeType =
+  | 'rate'
+  | 'slot'
+  | 'capacity'
+  | 'usage'
+  | 'extraRecurring'
+  | 'oneTime'
+  | 'credit'
 
 export function feeTypeToProto(feeType: ComponentFeeType): ProtoFeeType {
   switch (feeType) {
@@ -71,6 +111,8 @@ export function feeTypeToProto(feeType: ComponentFeeType): ProtoFeeType {
       return ProtoFeeType.EXTRA_RECURRING
     case 'oneTime':
       return ProtoFeeType.ONE_TIME
+    case 'credit':
+      return ProtoFeeType.CREDIT
   }
 }
 
@@ -108,6 +150,8 @@ export function toPricingTypeFromFeeType(
       return 'extraRecurring'
     case 'oneTime':
       return 'oneTime'
+    case 'credit':
+      return 'credit'
   }
 }
 
@@ -146,11 +190,12 @@ export function buildPriceInputs(
         cadence: cadenceToProto(cadence),
         currency,
         pricing: protoPricing,
+        creditUnit: creditUnitFromForm('capacity', formData),
       });
     });
   }
 
-  // Single-cadence types (rate, slot, usage variants, extraRecurring)
+  // Single-cadence types (rate, slot, usage variants, extraRecurring, credit)
   if (
     pricingType === 'rate' ||
     pricingType === 'slot' ||
@@ -159,7 +204,8 @@ export function buildPriceInputs(
     pricingType === 'volume' ||
     pricingType === 'package' ||
     pricingType === 'matrix' ||
-    pricingType === 'extraRecurring'
+    pricingType === 'extraRecurring' ||
+    pricingType === 'credit'
   ) {
     const cadence = formData.term as Cadence
     const protoPricing = formDataToProtoPricing(pricingType, formData)
@@ -168,6 +214,7 @@ export function buildPriceInputs(
         cadence: cadenceToProto(cadence),
         currency,
         pricing: protoPricing,
+        creditUnit: creditUnitFromForm(pricingType, formData),
       }),
     ];
   }
@@ -248,6 +295,10 @@ export function buildFeeStructure(
       return create(FeeStructureSchema, {
         structure: { case: 'oneTime', value: create(FeeStructure_OneTimeStructureSchema) },
       });
+    case 'credit':
+      return create(FeeStructureSchema, {
+        structure: { case: 'credit', value: create(FeeStructure_CreditStructureSchema) },
+      });
   }
 }
 
@@ -281,6 +332,7 @@ export function pricesToFormData(
     return {
       term: protoToCadence(prices[0].cadence),
       thresholds: thresholds.length > 0 ? thresholds : [{ included: 0, rate: '0.00', overageRate: '0.00000000' }],
+      ...creditUnitToForm(prices[0]),
     }
   }
 
@@ -296,6 +348,7 @@ export function pricesToFormData(
   return {
     term: protoToCadence(price.cadence),
     ...parsed.data,
+    ...(creditPricedTypes.includes(pricingType) ? creditUnitToForm(price) : {}),
   }
 }
 
@@ -375,7 +428,12 @@ export function formDataToPrice(
   }
 
   const pricing = formDataToProtoPricing(pricingType, pricingData)
-  return create(PriceSchema, { cadence, currency, pricing });
+  return create(PriceSchema, {
+    cadence,
+    currency,
+    pricing,
+    creditUnit: creditUnitFromForm(pricingType, formData),
+  });
 }
 
 /**
@@ -395,6 +453,8 @@ export function feeTypeFromPrice(price: Price): ComponentFeeType {
       return 'extraRecurring'
     case 'oneTimePricing':
       return 'oneTime'
+    case 'creditPricing':
+      return 'credit'
     default:
       return 'rate'
   }

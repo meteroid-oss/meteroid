@@ -3,6 +3,7 @@ syntax = "proto3";
 package meteroid.internal.v1;
 
 import "api/billablemetrics/v1/models.proto";
+import "api/tenants/v1/models.proto";
 
 message ResolvedId {
   string alias = 1;
@@ -27,7 +28,16 @@ message ResolveApiKeyResponse {
   string tenant_id = 1;
   string organization_id = 2;
   string hash = 3;
+  // Unset (default PRODUCTION) when talking to an older meteroid.
+  api.tenants.v1.TenantEnvironmentEnum environment = 4;
+  bool keep_last_events = 5;
 }
+
+message ReportApiKeyUsageRequest {
+  string api_key_id = 1;
+}
+
+message ReportApiKeyUsageResponse {}
 
 message ListBillableMetricsRequest {
   string tenant_id = 1;
@@ -41,5 +51,6 @@ message ListBillableMetricsResponse {
 service InternalService {
   rpc ResolveCustomerAliases(ResolveCustomerAliasesRequest) returns (ResolveCustomerAliasesResponse) {}
   rpc ResolveApiKey(ResolveApiKeyRequest) returns (ResolveApiKeyResponse) {}
+  rpc ReportApiKeyUsage(ReportApiKeyUsageRequest) returns (ReportApiKeyUsageResponse) {}
   rpc ListBillableMetrics(ListBillableMetricsRequest) returns (ListBillableMetricsResponse) {}
 }

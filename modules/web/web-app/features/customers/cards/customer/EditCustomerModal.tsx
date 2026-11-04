@@ -1,12 +1,23 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { Form, Modal } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { ComponentProps, useEffect } from 'react'
+import { ComponentProps, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
+import {
+  invoiceLanguageFromLocales,
+  invoiceLanguageToLocales,
+} from '@/components/InvoiceLanguageSelect'
+import { OwnerField, useSaveOwner } from '@/features/customers/OwnerPicker'
 import { CustomerFormFields } from '@/features/customers/form/CustomerFormFields'
+import {
+  parseCustomProperties,
+  serializeCustomProperties,
+} from '@/features/customproperties/CustomPropertiesFields'
+import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { useZodForm } from '@/hooks/useZodForm'
 import {
+  customerName,
   editCustomerSchema,
   EditCustomerSchema,
   taxStatusFromProto,
@@ -18,7 +29,7 @@ import {
   listCustomers,
   updateCustomer,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import { Customer } from '@/rpc/api/customers/v1/models_pb'
+import { Customer, CustomerType } from '@/rpc/api/customers/v1/models_pb'
 
 type Props = Pick<ComponentProps<typeof Modal>, 'visible' | 'onCancel'> & {
   customer: Customer
@@ -26,6 +37,10 @@ type Props = Pick<ComponentProps<typeof Modal>, 'visible' | 'onCancel'> & {
 
 export const EditCustomerModal = ({ customer, visible, onCancel }: Props) => {
   const queryClient = useQueryClient()
+  const isExpress = useIsExpressOrganization()
+  const saveOwner = useSaveOwner()
+  const savedOwner = customer.owner?.userId
+  const [owner, setOwner] = useState(savedOwner)
 
   const updateCustomerMutation = useMutation(updateCustomer, {
     onSuccess: () => {
@@ -33,14 +48,14 @@ export const EditCustomerModal = ({ customer, visible, onCancel }: Props) => {
         queryKey: createConnectQueryKey({
           schema: getCustomerById,
           input: { id: customer.id },
-          cardinality: 'finite'
+          cardinality: 'finite',
         }),
       })
 
       queryClient.invalidateQueries({
         queryKey: createConnectQueryKey({
           schema: listCustomers.parent,
-          cardinality: undefined
+          cardinality: undefined,
         }),
       })
     },
@@ -48,11 +63,16 @@ export const EditCustomerModal = ({ customer, visible, onCancel }: Props) => {
 
   const getDefaultValues = (): EditCustomerSchema => ({
     name: customer.name,
+    customerType: customer.customerType === CustomerType.INDIVIDUAL ? 'INDIVIDUAL' : 'COMPANY',
+    firstName: customer.firstName,
+    lastName: customer.lastName,
     alias: customer.alias,
     email: customer.billingEmail,
     invoicingEmail: customer.invoicingEmails[0],
     phone: customer.phone,
     vatNumber: customer.vatNumber,
+    legalNumber: customer.legalNumber,
+    buyerReference: customer.buyerReference,
     customTaxes:
       customer.customTaxes?.map(tax => ({
         taxCode: tax.taxCode,
@@ -63,6 +83,8 @@ export const EditCustomerModal = ({ customer, visible, onCancel }: Props) => {
     exemptionReason: customer.exemptionReason,
     billingAddress: customer.billingAddress,
     shippingAddress: customer.shippingAddress,
+    preferredLanguage: invoiceLanguageFromLocales(customer.preferredLocales),
+    customProperties: parseCustomProperties(customer.customProperties),
   })
 
   const methods = useZodForm({
@@ -74,6 +96,7 @@ export const EditCustomerModal = ({ customer, visible, onCancel }: Props) => {
   useEffect(() => {
     if (visible) {
       methods.reset(getDefaultValues())
+      setOwner(savedOwner)
     }
   }, [visible, customer])
 
@@ -81,12 +104,18 @@ export const EditCustomerModal = ({ customer, visible, onCancel }: Props) => {
     await updateCustomerMutation.mutateAsync({
       customer: {
         id: customer.id,
-        name: data.name,
+        name: customerName(data),
+        customerType:
+          data.customerType === 'INDIVIDUAL' ? CustomerType.INDIVIDUAL : CustomerType.COMPANY,
+        firstName: data.customerType === 'INDIVIDUAL' ? data.firstName || undefined : undefined,
+        lastName: data.customerType === 'INDIVIDUAL' ? data.lastName || undefined : undefined,
         alias: data.alias,
         billingEmail: data.email,
         invoicingEmails: data.invoicingEmail ? { emails: [data.invoicingEmail] } : undefined,
         phone: data.phone,
         vatNumber: data.vatNumber,
+        legalNumber: data.legalNumber ?? '',
+        buyerReference: data.buyerReference ?? '',
         customTaxes: {
           taxes: (data.customTaxes || []).map(tax => ({
             taxCode: tax.taxCode,
@@ -95,11 +124,14 @@ export const EditCustomerModal = ({ customer, visible, onCancel }: Props) => {
           })),
         },
         taxStatus: taxStatusToProto(data.taxStatus),
-        exemptionReason: data.exemptionReason || undefined,
+        exemptionReason: data.exemptionReason ?? '',
         billingAddress: data.billingAddress,
         shippingAddress: data.shippingAddress,
+        preferredLocales: invoiceLanguageToLocales(data.preferredLanguage),
+        customProperties: serializeCustomProperties(data.customProperties),
       },
     })
+    if (!isExpress) await saveOwner(customer.id, savedOwner, owner)
     toast.success('Customer updated')
     onCancel?.()
   }
@@ -118,6 +150,7 @@ export const EditCustomerModal = ({ customer, visible, onCancel }: Props) => {
         <Form {...methods}>
           <form className="max-h-[70vh] overflow-y-auto pr-2">
             <div className="py-4 w-full space-y-6">
+              {!isExpress && <OwnerField value={owner} onChange={setOwner} />}
               <CustomerFormFields
                 control={methods.control}
                 initialShowShippingAddress={hasShippingAddress}

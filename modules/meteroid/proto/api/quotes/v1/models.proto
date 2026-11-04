@@ -6,6 +6,7 @@ import "api/customers/v1/models.proto";
 import "api/entitlements/v1/models.proto";
 import "api/invoicingentities/v1/models.proto";
 import "api/subscriptions/v1/models.proto";
+import "api/plans/v1/models.proto";
 
 enum QuoteStatus {
   DRAFT = 0;
@@ -64,6 +65,9 @@ message Quote {
   // Conversion tracking
   optional string converted_to_subscription_id = 34;
   optional string converted_at = 35;
+
+  // JSON-encoded object of user-defined custom property values, keyed by definition key.
+  optional string custom_properties = 37;
 }
 
 message RecipientDetails {
@@ -81,6 +85,10 @@ message DetailedQuote {
   repeated QuoteAddOn add_ons = 8;
   repeated QuoteCoupon coupons = 9;
   repeated QuoteSignature signatures = 6;
+  // Quote-level minimum-commitment floor. Overrides the plan snapshot on conversion.
+  optional meteroid.api.plans.v1.MinimumCommitment minimum_commitment = 10;
+  // Whether "Send to customer" can email the quote. Only set by GetQuote.
+  optional bool quote_email_enabled = 11;
 }
 
 
@@ -182,6 +190,14 @@ message CreateQuote {
 
   // Informative example usage quantities to display for usage-based components.
   repeated QuoteUsageExample usage_examples = 31;
+
+  // Quote-level minimum-commitment override applied at quote creation. When present it replaces
+  // the plan default for this quote (and, on conversion, becomes an is_override floor on the
+  // subscription). When absent the quote inherits the plan's term.
+  optional meteroid.api.plans.v1.MinimumCommitment minimum_commitment_override = 32;
+
+  // JSON-encoded object of custom property values, validated against the tenant's quote definitions.
+  optional string custom_properties = 33;
 }
 
 message CreateQuoteCoupon {

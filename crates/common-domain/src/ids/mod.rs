@@ -24,6 +24,7 @@ id_type!(QuotePriceComponentId, "quo_price_");
 id_type!(QuoteAddOnId, "quo_add_");
 id_type!(QuoteCouponId, "quo_cou_");
 id_type!(InvoicingEntityId, "ive_");
+id_type!(InvoiceAnnexTemplateId, "iat_");
 id_type!(AddOnId, "add_");
 id_type!(AppliedCouponId, "sub_cou_");
 id_type!(BankAccountId, "ba_");
@@ -47,6 +48,10 @@ id_type!(SlotTransactionId, "slot_tx_");
 id_type!(CustomTaxId, "tax_");
 id_type!(TaxCategoryId, "txc_");
 id_type!(CheckoutSessionId, "che_");
+id_type!(LicenseId, "lic_");
+id_type!(LicenseSigningKeyId, "lsk_");
+id_type!(PurchaseLinkId, "plk_");
+id_type!(PurchaseLinkSessionId, "pls_");
 id_type!(PlanVersionAddOnId, "pva_");
 id_type!(PriceId, "pri_");
 id_type!(ScheduledEventId, "sev_");
@@ -55,8 +60,44 @@ id_type!(OAuthAppId, "app_");
 id_type!(BatchJobId, "bjob_");
 id_type!(BatchJobChunkId, "bjch_");
 id_type!(EntityActivityId, "act_");
+id_type!(OrgSecurityAuditLogId, "secevt_");
 id_type!(FeatureId, "feat_");
 id_type!(EntitlementId, "ent_");
+id_type!(AlertId, "alrt_");
+id_type!(AlertEventId, "alev_");
+id_type!(SavedViewId, "view_");
+id_type!(EntityListViewId, "elv_");
+id_type!(DashboardShareId, "dsh_");
+id_type!(SegmentId, "seg_");
+id_type!(NotificationChannelId, "chan_");
+id_type!(RoleId, "role_");
+id_type!(SsoConnectionId, "sso_");
+id_type!(OrganizationDomainId, "dom_");
+id_type!(CustomPropertyDefinitionId, "cpd_");
+id_type!(AccountViewId, "acv_");
+id_type!(PaymentReminderSequenceId, "prs_");
+id_type!(PaymentReminderStepId, "prst_");
+id_type!(MetricTargetId, "mtgt_");
+id_type!(MetricTargetChangeId, "mtch_");
+// Customer credit: wallets (per-currency accounts), their grants and ledger entries.
+id_type!(WalletId, "wal_");
+id_type!(CreditGrantId, "cgr_");
+id_type!(LedgerEntryId, "wle_");
+// Usage paid from wallet credit ahead of its invoice.
+id_type!(UsageSettlementId, "wus_");
+// A top-up purchase of wallet credit, self-service or automatic.
+id_type!(CreditOperationId, "cop_");
+// Customer usage limits and customer-set budgets.
+id_type!(UsageLimitId, "ulim_");
+id_type!(BudgetId, "bdgt_");
+// A tenant-defined credit denomination that prices usage instead of money.
+id_type!(CreditUnitId, "cun_");
+// A credit unit's selling price in one currency.
+id_type!(CreditUnitPriceId, "cup_");
+id_type!(WebhookEndpointId, "whe_");
+id_type!(WebhookMessageId, "whm_");
+id_type!(WebhookDeliveryId, "whd_");
+id_type!(WebhookAttemptId, "wha_");
 
 #[derive(Debug)]
 pub struct IdError(pub(crate) String);
@@ -92,6 +133,7 @@ pub trait BaseId: Deref<Target = Uuid> {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum EntitlementEntityId {
     Feature(FeatureId),
+    Customer(CustomerId),
     Plan(PlanId),
     PlanVersion(PlanVersionId),
     AddOn(AddOnId),
@@ -102,12 +144,15 @@ pub enum EntitlementEntityId {
 impl EntitlementEntityId {
     /// Priority ladder used by the entitlement resolver. Higher value wins; ties merge.
     ///
-    /// `Feature` is the tenant-wide baseline. `PlanVersion` outranks `AddOn` because the
-    /// plan version is the authoritative composition of its linked add-ons — a plan
-    /// version's own grant therefore overrides anything its add-ons contribute.
-    /// `Subscription` and `Quote` share the top rank; they are never both present in the
-    /// same resolution chain (a chain belongs to one customer's subscription *or* one
-    /// quote, never both), so the tie never materialises at runtime.
+    /// `Feature` is the tenant-wide baseline. `PlanVersion` outranks `AddOn` because the plan
+    /// version is the authoritative composition of its linked add-ons — a plan version's own
+    /// grant therefore overrides anything its add-ons contribute. `Subscription` and `Quote`
+    /// share the next rank; they are never both present in the same resolution chain (a chain
+    /// belongs to one customer's subscription *or* one quote, never both), so the tie never
+    /// materialises at runtime. `Customer` sits at the **top**: a customer-level grant is an
+    /// account-wide force that overrides everything a subscription composes or sets explicitly —
+    /// the way to grant or deny a feature for a specific account regardless of (or in the absence
+    /// of) a subscription. It wins everywhere for that customer, so set it sparingly.
     pub fn priority(&self) -> u8 {
         match self {
             Self::Feature(_) => 0,
@@ -116,12 +161,14 @@ impl EntitlementEntityId {
             Self::PlanVersion(_) => 3,
             Self::Subscription(_) => 4,
             Self::Quote(_) => 4,
+            Self::Customer(_) => 5,
         }
     }
 
     pub fn as_uuid(&self) -> Uuid {
         match self {
             Self::Feature(id) => **id,
+            Self::Customer(id) => **id,
             Self::Plan(id) => **id,
             Self::PlanVersion(id) => **id,
             Self::AddOn(id) => **id,

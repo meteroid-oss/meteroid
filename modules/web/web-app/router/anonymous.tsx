@@ -8,6 +8,7 @@ import {
   CheckInboxPassword,
   ForgotPassword,
   Login,
+  MfaChallenge,
   Registration,
   ResetPassword,
   ValidateEmail,
@@ -59,6 +60,11 @@ export const anonymousRoutes: RouteObject = {
           path: '/reset-password',
           element: <ResetPassword />,
           handle: { title: 'Reset password' },
+        },
+        {
+          path: '/mfa-challenge',
+          element: <MfaChallenge />,
+          handle: { title: 'Two-factor authentication' },
         },
         {
           path: '/oauth_success',

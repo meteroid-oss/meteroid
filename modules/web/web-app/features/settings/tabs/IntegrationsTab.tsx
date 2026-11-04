@@ -1,12 +1,10 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Button,
-  Card,
-  CardContent,
   Popover,
   PopoverContent,
   PopoverTrigger,
-  ScrollArea,
 } from '@ui/components'
 import { cn } from '@ui/lib'
 import {
@@ -17,28 +15,53 @@ import {
   MoreVerticalIcon,
   PlugIcon,
   PlusIcon,
-  Users,
-  UnplugIcon,
-  Edit2Icon,
+  Users, UnplugIcon, Edit2Icon,
 } from 'lucide-react'
-import * as React from 'react'
-import { FunctionComponent, useEffect, useState } from 'react'
+import * as React from 'react';
+import { FunctionComponent, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { siAdyen, siHubspot, siQuickbooks } from 'simple-icons'
 import { toast } from 'sonner'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
+import {
+  useConnectorLifecycle,
+  useConnectorPaths,
+} from '@/features/payments/ConnectorLifecycle'
+import {
+  ConnectorStatusBadge,
+  CredentialsErrorBadge,
+  MethodChips,
+  methodChips,
+  userFacingError,
+} from '@/features/payments/connectors'
 import { BrandIcon } from '@/features/payments/logos'
-import { PAYMENT_PROVIDERS } from '@/features/payments/providers'
-import { useQueryState } from '@/hooks/useQueryState'
+import {
+  MOCK_PAYMENT_PROVIDER,
+  PAYMENT_PROVIDERS,
+  PaymentProviderDefinition,
+} from '@/features/payments/providers'
+import {
+  SettingsRow,
+  SettingsRowGroup,
+  SettingsSection,
+} from '@/features/settings/components/SettingsSection'
+import { useQueryState } from "@/hooks/useQueryState";
+import { useTenant } from '@/hooks/useTenant'
 import { useQuery } from '@/lib/connectrpc'
 import {
-  disconnectConnector,
+  deleteConnector,
   listConnectors,
 } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
-import { Connector, ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
-import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
+import {
+  Connector,
+  ConnectorProviderEnum,
+  ConnectorStatusEnum,
+} from '@/rpc/api/connectors/v1/models_pb'
+import { getInstance } from "@/rpc/api/instance/v1/instance-InstanceService_connectquery";
+import { TenantEnvironmentEnum } from '@/rpc/api/tenants/v1/models_pb'
 import { useConfirmationModal } from 'providers/ConfirmationProvider'
+
 
 interface Integration {
   name: string
@@ -48,8 +71,10 @@ interface Integration {
   icon?: FunctionComponent<{ className?: string }>
   link?: string
   editLink?: string
-  data?: Connector[]
-  multiConnectionsDisabled?: boolean
+  data?: Connector[],
+  multiConnectionsDisabled?: boolean,
+  /** Payment providers list each connection under the provider row. */
+  paymentProvider?: PaymentProviderDefinition
 }
 
 interface Section {
@@ -59,37 +84,45 @@ interface Section {
   integrations: Integration[]
 }
 
-// The backend returns the raw FK violation when payments still reference the connector; other
-// errors are shown as is.
-const disconnectErrorMessage = (message: string) =>
-  message.includes('foreign key constraint')
-    ? 'Cannot disconnect: this connector is in use.'
-    : `Failed to disconnect: ${message}`
-
 export const IntegrationsTab = () => {
-  // TODO set based on #hash
-  const [activeSection] = useState('')
   const [success] = useQueryState<boolean | undefined>('success', undefined)
 
   useEffect(() => {
     if (success) {
       toast.success('Connected!', { id: 'integration-success-toast' })
     }
-  }, [success])
+  }, [success]);
 
   const connectorsQuery = useQuery(listConnectors, {})
 
-  const disconnectConnectorMutation = useMutation(disconnectConnector, {
+  const queryClient = useQueryClient()
+  const deleteConnectorMutation = useMutation(deleteConnector, {
     onSuccess: () => {
       toast.success('Disconnected')
-      connectorsQuery.refetch()
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({ schema: listConnectors, cardinality: undefined }),
+      })
     },
     onError: error => {
-      toast.error(disconnectErrorMessage(error.message))
+      toast.error(userFacingError(error, 'Failed to disconnect.'))
     },
   })
 
+  const lifecycle = useConnectorLifecycle()
+
   const getInstanceQuery = useQuery(getInstance)
+  const { tenant } = useTenant()
+
+  // The backend refuses the test gateway on production tenants; hide it there too. An existing
+  // connection stays listed so it can be managed.
+  const mockAvailable = tenant?.environment !== TenantEnvironmentEnum.PRODUCTION
+  const hasMockConnector = !!connectorsQuery.data?.connectors.some(
+    connector => connector.paymentCapabilities?.isTestGateway
+  )
+  const paymentProviders =
+    mockAvailable || hasMockConnector
+      ? [...PAYMENT_PROVIDERS, MOCK_PAYMENT_PROVIDER]
+      : PAYMENT_PROVIDERS
 
   const sections: Section[] = [
     {
@@ -97,7 +130,7 @@ export const IntegrationsTab = () => {
       title: 'Payment Providers',
       icon: CreditCard,
       integrations: [
-        ...PAYMENT_PROVIDERS.map<Integration>(provider => ({
+        ...paymentProviders.map<Integration>(provider => ({
           name: provider.name,
           description: provider.description,
           features: provider.features,
@@ -106,6 +139,7 @@ export const IntegrationsTab = () => {
           data: connectorsQuery.data?.connectors.filter(
             connector => connector.provider === provider.provider
           ),
+          paymentProvider: provider,
         })),
         {
           name: 'Adyen',
@@ -113,7 +147,7 @@ export const IntegrationsTab = () => {
           features: ['Card', 'Direct Debit (SEPA, ACH, Bacs)'],
           disabled: true,
           icon: ({ className }) => (
-            <BrandIcon path={siAdyen.path} color="#0abf53" className={className} />
+            <BrandIcon path={siAdyen.path} color="#0abf53" className={className}/>
           ),
         },
       ],
@@ -127,7 +161,7 @@ export const IntegrationsTab = () => {
           name: 'HubSpot',
           description: 'Marketing & sales platform',
           icon: ({ className }) => (
-            <BrandIcon path={siHubspot.path} color="#ff7a59" className={className} />
+            <BrandIcon path={siHubspot.path} color="#ff7a59" className={className}/>
           ),
           features: [],
           link: 'connect-hubspot',
@@ -160,7 +194,7 @@ export const IntegrationsTab = () => {
           name: 'Quickbooks',
           description: 'Accounting software by Intuit',
           icon: ({ className }) => (
-            <BrandIcon path={siQuickbooks.path} color="#00a550" className={className} />
+            <BrandIcon path={siQuickbooks.path} color="#00a550" className={className}/>
           ),
           features: [],
           disabled: true,
@@ -169,196 +203,186 @@ export const IntegrationsTab = () => {
     },
   ]
 
-  // TODO, also scroll when reload with #hash
-  const handleScroll: React.UIEventHandler<HTMLDivElement> = _e => {}
-
   const showConfirmationModal = useConfirmationModal()
 
   const removeConnection = async (id: string) => {
-    showConfirmationModal(() => disconnectConnectorMutation.mutate({ id }))
+    showConfirmationModal(() => deleteConnectorMutation.mutate({ id }))
   }
 
   return (
-    <div className="mx-auto flex">
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-h-0">
-        {' '}
-        {/* min-h-0 is crucial for nested flex scroll */}
-        {/* Fixed Header */}
-        <div className="flex-none p-6 pb-4 border-b">
-          <h1 className="text-2xl font-semibold mb-2 text-foreground">Integrations</h1>
-          <p className="text-muted-foreground text-sm">Connect your favorite tools and services</p>
-        </div>
-        <ScrollArea className="h-[calc(100vh-280px)]">
-          {/* Scrollable Integration List */}
-          <div className="flex-1   px-6 py-4" onScroll={handleScroll}>
-            {sections.map(section => (
-              <section key={section.id} id={section.id} className="mb-6 last:mb-0">
-                <h2 className="text-sm font-semibold mb-3 flex items-center text-foreground sticky top-0 bg-background py-1">
-                  {section.title}
-                </h2>
-                <div className="grid gap-3">
-                  {section.integrations.map(integration => (
-                    <Card
-                      key={integration.name}
-                      className="overflow-hidden hover:shadow-sm transition-shadow"
-                    >
-                      <CardContent
-                        className={cn(integration.disabled && 'bg-secondary', 'p-4 group')}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-4">
-                            <div className="bg-muted p-2 rounded-md">
-                              {integration.icon ? (
-                                <integration.icon className="w-6 h-6" />
-                              ) : (
-                                <section.icon className="w-5 h-5 text-foreground" />
-                              )}
-                            </div>
-                            <div className="space-y-2">
-                              <h3 className="text-sm font-medium text-foreground">
-                                {integration.name}
-                              </h3>
-                              <p className="text-sm text-muted-foreground">
-                                {integration.description}
-                              </p>
-                              <div className="flex gap-3">
-                                {integration.features.map(feature => (
-                                  <div
-                                    key={feature}
-                                    className="flex items-center text-xs text-muted-foreground"
-                                  >
-                                    <CheckCircle className="w-3 h-3 text-primary mr-1" />
-                                    {feature}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                          {integration.disabled ? (
-                            <span className="text-xs text-muted-foreground pr-4">Coming soon</span>
-                          ) : connectorsQuery.isLoading ? (
-                            <></>
-                          ) : !integration.data?.length ? (
-                            <Button
-                              size="sm"
-                              variant="brand"
-                              className="min-w-[100px] font-semibold"
-                              asChild
-                            >
-                              <Link to={integration.link ?? '#'}>
-                                Connect
-                                <PlugIcon className="w-3 h-3 ml-2" />{' '}
-                              </Link>
-                            </Button>
-                          ) : (
-                            <div className="flex flex-col items-end gap-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-success flex items-center gap-1.5">
-                                  <CheckCircle2 className="w-4 h-4" /> Connected
-                                </span>
-
-                                {integration.multiConnectionsDisabled ? (
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="font-semibold"
-                                    disabled
-                                  >
-                                    <PlusIcon size={16} />
-                                  </Button>
-                                ) : (
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="font-semibold"
-                                    asChild
-                                  >
-                                    <Link to={integration.link ?? '#'}>
-                                      <PlusIcon size={16} />
-                                    </Link>
-                                  </Button>
-                                )}
-                              </div>
-                              {integration.data.map(connector => (
-                                <div key={connector.id} className="flex items-center gap-2">
-                                  <span className="text-xs">
-                                    <CopyToClipboardButton text={connector.alias} />
-                                  </span>
-                                  <Popover>
-                                    <PopoverTrigger className="flex items-center justify-center w-9">
-                                      <MoreVerticalIcon size={16} className="cursor-pointer" />
-                                    </PopoverTrigger>
-                                    <PopoverContent className="p-0 w-32" side="bottom" align="end">
-                                      {integration.editLink && (
-                                        <Link
-                                          to={`${integration.editLink}/${connector.id}`}
-                                          className="w-full text-xs"
-                                        >
-                                          <Button
-                                            type="button"
-                                            variant="ghost"
-                                            className="w-full text-xs"
-                                          >
-                                            <Edit2Icon size={14} className="mr-1" />
-                                            Edit
-                                          </Button>
-                                        </Link>
-                                      )}
-                                      <Button
-                                        type="button"
-                                        variant="destructiveGhost"
-                                        className="w-full text-xs"
-                                        onClick={() => removeConnection(connector.id)}
-                                      >
-                                        <UnplugIcon size={14} className="mr-1" /> Disconnect
-                                      </Button>
-                                    </PopoverContent>
-                                  </Popover>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+    <div className="flex max-w-3xl flex-col gap-6">
+      {sections.map((section, sectionIdx) => (
+        <SettingsSection
+          key={section.id}
+          divided={sectionIdx !== 0}
+          title={section.title}
+          description={
+            sectionIdx === 0 ? 'Connect your favorite tools and services.' : undefined
+          }
+        >
+          <SettingsRowGroup>
+            {section.integrations.map(integration => (
+              <React.Fragment key={integration.name}>
+                <SettingsRow
+                  className={cn(integration.disabled && 'bg-secondary')}
+                  title={
+                    <>
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+                        {integration.icon ? (
+                          <integration.icon className="h-4 w-4" />
+                        ) : (
+                          <section.icon className="h-4 w-4 text-foreground" />
+                        )}
+                      </span>
+                      {integration.name}
+                    </>
+                  }
+                  description={
+                    <div className="space-y-1">
+                      <div>{integration.description}</div>
+                      {integration.features.length > 0 && (
+                        <div className="flex flex-wrap gap-x-3 gap-y-1">
+                          {integration.features.map(feature => (
+                            <span key={feature} className="flex items-center gap-1">
+                              <CheckCircle className="h-3 w-3 text-primary" />
+                              {feature}
+                            </span>
+                          ))}
                         </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
-        </ScrollArea>
-      </div>
-
-      {/* Table of Contents */}
-      <div className="w-64 border-l flex-none lg:block hidden">
-        <div className="p-6">
-          <h2 className="text-xs font-semibold mb-4 text-muted-foreground uppercase tracking-wider">
-            Contents
-          </h2>
-          <nav className="space-y-1">
-            {sections.map(section => {
-              const Icon = section.icon
-              return (
-                <a
-                  key={section.id}
-                  href={`#${section.id}`}
-                  className={`
-                    flex items-center px-3 py-2 text-sm rounded-md transition-colors
-                    ${
-                      activeSection === section.id
-                        ? 'bg-accent text-accent-foreground'
-                        : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                    }
-                  `}
+                      )}
+                    </div>
+                  }
                 >
-                  <Icon className="w-4 h-4 mr-2" />
-                  {section.title}
-                </a>
-              )
-            })}
-          </nav>
-        </div>
+                  {integration.disabled ? (
+                    <span className="text-xs text-muted-foreground">Coming soon</span>
+                  ) : connectorsQuery.isLoading ? null : !integration.data?.length ? (
+                    <Button size="sm" variant="brand" className="font-semibold" asChild>
+                      <Link to={integration.link ?? '#'}>
+                        Connect
+                        <PlugIcon className="ml-2 h-3 w-3" />
+                      </Link>
+                    </Button>
+                  ) : integration.paymentProvider ? (
+                    <Button size="sm" variant="secondary" hasIcon asChild>
+                      <Link to={integration.link ?? '#'}>
+                        <PlusIcon size={14} />
+                        Add connection
+                      </Link>
+                    </Button>
+                  ) : (
+                    <>
+                      <span className="flex items-center gap-1.5 text-xs text-success">
+                        <CheckCircle2 className="h-4 w-4" /> Connected
+                      </span>
+                      {integration.multiConnectionsDisabled ? (
+                        <Button size="icon" variant="ghost" className="font-semibold" disabled>
+                          <PlusIcon size={16} />
+                        </Button>
+                      ) : (
+                        <Button size="icon" variant="ghost" className="font-semibold" asChild>
+                          <Link to={integration.link ?? '#'}>
+                            <PlusIcon size={16} />
+                          </Link>
+                        </Button>
+                      )}
+                      {integration.data.map(connector => (
+                        <React.Fragment key={connector.id}>
+                          <span className="text-xs">
+                            <CopyToClipboardButton text={connector.alias} />
+                          </span>
+                          <Popover>
+                            <PopoverTrigger className="w-9">
+                              <MoreVerticalIcon size={16} className="cursor-pointer" />
+                            </PopoverTrigger>
+                            <PopoverContent className="w-32 p-0" side="bottom" align="end">
+                              {integration.editLink && (
+                                <Link
+                                  to={`${integration.editLink}/${connector.id}`}
+                                  className="w-full text-xs"
+                                >
+                                  <Button type="button" variant="ghost" className="w-full text-xs">
+                                    <Edit2Icon size={14} className="mr-1" />
+                                    Edit
+                                  </Button>
+                                </Link>
+                              )}
+                              <Button
+                                type="button"
+                                variant="destructiveGhost"
+                                className="w-full text-xs"
+                                onClick={() => removeConnection(connector.id)}
+                              >
+                                <UnplugIcon size={14} className="mr-1" /> Disconnect
+                              </Button>
+                            </PopoverContent>
+                          </Popover>
+                        </React.Fragment>
+                      ))}
+                    </>
+                  )}
+                </SettingsRow>
+                {integration.paymentProvider &&
+                  integration.data?.map(connector => (
+                    <PaymentConnectionRow
+                      key={connector.id}
+                      connector={connector}
+                      lifecycle={lifecycle}
+                    />
+                  ))}
+              </React.Fragment>
+            ))}
+          </SettingsRowGroup>
+        </SettingsSection>
+      ))}
+
+      {lifecycle.dialogs}
+    </div>
+  )
+}
+
+/** One payment connection under its provider row, with its status and lifecycle actions. */
+const PaymentConnectionRow = ({
+  connector,
+  lifecycle,
+}: {
+  connector: Connector
+  lifecycle: ReturnType<typeof useConnectorLifecycle>
+}) => {
+  const paths = useConnectorPaths()
+  const isDraft = connector.status === ConnectorStatusEnum.DRAFT
+  const isDisabled = connector.status === ConnectorStatusEnum.DISABLED
+
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-3 border-t border-border py-2 pl-[3.25rem] pr-4 text-xs',
+        isDisabled && 'bg-muted/40'
+      )}
+    >
+      <span className={cn('font-mono text-[13px]', isDisabled && 'text-muted-foreground')}>
+        {connector.alias}
+      </span>
+      <ConnectorStatusBadge status={connector.status} />
+      <CredentialsErrorBadge connector={connector} />
+      {!isDraft && (
+        <MethodChips chips={methodChips(connector)} className={cn(isDisabled && 'opacity-60')} />
+      )}
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        {isDraft ? (
+          <>
+            <Button size="sm" variant="secondary" asChild>
+              <Link to={paths.resume(connector)}>Resume setup</Link>
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => lifecycle.discardDraft(connector)}>
+              Discard
+            </Button>
+          </>
+        ) : (
+          // Every other action lives in Manage, next to the usage it affects.
+          <Button size="sm" variant="secondary" asChild>
+            <Link to={paths.manage(connector.id)}>Manage</Link>
+          </Button>
+        )}
       </div>
     </div>
   )

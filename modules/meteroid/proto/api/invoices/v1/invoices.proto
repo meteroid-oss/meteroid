@@ -4,6 +4,7 @@ package meteroid.api.invoices.v1;
 
 import "api/invoices/v1/models.proto";
 import "common/v1/pagination.proto";
+import "common/v1/filters.proto";
 
 message ListInvoicesRequest {
   optional string order_by = 1;
@@ -12,6 +13,12 @@ message ListInvoicesRequest {
   optional InvoiceStatus status = 4;
   optional string customer_id = 5;
   optional string subscription_id = 6;
+  optional InvoicePaymentStatus payment_status = 7;
+  optional EInvoicingStatus einvoicing_status = 8;
+  // Dynamic filters over custom properties (field `cp:<key>`); AND-combined.
+  repeated meteroid.common.v1.Filter filters = 9;
+  // Only invoices finalized, still owed and past their due date.
+  optional bool overdue = 10;
 }
 
 message ListInvoicesResponse {
@@ -48,6 +55,17 @@ message RequestPdfGenerationRequest {
 }
 
 message RequestPdfGenerationResponse {}
+
+message CheckEinvoicingReadinessRequest {
+  string id = 1;
+}
+
+message CheckEinvoicingReadinessResponse {
+  // Absent when there is nothing to check: the invoicing entity has not opted
+  // into e-invoicing, or the invoice is a consolidated child, which is never
+  // issued on its own.
+  optional EInvoicingReadiness readiness = 1;
+}
 
 message SyncToPennylaneRequest {
   repeated string invoice_ids = 1;
@@ -99,6 +117,15 @@ message VoidInvoiceRequest {
 }
 
 message VoidInvoiceResponse {
+  DetailedInvoice invoice = 1;
+}
+
+// Bills again, recomputed on current data, the billing period of a voided recurring invoice.
+message RegenerateInvoiceRequest {
+  string id = 1;
+}
+
+message RegenerateInvoiceResponse {
   DetailedInvoice invoice = 1;
 }
 
@@ -157,10 +184,74 @@ message MarkInvoiceAsPaidResponse {
   DetailedInvoice invoice = 1;
 }
 
+// Issue a refund through the provider that took the parent payment. The refund is a child
+// REFUND transaction; the invoice keeps its amount due and payment status, since the Refund
+// credit note is what reduces it.
+message RefundTransactionRequest {
+  // The settled PAYMENT transaction to refund.
+  string transaction_id = 1;
+  // Decimal, major units, in the parent's currency.
+  string amount = 2;
+  // The finalized Refund credit note this draws on. Absent is only allowed for an overpayment.
+  optional string credit_note_id = 3;
+  optional string reason = 4;
+}
+
+message RefundTransactionResponse {
+  Transaction transaction = 1;
+}
+
+// Record a refund that moved outside Meteroid (wire, cheque, cash). Allowed on any settled
+// payment, provider-backed or manual.
+message RecordOfflineRefundRequest {
+  string transaction_id = 1;
+  string amount = 2;
+  optional string credit_note_id = 3;
+  optional string refund_date = 4;
+  // Wire or cheque reference, stored like a manual payment's.
+  optional string reference = 5;
+  optional string reason = 6;
+}
+
+message RecordOfflineRefundResponse {
+  Transaction transaction = 1;
+}
+
+// Claw back a manually recorded payment. A chargeback, debtor recall or dispute keeps the invoice
+// paid and books the loss; any other kind means the funds never landed, so the invoice reopens.
+// Provider-backed payments are clawed back by the provider's own event instead.
+message ReverseManualPaymentRequest {
+  string transaction_id = 1;
+  Transaction.ReversalKind kind = 2;
+  optional string reason = 3;
+  optional string reversed_at = 4;
+}
+
+message ReverseManualPaymentResponse {
+  Transaction transaction = 1;
+}
+
+// Test gateway only: pushes the event a real provider would have sent for this transaction, so a
+// pending test payment can be settled or failed, and a settled one refunded, from the backoffice.
+message SimulateTestGatewayEventRequest {
+  string transaction_id = 1;
+  TestGatewayEvent event = 2;
+
+  enum TestGatewayEvent {
+    SUCCEEDED = 0;
+    FAILED = 1;
+    REFUNDED = 2;
+    CHARGED_BACK = 3;
+  }
+}
+
+message SimulateTestGatewayEventResponse {}
+
 service InvoicesService {
   rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse) {}
   rpc GetInvoice(GetInvoiceRequest) returns (GetInvoiceResponse) {}
   rpc PreviewInvoiceSvg(PreviewInvoiceRequest) returns (PreviewInvoiceResponse) {}
+  rpc CheckEinvoicingReadiness(CheckEinvoicingReadinessRequest) returns (CheckEinvoicingReadinessResponse) {}
   rpc RequestPdfGeneration(RequestPdfGenerationRequest) returns (RequestPdfGenerationResponse) {}
   rpc RefreshInvoiceData(RefreshInvoiceDataRequest) returns (RefreshInvoiceDataResponse) {}
   rpc SyncToPennylane(SyncToPennylaneRequest) returns (SyncToPennylaneResponse) {}
@@ -173,7 +264,12 @@ service InvoicesService {
   rpc PreviewInvoiceUpdate(PreviewInvoiceUpdateRequest) returns (PreviewInvoiceUpdateResponse) {}
   rpc DeleteInvoice(DeleteInvoiceRequest) returns (DeleteInvoiceResponse) {}
   rpc VoidInvoice(VoidInvoiceRequest) returns (VoidInvoiceResponse) {}
+  rpc RegenerateInvoice(RegenerateInvoiceRequest) returns (RegenerateInvoiceResponse) {}
   rpc MarkInvoiceAsUncollectible(MarkInvoiceAsUncollectibleRequest) returns (MarkInvoiceAsUncollectibleResponse) {}
   rpc AddManualPaymentTransaction(AddManualPaymentTransactionRequest) returns (AddManualPaymentTransactionResponse) {}
   rpc MarkInvoiceAsPaid(MarkInvoiceAsPaidRequest) returns (MarkInvoiceAsPaidResponse) {}
+  rpc RefundTransaction(RefundTransactionRequest) returns (RefundTransactionResponse) {}
+  rpc RecordOfflineRefund(RecordOfflineRefundRequest) returns (RecordOfflineRefundResponse) {}
+  rpc ReverseManualPayment(ReverseManualPaymentRequest) returns (ReverseManualPaymentResponse) {}
+  rpc SimulateTestGatewayEvent(SimulateTestGatewayEventRequest) returns (SimulateTestGatewayEventResponse) {}
 }

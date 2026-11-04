@@ -45,7 +45,13 @@ module.exports = {
     './components/**/*.{js,ts,jsx,tsx}',
     './router/**/*.{js,ts,jsx,tsx}',
     './lib/**/*.{js,ts,jsx,tsx}',
-    '../packages/ui/src/**/**/*.{ts,tsx}', 
+    '../packages/ui/src/**/**/*.{ts,tsx}',
+    // sources of an edition outside web-app, see vite.config.ts
+    ...(process.env.WEB_EDITION_ROOT
+      ? ['modules/*/web/**/*.{ts,tsx}', 'web/**/*.{ts,tsx}'].map(glob =>
+          require('path').resolve(process.env.WEB_EDITION_ROOT, glob)
+        )
+      : []),
   ],
   prefix: '',
   theme: {

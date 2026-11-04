@@ -2,7 +2,7 @@ use crate::errors::IntoDbResult;
 use crate::prices::{PriceRow, PriceRowNew};
 use crate::{DbResult, PgConn};
 use common_domain::ids::{PriceId, ProductId, TenantId};
-use diesel::{ExpressionMethods, QueryDsl, SelectableHelper, debug_query};
+use diesel::{ExpressionMethods, QueryDsl, SelectableHelper};
 use error_stack::ResultExt;
 
 impl PriceRowNew {
@@ -11,7 +11,7 @@ impl PriceRowNew {
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(price).values(self);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -25,7 +25,7 @@ impl PriceRowNew {
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(price).values(batch);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -48,12 +48,34 @@ impl PriceRow {
             .filter(p_dsl::id.eq(id))
             .filter(p_dsl::tenant_id.eq(tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
             .await
             .attach("Error while finding price by id and tenant id")
+            .into_db_result()
+    }
+
+    /// The product's live prices, locked in id order: a matrix edit reads and rewrites them.
+    pub async fn lock_by_product_id(
+        conn: &mut PgConn,
+        product_id: ProductId,
+        tenant_id: TenantId,
+    ) -> DbResult<Vec<PriceRow>> {
+        use crate::schema::price::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        p_dsl::price
+            .filter(p_dsl::product_id.eq(product_id))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .filter(p_dsl::archived_at.is_null())
+            .order(p_dsl::id.asc())
+            .for_update()
+            .select(PriceRow::as_select())
+            .load(conn)
+            .await
+            .attach("Error while locking prices by product id")
             .into_db_result()
     }
 
@@ -71,7 +93,7 @@ impl PriceRow {
             .filter(p_dsl::archived_at.is_null())
             .select(PriceRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -93,7 +115,7 @@ impl PriceRow {
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .select(PriceRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -124,7 +146,7 @@ impl PriceRow {
             .order((p_dsl::product_id, p_dsl::created_at.desc()))
             .select(PriceRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -147,7 +169,7 @@ impl PriceRow {
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .set(p_dsl::pricing.eq(pricing));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -166,7 +188,7 @@ impl PriceRow {
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .set(p_dsl::archived_at.eq(Some(now)));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)

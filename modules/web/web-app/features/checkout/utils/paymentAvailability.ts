@@ -34,6 +34,7 @@ export type PaymentAvailability =
         | 'external_payment'
         | 'already_active'
         | 'draft_invoice'
+        | 'closed'
         | 'pending_payment'
       displayTransactions?: boolean
     }
@@ -42,6 +43,12 @@ export type PaymentAvailability =
       // customer may continue instead of a readonly "payment in progress" view.
       type: 'resumable_hosted_payment'
       connectionId: string
+      displayTransactions?: boolean
+    }
+  | {
+      // A charge made while the customer was away (a renewal) needs their 3DS/SCA
+      // authentication: they complete it here instead of waiting on it forever.
+      type: 'awaiting_authentication'
       displayTransactions?: boolean
     }
 
@@ -55,13 +62,7 @@ export function getCheckoutPaymentAvailability(config: {
   directDebitConnectionId?: string
   bankAccount?: BankAccount
 }): PaymentAvailability {
-  const {
-    subscriptionStatus,
-    checkoutType,
-    cardConnectionId,
-    directDebitConnectionId,
-    bankAccount,
-  } = config
+  const { subscriptionStatus, checkoutType, cardConnectionId, directDebitConnectionId, bankAccount } = config
 
   // For plan changes and addon purchases, the subscription is expected to be active — skip the active check
   if (
@@ -159,6 +160,15 @@ export function getInvoicePaymentAvailability(config: {
     }
   }
 
+  // Closed: a recurring period that settled with nothing to bill. Terminal, never issued, not payable.
+  if (invoiceStatus === InvoiceStatus.CLOSED) {
+    return {
+      type: 'readonly',
+      reason: 'closed',
+      displayTransactions: hasTransactions,
+    }
+  }
+
   // Check payment status
   if (paymentStatus === InvoicePaymentStatus.PAID) {
     return {
@@ -166,6 +176,15 @@ export function getInvoicePaymentAvailability(config: {
       reason: 'already_paid',
       displayTransactions: true,
     }
+  }
+
+  // A pending charge waiting on the customer, not on the provider.
+  if (
+    transactions?.some(
+      tx => tx.status === Transaction_PaymentStatusEnum.PENDING && tx.awaitingAuthentication
+    )
+  ) {
+    return { type: 'awaiting_authentication', displayTransactions: true }
   }
 
   // A payment was accepted by the provider and is awaiting settlement
@@ -245,3 +264,4 @@ export function getInvoicePaymentAvailability(config: {
     bankAccount,
   }
 }
+ 

@@ -37,6 +37,8 @@ export function feeTypeEnumToComponentFeeType(feeType: FeeType): ComponentFeeTyp
       return 'extraRecurring'
     case FeeType.ONE_TIME:
       return 'oneTime'
+    case FeeType.CREDIT:
+      return 'credit'
   }
 }
 

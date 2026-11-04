@@ -18,14 +18,57 @@ message GetTenantByIdResponse {
   Tenant tenant = 1;
 }
 
+message GetTenantSeedingStatusRequest {
+  string tenant_id = 1;
+}
+
+message GetTenantSeedingStatusResponse {
+  // True while a seeded sandbox's historical data is still being generated
+  // (billing catch-up has not reached today for every subscription).
+  bool in_progress = 1;
+  // Subscriptions whose billing has not yet caught up to today.
+  uint32 pending_subscriptions = 2;
+  // True when seeding stopped before the sandbox's sample data was complete.
+  bool failed = 3;
+  // Why seeding stopped, shown to the user.
+  optional string failure_reason = 4;
+}
+
+message ResumeTenantRequest {
+  string tenant_id = 1;
+}
+
+message ResumeTenantResponse {
+  Tenant tenant = 1;
+}
+
+// The example business a new sandbox is filled with. Ignored for other environments.
+enum SandboxPreset {
+  SANDBOX_PRESET_DEFAULT = 0;
+  SANDBOX_PRESET_AI_CREDITS = 1;
+}
+
 message CreateTenantRequest {
   string name = 1;
   TenantEnvironmentEnum environment = 2;
+  // Deprecated and ignored: set email_delivery_mode.
   optional bool disable_emails = 3;
+  // Omitted: LIVE in production, TEST elsewhere.
+  optional EmailDeliveryMode email_delivery_mode = 4;
+  SandboxPreset sandbox_preset = 5;
 }
 
 message CreateTenantResponse {
   Tenant tenant = 1;
+}
+
+message DeleteTenantRequest {
+  string tenant_id = 1;
+}
+
+message DeleteTenantResponse {
+  // True when this was the last tenant, so the whole organization was dropped.
+  bool organization_deleted = 1;
 }
 
 
@@ -77,7 +120,12 @@ service TenantsService {
   rpc ActiveTenant(ActiveTenantRequest) returns (ActiveTenantResponse) {}
   rpc ListTenants(ListTenantsRequest) returns (ListTenantsResponse) {}
   rpc GetTenantById(GetTenantByIdRequest) returns (GetTenantByIdResponse) {}
+  rpc GetTenantSeedingStatus(GetTenantSeedingStatusRequest) returns (GetTenantSeedingStatusResponse) {}
+  rpc ResumeTenant(ResumeTenantRequest) returns (ResumeTenantResponse) {}
   rpc CreateTenant(CreateTenantRequest) returns (CreateTenantResponse) {}
+  // Hard-delete a non-production tenant and everything under it. Caller must be
+  // an Admin member. Dropping the last tenant drops the organization too.
+  rpc DeleteTenant(DeleteTenantRequest) returns (DeleteTenantResponse) {}
 
   rpc ListTenantCurrencies(ListTenantsCurrenciesRequest) returns (ListTenantsCurrenciesResponse) {}
   rpc ListTenantCurrenciesWithCustomerCount(ListTenantsCurrenciesWithCustomerCountRequest) returns (ListTenantsCurrenciesWithCustomerCountResponse) {}

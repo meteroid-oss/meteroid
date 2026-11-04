@@ -1,17 +1,23 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import { Button, Flex, Form, InputFormField, SelectFormField, SelectItem } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { z } from 'zod'
+import { useMemo } from 'react'
 
 import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
+import { AccountValues } from '@/lib/schemas/me'
 import { me, onboardMe } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
-export const UserOnboardingForm = () => {
+interface UserOnboardingFormProps {
+  asksAboutUser: boolean
+}
+
+export const UserOnboardingForm = ({ asksAboutUser }: UserOnboardingFormProps) => {
   const queryClient = useQueryClient()
 
+  const schema = useMemo(() => schemas.me.accountSchema(asksAboutUser), [asksAboutUser])
   const methods = useZodForm({
-    schema: schemas.me.accountSchema,
+    schema,
     defaultValues: {},
     mode: 'onSubmit',
   })
@@ -29,12 +35,12 @@ export const UserOnboardingForm = () => {
     },
   })
 
-  const onSubmit = async (data: z.infer<typeof schemas.me.accountSchema>) => {
+  const onSubmit = async (data: AccountValues) => {
     await onboardMeMut.mutateAsync({
-      department: data.department,
       firstName: data.firstName,
       lastName: data.lastName,
-      knowUsFrom: data.knowUsFrom,
+      department: asksAboutUser ? data.department : undefined,
+      heardFrom: asksAboutUser ? data.heardFrom : undefined,
     })
   }
 
@@ -69,32 +75,36 @@ export const UserOnboardingForm = () => {
               />
             </div>
           </div>
-          <SelectFormField
-            name="department"
-            label="Which department do you work in?"
-            control={methods.control}
-            placeholder="Product, finance etc"
-          >
-            <SelectItem value="founder">Founder</SelectItem>
-            <SelectItem value="revenue">Revenue / Finance</SelectItem>
-            <SelectItem value="engineering">Engineering</SelectItem>
-            <SelectItem value="product">Product</SelectItem>
-            <SelectItem value="other">Other</SelectItem>
-          </SelectFormField>
+          {asksAboutUser && (
+            <>
+              <SelectFormField
+                name="department"
+                label="Which department do you work in?"
+                control={methods.control}
+                placeholder="Product, finance etc"
+              >
+                <SelectItem value="founder">Founder</SelectItem>
+                <SelectItem value="revenue">Revenue / Finance</SelectItem>
+                <SelectItem value="engineering">Engineering</SelectItem>
+                <SelectItem value="product">Product</SelectItem>
+                <SelectItem value="other">Other</SelectItem>
+              </SelectFormField>
 
-          <SelectFormField
-            name="knowUsFrom"
-            label="How did you learn about us?"
-            control={methods.control}
-            placeholder="Google, Github etc"
-          >
-            <SelectItem value="search">Search engine</SelectItem>
-            <SelectItem value="linkedin">Linkedin</SelectItem>
-            <SelectItem value="github">Github</SelectItem>
-            <SelectItem value="blog">Blogging platform</SelectItem>
-            <SelectItem value="referral">Referral</SelectItem>
-            <SelectItem value="other">Other</SelectItem>
-          </SelectFormField>
+              <SelectFormField
+                name="heardFrom"
+                label="How did you learn about us?"
+                control={methods.control}
+                placeholder="Google, Github etc"
+              >
+                <SelectItem value="search">Search engine</SelectItem>
+                <SelectItem value="linkedin">Linkedin</SelectItem>
+                <SelectItem value="github">Github</SelectItem>
+                <SelectItem value="blog">Blogging platform</SelectItem>
+                <SelectItem value="referral">Referral</SelectItem>
+                <SelectItem value="other">Other</SelectItem>
+              </SelectFormField>
+            </>
+          )}
 
           <div className="grow"></div>
 

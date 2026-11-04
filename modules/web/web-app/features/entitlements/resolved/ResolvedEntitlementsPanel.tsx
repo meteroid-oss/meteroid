@@ -24,14 +24,17 @@ import { toast } from 'sonner'
 
 import { EntityEntitlementDialog } from '@/features/entitlements/EntityEntitlementDialog'
 import { InheritedIcon } from '@/features/entitlements/InheritedIcon'
+import { LimitTermsBadges, termsOfValue } from '@/features/entitlements/LimitTermsBadges'
 import { entitlementTooltip } from '@/features/entitlements/entitlementTooltips'
 import {
   buildInheritanceTooltip,
+  configuredEnabled,
   entitlementValueToSpec,
   formatResolvedValue,
   groupByProduct,
   isEntitlementDisabled,
 } from '@/features/entitlements/utils'
+import { useUsageUnits } from '@/features/subscriptions/useUsageUnits'
 import { useQuery } from '@/lib/connectrpc'
 import {
   createEntitlement,
@@ -103,6 +106,9 @@ type Props = {
    * the `openAdd()` method on the ref.
    */
   hideAddButton?: boolean
+  hidePinAll?: boolean
+  /** A short secondary label of metered rows, by metric id. */
+  meteredLabels?: Map<string, string>
 }
 
 export type ResolvedEntitlementsPanelHandle = {
@@ -178,30 +184,8 @@ const RowActions: FC<RowActionsProps> = ({
     if (!featureId || entity.type === 'product') return
 
     const protoEntity = toEntitlementEntity(entity)
-    // Build the flipped value directly from the resolved row's typed variants
-    let flippedValue: MessageInitShape<typeof EntitlementValueSchema>
-    if (row.value.case === 'boolean') {
-      flippedValue = {
-        value: {
-          case: 'booleanValue' as const,
-          value: { enabled: !row.value.value.enabled },
-        },
-      }
-    } else if (row.value.case === 'metered') {
-      const m = row.value.value
-      flippedValue = {
-        value: {
-          case: 'meteredValue' as const,
-          value: {
-            limit: m.limit,
-            resetPeriod: m.resetPeriod,
-            enabled: !m.enabled,
-          },
-        },
-      }
-    } else {
-      flippedValue = { value: { case: undefined } }
-    }
+    if (row.value.case !== 'boolean' && row.value.case !== 'metered') return
+    const flippedValue = entitlementValueToSpec(row.value, !configuredEnabled(row.value))
 
     if (pinnedHere) {
       // We have a local entitlement row — update it
@@ -318,9 +302,14 @@ export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHan
   entity,
   canPin,
   hideAddButton = false,
+  hidePinAll = false,
+  meteredLabels,
 }, ref) => {
   const label = ENTITY_LABEL[entity.type]
   const { entitlements: resolved, isLoading } = useResolvedEntitlementsForEntity(entity)
+  const { units: metricUnits } = useUsageUnits(
+    resolved.flatMap(r => (r.value.case === 'metered' ? [r.value.value.metricId] : []))
+  )
   const batchCreate = useBatchCreateEntitlements(entity)
 
   // Dialog state for Override / Add
@@ -406,7 +395,7 @@ export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHan
       setDialog({ open: true })
     },
   }))
-  const showPinAll = canPin && entity.type !== 'product'
+  const showPinAll = canPin && !hidePinAll && entity.type !== 'product'
   const hasHeaderActions = showAddButton || showPinAll
 
   return (
@@ -509,12 +498,22 @@ export const ResolvedEntitlementsPanel = forwardRef<ResolvedEntitlementsPanelHan
                                 : buildInheritanceTooltip(r.origin, featureProduct)
                             return <InheritedIcon tooltip={tooltip}/>
                           })()}
+                          <LimitTermsBadges terms={termsOfValue(r.value)} />
+                          {r.value.case === 'metered' &&
+                            meteredLabels?.get(r.value.value.metricId) && (
+                              <span className="text-xs text-muted-foreground truncate">
+                                {meteredLabels.get(r.value.value.metricId)}
+                              </span>
+                            )}
                         </div>
 
                         {/* Value + actions */}
                         <div className="flex items-center gap-2 shrink-0 ml-4">
                         <span className="text-muted-foreground text-xs tabular-nums">
-                          {formatResolvedValue(r.value)}
+                          {formatResolvedValue(
+                            r.value,
+                            r.value.case === 'metered' ? metricUnits[r.value.value.metricId] : undefined
+                          )}
                         </span>
                           <RowActions
                             row={r}

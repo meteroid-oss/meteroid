@@ -5,11 +5,13 @@
 //! webhook. Webhook endpoints are dashboard-managed; self-registration is
 //! unsupported.
 
+use super::account::{ValidatedCredentials, mask_secret, static_methods};
 use super::connector::{
-    ConnectorCapabilities, ConnectorIdentity, CredentialOps, CustomerOps, HostedSetupCompletion,
-    MandateOps, MandateSetupMode, PaymentOps, ReconcileOps, RefundOps, WebhookOps,
+    ConnectorIdentity, ConnectorRef, CredentialOps, CustomerOps, HostedSetupCompletion,
+    InboundWebhooks, MandateOps, MandateSetup, PaymentCapabilities, PaymentOps, ReconcileOps,
+    RefundOps, RefundSupport, WebhookOps,
 };
-use super::error::ConnectorError;
+use super::error::{ConnectorError, CredentialsRejected, adoption_mismatch};
 use super::events::{
     NormalizedEventKind, NormalizedEventSubscription, NormalizedWebhookEvent, PaymentFailedEvent,
     PaymentMethodDetachedEvent, PaymentReinstatedEvent, PaymentReversedEvent,
@@ -18,11 +20,15 @@ use super::events::{
 use super::model::{
     ChargeAcknowledged, ChargeCancelled, ChargeFailure, ChargeOutcome, ChargeReceipt,
     ChargeRequest, CreateCustomerRequest, DeclineKind, ExternalCustomerRef,
-    MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot, RefundOutcome,
-    RefundRequest, RefundSnapshot, RegisteredWebhook, RemoteTransactionStatus, WebhookDeliveryUnit,
+    MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot, RefundAcknowledged,
+    RefundFailure, RefundOutcome, RefundReceipt, RefundRequest, RefundSnapshot, RegisteredWebhook,
+    RemoteRefundStatus, RemoteTransactionStatus, WebhookDeliveryUnit,
 };
-use crate::domain::connectors::{Connector, ProviderData, ProviderSensitiveData};
-use crate::domain::enums::ConnectorProviderEnum;
+use crate::domain::connectors::{
+    GocardlessPublicData, GocardlessSensitiveData, MethodState, PaymentConnectorPublicData,
+    PaymentMethodAvailability, ProviderAccount,
+};
+use crate::domain::enums::{PaymentProvider, ReversalKind};
 use crate::domain::{Customer, CustomerConnection, PaymentMethodTypeEnum};
 use async_trait::async_trait;
 use chrono::DateTime;
@@ -38,66 +44,83 @@ use gocardless_client::customers::{CreateCustomer, CustomerApi};
 use gocardless_client::error::GoCardlessError;
 use gocardless_client::mandates::MandateApi;
 use gocardless_client::payments::{CreatePayment, CreatePaymentLinks, PaymentApi, PaymentStatus};
-use gocardless_client::refunds::RefundApi;
+use gocardless_client::refunds::{
+    CreateRefund, CreateRefundLinks, Refund as GcRefund, RefundApi, RefundStatus as GcRefundStatus,
+};
 use gocardless_client::webhook::{
     EventEnvelope, GoCardlessWebhook, action as ev_action, resource_type as ev_resource,
 };
 use http::HeaderMap;
 use secrecy::SecretString;
 use std::collections::HashMap;
+use std::num::NonZeroU32;
 use std::sync::OnceLock;
 
-pub(super) const GOCARDLESS_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
-    supports_cards: false,
-    supports_mandates: true,
-    // `refund()` is not implemented yet (returns Unsupported); advertising the
-    // capability would be dishonest. Flip both back on once refunds land.
-    supports_refunds: false,
-    supports_partial_refunds: false,
-    supports_3ds: false,
-    supports_disputes: true,
-    // No public API to manage webhook endpoints; merchants configure them in
-    // the dashboard and paste the signing secret into our connect form.
-    supports_self_webhook_registration: false,
-    asynchronous_settlement: true,
+pub(super) const GOCARDLESS_CAPABILITIES: PaymentCapabilities = PaymentCapabilities {
     supported_payment_methods: &[
         PaymentMethodTypeEnum::DirectDebitSepa,
         PaymentMethodTypeEnum::DirectDebitAch,
         PaymentMethodTypeEnum::DirectDebitBacs,
     ],
-    mandate_setup_mode: MandateSetupMode::HostedRedirect,
-    // No timestamp in the signature header, so this tolerance is not enforced
-    // at the header level; replay protection is per-event (provider_config_id,
-    // provider_event_id) DB dedup — the router splits each batched GoCardless
-    // event into its own audit row keyed by the event's `EV...` id. Value
-    // surfaced for capability honesty.
-    webhook_replay_tolerance_secs: 3600,
-    // `billing_requests.fulfilled` completes a hosted setup even when the
-    // return redirect is lost — no pending-intent persistence or sweep.
-    hosted_setup_completion: HostedSetupCompletion::WebhookBacked,
-    supports_hosted_invoice_payment: false,
+    supports_mandates: true,
+    refunds: RefundSupport::Partial,
+    // Idempotency keys are honoured for at least 30 days.
+    refund_replay_window: Some(std::time::Duration::from_secs(12 * 60 * 60)),
+    supports_3ds: false,
+    supports_disputes: true,
+    webhooks: Some(InboundWebhooks {
+        requires_secret: true,
+        // No public API to manage webhook endpoints; merchants configure them in
+        // the dashboard and paste the signing secret into our connect form.
+        self_registration: false,
+        // No timestamp in the signature header, so this tolerance is not enforced
+        // at the header level; replay protection is per-event (provider_config_id,
+        // provider_event_id) DB dedup — the router splits each batched GoCardless
+        // event into its own audit row keyed by the event's `EV...` id. Value
+        // surfaced for capability honesty.
+        replay_tolerance_secs: NonZeroU32::new(3600).unwrap(),
+    }),
+    asynchronous_settlement: true,
+    mandate_setup: MandateSetup::HostedRedirect {
+        // `billing_requests.fulfilled` completes a hosted setup even when the
+        // return redirect is lost — no pending-intent persistence or sweep.
+        completion: HostedSetupCompletion::WebhookBacked,
+        invoice_payment: false,
+    },
     supports_hosted_checkout: true,
     pending_charge_accepted: true,
+    is_test_gateway: false,
 };
 
-/// GoCardless connector. Live + sandbox clients are static singletons so all
-/// tenants share a connection pool to each environment.
-#[derive(Debug, Clone, Copy)]
-pub struct GoCardlessConnector;
+/// GoCardless connector, bound to one connector's identity and credentials for
+/// its whole life. Live + sandbox clients are static singletons so all tenants
+/// share a connection pool to each environment.
+#[derive(Debug, Clone)]
+pub struct GoCardlessConnector {
+    connector: ConnectorRef,
+    public: GocardlessPublicData,
+    sensitive: GocardlessSensitiveData,
+}
 
 impl GoCardlessConnector {
-    pub fn new() -> Self {
-        GoCardlessConnector
+    pub fn new(
+        connector: ConnectorRef,
+        public: GocardlessPublicData,
+        sensitive: GocardlessSensitiveData,
+    ) -> Self {
+        Self {
+            connector,
+            public,
+            sensitive,
+        }
     }
 
-    fn client_for(connector: &Connector) -> &'static GoCardlessClient {
-        // Default to sandbox when the data blob is missing or malformed: a
-        // misconfig must never silently route to live and charge real money.
-        let sandbox = match &connector.data {
-            Some(ProviderData::Gocardless(d)) => d.is_sandbox(),
-            _ => true,
-        };
-        if sandbox {
+    fn client(&self) -> &'static GoCardlessClient {
+        // Sandbox unless the environment is exactly `Live`: a misconfigured or
+        // missing environment must never silently route to live and charge real
+        // money (`GocardlessEnvironment` defaults to `Sandbox`, so an absent or
+        // unreadable field in the stored blob lands on sandbox).
+        if self.public.is_sandbox() {
             static SANDBOX: OnceLock<GoCardlessClient> = OnceLock::new();
             SANDBOX.get_or_init(GoCardlessClient::from_sandbox)
         } else {
@@ -105,19 +128,19 @@ impl GoCardlessConnector {
             LIVE.get_or_init(GoCardlessClient::new)
         }
     }
-}
 
-impl Default for GoCardlessConnector {
-    fn default() -> Self {
-        Self::new()
+    /// The bearer token this adapter was built with. The store refuses to store an empty one,
+    /// and GoCardless answers 401 for a bad one, which surfaces as rejected credentials.
+    fn access_token(&self) -> SecretString {
+        self.sensitive.access_token.clone()
     }
 }
 
 impl ConnectorIdentity for GoCardlessConnector {
-    fn provider(&self) -> ConnectorProviderEnum {
-        ConnectorProviderEnum::Gocardless
+    fn provider(&self) -> PaymentProvider {
+        PaymentProvider::Gocardless
     }
-    fn capabilities(&self) -> &ConnectorCapabilities {
+    fn capabilities(&self) -> &PaymentCapabilities {
         &GOCARDLESS_CAPABILITIES
     }
 }
@@ -125,46 +148,152 @@ impl ConnectorIdentity for GoCardlessConnector {
 #[async_trait]
 impl CredentialOps for GoCardlessConnector {
     /// Cheap authenticated GET: catches a wrong token or environment before it is persisted.
-    async fn validate_credentials(
-        &self,
-        connector: &Connector,
-    ) -> Result<ProviderData, Report<ConnectorError>> {
-        let token = extract_access_token(connector)?;
-        Self::client_for(connector)
+    /// The creditor doubles as the account: its schemes say which debits are enabled.
+    async fn validate_credentials(&self) -> Result<ValidatedCredentials, Report<ConnectorError>> {
+        use gocardless_client::creditors::CreditorApi;
+        let token = self.access_token();
+        let public = PaymentConnectorPublicData::Gocardless(self.public.clone());
+        let creditor_id = self
+            .public
+            .creditor_id
+            .clone()
+            .filter(|c| !c.trim().is_empty());
+        let livemode = !self.public.is_sandbox();
+        let client = self.client();
+        // The same probe as before account detection: it alone decides whether the token works.
+        client
             .validate_credentials(&token)
             .await
             .map_err(|e| match &e {
-                gocardless_client::error::GoCardlessError::Api(req)
-                    if matches!(req.http_status, 400 | 401 | 403) =>
-                {
-                    Report::new(ConnectorError::Configuration(format!(
-                        "GoCardless rejected this access token: {e}"
-                    )))
+                GoCardlessError::Api(req) if matches!(req.http_status, 400 | 401 | 403) => {
+                    let report = Report::new(ConnectorError::Configuration(
+                        "Invalid access token".to_string(),
+                    ))
+                    .attach(e.to_string());
+                    if req.http_status == 400 {
+                        report
+                    } else {
+                        report.attach_opaque(CredentialsRejected)
+                    }
                 }
                 _ => Report::new(ConnectorError::Transport(format!(
                     "Couldn't reach GoCardless to verify the token: {e}"
                 ))),
             })?;
-        connector.data.clone().ok_or_else(|| {
-            Report::new(ConnectorError::Configuration(
-                "gocardless connector has no public data".into(),
-            ))
+        let creditors = match &creditor_id {
+            Some(id) => client.get_creditor(id, &token).await.map(|c| vec![c]),
+            None => client.list_creditors(&token).await,
+        };
+        let creditors = match creditors {
+            Ok(creditors) => creditors,
+            Err(GoCardlessError::Api(req)) if req.http_status == 404 && creditor_id.is_some() => {
+                return Err(Report::new(ConnectorError::Configuration(
+                    "GoCardless has no creditor with this ID on this account.".into(),
+                )));
+            }
+            Err(GoCardlessError::Api(req)) if req.http_status == 403 => {
+                // The token works but can't read creditors: keep it usable, with what we know.
+                log::warn!("GoCardless token can't read creditors; account details unknown");
+                return Ok(ValidatedCredentials {
+                    account: ProviderAccount {
+                        // The token can't read creditors, so there is no
+                        // creditor id to record yet.
+                        account_id: None,
+                        display_name: None,
+                        livemode,
+                        key_hint: Some(mask_secret(secrecy::ExposeSecret::expose_secret(&token))),
+                        methods: static_methods(
+                            GOCARDLESS_CAPABILITIES.supported_payment_methods,
+                            MethodState::Enabled,
+                        ),
+                        checked_at: chrono::Utc::now().naive_utc(),
+                    },
+                    public,
+                });
+            }
+            Err(e) => {
+                return Err(Report::new(ConnectorError::Transport(format!(
+                    "Couldn't read the GoCardless creditor: {e}"
+                ))));
+            }
+        };
+        // Without a creditor id, the adapter can only use a token with a single creditor.
+        let creditor = match creditors.as_slice() {
+            [single] => single,
+            [] => {
+                return Err(Report::new(ConnectorError::Configuration(
+                    "This GoCardless account has no creditor yet. Finish onboarding in GoCardless first."
+                        .into(),
+                )));
+            }
+            _ => {
+                return Err(Report::new(ConnectorError::Configuration(
+                    "This GoCardless account has several creditors. Enter the creditor ID to use."
+                        .into(),
+                )));
+            }
+        };
+        let schemes: Vec<&str> = creditor
+            .scheme_identifiers
+            .iter()
+            .map(|s| s.scheme.as_str())
+            .collect();
+        Ok(ValidatedCredentials {
+            account: ProviderAccount {
+                account_id: Some(creditor.id.clone()),
+                display_name: creditor.name.clone(),
+                livemode,
+                key_hint: Some(mask_secret(secrecy::ExposeSecret::expose_secret(&token))),
+                methods: gocardless_methods(&schemes),
+                checked_at: chrono::Utc::now().naive_utc(),
+            },
+            public,
         })
     }
+}
+
+/// A debit rail is enabled when the creditor has an identifier for its scheme.
+fn gocardless_methods(schemes: &[&str]) -> Vec<PaymentMethodAvailability> {
+    GOCARDLESS_CAPABILITIES
+        .supported_payment_methods
+        .iter()
+        .map(|method| {
+            let (scheme_names, label): (&[&str], &str) = match method {
+                PaymentMethodTypeEnum::DirectDebitSepa => (&["sepa_core", "sepa_cor1"], "SEPA"),
+                PaymentMethodTypeEnum::DirectDebitAch => (&["ach"], "ACH"),
+                PaymentMethodTypeEnum::DirectDebitBacs => (&["bacs"], "Bacs"),
+                _ => (&[], ""),
+            };
+            let enabled = schemes.iter().any(|s| scheme_names.contains(s));
+            PaymentMethodAvailability {
+                method: method.clone(),
+                state: if enabled {
+                    MethodState::Enabled
+                } else {
+                    MethodState::Unavailable
+                },
+                reason: (!enabled)
+                    .then(|| format!("{label} isn't enabled on this GoCardless creditor")),
+            }
+        })
+        .collect()
 }
 
 #[async_trait]
 impl CustomerOps for GoCardlessConnector {
     async fn create_customer(
         &self,
-        connector: &Connector,
         customer: &Customer,
         request: CreateCustomerRequest,
     ) -> Result<ExternalCustomerRef, Report<ConnectorError>> {
-        let token = extract_access_token(connector)?;
-        let client = Self::client_for(connector);
+        let token = self.access_token();
+        let client = self.client();
 
-        let (given_name, family_name) = split_name(&customer.name);
+        // GoCardless requires given+family name unless a company_name is set.
+        let (given_name, family_name, company_name) = match customer.person_name() {
+            Some((first, last)) => (Some(first.to_string()), Some(last.to_string()), None),
+            None => (None, None, Some(customer.name.clone())),
+        };
         let mut metadata = HashMap::from([
             ("meteroid.id".to_string(), customer.id.as_base62()),
             (
@@ -198,9 +327,9 @@ impl CustomerOps for GoCardlessConnector {
             .create_customer(
                 CreateCustomer {
                     email: customer.billing_email.clone(),
-                    given_name: Some(given_name),
-                    family_name: Some(family_name),
-                    company_name: Some(customer.name.clone()),
+                    given_name,
+                    family_name,
+                    company_name,
                     language: None,
                     // Omitted: GoCardless validates phone_number to E.164 and
                     // rejects the whole customer create on a bad value. Our phone
@@ -232,12 +361,11 @@ impl CustomerOps for GoCardlessConnector {
 impl MandateOps for GoCardlessConnector {
     async fn initiate_mandate_setup(
         &self,
-        connector: &Connector,
         connection: &CustomerConnection,
         request: MandateSetupRequest<'_>,
     ) -> Result<MandateSetupInstruction, Report<ConnectorError>> {
-        let token = extract_access_token(connector)?;
-        let client = Self::client_for(connector);
+        let token = self.access_token();
+        let client = self.client();
 
         // GoCardless infers the scheme from currency; passing scheme is optional.
         let (currency, scheme) = request
@@ -313,10 +441,7 @@ impl MandateOps for GoCardlessConnector {
             ])),
         });
 
-        let creditor_id = match &connector.data {
-            Some(ProviderData::Gocardless(d)) => d.creditor_id.clone(),
-            _ => None,
-        };
+        let creditor_id = self.public.creditor_id.clone();
 
         let br = client
             .create_billing_request(
@@ -389,12 +514,11 @@ impl MandateOps for GoCardlessConnector {
 
     async fn fetch_payment_method(
         &self,
-        connector: &Connector,
         external_payment_method_id: &str,
         _external_customer_id: &str,
     ) -> Result<PaymentMethodSnapshot, Report<ConnectorError>> {
-        let token = extract_access_token(connector)?;
-        let client = Self::client_for(connector);
+        let token = self.access_token();
+        let client = self.client();
         let mandate = client
             .get_mandate(external_payment_method_id, &token)
             .await
@@ -416,11 +540,10 @@ impl MandateOps for GoCardlessConnector {
     /// propagating mandate_request metadata onto the mandate.
     async fn complete_mandate_setup(
         &self,
-        connector: &Connector,
         intent_id: &str,
     ) -> Result<PaymentMethodSnapshot, Report<ConnectorError>> {
-        let token = extract_access_token(connector)?;
-        let client = Self::client_for(connector);
+        let token = self.access_token();
+        let client = self.client();
 
         let br = client
             .get_billing_request(intent_id, &token)
@@ -493,11 +616,10 @@ impl MandateOps for GoCardlessConnector {
 impl PaymentOps for GoCardlessConnector {
     async fn charge_off_session(
         &self,
-        connector: &Connector,
         request: ChargeRequest<'_>,
     ) -> Result<ChargeOutcome, Report<ConnectorError>> {
-        let token = extract_access_token(connector)?;
-        let client = Self::client_for(connector);
+        let token = self.access_token();
+        let client = self.client();
 
         // DD schemes are single-currency (SEPA→EUR, BACS→GBP, ACH→USD); a
         // mismatched currency is rejected by GoCardless. Fail clearly here.
@@ -513,7 +635,7 @@ impl PaymentOps for GoCardlessConnector {
         let metadata = HashMap::from([
             (
                 "meteroid.tenant_id".to_string(),
-                connector.tenant_id.as_base62(),
+                self.connector.tenant_id.as_base62(),
             ),
             (
                 "meteroid.transaction_id".to_string(),
@@ -540,6 +662,19 @@ impl PaymentOps for GoCardlessConnector {
             .await;
 
         match result {
+            // A 409 replay returns the payment the key first created, which may differ.
+            Ok(payment)
+                if payment.amount != request.amount_minor
+                    || !payment.currency.eq_ignore_ascii_case(request.currency) =>
+            {
+                Err(adoption_mismatch(
+                    &payment.id,
+                    payment.amount,
+                    &payment.currency,
+                    payment_to_outcome(payment.id.clone(), payment.status.clone(), payment.amount),
+                    &request,
+                ))
+            }
             Ok(payment) => Ok(payment_to_outcome(
                 payment.id,
                 payment.status,
@@ -550,30 +685,74 @@ impl PaymentOps for GoCardlessConnector {
     }
 }
 
+/// No unconfirmed intents: wallet top-ups are offered on providers that can pin one.
+impl super::connector::WalletOps for GoCardlessConnector {}
+
 #[async_trait]
 impl RefundOps for GoCardlessConnector {
     async fn refund(
         &self,
-        _connector: &Connector,
-        _request: RefundRequest<'_>,
+        request: RefundRequest<'_>,
     ) -> Result<RefundOutcome, Report<ConnectorError>> {
-        Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Gocardless,
-            capability: "refund",
-        }))
+        let token = self.access_token();
+        let client = self.client();
+
+        // A replay after a lost response would recompute a different `total_amount_confirmation`,
+        // which GoCardless may reject before it looks at the idempotency key: find the refund
+        // that already went through by our own id instead.
+        let ours = request
+            .metadata
+            .iter()
+            .find(|(k, _)| k == "meteroid.refund_id")
+            .map(|(_, v)| v.clone());
+        if let Some(ours) = ours {
+            let existing = client
+                .list_payment_refunds(request.external_transaction_id, &token)
+                .await
+                .map_err(|e| map_gc_error(GcOp::Refund, e))?
+                .into_iter()
+                .find(|r| r.metadata.get("meteroid.refund_id") == Some(&ours));
+            if let Some(existing) = existing {
+                return Ok(refund_outcome(existing));
+            }
+        }
+
+        // `total_amount_confirmation` must match GoCardless' own running total, which also counts
+        // dashboard refunds we may not have recorded yet.
+        let payment = client
+            .get_payment(request.external_transaction_id, &token)
+            .await
+            .map_err(|e| map_gc_error(GcOp::Refund, e))?;
+
+        let refund = client
+            .create_refund(
+                CreateRefund {
+                    amount: request.amount_minor,
+                    total_amount_confirmation: payment.amount_refunded + request.amount_minor,
+                    reference: None,
+                    metadata: Some(request.metadata.into_iter().collect()),
+                    links: CreateRefundLinks {
+                        payment: request.external_transaction_id.to_string(),
+                    },
+                },
+                &token,
+                request.idempotency_key.as_str(),
+            )
+            .await
+            .map_err(|e| map_gc_error(GcOp::Refund, e))?;
+
+        Ok(refund_outcome(refund))
     }
 
-    /// Resolve a webhook-observed refund (GoCardless refund events carry no
-    /// amounts): read the refund for its parent payment, then the payment for
-    /// its cumulative refunded total — the idempotent figure the reversal path
-    /// reconciles against.
+    /// Read the refund for its status and parent payment, then the payment for its cumulative
+    /// refunded total: `refunds.*` events carry no amounts.
     async fn fetch_refund(
         &self,
-        connector: &Connector,
         external_refund_id: &str,
+        _external_transaction_id: Option<&str>,
     ) -> Result<RefundSnapshot, Report<ConnectorError>> {
-        let token = extract_access_token(connector)?;
-        let client = Self::client_for(connector);
+        let token = self.access_token();
+        let client = self.client();
 
         let refund = client
             .get_refund(external_refund_id, &token)
@@ -591,9 +770,55 @@ impl RefundOps for GoCardlessConnector {
 
         Ok(RefundSnapshot {
             external_transaction_id: payment_id,
-            cumulative_refunded_minor: payment.amount_refunded,
+            status: remote_refund_status(&refund.status),
+            external_refund_id: refund.id,
+            amount_minor: refund.amount,
+            cumulative_refunded_minor: Some(payment.amount_refunded),
             currency: payment.currency,
         })
+    }
+}
+
+/// `bounced` and `funds_returned` both mean the customer never kept the money.
+fn remote_refund_status(status: &GcRefundStatus) -> RemoteRefundStatus {
+    let returned = |code: &str| RemoteRefundStatus::Failed {
+        code: Some(code.to_string()),
+        message: "The refund did not reach the customer; the funds were returned".to_string(),
+    };
+    match status {
+        GcRefundStatus::Paid => RemoteRefundStatus::Succeeded,
+        GcRefundStatus::Cancelled => RemoteRefundStatus::Canceled,
+        GcRefundStatus::Bounced => returned("bounced"),
+        GcRefundStatus::FundsReturned => returned("funds_returned"),
+        GcRefundStatus::Created
+        | GcRefundStatus::PendingSubmission
+        | GcRefundStatus::Submitted
+        | GcRefundStatus::Unknown => RemoteRefundStatus::Pending,
+    }
+}
+
+fn refund_outcome(refund: GcRefund) -> RefundOutcome {
+    match remote_refund_status(&refund.status) {
+        RemoteRefundStatus::Succeeded => RefundOutcome::Succeeded(RefundReceipt {
+            external_refund_id: refund.id,
+            amount_refunded_minor: refund.amount,
+            processed_at: chrono::Utc::now().naive_utc(),
+            provider_request_id: None,
+        }),
+        RemoteRefundStatus::Pending => RefundOutcome::Pending(RefundAcknowledged {
+            external_refund_id: refund.id,
+            provider_request_id: None,
+        }),
+        RemoteRefundStatus::Failed { code, message } => RefundOutcome::Failed(RefundFailure {
+            code,
+            message,
+            provider_request_id: None,
+        }),
+        RemoteRefundStatus::Canceled => RefundOutcome::Failed(RefundFailure {
+            code: Some("cancelled".to_string()),
+            message: "Cancelled by GoCardless".to_string(),
+            provider_request_id: None,
+        }),
     }
 }
 
@@ -601,11 +826,10 @@ impl RefundOps for GoCardlessConnector {
 impl ReconcileOps for GoCardlessConnector {
     async fn fetch_transaction_status(
         &self,
-        connector: &Connector,
         external_transaction_id: &str,
     ) -> Result<RemoteTransactionStatus, Report<ConnectorError>> {
-        let token = extract_access_token(connector)?;
-        let client = Self::client_for(connector);
+        let token = self.access_token();
+        let client = self.client();
 
         let result = client.get_payment(external_transaction_id, &token).await;
         match result {
@@ -626,42 +850,35 @@ impl ReconcileOps for GoCardlessConnector {
 impl WebhookOps for GoCardlessConnector {
     async fn register_webhook(
         &self,
-        _connector: &Connector,
         _url: &str,
         _subscriptions: &[NormalizedEventSubscription],
     ) -> Result<RegisteredWebhook, Report<ConnectorError>> {
         Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Gocardless,
+            provider: self.provider().into(),
             capability: "webhook.register (GoCardless endpoints are dashboard-managed)",
         }))
     }
 
-    async fn unregister_webhook(
-        &self,
-        _connector: &Connector,
-        _endpoint_id: &str,
-    ) -> Result<(), Report<ConnectorError>> {
+    async fn unregister_webhook(&self, _endpoint_id: &str) -> Result<(), Report<ConnectorError>> {
         Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Gocardless,
+            provider: self.provider().into(),
             capability: "webhook.unregister",
         }))
     }
 
     async fn sync_webhook_events(
         &self,
-        _connector: &Connector,
         _endpoint_id: &str,
         _subscriptions: &[NormalizedEventSubscription],
     ) -> Result<(), Report<ConnectorError>> {
         Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Gocardless,
+            provider: self.provider().into(),
             capability: "webhook.sync",
         }))
     }
 
     fn verify_signature(
         &self,
-        _connector: &Connector,
         payload: &[u8],
         headers: &HeaderMap,
         secret: &SecretString,
@@ -679,14 +896,10 @@ impl WebhookOps for GoCardlessConnector {
 
     fn parse_event(
         &self,
-        connector: &Connector,
         payload: &[u8],
         headers: &HeaderMap,
     ) -> Result<Option<NormalizedWebhookEvent>, Report<ConnectorError>> {
-        Ok(self
-            .parse_events(connector, payload, headers)?
-            .into_iter()
-            .next())
+        Ok(self.parse_events(payload, headers)?.into_iter().next())
     }
 
     /// GoCardless batches several events per POST; return all (dropping any
@@ -695,7 +908,6 @@ impl WebhookOps for GoCardlessConnector {
     /// dedup is per event and a bad event doesn't block the others.
     fn split_delivery(
         &self,
-        _connector: &Connector,
         payload: &[u8],
     ) -> Result<Vec<WebhookDeliveryUnit>, Report<ConnectorError>> {
         let json: serde_json::Value = serde_json::from_slice(payload)
@@ -721,7 +933,6 @@ impl WebhookOps for GoCardlessConnector {
 
     fn parse_events(
         &self,
-        _connector: &Connector,
         payload: &[u8],
         _headers: &HeaderMap,
     ) -> Result<Vec<NormalizedWebhookEvent>, Report<ConnectorError>> {
@@ -740,31 +951,6 @@ impl WebhookOps for GoCardlessConnector {
 }
 
 // ── helpers ────────────────────────────────────────────────────────
-
-fn extract_access_token(connector: &Connector) -> Result<SecretString, Report<ConnectorError>> {
-    match &connector.sensitive {
-        Some(ProviderSensitiveData::Gocardless(d)) => {
-            Ok(SecretString::from(d.access_token.clone()))
-        }
-        Some(_) => Err(Report::new(ConnectorError::Configuration(
-            "connector is not a gocardless connector".into(),
-        ))),
-        None => Err(Report::new(ConnectorError::Configuration(
-            "gocardless connector has no access_token".into(),
-        ))),
-    }
-}
-
-/// Best-effort split into given/family; GoCardless requires both on customers
-/// in many countries.
-fn split_name(name: &str) -> (String, String) {
-    let trimmed = name.trim();
-    if let Some((first, rest)) = trimmed.split_once(' ') {
-        (first.to_string(), rest.trim().to_string())
-    } else {
-        (trimmed.to_string(), trimmed.to_string())
-    }
-}
 
 /// Maps a payment method to (primary currency, scheme); `None` for unsupported
 /// methods (cards). Currency can be overridden per BRF.
@@ -881,10 +1067,12 @@ fn remote_status_from_payment(
             currency,
             processed_at: chrono::Utc::now().naive_utc(),
         },
-        PaymentStatus::PendingCustomerApproval
-        | PaymentStatus::PendingSubmission
-        | PaymentStatus::Submitted
-        | PaymentStatus::Unknown => RemoteTransactionStatus::Pending,
+        PaymentStatus::PendingSubmission | PaymentStatus::Submitted => {
+            RemoteTransactionStatus::Processing
+        }
+        PaymentStatus::PendingCustomerApproval | PaymentStatus::Unknown => {
+            RemoteTransactionStatus::Pending
+        }
         PaymentStatus::Cancelled | PaymentStatus::CustomerApprovalDenied => {
             RemoteTransactionStatus::Cancelled
         }
@@ -939,10 +1127,16 @@ fn map_gc_error(op: GcOp, e: GoCardlessError) -> Report<ConnectorError> {
             // 4xx validation/state error, not retryable. The top-level `message`
             // is generic ("Validation failed"); the actionable per-field reasons
             // live in `errors[]`, so surface them (plus request_id for support).
-            Report::new(op.logical_error(format!(
+            let rejected_key = matches!(req_err.http_status, 401 | 403);
+            let report = Report::new(op.logical_error(format!(
                 "gocardless rejected: {}",
                 format_gc_request_error(&req_err)
-            )))
+            )));
+            if rejected_key {
+                report.attach_opaque(CredentialsRejected)
+            } else {
+                report
+            }
         }
         GoCardlessError::Encode(e) => {
             Report::new(ConnectorError::Configuration(format!("gocardless: {e}")))
@@ -1020,6 +1214,48 @@ fn normalize_event(event: gocardless_client::webhook::Event) -> Option<Normalize
     })
 }
 
+/// Map the GoCardless `details.cause` code on a `charged_back` /
+/// `late_failure_settled` event to a typed [`ReversalKind`]. Unrecognized
+/// causes (including none at all) fall back to `Other`; the raw cause is kept
+/// alongside for support.
+fn decline_kind_from_cause(cause: Option<&str>) -> DeclineKind {
+    match cause {
+        Some("insufficient_funds") => DeclineKind::InsufficientFunds,
+        Some(
+            "mandate_cancelled"
+            | "mandate_expired"
+            | "direct_debit_not_enabled"
+            | "invalid_bank_details"
+            | "bank_account_closed"
+            | "bank_account_transferred",
+        ) => DeclineKind::MandateInactive,
+        _ => DeclineKind::Other,
+    }
+}
+
+fn reversal_kind_from_cause(cause: Option<&str>) -> ReversalKind {
+    match cause {
+        Some("refund_requested" | "authorisation_disputed" | "customer_disputed") => {
+            ReversalKind::DebtorRecall
+        }
+        Some("chargeback") => ReversalKind::Chargeback,
+        Some("insufficient_funds") => ReversalKind::InsufficientFunds,
+        Some(
+            "mandate_cancelled"
+            | "direct_debit_not_enabled"
+            | "invalid_bank_details"
+            | "mandate_expired",
+        ) => ReversalKind::MandateInvalid,
+        Some(
+            "bank_account_closed"
+            | "bank_account_transferred"
+            | "account_blocked_for_any_financial_transaction"
+            | "payment_stopped",
+        ) => ReversalKind::Returned,
+        _ => ReversalKind::Other,
+    }
+}
+
 fn normalize_payment_event(
     event: &gocardless_client::webhook::Event,
 ) -> Option<NormalizedEventKind> {
@@ -1043,15 +1279,19 @@ fn normalize_payment_event(
                 meteroid_transaction_id: meteroid_tx,
             })
         }
-        // Funds reclaimed by the bank after the payment already settled. On a
-        // still-settled transaction this is a reversal (invoice reopens); if the
-        // charge was never confirmed the reversal handler falls back to the
-        // failed path. Same for `charged_back` below.
+        // A failed debit the bank reported after the payment settled: a reversal that reopens
+        // the invoice; if the charge was never confirmed the handler falls back to the failed
+        // path. `charged_back` below is the payer's claim instead: the invoice stays paid.
         ev_action::LATE_FAILURE_SETTLED => {
+            let cause = event.details.as_ref().and_then(|d| d.cause.as_deref());
             NormalizedEventKind::PaymentReversed(PaymentReversedEvent {
                 external_transaction_id: payment_id,
                 meteroid_transaction_id: meteroid_tx,
                 reason: "late_failure_settled".into(),
+                kind: reversal_kind_from_cause(cause),
+                // The bank reported the failed debit late: nothing was paid, the invoice reopens.
+                disputed: false,
+                cause: cause.map(str::to_string),
             })
         }
         ev_action::FAILED => NormalizedEventKind::PaymentFailed(PaymentFailedEvent {
@@ -1063,6 +1303,9 @@ fn normalize_payment_event(
                 .and_then(|d| d.description.clone())
                 .unwrap_or_else(|| "Payment failed".to_string()),
             retryable: false,
+            decline_kind: decline_kind_from_cause(
+                event.details.as_ref().and_then(|d| d.cause.as_deref()),
+            ),
             meteroid_transaction_id: meteroid_tx,
         }),
         ev_action::CANCELLED => NormalizedEventKind::PaymentFailed(PaymentFailedEvent {
@@ -1070,13 +1313,24 @@ fn normalize_payment_event(
             code: Some("cancelled".into()),
             message: "Payment cancelled".into(),
             retryable: false,
+            decline_kind: DeclineKind::Other,
             meteroid_transaction_id: meteroid_tx,
         }),
-        ev_action::CHARGED_BACK => NormalizedEventKind::PaymentReversed(PaymentReversedEvent {
-            external_transaction_id: payment_id,
-            meteroid_transaction_id: meteroid_tx,
-            reason: "charged_back".into(),
-        }),
+        ev_action::CHARGED_BACK => {
+            let cause = event.details.as_ref().and_then(|d| d.cause.as_deref());
+            NormalizedEventKind::PaymentReversed(PaymentReversedEvent {
+                external_transaction_id: payment_id,
+                meteroid_transaction_id: meteroid_tx,
+                reason: "charged_back".into(),
+                // A Direct Debit Guarantee or indemnity claim: always the payer's.
+                kind: match reversal_kind_from_cause(cause) {
+                    ReversalKind::Other => ReversalKind::Chargeback,
+                    kind => kind,
+                },
+                disputed: true,
+                cause: cause.map(str::to_string),
+            })
+        }
         // The bank cancelled the chargeback and returned the funds. Inverse of
         // `charged_back`: the handler restores the transaction and re-closes
         // the invoice.
@@ -1093,20 +1347,19 @@ fn normalize_payment_event(
     })
 }
 
-/// Outbound `refund()` is Unsupported, so any real GoCardless refund is
-/// dashboard/API-initiated. Surface it so the invoice reflects the clawed-back
-/// money instead of staying fully paid; the event carries no amounts, so the
-/// handler fetches the refund + parent payment (`fetch_refund`).
+/// The event carries no amounts: the handler resolves the refund and its payment
+/// (`fetch_refund`), settling or failing a refund we issued and recording a dashboard one.
 fn normalize_refund_event(
     event: &gocardless_client::webhook::Event,
 ) -> Option<NormalizedEventKind> {
     let refund_id = event.links.refund.clone()?;
     Some(match event.action.as_str() {
-        ev_action::CREATED | ev_action::PAID => NormalizedEventKind::RefundObserved {
-            external_refund_id: refund_id,
-        },
-        // funds_returned/failed etc. — the cumulative fetch on created/paid
-        // already reconciled (or will reconcile) the payment's refunded total.
+        ev_action::CREATED | ev_action::PAID | ev_action::FAILED | ev_action::FUNDS_RETURNED => {
+            NormalizedEventKind::RefundObserved {
+                external_refund_id: refund_id,
+            }
+        }
+        // `refund_settled` is the payout deduction: no change for the customer.
         _ => NormalizedEventKind::Acknowledged {
             reason: "unhandled gocardless refund action",
         },
@@ -1157,11 +1410,16 @@ fn normalize_billing_request_event(
 
 #[cfg(test)]
 mod tests {
+    use super::super::connector::MandateSetupMode;
     use super::*;
     use crate::domain::connectors::{
-        Connector, GocardlessPublicData, GocardlessSensitiveData, ProviderSensitiveData,
+        Connector, CredentialState, GocardlessEnvironment, GocardlessPublicData,
+        GocardlessSensitiveData,
     };
-    use crate::domain::enums::ConnectorTypeEnum;
+    use crate::domain::connectors::{
+        ConnectorConfig, PaymentConnectorConfig, PaymentProviderConfig,
+    };
+
     use chrono::NaiveDateTime;
     use common_domain::ids::{ConnectorId, TenantId};
     use hmac::{Hmac, KeyInit, Mac};
@@ -1171,33 +1429,49 @@ mod tests {
 
     fn test_connector() -> Connector {
         Connector {
+            status: crate::domain::enums::ConnectorStatusEnum::Active,
+            credentials: CredentialState::Unverified,
+            webhook_route: None,
             id: ConnectorId::new(),
             created_at: NaiveDateTime::default(),
             tenant_id: TenantId::new(),
             alias: "gc-test".into(),
-            connector_type: ConnectorTypeEnum::PaymentProvider,
-            provider: ConnectorProviderEnum::Gocardless,
-            data: Some(crate::domain::connectors::ProviderData::Gocardless(
-                GocardlessPublicData {
-                    creditor_id: Some("CR000".into()),
-                    environment: "sandbox".into(),
-                },
+            config: ConnectorConfig::Payment(PaymentConnectorConfig::configured(
+                PaymentProviderConfig::Gocardless(test_public(), test_sensitive()),
             )),
-            sensitive: Some(ProviderSensitiveData::Gocardless(GocardlessSensitiveData {
-                access_token: "sandbox_token".into(),
-                webhook_secret: TEST_SECRET.into(),
-            })),
         }
+    }
+
+    fn test_public() -> GocardlessPublicData {
+        GocardlessPublicData {
+            creditor_id: Some("CR000".into()),
+            environment: GocardlessEnvironment::Sandbox,
+        }
+    }
+
+    fn test_sensitive() -> GocardlessSensitiveData {
+        GocardlessSensitiveData {
+            access_token: "sandbox_token".into(),
+            webhook_secret: TEST_SECRET.into(),
+        }
+    }
+
+    /// The adapter under test, bound to the fixture connector's identity and
+    /// credentials the way the factory builds it.
+    fn test_adapter() -> GoCardlessConnector {
+        let connector = test_connector();
+        GoCardlessConnector::new(
+            ConnectorRef::from(&connector),
+            test_public(),
+            test_sensitive(),
+        )
     }
 
     /// A batch splits into one unit per inner event, keyed by that event's id.
     #[test]
     fn batch_splits_into_one_unit_per_event() {
-        let connector = test_connector();
         let body = br#"{"events":[{"id":"EV1","resource_type":"payments","action":"confirmed","links":{}},{"id":"EV2","resource_type":"payments","action":"failed","links":{}}]}"#;
-        let units = GoCardlessConnector::new()
-            .split_delivery(&connector, body)
-            .unwrap();
+        let units = test_adapter().split_delivery(body).unwrap();
         assert_eq!(units.len(), 2);
         assert_eq!(units[0].event_id.as_deref(), Some("EV1"));
         assert_eq!(units[1].event_id.as_deref(), Some("EV2"));
@@ -1220,8 +1494,7 @@ mod tests {
         let payload = br#"{"events":[]}"#;
         let mut headers = HeaderMap::new();
         headers.insert("Webhook-Signature", sign(payload).parse().unwrap());
-        let result = GoCardlessConnector::new().verify_signature(
-            &test_connector(),
+        let result = test_adapter().verify_signature(
             payload,
             &headers,
             &SecretString::from(TEST_SECRET.to_string()),
@@ -1235,8 +1508,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("Webhook-Signature", sign(payload).parse().unwrap());
         let tampered = br#"{"events":[{}]}"#;
-        let result = GoCardlessConnector::new().verify_signature(
-            &test_connector(),
+        let result = test_adapter().verify_signature(
             tampered,
             &headers,
             &SecretString::from(TEST_SECRET.to_string()),
@@ -1248,8 +1520,7 @@ mod tests {
     fn verify_signature_rejects_missing_header() {
         let payload = br#"{"events":[]}"#;
         let headers = HeaderMap::new();
-        let result = GoCardlessConnector::new().verify_signature(
-            &test_connector(),
+        let result = test_adapter().verify_signature(
             payload,
             &headers,
             &SecretString::from(TEST_SECRET.to_string()),
@@ -1271,8 +1542,8 @@ mod tests {
                 "metadata":{"meteroid.transaction_id":"tx_ok"}
             }]
         }"#;
-        let parsed = GoCardlessConnector::new()
-            .parse_event(&test_connector(), payload, &HeaderMap::new())
+        let parsed = test_adapter()
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse ok")
             .expect("event surfaced");
         match parsed.kind {
@@ -1300,8 +1571,8 @@ mod tests {
                 "resource_metadata":{"meteroid.transaction_id":"tx_rm"}
             }]
         }"#;
-        let parsed = GoCardlessConnector::new()
-            .parse_event(&test_connector(), payload, &HeaderMap::new())
+        let parsed = test_adapter()
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse ok")
             .expect("event surfaced");
         match parsed.kind {
@@ -1331,8 +1602,8 @@ mod tests {
                 "metadata":{"meteroid.transaction_id":"tx_fail"}
             }]
         }"#;
-        let parsed = GoCardlessConnector::new()
-            .parse_event(&test_connector(), payload, &HeaderMap::new())
+        let parsed = test_adapter()
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse ok")
             .expect("event surfaced");
         match parsed.kind {
@@ -1360,8 +1631,8 @@ mod tests {
                 "links":{"billing_request":"BRQ_1","mandate_request_mandate":"MD_1"}
             }]
         }"#;
-        let parsed = GoCardlessConnector::new()
-            .parse_event(&test_connector(), payload, &HeaderMap::new())
+        let parsed = test_adapter()
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse ok")
             .expect("event surfaced");
         match parsed.kind {
@@ -1386,8 +1657,8 @@ mod tests {
                 "metadata":{}
             }]
         }"#;
-        let parsed = GoCardlessConnector::new()
-            .parse_event(&test_connector(), payload, &HeaderMap::new())
+        let parsed = test_adapter()
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse ok")
             .expect("event surfaced");
         assert!(
@@ -1411,8 +1682,8 @@ mod tests {
                 "links":{"mandate":"MD_X"}
             }]
         }"#;
-        let parsed = GoCardlessConnector::new()
-            .parse_event(&test_connector(), payload, &HeaderMap::new())
+        let parsed = test_adapter()
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse ok")
             .expect("event surfaced");
         match parsed.kind {
@@ -1429,16 +1700,15 @@ mod tests {
     /// abstractly; pin it concretely too.
     #[test]
     fn capabilities_match_provider_reality() {
-        let connector = GoCardlessConnector::new();
-        let caps = connector.capabilities();
-        assert!(!caps.supports_cards);
+        let adapter = test_adapter();
+        let caps = adapter.capabilities();
+        assert!(!caps.supports_cards());
         assert!(caps.supports_mandates);
         assert!(caps.asynchronous_settlement);
-        assert!(!caps.supports_self_webhook_registration);
-        // `refund()` is Unsupported, so the capability must not advertise it.
-        assert!(!caps.supports_refunds);
-        assert!(!caps.supports_partial_refunds);
-        assert_eq!(caps.mandate_setup_mode, MandateSetupMode::HostedRedirect);
+        assert!(!caps.supports_self_webhook_registration());
+        assert!(caps.supports_partial_refunds());
+        assert!(caps.refund_replay_window.is_some());
+        assert_eq!(caps.mandate_setup_mode(), MandateSetupMode::HostedRedirect);
         assert!(
             caps.supported_payment_methods
                 .contains(&PaymentMethodTypeEnum::DirectDebitSepa)
@@ -1459,8 +1729,8 @@ mod tests {
                 "links":{"payment":"PM_EMPTY_1"}
             }]
         }"#;
-        let parsed = GoCardlessConnector::new()
-            .parse_event(&test_connector(), payload, &HeaderMap::new())
+        let parsed = test_adapter()
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse ok")
             .expect("event surfaced");
         match parsed.kind {
@@ -1487,8 +1757,8 @@ mod tests {
                 "metadata":{"meteroid.connection_id":"conn_x","meteroid.customer_id":"cust_x"}
             }]
         }"#;
-        let parsed = GoCardlessConnector::new()
-            .parse_event(&test_connector(), payload, &HeaderMap::new())
+        let parsed = test_adapter()
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse ok")
             .expect("event surfaced");
         match parsed.kind {
@@ -1497,43 +1767,133 @@ mod tests {
         }
     }
 
-    /// `payments.charged_back` on the real provider fixture must normalize to a
-    /// `PaymentReversed` (not a plain failure) so the settlement pipeline reopens
-    /// the invoice. The event carries empty metadata; the reversal handler falls
-    /// back to the provider payment id.
+    /// `payments.charged_back` on the real provider fixture is the payer's claim: a disputed
+    /// `PaymentReversed` that keeps the invoice paid. The event carries empty metadata; the
+    /// reversal handler falls back to the provider payment id.
     #[test]
     fn parse_event_payments_charged_back_is_reversal_real_fixture() {
         let payload = include_str!(
             "../../../../../tests/integration/fixtures/webhooks/gocardless/payments_charged_back.json"
         );
-        let parsed = GoCardlessConnector::new()
-            .parse_event(&test_connector(), payload.as_bytes(), &HeaderMap::new())
+        let parsed = test_adapter()
+            .parse_event(payload.as_bytes(), &HeaderMap::new())
             .expect("parse ok")
             .expect("event surfaced");
         match parsed.kind {
             NormalizedEventKind::PaymentReversed(e) => {
                 assert_eq!(e.external_transaction_id, "PM000TEST00003");
                 assert_eq!(e.reason, "charged_back");
+                assert_eq!(e.kind, ReversalKind::Chargeback);
+                assert!(e.disputed, "a chargeback keeps the invoice paid");
+                assert_eq!(e.cause.as_deref(), Some("chargeback"));
             }
             other => panic!("expected PaymentReversed, got {other:?}"),
         }
     }
 
-    /// `payments.late_failure_settled` (funds reclaimed after settlement) must
-    /// also normalize to `PaymentReversed`.
+    /// `payments.late_failure_settled` (a failed debit reported after settlement) is a failed
+    /// collection: a `PaymentReversed` that reopens the invoice.
     #[test]
     fn parse_event_payments_late_failure_is_reversal_real_fixture() {
         let payload = include_str!(
             "../../../../../tests/integration/fixtures/webhooks/gocardless/payments_late_failure.json"
         );
-        let parsed = GoCardlessConnector::new()
-            .parse_event(&test_connector(), payload.as_bytes(), &HeaderMap::new())
+        let parsed = test_adapter()
+            .parse_event(payload.as_bytes(), &HeaderMap::new())
             .expect("parse ok")
             .expect("event surfaced");
         match parsed.kind {
             NormalizedEventKind::PaymentReversed(e) => {
                 assert_eq!(e.external_transaction_id, "PM000TEST00004");
                 assert_eq!(e.reason, "late_failure_settled");
+                assert_eq!(e.kind, ReversalKind::Other);
+                assert!(!e.disputed, "a late failure reopens the invoice");
+                assert_eq!(e.cause.as_deref(), Some("late_failure_settled"));
+            }
+            other => panic!("expected PaymentReversed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decline_kind_from_cause_flags_dead_mandates() {
+        assert_eq!(
+            decline_kind_from_cause(Some("insufficient_funds")),
+            DeclineKind::InsufficientFunds
+        );
+        assert_eq!(
+            decline_kind_from_cause(Some("mandate_cancelled")),
+            DeclineKind::MandateInactive
+        );
+        assert_eq!(
+            decline_kind_from_cause(Some("bank_account_closed")),
+            DeclineKind::MandateInactive
+        );
+        assert_eq!(decline_kind_from_cause(Some("other")), DeclineKind::Other);
+        assert_eq!(decline_kind_from_cause(None), DeclineKind::Other);
+    }
+
+    #[test]
+    fn reversal_kind_from_cause_maps_known_causes() {
+        assert_eq!(
+            reversal_kind_from_cause(Some("refund_requested")),
+            ReversalKind::DebtorRecall
+        );
+        assert_eq!(
+            reversal_kind_from_cause(Some("authorisation_disputed")),
+            ReversalKind::DebtorRecall
+        );
+        assert_eq!(
+            reversal_kind_from_cause(Some("chargeback")),
+            ReversalKind::Chargeback
+        );
+        assert_eq!(
+            reversal_kind_from_cause(Some("insufficient_funds")),
+            ReversalKind::InsufficientFunds
+        );
+        assert_eq!(
+            reversal_kind_from_cause(Some("mandate_cancelled")),
+            ReversalKind::MandateInvalid
+        );
+        assert_eq!(
+            reversal_kind_from_cause(Some("invalid_bank_details")),
+            ReversalKind::MandateInvalid
+        );
+        assert_eq!(
+            reversal_kind_from_cause(Some("bank_account_closed")),
+            ReversalKind::Returned
+        );
+        assert_eq!(
+            reversal_kind_from_cause(Some("payment_stopped")),
+            ReversalKind::Returned
+        );
+        assert_eq!(
+            reversal_kind_from_cause(Some("something_new")),
+            ReversalKind::Other
+        );
+        assert_eq!(reversal_kind_from_cause(None), ReversalKind::Other);
+    }
+
+    /// A `charged_back` with a cause we do not map is still the payer's claim.
+    #[test]
+    fn a_charge_back_with_an_unknown_cause_is_a_disputed_chargeback() {
+        let payload = br#"{
+            "events":[{
+                "id":"EV_CB_X",
+                "created_at":"2026-05-19T12:00:00Z",
+                "resource_type":"payments",
+                "action":"charged_back",
+                "links":{"payment":"PM_CB_X"},
+                "details":{"origin":"bank","cause":"return_on_odfi_request"}
+            }]
+        }"#;
+        let parsed = test_adapter()
+            .parse_event(payload, &HeaderMap::new())
+            .expect("parse ok")
+            .expect("event surfaced");
+        match parsed.kind {
+            NormalizedEventKind::PaymentReversed(e) => {
+                assert_eq!(e.kind, ReversalKind::Chargeback);
+                assert!(e.disputed);
             }
             other => panic!("expected PaymentReversed, got {other:?}"),
         }
@@ -1551,7 +1911,7 @@ mod tests {
 
     /// `payments.chargeback_cancelled` (bank returned the clawed-back funds)
     /// must normalize to `PaymentReinstated` — the inverse of `charged_back` —
-    /// so the handler restores the settlement and re-closes the invoice.
+    /// so the handler restores the settlement.
     #[test]
     fn parse_event_payments_chargeback_cancelled_is_reinstatement() {
         let payload = br#"{
@@ -1564,8 +1924,8 @@ mod tests {
                 "details":{"origin":"bank","cause":"chargeback_cancelled"}
             }]
         }"#;
-        let parsed = GoCardlessConnector::new()
-            .parse_event(&test_connector(), payload, &HeaderMap::new())
+        let parsed = test_adapter()
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse ok")
             .expect("event surfaced");
         match parsed.kind {
@@ -1577,48 +1937,68 @@ mod tests {
         }
     }
 
-    /// Dashboard-initiated refunds arrive as `refunds.*` events with no amounts;
-    /// `created`/`paid` must surface as `RefundObserved` (the handler fetches the
-    /// refund + parent payment), other refund actions are acknowledged.
+    /// `refunds.*` events carry no amounts: every action that moves the customer's money surfaces
+    /// as `RefundObserved` for the handler to resolve; the payout deduction is acknowledged.
     #[test]
-    fn parse_event_refunds_created_is_refund_observed() {
-        let payload = br#"{
-            "events":[{
-                "id":"EV_RF_1",
-                "created_at":"2026-05-19T12:00:00Z",
-                "resource_type":"refunds",
-                "action":"created",
-                "links":{"refund":"RF_1"}
-            }]
-        }"#;
-        let parsed = GoCardlessConnector::new()
-            .parse_event(&test_connector(), payload, &HeaderMap::new())
-            .expect("parse ok")
-            .expect("event surfaced");
-        match parsed.kind {
-            NormalizedEventKind::RefundObserved { external_refund_id } => {
-                assert_eq!(external_refund_id, "RF_1");
+    fn parse_event_refund_actions() {
+        let parse = |action: &str| {
+            let payload = format!(
+                r#"{{"events":[{{"id":"EV_RF","created_at":"2026-05-19T12:00:00Z",
+                    "resource_type":"refunds","action":"{action}","links":{{"refund":"RF_1"}}}}]}}"#
+            );
+            test_adapter()
+                .parse_event(payload.as_bytes(), &HeaderMap::new())
+                .expect("parse ok")
+                .expect("event surfaced")
+                .kind
+        };
+        for action in ["created", "paid", "failed", "funds_returned"] {
+            match parse(action) {
+                NormalizedEventKind::RefundObserved { external_refund_id } => {
+                    assert_eq!(external_refund_id, "RF_1");
+                }
+                other => panic!("refunds.{action}: expected RefundObserved, got {other:?}"),
             }
-            other => panic!("expected RefundObserved, got {other:?}"),
         }
+        assert!(matches!(
+            parse("refund_settled"),
+            NormalizedEventKind::Acknowledged { .. }
+        ));
+    }
 
-        let funds_returned = br#"{
-            "events":[{
-                "id":"EV_RF_2",
-                "created_at":"2026-05-19T12:00:00Z",
-                "resource_type":"refunds",
-                "action":"funds_returned",
-                "links":{"refund":"RF_2"}
-            }]
-        }"#;
-        let parsed = GoCardlessConnector::new()
-            .parse_event(&test_connector(), funds_returned, &HeaderMap::new())
-            .expect("parse ok")
-            .expect("event surfaced");
-        assert!(
-            matches!(parsed.kind, NormalizedEventKind::Acknowledged { .. }),
-            "refunds.funds_returned should be acknowledged, got {:?}",
-            parsed.kind
+    #[test]
+    fn refund_status_maps_to_the_remote_outcome() {
+        use gocardless_client::refunds::RefundStatus as S;
+        for pending in [S::Created, S::PendingSubmission, S::Submitted, S::Unknown] {
+            assert_eq!(remote_refund_status(&pending), RemoteRefundStatus::Pending);
+        }
+        assert_eq!(
+            remote_refund_status(&S::Paid),
+            RemoteRefundStatus::Succeeded
         );
+        assert_eq!(
+            remote_refund_status(&S::Cancelled),
+            RemoteRefundStatus::Canceled
+        );
+        for returned in [S::Bounced, S::FundsReturned] {
+            assert!(matches!(
+                remote_refund_status(&returned),
+                RemoteRefundStatus::Failed { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn a_freshly_created_refund_is_pending() {
+        let refund: gocardless_client::refunds::Refund =
+            serde_json::from_value(serde_json::json!({
+                "id": "RF_1", "amount": 500, "currency": "EUR", "reference": null,
+                "status": "pending_submission", "links": {"payment": "PM_1"}
+            }))
+            .unwrap();
+        match refund_outcome(refund) {
+            RefundOutcome::Pending(ack) => assert_eq!(ack.external_refund_id, "RF_1"),
+            other => panic!("expected Pending, got {other:?}"),
+        }
     }
 }

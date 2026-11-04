@@ -1,29 +1,26 @@
 use crate::domain::stats::{
-    CountAndValue, MRRBreakdown, MRRBreakdownRequest, MrrChartDataPoint, MrrChartRequest,
-    MrrChartResponse, MrrChartSeries, MrrLogEntry, MrrLogRequest, MrrLogResponse, MrrMovementType,
-    PlanBrief, RevenueByCustomer, RevenueByCustomerRequest, RevenueChartDataPoint,
-    RevenueChartRequest, RevenueChartResponse, RevenueChartSeries, SignupDataPoint, SignupSeries,
-    SignupSparklineResponse, Trend, TrendScope, TrialConversionDataPoint,
-    TrialConversionMetaDataPoint, TrialConversionRateResponse, TrialConversionSeries,
+    CountAndValue, SignupDataPoint, SignupSeries, SignupSparklineResponse, Trend, TrendScope,
+    TrialConversionDataPoint, TrialConversionMetaDataPoint, TrialConversionRateResponse,
+    TrialConversionSeries,
 };
 use crate::errors::StoreError;
+use crate::repositories::TenantInterface;
+use crate::repositories::historical_rates::convert_currency;
 use crate::{Store, StoreResult};
 use common_domain::ids::TenantId;
-use common_utils::decimals::ToSubunit;
 use diesel_models::stats::{
-    ActiveSubscriptionsCountRow, CustomerTopRevenueRow, DailyNewSignups90DaysRow,
-    LastMrrMovementsRow, MrrBreakdownRow, NewSignupsTrend90DaysRow, PendingInvoicesTotalRow,
-    RevenueChartRow, RevenueTrendRow, SubscriptionTrialConversionRateRow,
-    SubscriptionTrialToPaidConversionRow, TotalMrrByPlanRow, TotalMrrChartRow, TotalMrrRow,
+    ActiveSubscriptionsCountRow, DailyNewSignups90DaysRow, NewSignupsTrend90DaysRow,
+    PendingInvoicesByCurrencyRow, SubscriptionTrialConversionRateRow,
+    SubscriptionTrialToPaidConversionRow,
 };
-use diesel_models::tenants::TenantRow;
 use error_stack::Report;
 use rust_decimal::prelude::ToPrimitive;
-use std::collections::HashMap;
 
+/// Operational dashboard counters over live Postgres tables. The financial
+/// stats (MRR, revenue, movement log, top customers) moved to the analytics
+/// plane — see `UsageClient::query_mrr_timeseries` & friends.
 #[async_trait::async_trait]
 pub trait StatsInterface {
-    async fn net_revenue(&self, tenant_id: TenantId) -> StoreResult<Trend>;
     async fn active_subscriptions(&self, tenant_id: TenantId) -> StoreResult<i64>;
     async fn pending_invoices(&self, tenant_id: TenantId) -> StoreResult<CountAndValue>;
     async fn signups(&self, tenant_id: TenantId) -> StoreResult<Trend>;
@@ -33,44 +30,14 @@ pub trait StatsInterface {
         &self,
         tenant_id: TenantId,
     ) -> StoreResult<TrialConversionRateResponse>;
-    async fn top_revenue_by_customer(
-        &self,
-        request: RevenueByCustomerRequest,
-    ) -> StoreResult<Vec<RevenueByCustomer>>;
-    async fn total_mrr(&self, tenant_id: TenantId) -> StoreResult<i64>;
-    async fn total_mrr_chart(&self, request: MrrChartRequest) -> StoreResult<MrrChartResponse>;
-    async fn total_revenue_chart(
-        &self,
-        request: RevenueChartRequest,
-    ) -> StoreResult<RevenueChartResponse>;
-    async fn mrr_breakdown(&self, request: MRRBreakdownRequest) -> StoreResult<MRRBreakdown>;
-    async fn mrr_log(&self, request: MrrLogRequest) -> StoreResult<MrrLogResponse>;
 }
 
 #[async_trait::async_trait]
 impl StatsInterface for Store {
-    async fn net_revenue(&self, tenant_id: TenantId) -> StoreResult<Trend> {
-        let mut conn = self.get_conn().await?;
-
-        let trend = RevenueTrendRow::get(&mut conn, 7, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        let (change, percent) = calculate_trend(trend.total_ytd, trend.total_previous_period);
-
-        Ok(Trend {
-            current: trend.total_ytd,
-            change_amount: change,
-            change_percent: percent,
-            positive_is_good: true,
-            scope: TrendScope::Trend7d,
-        })
-    }
-
     async fn active_subscriptions(&self, tenant_id: TenantId) -> StoreResult<i64> {
         let mut conn = self.get_conn().await?;
 
-        ActiveSubscriptionsCountRow::get(&mut conn, tenant_id, None)
+        ActiveSubscriptionsCountRow::get(&mut conn, tenant_id)
             .await
             .map_err(Into::into)
             .map(|x| x.count.into())
@@ -79,23 +46,39 @@ impl StatsInterface for Store {
     async fn pending_invoices(&self, tenant_id: TenantId) -> StoreResult<CountAndValue> {
         let mut conn = self.get_conn().await?;
 
-        let trend = PendingInvoicesTotalRow::get(&mut conn, tenant_id)
+        let by_currency = PendingInvoicesByCurrencyRow::list(&mut conn, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        let currency = self
-            .internal
-            .get_reporting_currency_by_tenant_id(&mut conn, tenant_id)
-            .await?;
+        let reporting_currency = self.get_reporting_currency_by_tenant_id(tenant_id).await?;
 
-        Ok(CountAndValue {
-            count: trend.total,
-            value: trend.total_cents.to_subunit_opt(currency.precision).ok_or(
-                StoreError::InvalidArgument(
-                    "Failed to convert pending invoice total cents".to_string(),
-                ),
-            )?,
-        })
+        // `total` is already in the invoice currency's minor units; convert each to the reporting
+        // currency's minor units so the fold needs no further rescaling. A currency with no usable
+        // FX rate yields `None` — counted but excluded from `value` (see `fold_pending_totals`).
+        let mut converted = Vec::with_capacity(by_currency.len());
+        for row in by_currency {
+            let value = match convert_currency(
+                &mut conn,
+                row.total,
+                &row.currency,
+                reporting_currency.code,
+            )
+            .await
+            {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    tracing::warn!(
+                        currency = %row.currency,
+                        error = %e,
+                        "skipping pending-invoice total with no usable FX rate"
+                    );
+                    None
+                }
+            };
+            converted.push((row.count, value));
+        }
+
+        Ok(fold_pending_totals(converted))
     }
 
     async fn signups(&self, tenant_id: TenantId) -> StoreResult<Trend> {
@@ -233,317 +216,6 @@ impl StatsInterface for Store {
             metadata: metadata_series,
         })
     }
-
-    async fn top_revenue_by_customer(
-        &self,
-        request: RevenueByCustomerRequest,
-    ) -> StoreResult<Vec<RevenueByCustomer>> {
-        let mut conn = self.get_conn().await?;
-
-        let reporting_currency = match request.currency {
-            Some(currency) => currency,
-            None => {
-                TenantRow::find_by_id(&mut conn, request.tenant_id)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?
-                    .reporting_currency
-            }
-        };
-
-        let data = CustomerTopRevenueRow::list(
-            &mut conn,
-            request.tenant_id,
-            reporting_currency.as_str(),
-            request.limit as i32,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        Ok(data
-            .into_iter()
-            .map(|d| RevenueByCustomer {
-                customer_name: d.name,
-                customer_id: d.id,
-                revenue_ytd: d.revenue_ytd_cents,
-                revenue_all_time: d.revenue_all_time_cents,
-                currency: d.currency,
-            })
-            .collect())
-    }
-
-    async fn total_mrr(&self, tenant_id: TenantId) -> StoreResult<i64> {
-        let mut conn = self.get_conn().await?;
-
-        TotalMrrRow::get(&mut conn, tenant_id, chrono::Utc::now().naive_utc().date())
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .map(|x| x.total_net_mrr_cents)
-    }
-
-    async fn total_mrr_chart(&self, request: MrrChartRequest) -> StoreResult<MrrChartResponse> {
-        let mut conn = self.get_conn().await?;
-
-        // If plans are selected, return plan-specific series only
-        if let Some(plan_ids) = &request.plans_id
-            && !plan_ids.is_empty()
-        {
-            // Convert PlanId to Uuid for the query
-            let plan_uuids: Vec<uuid::Uuid> = plan_ids.iter().map(|id| **id).collect();
-            let plans_data = TotalMrrByPlanRow::list(
-                &mut conn,
-                request.tenant_id,
-                &plan_uuids,
-                request.start_date,
-                request.end_date,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-            let mut series_map: HashMap<String, MrrChartSeries> = HashMap::new();
-            for data in plans_data {
-                let data_point = MrrChartDataPoint {
-                    x: data.date.format("%Y-%m-%d").to_string(),
-                    data: MRRBreakdown {
-                        new_business: CountAndValue {
-                            count: data.new_business_count,
-                            value: data.new_business_mrr,
-                        },
-                        expansion: CountAndValue {
-                            count: data.expansion_count,
-                            value: data.expansion_mrr,
-                        },
-                        contraction: CountAndValue {
-                            count: data.contraction_count,
-                            value: data.contraction_mrr,
-                        },
-                        churn: CountAndValue {
-                            count: data.churn_count,
-                            value: data.churn_mrr,
-                        },
-                        reactivation: CountAndValue {
-                            count: data.reactivation_count,
-                            value: data.reactivation_mrr,
-                        },
-                        net_new_mrr: data.net_new_mrr,
-                        total_net_mrr: data.total_net_mrr,
-                    },
-                };
-
-                series_map
-                    .entry(data.plan_name.clone())
-                    .or_insert_with(|| MrrChartSeries {
-                        name: data.plan_name.clone(),
-                        code: format!("mrr_breakdown_plan_{}", data.plan_id),
-                        plan: Some(PlanBrief {
-                            id: data.plan_id,
-                            name: data.plan_name.clone(),
-                        }),
-                        data: vec![],
-                    })
-                    .data
-                    .push(data_point);
-            }
-
-            let series: Vec<MrrChartSeries> = series_map.into_values().collect();
-            return Ok(MrrChartResponse { series });
-        }
-
-        // No plans selected - return total MRR across all plans
-        let total = TotalMrrChartRow::list(
-            &mut conn,
-            request.tenant_id,
-            request.start_date,
-            request.end_date,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        let total_mrr_series = MrrChartSeries {
-            name: "Total MRR".to_string(),
-            code: "total_mrr".to_string(),
-            plan: None,
-            data: total
-                .iter()
-                .map(|d| MrrChartDataPoint {
-                    x: d.period.to_string(),
-                    data: MRRBreakdown {
-                        new_business: CountAndValue {
-                            count: d.new_business_count,
-                            value: d.new_business_mrr,
-                        },
-                        expansion: CountAndValue {
-                            count: d.expansion_count,
-                            value: d.expansion_mrr,
-                        },
-                        contraction: CountAndValue {
-                            count: d.contraction_count,
-                            value: d.contraction_mrr,
-                        },
-                        churn: CountAndValue {
-                            count: d.churn_count,
-                            value: d.churn_mrr,
-                        },
-                        reactivation: CountAndValue {
-                            count: d.reactivation_count,
-                            value: d.reactivation_mrr,
-                        },
-                        net_new_mrr: d.net_new_mrr,
-                        total_net_mrr: d.total_net_mrr,
-                    },
-                })
-                .collect(),
-        };
-
-        Ok(MrrChartResponse {
-            series: vec![total_mrr_series],
-        })
-    }
-
-    async fn total_revenue_chart(
-        &self,
-        request: RevenueChartRequest,
-    ) -> StoreResult<RevenueChartResponse> {
-        let mut conn = self.get_conn().await?;
-
-        // Convert PlanId to Uuid for the query
-        let plan_uuids: Option<Vec<uuid::Uuid>> = request
-            .plans_id
-            .as_ref()
-            .map(|ids| ids.iter().map(|id| **id).collect());
-
-        let data = RevenueChartRow::list(
-            &mut conn,
-            request.tenant_id,
-            request.start_date,
-            request.end_date,
-            plan_uuids.as_ref(),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        let series = RevenueChartSeries {
-            name: "Total Revenue".to_string(),
-            code: "total_revenue".to_string(),
-            data: data
-                .iter()
-                .map(|d| RevenueChartDataPoint {
-                    x: d.period.to_string(),
-                    revenue: d.total_revenue,
-                    daily_revenue: d.daily_revenue,
-                })
-                .collect(),
-        };
-
-        Ok(RevenueChartResponse {
-            series: vec![series],
-        })
-    }
-
-    async fn mrr_breakdown(&self, request: MRRBreakdownRequest) -> StoreResult<MRRBreakdown> {
-        let mut conn = self.get_conn().await?;
-
-        let breakdown = MrrBreakdownRow::get(
-            &mut conn,
-            request.tenant_id,
-            request.start_date,
-            request.end_date,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        match breakdown {
-            None => Ok(MRRBreakdown {
-                new_business: CountAndValue { count: 0, value: 0 },
-                expansion: CountAndValue { count: 0, value: 0 },
-                contraction: CountAndValue { count: 0, value: 0 },
-                churn: CountAndValue { count: 0, value: 0 },
-                reactivation: CountAndValue { count: 0, value: 0 },
-                net_new_mrr: 0,
-                total_net_mrr: 0,
-            }),
-            Some(breakdown) => Ok(MRRBreakdown {
-                new_business: CountAndValue {
-                    count: breakdown.new_business_count,
-                    value: breakdown.new_business_mrr,
-                },
-                expansion: CountAndValue {
-                    count: breakdown.expansion_count,
-                    value: breakdown.expansion_mrr,
-                },
-                contraction: CountAndValue {
-                    count: breakdown.contraction_count,
-                    value: breakdown.contraction_mrr,
-                },
-                churn: CountAndValue {
-                    count: breakdown.churn_count,
-                    value: breakdown.churn_mrr,
-                },
-                reactivation: CountAndValue {
-                    count: breakdown.reactivation_count,
-                    value: breakdown.reactivation_mrr,
-                },
-                net_new_mrr: breakdown.net_new_mrr,
-                total_net_mrr: 0,
-            }),
-        }
-    }
-
-    async fn mrr_log(&self, request: MrrLogRequest) -> StoreResult<MrrLogResponse> {
-        let mut conn = self.get_conn().await?;
-
-        let data = LastMrrMovementsRow::list(
-            &mut conn,
-            request.tenant_id,
-            request
-                .before
-                .map(|s| {
-                    s.parse().map_err(|_| {
-                        StoreError::InvalidArgument("Invalid before cursor".to_string())
-                    })
-                })
-                .transpose()?,
-            request
-                .after
-                .map(|s| {
-                    s.parse().map_err(|_| {
-                        StoreError::InvalidArgument("Invalid after cursor".to_string())
-                    })
-                })
-                .transpose()?,
-            10,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        Ok(MrrLogResponse {
-            cursor: "TODO".to_string(),
-            entries: data
-                .into_iter()
-                .map(|d| MrrLogEntry {
-                    applies_to: d.applies_to,
-                    created_at: d.created_at,
-                    customer_id: d.customer_id.to_string(),
-                    customer_name: d.customer_name,
-                    subscription_id: d.subscription_id.to_string(),
-                    plan_name: d.plan_name,
-                    description: d.description,
-                    mrr_type: map_movement_type(d.movement_type),
-                    mrr_change: d.net_mrr_change,
-                    currency: d.currency,
-                })
-                .collect(),
-        })
-    }
-}
-
-fn map_movement_type(m: diesel_models::enums::MrrMovementType) -> MrrMovementType {
-    match m {
-        diesel_models::enums::MrrMovementType::NewBusiness => MrrMovementType::NewBusiness,
-        diesel_models::enums::MrrMovementType::Expansion => MrrMovementType::Expansion,
-        diesel_models::enums::MrrMovementType::Contraction => MrrMovementType::Contraction,
-        diesel_models::enums::MrrMovementType::Churn => MrrMovementType::Churn,
-        diesel_models::enums::MrrMovementType::Reactivation => MrrMovementType::Reactivation,
-    }
 }
 
 fn calculate_trend(current: i64, previous: i64) -> (i64, f32) {
@@ -555,4 +227,40 @@ fn calculate_trend(current: i64, previous: i64) -> (i64, f32) {
     };
     let change_percent_rounded = (change_percent * 10.0).round() / 10.0;
     (change, change_percent_rounded as f32)
+}
+
+/// Folds per-currency pending rows into one count/value. Every row's `count` is included, but a
+/// row whose total could not be converted (`None`, no FX rate) adds nothing to `value` — matching
+/// the old SQL where a NULL rate dropped out of SUM yet the invoice was still counted.
+fn fold_pending_totals(rows: impl IntoIterator<Item = (i64, Option<i64>)>) -> CountAndValue {
+    let (count, value) = rows
+        .into_iter()
+        .fold((0i64, 0i64), |(c, v), (count, value)| {
+            (c + count, v + value.unwrap_or(0))
+        });
+    CountAndValue {
+        count: count.try_into().unwrap_or(i32::MAX),
+        value,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fold_pending_totals;
+
+    #[test]
+    fn counts_every_row_but_sums_value_only_for_convertible_ones() {
+        // Two EUR invoices (converted), one JPY (converted), four in a currency with no FX rate:
+        // all seven are counted, but the unconvertible total is excluded from `value`.
+        let result = fold_pending_totals([(2, Some(12000)), (1, Some(3000)), (4, None)]);
+        assert_eq!(result.count, 7);
+        assert_eq!(result.value, 15000);
+    }
+
+    #[test]
+    fn empty_is_zero() {
+        let result = fold_pending_totals(std::iter::empty::<(i64, Option<i64>)>());
+        assert_eq!(result.count, 0);
+        assert_eq!(result.value, 0);
+    }
 }

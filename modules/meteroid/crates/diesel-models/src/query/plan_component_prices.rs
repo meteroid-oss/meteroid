@@ -2,7 +2,7 @@ use crate::errors::IntoDbResult;
 use crate::plan_component_prices::{PlanComponentPriceRow, PlanComponentPriceRowNew};
 use crate::{DbResult, PgConn};
 use common_domain::ids::PriceComponentId;
-use diesel::{ExpressionMethods, QueryDsl, SelectableHelper, debug_query};
+use diesel::{ExpressionMethods, QueryDsl, SelectableHelper};
 use error_stack::ResultExt;
 
 impl PlanComponentPriceRowNew {
@@ -14,7 +14,7 @@ impl PlanComponentPriceRowNew {
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(plan_component_price).values(batch);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -36,7 +36,7 @@ impl PlanComponentPriceRow {
             .filter(pcp_dsl::plan_component_id.eq_any(component_ids))
             .select(PlanComponentPriceRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -55,7 +55,7 @@ impl PlanComponentPriceRow {
         let query = diesel::delete(pcp_dsl::plan_component_price)
             .filter(pcp_dsl::plan_component_id.eq(component_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)

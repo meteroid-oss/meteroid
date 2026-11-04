@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package meteroid.api.customproperties.v1;
+
+enum CustomPropertyEntityType {
+  CUSTOM_PROPERTY_ENTITY_TYPE_UNSPECIFIED = 0;
+  CUSTOM_PROPERTY_ENTITY_TYPE_CUSTOMER = 1;
+  CUSTOM_PROPERTY_ENTITY_TYPE_SUBSCRIPTION = 2;
+  CUSTOM_PROPERTY_ENTITY_TYPE_INVOICE = 3;
+  CUSTOM_PROPERTY_ENTITY_TYPE_CREDIT_NOTE = 4;
+  CUSTOM_PROPERTY_ENTITY_TYPE_QUOTE = 5;
+}
+
+enum CustomPropertyType {
+  CUSTOM_PROPERTY_TYPE_UNSPECIFIED = 0;
+  CUSTOM_PROPERTY_TYPE_TEXT = 1;
+  CUSTOM_PROPERTY_TYPE_NUMBER = 2;
+  CUSTOM_PROPERTY_TYPE_BOOLEAN = 3;
+  CUSTOM_PROPERTY_TYPE_DATE = 4;
+  CUSTOM_PROPERTY_TYPE_DATETIME = 5;
+  CUSTOM_PROPERTY_TYPE_SINGLE_SELECT = 6;
+  CUSTOM_PROPERTY_TYPE_MULTI_SELECT = 7;
+  CUSTOM_PROPERTY_TYPE_JSON = 8;
+  CUSTOM_PROPERTY_TYPE_URL = 9;
+  CUSTOM_PROPERTY_TYPE_EMAIL = 10;
+}
+
+message SelectOption {
+  string value = 1;
+  optional string label = 2;
+}
+
+// Type-specific configuration. Only the fields relevant to the property's type are interpreted.
+message PropertyConfig {
+  repeated SelectOption options = 1;
+  optional double min = 2;
+  optional double max = 3;
+  optional uint32 max_length = 4;
+}
+
+message CustomPropertyDefinition {
+  string id = 1;
+  CustomPropertyEntityType entity_type = 2;
+  string key = 3;
+  string name = 4;
+  optional string description = 5;
+  CustomPropertyType property_type = 6;
+  PropertyConfig config = 7;
+  bool required = 8;
+  // JSON-encoded default value (e.g. "\"standard\"", "42", "true"). Absent = no default.
+  optional string default_value = 9;
+  int32 display_order = 10;
+  bool archived = 11;
+}
+
+// Create payload. `key`, `entity_type` and `property_type` are set once and immutable thereafter.
+message CustomPropertyDefinitionData {
+  CustomPropertyEntityType entity_type = 1;
+  string key = 2;
+  string name = 3;
+  optional string description = 4;
+  CustomPropertyType property_type = 5;
+  PropertyConfig config = 6;
+  bool required = 7;
+  optional string default_value = 8;
+  int32 display_order = 9;
+}
+
+// Update payload — only mutable fields. Absent fields are left unchanged.
+message CustomPropertyDefinitionUpdate {
+  optional string name = 1;
+  optional string description = 2;
+  PropertyConfig config = 3;
+  optional bool required = 4;
+  optional string default_value = 5;
+  optional int32 display_order = 6;
+}

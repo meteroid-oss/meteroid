@@ -6,7 +6,11 @@
 dir = "modules/meteroid/migrations/diesel"
 
 [print_schema]
-file = "modules/meteroid/crates/diesel-models/src/schema.rs"
+file = "modules/meteroid/crates/diesel-schema/src/schema.rs"
 #import_types = ["diesel::sql_types::*", "crate::domains::models::enums::*"]
 custom_type_derives = ["diesel::query_builder::QueryId"]
+# Every pair of tables may share a query: `diesel-schema` derives that from table ids (`table_ids.rs`).
+allow_tables_to_appear_in_same_query_config = "none"
+# Partitions of the credit input feed, created and dropped daily: only the parent is mapped.
+filter = { except_tables = ["^credit_input_change_(default|p[0-9]{8})$"] }
 #generate_missing_sql_type_definitions = false

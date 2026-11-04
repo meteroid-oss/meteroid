@@ -1,15 +1,9 @@
-import { Outlet } from 'react-router'
-
-import { TenantPageLayout } from '@/components/layouts'
-import { TenantSettings as TenantSettingsTemplate } from '@/features/settings/TenantSettings'
+import { TenantSettings as TenantSettingsModal } from '@/features/settings/TenantSettings'
 
 import type { FunctionComponent } from 'react'
 
+export { SettingsIndexRedirect } from '@/features/settings/TenantSettings'
+
 export const TenantSettings: FunctionComponent = () => {
-  return (
-    <TenantPageLayout>
-      <TenantSettingsTemplate />
-      <Outlet />
-    </TenantPageLayout>
-  )
+  return <TenantSettingsModal />
 }

@@ -14,7 +14,7 @@ pub struct CheckoutSessionRow {
     pub id: CheckoutSessionId,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
-    pub plan_version_id: PlanVersionId,
+    pub plan_version_id: Option<PlanVersionId>,
 
     // Basic subscription parameters
     pub billing_start_date: Option<NaiveDate>,
@@ -48,6 +48,11 @@ pub struct CheckoutSessionRow {
     // Payment configuration
     pub payment_methods_config: Option<serde_json::Value>,
     pub change_date: Option<NaiveDate>,
+    pub success_url: Option<String>,
+    pub cancel_url: Option<String>,
+    // What the coupons were before a payment attempt changed them, until it settles or fails.
+    pub pre_payment_coupon_code: Option<String>,
+    pub pre_payment_coupon_ids: Option<Vec<Option<CouponId>>>,
 }
 
 #[derive(Debug, Insertable)]
@@ -57,7 +62,7 @@ pub struct CheckoutSessionRowNew {
     pub id: CheckoutSessionId,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
-    pub plan_version_id: PlanVersionId,
+    pub plan_version_id: Option<PlanVersionId>,
 
     // Basic subscription parameters
     pub billing_start_date: Option<NaiveDate>,
@@ -89,4 +94,6 @@ pub struct CheckoutSessionRowNew {
     pub checkout_type: CheckoutTypeEnum,
     pub subscription_id: Option<SubscriptionId>,
     pub change_date: Option<NaiveDate>,
+    pub success_url: Option<String>,
+    pub cancel_url: Option<String>,
 }

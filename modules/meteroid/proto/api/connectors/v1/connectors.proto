@@ -12,11 +12,9 @@ message ConnectPaymentProviderRequest {
     GoCardlessConnector gocardless = 2;
     StancerConnector stancer = 3;
     MollieConnector mollie = 4;
+    MockConnector mock = 6;
   }
-  // Providers that can register webhooks themselves (Stripe): if set and no webhook secret is
-  // given, the server creates the endpoint at this URL and stores its signing secret. The frontend
-  // builds the URL from its public REST base, so it works across deployments without backend
-  // config.
+  // Deprecated and ignored: the server builds the webhook URL from its own configuration.
   optional string auto_register_webhook_url = 5;
 }
 
@@ -32,11 +30,60 @@ message ListConnectorsResponse {
   repeated Connector connectors = 1;
 }
 
+// Deprecated: same as DeleteConnector.
 message DisconnectConnectorRequest {
   string id = 1;
 }
 
 message DisconnectConnectorResponse {}
+
+// First step of the connect wizard: reserves the alias and the webhook URL.
+message CreatePaymentProviderDraftRequest {
+  ConnectorProviderEnum provider = 1;
+  string alias = 2;
+}
+
+message CreatePaymentProviderDraftResponse {
+  Connector connector = 1;
+}
+
+// Sets or rotates a payment provider's credentials, on a draft or a live connector. Empty secret
+// fields keep the stored value. The credentials are checked with the provider and the account
+// details are refreshed. Once customers have saved payment methods, the keys must belong to the
+// same provider account. The `alias` inside the credentials message is ignored.
+message UpdatePaymentProviderCredentialsRequest {
+  string id = 1;
+  oneof credentials {
+    StripeConnector stripe = 2;
+    GoCardlessConnector gocardless = 3;
+    StancerConnector stancer = 4;
+    MollieConnector mollie = 5;
+    MockConnector mock = 6;
+  }
+}
+
+message UpdatePaymentProviderCredentialsResponse {
+  Connector connector = 1;
+}
+
+message ConnectorIdRequest {
+  string id = 1;
+}
+
+message ConnectorResponse {
+  Connector connector = 1;
+}
+
+message DeleteConnectorResponse {}
+
+message RenameConnectorRequest {
+  string id = 1;
+  string alias = 2;
+}
+
+message GetConnectorUsageResponse {
+  ConnectorUsage usage = 1;
+}
 
 message ConnectHubspotRequest {
   bool auto_sync = 1;
@@ -65,7 +112,25 @@ message ConnectPennylaneResponse {
 
 service ConnectorsService {
   rpc ListConnectors(ListConnectorsRequest) returns (ListConnectorsResponse) {}
+  // Deprecated: use DeleteConnector.
   rpc DisconnectConnector(DisconnectConnectorRequest) returns (DisconnectConnectorResponse) {}
+
+  rpc CreatePaymentProviderDraft(CreatePaymentProviderDraftRequest) returns (CreatePaymentProviderDraftResponse) {}
+  rpc UpdatePaymentProviderCredentials(UpdatePaymentProviderCredentialsRequest) returns (UpdatePaymentProviderCredentialsResponse) {}
+  // DRAFT -> ACTIVE. Requires verified credentials, plus a webhook secret where the provider needs one.
+  rpc ActivateConnector(ConnectorIdRequest) returns (ConnectorResponse) {}
+  rpc DisableConnector(ConnectorIdRequest) returns (ConnectorResponse) {}
+  // Re-checks the credentials with the provider before enabling.
+  rpc EnableConnector(ConnectorIdRequest) returns (ConnectorResponse) {}
+  // Drafts are removed; other connectors are soft-deleted. Refused while payments are in flight.
+  rpc DeleteConnector(ConnectorIdRequest) returns (DeleteConnectorResponse) {}
+  // Drafts only: once live, the alias is fixed.
+  rpc RenameConnector(RenameConnectorRequest) returns (ConnectorResponse) {}
+  // Re-checks the connection with the provider: whether the stored credentials still work (sets or
+  // clears `credentials_error`) and the account details, such as enabled payment methods. On a
+  // rejected key the error is returned and the connector is flagged.
+  rpc CheckConnector(ConnectorIdRequest) returns (ConnectorResponse) {}
+  rpc GetConnectorUsage(ConnectorIdRequest) returns (GetConnectorUsageResponse) {}
 
   rpc ConnectPaymentProvider(ConnectPaymentProviderRequest) returns (ConnectPaymentProviderResponse) {}
   rpc ConnectHubspot(ConnectHubspotRequest) returns (ConnectHubspotResponse) {}

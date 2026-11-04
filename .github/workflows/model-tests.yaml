@@ -1,0 +1,66 @@
+name: Model tests
+
+# The reference-model tests of the credit engine on fresh seeds: pull requests run a fixed
+# handful of cases, this explores new ones. A failure prints its seed and the shrunk sequence.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: "Cases to run (MODEL_CASES)"
+        default: "512"
+      seed:
+        description: "First seed (MODEL_SEED); empty picks one from the run id"
+        default: ""
+
+env:
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+
+jobs:
+  model:
+    name: Reference model
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: ${{ vars.CI_RUNNER && 90 || 180 }}
+    services:
+      postgres:
+        image: ghcr.io/meteroid-oss/meteroid-postgres:18.3-standard
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --tmpfs /var/lib/postgresql
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      METEROID_TEST_PG_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      MODEL_CASES: ${{ inputs.cases || '512' }}
+      MODEL_JOBS: "8"
+    steps:
+      # GitHub's runners (the public repository) keep ~14 GB free: drop toolchains the build does not use.
+      - name: Free disk space
+        if: ${{ !vars.CI_RUNNER }}
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/rust-setup
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - name: Pick the seed
+        env:
+          SEED: ${{ inputs.seed }}
+        run: echo "MODEL_SEED=${SEED:-$(( ${{ github.run_id }} << 16 ))}" >> "$GITHUB_ENV"
+      - name: Run the model tests
+        run: >-
+          cargo nextest run -p meteroid --test integration
+          --config 'profile.dev.package."*".opt-level=3'
+          -E 'test(/^model::credit_engine_matches_the_reference_model/)'

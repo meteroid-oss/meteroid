@@ -48,6 +48,9 @@ pub struct CustomerPaymentMethodNew {
     pub card_exp_month: Option<i32>,
     pub card_exp_year: Option<i32>,
     pub fingerprint: Option<String>,
+    /// Saved to pay with right away: once that payment settles it becomes the default.
+    #[ghost]
+    pub saved_for_payment: bool,
 }
 
 pub struct SetupIntent {

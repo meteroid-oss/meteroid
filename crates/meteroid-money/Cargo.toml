@@ -1,0 +1,26 @@
+[package]
+name = "meteroid-money"
+version = "0.5.0"
+edition = "2024"
+license = "MIT"
+description = "First-party fork of rusty-money; we own the ISO currency data (minor-unit exponents)."
+
+[lib]
+name = "meteroid_money"
+path = "src/lib.rs"
+
+[features]
+default = ["iso"]
+iso = []
+# Declared (empty) only so upstream `#[cfg(feature = ...)]` blocks we kept don't warn as
+# unexpected cfgs. We do not ship the crypto/fast currency sets.
+crypto = []
+fast = []
+
+[dependencies]
+rust_decimal = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+rust_decimal_macros = { workspace = true }
+proptest = "1"

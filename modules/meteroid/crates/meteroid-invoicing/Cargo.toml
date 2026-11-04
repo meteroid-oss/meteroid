@@ -11,26 +11,38 @@ license.workspace = true
 async-trait = { workspace = true }
 bytes.workspace = true
 once_cell = { workspace = true }
+en16931.workspace = true
+en16931-formats.workspace = true
+lopdf = { workspace = true }
 chrono = { workspace = true, features = ["clock", "serde", "unstable-locales", "alloc"] }
 fluent-static.workspace = true
 rust_decimal = { workspace = true }
-rusty-money = { workspace = true }
+meteroid-money = { workspace = true }
 thiserror = { workspace = true }
-unic-langid.workspace = true
+tracing = { workspace = true }
 serde_json.workspace = true
-# pinned (see root Cargo.toml): matches the ecow version used by typst-library
-ecow = { workspace = true }
 typst = { workspace = true }
-typst-layout = { workspace = true }
 typst-pdf = { workspace = true }
 typst-svg = { workspace = true }
 typst-as-lib = { workspace = true }
-derive_typst_intoval = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 common-domain.workspace = true
+# Not used directly: pins typst's transitive versions (see the root Cargo.toml).
+ecow.workspace = true
+time.workspace = true
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
+
+[dev-dependencies]
+# The corpus sweeps every ISO country to prove no non-EU seller can reach EU wording.
+rust_iso3166 = { workspace = true }
+en16931.workspace = true
+en16931-formats.workspace = true
 
 [build-dependencies]
 serde_json.workspace = true
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(trybuild)'] }
+
+[package.metadata.cargo-shear]
+ignored = ["ecow", "time"]

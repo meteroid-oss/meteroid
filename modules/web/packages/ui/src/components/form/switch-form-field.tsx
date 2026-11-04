@@ -60,13 +60,14 @@ export const SwitchFormField = <
           <FormControl>
             <Switch
               {...props}
+              disabled={disabled}
               checked={field.value}
               onCheckedChange={field.onChange}
               className={cn('', className)}
             />
           </FormControl>
 
-          <div className="space-y-1 leading-none">
+          <div className="space-y-1">
             <FormLabel className={cn('', labelClassName)}>{label}</FormLabel>
             {description && <FormDescription>{description}</FormDescription>}
             <FormMessage />

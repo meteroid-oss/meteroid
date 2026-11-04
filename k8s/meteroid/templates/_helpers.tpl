@@ -73,22 +73,7 @@ Get the secrets name
 Get Kafka address
 */}}
 {{- define "meteroid.kafka.bootstrapServers" -}}
-{{- if .Values.kafka.enabled -}}
-{{- printf "%s-kafka:9092" (include "meteroid.fullname" .) -}}
-{{- else -}}
-{{- required "global.kafka.bootstrapServers is required when kafka.enabled=false" .Values.global.kafka.bootstrapServers -}}
-{{- end -}}
-{{- end }}
-
-{{/*
-Get Clickhouse address
-*/}}
-{{- define "meteroid.clickhouse.address" -}}
-{{- if .Values.clickhouse.enabled -}}
-{{- printf "tcp://%s-clickhouse:9000" (include "meteroid.fullname" .) -}}
-{{- else -}}
-{{- required "global.clickhouse.address is required when clickhouse.enabled=false" .Values.global.clickhouse.address -}}
-{{- end -}}
+{{- required "global.kafka.bootstrapServers is required" .Values.global.kafka.bootstrapServers -}}
 {{- end }}
 
 {{/*
@@ -152,16 +137,47 @@ app.kubernetes.io/component: metering
 app.kubernetes.io/component: metering
 {{- end }}
 
-{{- define "meteroid.schedulerFullname" -}}
-{{- printf "%s-scheduler" (include "meteroid.fullname" .) -}}
+{{- define "meteroid.workerFullname" -}}
+{{- printf "%s-worker" (include "meteroid.fullname" .) -}}
 {{- end }}
 
-{{- define "meteroid.schedulerLabels" -}}
+{{- define "meteroid.workerLabels" -}}
 {{- include "meteroid.labels" . }}
-app.kubernetes.io/component: scheduler
+app.kubernetes.io/component: worker
 {{- end }}
 
-{{- define "meteroid.schedulerSelectorLabels" -}}
+{{- define "meteroid.workerSelectorLabels" -}}
 {{- include "meteroid.selectorLabels" . }}
-app.kubernetes.io/component: scheduler
+app.kubernetes.io/component: worker
+{{- end }}
+
+{{/*
+The worker's values: `worker`, overridden by the former `scheduler` key, read until 2.1.
+*/}}
+{{- define "meteroid.workerValues" -}}
+{{- toYaml (mergeOverwrite (deepCopy .Values.worker) (deepCopy (.Values.scheduler | default dict))) }}
+{{- end }}
+
+{{/*
+Settings shared by the API and the worker
+*/}}
+{{- define "meteroid.settingsEnv" -}}
+{{- with .Values.global.mfaIssuer }}
+- name: METEROID_MFA_ISSUER
+  value: {{ . | quote }}
+{{- end }}
+{{- $webhooks := .Values.global.webhooks | default dict }}
+{{- $webhookEnv := dict
+  "deliveryConcurrency" "WEBHOOK_DELIVERY_CONCURRENCY"
+  "allowPrivateDestinations" "WEBHOOK_ALLOW_PRIVATE_DESTINATIONS"
+  "egressProxyUrl" "WEBHOOK_EGRESS_PROXY_URL"
+  "retentionDays" "WEBHOOK_RETENTION_DAYS"
+  "ssoAllowPrivateDestinations" "EGRESS_ALLOW_PRIVATE_DESTINATIONS_SSO"
+  "ssoUseProxy" "EGRESS_USE_PROXY_SSO" }}
+{{- range $key, $name := $webhookEnv }}
+{{- if and (hasKey $webhooks $key) (ne (toString (index $webhooks $key)) "") }}
+- name: {{ $name }}
+  value: {{ index $webhooks $key | quote }}
+{{- end }}
+{{- end }}
 {{- end }}

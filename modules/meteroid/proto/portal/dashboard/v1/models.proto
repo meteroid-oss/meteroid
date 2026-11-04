@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package meteroid.portal.dashboard.v1;
+
+// A fully computed, read-only dashboard resolved from a public share token. All
+// data is server-side and cached, so nothing about the tenant's query surface is
+// exposed to the anonymous viewer.
+message PublicDashboard {
+  string title = 1;
+  repeated PublicDashboardTile tiles = 2;
+  // Attribution shown in the embed footer ("Powered by Meteroid").
+  bool show_powered_by = 3;
+  // Effective dashboard-level range currently applied (a relative key). Drives the
+  // embed's range picker selection.
+  string range = 4;
+  // Portal theme ("light" | "dark") resolved from the tenant's default invoicing
+  // entity, mirroring the customer portal. Empty = viewer default. A `?theme=` URL
+  // override still wins on the client.
+  string theme = 5;
+}
+
+message PublicDashboardTile {
+  string name = 1;
+  // currency | count | percent
+  string unit = 2;
+  // line | area | bar | stacked | kpi
+  string visualization = 3;
+  // Active breakdown dimension the series is split by, if any.
+  optional string group_by = 4;
+  optional string summary = 5;
+  // full | half — tile width on the board.
+  string width = 6;
+  string currency = 7;
+  repeated PublicDashboardPoint points = 8;
+  // Second split dimension; when set the embed composites [group_by · secondary] into one series.
+  optional string secondary_group_by = 9;
+  // Per-tile range override (a relative key), independent of the dashboard range. Absent = follows dashboard.
+  optional string range = 10;
+  // higher_is_better | lower_is_better | neutral. Absent = neutral.
+  optional string polarity = 11;
+  // Primary-breakdown values toggled off in the source chart's segment strip. The
+  // embed drops these series but keeps the full value set for colour assignment, so
+  // it renders identically to the authenticated board.
+  repeated string hidden_segments = 12;
+}
+
+message PublicDashboardPoint {
+  string window_start = 1;
+  string window_end = 2;
+  double value = 3;
+  map<string, string> dimensions = 4;
+}

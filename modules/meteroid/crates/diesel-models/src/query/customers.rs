@@ -1,22 +1,26 @@
 use crate::customers::{
-    CustomerBriefRow, CustomerRow, CustomerRowNew, CustomerRowPatch, CustomerRowUpdate,
+    CustomerBriefRow, CustomerLifecycleSignalRow, CustomerRow, CustomerRowNew, CustomerRowPatch,
+    CustomerRowUpdate, CustomerWithMetricsRow,
 };
 use crate::enums::ConnectorProviderEnum;
 use crate::errors::IntoDbResult;
 use crate::extend::connection_metadata;
+use crate::extend::filtering::{ListFilter, render_list_filter};
 use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
+use crate::lock::CustomerLock;
 use crate::{DbResult, PgConn};
 use common_domain::ids::{
-    AliasOr, BaseId, ConnectorId, CustomerId, CustomerPaymentMethodId, TenantId,
+    AliasOr, BaseId, ConnectedAccountId, ConnectorId, CustomerId, CustomerPaymentMethodId,
+    OrganizationId, PaymentReminderSequenceId, TenantId,
 };
 use diesel::{
-    BoolExpressionMethods, ExpressionMethods, OptionalExtension, PgSortExpressionMethods,
-    PgTextExpressionMethods, QueryDsl, SelectableHelper, debug_query,
+    BoolExpressionMethods, ExpressionMethods, JoinOnDsl, NullableExpressionMethods,
+    OptionalExtension, PgExpressionMethods, PgSortExpressionMethods, PgTextExpressionMethods,
+    QueryDsl, SelectableHelper,
 };
 use error_stack::ResultExt;
 use itertools::Itertools;
-use std::ops::Add;
 use tap::TapFallible;
 
 impl CustomerRowNew {
@@ -25,7 +29,7 @@ impl CustomerRowNew {
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(customer).values(&self);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -56,7 +60,7 @@ impl CustomerRow {
             .filter(c_dsl::id.eq_any(ids).or(c_dsl::alias.eq_any(aliases)))
             .select(CustomerRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -122,7 +126,7 @@ impl CustomerRow {
             }
         }
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -153,7 +157,7 @@ impl CustomerRow {
             }
         }
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -174,7 +178,7 @@ impl CustomerRow {
             .filter(c_dsl::id.eq(customer_id))
             .filter(c_dsl::tenant_id.eq(tenant_id_param));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -195,7 +199,7 @@ impl CustomerRow {
             .filter(alias.eq(customer_alias))
             .filter(tenant_id.eq(tenant_id_param));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -217,7 +221,7 @@ impl CustomerRow {
             .filter(alias.eq_any(param_customer_aliases))
             .select(CustomerBriefRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -239,7 +243,7 @@ impl CustomerRow {
             .filter(alias.eq(param_customer_alias))
             .select(CustomerBriefRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -304,13 +308,253 @@ impl CustomerRow {
 
         let paginated_query = query.paginate(pagination);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated_query));
+        crate::debug_sql(&paginated_query);
 
         paginated_query
             .load_and_count_pages(conn)
             .await
             .attach("Error while fetching customers")
             .into_db_result()
+    }
+
+    /// Ids of the tenant's customers matching a set of resolved dynamic filters (custom
+    /// properties and native columns). Typed and boxed so dynamic filter logic stays out of the
+    /// raw metrics SQL; the result is fed to [`CustomerRow::list_with_metrics`] as an id filter.
+    pub async fn list_matching_ids(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        filters: Vec<ListFilter>,
+    ) -> DbResult<Vec<CustomerId>> {
+        use crate::schema::customer::dsl::{customer, id, tenant_id};
+        use diesel_async::RunQueryDsl;
+
+        let mut query = customer
+            .filter(tenant_id.eq(param_tenant_id))
+            .select(id)
+            .into_boxed();
+
+        for f in filters {
+            query = query.filter(render_list_filter(f, "customer.custom_properties"));
+        }
+
+        crate::debug_sql(&query);
+
+        query
+            .load::<CustomerId>(conn)
+            .await
+            .attach("Error while resolving customer filter ids")
+            .into_db_result()
+    }
+
+    /// List with derived per-customer MRR and lifecycle_state, supporting
+    /// server-side lifecycle/country filtering and sort-by-MRR. The lifecycle
+    /// `CASE` mirrors `common_domain::lifecycle::derive_lifecycle_state`; the signal
+    /// `EXISTS` predicates mirror `CustomerLifecycleSignalRow::fetch_for_customer`.
+    /// MRR sums `subscription.mrr_cents` over active (`ACTIVE`/`PENDING_CHARGE`) subs.
+    pub async fn list_with_metrics(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        pagination: PaginationRequest,
+        order_by: Option<&str>,
+        param_query: Option<String>,
+        param_archived: Option<bool>,
+        param_lifecycle: Vec<String>,
+        param_countries: Vec<String>,
+        // `Some` restricts to a pre-resolved id set (dynamic custom-property / native filters,
+        // computed by `list_matching_ids`); `None` applies no id filter.
+        param_ids: Option<Vec<CustomerId>>,
+    ) -> DbResult<PaginatedVec<CustomerWithMetricsRow>> {
+        use diesel::sql_types;
+        use diesel_async::RunQueryDsl;
+
+        let (has_id_filter, filter_ids) = match param_ids {
+            Some(ids) => (true, ids),
+            None => (false, Vec::new()),
+        };
+
+        let order = OrderByParam::parse(order_by, "name.asc");
+        let order_sql = match (order.column.as_str(), order.direction) {
+            ("name", OrderDirection::Asc) => "d.name ASC, d.id ASC",
+            ("name", OrderDirection::Desc) => "d.name DESC, d.id DESC",
+            ("email", OrderDirection::Asc) => "d.billing_email ASC NULLS LAST, d.id ASC",
+            ("email", OrderDirection::Desc) => "d.billing_email DESC NULLS LAST, d.id DESC",
+            ("alias", OrderDirection::Asc) => "d.alias ASC NULLS LAST, d.id ASC",
+            ("alias", OrderDirection::Desc) => "d.alias DESC NULLS LAST, d.id DESC",
+            ("created_at", OrderDirection::Asc) => "d.created_at ASC, d.id ASC",
+            ("created_at", OrderDirection::Desc) => "d.created_at DESC, d.id DESC",
+            ("mrr", OrderDirection::Asc) => "d.mrr_cents ASC, d.id ASC",
+            ("mrr", OrderDirection::Desc) => "d.mrr_cents DESC, d.id DESC",
+            ("lifecycle", OrderDirection::Asc) => "d.lifecycle_state ASC, d.id ASC",
+            ("lifecycle", OrderDirection::Desc) => "d.lifecycle_state DESC, d.id DESC",
+            _ => "d.name ASC, d.id ASC",
+        };
+
+        let per_page = i64::from(pagination.per_page.unwrap_or(25)).max(1);
+        let offset = i64::from(pagination.page) * per_page;
+        // None => all records, Some(true) => archived only, Some(false) => active only.
+        let archived_mode = match param_archived {
+            None => "all",
+            Some(true) => "archived",
+            Some(false) => "active",
+        }
+        .to_string();
+        let search = param_query.unwrap_or_default();
+
+        let raw_sql = format!(
+            r#"
+            -- Lifecycle flags are grouped per customer in one pass rather than as a
+            -- dozen correlated EXISTS/subqueries per row: the planner prices a
+            -- correlated subplan (and a LATERAL is one) per output row, so a dozen of
+            -- them estimate into the high six figures, trip jit_above_cost (100k), and
+            -- make every call pay seconds of LLVM compilation for milliseconds of work.
+            -- Grouping keeps the estimate low so JIT never engages. See analytics
+            -- customer projection for the same pattern. plan_version_id is NOT NULL, so
+            -- the inner plan join drops no subscription.
+            WITH base AS (
+                SELECT c.*
+                FROM customer c
+                WHERE c.tenant_id = $1
+                  AND ($5 = 'all'
+                       OR ($5 = 'active' AND c.archived_at IS NULL)
+                       OR ($5 = 'archived' AND c.archived_at IS NOT NULL))
+                  AND ($2 = '' OR (c.name ILIKE '%' || $2 || '%'
+                                   OR c.alias ILIKE '%' || $2 || '%'
+                                   OR c.billing_email ILIKE '%' || $2 || '%'))
+                  AND (cardinality($3) = 0 OR (c.billing_address ->> 'country') = ANY($3))
+                  AND ($8 = FALSE OR c.id = ANY($9))
+            ),
+            sub_flags AS (
+                SELECT s.customer_id,
+                    -- SUM(int8) is numeric in Postgres; cast back to bigint for the i64 mapping.
+                    COALESCE(SUM(s.mrr_cents) FILTER (
+                        WHERE s.status IN ('ACTIVE', 'PENDING_CHARGE')), 0)::bigint   AS mrr_cents,
+                    bool_or(s.status IN ('ACTIVE', 'PENDING_CHARGE')
+                            AND p.plan_type <> 'FREE')                                AS has_active_paid_sub,
+                    bool_or(s.status = 'TRIAL_ACTIVE')                                AS is_trialing,
+                    bool_or(s.status IN ('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE', 'PAUSED')
+                            AND p.plan_type = 'FREE')                                 AS has_active_free_sub,
+                    bool_or(s.status IN ('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE', 'PAUSED'))
+                                                                                      AS has_active_sub,
+                    bool_or(s.status = 'SUSPENDED')                                   AS has_suspended_sub,
+                    bool_or(s.status = 'PAUSED')                                      AS has_paused_sub,
+                    bool_or(s.status IN ('CANCELLED', 'COMPLETED')
+                            AND p.plan_type <> 'FREE')                                AS had_paid_sub_ended,
+                    bool_or(p.plan_type <> 'FREE')                                    AS ever_paid,
+                    bool_or(s.status = 'TRIAL_EXPIRED')                               AS trial_expired
+                FROM subscription s
+                JOIN plan_version pv ON pv.id = s.plan_version_id
+                JOIN plan p          ON p.id  = pv.plan_id
+                WHERE s.customer_id IN (SELECT id FROM base)
+                GROUP BY s.customer_id
+            ),
+            quote_flags AS (
+                SELECT q.customer_id,
+                    bool_or(q.status IN ('DECLINED', 'EXPIRED', 'CANCELLED')
+                            AND q.converted_to_subscription_id IS NULL)              AS has_closed_lost_quote,
+                    bool_or(q.status IN ('DRAFT', 'PENDING'))                        AS has_open_quote
+                FROM quote q
+                WHERE q.customer_id IN (SELECT id FROM base)
+                GROUP BY q.customer_id
+            ),
+            derived AS (
+                SELECT b.*,
+                    COALESCE(sf.mrr_cents, 0)::bigint               AS mrr_cents,
+                    COALESCE(sf.has_active_paid_sub, false)         AS has_active_paid_sub,
+                    COALESCE(sf.is_trialing, false)                 AS is_trialing,
+                    COALESCE(sf.has_active_free_sub, false)         AS has_active_free_sub,
+                    COALESCE(sf.has_active_sub, false)              AS has_active_sub,
+                    COALESCE(sf.has_suspended_sub, false)           AS has_suspended_sub,
+                    COALESCE(sf.has_paused_sub, false)              AS has_paused_sub,
+                    COALESCE(sf.had_paid_sub_ended, false)          AS had_paid_sub_ended,
+                    COALESCE(sf.ever_paid, false)                   AS ever_paid,
+                    COALESCE(sf.trial_expired, false)               AS trial_expired,
+                    COALESCE(qf.has_closed_lost_quote, false)       AS has_closed_lost_quote,
+                    COALESCE(qf.has_open_quote, false)              AS has_open_quote,
+                    CASE
+                        WHEN COALESCE(sf.has_suspended_sub, false)
+                             AND (COALESCE(sf.has_active_paid_sub, false) OR COALESCE(sf.ever_paid, false)) THEN 'past_due'
+                        WHEN COALESCE(sf.has_active_paid_sub, false) THEN 'active_paying'
+                        WHEN COALESCE(sf.is_trialing, false) THEN 'trialing'
+                        WHEN COALESCE(sf.has_active_free_sub, false) THEN 'free'
+                        WHEN COALESCE(sf.has_paused_sub, false) THEN 'dormant'
+                        WHEN COALESCE(sf.had_paid_sub_ended, false) AND NOT COALESCE(sf.has_active_sub, false) THEN 'churned'
+                        WHEN COALESCE(sf.trial_expired, false) AND NOT COALESCE(sf.ever_paid, false) AND NOT COALESCE(sf.has_active_sub, false) THEN 'churned_trial'
+                        WHEN COALESCE(qf.has_closed_lost_quote, false) AND NOT COALESCE(sf.has_active_sub, false) AND NOT COALESCE(sf.ever_paid, false) THEN 'closed_lost'
+                        WHEN COALESCE(qf.has_open_quote, false) AND NOT COALESCE(sf.has_active_sub, false) THEN 'lead'
+                        ELSE 'unknown'
+                    END AS lifecycle_state
+                FROM base b
+                LEFT JOIN sub_flags   sf ON sf.customer_id = b.id
+                LEFT JOIN quote_flags qf ON qf.customer_id = b.id
+            )
+            SELECT d.*, COUNT(*) OVER() AS total_count
+            FROM derived d
+            WHERE (cardinality($4) = 0 OR d.lifecycle_state = ANY($4))
+            ORDER BY {order_sql}
+            LIMIT $6 OFFSET $7
+            "#
+        );
+
+        let items: Vec<CustomerWithMetricsRow> = diesel::sql_query(raw_sql)
+            .bind::<sql_types::Uuid, _>(param_tenant_id)
+            .bind::<sql_types::Text, _>(search)
+            .bind::<sql_types::Array<sql_types::Text>, _>(param_countries)
+            .bind::<sql_types::Array<sql_types::Text>, _>(param_lifecycle)
+            .bind::<sql_types::Text, _>(archived_mode)
+            .bind::<sql_types::BigInt, _>(per_page)
+            .bind::<sql_types::BigInt, _>(offset)
+            .bind::<sql_types::Bool, _>(has_id_filter)
+            .bind::<sql_types::Array<sql_types::Uuid>, _>(filter_ids)
+            .get_results::<CustomerWithMetricsRow>(conn)
+            .await
+            .attach("Error while fetching customers with metrics")
+            .into_db_result()?;
+
+        // `.iter().next()` (not `.first()`) to avoid colliding with the in-scope
+        // diesel_async `RunQueryDsl::first`.
+        let total_results = items.iter().map(|r| r.total_count).next().unwrap_or(0);
+        let total_pages = (total_results as f64 / per_page as f64).ceil() as u32;
+
+        Ok(PaginatedVec {
+            items,
+            total_pages,
+            total_results: total_results as u64,
+        })
+    }
+
+    /// Distinct ISO country codes in use by the tenant's non-archived customers
+    /// (from the billing address), for seeding the country filter's suggestions.
+    pub async fn list_distinct_countries(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+    ) -> DbResult<Vec<String>> {
+        use diesel::sql_types;
+        use diesel_async::RunQueryDsl;
+
+        #[derive(diesel::QueryableByName)]
+        struct CountryRow {
+            #[diesel(sql_type = sql_types::Text)]
+            country: String,
+        }
+
+        let rows: Vec<CountryRow> = diesel::sql_query(
+            r#"
+            SELECT DISTINCT (billing_address ->> 'country') AS country
+            FROM customer
+            WHERE tenant_id = $1
+              AND archived_at IS NULL
+              AND billing_address ->> 'country' IS NOT NULL
+              AND billing_address ->> 'country' <> ''
+            ORDER BY country
+            "#,
+        )
+        .bind::<sql_types::Uuid, _>(param_tenant_id)
+        .get_results::<CountryRow>(conn)
+        .await
+        .attach("Error while listing customer countries")
+        .into_db_result()?;
+
+        Ok(rows.into_iter().map(|r| r.country).collect())
     }
 
     pub async fn list_by_ids_global(
@@ -324,7 +568,7 @@ impl CustomerRow {
             .filter(id.eq_any(ids))
             .select(CustomerRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -346,7 +590,7 @@ impl CustomerRow {
             .filter(id.eq_any(ids))
             .select(CustomerRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -363,7 +607,7 @@ impl CustomerRow {
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(customer).values(&batch);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -372,13 +616,19 @@ impl CustomerRow {
             .into_db_result()
     }
 
+    /// Rows are written in conflict-key order, so two batches lock the customers they update in
+    /// one global order.
     pub async fn upsert_customer_batch(
         conn: &mut PgConn,
-        batch: Vec<CustomerRowNew>,
+        mut batch: Vec<CustomerRowNew>,
     ) -> DbResult<Vec<CustomerRow>> {
         use crate::schema::customer::dsl::*;
         use diesel::upsert::excluded;
         use diesel_async::RunQueryDsl;
+
+        batch.sort_by(|a, b| {
+            (a.tenant_id.as_uuid(), &a.alias).cmp(&(b.tenant_id.as_uuid(), &b.alias))
+        });
 
         let query = diesel::insert_into(customer)
             .values(&batch)
@@ -398,10 +648,30 @@ impl CustomerRow {
                 exemption_reason.eq(excluded(exemption_reason)),
                 custom_taxes.eq(excluded(custom_taxes)),
                 vat_number_format_valid.eq(excluded(vat_number_format_valid)),
+                // A row that declares custom properties replaces the stored bag. A row that
+                // declares none carries a jsonb null and leaves the stored bag untouched.
+                custom_properties.eq(diesel::dsl::sql::<diesel::sql_types::Jsonb>(
+                    r#"CASE
+                        WHEN jsonb_typeof(excluded.custom_properties) = 'object'
+                            THEN excluded.custom_properties
+                        ELSE "customer"."custom_properties"
+                    END"#,
+                )),
+                // Override usually set via API/UI: apply the CSV value when the column carries
+                // one, but leave the stored preferences untouched when it is absent or blank.
+                preferred_locales.eq(diesel::dsl::sql::<
+                    diesel::sql_types::Array<diesel::sql_types::Nullable<diesel::sql_types::Text>>,
+                >(
+                    r#"CASE
+                        WHEN cardinality(excluded.preferred_locales) > 0
+                            THEN excluded.preferred_locales
+                        ELSE "customer"."preferred_locales"
+                    END"#,
+                )),
                 updated_at.eq(diesel::dsl::now),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -410,11 +680,88 @@ impl CustomerRow {
             .into_db_result()
     }
 
+    /// The first lock of a customer's transaction (`crate::lock`).
+    pub async fn lock(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: CustomerId,
+    ) -> DbResult<CustomerLock> {
+        use crate::schema::customer::dsl as c_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = c_dsl::customer
+            .for_no_key_update()
+            .select(c_dsl::id)
+            .filter(c_dsl::id.eq(id))
+            .filter(c_dsl::tenant_id.eq(tenant_id));
+
+        crate::debug_sql(&query);
+
+        let _: CustomerId = query
+            .first(conn)
+            .await
+            .attach("Error while locking a customer")
+            .into_db_result()?;
+        Ok(CustomerLock::taken(conn, tenant_id, id))
+    }
+
+    /// `lock` for several customers of a tenant, in id order. Missing ids are skipped.
+    pub async fn lock_many(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        ids: &[CustomerId],
+    ) -> DbResult<Vec<CustomerLock>> {
+        use crate::schema::customer::dsl as c_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let locked: Vec<CustomerId> = c_dsl::customer
+            .for_no_key_update()
+            .select(c_dsl::id)
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .filter(c_dsl::id.eq_any(ids))
+            .order(c_dsl::id.asc())
+            .load(conn)
+            .await
+            .attach("Error while locking customers")
+            .into_db_result()?;
+        Ok(locked
+            .into_iter()
+            .map(|id| CustomerLock::taken(conn, tenant_id, id))
+            .collect())
+    }
+
+    /// `lock_many` skipping the customers another transaction holds: the locked ones, in id order.
+    pub async fn lock_many_skip_locked(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        ids: &[CustomerId],
+    ) -> DbResult<Vec<CustomerLock>> {
+        use crate::schema::customer::dsl as c_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let locked: Vec<CustomerId> = c_dsl::customer
+            .for_no_key_update()
+            .skip_locked()
+            .select(c_dsl::id)
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .filter(c_dsl::id.eq_any(ids))
+            .order(c_dsl::id.asc())
+            .load(conn)
+            .await
+            .attach("Error while locking customers")
+            .into_db_result()?;
+        Ok(locked
+            .into_iter()
+            .map(|id| CustomerLock::taken(conn, tenant_id, id))
+            .collect())
+    }
+
+    /// `lock`, returning the customer row as well.
     pub async fn select_for_update(
         conn: &mut PgConn,
         id: CustomerId,
         tenant_id: TenantId,
-    ) -> DbResult<CustomerRow> {
+    ) -> DbResult<(CustomerLock, CustomerRow)> {
         use crate::schema::customer::dsl as c_dsl;
         use diesel_async::RunQueryDsl;
 
@@ -423,37 +770,14 @@ impl CustomerRow {
             .filter(c_dsl::id.eq(id))
             .filter(c_dsl::tenant_id.eq(tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
-        query
+        let row: CustomerRow = query
             .first(conn)
             .await
             .attach("Error while selecting for update customer by id")
-            .into_db_result()
-    }
-
-    pub async fn update_balance(
-        conn: &mut PgConn,
-        id: CustomerId,
-        delta_cents: i64,
-    ) -> DbResult<usize> {
-        use crate::schema::customer::dsl as c_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let query = diesel::update(c_dsl::customer)
-            .filter(c_dsl::id.eq(id))
-            .set((
-                c_dsl::balance_value_cents.eq(c_dsl::balance_value_cents.add(delta_cents)),
-                c_dsl::updated_at.eq(diesel::dsl::now),
-            ));
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .execute(conn)
-            .await
-            .attach("Error while update customer balance")
-            .into_db_result()
+            .into_db_result()?;
+        Ok((CustomerLock::taken(conn, tenant_id, id), row))
     }
 
     pub async fn archive(
@@ -469,7 +793,7 @@ impl CustomerRow {
             .filter(c_dsl::tenant_id.eq(tenant_id))
             .set(c_dsl::archived_at.eq(diesel::dsl::now));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -480,6 +804,61 @@ impl CustomerRow {
 
     /// Null out `current_payment_method_id` on any customer still pointing at
     /// a detached method, so payment resolution stops retrying a dead mandate.
+    /// Makes `payment_method_id` the default of the locked customer. Unless `replace`, only when
+    /// there is no usable default: none, archived, or on a connector that is no longer active.
+    /// `None` when nothing changed.
+    pub async fn adopt_current_payment_method(
+        conn: &mut PgConn,
+        lock: &crate::lock::CustomerLock,
+        payment_method_id: CustomerPaymentMethodId,
+        replace: bool,
+    ) -> DbResult<Option<CustomerRow>> {
+        use crate::enums::ConnectorStatusEnum;
+        use crate::schema::connector::dsl as k_dsl;
+        use crate::schema::customer::dsl as c_dsl;
+        use crate::schema::customer_connection::dsl as cc_dsl;
+        use crate::schema::customer_payment_method::dsl as pm_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let unusable = pm_dsl::customer_payment_method
+            .inner_join(cc_dsl::customer_connection.on(cc_dsl::id.eq(pm_dsl::connection_id)))
+            .inner_join(k_dsl::connector.on(k_dsl::id.eq(cc_dsl::connector_id)))
+            .filter(
+                pm_dsl::archived_at
+                    .is_not_null()
+                    .or(k_dsl::status.ne(ConnectorStatusEnum::Active)),
+            )
+            .select(pm_dsl::id.nullable());
+
+        let mut query = diesel::update(c_dsl::customer)
+            .filter(c_dsl::tenant_id.eq(lock.tenant_id()))
+            .filter(c_dsl::id.eq(lock.customer_id()))
+            .filter(c_dsl::current_payment_method_id.is_distinct_from(payment_method_id))
+            .into_boxed();
+        if !replace {
+            query = query.filter(
+                c_dsl::current_payment_method_id
+                    .is_null()
+                    .or(c_dsl::current_payment_method_id.eq_any(unusable)),
+            );
+        }
+        let query = query
+            .set((
+                c_dsl::current_payment_method_id.eq(Some(payment_method_id)),
+                c_dsl::updated_at.eq(diesel::dsl::now.nullable()),
+            ))
+            .returning(CustomerRow::as_returning());
+
+        crate::debug_sql(&query);
+
+        query
+            .get_result(conn)
+            .await
+            .optional()
+            .attach("Error while adopting the customer's default payment method")
+            .into_db_result()
+    }
+
     pub async fn clear_current_payment_method(
         conn: &mut PgConn,
         tenant_id: TenantId,
@@ -493,12 +872,41 @@ impl CustomerRow {
             .filter(c_dsl::current_payment_method_id.eq(payment_method_id))
             .set(c_dsl::current_payment_method_id.eq(None::<CustomerPaymentMethodId>));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
             .await
             .attach("Error while clearing customer current payment method")
+            .into_db_result()
+    }
+
+    /// The reminder preference has its own writer so `CustomerRowPatch` stays untouched.
+    pub async fn set_payment_reminder_preference(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: CustomerId,
+        opt_out: bool,
+        sequence_id: Option<PaymentReminderSequenceId>,
+    ) -> DbResult<usize> {
+        use crate::schema::customer::dsl as c_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(c_dsl::customer)
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .filter(c_dsl::id.eq(id))
+            .set((
+                c_dsl::payment_reminders_opt_out.eq(opt_out),
+                c_dsl::payment_reminder_sequence_id.eq(sequence_id),
+                c_dsl::updated_at.eq(diesel::dsl::now),
+            ));
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while setting customer payment reminder preference")
             .into_db_result()
     }
 
@@ -515,13 +923,66 @@ impl CustomerRow {
             .filter(c_dsl::tenant_id.eq(tenant_id))
             .set(c_dsl::archived_at.eq(None::<chrono::NaiveDateTime>));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
             .await
             .attach("Error while unarchiving customer")
             .into_db_result()
+    }
+
+    /// Sets or clears the owner; the caller checks org membership, which the FK cannot.
+    pub async fn assign_owner(
+        conn: &mut PgConn,
+        tenant_id_param: TenantId,
+        customer_ids: Vec<CustomerId>,
+        owner_user_id_param: Option<common_domain::ids::UserId>,
+    ) -> DbResult<usize> {
+        use crate::schema::customer::dsl as c_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(c_dsl::customer)
+            .filter(c_dsl::tenant_id.eq(tenant_id_param))
+            .filter(c_dsl::id.eq_any(customer_ids))
+            .set((
+                c_dsl::owner_user_id.eq(owner_user_id_param),
+                c_dsl::updated_at.eq(diesel::dsl::now),
+            ));
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while assigning customer owner")
+            .into_db_result()
+    }
+
+    /// Member-removal cleanup (ADR-0002): the user row survives, so `ON DELETE SET NULL`
+    /// never fires. Call inside the member-removal transaction.
+    pub async fn clear_owner_for_user_in_org(
+        conn: &mut PgConn,
+        org_id: common_domain::ids::OrganizationId,
+        user_id: common_domain::ids::UserId,
+    ) -> DbResult<usize> {
+        use diesel::sql_types;
+        use diesel_async::RunQueryDsl;
+
+        diesel::sql_query(
+            r#"
+            UPDATE customer
+            SET owner_user_id = NULL, updated_at = now()
+            WHERE owner_user_id = $1
+              AND tenant_id IN (SELECT id FROM tenant WHERE organization_id = $2)
+            "#,
+        )
+        .bind::<sql_types::Uuid, _>(user_id)
+        .bind::<sql_types::Uuid, _>(org_id)
+        .execute(conn)
+        .await
+        .attach("Error while clearing customer owner for removed member")
+        .into_db_result()
     }
 
     pub async fn find_archived_customer_in_batch(
@@ -539,7 +1000,7 @@ impl CustomerRow {
             .select((c_dsl::id, c_dsl::name))
             .limit(1);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first::<(CustomerId, String)>(conn)
@@ -564,7 +1025,7 @@ impl CustomerRowPatch {
             .filter(tenant_id.eq(param_tenant_id))
             .set(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -690,7 +1151,7 @@ impl CustomerRowUpdate {
             .filter(tenant_id.eq(param_tenant_id))
             .set(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -700,4 +1161,91 @@ impl CustomerRowUpdate {
             .attach("Error while updating customer")
             .into_db_result()
     }
+}
+
+impl CustomerLifecycleSignalRow {
+    /// Single-customer variant of `CustomerProjectionRow::fetch_after`'s signal
+    /// columns: the same aggregate passes, scoped to one `customer_id`.
+    pub async fn fetch_for_customer(
+        conn: &mut PgConn,
+        customer_id: uuid::Uuid,
+        tenant_id: uuid::Uuid,
+    ) -> DbResult<Option<CustomerLifecycleSignalRow>> {
+        use diesel_async::RunQueryDsl;
+
+        let raw_sql = r"
+            SELECT COALESCE(sub.has_active_paid_sub, false)       AS has_active_paid_sub,
+                   COALESCE(sub.is_trialing, false)               AS is_trialing,
+                   COALESCE(sub.has_active_free_sub, false)       AS has_active_free_sub,
+                   COALESCE(sub.has_active_sub, false)            AS has_active_sub,
+                   COALESCE(sub.has_suspended_sub, false)         AS has_suspended_sub,
+                   COALESCE(sub.has_paused_sub, false)            AS has_paused_sub,
+                   COALESCE(sub.had_paid_sub_ended, false)        AS had_paid_sub_ended,
+                   COALESCE(sub.ever_paid, false)                 AS ever_paid,
+                   COALESCE(sub.trial_expired, false)             AS trial_expired,
+                   COALESCE(qt.has_closed_lost_quote, false)      AS has_closed_lost_quote,
+                   COALESCE(qt.has_open_quote, false)             AS has_open_quote,
+                   COALESCE(sub.min_paid_ended_end IS NOT NULL
+                            AND sub.max_active_start IS NOT NULL
+                            AND sub.min_paid_ended_end <= sub.max_active_start, false)
+                                                                  AS reactivated
+            FROM customer c
+            LEFT JOIN LATERAL (
+                SELECT
+                    bool_or(s.status IN ('ACTIVE', 'PENDING_CHARGE') AND p.plan_type <> 'FREE') AS has_active_paid_sub,
+                    bool_or(s.status = 'TRIAL_ACTIVE') AS is_trialing,
+                    bool_or(s.status IN ('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE', 'PAUSED') AND p.plan_type = 'FREE') AS has_active_free_sub,
+                    bool_or(s.status IN ('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE', 'PAUSED')) AS has_active_sub,
+                    bool_or(s.status = 'SUSPENDED') AS has_suspended_sub,
+                    bool_or(s.status = 'PAUSED') AS has_paused_sub,
+                    bool_or(s.status IN ('CANCELLED', 'COMPLETED') AND p.plan_type <> 'FREE') AS had_paid_sub_ended,
+                    bool_or(p.plan_type <> 'FREE') AS ever_paid,
+                    bool_or(s.status = 'TRIAL_EXPIRED') AS trial_expired,
+                    min(s.end_date) FILTER (WHERE s.status IN ('CANCELLED', 'COMPLETED') AND p.plan_type <> 'FREE' AND s.end_date IS NOT NULL) AS min_paid_ended_end,
+                    max(s.start_date) FILTER (WHERE s.status IN ('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE', 'PAUSED')) AS max_active_start
+                FROM subscription s
+                JOIN plan_version pv ON pv.id = s.plan_version_id
+                JOIN plan p ON p.id = pv.plan_id
+                WHERE s.customer_id = c.id
+            ) sub ON true
+            LEFT JOIN LATERAL (
+                SELECT
+                    bool_or(q.status IN ('DECLINED', 'EXPIRED', 'CANCELLED') AND q.converted_to_subscription_id IS NULL) AS has_closed_lost_quote,
+                    bool_or(q.status IN ('DRAFT', 'PENDING')) AS has_open_quote
+                FROM quote q
+                WHERE q.customer_id = c.id
+            ) qt ON true
+            WHERE c.id = $1 AND c.tenant_id = $2
+        ";
+
+        diesel::sql_query(raw_sql)
+            .bind::<diesel::sql_types::Uuid, _>(customer_id)
+            .bind::<diesel::sql_types::Uuid, _>(tenant_id)
+            .get_result::<CustomerLifecycleSignalRow>(conn)
+            .await
+            .optional()
+            .attach("Error fetching customer lifecycle signals")
+            .into_db_result()
+    }
+}
+
+pub async fn connected_account_platform_org(
+    conn: &mut PgConn,
+    account_id: ConnectedAccountId,
+) -> DbResult<Option<OrganizationId>> {
+    use crate::schema::connect_connected_account::dsl as cca;
+    use diesel_async::RunQueryDsl;
+
+    let query = cca::connect_connected_account
+        .filter(cca::id.eq(account_id))
+        .select(cca::platform_organization_id);
+
+    crate::debug_sql(&query);
+
+    query
+        .first(conn)
+        .await
+        .optional()
+        .attach("Error while getting platform org id for connected account")
+        .into_db_result()
 }

@@ -1,0 +1,25 @@
+use meteroid_store::domain;
+
+use super::model;
+use crate::entitlements::mapping::entitlement_to_rest;
+use crate::products::model::ProductFeeTypeEnum;
+
+pub fn addon_to_rest(addon: domain::add_ons::AddOn) -> model::AddOn {
+    model::AddOn {
+        id: addon.id,
+        name: addon.name,
+        description: addon.description,
+        product_id: addon.product_id,
+        price_id: addon.price_id,
+        fee_type: addon.fee_type.map(ProductFeeTypeEnum::from),
+        self_serviceable: addon.self_serviceable,
+        max_instances_per_subscription: addon.max_instances_per_subscription,
+        created_at: addon.created_at.into(),
+        archived_at: addon.archived_at.map(Into::into),
+        entitlements: addon
+            .entitlements
+            .into_iter()
+            .map(entitlement_to_rest)
+            .collect(),
+    }
+}

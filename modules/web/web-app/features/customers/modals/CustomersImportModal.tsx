@@ -5,7 +5,9 @@ import { z } from 'zod'
 
 import { CSVImportDialog } from '@/components/CSVImportDialog'
 import { useBatchJobCreate, CreateBatchJobRequestSchema } from '@/features/batch-jobs/useBatchJobCreate'
+import { useCustomPropertyImportColumn } from '@/features/customproperties/useCustomPropertyImportColumn'
 import { BatchJobType } from '@/rpc/api/batchjobs/v1/models_pb'
+import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 
 import type { FunctionComponent } from 'react'
 
@@ -13,13 +15,20 @@ const optionalValid = (re: RegExp, msg: string) =>
   z.string().refine(v => !v || re.test(v), msg).optional()
 
 const customerRowSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
+  // Blank for INDIVIDUAL rows (derived from first/last name); a blank COMPANY name is rejected on import.
+  name: z.string().optional(),
   currency: z.string().regex(/^[A-Z]{3}$/, '3-letter ISO code (e.g., USD, EUR)'),
+  customer_type: optionalValid(/^(COMPANY|INDIVIDUAL)$/i, 'Must be COMPANY or INDIVIDUAL'),
   'billing_address.country': optionalValid(/^[A-Z]{2}$/, '2-letter country code (e.g., US, FR)'),
   'shipping_address.country': optionalValid(/^[A-Z]{2}$/, '2-letter country code (e.g., US, FR)'),
   is_tax_exempt: optionalValid(/^(true|false)$/, 'Must be true or false'),
   'tax_rate1.rate': optionalValid(/^\d+(\.\d+)?$/, 'Must be a number'),
   'tax_rate2.rate': optionalValid(/^\d+(\.\d+)?$/, 'Must be a number'),
+  preferred_locales: optionalValid(
+    /^[a-zA-Z]{2,3}(-[a-zA-Z]{2,4})?(\s*,\s*[a-zA-Z]{2,3}(-[a-zA-Z]{2,4})?)*$/,
+    'Comma-separated BCP-47 codes (e.g., fr-FR,en)'
+  ),
+  invoicing_language: optionalValid(/^[a-zA-Z]{2,3}(-[a-zA-Z]{2,4})?$/, 'BCP-47 code (e.g., en-US, fr-FR)'),
 })
 
 interface CustomersImportModalProps {
@@ -37,6 +46,8 @@ export const CustomersImportModal: FunctionComponent<CustomersImportModalProps> 
   })
   const [batchJobId, setBatchJobId] = useState<string | null>(null)
   const [duplicateDetected, setDuplicateDetected] = useState(false)
+
+  const customPropertyColumn = useCustomPropertyImportColumn(CustomPropertyEntityType.CUSTOMER)
 
   const createMutation = useBatchJobCreate({
     onSuccess: (jobId) => setBatchJobId(jobId),
@@ -96,7 +107,7 @@ export const CustomersImportModal: FunctionComponent<CustomersImportModalProps> 
       dialogIcon={<FileSpreadsheetIcon className="h-5 w-5" />}
       rowSchema={customerRowSchema}
       requiredColumns={[
-        { name: 'name' },
+        { name: 'name', tooltipMessage: 'Company name. Leave blank for INDIVIDUAL customers' },
         { name: 'currency', tooltipMessage: '3-letter ISO code (e.g., USD, EUR)' },
       ]}
       optionalColumns={[
@@ -104,9 +115,17 @@ export const CustomersImportModal: FunctionComponent<CustomersImportModalProps> 
         { name: 'alias' },
         { name: 'billing_email' },
         { name: 'phone' },
+        { name: 'customer_type', tooltipMessage: 'COMPANY (default) or INDIVIDUAL' },
+        { name: 'first_name', tooltipMessage: 'Required for INDIVIDUAL customers' },
+        { name: 'last_name', tooltipMessage: 'Required for INDIVIDUAL customers' },
         { name: 'invoicing_entity_id', tooltipMessage: '`default` entity is used if empty' },
         { name: 'vat_number' },
         { name: 'is_tax_exempt' },
+        {
+          name: 'preferred_locales',
+          tooltipMessage:
+            'Comma-separated BCP-47 codes, most-preferred first (e.g., fr-FR,en); overrides the invoicing entity default',
+        },
         {
           name: 'tax_rate1.*',
           tooltipMessage: (
@@ -166,6 +185,7 @@ export const CustomersImportModal: FunctionComponent<CustomersImportModalProps> 
             </div>
           ),
         },
+        ...customPropertyColumn,
       ]}
       additionalInfo={
         <ul>

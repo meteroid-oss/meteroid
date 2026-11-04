@@ -5,6 +5,7 @@ use common_grpc::middleware::client::LayeredClientService;
 use metering_grpc::meteroid::metering::v1::{IngestRequest, IngestResponse};
 use tonic::{Request, Response, Status};
 
+use crate::auth::TenantIngestSettings;
 use crate::ingest::common::EventProcessor;
 use crate::ingest::sinks::Sink;
 use common_grpc::middleware::server::auth::RequestExt;
@@ -34,11 +35,21 @@ impl EventsServiceGrpc for EventsService {
         request: Request<IngestRequest>,
     ) -> Result<Response<IngestResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let settings = *request
+            .extensions()
+            .get::<TenantIngestSettings>()
+            .ok_or_else(|| Status::internal("Missing tenant ingest settings"))?;
         let req = request.into_inner();
 
         let result = self
             .processor
-            .process_events(req.events, tenant_id, req.allow_backfilling, false)
+            .process_events(
+                req.events,
+                tenant_id,
+                req.allow_backfilling,
+                false,
+                settings.keep_last_events,
+            )
             .await?;
 
         Ok(Response::new(IngestResponse {

@@ -2,10 +2,11 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::enums::{
-    EntitlementEntityTypeEnum, EntitlementModeEnum, FeatureStatusEnum, FeatureTypeEnum,
+    ConfigValueTypeEnum, EntitlementEntityTypeEnum, EntitlementModeEnum, FeatureStatusEnum,
+    FeatureTypeEnum,
 };
 use common_domain::ids::{
-    AddOnId, BillableMetricId, EntitlementEntityId, EntitlementId, FeatureId, PlanId,
+    AddOnId, BillableMetricId, CustomerId, EntitlementEntityId, EntitlementId, FeatureId, PlanId,
     PlanVersionId, ProductId, QuoteId, SubscriptionId, TenantId,
 };
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
@@ -33,13 +34,18 @@ pub struct FeatureRow {
     pub tenant_id: TenantId,
     pub product_id: Option<ProductId>,
     pub name: String,
-    pub code: String,
     pub description: Option<String>,
     pub feature_type: FeatureTypeEnum,
     pub status: FeatureStatusEnum,
     pub metric_id: Option<BillableMetricId>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Unique key used to reference this feature in your code. Cannot be changed after creation.
+    pub code: String,
+    /// Allowed values for a "select" Config feature. `None` = free-form config value.
+    pub config_options: Option<Vec<Option<String>>>,
+    /// Authoritative value type of a Config feature. `None` for Boolean/Metered features.
+    pub config_value_type: Option<ConfigValueTypeEnum>,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -55,6 +61,8 @@ pub struct FeatureRowNew {
     pub feature_type: FeatureTypeEnum,
     pub status: FeatureStatusEnum,
     pub metric_id: Option<BillableMetricId>,
+    pub config_options: Option<Vec<Option<String>>>,
+    pub config_value_type: Option<ConfigValueTypeEnum>,
 }
 
 #[derive(Debug, Clone, AsChangeset)]
@@ -65,6 +73,7 @@ pub struct FeatureRowPatch {
     pub name: Option<String>,
     pub description: Option<Option<String>>,
     pub product_id: Option<Option<ProductId>>,
+    pub config_options: Option<Option<Vec<Option<String>>>>,
     pub status: Option<FeatureStatusEnum>,
     pub updated_at: Option<DateTime<Utc>>,
 }
@@ -106,24 +115,14 @@ pub struct EntitlementRowPatch {
     pub updated_at: Option<DateTime<Utc>>,
 }
 
-impl From<&EntitlementEntityId> for EntitlementEntityTypeEnum {
-    fn from(value: &EntitlementEntityId) -> Self {
-        match value {
-            EntitlementEntityId::Feature(_) => EntitlementEntityTypeEnum::Feature,
-            EntitlementEntityId::PlanVersion(_) => EntitlementEntityTypeEnum::PlanVersion,
-            EntitlementEntityId::AddOn(_) => EntitlementEntityTypeEnum::AddOn,
-            EntitlementEntityId::Plan(_) => EntitlementEntityTypeEnum::Plan,
-            EntitlementEntityId::Subscription(_) => EntitlementEntityTypeEnum::Subscription,
-            EntitlementEntityId::Quote(_) => EntitlementEntityTypeEnum::Quote,
-        }
-    }
-}
-
 impl From<&EntitlementRow> for EntitlementEntityId {
     fn from(value: &EntitlementRow) -> Self {
         match value.entity_type {
             EntitlementEntityTypeEnum::Feature => {
                 EntitlementEntityId::Feature(FeatureId::from_const(value.entity_id))
+            }
+            EntitlementEntityTypeEnum::Customer => {
+                EntitlementEntityId::Customer(CustomerId::from_const(value.entity_id))
             }
             EntitlementEntityTypeEnum::PlanVersion => {
                 EntitlementEntityId::PlanVersion(PlanVersionId::from_const(value.entity_id))

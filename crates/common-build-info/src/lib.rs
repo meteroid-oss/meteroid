@@ -32,12 +32,12 @@ impl BuildInfo {
     fn build(name: &str) -> Self {
         Self {
             name: name.to_string(),
-            version: build_info::format!("v{}", $.crate_info.version).to_string(),
-            profile: build_info::format!("{}", $.profile).to_string(),
-            target_family: build_info::format!("{}", $.target.family).to_string(),
-            target_os: build_info::format!("{}", $.target.os).to_string(),
-            target_arch: build_info::format!("{}", $.target.cpu.arch).to_string(),
-            git_info: build_info::format!("{}", $.version_control).to_string(),
+            version: concat!("v", env!("CARGO_PKG_VERSION")).to_string(),
+            profile: env!("COMMON_BUILD_INFO_PROFILE").to_string(),
+            target_family: std::env::consts::FAMILY.to_string(),
+            target_os: std::env::consts::OS.to_string(),
+            target_arch: std::env::consts::ARCH.to_string(),
+            git_info: env!("COMMON_BUILD_INFO_GIT").to_string(),
         }
     }
 

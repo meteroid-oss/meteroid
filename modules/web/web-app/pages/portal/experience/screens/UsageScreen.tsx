@@ -9,6 +9,8 @@ import { usePortalNav } from '../context'
 import { date, money } from '../format'
 import { CenterState, Mono, PanelCard, Spinner } from '../primitives'
 
+import { UsageFilterTag } from './UsageFilterTag'
+
 import type { LineItem, SubLineItem } from '@/rpc/api/invoices/v1/models_pb'
 import type { SubscriptionSummary } from '@/rpc/portal/customer/v1/models_pb'
 
@@ -19,6 +21,10 @@ const fmtQty = (raw?: string): string | undefined => {
   if (Number.isNaN(n)) return raw
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 4 }).format(n)
 }
+
+// A tax-inclusive line keeps the tax-included figures the customer was quoted; others are net.
+const lineAmount = (item: LineItem) => item.taxInclusiveQuote?.subtotal ?? item.subtotal
+const subLines = (item: LineItem) => item.taxInclusiveQuote?.subLineItems ?? item.subLineItems
 
 const SubLineRow = ({ sub, currency }: { sub: SubLineItem; currency: string }) => {
   const qty = fmtQty(sub.quantity)
@@ -96,11 +102,11 @@ const UsageItemRow = ({
             textAlign: 'right',
           }}
         >
-          {money(item.subtotal, currency)}
+          {money(lineAmount(item), currency)}
         </Mono>
       </div>
 
-      {item.subLineItems.length > 0 && (
+      {subLines(item).length > 0 && (
         <div
           style={{
             marginTop: 8,
@@ -109,13 +115,13 @@ const UsageItemRow = ({
             borderLeft: '2px solid var(--mtp-border)',
           }}
         >
-          {item.subLineItems.map(sub => (
+          {subLines(item).map(sub => (
             <SubLineRow key={sub.id} sub={sub} currency={currency} />
           ))}
         </div>
       )}
 
-      <div style={{ marginTop: item.subLineItems.length > 0 ? 12 : 10 }}>
+      <div style={{ marginTop: subLines(item).length > 0 ? 12 : 10 }}>
         <button
           type="button"
           onClick={() => setShowUsage(s => !s)}
@@ -157,6 +163,13 @@ const UsageItemRow = ({
   )
 }
 
+const PlanTitle = ({ sub }: { sub: SubscriptionSummary }) => (
+  <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
+    {sub.planName}
+    <UsageFilterTag subscriptionId={sub.id} />
+  </span>
+)
+
 /**
  * Usage panel for one subscription: its metered line items only, each with a
  * daily-usage chart. Renders nothing when the subscription has no metered usage
@@ -184,7 +197,7 @@ const SubscriptionUsage = ({
 
   if (query.isLoading) {
     return (
-      <PanelCard title={sub.planName}>
+      <PanelCard title={<PlanTitle sub={sub} />}>
         <div style={{ display: 'flex', justifyContent: 'center', padding: '28px 0' }}>
           <Spinner size={16} />
         </div>
@@ -195,14 +208,16 @@ const SubscriptionUsage = ({
   if (usageItems.length === 0) return null
 
   const currency = invoice!.currency
-  const meteredTotal = usageItems.reduce((acc, li) => acc + li.subtotal, 0n)
+  const meteredTotal = usageItems.reduce((acc, li) => acc + lineAmount(li), 0n)
+  const taxIncluded = usageItems.some(li => li.taxInclusiveQuote)
 
   return (
     <PanelCard
-      title={sub.planName}
+      title={<PlanTitle sub={sub} />}
       action={
         <span style={{ fontSize: 12, color: 'var(--mtp-text-3)' }}>
-          {date(invoice!.periodStart)} – {date(invoice!.periodEnd)} · {money(meteredTotal, currency)}
+          {date(invoice!.periodStart)} – {date(invoice!.periodEnd)} · {money(meteredTotal, currency)}{' '}
+          {taxIncluded ? 'incl. tax' : 'excl. tax'}
         </span>
       }
     >

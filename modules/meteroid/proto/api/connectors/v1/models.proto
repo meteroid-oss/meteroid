@@ -10,6 +10,9 @@ enum ConnectorProviderEnum {
   GOCARDLESS = 3;
   STANCER = 4;
   MOLLIE = 5;
+  // Test gateway (simulated outcomes); connectable only when the instance enables it and the
+  // tenant is not production.
+  MOCK = 6;
 }
 
 enum ConnectorTypeEnum {
@@ -58,6 +61,61 @@ message PaymentProviderCapabilities {
   bool supports_hosted_checkout = 6;
   // Charges settle later via webhook or reconciliation.
   bool asynchronous_settlement = 7;
+  // Simulated outcomes, no money moves (the Test gateway): the portal renders a scenario picker
+  // instead of a provider SDK.
+  bool is_test_gateway = 8;
+  // A settled payment can be given back through the provider. When false, only an offline
+  // refund can be recorded.
+  bool supports_refunds = 9;
+  // Part of a payment can be given back; when false, only the whole payment can.
+  bool supports_partial_refunds = 10;
+}
+
+// Lifecycle of a connector. ACTIVE is 0 so a client that predates statuses reads every connector
+// as usable.
+enum ConnectorStatusEnum {
+  ACTIVE = 0;
+  // Created by the first step of the connect wizard; never used for payments until activated.
+  DRAFT = 1;
+  // Starts nothing new (charges, setups, checkout); in-flight payments still settle via webhooks.
+  DISABLED = 2;
+  // Soft-deleted: hidden, credentials wiped, webhooks answered with 410.
+  DELETED = 3;
+}
+
+// A payment rail as the provider account reports it.
+enum PaymentRailEnum {
+  CARD = 0;
+  DIRECT_DEBIT_SEPA = 1;
+  DIRECT_DEBIT_ACH = 2;
+  DIRECT_DEBIT_BACS = 3;
+}
+
+enum PaymentMethodAvailability {
+  ENABLED = 0;
+  // Requested at the provider but not usable yet (e.g. Stripe capability under review).
+  PENDING = 1;
+  UNAVAILABLE = 2;
+}
+
+message PaymentMethodStatus {
+  PaymentRailEnum rail = 1;
+  PaymentMethodAvailability availability = 2;
+  // Provider wording, when it says why a method is not enabled.
+  optional string reason = 3;
+}
+
+// What we last learned from the provider account. Absent until the credentials are verified.
+message ProviderAccount {
+  // Stripe account, GoCardless creditor or Mollie profile id. Empty when the provider exposes none.
+  string account_id = 1;
+  optional string display_name = 2;
+  bool livemode = 3;
+  // Masked secret, e.g. "sk_live_…4f2a".
+  optional string key_hint = 4;
+  // Only the rails the integration supports; absent rails are not supported at all.
+  repeated PaymentMethodStatus methods = 5;
+  string checked_at = 6;
 }
 
 message Connector {
@@ -66,7 +124,44 @@ message Connector {
   ConnectorProviderEnum provider = 3;
   ConnectorTypeEnum connector_type = 4;
   optional ConnectorData data = 5;
+  // Effective capabilities: the rail flags account for what the provider account has enabled.
   optional PaymentProviderCapabilities payment_capabilities = 6;
+  ConnectorStatusEnum status = 7;
+  optional ProviderAccount account = 8;
+  // Where the provider must send webhooks. Payment providers only.
+  optional string webhook_url = 9;
+  reserved 10;
+  string created_at = 11;
+  // Draft progress, so the wizard can resume at the right step.
+  bool has_credentials = 12;
+  bool has_webhook_secret = 13;
+  // Whether this provider needs a webhook signing secret before it can be activated.
+  bool requires_webhook_secret = 14;
+  // Set when the provider refused the stored credentials (revoked, rolled, expired). Cleared by
+  // the next successful check: a credentials update, a connection check or enabling.
+  optional CredentialsError credentials_error = 15;
+}
+
+message CredentialsError {
+  // The provider's message.
+  string message = 1;
+  string at = 2;
+}
+
+message InvoicingEntityRef {
+  string id = 1;
+  string name = 2;
+}
+
+// What depends on a connector; shown before disabling or deleting it.
+message ConnectorUsage {
+  repeated InvoicingEntityRef routed_card = 1;
+  repeated InvoicingEntityRef routed_direct_debit = 2;
+  uint32 customers_with_saved_methods = 3;
+  // Active subscriptions whose invoicing entity routes a rail to this connector.
+  uint32 active_subscriptions = 4;
+  // Pending or ready payment transactions; they block deletion.
+  uint32 in_flight_transactions = 5;
 }
 
 // we could add some Stripe Connect to simplify cloud onboarding later
@@ -90,6 +185,11 @@ message StancerConnector {
 message MollieConnector {
   string alias = 1;
   string api_key = 2;
+}
+
+// Mock connector: no credentials, the alias is the whole form.
+message MockConnector {
+  string alias = 1;
 }
 
 message HubspotConnectorData {

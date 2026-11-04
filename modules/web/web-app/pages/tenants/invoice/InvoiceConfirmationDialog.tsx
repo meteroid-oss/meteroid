@@ -51,7 +51,7 @@ export const InvoiceConfirmationDialog: React.FC<InvoiceConfirmationDialogProps>
           <AlertDialogCancel>{cancelText}</AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            variant="destructive"
           >
             {confirmText}
           </AlertDialogAction>

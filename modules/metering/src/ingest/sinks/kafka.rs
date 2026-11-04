@@ -21,7 +21,6 @@ pub struct KafkaSink {
 }
 
 // TODO check https://clickhouse.com/docs/en/integrations/kafka/kafka-table-engine#tuning-performance
-// (although in high throughput we will not use the Kafka table engine)
 impl KafkaSink {
     pub fn new(config: &KafkaConfig) -> Result<KafkaSink, KafkaError> {
         info!(
@@ -70,10 +69,8 @@ impl KafkaSink {
             Ok(ack) => Ok(ack),
             Err((e, _)) => {
                 if let Some(RDKafkaErrorCode::MessageSizeTooLarge) = e.rdkafka_error_code() {
-                    // report_dropped_events("kafka_message_size", 1);
                     Err(IngestError::EventTooBig)
                 } else {
-                    // report_dropped_events("kafka_write_error", 1);
                     error!("failed to produce event: {e}");
                     Err(IngestError::RetryableSinkError)
                 }
@@ -87,12 +84,10 @@ impl KafkaSink {
     ) -> Result<(), IngestError> {
         match delivery.await {
             Err(_) => {
-                // Canceled due to timeout while retrying
                 error!("failed to produce to Kafka before write timeout");
                 Err(IngestError::RetryableSinkError)
             }
             Ok(Err((KafkaError::MessageProduction(RDKafkaErrorCode::MessageSizeTooLarge), _))) => {
-                // Rejected by broker due to message size
                 Err(IngestError::EventTooBig)
             }
             Ok(Err((err, _))) => {
@@ -207,9 +202,7 @@ mod tests {
 
     #[tokio::test]
     async fn kafka_sink_error_handling() {
-        // Uses a mocked Kafka broker that allows injecting write errors, to check error handling.
-        // We test different cases in a single test to amortize the startup cost of the producer.
-
+        // Multiple error cases share one producer to amortize its startup cost.
         let (cluster, sink) = start_on_mocked_sink().await;
         let event: RawEvent = RawEvent {
             id: "eventid".to_string(),
@@ -218,18 +211,18 @@ mod tests {
             tenant_id: TenantId::parse_uuid("00000000-0000-0000-0000-000000000001").unwrap(),
             timestamp: chrono::Utc::now().naive_utc(),
             ingested_at: chrono::Utc::now().naive_utc(),
+            keep_last: false,
             properties: HashMap::from([("key".to_string(), "value".to_string())]),
         };
 
         let attributes = vec![];
-        // Wait for producer to be healthy, to keep kafka_message_timeout_ms short and tests faster
+        // Wait for producer health so kafka_message_timeout_ms can stay short.
         for _ in 0..20 {
             if sink.send(vec![event.clone()], &attributes).await.is_ok() {
                 break;
             }
         }
 
-        // Send events to confirm happy path
         sink.send(vec![event.clone()], &attributes)
             .await
             .expect("failed to send one initial event");
@@ -240,7 +233,6 @@ mod tests {
         .await
         .expect("failed to send initial event batch");
 
-        // Producer should reject larger than `message.max.bytes` message (1MB)
         let big_data = rand::rng()
             .sample_iter(Alphanumeric)
             .take(1_100_000)
@@ -253,6 +245,7 @@ mod tests {
             tenant_id: TenantId::parse_uuid("00000000-0000-0000-0000-000000000001").unwrap(),
             timestamp: chrono::Utc::now().naive_utc(),
             ingested_at: chrono::Utc::now().naive_utc(),
+            keep_last: false,
             properties: HashMap::from([("key".to_string(), big_data.to_string())]),
         };
 

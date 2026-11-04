@@ -27,6 +27,10 @@ pub struct CustomerPaymentMethodRow {
     pub card_exp_month: Option<i32>,
     pub card_exp_year: Option<i32>,
     pub fingerprint: Option<String>,
+    /// Last time the provider pushed new card details; lifts an older expired-card decline.
+    pub card_refreshed_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The customer saved it to pay with right away and it has not paid yet.
+    pub saved_for_payment_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Insertable, AsChangeset)]
@@ -98,6 +102,10 @@ pub struct ResolvedSubscriptionPaymentContext {
     #[diesel(select_expression = crate::schema::customer::id)]
     #[diesel(select_expression_type = crate::schema::customer::id)]
     pub customer_id: CustomerId,
+
+    #[diesel(select_expression = crate::schema::customer::current_payment_method_id)]
+    #[diesel(select_expression_type = crate::schema::customer::current_payment_method_id)]
+    pub current_payment_method_id: Option<CustomerPaymentMethodId>,
 }
 
 #[derive(Debug, Queryable, Selectable)]

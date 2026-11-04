@@ -10,6 +10,7 @@ import {
   SidebarMenuItem,
   cn,
   useSidebar,
+  NewBadge,
 } from '@ui/index'
 import { ChevronRight, type LucideIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -23,11 +24,17 @@ function Tree({
     url?: To
     icon: LucideIcon
     disabled?: boolean
+    preview?: boolean
+    new?: boolean
     items?: {
       title: string
       url: To
       disabled?: boolean
       beta?: boolean
+      preview?: boolean
+      new?: boolean
+      /** What waits on the caller there. */
+      count?: number
     }[]
   }
 }) {
@@ -75,9 +82,13 @@ function Tree({
               isActive={(isActive || isSubActive) && state === 'collapsed'}
             >
               <Flex align="center" justify="between">
-                <Flex align="center" className="gap-4">
+                <Flex align="center" className="gap-3">
                   <item.icon size={16} className="min-w-4 min-h-4" />
                   <span>{item.title}</span>
+                  {item.new && <NewBadge />}
+                  {!isOpen && item.items.some(i => (i.count ?? 0) > 0) && (
+                    <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-foreground/70" />
+                  )}
                 </Flex>
                 <ChevronRight className="transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
               </Flex>
@@ -97,9 +108,18 @@ function Tree({
                 >
                   <NavLink to={subItem.url}>
                     <SidebarMenuButton key={index} isActive={isSubActive} className="pl-10">
-                      <Flex align="center" className="gap-2">
+                      <Flex align="center" className="w-full gap-2">
                         <span>{subItem.title}</span>
                         {subItem.beta && <BetaBadge />}
+                        {subItem.new && <NewBadge />}
+                        {!!subItem.count && (
+                          <span
+                            className="ml-auto rounded-full bg-foreground/10 px-1.5 text-[10.5px] font-medium tabular-nums text-foreground"
+                            aria-label={`${subItem.count} waiting on you`}
+                          >
+                            {subItem.count > 99 ? '99+' : subItem.count}
+                          </span>
+                        )}
                       </Flex>
                     </SidebarMenuButton>
                   </NavLink>
@@ -120,7 +140,7 @@ function Tree({
       <div className={cn('block w-full', item.disabled && 'pointer-events-none opacity-60')}>
         <NavLink to={item.url ?? ''}>
           <SidebarMenuButton isActive={isActive}>
-            {Icon && <Icon className="mr-2 h-4 w-4" />}
+            {Icon && <Icon className="mr-1 h-4 w-4" />}
             {item.title}
           </SidebarMenuButton>
         </NavLink>
@@ -138,12 +158,15 @@ export function NavMain({
     icon: LucideIcon
     isActive?: boolean
     disabled?: boolean
+    new?: boolean
     items?: {
       title: string
       url: To
       isActive?: boolean
       disabled?: boolean
       beta?: boolean
+      new?: boolean
+      count?: number
     }[]
   }[]
 }) {

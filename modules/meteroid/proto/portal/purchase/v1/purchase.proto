@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package meteroid.portal.purchase.v1;
+
+import "api/subscriptions/v1/models.proto";
+
+// Anonymous: anyone holding a purchase link's token can call this service.
+
+// A plan component as the subscription started from the link gets it.
+message OfferComponent {
+  string name = 1;
+  meteroid.api.subscriptions.v1.SubscriptionFeeBillingPeriod period = 2;
+  meteroid.api.subscriptions.v1.SubscriptionFee fee = 3;
+}
+
+message PurchaseOffer {
+  string seller_name = 1;
+  optional string seller_logo_url = 2;
+  optional string seller_brand_color = 3;
+  string plan_name = 4;
+  optional string plan_description = 5;
+  string currency = 6;
+  optional uint32 trial_days = 7;
+  repeated OfferComponent components = 8;
+  bool allow_coupon_codes = 9;
+  // Proof-of-work challenge (ALTCHA scheme, JSON: algorithm, challenge, maxnumber, salt,
+  // signature) the page solves before StartPurchase. Issued by this server, no third party.
+  string pow_challenge = 10;
+  // Started by licensed software: the purchased license is delivered to it.
+  bool for_installation = 11;
+  // The installation receiving the license, for the buyer to check against their own.
+  optional string installation_id = 12;
+  // Buyer types the link accepts, never empty.
+  repeated BuyerType buyer_types = 13;
+  // When false, only the billing country is required.
+  bool require_billing_address = 14;
+  TaxIdCollection tax_id_collection = 15;
+  // Amounts are quoted tax-included.
+  bool tax_inclusive = 16;
+  // The seller requires complete billing information: the address with its postal code. Implies
+  // require_billing_address.
+  bool require_billing_information = 17;
+}
+
+message GetPurchaseOfferRequest {
+  string token = 1;
+  // Signed request from licensed software (see StartPurchaseRequest.license_request).
+  optional string license_request = 2;
+}
+
+message GetPurchaseOfferResponse {
+  PurchaseOffer offer = 1;
+}
+
+// Whether companies are asked for a VAT / tax ID; individuals never are.
+enum TaxIdCollection {
+  TAX_ID_COLLECTION_OPTIONAL = 0;
+  TAX_ID_COLLECTION_OFF = 1;
+  TAX_ID_COLLECTION_REQUIRED = 2;
+}
+
+enum BuyerType {
+  BUYER_TYPE_COMPANY = 0;
+  BUYER_TYPE_INDIVIDUAL = 1;
+}
+
+message BillingAddress {
+  optional string line1 = 1;
+  optional string line2 = 2;
+  optional string city = 3;
+  optional string state = 4;
+  optional string zip_code = 5;
+}
+
+message StartPurchaseRequest {
+  string token = 1;
+  string email = 2;
+  BuyerType buyer_type = 3;
+  // Company name; required for companies.
+  optional string company_name = 4;
+  // Required for individuals.
+  optional string first_name = 5;
+  optional string last_name = 6;
+  // ISO 3166-1 alpha-2.
+  string country = 7;
+  // base64(JSON {algorithm, challenge, number, salt, signature}) solving the offer's challenge.
+  string pow_solution = 8;
+  // Set when licensed software opened the link: binds the license of the resulting
+  // subscription to that installation. Produced and signed by the installation.
+  optional string license_request = 9;
+  // Random id the page generates per visit; resubmitting with it updates the same customer
+  // and returns the same checkout while it is open.
+  string attempt_id = 10;
+  // Line1 and city are required unless the offer says otherwise; the country is `country`.
+  BillingAddress billing_address = 11;
+  // Companies only, when the offer collects tax IDs.
+  optional string vat_number = 12;
+  // Company registration number. Companies only.
+  optional string legal_number = 13;
+}
+
+message StartPurchaseResponse {
+  // Checkout URL (carries a checkout-session portal token).
+  string checkout_url = 1;
+}
+
+service PurchaseService {
+  rpc GetPurchaseOffer(GetPurchaseOfferRequest) returns (GetPurchaseOfferResponse) {}
+  rpc StartPurchase(StartPurchaseRequest) returns (StartPurchaseResponse) {}
+}

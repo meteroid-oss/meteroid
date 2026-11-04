@@ -1,0 +1,3 @@
+-- Irreversible: PostgreSQL cannot remove a value from an enum type. Dropping ENDED
+-- would require recreating "SubscriptionEventType" and rewriting every column that
+-- references it, so the value is intentionally left in place.

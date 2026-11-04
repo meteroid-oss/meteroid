@@ -1,0 +1,22 @@
+syntax = "proto3";
+package meteroid.api.notifications.v1;
+
+enum ChannelTypeEnum {
+  SLACK = 0;
+  EMAIL = 1;
+  WEBHOOK = 2;
+  DISCORD = 3;
+}
+
+// A tenant-wide, reusable delivery destination. Configured once, then picked by any
+// signal or monitor. `config` is a JSON string whose shape depends on `type`:
+// slack/webhook/discord -> {"url": "..."}, email -> {"recipients": ["a@b.com", ...]}.
+message NotificationChannel {
+  string id = 1;
+  string name = 2;
+  ChannelTypeEnum type = 3;
+  string config = 4;
+  bool disabled = 5;
+  string created_at = 6;
+  optional string updated_at = 7;
+}

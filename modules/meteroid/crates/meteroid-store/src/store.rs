@@ -1,7 +1,7 @@
 use crate::StoreResult;
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::services::clients::usage::UsageClient;
-use common_domain::ids::{OrganizationId, PlanId};
+use common_domain::ids::{OrganizationId, TenantId};
 use common_eventbus::{Event, EventBus};
 use diesel::{ConnectionError, ConnectionResult};
 use diesel_async::pooled_connection::deadpool::{Object, Pool};
@@ -17,7 +17,7 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::crypto::{verify_tls12_signature, verify_tls13_signature};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, Error, SignatureScheme};
-use scoped_futures::ScopedBoxFuture;
+use scoped_futures::{ScopedBoxFuture, ScopedFutureExt};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -41,13 +41,10 @@ pub struct Settings {
     pub webhook_external_url: Option<String>,
     pub mailer_enabled: bool,
     pub domains_whitelist: Vec<String>,
-    pub billing_default_plan_id: Option<PlanId>,
     pub admin_organization: Option<OrganizationId>,
     pub invite_ttl_days: u32,
+    pub mfa_issuer: String,
 }
-
-#[allow(clippy::upper_case_acronyms)]
-type PLACEHOLDER = i32; // enterprise placeholder
 
 impl Settings {
     /// Base URL for provider webhook callbacks (Mollie per-payment webhook URLs).
@@ -91,8 +88,12 @@ pub struct Store {
     pub(crate) internal: StoreInternal,
     pub(crate) oauth: OauthServices,
     pub mailer: Arc<dyn MailerService>,
-    pub billing: Option<Arc<PLACEHOLDER>>,
+    pub organization_hooks: Arc<dyn crate::hooks::OrganizationHooks>,
+    pub instance: Arc<dyn crate::hooks::InstanceEdition>,
+    pub hooks: crate::hooks::StoreHooks,
     pub usage_client: Arc<dyn UsageClient>,
+    pub keep_last_events: crate::repositories::tenants::KeepLastEventsLookup,
+    pub slug_ids: crate::repositories::tenants::SlugIds,
 }
 
 pub struct StoreConfig {
@@ -109,10 +110,12 @@ pub struct StoreConfig {
     pub oauth: OauthServices,
     pub domains_whitelist: Vec<String>,
     pub admin_organization_id: Option<OrganizationId>,
-    pub billing: Option<Arc<PLACEHOLDER>>,
-    pub billing_default_plan_id: Option<PlanId>,
+    pub organization_hooks: Arc<dyn crate::hooks::OrganizationHooks>,
+    pub instance: Arc<dyn crate::hooks::InstanceEdition>,
+    pub hooks: crate::hooks::StoreHooks,
     pub usage_client: Arc<dyn UsageClient>,
     pub invite_ttl_days: u32,
+    pub mfa_issuer: String,
 }
 
 /**
@@ -121,8 +124,19 @@ pub struct StoreConfig {
  * Service => Exact mapping of the API, + validations, setup conn, call repository
  * Repository is often pass-through to `diesel_models` after mapping, but not always (can multiple queries, insert multiple entities, etc)
  */
-#[derive(Clone)]
-pub struct StoreInternal {}
+#[derive(Clone, Default)]
+pub struct StoreInternal {
+    pub(crate) custom_property_definitions:
+        Arc<crate::repositories::custom_properties::CustomPropertyDefinitionsCache>,
+}
+
+pub(crate) async fn pool_conn(pool: &PgPool) -> StoreResult<PgConn> {
+    pool.get()
+        .await
+        .map_err(Report::from)
+        .change_context(StoreError::DatabaseConnectionError)
+        .attach("Failed to get a connection from the pool")
+}
 
 pub fn diesel_make_pg_pool(pg_config: PgConfig) -> StoreResult<PgPool> {
     let database_url = pg_config.database_url.as_str();
@@ -158,7 +172,7 @@ pub fn diesel_make_pg_pool(pg_config: PgConfig) -> StoreResult<PgPool> {
         )))
         // Timeout for waiting to get a connection from the pool
         .wait_timeout(Some(Duration::from_secs(pg_config.pool.wait_timeout_secs)))
-        // Recycle connections after 10 minutes to avoid stale "idle in transaction" states
+        // Timeout for the health check run when a connection is handed out again (not a max age)
         .recycle_timeout(Some(Duration::from_secs(
             pg_config.pool.recycle_timeout_secs,
         )))
@@ -188,9 +202,22 @@ fn establish_secure_connection(db_url: &str) -> BoxFuture<'_, ConnectionResult<A
 
 impl Store {
     pub fn new(config: StoreConfig) -> StoreResult<Self> {
+        // The usage client reads `keep_last_events` while its caller may hold every pooled
+        // connection: on connections of its own, with short timeouts, it never waits on them.
+        let lookup_pool = diesel_make_pg_pool(PgConfig {
+            database_url: config.pg.database_url.clone(),
+            pool: PgPoolConfig {
+                max_size: 2,
+                create_timeout_secs: 3,
+                wait_timeout_secs: 3,
+                recycle_timeout_secs: 3,
+            },
+        })?;
         let pool: PgPool = diesel_make_pg_pool(config.pg)?;
 
         Ok(Store {
+            keep_last_events: crate::repositories::tenants::KeepLastEventsLookup::new(lookup_pool),
+            slug_ids: crate::repositories::tenants::SlugIds::new(),
             pool,
             eventbus: config.eventbus,
             settings: Settings {
@@ -202,25 +229,40 @@ impl Store {
                 webhook_external_url: config.webhook_external_url,
                 mailer_enabled: config.mailer_enabled,
                 domains_whitelist: config.domains_whitelist,
-                billing_default_plan_id: config.billing_default_plan_id,
                 admin_organization: config.admin_organization_id,
                 invite_ttl_days: config.invite_ttl_days,
+                mfa_issuer: config.mfa_issuer,
             },
-            internal: StoreInternal {},
+            internal: StoreInternal::default(),
             mailer: config.mailer,
             oauth: config.oauth,
-            billing: config.billing,
+            organization_hooks: config.organization_hooks,
+            instance: config.instance,
+            hooks: config.hooks,
             usage_client: config.usage_client,
         })
     }
 
+    /// `ENABLE_MULTI_ORGANIZATION`, where the edition allows several organizations.
+    pub fn multi_organization_enabled(&self) -> bool {
+        self.settings.multi_organization_enabled && self.instance.allows_multiple_organizations()
+    }
+
     pub async fn get_conn(&self) -> StoreResult<PgConn> {
-        self.pool
-            .get()
-            .await
-            .map_err(Report::from)
-            .change_context(StoreError::DatabaseConnectionError)
-            .attach("Failed to get a connection from the pool")
+        pool_conn(&self.pool).await
+    }
+
+    pub fn oauth_egress(&self) -> &egress_http::EgressClient {
+        self.oauth.egress()
+    }
+
+    pub async fn keep_last_events(&self, tenant_id: TenantId) -> StoreResult<bool> {
+        self.keep_last_events.get(tenant_id).await
+    }
+
+    /// The store's lookup, for a client it holds (sharing its cache and its invalidation).
+    pub fn keep_last_events_lookup(&self) -> crate::repositories::tenants::KeepLastEventsLookup {
+        self.keep_last_events.clone()
     }
 
     pub async fn transaction<'a, R, F>(&self, callback: F) -> StoreResult<R>
@@ -235,11 +277,7 @@ impl Store {
         self.transaction_with(&mut conn, callback).await
     }
 
-    pub(crate) async fn transaction_with<'a, R, F>(
-        &self,
-        conn: &mut PgConn,
-        callback: F,
-    ) -> StoreResult<R>
+    pub async fn transaction_with<'a, R, F>(&self, conn: &mut PgConn, callback: F) -> StoreResult<R>
     where
         F: for<'r> FnOnce(&'r mut PgConn) -> ScopedBoxFuture<'a, 'r, Result<R, StoreErrorReport>>
             + Send
@@ -249,8 +287,41 @@ impl Store {
         self.internal.transaction_with(conn, callback).await
     }
 
-    pub fn billing_default_plan_id(&self) -> Option<PlanId> {
-        self.settings.billing_default_plan_id
+    /// `transaction`, ending with the tenant's input bump (`credit_inputs::bump_tenant`).
+    pub async fn transaction_bumping_tenant<'a, R, F>(
+        &self,
+        tenant_id: TenantId,
+        callback: F,
+    ) -> StoreResult<R>
+    where
+        F: for<'r> FnOnce(&'r mut PgConn) -> ScopedBoxFuture<'a, 'r, Result<R, StoreErrorReport>>
+            + Send
+            + 'a,
+        R: Send + 'a,
+    {
+        let mut conn = self.get_conn().await?;
+        self.internal
+            .transaction_bumping_tenants(&mut conn, move |conn| {
+                async move { Ok((callback(conn).await?, vec![tenant_id])) }.scope_boxed()
+            })
+            .await
+    }
+
+    /// `transaction`, ending with the input bump of the tenants the callback returns.
+    pub async fn transaction_bumping_tenants<'a, R, F>(&self, callback: F) -> StoreResult<R>
+    where
+        F: for<'r> FnOnce(
+                &'r mut PgConn,
+            )
+                -> ScopedBoxFuture<'a, 'r, Result<(R, Vec<TenantId>), StoreErrorReport>>
+            + Send
+            + 'a,
+        R: Send + 'a,
+    {
+        let mut conn = self.get_conn().await?;
+        self.internal
+            .transaction_bumping_tenants(&mut conn, callback)
+            .await
     }
 }
 
@@ -273,6 +344,40 @@ impl StoreInternal {
             })
             .await?;
 
+        Ok(result)
+    }
+}
+
+impl StoreInternal {
+    /// The only caller of `bump_tenants`: the bump is the transaction's last statement, since no
+    /// lock protects the tenant rows and anything after it could wait while holding them.
+    async fn transaction_bumping_tenants<'a, R, F>(
+        &self,
+        conn: &mut PgConn,
+        callback: F,
+    ) -> StoreResult<R>
+    where
+        F: for<'r> FnOnce(
+                &'r mut PgConn,
+            )
+                -> ScopedBoxFuture<'a, 'r, Result<(R, Vec<TenantId>), StoreErrorReport>>
+            + Send
+            + 'a,
+        R: Send + 'a,
+    {
+        let result = conn
+            .transaction(async |conn| {
+                let (result, tenants) = callback(conn)
+                    .await
+                    .map_err(crate::errors::StoreErrorContainer::from)?;
+                diesel_models::query::credit_inputs::bump_tenants(conn, &tenants)
+                    .await
+                    .map_err(|e| {
+                        crate::errors::StoreErrorContainer::from(Report::<StoreError>::from(e))
+                    })?;
+                Ok::<_, crate::errors::StoreErrorContainer>(result)
+            })
+            .await?;
         Ok(result)
     }
 }

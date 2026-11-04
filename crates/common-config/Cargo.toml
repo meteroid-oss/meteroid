@@ -10,4 +10,5 @@ license.workspace = true
 envconfig.workspace = true
 humantime.workspace = true
 secrecy.workspace = true
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 

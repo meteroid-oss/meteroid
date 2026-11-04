@@ -1,28 +1,23 @@
-version: tip
-
 commonSettings: &commonSettings
   replicaCount: 1
+  # CPU-based autoscaling needs resources.requests.cpu
   autoscaling:
     enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
   image:
-    pullPolicy: Always
+    pullPolicy: IfNotPresent
   podAnnotations: {}
   podLabels: {}
   tolerations: []
   nodeSelector: {}
   affinity: {}
-  extraEnv: {}
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 200m
-      memory: 256Mi
+  extraEnv: []
+  resources: {}
   terminationGracePeriodSeconds: 30
 
 meteroid:
-  revisionHistoryLimit: 10
   podAnnotations: {}
   podLabels: {}
   podSecurityContext:
@@ -42,35 +37,47 @@ serviceAccount:
   automountServiceAccountToken: true
 
 global:
-  publicAppUrl: "http://meteroid.local"
-  publicApiUrl: "http://rpc.meteroid.local"
-  publicRestApiUrl: "http://api.meteroid.local"
+  publicAppUrl: "https://app.example.com"
+  publicApiUrl: "https://rpc.example.com"
+  publicRestApiUrl: "https://api.example.com"
 
-  telemetry:
-    tracingEnabled: false
-    metricsEnabled: false
-    otelEndpoint: ""
+  telemetryTracingEnabled: false
+  telemetryMetricsEnabled: false
+  telemetryOtelEndpoint: ""
+
+  # Anonymous daily usage report sent to Meteroid, see docs.meteroid.com/self-hosting/telemetry.
+  usageTelemetry: true
 
   smtp:
     # host: ""
-    # from: "Hey <hey@example.com>"
+    # Sender of account and alert emails; required once host is set
+    # from: "Billing <billing@example.com>"
+    # Address customer emails are sent from, behind each invoicing entity's sender name; defaults to the address of `from`
+    # customerFromAddr: "billing@example.com"
+    # Reply-To of account and alert emails; none by default
+    # replyTo: "No Reply <no-reply@example.com>"
     # tls: true
 
+  # S3-compatible bucket, e.g. s3://meteroid
   objectStore:
     uri: ""
-    # s3ndpoint: ""
+    # s3Endpoint: ""
 
   secrets:
     # if using an external secret use this
     existingSecretName: ""
 
-    # # else provide below
-    # databaseUrl: ""  # only if postgresql.enabled is false
+    # # else provide below; only the first four are required
+    # databaseUrl: ""
     # jwtPrivateKey: ""
     # internalApiSecret: ""
-    # secretsCryptkey: ""
-    # svixJwtToken: ""
-    # svixOperationalWebhookSecret: ""  # optional, enables svix operational webhooks
+    # secretsCryptkey: ""  # exactly 32 ASCII characters, e.g. `openssl rand -hex 16`; never change it
+    # kafka:
+    #   password: ""
+    # clickhouse:
+    #   password: ""
+    # redis:
+    #   password: ""
     # oauthGoogle:
     #   clientId: ""
     #   clientSecret: ""
@@ -81,12 +88,12 @@ global:
     #   username: ""
     #   password: ""
 
-  # External services configuration (used when dependencies are disabled)
+  # Postgres comes from the database-url secret; Kafka and ClickHouse are configured below
   kafka:
     bootstrapServers: ""
-    # securityProtocol: ""
-    # saslMechanism: ""
-    # saslUsername: ""
+    securityProtocol: SASL_PLAINTEXT
+    saslMechanism: SCRAM-SHA-512
+    saslUsername: meteroid
 
   clickhouse:
     address: ""
@@ -96,76 +103,80 @@ global:
     username: "meteroid"
     clusterName: "meteroid"
 
+  # Optional: without it, rate limits and caches are kept per replica
   redis:
     url: ""
 
+  # Issuer shown in authenticator apps
+  mfaIssuer: "Meteroid"
+
+  # Outbound webhooks and alert channels; unset keys keep the app defaults
+  webhooks:
+    # CONNECT proxy for webhook and alert deliveries (e.g. Smokescreen)
+    egressProxyUrl: ""
+    # deliveryConcurrency: 32
+    # retentionDays: 30
+    # Enterprise images only (the OSS ones do not restrict destinations):
+    # allowPrivateDestinations: false
+    # SSO overrides, defaulting to the settings above:
+    # ssoAllowPrivateDestinations: false
+    # ssoUseProxy: false
+
 ingress:
-  # Enable routing configuration (generates either Ingress or IngressRoute based on useIngressRoute)
   enabled: true
-  # Use Traefik IngressRoute CRD (true) or standard Kubernetes Ingress (false)
-  # Note: IngressRoute is required for per-host rate limiting via middlewares
-  useIngressRoute: false
-  className: nginx
-  annotations:
-  # Traefik rate limiting configuration (requires useIngressRoute: true)
-  # Middlewares are automatically added to routes based on rateLimit config
+  # Traefik IngressRoute, or a standard Ingress when false
+  useIngressRoute: true
+  className: traefik
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt
   hosts:
-    - host: meteroid.local
-      # Per-host per-IP rate limit (via X-Forwarded-For header)
-      # Middlewares are auto-injected - no need to specify manually
-      # rateLimit:
-      #   perIp:
-      #     average: 100
-      #     burst: 50
+    - host: app.example.com
       paths:
         - path: /
           pathType: Prefix
           service: web
           port: 80
-    - host: rpc.meteroid.local
+    - host: rpc.example.com
       paths:
         - path: /
           pathType: Prefix
           service: api
           port: 50061
-    - host: api.meteroid.local
+    - host: api.example.com
       paths:
         - path: /
           pathType: Prefix
           service: api
           port: 8080
+  tls:
+    - hosts:
+        - app.example.com
+        - rpc.example.com
+        - api.example.com
+      secretName: meteroid-tls
 
 api:
   <<: *commonSettings
   image:
     repository: ghcr.io/meteroid-oss/meteroid-api
-    tag: tip
+    # Defaults to the chart's appVersion
+    tag: ""
   service:
     type: ClusterIP
     ports:
       http: 8080
       grpc: 50061
   config:
-    enableMultiOrganization: false
-    svixServerUrl: ""
-    kafka: {}
-  httpStartupProbe:
-    initialDelaySeconds: 5
-    periodSeconds: 5
-    failureThreshold: 10
-    path: /health
-  httpLivenessProbe:
-    periodSeconds: 20
-  httpReadinessProbe:
-    periodSeconds: 10
-    path: /health
+    # Connections per pod; keep replicas x pool under Postgres' max_connections
+    pgPoolMaxSize: 5
 
 # Web Configuration
 web:
   <<: *commonSettings
   image:
     repository: ghcr.io/meteroid-oss/meteroid-web
-    tag: tip
+    # Defaults to the chart's appVersion
+    tag: ""
   service:
     type: ClusterIP
     ports:
@@ -180,92 +191,21 @@ metering:
   enabled: true
   image:
     repository: ghcr.io/meteroid-oss/metering-api
-    tag: tip
+    # Defaults to the chart's appVersion
+    tag: ""
   service:
     type: ClusterIP
     ports:
       http: 8081
       grpc: 50062
-  config:
-    kafka:
-      topic: "meteroid-events-raw"
-      producerLingerMs: 100
-      producerQueueMib: 100
-      messageTimeoutMs: 30000
-      compressionCodec: "gzip"
-  grpcStartupProbe:
-    initialDelaySeconds: 5
-    periodSeconds: 5
-    failureThreshold: 10
-  grpcLivenessProbe:
-    periodSeconds: 20
-  grpcReadinessProbe:
-    periodSeconds: 10
 
-# Scheduler Configuration
-scheduler:
+# Worker Configuration (scheduled jobs and queue consumers). The former `scheduler` key is
+# still read, over this one, until 2.1.
+worker:
   <<: *commonSettings
   image:
-    repository: ghcr.io/meteroid-oss/meteroid-scheduler
-    tag: tip
+    repository: ghcr.io/meteroid-oss/meteroid-worker
+    # Defaults to the chart's appVersion
+    tag: ""
   config:
-    enableMultiOrganization: false
-    svixServerUrl: ""
-    kafka: {}
-
-# Dependencies
-postgresql:
-  enabled: true
-  primary:
-    persistence:
-      size: 1Gi
-  auth:
-    username: postgres
-    password: "postgres"
-    database: meteroid
-
-kafka:
-  enabled: true
-  listeners:
-    client:
-      protocol: "PLAINTEXT"
-    interbroker:
-      protocol: "PLAINTEXT"
-    controller:
-      protocol: "PLAINTEXT"
-  controller:
-    replicaCount: 1
-    resourcesPresets: "none"
-  broker:
-    replicaCount: 1
-    resourcesPresets: "none"
-  zookeeper:
-    replicaCount: 1
-  provisionning:
-    replicationFactor: 1
-  resources:
-    limits:
-      cpu: 400m
-      memory: 1Gi
-    requests:
-      cpu: 250m
-      memory: 256Mi
-  extraConfig: |
-    offsets.topic.replication.factor=1
-    transaction.state.log.replication.factor=1
-    auto.create.topics.enable=true
-
-clickhouse:
-  enabled: true
-  image:
-    repository: clickhouse/clickhouse-server
-    tag: 24.2.2
-    pullPolicy: IfNotPresent
-  auth:
-    username: "default"
-  database: meteroid
-  service:
-    type: ClusterIP
-  persistence:
-    accessMode: ReadWriteOnce
-    size: 10Gi
+    pgPoolMaxSize: 15

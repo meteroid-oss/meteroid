@@ -1,0 +1,377 @@
+syntax = "proto3";
+
+package meteroid.portal.wallets.v1;
+
+import "api/billablemetrics/v1/models.proto";
+import "api/subscriptions/v1/models.proto";
+import "google/protobuf/timestamp.proto";
+
+// The customer's own wallets. Amounts are minor units of the wallet currency.
+
+
+enum CreditGrantStatus {
+  CREDIT_GRANT_STATUS_UNSPECIFIED = 0;
+  CREDIT_GRANT_STATUS_PENDING = 1;
+  CREDIT_GRANT_STATUS_ACTIVE = 2;
+  CREDIT_GRANT_STATUS_DEPLETED = 3;
+  CREDIT_GRANT_STATUS_EXPIRED = 4;
+}
+
+message CreditGrant {
+  string id = 1;
+  int64 amount = 2;
+  int64 remaining = 3;
+  CreditGrantStatus status = 4;
+  bool promotional = 5;
+  google.protobuf.Timestamp effective_at = 6;
+  optional google.protobuf.Timestamp expires_at = 7;
+  optional int64 expired_amount = 8;
+  // The products whose charges it pays; empty pays every product.
+  repeated GrantProduct applicable_products = 9;
+  GrantScope scope = 10;
+}
+
+// Which credit a grant is and what it pays, labelled as the customer reads it.
+message GrantScope {
+  CreditGrantKind kind = 1;
+  // "Included with Pro", "Purchased credit", "Free credit" or "Account balance".
+  string kind_label = 2;
+  // e.g. "Pays Pro usage" or "Pays any invoice".
+  string pays_for = 3;
+  // The subscription it belongs to, which alone it pays; unset pays any.
+  optional string subscription_id = 4;
+  optional string subscription_plan_name = 5;
+  // Pays only usage charges.
+  bool usage_only = 6;
+}
+
+enum CreditGrantKind {
+  CREDIT_GRANT_KIND_UNSPECIFIED = 0;
+  // Plan credit that belongs to a subscription and renews with it.
+  CREDIT_GRANT_KIND_INCLUDED = 1;
+  // "Purchased credit".
+  CREDIT_GRANT_KIND_PREPAID = 2;
+  // "Free credit": the bonus of discounted credit, promo codes, welcome credit, goodwill credit.
+  CREDIT_GRANT_KIND_BONUS = 3;
+  // Money that pays any invoice.
+  CREDIT_GRANT_KIND_ACCOUNT_BALANCE = 4;
+}
+
+// The wallet's spendable and scheduled credit of one kind, belonging to one subscription (or
+// none), that pays the same charges. Amounts are minor units of the wallet.
+message CreditGroup {
+  CreditGrantKind kind = 1;
+  string label = 2;
+  string pays_for = 3;
+  optional string subscription_id = 4;
+  bool usage_only = 5;
+  int64 available = 6;
+  // Granted, taking effect later.
+  int64 upcoming = 7;
+  // The soonest moment some of `available` lapses, and how much lapses then.
+  optional google.protobuf.Timestamp next_lapse_at = 8;
+  int64 next_lapse_amount = 9;
+  // Set when what lapses next rolls over instead.
+  optional RolloverCap rollover = 10;
+  // How long rolled-over credit stays spendable, e.g. "1 month".
+  optional string rollover_term = 11;
+  // The products its credit is restricted to; empty for credit that pays any product.
+  repeated string product_ids = 12;
+}
+
+message GrantProduct {
+  string id = 1;
+  string name = 2;
+}
+
+enum AutoTopUpMethod {
+  AUTO_TOP_UP_METHOD_UNSPECIFIED = 0;
+  AUTO_TOP_UP_METHOD_FIXED = 1;
+  AUTO_TOP_UP_METHOD_TO_TARGET = 2;
+}
+
+// The wallet's automatic top-up. Limits set by the merchant are shown but not editable.
+message AutoTopUp {
+  AutoTopUpMethod method = 1;
+  int64 threshold = 2;
+  optional int64 amount = 3;
+  optional int64 target = 4;
+  optional string payment_method_id = 5;
+  optional int64 minimum = 6;
+  optional int64 maximum = 7;
+  // For a credit unit wallet `minimum`/`maximum` (price before tax) and the caps (card charge, tax
+  // included) are money, in `sale_price.currency`.
+  optional int64 daily_cap = 8;
+  bool enabled = 9;
+  optional google.protobuf.Timestamp suspended_at = 10;
+  // Why the last attempt failed, worded for the customer.
+  optional string last_error = 11;
+  int32 consecutive_failures = 12;
+  optional google.protobuf.Timestamp last_succeeded_at = 13;
+  optional int64 monthly_cap = 14;
+  // Set while stopped (`suspended_at`): why, which decides what resumes it.
+  AutoTopUpStopReason stop_reason = 15;
+  // Credit unit wallets: the price per credit these terms were authorized at, in major units of
+  // `agreed_price_currency`, as a decimal string. Top-ups charge the current price while it is at
+  // or below it.
+  optional string agreed_unit_price = 16;
+  optional string agreed_price_currency = 17;
+}
+
+enum AutoTopUpStopReason {
+  AUTO_TOP_UP_STOP_REASON_UNSPECIFIED = 0;
+  // The price per credit rose above the one authorized, or the currency changed: confirming the
+  // terms again resumes it. A lower price keeps the rule running at that price.
+  AUTO_TOP_UP_STOP_REASON_PRICE_CHANGED = 1;
+  // The credits cannot be bought right now; only the merchant can fix it.
+  AUTO_TOP_UP_STOP_REASON_UNSELLABLE = 2;
+  AUTO_TOP_UP_STOP_REASON_PAYMENT_REVERSED = 3;
+  AUTO_TOP_UP_STOP_REASON_PAYMENT_FAILED = 4;
+  // The merchant changed the terms, or one top-up would charge more than the limit: reviewing
+  // and authorizing terms again resumes it.
+  AUTO_TOP_UP_STOP_REASON_AWAITING_CUSTOMER = 5;
+}
+
+message Wallet {
+  string id = 1;
+  string currency = 2;
+  int64 available = 4;
+  int64 pending = 5;
+  // Its active and scheduled grants.
+  repeated CreditGrant grants = 6;
+  optional AutoTopUp auto_top_up = 7;
+  // The customer can top this wallet up from the portal.
+  bool can_top_up = 8;
+  reserved 9;
+  // Set together once usage not yet invoiced has been estimated.
+  optional int64 available_after_usage = 10;
+  optional int64 pending_usage = 11;
+  optional google.protobuf.Timestamp as_of = 12;
+  WalletStatus status = 13;
+  // Usage not yet invoiced that no credit in the currency covers; it is billed.
+  int64 uncovered_usage = 14;
+  // A ledger change landed after `as_of`: these numbers are still catching up with it.
+  bool live_stale = 15;
+  // Set when the wallet holds credits of a unit rather than money: `currency` is then the unit
+  // code and amounts are minor units of `precision` decimals.
+  optional CreditUnitLabel credit_unit = 16;
+  // Credit unit wallets that can be bought: the price of one credit, before tax (the customer's
+  // agreed price, else the list price).
+  optional CreditUnitSalePrice sale_price = 17;
+  // The credit split by kind and by the subscription it belongs to; `available` is their total.
+  repeated CreditGroup groups = 18;
+  // Usage stops as soon as the credit in this currency is used up, for at least one subscription.
+  bool pauses_at_zero = 19;
+}
+
+message CreditUnitSalePrice {
+  string currency = 1;
+  // Major units of `currency` per credit, as a decimal string (e.g. "0.001").
+  string unit_price = 2;
+}
+
+message CreditUnitLabel {
+  string code = 1;
+  string name = 2;
+  string plural_name = 3;
+  optional string symbol = 4;
+  uint32 precision = 5;
+}
+
+enum WalletStatus {
+  WALLET_STATUS_UNSPECIFIED = 0;
+  WALLET_STATUS_HEALTHY = 1;
+  WALLET_STATUS_LOW = 2;
+  WALLET_STATUS_DEPLETED = 3;
+  // Usage is paused until credit is added.
+  WALLET_STATUS_USAGE_BLOCKED = 4;
+}
+
+enum LedgerEntryType {
+  LEDGER_ENTRY_TYPE_UNSPECIFIED = 0;
+  LEDGER_ENTRY_TYPE_GRANTED = 1;
+  LEDGER_ENTRY_TYPE_APPLIED = 2;
+  LEDGER_ENTRY_TYPE_RETURNED = 3;
+  LEDGER_ENTRY_TYPE_REMOVED = 4;
+  LEDGER_ENTRY_TYPE_EXPIRED = 5;
+  LEDGER_ENTRY_TYPE_ROLLED_OVER = 6;
+}
+
+message LedgerEntry {
+  string id = 1;
+  LedgerEntryType type = 2;
+  int64 amount = 3;
+  int64 balance_after = 4;
+  string description = 5;
+  optional string invoice_id = 6;
+  optional string credit_note_id = 7;
+  google.protobuf.Timestamp effective_at = 8;
+  optional string invoice_number = 9;
+}
+
+// Where a grant came from, as the customer reads it.
+enum CreditSource {
+  CREDIT_SOURCE_UNSPECIFIED = 0;
+  CREDIT_SOURCE_PURCHASED = 1;
+  CREDIT_SOURCE_INCLUDED = 2;
+  CREDIT_SOURCE_ADDED = 3;
+  CREDIT_SOURCE_ROLLED_OVER = 4;
+  CREDIT_SOURCE_AUTOMATIC_TOP_UP = 5;
+  CREDIT_SOURCE_CREDIT_NOTE = 6;
+  // Given back by a voided or negative invoice, or by usage no invoice took over.
+  CREDIT_SOURCE_RETURNED = 7;
+  CREDIT_SOURCE_PREVIOUS_BALANCE = 8;
+  // Bonus credit sold with paid credit, or credit bought at no cost.
+  CREDIT_SOURCE_BONUS = 9;
+  CREDIT_SOURCE_OVERPAYMENT = 10;
+}
+
+message CreditGrantView {
+  string id = 1;
+  CreditSource source = 2;
+  // Minor units of the wallet.
+  int64 amount = 3;
+  // Left on the ledger.
+  int64 remaining = 4;
+  // Left once the usage not yet invoiced is paid; unset until estimated.
+  optional int64 remaining_after_usage = 5;
+  google.protobuf.Timestamp effective_at = 6;
+  optional google.protobuf.Timestamp expires_at = 7;
+  // Takes effect at `effective_at`.
+  bool scheduled = 8;
+  // Set when what is left at expiry rolls over: up to this amount, or all of it when unset.
+  optional RolloverCap rollover = 9;
+  // The invoice that paid for it.
+  optional string invoice_number = 10;
+  // The products it pays for; empty when it pays for any.
+  repeated GrantProduct applicable_products = 11;
+  GrantScope scope = 12;
+}
+
+message RolloverCap {
+  optional int64 max_amount = 1;
+}
+
+message CreditPeriod {
+  google.protobuf.Timestamp start = 1;
+  google.protobuf.Timestamp end = 2;
+}
+
+message UsageQuantity {
+  // Decimal string, in the metric's own unit.
+  string quantity = 1;
+  string metric_name = 2;
+  // Unset when the metric names no unit.
+  optional meteroid.api.billablemetrics.v1.MetricUnitLabel unit_label = 3;
+}
+
+// Since the wallet's first credit, in its minor units.
+message CreditTotals {
+  optional google.protobuf.Timestamp since = 1;
+  int64 added = 2;
+  // Applied to invoices, plus the usage not yet invoiced.
+  int64 used = 3;
+  int64 expired = 4;
+}
+
+// The next credit a subscription funds the wallet with.
+message NextCredit {
+  // Minor units of the wallet.
+  int64 amount = 1;
+  // YYYY-MM-DD.
+  string date = 2;
+  // What the customer pays for it, minor units of `price_currency`; zero when included.
+  int64 price = 3;
+  string price_currency = 4;
+  meteroid.api.subscriptions.v1.SubscriptionFeeBillingPeriod cadence = 5;
+  // Tax is added to `price`.
+  bool price_excludes_tax = 6;
+}
+
+message ExpiringCredit {
+  google.protobuf.Timestamp expires_at = 1;
+  // Minor units of the wallet left on the grants expiring then.
+  int64 remaining = 2;
+  // Of `remaining`, what rolls over into a new grant instead of lapsing.
+  optional int64 rollover_amount = 3;
+}
+
+message WalletOverview {
+  Wallet wallet = 1;
+  // Active and scheduled grants, in the order credit is used.
+  repeated CreditGrantView grants = 2;
+  // The current billing period of the subscriptions drawing on the wallet; unset when they differ.
+  optional CreditPeriod period = 3;
+  // This period's usage, projected linearly to each subscription's period end.
+  optional int64 projected_usage = 4;
+  optional UsageQuantity usage_quantity = 5;
+  CreditTotals totals = 6;
+  optional NextCredit next_credit = 7;
+  optional ExpiringCredit next_expiry = 8;
+  // When the credit ran out, while usage is paused.
+  optional google.protobuf.Timestamp usage_paused_at = 9;
+  // Usage priced in this wallet's denomination over the subscriptions' current periods, as their
+  // next invoices will bill it; unset when it could not be measured.
+  optional int64 period_usage = 10;
+  // How long the credit lasts for each live subscription drawing on the wallet.
+  repeated CreditOutlook outlooks = 11;
+}
+
+// How long the credit a subscription can use lasts. Amounts are minor units of the wallet.
+message CreditOutlook {
+  string subscription_id = 1;
+  string plan_name = 2;
+  // The subscription's current period end, YYYY-MM-DD.
+  string horizon = 3;
+  google.protobuf.Timestamp as_of = 4;
+  // Usable by the subscription, after all unbilled usage.
+  int64 balance = 5;
+  // Of `balance`, the credit that belongs to the subscription.
+  int64 included = 6;
+  // Of `balance`, the credit any of the customer's subscriptions can use.
+  int64 shared = 7;
+  // The subscription's usage projected to `horizon`; unset before enough usage.
+  optional int64 projected_usage = 8;
+  OutlookVerdict verdict = 9;
+  // Some charges billed before `horizon` could not be priced: the verdict is an estimate.
+  bool partial = 10;
+}
+
+message OutlookVerdict {
+  oneof verdict {
+    Updating updating = 1;
+    UsagePaused usage_paused = 2;
+    TopUpFailing top_up_failing = 3;
+    BeyondCredit beyond_credit = 4;
+    RunsOut runs_out = 5;
+    ProjectedBeyond projected_beyond = 6;
+    AutomaticTopUp automatic_top_up = 7;
+    Covered covered = 8;
+  }
+  // The balance is catching up with a recent change.
+  message Updating {}
+  message UsagePaused {
+    google.protobuf.Timestamp since = 1;
+  }
+  message TopUpFailing {}
+  // Unbilled usage already exceeds the credit; it is billed.
+  message BeyondCredit {
+    int64 uncovered = 1;
+  }
+  // At the current rate, the credit runs out on `on` (YYYY-MM-DD); usage pauses then if `pauses`.
+  message RunsOut {
+    string on = 1;
+    bool pauses = 2;
+  }
+  // At the current rate, `amount` of usage is billed beyond credit by `by` (YYYY-MM-DD).
+  message ProjectedBeyond {
+    int64 amount = 1;
+    string by = 2;
+  }
+  message AutomaticTopUp {}
+  // At the current rate, the credit covers the period through `through` (YYYY-MM-DD).
+  message Covered {
+    string through = 1;
+    int64 projected = 2;
+  }
+}

@@ -86,6 +86,7 @@ export const CouponsTable: FunctionComponent<CouponsTableProps> = ({
 
   return (
     <StandardTable
+      tableKey="coupons"
       columns={columns}
       data={couponsQuery.data?.coupons ?? []}
       sortable={true}

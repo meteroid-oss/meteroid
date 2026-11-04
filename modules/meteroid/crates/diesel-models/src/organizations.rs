@@ -15,6 +15,7 @@ pub struct OrganizationRow {
     pub archived_at: Option<NaiveDateTime>,
     pub default_country: CountryCode,
     pub is_express: bool,
+    pub mfa_required: bool,
 }
 
 #[derive(Debug, Insertable)]

@@ -6,7 +6,7 @@ use crate::{DbResult, PgConn};
 use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use common_domain::ids::{ProductFamilyId, TenantId};
-use diesel::{ExpressionMethods, PgTextExpressionMethods, QueryDsl, debug_query};
+use diesel::{ExpressionMethods, PgTextExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
 
 impl ProductFamilyRowNew {
@@ -16,7 +16,7 @@ impl ProductFamilyRowNew {
 
         let query = diesel::insert_into(product_family).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -64,7 +64,7 @@ impl ProductFamilyRow {
 
         let paginated_query = query.paginate(pagination);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated_query));
+        crate::debug_sql(&paginated_query);
 
         paginated_query
             .load_and_count_pages(conn)
@@ -85,7 +85,7 @@ impl ProductFamilyRow {
             .filter(pf_dsl::id.eq(id))
             .filter(pf_dsl::tenant_id.eq(tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)

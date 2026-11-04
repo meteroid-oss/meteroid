@@ -31,6 +31,7 @@ pub struct BatchJobRow {
     pub error_message: Option<String>,
     pub error_output_key: Option<String>,
     pub input_file_name: Option<String>,
+    pub output_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Insertable)]

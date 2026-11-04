@@ -18,11 +18,25 @@ message SearchEventsRequest {
   // Sorting
   SortOrder sort_order = 8;
 
+  // Pre-aggregation property filters (WHERE-only) — restrict to events a metric would count.
+  repeated EventPropertyFilter filters = 9;
+
   enum SortOrder {
     TIMESTAMP_DESC = 0;
     TIMESTAMP_ASC = 1;
     INGESTED_DESC = 2;
     INGESTED_ASC = 3;
+  }
+}
+
+// The include/exclude form of a metric filter (the four UI operators already collapsed).
+message EventPropertyFilter {
+  string property = 1;
+  FilterOp op = 2;
+  repeated string values = 3;
+  enum FilterOp {
+    IN = 0;
+    NOT_IN = 1;
   }
 }
 
@@ -33,10 +47,16 @@ message SearchEventsResponse {
 message EventSummary {
   string id = 1;
   string code = 2;
+  // The raw customer identity carried by the event (internal id or external alias).
   string customer_id = 3;
   google.protobuf.Timestamp timestamp = 4;
   google.protobuf.Timestamp ingested_at = 5;
   map<string, string> properties = 6;
+  // Resolved internal customer id (empty when the identity couldn't be resolved),
+  // for deep-linking to the customer.
+  string customer_local_id = 7;
+  // Resolved customer display name (empty when unresolved).
+  string customer_name = 8;
 }
 
 service EventsService {

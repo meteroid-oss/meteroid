@@ -3,22 +3,25 @@ import {
   Button,
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
-  SelectValue,
-  Skeleton,
-  cn
+  Skeleton
 } from '@md/ui'
 import { OnChangeFn, PaginationState } from '@tanstack/react-table'
-import { Fragment, FunctionComponent } from 'react'
+import { FunctionComponent } from 'react'
 
 interface PaginationProps {
   pagination: PaginationState
   setPagination: OnChangeFn<PaginationState>
   totalCount: number
   isLoading: boolean
-  variant?: 'default' | 'reduced'
+  /** `footer`: compact, right-aligned, for a TableCard footer (always shows the count). */
+  variant?: 'reduced' | 'footer'
   showTotalOnSinglePage?: boolean
+  /** Footer variant only: renders a page-size picker with these options. */
+  pageSizeOptions?: number[]
 }
 
 const Pagination: FunctionComponent<PaginationProps> = ({
@@ -28,6 +31,7 @@ const Pagination: FunctionComponent<PaginationProps> = ({
   isLoading,
   variant = 'reduced',
   showTotalOnSinglePage = false,
+  pageSizeOptions,
 }) => {
   const currentPage = pagination.pageIndex + 1
   const pageSize = pagination.pageSize
@@ -36,23 +40,56 @@ const Pagination: FunctionComponent<PaginationProps> = ({
   const from = pagination.pageSize * pagination.pageIndex + 1
   const to = Math.min(pagination.pageSize * (pagination.pageIndex + 1), totalCount)
   const canNextPage = currentPage < totalPages
+  const countLabel =
+    totalPages > 1
+      ? `${from.toLocaleString()}–${to.toLocaleString()} of ${totalCount.toLocaleString()}`
+      : `${totalCount.toLocaleString()} result${totalCount !== 1 ? 's' : ''}`
+  // The last page has the largest from/to, so its label is the widest this list can show.
+  // Reserving its width keeps the arrows still while paging, without padding short lists.
+  const widestCountLabel =
+    totalPages > 1
+      ? `${(pageSize * (totalPages - 1) + 1).toLocaleString()}–${totalCount.toLocaleString()} of ${totalCount.toLocaleString()}`
+      : countLabel
 
-  // Only show page numbers for a reasonable range around current page
-  const getPageRange = (current: number, total: number) => {
-    if (total <= 7) {
-      return Array.from({ length: total }, (_, i) => i + 1)
-    }
-    
-    if (current <= 3) {
-      return [1, 2, 3, 4, '...', total]
-    }
-    
-    if (current >= total - 2) {
-      return [1, '...', total - 3, total - 2, total - 1, total]
-    }
-    
-    return [1, '...', current - 1, current, current + 1, '...', total]
-  }
+  const countText = (
+    // Inline display: SelectTrigger's `[&>span]:line-clamp-1` would otherwise override the grid.
+    <span className="whitespace-nowrap text-center tabular-nums" style={{ display: 'grid' }}>
+      <span className="col-start-1 row-start-1">{countLabel}</span>
+      <span aria-hidden className="invisible col-start-1 row-start-1">
+        {widestCountLabel}
+      </span>
+    </span>
+  )
+
+  // The count doubles as the page-size picker, so the control stays a single compact unit.
+  const countPicker = pageSizeOptions && totalCount >= pageSizeOptions[0] && (
+    <Select
+      value={String(pageSize)}
+      onValueChange={value =>
+        setPagination({ ...pagination, pageSize: Number(value), pageIndex: 0 })
+      }
+    >
+      <SelectTrigger
+        className="h-full w-auto gap-1 rounded-none border-0 bg-transparent px-2 text-xs text-foreground shadow-none hover:bg-accent focus:ring-0 focus-visible:ring-1 focus-visible:ring-inset"
+        aria-label={`${countLabel}, ${pageSize} rows per page`}
+        title="Rows per page"
+      >
+        {countText}
+      </SelectTrigger>
+      <SelectContent align="end">
+        <SelectGroup>
+          <SelectLabel className="text-xs font-medium text-muted-foreground">
+            Rows per page
+          </SelectLabel>
+          {pageSizeOptions.map(size => (
+            <SelectItem key={size} value={String(size)} className="text-xs tabular-nums">
+              {size}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  )
 
   const handlePreviousPage = () => {
     if (!canPreviousPage) return
@@ -64,147 +101,51 @@ const Pagination: FunctionComponent<PaginationProps> = ({
     setPagination({ ...pagination, pageIndex: pagination.pageIndex + 1 })
   }
 
-  // If we have only one page and shouldn't show just the total, return nothing
-  if (totalPages <= 1 && !showTotalOnSinglePage) return null;
-  
-  // If we have only one page but should show the total, render just the total count
-  if (totalPages <= 1 && showTotalOnSinglePage) {
-    return (
-      <div className="flex justify-end text-sm text-muted-foreground py-2">
-        {isLoading ? (
-          <Skeleton className="h-6 w-32" />
-        ) : (
-          <span>{totalCount} result{totalCount !== 1 ? 's' : ''}</span>
+  const control =
+    !countPicker && totalPages <= 1 ? (
+      <span className="text-xs tabular-nums text-muted-foreground">{countLabel}</span>
+    ) : (
+      <div className="inline-flex h-7 items-center overflow-hidden rounded-md border border-border text-xs">
+        {totalPages > 1 && (
+          <Button
+            onClick={handlePreviousPage}
+            disabled={!canPreviousPage}
+            size="icon"
+            variant="ghost"
+            className="h-full w-7 rounded-none"
+            aria-label="Previous page"
+          >
+            <ChevronLeftIcon size={14} />
+          </Button>
+        )}
+        {countPicker || <span className="px-1 text-foreground">{countText}</span>}
+        {totalPages > 1 && (
+          <Button
+            onClick={handleNextPage}
+            disabled={!canNextPage}
+            size="icon"
+            variant="ghost"
+            className="h-full w-7 rounded-none"
+            aria-label="Next page"
+          >
+            <ChevronRightIcon size={14} />
+          </Button>
         )}
       </div>
-    );
+    )
+
+  if (variant === 'footer') {
+    if (isLoading && totalCount === 0) return <Skeleton className="h-4 w-16" />
+    return control
   }
 
-  // For the reduced variant - simplified version
-  if (variant === 'reduced') {
-    return (
-      <div className="flex items-center justify-between py-2 text-sm">
-        {isLoading ? (
-          <Skeleton className="h-6 w-32" />
-        ) : (
-          <>
-            <div className="flex items-center space-x-1">
-              <Button
-                onClick={handlePreviousPage}
-                disabled={!canPreviousPage}
-                size="icon"
-                variant="ghost"
-                className="h-7 w-7"
-              >
-                <ChevronLeftIcon size={14} />
-              </Button>
-              <span className="text-xs px-2">
-                {currentPage} / {totalPages}
-              </span>
-              <Button
-                onClick={handleNextPage}
-                disabled={!canNextPage}
-                size="icon"
-                variant="ghost"
-                className="h-7 w-7"
-              >
-                <ChevronRightIcon size={14} />
-              </Button>
-            </div>
-            <span className="text-xs text-muted-foreground">
-              {totalCount} result{totalCount !== 1 ? 's' : ''}
-            </span>
-          </>
-        )}
-      </div>
-    );
-  }
-
-  // Default full pagination
+  // The standalone form of the footer control, for lists outside a TableCard.
+  if (!countPicker && totalPages <= 1 && !showTotalOnSinglePage) return null
   return (
-    <nav className="py-2">
-      <div className="flex items-center justify-between">
-        {!isLoading ? (
-          <>
-            <div className="flex items-center space-x-1">
-              <Button
-                onClick={handlePreviousPage}
-                disabled={!canPreviousPage}
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8"
-              >
-                <ChevronLeftIcon size={16} />
-              </Button>
-
-              <div className="flex items-center">
-                {getPageRange(currentPage, totalPages).map((page, index) => (
-                  <Fragment key={index}>
-                    {page === '...' ? (
-                      <span className="px-2 text-muted-foreground">...</span>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant={page === currentPage ? 'default' : 'ghost'}
-                        className={cn(
-                          "h-8 w-8 p-0 font-normal",
-                          page === currentPage && "font-medium"
-                        )}
-                        onClick={() => 
-                          setPagination({ ...pagination, pageIndex: Number(page) - 1 })
-                        }
-                      >
-                        {page}
-                      </Button>
-                    )}
-                  </Fragment>
-                ))}
-              </div>
-
-              <Button
-                onClick={handleNextPage}
-                disabled={!canNextPage}
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8"
-              >
-                <ChevronRightIcon size={16} />
-              </Button>
-            </div>
-
-            <div className="flex items-center space-x-2 text-sm">
-              <span className="text-muted-foreground">
-                {from}-{to} of {totalCount}
-              </span>
-
-              <Select
-                value={String(pageSize)}
-                onValueChange={value =>
-                  setPagination({ ...pagination, pageSize: Number(value), pageIndex: 0 })
-                }
-              >
-                <SelectTrigger className="h-8 w-20">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {[10, 25, 50, 100].map(size => (
-                    <SelectItem key={size} value={String(size)}>
-                      {size}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </>
-        ) : (
-          <>
-            <Skeleton className="h-8 w-32" />
-            <Skeleton className="h-8 w-24" />
-          </>
-        )}
-      </div>
-    </nav>
-  );
-};
+    <div className="flex justify-end py-2">
+      {isLoading && totalCount === 0 ? <Skeleton className="h-7 w-24" /> : control}
+    </div>
+  )
+}
 
 export default Pagination;

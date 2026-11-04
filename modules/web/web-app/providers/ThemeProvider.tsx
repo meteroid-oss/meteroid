@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 
 export interface UseThemeProps {
   isInitialized: boolean
@@ -20,21 +20,25 @@ export const ThemeContext = createContext<UseThemeProps>({
 
 export const useTheme = () => useContext(ThemeContext)
 
-// force the theme to X and restore to previous value on unmount
+// Force the theme to `theme` while mounted, re-applying if it changes (e.g. once an
+// async-loaded branding theme resolves), and restore the app's own theme on unmount.
 export const useForceTheme = (theme: 'dark' | 'light') => {
   const { isDarkMode, setDarkMode, isInitialized } = useTheme()
 
-  const prevDarkMode = isDarkMode
+  // Capture the app's theme once, before we first force it, so unmount restores the
+  // original rather than a previously-forced value.
+  const original = useRef<boolean | null>(null)
 
   useEffect(() => {
     if (!isInitialized) return
-    console.log('useForceTheme', theme)
+    if (original.current === null) original.current = isDarkMode
     setDarkMode(theme === 'dark', { persistent: false })
 
     return () => {
-      setDarkMode(prevDarkMode, { persistent: false })
+      if (original.current !== null) setDarkMode(original.current, { persistent: false })
     }
-  }, [isInitialized])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInitialized, theme])
 }
 
 const LSK = 'userpreferences_DarkMode'

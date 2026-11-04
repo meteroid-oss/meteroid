@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package meteroid.portal.walletcontrols.v1;
+
+import "portal/wallets/v1/models.proto";
+import "portal/wallets/v1/wallets.proto";
+
+// The customer of the portal token, and only that customer: no request names a customer.
+service PortalWalletControlsService {
+  // The terms an automatic top-up change would authorize, with the revision to confirm.
+  rpc PreviewAutoTopUp(PreviewAutoTopUpRequest) returns (PreviewAutoTopUpResponse);
+  rpc SetAutoTopUp(SetAutoTopUpRequest) returns (SetAutoTopUpResponse);
+}
+
+// What the customer chooses. The merchant's limits are kept as they are.
+message AutoTopUpSettings {
+  meteroid.portal.wallets.v1.AutoTopUpMethod method = 1;
+  int64 threshold = 2;
+  // FIXED: added each time.
+  optional int64 amount = 3;
+  // TO_TARGET: the balance to restore; above the threshold.
+  optional int64 target = 4;
+  string payment_method_id = 5;
+}
+
+message PreviewAutoTopUpRequest {
+  string wallet_id = 1;
+  AutoTopUpSettings settings = 2;
+}
+message PreviewAutoTopUpResponse {
+  meteroid.portal.wallets.v1.AutoTopUp auto_top_up = 1;
+  string revision = 2;
+  // What one top-up at the threshold charges the card, tax included.
+  meteroid.portal.wallets.v1.TopUpQuote charge = 3;
+}
+
+message SetAutoTopUpRequest {
+  string wallet_id = 1;
+  // Unset turns automatic top-up off and keeps the terms.
+  optional AutoTopUpSettings settings = 2;
+  // From PreviewAutoTopUp; required unless turning it off.
+  optional string expected_revision = 3;
+}
+message SetAutoTopUpResponse {
+  // The wallet's automatic top-up as now stored; unset when none is configured.
+  optional meteroid.portal.wallets.v1.AutoTopUp auto_top_up = 1;
+}

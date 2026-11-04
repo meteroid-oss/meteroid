@@ -8,60 +8,58 @@ license.workspace = true
 [dependencies]
 rand.workspace = true
 async-trait.workspace = true
-cached = { workspace = true, features = ["async", "tokio", "redis_store", "redis_tokio"] }
+cached = { workspace = true, features = ["async", "tokio"] }
 chrono = { workspace = true, features = ["clock", "serde"] }
 chrono-tz = { workspace = true }
-common-build-info.workspace = true
 common-config.workspace = true
 common-logging.workspace = true
-common-grpc-error-as-tonic-macros = { workspace = true }
 common-grpc-error-as-tonic-macros-impl = { workspace = true }
 common-domain = { workspace = true, features = ["tonic"] }
-dotenvy.workspace = true
+metric-core = { workspace = true }
 envconfig.workspace = true
 error-stack.workspace = true
 futures.workspace = true
 log.workspace = true
-metering-grpc = { workspace = true, features = ["server"] }
+metering-grpc = { workspace = true }
 meteroid-grpc = { workspace = true, features = ["client"] }
 common-grpc = { workspace = true, features = ["server", "client"] }
-rust_decimal = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tonic.workspace = true
-tonic-health.workspace = true
-tonic-reflection.workspace = true
 tower = { workspace = true }
 tower-layer = { workspace = true }
 hyper = { workspace = true }
 tracing = { workspace = true }
-tonic-tracing-opentelemetry.workspace = true
 opentelemetry = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
-prost-types.workspace = true
 quick_cache.workspace = true
 # kafka ingest deps
 kafka = { workspace = true, optional = true }
-rdkafka = { workspace = true, features = ["ssl", "sasl"], optional = true }
+rdkafka = { workspace = true, features = ["ssl"], optional = true }
 
 # clickhosue connector deps
 clickhouse = { workspace = true, features = ["chrono", "inserter", "uuid"], optional = true }
 refinery = { workspace = true, features = ["default"], optional = true }
-refinery-core = { workspace = true, optional = true }
 time = { workspace = true, features = ["formatting", "parsing"], optional = true }
+common-grpc-error-as-tonic-macros = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../crates/workspace-hack" }
 
-[[bin]]
-name = "metering-api"
-path = "src/bin/server.rs"
+[dev-dependencies]
+# auth tests stand up an in-process InternalService and mint real argon2 token hashes
+argon2 = { workspace = true }
+base62 = { workspace = true }
+meteroid-grpc = { workspace = true, features = ["client", "server"] }
 
 [features]
 default = ["clickhouse", "kafka"]
 kafka = ["dep:kafka", "dep:rdkafka"]
-clickhouse = ["dep:clickhouse", "dep:refinery-core", "dep:refinery", "dep:time"]
-openstack = []
+clickhouse = ["dep:clickhouse", "dep:refinery", "dep:time"]
 
 [package.metadata.cargo-machete]
 # companion crate for ErrorAsTonic — its functions are called by generated code, not direct imports
+ignored = ["common-grpc-error-as-tonic-macros"]
+
+[package.metadata.cargo-shear]
 ignored = ["common-grpc-error-as-tonic-macros"]

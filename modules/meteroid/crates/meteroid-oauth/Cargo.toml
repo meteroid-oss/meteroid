@@ -6,7 +6,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+http-client-tracing = { workspace = true }
 async-trait = { workspace = true }
+egress-http = { workspace = true }
 error-stack = { workspace = true }
 envconfig = { workspace = true }
 secrecy = { workspace = true }
@@ -17,5 +19,6 @@ oauth2-reqwest = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
 strum = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
 
 [dev-dependencies]

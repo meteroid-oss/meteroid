@@ -5,6 +5,7 @@ package meteroid.portal.quotes.v1;
 import "api/quotes/v1/models.proto";
 import "api/customers/v1/models.proto";
 import "api/invoicingentities/v1/models.proto";
+import "api/plans/v1/models.proto";
 
 message QuotePortalDetails {
   api.quotes.v1.Quote quote = 1;
@@ -17,6 +18,9 @@ message QuotePortalDetails {
   repeated api.quotes.v1.QuoteAddOn add_ons = 9;
   string current_recipient_email = 12;
   string current_recipient_name = 13;
+  // Effective minimum-commitment shown on the signed document: the quote-level override
+  // when set, otherwise the plan's default floor. Display-only.
+  optional meteroid.api.plans.v1.MinimumCommitment minimum_commitment = 14;
 }
 
 message QuoteSignature {

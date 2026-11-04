@@ -6,6 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+http-client-tracing = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -13,9 +14,10 @@ serde_path_to_error = { workspace = true }
 serde_with = { workspace = true }
 secrecy = { workspace = true }
 thiserror = { workspace = true }
-reqwest = { workspace = true, features = ["default", "json"] }
+reqwest = { workspace = true, features = ["json"] }
 bytes = { workspace = true }
 rust_decimal = { workspace = true, features = ["serde-with-str"] }
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
 
 [dev-dependencies]
 rust_decimal_macros = { workspace = true }

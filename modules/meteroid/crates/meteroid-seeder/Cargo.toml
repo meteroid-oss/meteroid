@@ -6,11 +6,22 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+tracing.workspace = true
 uuid = { workspace = true }
 common-domain = { workspace = true }
+common-utils = { workspace = true }
 rust_decimal = { workspace = true }
 rust_decimal_macros = { workspace = true }
 meteroid-store = { workspace = true }
+meteroid-money = { workspace = true }
+metering-grpc = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
+serde_json = { workspace = true }
 log = { workspace = true }
+tokio = { workspace = true, features = ["rt", "time"] }
 educe = { workspace = true, default-features = false, features = ["Default"] }
+futures = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }

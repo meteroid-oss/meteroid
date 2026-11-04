@@ -9,8 +9,9 @@ import {
 export const isHostedRedirect = (caps: PaymentProviderCapabilities | undefined) =>
   caps?.mandateSetupMode === MandateSetupMode.HOSTED_REDIRECT
 
-/** One tab per distinct connection, or per rail for a shared hosted-redirect connection (an
- *  embedded element covers all rails of one intent). The DD hosted-checkout tab fetches no intent. */
+/** One tab per distinct connection, or per rail for a shared hosted-redirect or test-gateway
+ *  connection (an embedded SDK element covers all rails of one intent; the test gateway's scenario
+ *  picker doesn't). The DD hosted-checkout tab fetches no intent. */
 export const useRailTabs = (
   cardConnectionId: string | undefined,
   directDebitConnectionId: string | undefined,
@@ -36,7 +37,7 @@ export const useRailTabs = (
   const hasBoth =
     !!cardConnectionId &&
     !!directDebitConnectionId &&
-    (!sharedConnectionId || isHostedRedirect(sharedCapabilities))
+    (!sharedConnectionId || isHostedRedirect(sharedCapabilities) || !!sharedCapabilities?.isTestGateway)
 
   return { hasBoth, sharedCapabilities, sharedProvider: shared?.provider }
 }

@@ -1,0 +1,954 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Meteroid Client API",
+    "description": "Browser-facing API, authenticated with a customer portal token.",
+    "license": {
+      "name": "AGPL-3.0-only",
+      "identifier": "AGPL-3.0-only"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/client/v1/customer": {
+      "get": {
+        "tags": [
+          "Customer"
+        ],
+        "summary": "Get the customer",
+        "description": "The customer the token was minted for.",
+        "operationId": "get_customer",
+        "responses": {
+          "200": {
+            "description": "Customer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientCustomer"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token does not grant read access",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Customer not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "customer_token": []
+          }
+        ]
+      }
+    },
+    "/api/client/v1/entitlements": {
+      "get": {
+        "tags": [
+          "Entitlements"
+        ],
+        "summary": "List entitlements",
+        "description": "The customer's effective entitlements, with live usage. Same schema as the server API's\ncustomer entitlements.",
+        "operationId": "list_entitlements",
+        "responses": {
+          "200": {
+            "description": "Customer entitlements",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectiveEntitlementListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token does not grant read access",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "customer_token": []
+          }
+        ]
+      }
+    },
+    "/api/client/v1/subscriptions": {
+      "get": {
+        "tags": [
+          "Subscriptions"
+        ],
+        "summary": "List subscriptions",
+        "description": "The customer's current subscriptions, newest first. Cancelled, completed and superseded\nsubscriptions are left out.",
+        "operationId": "list_subscriptions",
+        "responses": {
+          "200": {
+            "description": "Customer subscriptions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientSubscriptionListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token does not grant read access",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "customer_token": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BillableMetricId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "bm_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "BillingCycleResetPeriod": {
+        "type": "object",
+        "description": "Resets each time your subscription renews — anchored to your billing cycle.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "BILLING_CYCLE"
+            ]
+          }
+        }
+      },
+      "BillingPeriodEnum": {
+        "type": "string",
+        "enum": [
+          "MONTHLY",
+          "QUARTERLY",
+          "SEMIANNUAL",
+          "ANNUAL"
+        ]
+      },
+      "BooleanConfigValue": {
+        "type": "object",
+        "description": "A boolean config value.",
+        "required": [
+          "value",
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "BOOLEAN"
+            ]
+          },
+          "value": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BooleanEffectiveEntitlementValue": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "type"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "BOOLEAN"
+            ]
+          }
+        }
+      },
+      "CalendarResetPeriod": {
+        "type": "object",
+        "description": "Resets on calendar boundaries (e.g. the 1st of every month) — not tied to subscription start date.",
+        "required": [
+          "unit",
+          "interval",
+          "type"
+        ],
+        "properties": {
+          "interval": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "CALENDAR"
+            ]
+          },
+          "unit": {
+            "$ref": "#/components/schemas/CalendarUnit"
+          }
+        }
+      },
+      "CalendarUnit": {
+        "type": "string",
+        "enum": [
+          "HOUR",
+          "DAY",
+          "WEEK",
+          "MONTH",
+          "YEAR"
+        ]
+      },
+      "ClientCustomer": {
+        "type": "object",
+        "description": "The customer the token was minted for.",
+        "required": [
+          "id",
+          "name",
+          "currency"
+        ],
+        "properties": {
+          "alias": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "id": {
+            "$ref": "#/components/schemas/CustomerId"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ClientSubscription": {
+        "type": "object",
+        "required": [
+          "id",
+          "plan_id",
+          "plan_name",
+          "plan_version",
+          "status",
+          "currency",
+          "start_date",
+          "current_period_start"
+        ],
+        "properties": {
+          "billing_period": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BillingPeriodEnum",
+                "description": "Billing period (monthly, annual, etc.)"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "current_period_end": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "Current billing period end date"
+          },
+          "current_period_start": {
+            "type": "string",
+            "format": "date",
+            "description": "Current billing period start date"
+          },
+          "end_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "When the subscription ends (if set)"
+          },
+          "id": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "plan_id": {
+            "$ref": "#/components/schemas/PlanId"
+          },
+          "plan_name": {
+            "type": "string"
+          },
+          "plan_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "description": "When the subscription contract starts (benefits apply from this date)"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SubscriptionStatusEnum"
+          }
+        }
+      },
+      "ClientSubscriptionListResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClientSubscription"
+            }
+          }
+        }
+      },
+      "ConfigEffectiveEntitlementValue": {
+        "type": "object",
+        "required": [
+          "value",
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "CONFIG"
+            ]
+          },
+          "value": {
+            "$ref": "#/components/schemas/ConfigValue"
+          }
+        }
+      },
+      "ConfigValue": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/NumberConfigValue"
+          },
+          {
+            "$ref": "#/components/schemas/BooleanConfigValue"
+          },
+          {
+            "$ref": "#/components/schemas/TextConfigValue"
+          },
+          {
+            "$ref": "#/components/schemas/JsonConfigValue"
+          }
+        ],
+        "description": "A static, typed configuration value carried by a Config entitlement. Resolved synchronously\nthrough the entitlement hierarchy — no metric, no usage counter.",
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "BOOLEAN": "#/components/schemas/BooleanConfigValue",
+            "JSON": "#/components/schemas/JsonConfigValue",
+            "NUMBER": "#/components/schemas/NumberConfigValue",
+            "TEXT": "#/components/schemas/TextConfigValue"
+          }
+        }
+      },
+      "CustomerId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "cus_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "EffectiveEntitlement": {
+        "type": "object",
+        "description": "Merged entitlement value for a feature for a specific customer, enriched with live usage data.",
+        "required": [
+          "feature",
+          "value"
+        ],
+        "properties": {
+          "feature": {
+            "$ref": "#/components/schemas/FeatureRef"
+          },
+          "value": {
+            "$ref": "#/components/schemas/EffectiveEntitlementValue"
+          }
+        }
+      },
+      "EffectiveEntitlementListResponse": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EffectiveEntitlement"
+            }
+          }
+        }
+      },
+      "EffectiveEntitlementValue": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/BooleanEffectiveEntitlementValue"
+          },
+          {
+            "$ref": "#/components/schemas/MeteredEffectiveEntitlementValue"
+          },
+          {
+            "$ref": "#/components/schemas/ConfigEffectiveEntitlementValue"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "BOOLEAN": "#/components/schemas/BooleanEffectiveEntitlementValue",
+            "CONFIG": "#/components/schemas/ConfigEffectiveEntitlementValue",
+            "METERED": "#/components/schemas/MeteredEffectiveEntitlementValue"
+          }
+        }
+      },
+      "EntitlementOverageBehavior": {
+        "type": "string",
+        "description": "What happens once usage reaches the limit.",
+        "enum": [
+          "BLOCK",
+          "ALLOW"
+        ]
+      },
+      "EntitlementProductRef": {
+        "type": "object",
+        "description": "Minimal reference to the product a feature belongs to.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ProductId"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ErrorCode": {
+        "type": "string",
+        "enum": [
+          "BAD_REQUEST",
+          "NOT_FOUND",
+          "CONFLICT",
+          "FORBIDDEN",
+          "UNAUTHORIZED",
+          "TOKEN_EXPIRED",
+          "TOO_MANY_REQUESTS",
+          "INTERNAL_SERVER_ERROR"
+        ]
+      },
+      "FeatureId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "feat_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "FeatureRef": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Unique key used to reference this feature in your code. Cannot be changed after creation."
+          },
+          "id": {
+            "$ref": "#/components/schemas/FeatureId"
+          },
+          "name": {
+            "type": "string"
+          },
+          "product": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementProductRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "FixedWindowResetPeriod": {
+        "type": "object",
+        "description": "Resets at regular intervals — anchored to your subscription's exact activation time.",
+        "required": [
+          "unit",
+          "interval",
+          "type"
+        ],
+        "properties": {
+          "interval": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "FIXED_WINDOW"
+            ]
+          },
+          "unit": {
+            "$ref": "#/components/schemas/CalendarUnit"
+          }
+        }
+      },
+      "JsonConfigValue": {
+        "type": "object",
+        "description": "A structured (JSON) config value — the \"metadata\" case, several fields in one entitlement.",
+        "required": [
+          "value",
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "JSON"
+            ]
+          },
+          "value": {}
+        }
+      },
+      "MeteredEffectiveEntitlementValue": {
+        "type": "object",
+        "required": [
+          "spec",
+          "usage",
+          "type"
+        ],
+        "properties": {
+          "spec": {
+            "$ref": "#/components/schemas/MeteredEntitlementSpec"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "METERED"
+            ]
+          },
+          "usage": {
+            "$ref": "#/components/schemas/MeteredEntitlementUsage"
+          }
+        }
+      },
+      "MeteredEntitlementSpec": {
+        "type": "object",
+        "required": [
+          "metric_id",
+          "reset_period",
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "False when switched off, or once a `BLOCK` limit (plus its grace) is reached. An `ALLOW`\nlimit never turns it off."
+          },
+          "grace_pct": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "`BLOCK` only: usage allowed beyond the limit before it is refused, in percent of it.",
+            "minimum": 0
+          },
+          "group_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Event property the limit applies to separately; usage is then the largest value's."
+          },
+          "limit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          },
+          "metric_id": {
+            "$ref": "#/components/schemas/BillableMetricId"
+          },
+          "overage_behavior": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EntitlementOverageBehavior",
+                "description": "What happens at the limit."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reset_period": {
+            "$ref": "#/components/schemas/ResetPeriod"
+          },
+          "thresholds": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "Percents of the limit at which an alert is sent, ascending."
+          },
+          "warning_threshold_pct": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Deprecated: the lowest of `thresholds`.",
+            "minimum": 0
+          }
+        }
+      },
+      "MeteredEntitlementUsage": {
+        "type": "object",
+        "properties": {
+          "consumed": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          },
+          "limit_reached": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Switched on, but refused: the `BLOCK` limit (plus its grace) is reached, so `enabled` is\nfalse until the window resets. Never set for a limit grouped by a property."
+          },
+          "remaining": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal"
+          },
+          "reset_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "NeverResetPeriod": {
+        "type": "object",
+        "description": "Never resets — counts all usage since the subscription was activated.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "NEVER"
+            ]
+          }
+        }
+      },
+      "NumberConfigValue": {
+        "type": "object",
+        "description": "A number config value (decimal, encoded as a string).",
+        "required": [
+          "value",
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "NUMBER"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "format": "decimal"
+          }
+        }
+      },
+      "PlanId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "plan_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "ProductId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "prd_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "ResetPeriod": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/BillingCycleResetPeriod",
+            "description": "Resets each time your subscription renews — anchored to your billing cycle."
+          },
+          {
+            "$ref": "#/components/schemas/CalendarResetPeriod",
+            "description": "Resets on calendar boundaries (e.g. the 1st of every month) — not tied to subscription start date."
+          },
+          {
+            "$ref": "#/components/schemas/FixedWindowResetPeriod",
+            "description": "Resets at regular intervals — anchored to your subscription's exact activation time."
+          },
+          {
+            "$ref": "#/components/schemas/SlidingWindowResetPeriod",
+            "description": "Always ends at now — e.g. 30 days means the last 30 days, old usage drops off automatically."
+          },
+          {
+            "$ref": "#/components/schemas/NeverResetPeriod",
+            "description": "Never resets — counts all usage since the subscription was activated."
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "BILLING_CYCLE": "#/components/schemas/BillingCycleResetPeriod",
+            "CALENDAR": "#/components/schemas/CalendarResetPeriod",
+            "FIXED_WINDOW": "#/components/schemas/FixedWindowResetPeriod",
+            "NEVER": "#/components/schemas/NeverResetPeriod",
+            "SLIDING_WINDOW": "#/components/schemas/SlidingWindowResetPeriod"
+          }
+        }
+      },
+      "RestErrorResponse": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "SlidingWindowResetPeriod": {
+        "type": "object",
+        "description": "Always ends at now — e.g. 30 days means the last 30 days, old usage drops off automatically.\nA sliding window has no reset moment (`reset_at` is absent) and sends no threshold or\nlimit-reached webhooks; it is enforced by the entitlement check.",
+        "required": [
+          "unit",
+          "interval",
+          "type"
+        ],
+        "properties": {
+          "interval": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "SLIDING_WINDOW"
+            ]
+          },
+          "unit": {
+            "$ref": "#/components/schemas/CalendarUnit"
+          }
+        }
+      },
+      "SubscriptionId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "sub_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
+      "SubscriptionStatusEnum": {
+        "type": "string",
+        "title": "SubscriptionStatus",
+        "enum": [
+          "PENDING_ACTIVATION",
+          "PENDING_CHARGE",
+          "TRIAL_ACTIVE",
+          "ACTIVE",
+          "TRIAL_EXPIRED",
+          "PAUSED",
+          "SUSPENDED",
+          "CANCELLED",
+          "ABORTED",
+          "COMPLETED",
+          "SUPERSEDED",
+          "ERRORED"
+        ]
+      },
+      "TextConfigValue": {
+        "type": "object",
+        "description": "A text config value.",
+        "required": [
+          "value",
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "TEXT"
+            ]
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "customer_token": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Customer portal token, minted by your backend with `POST /api/v1/customers/{id_or_alias}/portal-token`. It needs the `read` scope."
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Customer"
+    },
+    {
+      "name": "Entitlements"
+    },
+    {
+      "name": "Subscriptions"
+    }
+  ]
+}

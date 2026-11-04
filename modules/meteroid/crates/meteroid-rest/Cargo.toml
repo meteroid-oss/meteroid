@@ -1,0 +1,67 @@
+[package]
+name = "meteroid-rest"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+meteroid-rest-common.workspace = true
+meteroid-app.workspace = true
+error-stack.workspace = true
+cached = { workspace = true, features = ["async", "tokio"] }
+chrono = { workspace = true, features = ["clock"] }
+common-grpc = { workspace = true, features = ["server"] }
+egress-http = { workspace = true }
+rate-limiter = { workspace = true, features = ["tonic", "axum"] }
+log.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde-enum-str.workspace = true
+serde_json.workspace = true
+serde_with.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }
+base64.workspace = true
+http = { workspace = true }
+
+secrecy.workspace = true
+axum = { workspace = true, features = ["default", "macros", "http2"] }
+hyper = { workspace = true, features = ["http1", "http2", "server"] }
+
+rust_decimal = { workspace = true, features = ["serde_json", "serde-with-float", "serde-with-str"] }
+
+metering-grpc = { workspace = true }
+meteroid-oauth = { workspace = true }
+common-domain = { workspace = true, features = ["utoipa", "tonic"] }
+common-utils = { workspace = true, features = ["error-stack-conv"] }
+bytes.workspace = true
+url.workspace = true
+jsonwebtoken = { workspace = true }
+image = { workspace = true }
+meteroid-store.workspace = true
+meteroid-invoicing.workspace = true
+lazy-regex.workspace = true
+moka = { workspace = true, features = ["future"] }
+
+utoipa.workspace = true
+utoipa-axum.workspace = true
+
+strum = { workspace = true, features = ["derive"] }
+
+
+o2o.workspace = true
+validator = { workspace = true, features = ["derive"] }
+axum-valid = { workspace = true }
+common-grpc-error-as-tonic-macros = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
+
+[build-dependencies]
+utoipa-config.workspace = true
+
+[package.metadata.cargo-machete]
+# companion crate for ErrorAsTonic — its functions are called by generated code, not direct imports
+ignored = ["common-grpc-error-as-tonic-macros"]
+
+[package.metadata.cargo-shear]
+ignored = ["common-grpc-error-as-tonic-macros"]

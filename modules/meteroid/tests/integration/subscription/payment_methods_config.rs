@@ -18,6 +18,7 @@ use rstest::rstest;
 
 use crate::data::ids::*;
 use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
+use common_domain::actor::Actor;
 use meteroid_store::domain::SubscriptionPatch;
 use meteroid_store::domain::subscriptions::PaymentMethodsConfig;
 use meteroid_store::repositories::SubscriptionInterface;
@@ -185,12 +186,14 @@ async fn test_config_change_affects_resolved_checkout_options(#[future] test_env
         net_terms: None,
         invoice_memo: None,
         purchase_order: None,
+        usage_filter: None,
+        custom_properties: None,
         payment_methods_config: Some(Some(PaymentMethodsConfig::external())),
     };
 
     let updated_sub = env
         .store()
-        .patch_subscription(TENANT_ID, patch)
+        .patch_subscription(TENANT_ID, patch, Actor::System)
         .await
         .expect("Failed to patch subscription to external");
 
@@ -231,12 +234,14 @@ async fn test_config_change_affects_resolved_checkout_options(#[future] test_env
         net_terms: None,
         invoice_memo: None,
         purchase_order: None,
+        usage_filter: None,
+        custom_properties: None,
         payment_methods_config: Some(Some(PaymentMethodsConfig::online_specific(true, false))),
     };
 
     let updated_sub = env
         .store()
-        .patch_subscription(TENANT_ID, patch)
+        .patch_subscription(TENANT_ID, patch, Actor::System)
         .await
         .expect("Failed to re-enable card");
 
@@ -406,12 +411,14 @@ async fn test_migrate_external_to_card_enables_checkout(#[future] test_env: Test
         net_terms: None,
         invoice_memo: None,
         purchase_order: None,
+        usage_filter: None,
+        custom_properties: None,
         payment_methods_config: Some(Some(PaymentMethodsConfig::online_specific(true, false))),
     };
 
     let updated_sub = env
         .store()
-        .patch_subscription(TENANT_ID, patch)
+        .patch_subscription(TENANT_ID, patch, Actor::System)
         .await
         .expect("Failed to enable card");
 
@@ -638,10 +645,15 @@ async fn test_charge_auto_validation_rejects_external_config(#[future] test_env:
         net_terms: None,
         invoice_memo: None,
         purchase_order: None,
+        usage_filter: None,
+        custom_properties: None,
         payment_methods_config: None, // Keep External
     };
 
-    let result = env.store().patch_subscription(TENANT_ID, patch).await;
+    let result = env
+        .store()
+        .patch_subscription(TENANT_ID, patch, Actor::System)
+        .await;
 
     assert!(
         result.is_err(),
@@ -689,10 +701,15 @@ async fn test_charge_auto_validation_rejects_no_provider(#[future] test_env: Tes
         net_terms: None,
         invoice_memo: None,
         purchase_order: None,
+        usage_filter: None,
+        custom_properties: None,
         payment_methods_config: None, // Keep default (Online)
     };
 
-    let result = env.store().patch_subscription(TENANT_ID, patch).await;
+    let result = env
+        .store()
+        .patch_subscription(TENANT_ID, patch, Actor::System)
+        .await;
 
     assert!(
         result.is_err(),
@@ -746,10 +763,15 @@ async fn test_charge_auto_validation_rejects_config_change_to_external(
         net_terms: None,
         invoice_memo: None,
         purchase_order: None,
+        usage_filter: None,
+        custom_properties: None,
         payment_methods_config: Some(Some(PaymentMethodsConfig::external())), // Try to change to External
     };
 
-    let result = env.store().patch_subscription(TENANT_ID, patch).await;
+    let result = env
+        .store()
+        .patch_subscription(TENANT_ID, patch, Actor::System)
+        .await;
 
     assert!(
         result.is_err(),
@@ -785,10 +807,15 @@ async fn test_charge_auto_validation_accepts_valid_config(#[future] test_env: Te
         net_terms: None,
         invoice_memo: None,
         purchase_order: None,
+        usage_filter: None,
+        custom_properties: None,
         payment_methods_config: Some(Some(PaymentMethodsConfig::online())), // Explicit Online
     };
 
-    let result = env.store().patch_subscription(TENANT_ID, patch).await;
+    let result = env
+        .store()
+        .patch_subscription(TENANT_ID, patch, Actor::System)
+        .await;
 
     assert!(
         result.is_ok(),

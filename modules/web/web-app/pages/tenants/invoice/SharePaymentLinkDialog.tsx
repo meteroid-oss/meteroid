@@ -1,4 +1,11 @@
-import { Button, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@md/ui'
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@md/ui'
 import { Check, Copy, ExternalLink } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'

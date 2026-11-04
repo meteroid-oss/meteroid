@@ -146,17 +146,103 @@ impl Coupon {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum CouponDiscount {
     Percentage(Decimal),
-    Fixed { currency: String, amount: Decimal },
+    Fixed {
+        currency: String,
+        amount: Decimal,
+    },
+    /// Promotional credit funded when the subscription it is redeemed on starts; never an invoice
+    /// discount. Redeemed at most once per customer, whatever the coupon's `reusable`.
+    Credit {
+        currency: String,
+        amount: Decimal,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expires_in_days: Option<u32>,
+        #[serde(default)]
+        scope: CouponCreditScope,
+    },
 }
 
 json_value_serde!(CouponDiscount);
 
+/// Which charges a promotional credit coupon's credit pays: any of the customer's, or only those
+/// of the subscription it is redeemed on (ending with it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CouponCreditScope {
+    #[default]
+    Customer,
+    Subscription,
+}
+
+/// Longest term of promo credit, so its expiry always resolves.
+pub const MAX_COUPON_CREDIT_DAYS: u32 = 3_660;
+
 impl CouponDiscount {
     pub fn currency(&self) -> Option<&str> {
         match self {
-            CouponDiscount::Fixed { currency, .. } => Some(currency),
-            _ => None,
+            CouponDiscount::Fixed { currency, .. } | CouponDiscount::Credit { currency, .. } => {
+                Some(currency)
+            }
+            CouponDiscount::Percentage(_) => None,
         }
+    }
+
+    pub fn is_credit(&self) -> bool {
+        matches!(self, CouponDiscount::Credit { .. })
+    }
+
+    /// The credit a redemption funds, in minor units of its currency.
+    pub fn credit_minor(&self) -> Option<i64> {
+        let CouponDiscount::Credit {
+            currency, amount, ..
+        } = self
+        else {
+            return None;
+        };
+        let precision = crate::constants::Currencies::resolve_currency_precision(currency)?;
+        let minor = amount.checked_mul(Decimal::from(10_i64.checked_pow(u32::from(precision))?))?;
+        if minor.fract() != Decimal::ZERO {
+            return None;
+        }
+        i64::try_from(minor).ok()
+    }
+
+    /// Percentage and fixed discounts are checked where they are parsed.
+    pub fn validate(&self) -> Result<(), StoreError> {
+        let invalid = |message: &str| Err(StoreError::InvalidArgument(message.to_owned()));
+        match self {
+            CouponDiscount::Percentage(_) | CouponDiscount::Fixed { .. } => {}
+            CouponDiscount::Credit {
+                currency,
+                amount,
+                expires_in_days,
+                ..
+            } => {
+                if crate::constants::Currencies::resolve_currency_precision(currency).is_none() {
+                    return invalid("promotional credit must be in a supported currency");
+                }
+                if currency.trim() != currency || currency.to_uppercase() != *currency {
+                    return invalid(
+                        "promotional credit currency must be an uppercase ISO 4217 code",
+                    );
+                }
+                if *amount <= Decimal::ZERO {
+                    return invalid("promotional credit must be a positive amount");
+                }
+                if self.credit_minor().is_none() {
+                    return invalid(
+                        "promotional credit has more decimal places than its currency allows",
+                    );
+                }
+                if expires_in_days.is_some_and(|days| !(1..=MAX_COUPON_CREDIT_DAYS).contains(&days))
+                {
+                    return invalid(
+                        "promotional credit must expire 1 to 3660 days after redemption",
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -264,6 +350,28 @@ pub enum CouponFilter {
     ACTIVE,
     INACTIVE,
     ARCHIVED,
+}
+
+/// A started subscription a promo code applying to one subscription may be redeemed on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RedeemableSubscription {
+    pub id: common_domain::ids::SubscriptionId,
+    pub plan_name: String,
+    pub start_date: chrono::NaiveDate,
+}
+
+/// Attached to the refusal of a code that applies to one subscription when several qualify and
+/// none was named: the subscriptions it may be redeemed on.
+#[derive(Debug, Clone)]
+pub struct SubscriptionRequired(pub Vec<RedeemableSubscription>);
+
+/// The credit one redemption of a promotional credit coupon added.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CouponCreditRedemption {
+    pub applied_coupon_id: common_domain::ids::AppliedCouponId,
+    pub amount_minor: i64,
+    pub currency: String,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 pub struct AppliedCouponsDiscount {

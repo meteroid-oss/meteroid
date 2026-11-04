@@ -53,11 +53,24 @@ pub enum OauthVerifierData {
     SignIn(SignInData),
     ConnectHubspot(ConnectHubspotData),
     ConnectPennylane(ConnectPennylaneData),
+    SsoSignIn(SsoSignInData),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignInData {
     pub is_signup: bool,
+    pub invite_key: Option<String>,
+}
+
+/// Verifier payload for an organization SSO sign-in. The connection is keyed
+/// server-side by an opaque id so the callback can rebuild the exact IdP
+/// client that issued the authorization request. `invite_key` (when the flow
+/// started from an invite link) is consumed at callback so the member joins
+/// with the invited role instead of a plain JIT membership.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SsoSignInData {
+    pub connection_id: common_domain::ids::SsoConnectionId,
+    #[serde(default)]
     pub invite_key: Option<String>,
 }
 

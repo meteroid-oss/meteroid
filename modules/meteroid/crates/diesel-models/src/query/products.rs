@@ -6,9 +6,7 @@ use crate::{DbResult, PgConn};
 use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use common_domain::ids::{ProductFamilyId, ProductId, TenantId};
-use diesel::{
-    ExpressionMethods, JoinOnDsl, PgTextExpressionMethods, QueryDsl, SelectableHelper, debug_query,
-};
+use diesel::{ExpressionMethods, JoinOnDsl, PgTextExpressionMethods, QueryDsl, SelectableHelper};
 use error_stack::ResultExt;
 
 impl ProductRowNew {
@@ -18,7 +16,7 @@ impl ProductRowNew {
 
         let query = diesel::insert_into(product).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -41,7 +39,7 @@ impl ProductRow {
             .filter(p_dsl::id.eq(id))
             .filter(p_dsl::tenant_id.eq(tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -102,7 +100,7 @@ impl ProductRow {
 
         let paginated_query = query.paginate(pagination);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated_query));
+        crate::debug_sql(&paginated_query);
 
         paginated_query
             .load_and_count_pages(conn)
@@ -111,13 +109,13 @@ impl ProductRow {
             .into_db_result()
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn search(
         conn: &mut PgConn,
         tenant_id: TenantId,
         family_id: Option<ProductFamilyId>,
         query: &str,
         catalog_only: bool,
+        archived: bool,
         fee_types: &[crate::enums::FeeTypeEnum],
         pagination: PaginationRequest,
         order_by: Option<&str>,
@@ -128,9 +126,14 @@ impl ProductRow {
         let mut query = p_dsl::product
             .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
             .filter(p_dsl::tenant_id.eq(tenant_id))
-            .filter(p_dsl::archived_at.is_null())
             .filter(p_dsl::name.ilike(format!("%{query}%")))
             .into_boxed();
+
+        query = if archived {
+            query.filter(p_dsl::archived_at.is_not_null())
+        } else {
+            query.filter(p_dsl::archived_at.is_null())
+        };
 
         if catalog_only {
             query = query.filter(p_dsl::catalog.eq(true));
@@ -166,7 +169,7 @@ impl ProductRow {
 
         let paginated_query = query.paginate(pagination);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated_query));
+        crate::debug_sql(&paginated_query);
 
         paginated_query
             .load_and_count_pages(conn)
@@ -192,7 +195,7 @@ impl ProductRow {
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .select(ProductRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -218,7 +221,7 @@ impl ProductRow {
                 p_dsl::updated_at.eq(diesel::dsl::now),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -243,7 +246,7 @@ impl ProductRow {
                 p_dsl::updated_at.eq(diesel::dsl::now),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -271,7 +274,7 @@ impl ProductRow {
 
         let query = query.select(ProductRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -291,7 +294,7 @@ impl ProductRowPatch {
             .filter(p_dsl::tenant_id.eq(self.tenant_id))
             .set((self, p_dsl::updated_at.eq(diesel::dsl::now)));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)

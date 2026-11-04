@@ -14,9 +14,11 @@ interface Props {
    * flight) shows as "Processing" even if the backend has not stamped PROCESSING yet.
    */
   transactions?: Transaction[]
+  /** Paid with nothing collected: credit notes cancelled the whole total. */
+  settledByCreditNotes?: boolean
 }
 
-export const PaymentStatusBadge = ({ status, transactions }: Props) => {
+export const PaymentStatusBadge = ({ status, transactions, settledByCreditNotes }: Props) => {
   const hasPendingTransaction = transactions?.some(
     t => t.status === Transaction_PaymentStatusEnum.PENDING
   )
@@ -28,6 +30,10 @@ export const PaymentStatusBadge = ({ status, transactions }: Props) => {
     return <Badge variant="warning">Processing</Badge>
   }
 
+  if (status === InvoicePaymentStatus.PAID && settledByCreditNotes) {
+    return <Badge variant="secondary">Credited</Badge>
+  }
+
   return match(status)
     .with(InvoicePaymentStatus.UNPAID, () => <Badge variant="secondary">Unpaid</Badge>)
     .with(InvoicePaymentStatus.PARTIALLY_PAID, () => (
@@ -35,5 +41,6 @@ export const PaymentStatusBadge = ({ status, transactions }: Props) => {
     ))
     .with(InvoicePaymentStatus.PAID, () => <Badge variant="success">Paid</Badge>)
     .with(InvoicePaymentStatus.PROCESSING, () => <Badge variant="warning">Processing</Badge>)
+    .with(InvoicePaymentStatus.ERRORED, () => <Badge variant="destructive">Errored</Badge>)
     .otherwise(() => <Badge variant="destructive">Unknown</Badge>)
 }

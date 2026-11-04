@@ -1,21 +1,26 @@
 use crate::domain::entitlements::{
-    EntitlementSpec, EntitlementValue, FeatureRef, FeatureType, PeriodUnit, RawResolvedEntitlement,
-    ResetPeriod, ResolvedEntitlement, ResolvedEntitlementValue, ResolvedOrigin,
+    ConfigValue, ConfigValueType, EntitlementSpec, EntitlementValue, FeatureRef, FeatureType,
+    OverageBehavior, RawResolvedEntitlement, ResetPeriod, ResolvedEntitlement,
+    ResolvedEntitlementValue, ResolvedOrigin, merge_thresholds,
 };
+use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::enums::{EntitlementModeEnum, FeatureStatusEnum};
+use crate::domain::usage_limits::{MAX_GRACE_PCT, validate_thresholds};
 use crate::domain::{
-    Entitlement, EntitlementNew, EntitlementUpdate, Feature, FeatureNew, FeatureUpdate,
-    PaginatedVec, PaginationRequest,
+    BillableMetric, Entitlement, EntitlementNew, EntitlementUpdate, Feature, FeatureNew,
+    FeatureUpdate, PaginatedVec, PaginationRequest,
 };
 use crate::errors::StoreError;
+use crate::repositories::credit::inputs::InputsOwner;
+use crate::services::entitlements::limits::rules::{ungroupable_reason, validate_group_property};
 use crate::store::PgConn;
 use crate::{Store, StoreResult};
-use chrono::{DateTime, Datelike, Days, Duration, Months, NaiveDate, NaiveDateTime, NaiveTime};
 use common_domain::ids::{
     AddOnId, AliasOr, BaseId, CustomerId, EntitlementEntityId, EntitlementId, FeatureId, PlanId,
     PlanVersionId, ProductId, QuoteId, SubscriptionId, TenantId,
 };
 use diesel_models::add_ons::AddOnRow;
+use diesel_models::billable_metrics::BillableMetricRow;
 use diesel_models::entitlements::{
     EntitlementRow, EntitlementRowNew, EntitlementRowPatch, FeatureRow, FeatureRowNew,
     FeatureRowPatch, FeatureWithProductRow,
@@ -32,7 +37,9 @@ use diesel_models::subscription_components::SubscriptionComponentRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
 use itertools::Itertools;
+use rust_decimal::Decimal;
 use scoped_futures::ScopedFutureExt;
+use std::collections::HashSet;
 
 /// Dispatcher target for `resolve_for_entity`.
 /// `Product` is a dispatcher-level concept only — features are product-scoped via
@@ -56,7 +63,7 @@ pub enum ResolveTarget {
 
 #[async_trait::async_trait]
 pub trait EntitlementsInterface {
-    async fn create_feature(&self, feature: FeatureNew) -> StoreResult<Feature>;
+    async fn create_feature(&self, actor: Actor, feature: FeatureNew) -> StoreResult<Feature>;
 
     async fn get_feature(&self, id: FeatureId, tenant_id: TenantId) -> StoreResult<Feature>;
 
@@ -75,6 +82,13 @@ pub trait EntitlementsInterface {
         search: Option<String>,
     ) -> StoreResult<PaginatedVec<Feature>>;
 
+    /// The non-archived features among `ids`, with their default entitlement.
+    async fn list_features_by_ids(
+        &self,
+        ids: &[FeatureId],
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<Feature>>;
+
     async fn update_feature(
         &self,
         id: FeatureId,
@@ -82,15 +96,33 @@ pub trait EntitlementsInterface {
         update: FeatureUpdate,
     ) -> StoreResult<Feature>;
 
-    /// Transition the feature status. Operators use this to disable the feature globally
-    /// (Disabled), archive it (Archived — entitlements become dormant but are preserved),
-    /// or re-activate it (Active).
+    /// Transition the feature status. Only Active entitlements resolve. Archiving releases the code
+    /// and hides the feature's entitlements without deleting them, and restoring to Active brings
+    /// them back; it fails with `FailedPrecondition` while another feature holds the code.
     async fn set_feature_status(
         &self,
+        actor: Actor,
         id: FeatureId,
         tenant_id: TenantId,
         status: FeatureStatusEnum,
     ) -> StoreResult<()>;
+
+    /// The archived feature that used `code`, to unarchive it by code. Fails with
+    /// `FailedPrecondition` while a non-archived feature holds the code or when several archived
+    /// features used it.
+    async fn find_archived_feature_by_code(
+        &self,
+        code: &str,
+        tenant_id: TenantId,
+    ) -> StoreResult<FeatureId>;
+
+    /// For an archived feature, the non-archived feature now using its code, which blocks
+    /// unarchiving.
+    async fn feature_code_holder(
+        &self,
+        id: FeatureId,
+        tenant_id: TenantId,
+    ) -> StoreResult<Option<FeatureRef>>;
 
     async fn create_entitlement(&self, entitlement: EntitlementNew) -> StoreResult<Entitlement>;
 
@@ -122,11 +154,19 @@ pub trait EntitlementsInterface {
     async fn delete_entitlement(&self, id: EntitlementId, tenant_id: TenantId) -> StoreResult<()>;
 
     /// Resolve all entitlements in effect for a customer across their active subscriptions.
-    /// Returns one `ResolvedEntitlement` per feature in the customer's product scope,
-    /// composed across every layer that can grant it. Priority ladder (low → high):
-    /// `Feature → Plan → AddOn → PlanVersion → Subscription`. Subscription-level grants
-    /// always win; PlanVersion overrides its linked AddOns because the plan version is
-    /// the authoritative composition. See [`EntitlementEntityId::priority`].
+    /// Returns one `ResolvedEntitlement` per feature, composed across every layer that can
+    /// grant it. Priority ladder (low → high):
+    /// `Feature → Plan → AddOn → PlanVersion → Subscription → Customer`. PlanVersion overrides
+    /// its linked AddOns because the plan version is the authoritative composition; `Customer`
+    /// is the top-priority **force** — an account-wide grant that overrides whatever a
+    /// subscription composes or sets. See [`EntitlementEntityId::priority`].
+    ///
+    /// Each active subscription is resolved independently and the results are OR-combined, so a
+    /// value set on one subscription never masks another's (a feature is enabled for the
+    /// customer if it resolves enabled on any subscription). A customer-level force resolves the
+    /// same in every subscription, so it surfaces uniformly. A customer with no active
+    /// subscription still receives the `Feature` (tenant-global) and `Customer` layers — the
+    /// baseline for every customer regardless of what they have subscribed to.
     async fn resolve_entitlements_for_customer(
         &self,
         conn: &mut PgConn,
@@ -164,44 +204,199 @@ pub trait EntitlementsInterface {
     ) -> StoreResult<Vec<Entitlement>>;
 }
 
+fn ensure_editable(feature: &Feature) -> StoreResult<()> {
+    let reason = match feature.status {
+        FeatureStatusEnum::Active | FeatureStatusEnum::Disabled => return Ok(()),
+        FeatureStatusEnum::Archived => "feature is archived; unarchive it first",
+    };
+    Err(Report::new(StoreError::InvalidArgument(reason.into())))
+}
+
 /// Reject combinations where the entitlement value's variant does not match the feature's
 /// declared type. Without this check the resolver silently drops mismatched rows at read
 /// time (see `resolve()` `_ => log::error!(...)` branch).
-fn validate_value_matches_feature_type(
+pub fn validate_value_matches_feature_type(
     value: &EntitlementValue,
     feature_type: &FeatureType,
 ) -> Result<(), Report<StoreError>> {
     match (feature_type, value) {
-        (FeatureType::Boolean, EntitlementValue::Boolean { .. })
-        | (FeatureType::Metered { .. }, EntitlementValue::Metered { .. }) => Ok(()),
+        (FeatureType::Boolean, EntitlementValue::Boolean { .. }) => Ok(()),
+        (
+            FeatureType::Metered { .. },
+            EntitlementValue::Metered {
+                limit,
+                reset_period,
+                overage_behavior,
+                thresholds,
+                group_by,
+                ..
+            },
+        ) => validate_metered_value(
+            limit.as_ref(),
+            reset_period,
+            overage_behavior,
+            thresholds,
+            group_by.as_deref(),
+        ),
+        (FeatureType::Config { value_type }, EntitlementValue::Config { value }) => {
+            validate_config_value(value_type, value)
+        }
         _ => Err(Report::new(StoreError::InvalidArgument(
             "entitlement value variant does not match feature type".into(),
         ))),
     }
 }
 
+/// A grouped limit needs a metric whose usage can be told per group; otherwise the engine
+/// would silently leave the entitlement unmonitored.
+async fn validate_grouping(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    feature_type: &FeatureType,
+    value: &EntitlementValue,
+) -> Result<(), Report<StoreError>> {
+    let (
+        FeatureType::Metered { metric_id },
+        EntitlementValue::Metered {
+            group_by: Some(property),
+            ..
+        },
+    ) = (feature_type, value)
+    else {
+        return Ok(());
+    };
+    let row = BillableMetricRow::get_by_ids(conn, &[*metric_id], &tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
+            Report::new(StoreError::InvalidArgument(format!(
+                "metric {metric_id} not found"
+            )))
+        })?;
+    let metric: BillableMetric = row.try_into()?;
+    match ungroupable_reason(&metric, Some(property)) {
+        Some(reason) => Err(Report::new(StoreError::InvalidArgument(format!(
+            "usage cannot be limited per {property}: {reason}"
+        )))),
+        None => Ok(()),
+    }
+}
+
+/// A zero interval would divide by zero in `calendar_period`/`fixed_window`, and a negative
+/// limit has no meaning for a usage cap.
+fn validate_metered_value(
+    limit: Option<&Decimal>,
+    reset_period: &ResetPeriod,
+    overage_behavior: &OverageBehavior,
+    thresholds: &[u32],
+    group_by: Option<&str>,
+) -> Result<(), Report<StoreError>> {
+    if let OverageBehavior::Block {
+        grace_period_pct: Some(grace),
+    } = overage_behavior
+        && !(1..=MAX_GRACE_PCT).contains(grace)
+    {
+        return Err(Report::new(StoreError::InvalidArgument(format!(
+            "grace percentage must be between 1 and {MAX_GRACE_PCT}"
+        ))));
+    }
+    validate_thresholds(thresholds)
+        .map_err(|e| Report::new(StoreError::InvalidArgument(e.to_string())))?;
+    if let Some(property) = group_by {
+        validate_group_property(property)
+            .map_err(|e| Report::new(StoreError::InvalidArgument(e.to_string())))?;
+    }
+    if limit.is_some_and(|l| l.is_sign_negative()) {
+        return Err(Report::new(StoreError::InvalidArgument(
+            "metered entitlement limit must not be negative".into(),
+        )));
+    }
+    let default_overage = matches!(
+        overage_behavior,
+        OverageBehavior::Block {
+            grace_period_pct: None
+        }
+    );
+    if limit.is_none() && (!default_overage || !thresholds.is_empty()) {
+        return Err(Report::new(StoreError::InvalidArgument(
+            "overage behavior, grace and alert thresholds apply to a limit: set a limit or remove them"
+                .into(),
+        )));
+    }
+    if !thresholds.is_empty() && matches!(reset_period, ResetPeriod::SlidingWindow { .. }) {
+        return Err(Report::new(StoreError::InvalidArgument(
+            "a sliding window sends no alerts, so it takes no alert thresholds".into(),
+        )));
+    }
+    match reset_period {
+        ResetPeriod::Calendar { interval: 0, .. }
+        | ResetPeriod::FixedWindow { interval: 0, .. }
+        | ResetPeriod::SlidingWindow { interval: 0, .. } => Err(Report::new(
+            StoreError::InvalidArgument("reset period interval must be at least 1".into()),
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Ensure a config entitlement value matches the feature's declared value type. A `Select`
+/// feature additionally requires a text value drawn from its allowed options.
+fn validate_config_value(
+    value_type: &ConfigValueType,
+    value: &ConfigValue,
+) -> Result<(), Report<StoreError>> {
+    let matches = match (value_type, value) {
+        (ConfigValueType::Number, ConfigValue::Number(_)) => true,
+        (ConfigValueType::Boolean, ConfigValue::Boolean(_)) => true,
+        (ConfigValueType::Text, ConfigValue::Text(_)) => true,
+        (ConfigValueType::Map | ConfigValueType::Json, ConfigValue::Json(_)) => true,
+        (ConfigValueType::Select { options }, ConfigValue::Text(s)) => {
+            if !options.iter().any(|o| o == s) {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "config value is not one of the feature's allowed options".into(),
+                )));
+            }
+            true
+        }
+        _ => false,
+    };
+    if matches {
+        Ok(())
+    } else {
+        Err(Report::new(StoreError::InvalidArgument(
+            "config value does not match the feature's value type".into(),
+        )))
+    }
+}
+
 #[async_trait::async_trait]
 impl EntitlementsInterface for Store {
-    async fn create_feature(&self, feature: FeatureNew) -> StoreResult<Feature> {
+    async fn create_feature(&self, actor: Actor, feature: FeatureNew) -> StoreResult<Feature> {
         let mut conn = self.get_conn().await?;
         let entitlement_value = feature.entitlement.clone();
         let tenant_id = feature.tenant_id;
         if let Some(value) = &entitlement_value {
             validate_value_matches_feature_type(value, &feature.feature_type)?;
+            validate_grouping(&mut conn, tenant_id, &feature.feature_type, value).await?;
         }
         let row: FeatureRowNew = feature.into();
-        if let Some(value) = entitlement_value {
-            self.transaction_with(&mut conn, |conn| {
-                async move {
-                    let inserted = row
-                        .insert(conn)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-                    let joined = FeatureRow::find_by_id(conn, inserted.id, inserted.tenant_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-                    let mut f: Feature = joined.try_into()?;
+        drop(conn);
+        self.transaction_bumping_tenants(|conn| {
+            let actor = &actor;
+            async move {
+                let inserted = row
+                    .insert(conn)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                let joined = FeatureRow::find_by_id(conn, inserted.id, inserted.tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                let mut f: Feature = joined.try_into()?;
 
+                // A feature reaches customers only through an entitlement.
+                let bumped = entitlement_value.is_some().then_some(tenant_id);
+                if let Some(value) = entitlement_value {
                     let entity = EntitlementEntityId::Feature(f.id);
                     let json_value = value_to_json(&value)?;
                     let entitlement: Entitlement = EntitlementRowNew {
@@ -218,21 +413,23 @@ impl EntitlementsInterface for Store {
                     .map_err(Into::<Report<StoreError>>::into)
                     .and_then(TryInto::try_into)?;
                     f.entitlement = Some(entitlement);
-                    Ok(f)
                 }
-                .scope_boxed()
-            })
-            .await
-        } else {
-            let inserted = row
-                .insert(&mut conn)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-            FeatureRow::find_by_id(&mut conn, inserted.id, inserted.tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)
-                .and_then(TryInto::try_into)
-        }
+
+                let activity = Activity::new(
+                    ActivityType::FeatureCreated,
+                    EntityType::Feature,
+                    f.id.as_uuid(),
+                )
+                .with_metadata(serde_json::json!({ "code": f.code, "name": f.name }));
+                self.internal
+                    .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                    .await?;
+
+                Ok((f, bumped.into_iter().collect()))
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn get_feature(&self, id: FeatureId, tenant_id: TenantId) -> StoreResult<Feature> {
@@ -244,8 +441,9 @@ impl EntitlementsInterface for Store {
 
         let mut feature: Feature = row.try_into()?;
 
+        // Like `list_features`, keeps an archived feature's default so both reads agree.
         let entitlement_rows =
-            EntitlementRow::list_by_entity(&mut conn, tenant_id, EntitlementEntityId::Feature(id))
+            EntitlementRow::list_feature_level_entitlements(&mut conn, tenant_id, Some(&vec![id]))
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -272,10 +470,10 @@ impl EntitlementsInterface for Store {
         let feature_id = row.feature.id;
         let mut feature: Feature = row.try_into()?;
 
-        let entitlement_rows = EntitlementRow::list_by_entity(
+        let entitlement_rows = EntitlementRow::list_feature_level_entitlements(
             &mut conn,
             tenant_id,
-            EntitlementEntityId::Feature(feature_id),
+            Some(&vec![feature_id]),
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
@@ -344,6 +542,38 @@ impl EntitlementsInterface for Store {
         })
     }
 
+    async fn list_features_by_ids(
+        &self,
+        ids: &[FeatureId],
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<Feature>> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut conn = self.get_conn().await?;
+
+        let rows = FeatureRow::find_by_ids(&mut conn, tenant_id, ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let feature_ids: Vec<FeatureId> = rows.iter().map(|r| r.feature.id).collect();
+        let entitlement_rows = EntitlementRow::list_feature_level_entitlements(
+            &mut conn,
+            tenant_id,
+            Some(&feature_ids),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+        let mut entitlement_map = build_feature_entitlement_map(entitlement_rows)?;
+
+        rows.into_iter()
+            .map(|row| {
+                let mut f: Feature = row.try_into()?;
+                f.entitlement = entitlement_map.remove(&f.id);
+                Ok(f)
+            })
+            .collect()
+    }
+
     async fn update_feature(
         &self,
         id: FeatureId,
@@ -352,20 +582,87 @@ impl EntitlementsInterface for Store {
     ) -> StoreResult<Feature> {
         let mut conn = self.get_conn().await?;
 
+        let current: Feature = FeatureRow::find_by_id(&mut conn, id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
+            .and_then(TryInto::try_into)?;
+        ensure_editable(&current)?;
+
+        // When replacing a select feature's options, reject removing any option that an
+        // existing entitlement still references.
+        let config_options_patch = if let Some(new_options) = &update.config_options {
+            let FeatureType::Config {
+                value_type:
+                    ConfigValueType::Select {
+                        options: current_options,
+                    },
+            } = current.feature_type
+            else {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "config options can only be set on select config features".into(),
+                )));
+            };
+            if new_options.is_empty() {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "a select config feature requires at least one option".into(),
+                )));
+            }
+            let removed: Vec<String> = current_options
+                .into_iter()
+                .filter(|o| !new_options.contains(o))
+                .collect();
+            if !removed.is_empty() {
+                let rows = EntitlementRow::list_by_feature(&mut conn, id, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                let mut in_use: Vec<String> = Vec::new();
+                for row in rows {
+                    if let Ok(EntitlementValue::Config {
+                        value: ConfigValue::Text(t),
+                    }) = serde_json::from_value::<EntitlementValue>(row.value)
+                        && removed.contains(&t)
+                        && !in_use.contains(&t)
+                    {
+                        in_use.push(t);
+                    }
+                }
+                if !in_use.is_empty() {
+                    return Err(Report::new(StoreError::InvalidArgument(format!(
+                        "Cannot remove option(s) still used by entitlements: {}",
+                        in_use.join(", ")
+                    ))));
+                }
+            }
+            Some(Some(new_options.iter().cloned().map(Some).collect()))
+        } else {
+            None
+        };
+
         let patch = FeatureRowPatch {
             name: update.name,
             description: update.description,
             product_id: update.product_id,
+            config_options: config_options_patch,
             status: None,
             updated_at: Some(chrono::Utc::now()),
         };
 
-        let row = FeatureRow::update(&mut conn, id, tenant_id, patch)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        drop(conn);
+
+        let row = self
+            .transaction_bumping_tenant(tenant_id, |conn| {
+                async move {
+                    FeatureRow::update(conn, id, tenant_id, patch)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)
+                }
+                .scope_boxed()
+            })
+            .await?;
 
         let mut feature: Feature = row.try_into()?;
 
+        let mut conn = self.get_conn().await?;
         let entitlement_rows =
             EntitlementRow::list_by_entity(&mut conn, tenant_id, EntitlementEntityId::Feature(id))
                 .await
@@ -382,14 +679,118 @@ impl EntitlementsInterface for Store {
 
     async fn set_feature_status(
         &self,
+        actor: Actor,
         id: FeatureId,
         tenant_id: TenantId,
         status: FeatureStatusEnum,
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
-        FeatureRow::set_status(&mut conn, id, tenant_id, status.into())
+        let current: Feature = FeatureRow::find_by_id(&mut conn, id, tenant_id)
             .await
-            .map_err(Into::into)
+            .map_err(Into::<Report<StoreError>>::into)
+            .and_then(TryInto::try_into)?;
+        if current.status == status {
+            return Ok(());
+        }
+        let activity_type = match (&current.status, &status) {
+            (FeatureStatusEnum::Archived, FeatureStatusEnum::Disabled) => {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "feature is archived; unarchive it first".into(),
+                )));
+            }
+            (_, FeatureStatusEnum::Archived) => ActivityType::FeatureArchived,
+            (FeatureStatusEnum::Archived, _) => ActivityType::FeatureUnarchived,
+            (_, FeatureStatusEnum::Active) => ActivityType::FeatureEnabled,
+            (_, FeatureStatusEnum::Disabled) => ActivityType::FeatureDisabled,
+        };
+        if current.status == FeatureStatusEnum::Archived
+            && let Some(holder) =
+                FeatureRow::find_unarchived_by_code(&mut conn, tenant_id, &current.code, id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+        {
+            return Err(Report::new(StoreError::FailedPrecondition(format!(
+                "code {} is used by feature {}",
+                current.code, holder.name
+            ))));
+        }
+        drop(conn);
+        self.transaction_bumping_tenant(tenant_id, |conn| {
+            let actor = &actor;
+            async move {
+                FeatureRow::set_status(conn, id, tenant_id, status.into())
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                let activity = Activity::new(activity_type, EntityType::Feature, id.as_uuid());
+                self.internal
+                    .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
+                    .await?;
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+
+    async fn find_archived_feature_by_code(
+        &self,
+        code: &str,
+        tenant_id: TenantId,
+    ) -> StoreResult<FeatureId> {
+        let mut conn = self.get_conn().await?;
+        let rows = FeatureRow::list_by_code(&mut conn, tenant_id, code)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        if rows
+            .iter()
+            .any(|r| r.status != DbFeatureStatusEnum::Archived)
+        {
+            return Err(Report::new(StoreError::FailedPrecondition(
+                "a non-archived feature already holds this code".into(),
+            )));
+        }
+        match rows.as_slice() {
+            [] => Err(Report::new(StoreError::ValueNotFound(format!(
+                "feature {code}"
+            )))),
+            [row] => Ok(row.id),
+            _ => Err(Report::new(StoreError::FailedPrecondition(
+                "several archived features used this code; use the ID".into(),
+            ))),
+        }
+    }
+
+    async fn feature_code_holder(
+        &self,
+        id: FeatureId,
+        tenant_id: TenantId,
+    ) -> StoreResult<Option<FeatureRef>> {
+        let mut conn = self.get_conn().await?;
+        let feature: Feature = FeatureRow::find_by_id(&mut conn, id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .try_into()?;
+        if feature.status != FeatureStatusEnum::Archived {
+            return Ok(None);
+        }
+        let Some(holder) =
+            FeatureRow::find_unarchived_by_code(&mut conn, tenant_id, &feature.code, id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+        else {
+            return Ok(None);
+        };
+        let holder: Feature = FeatureRow::find_by_id(&mut conn, holder.id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .try_into()?;
+        Ok(Some(FeatureRef {
+            id: holder.id,
+            name: holder.name,
+            code: holder.code,
+            product: holder.product,
+        }))
     }
 
     async fn create_entitlement(&self, entitlement: EntitlementNew) -> StoreResult<Entitlement> {
@@ -400,7 +801,15 @@ impl EntitlementsInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)
                 .and_then(TryInto::try_into)?;
+        ensure_editable(&feature)?;
         validate_value_matches_feature_type(&entitlement.value, &feature.feature_type)?;
+        validate_grouping(
+            &mut conn,
+            entitlement.tenant_id,
+            &feature.feature_type,
+            &entitlement.value,
+        )
+        .await?;
 
         let mode =
             resolve_mode_for_entity(&mut conn, &entitlement.entity, entitlement.tenant_id).await?;
@@ -415,10 +824,25 @@ impl EntitlementsInterface for Store {
             value: json_value,
         };
 
-        row.insert(&mut conn)
-            .await
-            .map_err(Into::into)
-            .and_then(TryInto::try_into)
+        drop(conn);
+
+        let row = self
+            .transaction_bumping_tenants(|conn| {
+                async move {
+                    let owner = InputsOwner::of_entitlement(
+                        conn,
+                        row.tenant_id,
+                        &row.entity_type,
+                        row.entity_id,
+                    )
+                    .await?;
+                    let inserted = row.insert(conn).await?;
+                    Ok((inserted, owner.bump(conn).await?))
+                }
+                .scope_boxed()
+            })
+            .await?;
+        row.try_into()
     }
 
     async fn get_entitlement(
@@ -482,7 +906,9 @@ impl EntitlementsInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)
                     .and_then(|r| r.try_into())?;
+            ensure_editable(&feature)?;
             validate_value_matches_feature_type(value, &feature.feature_type)?;
+            validate_grouping(&mut conn, tenant_id, &feature.feature_type, value).await?;
             Some(value_to_json(value)?)
         } else {
             None
@@ -494,18 +920,31 @@ impl EntitlementsInterface for Store {
             updated_at: Some(chrono::Utc::now()),
         };
 
-        EntitlementRow::update(&mut conn, id, tenant_id, patch)
-            .await
-            .map_err(Into::into)
-            .and_then(TryInto::try_into)
+        drop(conn);
+
+        let row = self
+            .transaction_bumping_tenants(|conn| {
+                async move {
+                    let owner = entitlement_owner(conn, id, tenant_id).await?;
+                    let updated = EntitlementRow::update(conn, id, tenant_id, patch).await?;
+                    Ok((updated, owner.bump(conn).await?))
+                }
+                .scope_boxed()
+            })
+            .await?;
+        row.try_into()
     }
 
     async fn delete_entitlement(&self, id: EntitlementId, tenant_id: TenantId) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
-
-        EntitlementRow::delete(&mut conn, id, tenant_id)
-            .await
-            .map_err(Into::into)
+        self.transaction_bumping_tenants(|conn| {
+            async move {
+                let owner = entitlement_owner(conn, id, tenant_id).await?;
+                EntitlementRow::delete(conn, id, tenant_id).await?;
+                Ok(((), owner.bump(conn).await?))
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn resolve_entitlements_for_customer(
@@ -567,217 +1006,38 @@ impl EntitlementsInterface for Store {
             return Ok(vec![]);
         }
         let mut conn = self.get_conn().await?;
-        let rows = build_entitlement_rows(&mut conn, specs, &target, tenant_id).await?;
-        EntitlementRowNew::insert_batch_skip_conflicts(&rows, &mut conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .and_then(|rows| rows.into_iter().map(TryInto::try_into).collect())
-    }
-}
-
-pub(crate) struct UsagePeriodBounds {
-    pub(crate) start: NaiveDateTime,
-    /// `None` for `Never` reset — no upper bound. When set, this is exclusive (= reset_at).
-    pub(crate) end: Option<NaiveDateTime>,
-}
-
-#[derive(Copy, Clone)]
-pub(crate) struct BillingCyclePeriod {
-    pub(crate) period_start: NaiveDate,
-    pub(crate) period_end: Option<NaiveDate>,
-}
-
-/// Compute the time window over which to count usage for a metered entitlement.
-///
-/// - `Never` — open-ended window starting at the customer's subscription activation date
-///   (or `now` if no activation is known). `end = None`: usage is cumulative for life.
-/// - `BillingCycle` — anchored on the subscription's current billing period. With no
-///   active subscription, falls back to `[now, ∞)`, which surfaces as zero usage.
-/// - `Calendar { unit, interval }` — fixed buckets anchored on a global epoch (the Unix
-///   epoch for Hour/Day, ISO Monday 1969-12-29 for Week, calendar year zero for Month/Year).
-///   Same `now` always falls into the same bucket regardless of when the subscription
-///   started — useful for "calendar month" semantics shared across customers. The anchor
-///   is arbitrary but deterministic: e.g. `Year { interval: 3 }` produces buckets
-///   `[…, 2022-2024, 2025-2027, …]`, not buckets starting on the customer's signup year.
-/// - `SlidingWindow { unit, interval }` — continuous rolling window `[now − interval, now]`.
-///   Usage drops out the moment it ages past the window edge — no boundary moment, no reset.
-/// - `FixedWindow { unit, interval }` — discrete, non-overlapping bucket of length
-///   `interval × unit` anchored on the customer's subscription activation date. Bucket N
-///   covers `[activation + N × interval, activation + (N+1) × interval)`. Usage resets to
-///   zero at every bucket boundary. With no known activation, falls back to `[now, ∞)`
-///   (same as `Never`) so the caller gets an empty window rather than an arbitrary anchor.
-pub(crate) fn compute_usage_period(
-    reset_period: &ResetPeriod,
-    billing_cycle: Option<BillingCyclePeriod>,
-    activation_date: Option<NaiveDateTime>,
-    now: NaiveDateTime,
-) -> UsagePeriodBounds {
-    match reset_period {
-        ResetPeriod::Never => UsagePeriodBounds {
-            start: activation_date.unwrap_or(now),
-            end: None,
-        },
-        ResetPeriod::BillingCycle => match billing_cycle {
-            Some(bc) => UsagePeriodBounds {
-                start: bc.period_start.and_time(NaiveTime::MIN),
-                // exclusive end: day after the inclusive last day
-                end: bc
-                    .period_end
-                    .map(|d| (d + Days::new(1)).and_time(NaiveTime::MIN)),
-            },
-            None => UsagePeriodBounds {
-                start: now,
-                end: None,
-            },
-        },
-        ResetPeriod::Calendar { unit, interval } => calendar_period(now, unit, *interval),
-        ResetPeriod::FixedWindow { unit, interval } => match activation_date {
-            Some(act) => fixed_window(act, now, unit, *interval),
-            None => UsagePeriodBounds {
-                start: now,
-                end: None,
-            },
-        },
-        ResetPeriod::SlidingWindow { unit, interval } => UsagePeriodBounds {
-            start: subtract_duration(now, unit, *interval),
-            end: Some(now),
-        },
-    }
-}
-
-/// Find the fixed-window bucket containing `now`, with buckets of length `interval × unit`
-/// anchored at `activation`. Returns `[bucket_start, bucket_end)`.
-fn fixed_window(
-    activation: NaiveDateTime,
-    now: NaiveDateTime,
-    unit: &PeriodUnit,
-    interval: u32,
-) -> UsagePeriodBounds {
-    match unit {
-        // Constant-length units → closed-form via Duration arithmetic.
-        PeriodUnit::Hour | PeriodUnit::Day | PeriodUnit::Week => {
-            let step_hours: i64 = match unit {
-                PeriodUnit::Hour => interval as i64,
-                PeriodUnit::Day => 24 * interval as i64,
-                PeriodUnit::Week => 24 * 7 * interval as i64,
-                _ => unreachable!(),
-            };
-            // If now < activation (clock skew or pre-dated activation), clamp to bucket 0.
-            let elapsed = (now - activation).num_hours().max(0);
-            let bucket = elapsed / step_hours;
-            let start = activation + Duration::hours(bucket * step_hours);
-            let end = start + Duration::hours(step_hours);
-            UsagePeriodBounds {
-                start,
-                end: Some(end),
-            }
-        }
-        // Variable-length units (Month/Year): walk forward in `interval`-sized steps.
-        // Bounded by activation-to-now span in months; even 10 years on a 1-month reset
-        // is at most ~120 iterations.
-        PeriodUnit::Month | PeriodUnit::Year => {
-            let step_months: u32 = match unit {
-                PeriodUnit::Month => interval,
-                PeriodUnit::Year => interval * 12,
-                _ => unreachable!(),
-            };
-            let mut start = activation;
-            loop {
-                let next =
-                    NaiveDateTime::new(start.date() + Months::new(step_months), start.time());
-                if next > now {
-                    return UsagePeriodBounds {
-                        start,
-                        end: Some(next),
-                    };
+        let rows = build_entitlement_rows(&mut conn, specs, &target, tenant_id, false).await?;
+        let entity_type = EntitlementEntityTypeEnum::from(&target);
+        let entity_id = target.as_uuid();
+        drop(conn);
+        let inserted = self
+            .transaction_bumping_tenants(|conn| {
+                async move {
+                    let owner =
+                        InputsOwner::of_entitlement(conn, tenant_id, &entity_type, entity_id)
+                            .await?;
+                    let inserted =
+                        EntitlementRowNew::insert_batch_skip_conflicts(&rows, conn).await?;
+                    Ok((inserted, owner.bump(conn).await?))
                 }
-                start = next;
-            }
-        }
+                .scope_boxed()
+            })
+            .await?;
+        inserted.into_iter().map(TryInto::try_into).collect()
     }
 }
 
-fn calendar_period(now: NaiveDateTime, unit: &PeriodUnit, interval: u32) -> UsagePeriodBounds {
-    match unit {
-        PeriodUnit::Hour => {
-            let epoch = DateTime::UNIX_EPOCH.naive_utc();
-            let hours_since_epoch = (now - epoch).num_hours();
-            let period_idx = hours_since_epoch / interval as i64;
-            let start = epoch + Duration::hours(period_idx * interval as i64);
-            let end = start + Duration::hours(interval as i64);
-            UsagePeriodBounds {
-                start,
-                end: Some(end),
-            }
-        }
-        PeriodUnit::Day => {
-            let today = now.date();
-            let epoch = DateTime::UNIX_EPOCH.date_naive();
-            let days = (today - epoch).num_days();
-            let period_idx = days / interval as i64;
-            let start_date = epoch + Days::new((period_idx * interval as i64) as u64);
-            let end_date = start_date + Days::new(interval as u64);
-            UsagePeriodBounds {
-                start: start_date.and_time(NaiveTime::MIN),
-                end: Some(end_date.and_time(NaiveTime::MIN)),
-            }
-        }
-        PeriodUnit::Week => {
-            let today = now.date();
-            let iso_epoch = NaiveDate::from_ymd_opt(1969, 12, 29).unwrap();
-            let days_since_iso_epoch = (today - iso_epoch).num_days();
-            let weeks_since_iso_epoch = days_since_iso_epoch / 7;
-            let period_idx = weeks_since_iso_epoch / interval as i64;
-            let start_date = iso_epoch + Days::new((period_idx * 7 * interval as i64) as u64);
-            let end_date = start_date + Days::new(7 * interval as u64);
-            UsagePeriodBounds {
-                start: start_date.and_time(NaiveTime::MIN),
-                end: Some(end_date.and_time(NaiveTime::MIN)),
-            }
-        }
-        PeriodUnit::Month => {
-            let today = now.date();
-            let interval = interval as i64;
-            let months_since_zero = today.year() as i64 * 12 + (today.month() as i64 - 1);
-            let period_idx = months_since_zero.div_euclid(interval);
-            let start_months = period_idx * interval;
-            let start_year = start_months.div_euclid(12) as i32;
-            let start_month = (start_months.rem_euclid(12) + 1) as u32;
-            let start_date = NaiveDate::from_ymd_opt(start_year, start_month, 1).unwrap_or(today);
-            let end_date = start_date + Months::new(interval as u32);
-            UsagePeriodBounds {
-                start: start_date.and_time(NaiveTime::MIN),
-                end: Some(end_date.and_time(NaiveTime::MIN)),
-            }
-        }
-        PeriodUnit::Year => {
-            let today = now.date();
-            let year = today.year() as i64;
-            let interval = interval as i64;
-            let period_idx = year.div_euclid(interval);
-            let start_year = (period_idx * interval) as i32;
-            let start_date = NaiveDate::from_ymd_opt(start_year, 1, 1).unwrap_or(today);
-            let end_date =
-                NaiveDate::from_ymd_opt(start_year.saturating_add(interval as i32), 1, 1)
-                    .unwrap_or(today);
-            UsagePeriodBounds {
-                start: start_date.and_time(NaiveTime::MIN),
-                end: Some(end_date.and_time(NaiveTime::MIN)),
-            }
-        }
-    }
-}
+pub(crate) use crate::services::entitlements::limits::rules::{
+    BillingCyclePeriod, compute_usage_period,
+};
 
-fn subtract_duration(now: NaiveDateTime, unit: &PeriodUnit, interval: u32) -> NaiveDateTime {
-    match unit {
-        PeriodUnit::Hour => now - Duration::hours(interval as i64),
-        PeriodUnit::Day => NaiveDateTime::new(now.date() - Days::new(interval as u64), now.time()),
-        PeriodUnit::Week => {
-            NaiveDateTime::new(now.date() - Days::new(7 * interval as u64), now.time())
-        }
-        PeriodUnit::Month => NaiveDateTime::new(now.date() - Months::new(interval), now.time()),
-        PeriodUnit::Year => NaiveDateTime::new(now.date() - Months::new(interval * 12), now.time()),
-    }
+async fn entitlement_owner(
+    conn: &mut PgConn,
+    id: EntitlementId,
+    tenant_id: TenantId,
+) -> StoreResult<InputsOwner> {
+    let existing = EntitlementRow::find_by_id(conn, id, tenant_id).await?;
+    InputsOwner::of_entitlement(conn, tenant_id, &existing.entity_type, existing.entity_id).await
 }
 
 fn build_feature_entitlement_map(
@@ -821,7 +1081,9 @@ async fn with_origin_names(
             EntitlementEntityId::Feature(id) => {
                 feature_ids.insert(id);
             }
-            EntitlementEntityId::Subscription(_) | EntitlementEntityId::Quote(_) => {}
+            EntitlementEntityId::Customer(_)
+            | EntitlementEntityId::Subscription(_)
+            | EntitlementEntityId::Quote(_) => {}
         }
     }
 
@@ -887,7 +1149,9 @@ async fn with_origin_names(
                 .and_then(|(plan_id, ver)| plan_names.get(plan_id).map(|n| format!("{n} v{ver}"))),
             EntitlementEntityId::AddOn(id) => addon_names.get(id).cloned(),
             EntitlementEntityId::Feature(id) => feature_names.get(id).cloned(),
-            EntitlementEntityId::Subscription(_) | EntitlementEntityId::Quote(_) => None,
+            EntitlementEntityId::Customer(_)
+            | EntitlementEntityId::Subscription(_)
+            | EntitlementEntityId::Quote(_) => None,
         }
     };
 
@@ -960,13 +1224,21 @@ async fn is_addon_multi_instance(
 /// against its feature's type. Shared by `insert_entitlement_specs` and
 /// `batch_create_entitlements` — they differ only in which insert path runs afterwards
 /// (`insert_batch` vs `insert_batch_skip_conflicts`).
+/// Archived features take no new entitlements: with `skip_archived` their specs are dropped, so
+/// creating an entity never fails on a feature's status, and otherwise they are rejected.
 async fn build_entitlement_rows(
     conn: &mut PgConn,
     specs: Vec<EntitlementSpec>,
     entity: &EntitlementEntityId,
     tenant_id: TenantId,
+    skip_archived: bool,
 ) -> StoreResult<Vec<EntitlementRowNew>> {
     let feature_ids: Vec<FeatureId> = specs.iter().map(|s| s.feature_id).collect();
+    let archived: HashSet<FeatureId> = FeatureRow::find_archived_ids(conn, tenant_id, &feature_ids)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .collect();
     let features: Vec<FeatureWithProductRow> =
         FeatureRow::find_by_ids(conn, tenant_id, &feature_ids)
             .await
@@ -983,32 +1255,42 @@ async fn build_entitlement_rows(
     let entity_id = entity.as_uuid();
     let entity_type = EntitlementEntityTypeEnum::from(entity);
 
-    specs
-        .into_iter()
-        .map(|spec| {
-            let feature = feature_type_map.get(&spec.feature_id).ok_or_else(|| {
-                Report::new(StoreError::InvalidArgument(format!(
-                    "feature {} not found",
-                    spec.feature_id
-                )))
-            })?;
-            validate_value_matches_feature_type(&spec.value, &feature.feature_type)?;
-            let json_value = value_to_json(&spec.value)?;
-            Ok(EntitlementRowNew {
-                id: EntitlementId::new(),
-                tenant_id,
-                feature_id: spec.feature_id,
-                entity_id,
-                entity_type,
-                mode: mode.clone().into(),
-                value: json_value,
-            })
-        })
-        .collect()
+    let mut rows = Vec::with_capacity(specs.len());
+    for spec in specs {
+        if archived.contains(&spec.feature_id) {
+            if skip_archived {
+                continue;
+            }
+            return Err(Report::new(StoreError::InvalidArgument(format!(
+                "feature {} is archived",
+                spec.feature_id
+            ))));
+        }
+        let feature = feature_type_map.get(&spec.feature_id).ok_or_else(|| {
+            Report::new(StoreError::InvalidArgument(format!(
+                "feature {} not found",
+                spec.feature_id
+            )))
+        })?;
+        validate_value_matches_feature_type(&spec.value, &feature.feature_type)?;
+        validate_grouping(conn, tenant_id, &feature.feature_type, &spec.value).await?;
+        let json_value = value_to_json(&spec.value)?;
+        rows.push(EntitlementRowNew {
+            id: EntitlementId::new(),
+            tenant_id,
+            feature_id: spec.feature_id,
+            entity_id,
+            entity_type,
+            mode: mode.clone().into(),
+            value: json_value,
+        });
+    }
+    Ok(rows)
 }
 
 /// Insert a batch of entitlement specs for a single entity inside an existing transaction.
 /// The caller provides the entity (the thing being created), tenant/actor context, and the specs.
+/// Specs for archived features are skipped, see `build_entitlement_rows`.
 pub(crate) async fn insert_entitlement_specs(
     conn: &mut PgConn,
     specs: Vec<EntitlementSpec>,
@@ -1019,7 +1301,10 @@ pub(crate) async fn insert_entitlement_specs(
         return Ok(vec![]);
     }
 
-    let rows = build_entitlement_rows(conn, specs, &entity, tenant_id).await?;
+    let rows = build_entitlement_rows(conn, specs, &entity, tenant_id, true).await?;
+    if rows.is_empty() {
+        return Ok(vec![]);
+    }
     EntitlementRowNew::insert_batch(&rows, conn)
         .await
         .map_err(Into::<Report<StoreError>>::into)
@@ -1062,6 +1347,7 @@ async fn build_chain_for_subscription(
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
     let mut chain = plan_version_chain(sub.plan_id, sub.subscription.plan_version_id, &addon_ids);
+    chain.push(EntitlementEntityId::Customer(sub.customer_id));
     chain.push(EntitlementEntityId::Subscription(sub_id));
     Ok(chain)
 }
@@ -1087,6 +1373,7 @@ async fn build_chain_for_quote(
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
     let mut chain = plan_version_chain(plan_id, pv_id, &addon_ids);
+    chain.push(EntitlementEntityId::Customer(quote.customer_id));
     chain.push(EntitlementEntityId::Quote(quote_id));
     Ok(chain)
 }
@@ -1247,7 +1534,7 @@ fn chain_mixes_subscription_and_quote(chain: &[EntitlementEntityId]) -> bool {
 /// Shared resolution pipeline used by both `resolve_for_entity` and `resolve_entitlements_tx`.
 ///
 /// ## Resolution algorithm
-/// 1. Load scoped features (active + disabled, not archived) for `product_ids`, including
+/// 1. Load scoped features (not deleted) for `product_ids`, including
 ///    globally-scoped features (`product_id IS NULL`). Product names are joined at DB level.
 /// 2. Load entity-bound entitlements for every id in `chain`, optionally narrowed to
 ///    `filter_feature_id` at the DB level.
@@ -1255,7 +1542,7 @@ fn chain_mixes_subscription_and_quote(chain: &[EntitlementEntityId]) -> bool {
 ///    to prevent cross-product leakage.
 /// 4. Drop rows outside the product scope or `filter_feature_id`.
 /// 5. [`resolve`]: sort by `entity.priority()` asc — `Feature(0) < Plan(1) < AddOn(2) <
-///    PlanVersion(3) < Subscription(4) = Quote(4)` — then fold. Higher priority replaces
+///    PlanVersion(3) < Subscription(4) = Quote(4) < Customer(5)` — then fold. Higher priority replaces
 ///    accumulated; same-priority merges permissively (or additively for multi-instance
 ///    add-ons). Features with status != Active are skipped.
 /// 6. [`with_origin_names`]: batch-load display names for each distinct origin entity variant.
@@ -1350,84 +1637,219 @@ async fn load_multi_instance_addons(
         .collect())
 }
 
+/// Customer-wide entitlement resolution.
+///
+/// Each active subscription is resolved **independently** (its own chain — including the customer
+/// and feature layers — via [`ResolveTarget::Subscription`]) and the results are OR-combined
+/// across subscriptions: a feature is enabled for the customer if it resolves enabled on *any*
+/// subscription; metered limits take the most permissive. Folding every subscription into one
+/// flat chain would instead let a value set on one subscription mask another's — e.g. one site
+/// disabling a feature would hide another site's grant — so the per-subscription pass is what
+/// keeps `enabled on site A / disabled on site B` correct. Per-subscription resolution stays
+/// authoritative for site-scoped checks; this answers "does the customer have it anywhere".
+///
+/// Crucially the OR is across subscriptions **only**. Each subscription pass already folds in the
+/// `Feature` (baseline) and `Customer` (top-priority force) layers, so a customer-level force wins
+/// within every scope while a plan or subscription can still override the feature default. The
+/// separate account-level pass (`Feature` + `Customer` only) is a **fallback**: it fills features
+/// no subscription's product scope covers (e.g. a customer force on an unsubscribed product) and
+/// is the sole result for a customer with no active subscription. It is not OR'd as a peer — doing
+/// so would let the low-priority `Feature` default resurrect a feature a subscription disabled.
 async fn resolve_entitlements_tx(
     conn: &mut PgConn,
     customer_id: CustomerId,
     tenant_id: TenantId,
     filter_feature_id: Option<FeatureId>,
 ) -> StoreResult<Vec<ResolvedEntitlement>> {
-    use itertools::Itertools;
+    use std::collections::HashSet;
 
     let sub_rows = SubscriptionRow::find_active_by_customer(conn, customer_id, tenant_id)
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-    if sub_rows.is_empty() {
-        return Ok(vec![]);
-    }
-
-    let (subscription_ids, plan_version_ids): (Vec<_>, Vec<_>) =
-        sub_rows.iter().map(|r| (r.id, r.plan_version_id)).unzip();
-
-    let plan_id_map = PlanVersionRow::get_plan_ids_by_version_ids(conn, &plan_version_ids)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-    let add_on_ids =
-        SubscriptionAddOnRow::list_active_add_on_ids(conn, &subscription_ids, &tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-    let add_on_product_ids =
-        SubscriptionAddOnRow::list_active_product_ids(conn, &subscription_ids, &tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-    let component_product_ids =
-        SubscriptionComponentRow::list_product_ids(conn, &subscription_ids, &tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-    let product_ids: Vec<ProductId> = itertools::chain!(add_on_product_ids, component_product_ids)
-        .unique()
-        .collect();
-
-    let chain: Vec<EntitlementEntityId> = itertools::chain!(
-        plan_id_map
-            .values()
-            .map(|id| EntitlementEntityId::Plan(*id)),
-        plan_version_ids
-            .iter()
-            .map(|id| EntitlementEntityId::PlanVersion(*id)),
-        add_on_ids.iter().map(|id| EntitlementEntityId::AddOn(*id)),
-        subscription_ids
-            .iter()
-            .map(|id| EntitlementEntityId::Subscription(*id)),
-    )
-    .collect();
-
-    // Customer-wide effective lookup always includes tenant-global features so the
-    // customer sees every entitlement that applies to them (Sub/Quote chain semantics).
-    resolve_for_chain(
+    // Account-level baseline: tenant-global feature defaults (priority 0) plus this customer's
+    // own overrides (priority 1). The product scope includes the products of any feature the
+    // customer overrides so product-scoped customer grants resolve too (globals are always in
+    // scope via `include_globals`).
+    let account_chain = [EntitlementEntityId::Customer(customer_id)];
+    let account_products = customer_override_product_ids(conn, tenant_id, customer_id).await?;
+    let account = resolve_for_chain(
         conn,
         tenant_id,
-        &chain,
-        &product_ids,
+        &account_chain,
+        &account_products,
         true,
         filter_feature_id,
     )
-    .await
+    .await?;
+
+    if sub_rows.is_empty() {
+        return Ok(account);
+    }
+
+    let mut sub_scopes: Vec<Vec<ResolvedEntitlement>> = Vec::with_capacity(sub_rows.len());
+    for sub in &sub_rows {
+        let scope =
+            build_chain_and_products(conn, tenant_id, ResolveTarget::Subscription(sub.id)).await?;
+        let resolved = resolve_for_chain(
+            conn,
+            tenant_id,
+            &scope.chain,
+            &scope.product_ids,
+            scope.include_globals,
+            filter_feature_id,
+        )
+        .await?;
+        sub_scopes.push(resolved);
+    }
+
+    let mut combined = aggregate_scopes_permissive(sub_scopes);
+
+    // Fallback: surface account-level entitlements for features no subscription scope covered.
+    let covered: HashSet<FeatureId> = combined.iter().map(|e| e.feature.id).collect();
+    combined.extend(
+        account
+            .into_iter()
+            .filter(|e| !covered.contains(&e.feature.id)),
+    );
+
+    Ok(combined)
+}
+
+/// Product ids of every feature this customer has a customer-level entitlement for, so the
+/// account-level resolution scope can be widened to include product-scoped customer overrides.
+/// Global features (`product_id IS NULL`) are always in scope and need no widening.
+async fn customer_override_product_ids(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    customer_id: CustomerId,
+) -> StoreResult<Vec<ProductId>> {
+    let rows =
+        EntitlementRow::list_by_entity(conn, tenant_id, EntitlementEntityId::Customer(customer_id))
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+    let feature_ids: Vec<FeatureId> = rows.iter().map(|r| r.feature_id).collect();
+    let features = FeatureRow::find_by_ids(conn, tenant_id, &feature_ids)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    Ok(features
+        .into_iter()
+        .filter_map(|f| f.feature.product_id)
+        .unique()
+        .collect())
+}
+
+/// OR-combine per-scope resolutions into the customer-wide view. Groups by feature; when a
+/// feature resolves in more than one scope, keeps the most permissive value — boolean OR, and
+/// for metered the larger limit (`None` = unlimited) carrying its own reset/overage. The origin
+/// follows the contributing scope: an already-enabled boolean keeps its origin, and a later
+/// scope only takes it over when it flips the value on.
+fn aggregate_scopes_permissive(scopes: Vec<Vec<ResolvedEntitlement>>) -> Vec<ResolvedEntitlement> {
+    use std::collections::HashMap;
+    use std::collections::hash_map::Entry;
+
+    let mut by_feature: HashMap<FeatureId, ResolvedEntitlement> = HashMap::new();
+    for scope in scopes {
+        for ent in scope {
+            match by_feature.entry(ent.feature.id) {
+                Entry::Vacant(v) => {
+                    v.insert(ent);
+                }
+                Entry::Occupied(mut o) => {
+                    let merged = merge_resolved_permissive(o.get().clone(), ent);
+                    o.insert(merged);
+                }
+            }
+        }
+    }
+    by_feature.into_values().collect()
+}
+
+/// Permissive OR of two already-resolved values for the same feature. Mirrors
+/// [`merge_permissive`] but over [`ResolvedEntitlementValue`], and tracks which scope's origin
+/// to keep. Used only by [`aggregate_scopes_permissive`].
+fn merge_resolved_permissive(
+    a: ResolvedEntitlement,
+    b: ResolvedEntitlement,
+) -> ResolvedEntitlement {
+    match (a.value, b.value) {
+        (
+            ResolvedEntitlementValue::Boolean { enabled: ea },
+            ResolvedEntitlementValue::Boolean { enabled: eb },
+        ) => {
+            let origin = if eb && !ea { b.origin } else { a.origin };
+            ResolvedEntitlement {
+                feature: a.feature,
+                value: ResolvedEntitlementValue::Boolean { enabled: ea || eb },
+                origin,
+            }
+        }
+        (
+            ResolvedEntitlementValue::Metered {
+                metric_id,
+                limit: la,
+                reset_period: rpa,
+                overage_behavior: oba,
+                thresholds: ta,
+                enabled: ea,
+                group_by: gba,
+            },
+            ResolvedEntitlementValue::Metered {
+                limit: lb,
+                reset_period: rpb,
+                overage_behavior: obb,
+                thresholds: tb,
+                enabled: eb,
+                group_by: gbb,
+                ..
+            },
+        ) => {
+            // Larger limit wins (None = unlimited) and carries its own reset/overage/origin.
+            let b_wins = match (la, lb) {
+                (None, _) => false,
+                (Some(_), None) => true,
+                (Some(x), Some(y)) => y > x,
+            };
+            let (limit, reset_period, overage_behavior, group_by, origin) = if b_wins {
+                (lb, rpb, obb, gbb, b.origin)
+            } else {
+                (la, rpa, oba, gba, a.origin)
+            };
+            ResolvedEntitlement {
+                feature: a.feature,
+                value: ResolvedEntitlementValue::Metered {
+                    metric_id,
+                    limit,
+                    reset_period,
+                    overage_behavior,
+                    thresholds: merge_thresholds(&ta, &tb),
+                    enabled: ea || eb,
+                    group_by,
+                },
+                origin,
+            }
+        }
+        // Same feature ⇒ same variant, so a mismatch is unreachable. Keep `a` defensively.
+        (value, _) => ResolvedEntitlement {
+            feature: a.feature,
+            value,
+            origin: a.origin,
+        },
+    }
 }
 
 /// Per-feature fold over a pre-filtered, pre-scoped set of entitlements.
 ///
 /// Priority ladder (low → high):
-/// `Feature(0) < Plan(1) < AddOn(2) < PlanVersion(3) < Subscription(4) = Quote(4)`.
-/// Subscription always wins for a customer; PlanVersion overrides its linked AddOns
+/// `Feature(0) < Plan(1) < AddOn(2) < PlanVersion(3) < Subscription(4) = Quote(4) < Customer(5)`.
+/// A customer-level force wins for a customer; PlanVersion overrides its linked AddOns
 /// because the plan version is the authoritative composition for the plan.
 ///
 /// Algorithm:
-/// - Skip features with status != Active (Disabled = global off-switch; Archived = hidden).
+/// - Skip switched-off features (global off-switch) and deleted ones.
 /// - Sort entitlements by `entity.priority()` asc, then `created_at`, then `id` (stable).
 /// - Walk in order. Per entitlement:
 ///   - **Same priority as accumulator**: merge with the accumulated value.
@@ -1524,17 +1946,22 @@ fn resolve(
                     limit,
                     reset_period,
                     overage_behavior,
-                    warning_threshold_pct,
+                    thresholds,
                     enabled,
+                    group_by,
                 },
             ) => ResolvedEntitlementValue::Metered {
                 metric_id,
                 limit,
                 reset_period,
                 overage_behavior,
-                warning_threshold_pct,
+                thresholds,
                 enabled,
+                group_by,
             },
+            (FeatureType::Config { .. }, EntitlementValue::Config { value }) => {
+                ResolvedEntitlementValue::Config { value }
+            }
             _ => {
                 log::error!(
                     "[BUG] entitlement value type mismatch for feature {} — skipping",
@@ -1583,6 +2010,9 @@ fn prev_dominates_under_permissive(prev: &EntitlementValue, new: &EntitlementVal
             // is at least as enabled and keeps the origin.
             !matches!((a, b), (false, true))
         }
+        // Config override is last-writer-wins (see `merge_permissive`), so the new grant is
+        // the contributor — do not keep `prev`'s origin.
+        (EntitlementValue::Config { .. }, EntitlementValue::Config { .. }) => false,
         // Type mismatch should never reach here (validated at insert; logged as `[BUG]`
         // by the caller). Keep `prev`'s origin to avoid spurious origin churn.
         _ => true,
@@ -1593,9 +2023,9 @@ fn prev_dominates_under_permissive(prev: &EntitlementValue, new: &EntitlementVal
 /// *visible* field (algorithm rule §2):
 /// - `limit`: `max` (None = unlimited absorbs any finite).
 /// - `enabled`: OR — kill-switch must be set on *every* grant to disable the feature.
-/// - `warning_threshold_pct`: `min` — warn at the earliest threshold any grant asks for.
+/// - `thresholds`: union — alert at every threshold any grant asks for.
 ///
-/// `reset_period` and `overage_behavior` are not part of the "more permissive" comparison;
+/// `reset_period`, `overage_behavior` and `group_by` are not part of the "more permissive" comparison;
 /// they take `b`'s value — i.e. the later-iterated grant under the `(priority, created_at, id)`
 /// sort. Callers who need a guaranteed winner across same-priority grants should set the
 /// behavioural fields consistently on every grant for a given feature.
@@ -1609,15 +2039,17 @@ fn merge_permissive(a: EntitlementValue, b: EntitlementValue) -> EntitlementValu
                 limit: la,
                 reset_period: _,
                 overage_behavior: _,
-                warning_threshold_pct: wta,
+                thresholds: ta,
                 enabled: ea,
+                group_by: _,
             },
             EntitlementValue::Metered {
                 limit: lb,
                 reset_period: rpb,
                 overage_behavior: obb,
-                warning_threshold_pct: wtb,
+                thresholds: tb,
                 enabled: eb,
+                group_by: gb,
             },
         ) => EntitlementValue::Metered {
             limit: match (la, lb) {
@@ -1626,12 +2058,15 @@ fn merge_permissive(a: EntitlementValue, b: EntitlementValue) -> EntitlementValu
             },
             reset_period: rpb,
             overage_behavior: obb,
-            warning_threshold_pct: match (wta, wtb) {
-                (Some(x), Some(y)) => Some(x.min(y)),
-                (None, w) | (w, None) => w,
-            },
+            thresholds: merge_thresholds(&ta, &tb),
             enabled: ea || eb,
+            group_by: gb,
         },
+        // Config has no "more permissive" ordering; same-priority collisions resolve
+        // last-writer-wins (`b`, later under the (priority, created_at, id) sort).
+        (EntitlementValue::Config { .. }, EntitlementValue::Config { value }) => {
+            EntitlementValue::Config { value }
+        }
         (a, b) => {
             log::error!(
                 "[BUG] merge_permissive called with mismatched variants — keeping `a`. \
@@ -1647,8 +2082,8 @@ fn merge_permissive(a: EntitlementValue, b: EntitlementValue) -> EntitlementValu
 /// - `limit`: sum (`None` stays unlimited).
 /// - `enabled`: OR — kill-switch must be set on every grant to disable. Matches
 ///   [`merge_permissive`]: a single enabled grant keeps the entitlement on.
-/// - `warning_threshold_pct`: take `b`'s value when set, otherwise fall back to `a`.
-/// - `reset_period`, `overage_behavior`: take `b`'s value — set them consistently across the
+/// - `thresholds`: take `b`'s when it has any, otherwise fall back to `a`'s.
+/// - `reset_period`, `overage_behavior`, `group_by`: take `b`'s value — set them consistently across the
 ///   multi-instance grants if you depend on a particular outcome.
 fn merge_additive(a: EntitlementValue, b: EntitlementValue) -> EntitlementValue {
     match (a, b) {
@@ -1660,15 +2095,17 @@ fn merge_additive(a: EntitlementValue, b: EntitlementValue) -> EntitlementValue 
                 limit: la,
                 reset_period: _rpa,
                 overage_behavior: _,
-                warning_threshold_pct: wta,
+                thresholds: ta,
                 enabled: ea,
+                group_by: _,
             },
             EntitlementValue::Metered {
                 limit: lb,
                 reset_period: rpb,
                 overage_behavior: obb,
-                warning_threshold_pct: wtb,
+                thresholds: tb,
                 enabled: eb,
+                group_by: gb,
             },
         ) => EntitlementValue::Metered {
             limit: match (la, lb) {
@@ -1677,9 +2114,14 @@ fn merge_additive(a: EntitlementValue, b: EntitlementValue) -> EntitlementValue 
             },
             reset_period: rpb,
             overage_behavior: obb,
-            warning_threshold_pct: wtb.or(wta),
+            thresholds: if tb.is_empty() { ta } else { tb },
             enabled: ea || eb,
+            group_by: gb,
         },
+        // Config is not additive; keep last-writer-wins to match `merge_permissive`.
+        (EntitlementValue::Config { .. }, EntitlementValue::Config { value }) => {
+            EntitlementValue::Config { value }
+        }
         (a, b) => {
             log::error!(
                 "[BUG] merge_additive called with mismatched variants — keeping `a`. \
@@ -1700,6 +2142,135 @@ mod tests {
     use common_domain::ids::{
         AddOnId, BaseId, BillableMetricId, PlanId, PlanVersionId, QuoteId, SubscriptionId,
     };
+
+    fn metered(
+        limit: Option<i64>,
+        reset_period: ResetPeriod,
+        overage_behavior: OverageBehavior,
+        thresholds: Vec<u32>,
+    ) -> Result<(), Report<StoreError>> {
+        validate_value_matches_feature_type(
+            &EntitlementValue::Metered {
+                limit: limit.map(Decimal::from),
+                reset_period,
+                overage_behavior,
+                thresholds,
+                enabled: true,
+                group_by: None,
+            },
+            &FeatureType::metered(BillableMetricId::new()),
+        )
+    }
+
+    #[test]
+    fn limit_settings_without_a_limit_are_rejected() {
+        let block = OverageBehavior::Block {
+            grace_period_pct: None,
+        };
+        let graced = OverageBehavior::Block {
+            grace_period_pct: Some(10),
+        };
+        assert!(metered(None, ResetPeriod::BillingCycle, block.clone(), vec![]).is_ok());
+        assert!(
+            metered(
+                None,
+                ResetPeriod::BillingCycle,
+                OverageBehavior::Allow,
+                vec![]
+            )
+            .is_err()
+        );
+        assert!(metered(None, ResetPeriod::BillingCycle, graced.clone(), vec![]).is_err());
+        assert!(metered(None, ResetPeriod::BillingCycle, block.clone(), vec![80]).is_err());
+        assert!(metered(Some(100), ResetPeriod::BillingCycle, graced, vec![80]).is_ok());
+        assert!(
+            metered(
+                Some(100),
+                ResetPeriod::Never,
+                OverageBehavior::Allow,
+                vec![50, 80, 100]
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn thresholds_are_distinct_ascending_percentages() {
+        let block = || OverageBehavior::Block {
+            grace_period_pct: None,
+        };
+        for bad in [
+            vec![0],
+            vec![101],
+            vec![80, 80],
+            vec![90, 80],
+            (1..=11).collect(),
+        ] {
+            assert!(
+                metered(Some(100), ResetPeriod::BillingCycle, block(), bad.clone()).is_err(),
+                "{bad:?}"
+            );
+        }
+        assert!(
+            metered(
+                Some(100),
+                ResetPeriod::BillingCycle,
+                block(),
+                (1..=10).collect()
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn a_stored_value_with_inert_terms_is_copied_without_them() {
+        let feature = FeatureType::metered(BillableMetricId::new());
+        let unlimited = EntitlementValue::Metered {
+            limit: None,
+            reset_period: ResetPeriod::BillingCycle,
+            overage_behavior: OverageBehavior::Allow,
+            thresholds: vec![80],
+            enabled: true,
+            group_by: None,
+        };
+        assert!(validate_value_matches_feature_type(&unlimited, &feature).is_err());
+        let copied = unlimited.without_inert_limit_terms();
+        assert!(validate_value_matches_feature_type(&copied, &feature).is_ok());
+
+        let sliding = EntitlementValue::Metered {
+            limit: Some(Decimal::from(200)),
+            reset_period: ResetPeriod::SlidingWindow {
+                unit: PeriodUnit::Hour,
+                interval: 5,
+            },
+            overage_behavior: OverageBehavior::Allow,
+            thresholds: vec![80],
+            enabled: true,
+            group_by: None,
+        };
+        let copied = sliding.without_inert_limit_terms();
+        assert!(matches!(
+            copied,
+            EntitlementValue::Metered {
+                overage_behavior: OverageBehavior::Allow,
+                ref thresholds,
+                ..
+            } if thresholds.is_empty()
+        ));
+    }
+
+    #[test]
+    fn a_sliding_window_takes_no_thresholds() {
+        let sliding = ResetPeriod::SlidingWindow {
+            unit: PeriodUnit::Hour,
+            interval: 5,
+        };
+        let block = OverageBehavior::Block {
+            grace_period_pct: None,
+        };
+        assert!(metered(Some(200), sliding.clone(), block.clone(), vec![80]).is_err());
+        assert!(metered(Some(200), sliding, block, vec![]).is_ok());
+    }
 
     #[test]
     fn chain_for_product_is_empty() {
@@ -1827,6 +2398,136 @@ mod tests {
     }
 
     #[test]
+    fn customer_overrides_feature_default() {
+        // A customer-level force replaces the tenant-wide Feature(0) default for that customer.
+        let fid = FeatureId::new();
+        let features = vec![make_feature(fid, FeatureType::Boolean)];
+        let entitlements = vec![
+            make_entitlement(
+                fid,
+                EntitlementEntityId::Feature(fid),
+                EntitlementModeEnum::Override,
+                EntitlementValue::Boolean { enabled: false },
+            ),
+            make_entitlement(
+                fid,
+                EntitlementEntityId::Customer(CustomerId::new()),
+                EntitlementModeEnum::Override,
+                EntitlementValue::Boolean { enabled: true },
+            ),
+        ];
+        let result = resolve(entitlements, features, &std::collections::HashSet::new());
+        assert_eq!(result.len(), 1);
+        assert!(matches!(
+            result[0].value,
+            ResolvedEntitlementValue::Boolean { enabled: true, .. }
+        ));
+        assert!(matches!(
+            result[0].origin_entity,
+            EntitlementEntityId::Customer(_)
+        ));
+    }
+
+    #[test]
+    fn customer_force_overrides_plan() {
+        // A customer-level force (top priority) wins over a plan grant.
+        let fid = FeatureId::new();
+        let features = vec![make_feature(fid, FeatureType::Boolean)];
+        let entitlements = vec![
+            make_entitlement(
+                fid,
+                EntitlementEntityId::Plan(PlanId::new()),
+                EntitlementModeEnum::Override,
+                EntitlementValue::Boolean { enabled: false },
+            ),
+            make_entitlement(
+                fid,
+                EntitlementEntityId::Customer(CustomerId::new()),
+                EntitlementModeEnum::Override,
+                EntitlementValue::Boolean { enabled: true },
+            ),
+        ];
+        let result = resolve(entitlements, features, &std::collections::HashSet::new());
+        assert_eq!(result.len(), 1);
+        assert!(matches!(
+            result[0].value,
+            ResolvedEntitlementValue::Boolean { enabled: true, .. }
+        ));
+        assert!(matches!(
+            result[0].origin_entity,
+            EntitlementEntityId::Customer(_)
+        ));
+    }
+
+    #[test]
+    fn customer_force_overrides_subscription() {
+        // A customer-level force wins even over an explicit subscription entry — "enabled for the
+        // customer, and it sticks across every subscription" (the account-wide force).
+        let fid = FeatureId::new();
+        let features = vec![make_feature(fid, FeatureType::Boolean)];
+        let entitlements = vec![
+            make_entitlement(
+                fid,
+                EntitlementEntityId::Subscription(SubscriptionId::new()),
+                EntitlementModeEnum::Override,
+                EntitlementValue::Boolean { enabled: false },
+            ),
+            make_entitlement(
+                fid,
+                EntitlementEntityId::Customer(CustomerId::new()),
+                EntitlementModeEnum::Override,
+                EntitlementValue::Boolean { enabled: true },
+            ),
+        ];
+        let result = resolve(entitlements, features, &std::collections::HashSet::new());
+        assert_eq!(result.len(), 1);
+        assert!(matches!(
+            result[0].value,
+            ResolvedEntitlementValue::Boolean { enabled: true, .. }
+        ));
+        assert!(matches!(
+            result[0].origin_entity,
+            EntitlementEntityId::Customer(_)
+        ));
+    }
+
+    #[test]
+    fn aggregate_ors_enabled_across_scopes() {
+        // Customer-wide view: enabled on one subscription, disabled on another → enabled overall,
+        // origin pointing at the scope that has it on. This is the fix for one subscription's
+        // value masking another's.
+        let fid = FeatureId::new();
+        let on_sub = SubscriptionId::new();
+        let make = |enabled, origin| ResolvedEntitlement {
+            feature: FeatureRef {
+                id: fid,
+                name: fid.to_string(),
+                code: fid.to_string(),
+                product: None,
+            },
+            value: ResolvedEntitlementValue::Boolean { enabled },
+            origin: ResolvedOrigin {
+                entity: origin,
+                name: None,
+            },
+        };
+        let scope_a = vec![make(
+            false,
+            EntitlementEntityId::Subscription(SubscriptionId::new()),
+        )];
+        let scope_b = vec![make(true, EntitlementEntityId::Subscription(on_sub))];
+        let agg = aggregate_scopes_permissive(vec![scope_a, scope_b]);
+        assert_eq!(agg.len(), 1);
+        assert!(matches!(
+            agg[0].value,
+            ResolvedEntitlementValue::Boolean { enabled: true }
+        ));
+        assert!(
+            matches!(agg[0].origin.entity, EntitlementEntityId::Subscription(id) if id == on_sub)
+        );
+    }
+
+    #[test]
     fn disabled_feature_suppressed() {
         let fid = FeatureId::new();
         let mut feature = make_feature(fid, FeatureType::Boolean);
@@ -1859,12 +2560,13 @@ mod tests {
                 EntitlementEntityId::Plan(PlanId::new()),
                 EntitlementModeEnum::Stack,
                 EntitlementValue::Metered {
+                    group_by: None,
                     limit: Some(100.into()),
                     reset_period: ResetPeriod::Never,
                     overage_behavior: OverageBehavior::Block {
                         grace_period_pct: None,
                     },
-                    warning_threshold_pct: None,
+                    thresholds: vec![],
                     enabled: true,
                 },
             ),
@@ -1873,12 +2575,13 @@ mod tests {
                 EntitlementEntityId::Subscription(SubscriptionId::new()),
                 EntitlementModeEnum::Override,
                 EntitlementValue::Metered {
+                    group_by: None,
                     limit: Some(500.into()),
                     reset_period: ResetPeriod::Never,
                     overage_behavior: OverageBehavior::Block {
                         grace_period_pct: None,
                     },
-                    warning_threshold_pct: None,
+                    thresholds: vec![],
                     enabled: true,
                 },
             ),
@@ -1908,12 +2611,13 @@ mod tests {
                 EntitlementEntityId::AddOn(aid1),
                 EntitlementModeEnum::Stack,
                 EntitlementValue::Metered {
+                    group_by: None,
                     limit: Some(1000.into()),
                     reset_period: ResetPeriod::BillingCycle,
                     overage_behavior: OverageBehavior::Block {
                         grace_period_pct: None,
                     },
-                    warning_threshold_pct: Some(90),
+                    thresholds: vec![90],
                     enabled: true,
                 },
             ),
@@ -1922,12 +2626,13 @@ mod tests {
                 EntitlementEntityId::AddOn(aid2),
                 EntitlementModeEnum::Stack,
                 EntitlementValue::Metered {
+                    group_by: None,
                     limit: Some(1000.into()),
                     reset_period: ResetPeriod::Never,
                     overage_behavior: OverageBehavior::Block {
                         grace_period_pct: None,
                     },
-                    warning_threshold_pct: None,
+                    thresholds: vec![],
                     enabled: true,
                 },
             ),
@@ -1956,12 +2661,13 @@ mod tests {
         let multi: std::collections::HashSet<AddOnId> = [aid_on, aid_off].into_iter().collect();
 
         let metered = |enabled: bool| EntitlementValue::Metered {
+            group_by: None,
             limit: Some(100.into()),
             reset_period: ResetPeriod::Never,
             overage_behavior: OverageBehavior::Block {
                 grace_period_pct: None,
             },
-            warning_threshold_pct: None,
+            thresholds: vec![],
             enabled,
         };
 
@@ -2006,13 +2712,14 @@ mod tests {
                 EntitlementEntityId::Plan(PlanId::new()),
                 EntitlementModeEnum::Stack,
                 EntitlementValue::Metered {
+                    group_by: None,
                     limit: Some(100.into()),
                     reset_period: ResetPeriod::Calendar {
                         unit: PeriodUnit::Month,
                         interval: 1,
                     },
                     overage_behavior: OverageBehavior::Allow,
-                    warning_threshold_pct: Some(80),
+                    thresholds: vec![80],
                     enabled: true,
                 },
             ),
@@ -2021,12 +2728,13 @@ mod tests {
                 EntitlementEntityId::AddOn(AddOnId::new()),
                 EntitlementModeEnum::Stack,
                 EntitlementValue::Metered {
+                    group_by: None,
                     limit: None,
                     reset_period: ResetPeriod::Never,
                     overage_behavior: OverageBehavior::Block {
                         grace_period_pct: None,
                     },
-                    warning_threshold_pct: None,
+                    thresholds: vec![],
                     enabled: true,
                 },
             ),
@@ -2053,12 +2761,13 @@ mod tests {
                 EntitlementEntityId::Plan(PlanId::new()),
                 EntitlementModeEnum::Stack,
                 EntitlementValue::Metered {
+                    group_by: None,
                     limit: Some(100.into()),
                     reset_period: ResetPeriod::Never,
                     overage_behavior: OverageBehavior::Block {
                         grace_period_pct: None,
                     },
-                    warning_threshold_pct: Some(70),
+                    thresholds: vec![70],
                     enabled: true,
                 },
             ),
@@ -2067,10 +2776,11 @@ mod tests {
                 EntitlementEntityId::PlanVersion(PlanVersionId::new()),
                 EntitlementModeEnum::Override,
                 EntitlementValue::Metered {
+                    group_by: None,
                     limit: Some(200.into()),
                     reset_period: ResetPeriod::BillingCycle,
                     overage_behavior: OverageBehavior::Allow,
-                    warning_threshold_pct: Some(90),
+                    thresholds: vec![90],
                     enabled: true,
                 },
             ),
@@ -2082,7 +2792,7 @@ mod tests {
             limit,
             reset_period,
             overage_behavior,
-            warning_threshold_pct,
+            thresholds,
             ..
         } = &result[0].value
         else {
@@ -2091,7 +2801,7 @@ mod tests {
         assert_eq!(*limit, Some(200.into()));
         assert!(matches!(reset_period, ResetPeriod::BillingCycle));
         assert!(matches!(overage_behavior, OverageBehavior::Allow));
-        assert_eq!(*warning_threshold_pct, Some(90));
+        assert_eq!(*thresholds, vec![90]);
     }
 
     #[test]
@@ -2122,12 +2832,13 @@ mod tests {
                 EntitlementEntityId::Plan(PlanId::new()),
                 EntitlementModeEnum::Stack,
                 EntitlementValue::Metered {
+                    group_by: None,
                     limit: Some(100.into()),
                     reset_period: ResetPeriod::Never,
                     overage_behavior: OverageBehavior::Block {
                         grace_period_pct: None,
                     },
-                    warning_threshold_pct: None,
+                    thresholds: vec![],
                     enabled: false,
                 },
             ),
@@ -2136,12 +2847,13 @@ mod tests {
                 EntitlementEntityId::Subscription(SubscriptionId::new()),
                 EntitlementModeEnum::Stack,
                 EntitlementValue::Metered {
+                    group_by: None,
                     limit: Some(100.into()),
                     reset_period: ResetPeriod::Never,
                     overage_behavior: OverageBehavior::Block {
                         grace_period_pct: None,
                     },
-                    warning_threshold_pct: None,
+                    thresholds: vec![],
                     enabled: true,
                 },
             ),
@@ -2166,12 +2878,13 @@ mod tests {
             EntitlementEntityId::Plan(PlanId::new()),
             EntitlementModeEnum::Stack,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: Some(100.into()),
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: false,
             },
         )];
@@ -2181,372 +2894,6 @@ mod tests {
             result[0].value,
             ResolvedEntitlementValue::Metered { enabled: false, .. }
         ));
-    }
-
-    #[test]
-    fn usage_period_sliding_window_day() {
-        let now = dt(2025, 6, 15);
-        let b = compute_usage_period(
-            &ResetPeriod::SlidingWindow {
-                unit: PeriodUnit::Day,
-                interval: 10,
-            },
-            None,
-            None,
-            now,
-        );
-        assert_eq!(b.start, dt(2025, 6, 5));
-        assert_eq!(b.end, Some(now));
-    }
-
-    // ── compute_usage_period ──────────────────────────────────────────────────
-
-    fn d(y: i32, m: u32, day: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(y, m, day).unwrap()
-    }
-
-    fn dt(y: i32, m: u32, day: u32) -> NaiveDateTime {
-        d(y, m, day).and_time(NaiveTime::MIN)
-    }
-
-    fn dt_hms(y: i32, m: u32, day: u32, h: u32, min: u32, s: u32) -> NaiveDateTime {
-        NaiveDateTime::new(d(y, m, day), NaiveTime::from_hms_opt(h, min, s).unwrap())
-    }
-
-    #[test]
-    fn usage_period_never_uses_activation_date() {
-        let now = dt(2025, 6, 15);
-        let activation = dt(2024, 1, 1);
-        let b = compute_usage_period(&ResetPeriod::Never, None, Some(activation), now);
-        assert_eq!(b.start, dt(2024, 1, 1));
-        assert_eq!(b.end, None);
-    }
-
-    #[test]
-    fn usage_period_never_falls_back_to_now_when_no_activation() {
-        let now = dt(2025, 6, 15);
-        let b = compute_usage_period(&ResetPeriod::Never, None, None, now);
-        assert_eq!(b.start, now);
-        assert_eq!(b.end, None);
-    }
-
-    #[test]
-    fn usage_period_billing_cycle_uses_subscription_period() {
-        let now = dt(2025, 6, 15);
-        let bc = BillingCyclePeriod {
-            period_start: d(2025, 6, 1),
-            period_end: Some(d(2025, 6, 30)),
-        };
-        let b = compute_usage_period(&ResetPeriod::BillingCycle, Some(bc), None, now);
-        assert_eq!(b.start, dt(2025, 6, 1));
-        assert_eq!(b.end, Some(dt(2025, 7, 1)));
-    }
-
-    #[test]
-    fn usage_period_billing_cycle_no_subscription_unbounded() {
-        let now = dt(2025, 6, 15);
-        let b = compute_usage_period(&ResetPeriod::BillingCycle, None, None, now);
-        assert_eq!(b.start, now);
-        assert_eq!(b.end, None);
-    }
-
-    #[test]
-    fn usage_period_sliding_window_month() {
-        // SlidingWindow always returns [now − interval, now].
-        let now = dt(2025, 6, 15);
-        let b = compute_usage_period(
-            &ResetPeriod::SlidingWindow {
-                unit: PeriodUnit::Month,
-                interval: 1,
-            },
-            None,
-            None,
-            now,
-        );
-        assert_eq!(b.start, dt(2025, 5, 15));
-        assert_eq!(b.end, Some(now));
-    }
-
-    #[test]
-    fn usage_period_sliding_window_week() {
-        let now = dt(2025, 6, 15);
-        let b = compute_usage_period(
-            &ResetPeriod::SlidingWindow {
-                unit: PeriodUnit::Week,
-                interval: 2,
-            },
-            None,
-            None,
-            now,
-        );
-        assert_eq!(b.start, dt(2025, 6, 1));
-        assert_eq!(b.end, Some(now));
-    }
-
-    #[test]
-    fn usage_period_sliding_window_hour() {
-        let now = dt_hms(2025, 6, 15, 14, 30, 0);
-        let b = compute_usage_period(
-            &ResetPeriod::SlidingWindow {
-                unit: PeriodUnit::Hour,
-                interval: 3,
-            },
-            None,
-            None,
-            now,
-        );
-        assert_eq!(b.start, dt_hms(2025, 6, 15, 11, 30, 0));
-        assert_eq!(b.end, Some(now));
-    }
-
-    #[test]
-    fn usage_period_fixed_window_no_activation_unbounded() {
-        // No anchor → can't form a fixed bucket; degrade to the same "[now, ∞)" empty
-        // window that BillingCycle/Never use when their anchor is missing.
-        let now = dt(2025, 6, 15);
-        let b = compute_usage_period(
-            &ResetPeriod::FixedWindow {
-                unit: PeriodUnit::Day,
-                interval: 7,
-            },
-            None,
-            None,
-            now,
-        );
-        assert_eq!(b.start, now);
-        assert_eq!(b.end, None);
-    }
-
-    #[test]
-    fn usage_period_fixed_window_day_first_bucket_starts_at_activation() {
-        // Activation 2025-06-10, 7-day buckets. `now` 2025-06-13 falls in bucket 0.
-        let activation = dt(2025, 6, 10);
-        let now = dt(2025, 6, 13);
-        let b = compute_usage_period(
-            &ResetPeriod::FixedWindow {
-                unit: PeriodUnit::Day,
-                interval: 7,
-            },
-            None,
-            Some(activation),
-            now,
-        );
-        assert_eq!(b.start, dt(2025, 6, 10));
-        assert_eq!(b.end, Some(dt(2025, 6, 17)));
-    }
-
-    #[test]
-    fn usage_period_fixed_window_day_advances_to_current_bucket() {
-        // Activation 2025-06-10, 7-day buckets. `now` 2025-07-02 → bucket 3
-        // (start 2025-07-01, end 2025-07-08).
-        let activation = dt(2025, 6, 10);
-        let now = dt(2025, 7, 2);
-        let b = compute_usage_period(
-            &ResetPeriod::FixedWindow {
-                unit: PeriodUnit::Day,
-                interval: 7,
-            },
-            None,
-            Some(activation),
-            now,
-        );
-        assert_eq!(b.start, dt(2025, 7, 1));
-        assert_eq!(b.end, Some(dt(2025, 7, 8)));
-    }
-
-    #[test]
-    fn usage_period_fixed_window_hour_anchored_on_activation() {
-        // Activation midnight 2025-06-10, 6-hour buckets. `now` 2025-06-10 14:30
-        // → bucket 2 (start 12:00, end 18:00).
-        let activation = dt(2025, 6, 10);
-        let now = dt_hms(2025, 6, 10, 14, 30, 0);
-        let b = compute_usage_period(
-            &ResetPeriod::FixedWindow {
-                unit: PeriodUnit::Hour,
-                interval: 6,
-            },
-            None,
-            Some(activation),
-            now,
-        );
-        assert_eq!(b.start, dt_hms(2025, 6, 10, 12, 0, 0));
-        assert_eq!(b.end, Some(dt_hms(2025, 6, 10, 18, 0, 0)));
-    }
-
-    #[test]
-    fn usage_period_fixed_window_hour_anchored_on_activation_with_time() {
-        let activation = dt_hms(2025, 5, 27, 14, 10, 0);
-        let now = dt_hms(2025, 5, 27, 14, 20, 0);
-        let b = compute_usage_period(
-            &ResetPeriod::FixedWindow {
-                unit: PeriodUnit::Hour,
-                interval: 2,
-            },
-            None,
-            Some(activation),
-            now,
-        );
-        assert_eq!(b.start, dt_hms(2025, 5, 27, 14, 10, 0));
-        assert_eq!(b.end, Some(dt_hms(2025, 5, 27, 16, 10, 0)));
-    }
-
-    #[test]
-    fn usage_period_fixed_window_month_advances_to_current_bucket() {
-        // Activation 2025-01-15, 1-month buckets. `now` 2025-06-20 → bucket starts 2025-06-15.
-        let activation = dt(2025, 1, 15);
-        let now = dt(2025, 6, 20);
-        let b = compute_usage_period(
-            &ResetPeriod::FixedWindow {
-                unit: PeriodUnit::Month,
-                interval: 1,
-            },
-            None,
-            Some(activation),
-            now,
-        );
-        assert_eq!(b.start, dt(2025, 6, 15));
-        assert_eq!(b.end, Some(dt(2025, 7, 15)));
-    }
-
-    #[test]
-    fn usage_period_fixed_window_year_advances_to_current_bucket() {
-        // Activation 2020-03-10, 1-year buckets. `now` 2025-06-15 → bucket starts 2025-03-10.
-        let activation = dt(2020, 3, 10);
-        let now = dt(2025, 6, 15);
-        let b = compute_usage_period(
-            &ResetPeriod::FixedWindow {
-                unit: PeriodUnit::Year,
-                interval: 1,
-            },
-            None,
-            Some(activation),
-            now,
-        );
-        assert_eq!(b.start, dt(2025, 3, 10));
-        assert_eq!(b.end, Some(dt(2026, 3, 10)));
-    }
-
-    #[test]
-    fn calendar_period_month_interval_1_mid_month() {
-        let b = calendar_period(dt(2025, 6, 15), &PeriodUnit::Month, 1);
-        assert_eq!(b.start, dt(2025, 6, 1));
-        assert_eq!(b.end, Some(dt(2025, 7, 1)));
-    }
-
-    #[test]
-    fn calendar_period_month_interval_1_end_of_month() {
-        let b = calendar_period(dt(2025, 1, 31), &PeriodUnit::Month, 1);
-        assert_eq!(b.start, dt(2025, 1, 1));
-        assert_eq!(b.end, Some(dt(2025, 2, 1)));
-    }
-
-    #[test]
-    fn calendar_period_month_interval_3_q2() {
-        let b = calendar_period(dt(2025, 6, 15), &PeriodUnit::Month, 3);
-        assert_eq!(b.start, dt(2025, 4, 1));
-        assert_eq!(b.end, Some(dt(2025, 7, 1)));
-    }
-
-    #[test]
-    fn calendar_period_week_interval_1_wednesday() {
-        let b = calendar_period(dt(2025, 6, 11), &PeriodUnit::Week, 1);
-        assert_eq!(b.start, dt(2025, 6, 9));
-        assert_eq!(b.end, Some(dt(2025, 6, 16)));
-    }
-
-    #[test]
-    fn calendar_period_week_interval_2() {
-        let b = calendar_period(dt(2025, 6, 11), &PeriodUnit::Week, 2);
-        assert_eq!(b.start, dt(2025, 6, 2));
-        assert_eq!(b.end, Some(dt(2025, 6, 16)));
-    }
-
-    #[test]
-    fn calendar_period_year_interval_1() {
-        let b = calendar_period(dt(2025, 8, 20), &PeriodUnit::Year, 1);
-        assert_eq!(b.start, dt(2025, 1, 1));
-        assert_eq!(b.end, Some(dt(2026, 1, 1)));
-    }
-
-    #[test]
-    fn calendar_period_day_interval_1() {
-        let now = dt(2025, 6, 15);
-        let b = calendar_period(now, &PeriodUnit::Day, 1);
-        assert_eq!(b.start, dt(2025, 6, 15));
-        assert_eq!(b.end, Some(dt(2025, 6, 16)));
-    }
-
-    #[test]
-    fn calendar_period_day_interval_7() {
-        let now = dt(2025, 6, 15);
-        let b = calendar_period(now, &PeriodUnit::Day, 7);
-        assert!(b.start <= now);
-        assert!(b.end.unwrap() > now);
-        assert_eq!((b.end.unwrap() - b.start).num_days(), 7);
-    }
-
-    #[test]
-    fn calendar_period_hour_interval_1() {
-        let now = dt_hms(2025, 6, 15, 14, 30, 0);
-        let b = calendar_period(now, &PeriodUnit::Hour, 1);
-        assert_eq!(b.start, dt_hms(2025, 6, 15, 14, 0, 0));
-        assert_eq!(b.end, Some(dt_hms(2025, 6, 15, 15, 0, 0)));
-    }
-
-    #[test]
-    fn calendar_period_hour_interval_4_across_midnight() {
-        let now = dt_hms(2025, 6, 15, 1, 15, 0);
-        let b = calendar_period(now, &PeriodUnit::Hour, 4);
-        assert_eq!(b.start, dt_hms(2025, 6, 15, 0, 0, 0));
-        assert_eq!(b.end, Some(dt_hms(2025, 6, 15, 4, 0, 0)));
-    }
-
-    #[test]
-    fn subtract_month() {
-        assert_eq!(
-            subtract_duration(dt(2025, 3, 31), &PeriodUnit::Month, 1),
-            dt(2025, 2, 28)
-        );
-    }
-
-    #[test]
-    fn subtract_year() {
-        assert_eq!(
-            subtract_duration(dt(2025, 6, 15), &PeriodUnit::Year, 2),
-            dt(2023, 6, 15)
-        );
-    }
-
-    #[test]
-    fn subtract_week() {
-        assert_eq!(
-            subtract_duration(dt(2025, 6, 15), &PeriodUnit::Week, 3),
-            dt(2025, 5, 25)
-        );
-    }
-
-    #[test]
-    fn subtract_day() {
-        assert_eq!(
-            subtract_duration(dt(2025, 6, 15), &PeriodUnit::Day, 10),
-            dt(2025, 6, 5)
-        );
-    }
-
-    #[test]
-    fn subtract_hour() {
-        assert_eq!(
-            subtract_duration(dt_hms(2025, 6, 15, 10, 30, 0), &PeriodUnit::Hour, 3),
-            dt_hms(2025, 6, 15, 7, 30, 0)
-        );
-    }
-
-    #[test]
-    fn subtract_hour_crosses_midnight() {
-        assert_eq!(
-            subtract_duration(dt_hms(2025, 6, 15, 1, 0, 0), &PeriodUnit::Hour, 3),
-            dt_hms(2025, 6, 14, 22, 0, 0)
-        );
     }
 
     #[test]
@@ -2592,12 +2939,13 @@ mod tests {
             EntitlementEntityId::Plan(PlanId::new()),
             EntitlementModeEnum::Override,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: Some(200.into()),
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: true,
             },
         );
@@ -2607,12 +2955,13 @@ mod tests {
             EntitlementEntityId::Plan(PlanId::new()),
             EntitlementModeEnum::Override,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: Some(100.into()),
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: true,
             },
         );
@@ -2673,12 +3022,13 @@ mod tests {
             EntitlementEntityId::Plan(winning_plan_id),
             EntitlementModeEnum::Override,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: Some(500.into()),
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: true,
             },
         );
@@ -2688,12 +3038,13 @@ mod tests {
             EntitlementEntityId::Plan(losing_plan_id),
             EntitlementModeEnum::Override,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: Some(100.into()),
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: true,
             },
         );
@@ -2731,12 +3082,13 @@ mod tests {
             EntitlementEntityId::AddOn(first_addon),
             EntitlementModeEnum::Stack,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: Some(100.into()),
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: true,
             },
         );
@@ -2746,12 +3098,13 @@ mod tests {
             EntitlementEntityId::AddOn(second_addon),
             EntitlementModeEnum::Stack,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: Some(50.into()),
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: true,
             },
         );
@@ -2784,12 +3137,13 @@ mod tests {
             EntitlementEntityId::AddOn(AddOnId::new()),
             EntitlementModeEnum::Override,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: Some(100.into()),
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: true,
             },
         );
@@ -2798,12 +3152,13 @@ mod tests {
             EntitlementEntityId::PlanVersion(PlanVersionId::new()),
             EntitlementModeEnum::Override,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: Some(200.into()),
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: true,
             },
         );
@@ -2844,12 +3199,13 @@ mod tests {
             EntitlementEntityId::AddOn(aid1),
             EntitlementModeEnum::Override,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: Some(1000.into()),
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: true,
             },
         );
@@ -2858,12 +3214,13 @@ mod tests {
             EntitlementEntityId::AddOn(aid2),
             EntitlementModeEnum::Override,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: Some(1000.into()),
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: true,
             },
         );
@@ -2890,12 +3247,13 @@ mod tests {
             EntitlementEntityId::AddOn(AddOnId::new()),
             EntitlementModeEnum::Stack,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: Some(1000.into()),
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: true,
             },
         );
@@ -2904,12 +3262,13 @@ mod tests {
             EntitlementEntityId::AddOn(AddOnId::new()),
             EntitlementModeEnum::Stack,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: Some(500.into()),
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: true,
             },
         );
@@ -2935,12 +3294,13 @@ mod tests {
             EntitlementEntityId::Feature(fid),
             EntitlementModeEnum::Override,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: Some(50.into()),
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: true,
             },
         );
@@ -2970,12 +3330,13 @@ mod tests {
                 entity,
                 EntitlementModeEnum::Override,
                 EntitlementValue::Metered {
+                    group_by: None,
                     limit: Some(limit.into()),
                     reset_period: ResetPeriod::Never,
                     overage_behavior: OverageBehavior::Block {
                         grace_period_pct: None,
                     },
-                    warning_threshold_pct: None,
+                    thresholds: vec![],
                     enabled: true,
                 },
             )
@@ -3017,12 +3378,13 @@ mod tests {
             EntitlementEntityId::AddOn(AddOnId::new()),
             EntitlementModeEnum::Override,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: Some(300.into()),
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: true,
             },
         );
@@ -3031,12 +3393,13 @@ mod tests {
             EntitlementEntityId::AddOn(AddOnId::new()),
             EntitlementModeEnum::Override,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: Some(700.into()),
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: true,
             },
         );
@@ -3062,12 +3425,13 @@ mod tests {
             EntitlementEntityId::Feature(fid),
             EntitlementModeEnum::Override,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: None,
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: true,
             },
         );
@@ -3076,12 +3440,13 @@ mod tests {
             EntitlementEntityId::PlanVersion(PlanVersionId::new()),
             EntitlementModeEnum::Override,
             EntitlementValue::Metered {
+                group_by: None,
                 limit: Some(100.into()),
                 reset_period: ResetPeriod::Never,
                 overage_behavior: OverageBehavior::Block {
                     grace_period_pct: None,
                 },
-                warning_threshold_pct: None,
+                thresholds: vec![],
                 enabled: true,
             },
         );

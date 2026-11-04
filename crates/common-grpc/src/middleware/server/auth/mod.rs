@@ -5,10 +5,10 @@ pub use admin_layer::AdminAuthLayer;
 pub use admin_layer::AdminAuthService;
 use common_config::auth::InternalAuthConfig;
 use common_domain::actor::Actor;
-use common_domain::auth::OrgMemberRole;
+use common_domain::auth::{OrgMemberRole, PortalScope};
 use common_domain::ids::{
-    ApiTokenId, BaseId, CheckoutSessionId, CustomerId, InvoiceId, OrganizationId, QuoteId,
-    TenantId, UserId,
+    ApiTokenId, BaseId, CheckoutSessionId, CustomerId, InvoiceId, OAuthAppId, OrganizationId,
+    QuoteId, SavedViewId, TenantId, UserId,
 };
 
 mod admin_layer;
@@ -38,6 +38,17 @@ pub trait RequestExt {
     fn actor_role(&self) -> Result<OrgMemberRole, Status>;
     fn require_admin(&self) -> Result<(), Status>;
     fn portal_resource(&self) -> Result<AuthorizedAsPortalUser, Status>;
+    /// Whether the caller acts with delegated or express credentials, directly or through a
+    /// portal session they opened.
+    fn delegated(&self) -> bool;
+}
+
+/// Marks a request authenticated with delegated or express credentials.
+#[derive(Clone, Copy, Debug)]
+pub struct DelegatedCredentials;
+
+fn is_delegated(marker: Option<&DelegatedCredentials>, auth: Option<&AuthorizedState>) -> bool {
+    marker.is_some() || matches!(auth, Some(AuthorizedState::Shared(portal)) if portal.delegated)
 }
 
 impl<T> RequestExt for tonic::Request<T> {
@@ -63,6 +74,13 @@ impl<T> RequestExt for tonic::Request<T> {
 
     fn portal_resource(&self) -> Result<AuthorizedAsPortalUser, Status> {
         extract_portal(self.extensions().get::<AuthorizedState>())
+    }
+
+    fn delegated(&self) -> bool {
+        is_delegated(
+            self.extensions().get::<DelegatedCredentials>(),
+            self.extensions().get::<AuthorizedState>(),
+        )
     }
 }
 
@@ -90,6 +108,13 @@ impl<T> RequestExt for http::Request<T> {
     fn portal_resource(&self) -> Result<AuthorizedAsPortalUser, Status> {
         extract_portal(self.extensions().get::<AuthorizedState>())
     }
+
+    fn delegated(&self) -> bool {
+        is_delegated(
+            self.extensions().get::<DelegatedCredentials>(),
+            self.extensions().get::<AuthorizedState>(),
+        )
+    }
 }
 
 pub fn extract_actor_typed(maybe_auth: Option<&AuthorizedState>) -> Result<Actor, Status> {
@@ -111,9 +136,11 @@ pub fn extract_actor_typed(maybe_auth: Option<&AuthorizedState>) -> Result<Actor
             } => Ok(Actor::QuoteRecipient {
                 email: recipient_email.clone(),
             }),
-            ResourceAccess::CheckoutSession(_) | ResourceAccess::InvoicePortal(_) => Err(
-                Status::invalid_argument("Actor is not available for this portal session."),
-            ),
+            ResourceAccess::CheckoutSession(_)
+            | ResourceAccess::InvoicePortal(_)
+            | ResourceAccess::DashboardPortal(_) => Err(Status::invalid_argument(
+                "Actor is not available for this portal session.",
+            )),
         },
     }
 }
@@ -209,6 +236,7 @@ pub enum ResourceAccess {
         quote_id: QuoteId,
         recipient_email: String,
     },
+    DashboardPortal(SavedViewId),
 }
 #[derive(Clone)]
 pub enum AuthenticatedState {
@@ -224,6 +252,8 @@ pub enum AuthenticatedState {
     Shared {
         tenant_id: TenantId,
         resource_access: ResourceAccess,
+        scopes: Option<Vec<PortalScope>>,
+        delegated: bool,
     },
 }
 
@@ -231,6 +261,7 @@ pub enum AuthenticatedState {
 pub enum TenantActor {
     ApiKey(ApiTokenId),
     User { id: UserId, role: OrgMemberRole },
+    OAuthApp(OAuthAppId),
 }
 
 impl TenantActor {
@@ -238,12 +269,13 @@ impl TenantActor {
         match self {
             TenantActor::ApiKey(id) => id.as_uuid(),
             TenantActor::User { id, .. } => id.as_uuid(),
+            TenantActor::OAuthApp(id) => id.as_uuid(),
         }
     }
 
     pub fn role(&self) -> Option<OrgMemberRole> {
         match self {
-            TenantActor::ApiKey(_) => None,
+            TenantActor::ApiKey(_) | TenantActor::OAuthApp(_) => None,
             TenantActor::User { role, .. } => Some(*role),
         }
     }
@@ -262,6 +294,7 @@ impl AuthorizedAsTenant {
         match self.actor {
             TenantActor::User { id, .. } => Actor::User { id },
             TenantActor::ApiKey(id) => Actor::ApiToken { id },
+            TenantActor::OAuthApp(id) => Actor::OAuthApp { id },
         }
     }
 }
@@ -270,6 +303,10 @@ impl AuthorizedAsTenant {
 pub struct AuthorizedAsPortalUser {
     pub tenant_id: TenantId,
     pub resource_access: ResourceAccess,
+    /// `None` for legacy customer tokens (full access) and for other resources.
+    pub scopes: Option<Vec<PortalScope>>,
+    /// Opened with delegated or express credentials.
+    pub delegated: bool,
 }
 
 impl AuthorizedAsPortalUser {
@@ -313,6 +350,15 @@ impl AuthorizedAsPortalUser {
                 recipient_email, ..
             } => Ok(recipient_email.clone()),
             _ => Err(Status::invalid_argument("Resource is not a quote portal.")),
+        }
+    }
+
+    pub fn dashboard(&self) -> Result<SavedViewId, Status> {
+        match self.resource_access {
+            ResourceAccess::DashboardPortal(id) => Ok(id),
+            _ => Err(Status::invalid_argument(
+                "Resource is not a dashboard portal.",
+            )),
         }
     }
 }

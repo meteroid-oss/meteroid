@@ -13,8 +13,12 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic", "logs"] }
-opentelemetry_sdk = { workspace = true, features = ["logs", "metrics"] }
+opentelemetry_sdk = { workspace = true, features = ["logs", "metrics", "trace"] }
 init-tracing-opentelemetry = { workspace = true }
-opentelemetry-appender-tracing = { workspace = true }
+opentelemetry-appender-tracing = { workspace = true, features = ["experimental_span_attributes"] }
 opentelemetry-resource-detectors = { workspace = true }
 log = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+opentelemetry_sdk = { workspace = true, features = ["logs", "trace", "testing"] }

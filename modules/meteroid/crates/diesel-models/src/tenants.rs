@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
 
-use crate::enums::TenantEnvironmentEnum;
+use crate::enums::{EmailDeliveryModeEnum, TenantEnvironmentEnum, TenantStatusEnum};
 
 use crate::organizations::OrganizationRow;
 use common_domain::ids::{OrganizationId, TenantId};
@@ -22,6 +22,13 @@ pub struct TenantRow {
     pub environment: TenantEnvironmentEnum,
     pub available_currencies: Vec<Option<String>>,
     pub disable_emails: bool,
+    pub last_active_at: Option<NaiveDateTime>,
+    pub status: TenantStatusEnum,
+    pub alert_evaluation_interval_secs: Option<i32>,
+    pub email_delivery_mode: EmailDeliveryModeEnum,
+    #[diesel(deserialize_as = crate::extend::non_null_array::NonNullArray<String>)]
+    pub email_test_recipients: Vec<String>,
+    pub keep_last_events: bool,
 }
 
 #[derive(Debug, Insertable)]
@@ -35,7 +42,10 @@ pub struct TenantRowNew {
     pub reporting_currency: String,
     pub environment: TenantEnvironmentEnum,
     pub available_currencies: Vec<Option<String>>,
+    /// Superseded by `email_delivery_mode`; written as `mode <> LIVE` for one release.
     pub disable_emails: bool,
+    pub email_delivery_mode: EmailDeliveryModeEnum,
+    pub email_test_recipients: Vec<String>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -47,6 +57,12 @@ pub struct TenantRowPatch {
     pub reporting_currency: Option<String>,
     pub environment: Option<TenantEnvironmentEnum>,
     pub disable_emails: Option<bool>,
+    // Nullable-column changeset semantics: None skips, Some(None) sets NULL,
+    // Some(Some(v)) sets v.
+    pub alert_evaluation_interval_secs: Option<Option<i32>>,
+    pub email_delivery_mode: Option<EmailDeliveryModeEnum>,
+    pub email_test_recipients: Option<Vec<String>>,
+    pub keep_last_events: Option<bool>,
 }
 
 #[derive(Debug, Queryable, Selectable)]

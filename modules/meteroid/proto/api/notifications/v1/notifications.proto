@@ -1,0 +1,40 @@
+syntax = "proto3";
+package meteroid.api.notifications.v1;
+
+import "api/notifications/v1/models.proto";
+
+message ListNotificationChannelsRequest {}
+message ListNotificationChannelsResponse {
+  repeated NotificationChannel channels = 1;
+}
+
+message CreateNotificationChannelRequest {
+  string name = 1;
+  ChannelTypeEnum type = 2;
+  string config = 3;
+}
+message CreateNotificationChannelResponse {
+  NotificationChannel channel = 1;
+}
+
+message UpdateNotificationChannelRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string config = 3;
+  optional bool disabled = 4;
+}
+message UpdateNotificationChannelResponse {
+  NotificationChannel channel = 1;
+}
+
+message DeleteNotificationChannelRequest {
+  string id = 1;
+}
+message DeleteNotificationChannelResponse {}
+
+service NotificationChannelsService {
+  rpc ListNotificationChannels(ListNotificationChannelsRequest) returns (ListNotificationChannelsResponse) {}
+  rpc CreateNotificationChannel(CreateNotificationChannelRequest) returns (CreateNotificationChannelResponse) {}
+  rpc UpdateNotificationChannel(UpdateNotificationChannelRequest) returns (UpdateNotificationChannelResponse) {}
+  rpc DeleteNotificationChannel(DeleteNotificationChannelRequest) returns (DeleteNotificationChannelResponse) {}
+}

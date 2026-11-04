@@ -3,6 +3,7 @@ syntax = "proto3";
 package meteroid.api.organizations.v1;
 
 import "api/organizations/v1/models.proto";
+import "api/users/v1/models.proto";
 
 message ListOrganizationsRequest {}
 
@@ -20,6 +21,11 @@ message CreateOrganizationRequest {
   optional string zip_code = 7;
   optional string state = 8;
   optional string city = 9;
+  // Seeds the default invoicing entity's document language. Absent means "derive it
+  // from the country", which is a good guess almost everywhere and a poor one where a
+  // country has several official languages — Belgium binds the language by seat of
+  // establishment, Switzerland has four and no default serves them.
+  optional string invoicing_language = 10;
 }
 
 message CreateOrganizationResponse {
@@ -31,10 +37,25 @@ message GetCurrentOrganizationRequest {}
 message GetCurrentOrganizationResponse {
   OrganizationWithTenant organization = 1;
   bool is_platform_admin = 2;
+  // The calling user's role in this organization.
+  meteroid.api.users.v1.OrganizationUserRole role = 3;
+  // The calling user's effective permission codes (e.g. "customers:read").
+  // Admins receive the full set; the frontend gates UI on these.
+  repeated string permissions = 4;
+  // True when this org is being viewed through a platform-admin support session
+  // (time-boxed access to an org the caller is not a member of).
+  bool support_session = 5;
 }
+
+message DeleteOrganizationRequest {}
+
+message DeleteOrganizationResponse {}
 
 service OrganizationsService {
   rpc ListOrganizations(ListOrganizationsRequest) returns (ListOrganizationsResponse) {}
   rpc GetCurrentOrganizations(GetCurrentOrganizationRequest) returns (GetCurrentOrganizationResponse) {}
   rpc CreateOrganization(CreateOrganizationRequest) returns (CreateOrganizationResponse) {}
+  // Hard-delete the current organization and everything under it. Caller must
+  // be an Admin member, and the organization must not own a production tenant.
+  rpc DeleteOrganization(DeleteOrganizationRequest) returns (DeleteOrganizationResponse) {}
 }

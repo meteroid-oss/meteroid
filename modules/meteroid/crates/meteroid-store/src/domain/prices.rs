@@ -1,11 +1,12 @@
 use chrono::NaiveDateTime;
-use common_domain::ids::{BillableMetricId, PriceId, ProductId, TenantId};
+use common_domain::ids::{BillableMetricId, CreditUnitId, PriceId, ProductId, TenantId};
 use diesel_models::prices::PriceRow;
 use error_stack::Report;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use super::credit_units::PriceCreditUnit;
 use super::enums::{BillingPeriodEnum, BillingType, FeeTypeEnum, SubscriptionFeeBillingPeriod};
 use super::price_components::{DowngradePolicy, FeeType, UpgradePolicy, UsagePricingModel};
 use super::subscription_components::SubscriptionFee;
@@ -32,6 +33,7 @@ pub enum FeeStructure {
         billing_type: BillingType,
     },
     OneTime {},
+    Credit {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -52,6 +54,20 @@ impl From<&UsagePricingModel> for UsageModel {
             UsagePricingModel::Volume { .. } => UsageModel::Volume,
             UsagePricingModel::Package { .. } => UsageModel::Package,
             UsagePricingModel::Matrix { .. } => UsageModel::Matrix,
+        }
+    }
+}
+
+impl FeeStructure {
+    fn kind(&self) -> &'static str {
+        match self {
+            FeeStructure::Rate {} => "rate",
+            FeeStructure::Slot { .. } => "seat",
+            FeeStructure::Capacity { .. } => "capacity",
+            FeeStructure::Usage { .. } => "usage",
+            FeeStructure::ExtraRecurring { .. } => "recurring",
+            FeeStructure::OneTime {} => "one-time",
+            FeeStructure::Credit {} => "credit pack",
         }
     }
 }
@@ -84,6 +100,214 @@ pub enum Pricing {
         unit_price: Decimal,
         quantity: u32,
     },
+    Credit {
+        unit_price: Decimal,
+        quantity: u32,
+        credit_amount: Decimal,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expiry: Option<super::price_components::CreditExpiry>,
+        /// The unit `credit_amount` is granted in; absent is the price currency. The pack itself
+        /// is always paid in money.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        credit_unit_id: Option<CreditUnitId>,
+        /// Only on included credit (zero price).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rollover: Option<super::price_components::CreditRollover>,
+        /// Billed on the subscription's first invoice only; never rolls over.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        once: bool,
+    },
+}
+
+impl Pricing {
+    fn kind(&self) -> &'static str {
+        match self {
+            Pricing::Rate { .. } => "rate",
+            Pricing::Slot { .. } => "seat",
+            Pricing::Capacity { .. } => "capacity",
+            Pricing::Usage(_) => "usage",
+            Pricing::ExtraRecurring { .. } => "recurring",
+            Pricing::OneTime { .. } => "one-time",
+            Pricing::Credit { .. } => "credit pack",
+        }
+    }
+}
+
+/// Refuses a credit pack that cannot fund an exact amount: the granted credit must be a whole,
+/// non-negative number of minor units of the price currency, with a positive quantity and a
+/// usable expiry.
+pub fn validate_pricing(pricing: &Pricing, currency: &str) -> Result<(), StoreError> {
+    let Pricing::Credit {
+        unit_price,
+        quantity,
+        credit_amount,
+        expiry,
+        credit_unit_id,
+        rollover,
+        once,
+    } = pricing
+    else {
+        return Ok(());
+    };
+    validate_credit_once(*once, rollover.as_ref())?;
+    // A unit's own precision is checked once the unit is loaded (`ensure_credit_packs_usable`).
+    let unit_precision = credit_unit_id.map(|_| super::credit_units::CREDIT_UNIT_MAX_PRECISION);
+    let precision = validate_credit_pack(
+        *unit_price,
+        *quantity,
+        *credit_amount,
+        *expiry,
+        currency,
+        unit_precision,
+    )?;
+    validate_credit_rollover(*unit_price, *expiry, rollover.as_ref(), precision)
+}
+
+/// A one-time grant has no next period to carry its credit into.
+pub fn validate_credit_once(
+    once: bool,
+    rollover: Option<&super::price_components::CreditRollover>,
+) -> Result<(), StoreError> {
+    if once && rollover.is_some() {
+        return Err(StoreError::InvalidArgument(
+            "credit granted once cannot roll over".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+/// Longest rollover term, so the rolled credit's expiry always resolves.
+const MAX_ROLLOVER_DAYS: u32 = 3_660;
+const MAX_ROLLOVER_MONTHS: u32 = 120;
+
+/// Only included credit (a free pack) that expires rolls over, for a term of days or months,
+/// capped by a positive amount in whole minor units of the pack's denomination (`precision`).
+pub fn validate_credit_rollover(
+    unit_price: Decimal,
+    expiry: Option<super::price_components::CreditExpiry>,
+    rollover: Option<&super::price_components::CreditRollover>,
+    precision: u8,
+) -> Result<(), StoreError> {
+    use super::price_components::CreditExpiry;
+    let invalid = |message: &str| Err(StoreError::InvalidArgument(message.to_owned()));
+    let Some(rollover) = rollover else {
+        return Ok(());
+    };
+    if !unit_price.is_zero() {
+        return invalid("only credit included in the plan (a free pack) rolls over");
+    }
+    if expiry.is_none() {
+        return invalid("credit that never expires cannot roll over");
+    }
+    match rollover.expiry {
+        CreditExpiry::Day(days) if (1..=MAX_ROLLOVER_DAYS).contains(&days) => {}
+        CreditExpiry::Month(months) if (1..=MAX_ROLLOVER_MONTHS).contains(&months) => {}
+        CreditExpiry::Day(_) | CreditExpiry::Month(_) => {
+            return invalid("rolled credit expires 1 to 3660 days or 1 to 120 months later");
+        }
+        CreditExpiry::BillingPeriod => {
+            return invalid("rolled credit expires a number of days or months later");
+        }
+    }
+    if let Some(max) = rollover.max_amount {
+        if max <= Decimal::ZERO {
+            return invalid("a rollover cap must be positive");
+        }
+        if max.normalize().scale() > u32::from(precision) {
+            return invalid(&decimals_allowed("a rollover cap", precision));
+        }
+    }
+    Ok(())
+}
+
+/// A price expressed in a credit unit: only usage, or a capacity fee's overage, at a rate that is
+/// not negative. A zero rate leaves credits beyond the balance unbilled, for a plan that pauses
+/// usage once the credit runs out.
+pub fn validate_price_credit_unit(
+    pricing: &Pricing,
+    credit_unit: Option<&PriceCreditUnit>,
+) -> Result<(), StoreError> {
+    let Some(unit) = credit_unit else {
+        return Ok(());
+    };
+    if !matches!(pricing, Pricing::Usage(_) | Pricing::Capacity { .. }) {
+        return Err(StoreError::InvalidArgument(
+            "only usage and capacity overage can be priced in a credit unit".to_owned(),
+        ));
+    }
+    if unit.rate < Decimal::ZERO {
+        return Err(StoreError::InvalidArgument(
+            "a credit unit's rate to the price currency must not be negative".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn decimals_allowed(what: &str, precision: u8) -> String {
+    match precision {
+        0 => format!("{what} is a whole number"),
+        1 => format!("{what} has at most 1 decimal place"),
+        n => format!("{what} has at most {n} decimal places"),
+    }
+}
+
+/// See [`validate_pricing`]; shared with credit packs set directly on a subscription.
+/// `unit_precision` is the precision of the credit unit the pack grants, if any; returns the
+/// precision the granted credit was checked against.
+pub fn validate_credit_pack(
+    unit_price: Decimal,
+    quantity: u32,
+    credit_amount: Decimal,
+    expiry: Option<super::price_components::CreditExpiry>,
+    currency: &str,
+    unit_precision: Option<u8>,
+) -> Result<u8, StoreError> {
+    let invalid = |message: &str| Err(StoreError::InvalidArgument(message.to_owned()));
+    let Some(currency_precision) =
+        crate::constants::Currencies::resolve_currency_precision(currency)
+    else {
+        return invalid("a credit pack is priced in a supported currency");
+    };
+    let precision = unit_precision.unwrap_or(currency_precision);
+    if quantity == 0 {
+        return invalid("a credit pack sells a positive quantity");
+    }
+    if unit_price.is_sign_negative() || credit_amount.is_sign_negative() {
+        return invalid("a credit pack's price and credit cannot be negative");
+    }
+    if credit_amount.is_zero() {
+        return invalid("a credit pack grants a positive amount of credit");
+    }
+    // Money credit is minted as paid credit worth its price plus bonus credit, never less.
+    if unit_precision.is_none() && unit_price > credit_amount {
+        return invalid("a credit pack cannot cost more than the credit it grants");
+    }
+    if credit_amount.normalize().scale() > u32::from(precision) {
+        return invalid(&decimals_allowed("a credit pack's credit", precision));
+    }
+    if matches!(
+        expiry,
+        Some(super::price_components::CreditExpiry::Day(0))
+            | Some(super::price_components::CreditExpiry::Month(0))
+    ) {
+        return invalid("a credit pack expiry must be at least one day or month");
+    }
+    Ok(precision)
+}
+
+impl Pricing {
+    /// Revenue taxonomy, matching `SubscriptionFee::charge_type()`. Used to recover
+    /// the charge type of v2 (price-resolved) components for legacy invoice lines.
+    pub fn charge_type(&self) -> super::invoice_lines::ChargeType {
+        use super::invoice_lines::ChargeType;
+        match self {
+            Pricing::Capacity { .. } | Pricing::Usage(_) => ChargeType::Usage,
+            Pricing::OneTime { .. } | Pricing::Credit { .. } => ChargeType::OneTime,
+            Pricing::Rate { .. } | Pricing::Slot { .. } | Pricing::ExtraRecurring { .. } => {
+                ChargeType::Recurring
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -97,6 +321,7 @@ pub struct Price {
     pub created_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
     pub catalog: bool,
+    pub credit_unit: Option<PriceCreditUnit>,
 }
 
 impl TryFrom<PriceRow> for Price {
@@ -110,6 +335,16 @@ impl TryFrom<PriceRow> for Price {
             ))
         })?;
 
+        let credit_unit = match (row.credit_unit_id, row.credit_unit_rate) {
+            (Some(unit_id), Some(rate)) => Some(PriceCreditUnit { unit_id, rate }),
+            (None, None) => None,
+            _ => {
+                return Err(Report::new(StoreError::InvalidArgument(
+                    "a credit-priced price carries both its unit and its rate".to_owned(),
+                )));
+            }
+        };
+
         Ok(Price {
             id: row.id,
             product_id: row.product_id,
@@ -120,6 +355,7 @@ impl TryFrom<PriceRow> for Price {
             created_at: row.created_at,
             archived_at: row.archived_at,
             catalog: row.catalog,
+            credit_unit,
         })
     }
 }
@@ -173,8 +409,70 @@ pub struct MatrixUpdatePreview {
     pub affected_plans: Vec<AffectedPlan>,
 }
 
-// Resolution: Product (FeeStructure) + Price (Pricing) → SubscriptionFee
+/// The credit units a price's terms refer to: the one its usage is priced in, the one its pack
+/// grants.
+pub fn credit_unit_ids(
+    pricing: &Pricing,
+    credit_unit: Option<&PriceCreditUnit>,
+) -> impl Iterator<Item = CreditUnitId> {
+    let granted = match pricing {
+        Pricing::Credit { credit_unit_id, .. } => *credit_unit_id,
+        _ => None,
+    };
+    credit_unit
+        .map(|unit| unit.unit_id)
+        .into_iter()
+        .chain(granted)
+}
+
+impl Price {
+    pub fn credit_unit_ids(&self) -> impl Iterator<Item = CreditUnitId> {
+        credit_unit_ids(&self.pricing, self.credit_unit.as_ref())
+    }
+}
+
+fn loaded_unit(
+    units: &super::credit_units::CreditUnitsById,
+    unit_id: CreditUnitId,
+) -> Result<&super::credit_units::CreditUnit, StoreError> {
+    units.get(&unit_id).ok_or_else(|| {
+        StoreError::InvalidArgument(format!("credit unit {unit_id} of the price is not loaded"))
+    })
+}
+
+/// Resolution: Product (FeeStructure) + Price (Pricing, and the credit unit its usage is priced
+/// in) → SubscriptionFee. `units` must hold every unit of `credit_unit_ids`.
 pub fn resolve_subscription_fee(
+    structure: &FeeStructure,
+    pricing: &Pricing,
+    credit_unit: Option<&PriceCreditUnit>,
+    units: &super::credit_units::CreditUnitsById,
+    params: Option<&super::subscription_components::ComponentParameters>,
+) -> Result<SubscriptionFee, StoreError> {
+    let mut fee = resolve_fee_shape(structure, pricing, params)?;
+    if let Some(priced_in) = credit_unit {
+        let unit = loaded_unit(units, priced_in.unit_id)?;
+        fee.price_in_credit_unit(super::credit_units::FeeCreditUnit {
+            unit_id: unit.id,
+            code: unit.code.as_str().to_owned(),
+            precision: unit.precision,
+            rate: priced_in.rate,
+        })?;
+    }
+    if let (
+        Pricing::Credit {
+            credit_unit_id: Some(unit_id),
+            ..
+        },
+        SubscriptionFee::Credit { credit_unit, .. },
+    ) = (pricing, &mut fee)
+    {
+        *credit_unit = Some(loaded_unit(units, *unit_id)?.reference());
+    }
+    Ok(fee)
+}
+
+fn resolve_fee_shape(
     structure: &FeeStructure,
     pricing: &Pricing,
     params: Option<&super::subscription_components::ComponentParameters>,
@@ -214,11 +512,13 @@ pub fn resolve_subscription_fee(
             rate: *rate,
             included: *included,
             overage_rate: *overage_rate,
+            credit_unit: None,
         }),
         (FeeStructure::Usage { metric_id, .. }, Pricing::Usage(model)) => {
             Ok(SubscriptionFee::Usage {
                 metric_id: *metric_id,
                 model: model.clone(),
+                credit_unit: None,
             })
         }
         (
@@ -242,10 +542,30 @@ pub fn resolve_subscription_fee(
             rate: *unit_price,
             quantity: *quantity,
         }),
+        (
+            FeeStructure::Credit {},
+            Pricing::Credit {
+                unit_price,
+                quantity,
+                credit_amount,
+                expiry,
+                credit_unit_id: _,
+                rollover,
+                once,
+            },
+        ) => Ok(SubscriptionFee::Credit {
+            rate: *unit_price,
+            quantity: *quantity,
+            credit_amount: *credit_amount,
+            expiry: *expiry,
+            credit_unit: None,
+            rollover: *rollover,
+            once: *once,
+        }),
         _ => Err(StoreError::InvalidArgument(format!(
-            "Mismatched FeeStructure and Pricing variants: {:?} vs {:?}",
-            std::mem::discriminant(structure),
-            std::mem::discriminant(pricing)
+            "A {} price cannot price a {} fee",
+            pricing.kind(),
+            structure.kind()
         ))),
     }
 }
@@ -289,6 +609,7 @@ pub fn extract_fee_structure(fee: &FeeType) -> (FeeTypeEnum, FeeStructure) {
             },
         ),
         FeeType::OneTime { .. } => (FeeTypeEnum::OneTime, FeeStructure::OneTime {}),
+        FeeType::Credit { .. } => (FeeTypeEnum::Credit, FeeStructure::Credit {}),
     }
 }
 
@@ -369,6 +690,27 @@ pub fn extract_pricing(fee: &FeeType) -> Vec<(BillingPeriodEnum, Pricing)> {
                 },
             )]
         }
+        FeeType::Credit {
+            unit_price,
+            quantity,
+            credit_amount,
+            expiry,
+            once,
+        } => {
+            // No legacy fee carries a pack; new packs are priced with a real cadence.
+            vec![(
+                BillingPeriodEnum::Monthly,
+                Pricing::Credit {
+                    unit_price: *unit_price,
+                    quantity: *quantity,
+                    credit_amount: *credit_amount,
+                    expiry: *expiry,
+                    credit_unit_id: None,
+                    rollover: None,
+                    once: *once,
+                },
+            )]
+        }
     }
 }
 
@@ -416,19 +758,32 @@ pub fn resolve_fee_from_entry(
     fee_structure: &FeeStructure,
     price_entry: &super::price_components::PriceEntry,
     prices_by_id: &HashMap<PriceId, Price>,
+    units: &super::credit_units::CreditUnitsById,
 ) -> Result<(SubscriptionFee, SubscriptionFeeBillingPeriod), StoreError> {
     match price_entry {
         super::price_components::PriceEntry::Existing(price_id) => {
             let price = prices_by_id.get(price_id).ok_or_else(|| {
                 StoreError::InvalidArgument(format!("Price {} not found", price_id))
             })?;
-            let fee = resolve_subscription_fee(fee_structure, &price.pricing, None)?;
+            let fee = resolve_subscription_fee(
+                fee_structure,
+                &price.pricing,
+                price.credit_unit.as_ref(),
+                units,
+                None,
+            )?;
             let period = fee_type_billing_period(fee_structure)
                 .unwrap_or_else(|| price.cadence.as_subscription_billing_period());
             Ok((fee, period))
         }
         super::price_components::PriceEntry::New(price_input) => {
-            let fee = resolve_subscription_fee(fee_structure, &price_input.pricing, None)?;
+            let fee = resolve_subscription_fee(
+                fee_structure,
+                &price_input.pricing,
+                price_input.credit_unit.as_ref(),
+                units,
+                None,
+            )?;
             let period = fee_type_billing_period(fee_structure)
                 .unwrap_or_else(|| price_input.cadence.as_subscription_billing_period());
             Ok((fee, period))
@@ -440,17 +795,157 @@ pub fn resolve_fee_from_entry(
 mod tests {
     use super::*;
     use crate::domain::price_components::*;
+    use common_domain::ids::BaseId;
     use rust_decimal_macros::dec;
 
     // -----------------------------------------------------------------------
     // resolve_subscription_fee tests
     // -----------------------------------------------------------------------
 
+    fn no_units() -> crate::domain::credit_units::CreditUnitsById {
+        crate::domain::credit_units::CreditUnitsById::new()
+    }
+
+    #[test]
+    fn a_price_of_another_fee_type_is_refused_in_words() {
+        let err = resolve_subscription_fee(
+            &FeeStructure::Credit {},
+            &Pricing::Rate { rate: dec!(10) },
+            None,
+            &no_units(),
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            StoreError::InvalidArgument("A rate price cannot price a credit pack fee".into())
+                .to_string()
+        );
+    }
+
+    fn credits_unit() -> crate::domain::credit_units::CreditUnit {
+        let now = chrono::Utc::now();
+        crate::domain::credit_units::CreditUnit {
+            id: CreditUnitId::new(),
+            tenant_id: TenantId::new(),
+            code: crate::domain::credit_units::CreditUnitCode::new("CREDITS").unwrap(),
+            name: "Credit".to_owned(),
+            plural_name: "Credits".to_owned(),
+            symbol: None,
+            precision: 2,
+            created_at: now,
+            updated_at: now,
+            archived_at: None,
+            product_id: None,
+        }
+    }
+
+    #[test]
+    fn usage_priced_in_a_credit_unit_resolves_with_the_unit_and_its_rate() {
+        let unit = credits_unit();
+        let units = crate::domain::credit_units::CreditUnitsById::from([(unit.id, unit.clone())]);
+        let structure = FeeStructure::Usage {
+            metric_id: BillableMetricId::new(),
+            model: UsageModel::PerUnit,
+        };
+        let pricing = Pricing::Usage(UsagePricingModel::PerUnit { rate: dec!(3) });
+        let priced_in = PriceCreditUnit {
+            unit_id: unit.id,
+            rate: dec!(0.01),
+        };
+        let fee =
+            resolve_subscription_fee(&structure, &pricing, Some(&priced_in), &units, None).unwrap();
+        let SubscriptionFee::Usage { credit_unit, .. } = fee else {
+            panic!("Expected Usage");
+        };
+        assert_eq!(
+            credit_unit,
+            Some(crate::domain::credit_units::FeeCreditUnit {
+                unit_id: unit.id,
+                code: "CREDITS".to_owned(),
+                precision: 2,
+                rate: dec!(0.01),
+            })
+        );
+
+        let capacity = FeeStructure::Capacity {
+            metric_id: BillableMetricId::new(),
+        };
+        let overage = Pricing::Capacity {
+            rate: dec!(10),
+            included: 100,
+            overage_rate: dec!(2),
+        };
+        let fee =
+            resolve_subscription_fee(&capacity, &overage, Some(&priced_in), &units, None).unwrap();
+        assert!(matches!(
+            fee,
+            SubscriptionFee::Capacity { credit_unit: Some(ref priced), .. } if priced.unit_id == unit.id
+        ));
+    }
+
+    #[test]
+    fn a_unit_pack_resolves_granting_its_unit() {
+        let unit = credits_unit();
+        let units = crate::domain::credit_units::CreditUnitsById::from([(unit.id, unit.clone())]);
+        let pricing = Pricing::Credit {
+            unit_price: dec!(40),
+            quantity: 1,
+            credit_amount: dec!(5000),
+            expiry: None,
+            credit_unit_id: Some(unit.id),
+            rollover: None,
+            once: false,
+        };
+        let fee = resolve_subscription_fee(&FeeStructure::Credit {}, &pricing, None, &units, None)
+            .unwrap();
+        let SubscriptionFee::Credit { credit_unit, .. } = fee else {
+            panic!("Expected Credit");
+        };
+        assert_eq!(credit_unit, Some(unit.reference()));
+    }
+
+    /// A fee whose unit was not loaded is refused: resolving it without would bill credits as money.
+    #[test]
+    fn a_fee_whose_credit_unit_is_not_loaded_is_refused() {
+        let unit = credits_unit();
+        let usage = FeeStructure::Usage {
+            metric_id: BillableMetricId::new(),
+            model: UsageModel::PerUnit,
+        };
+        let priced_in = PriceCreditUnit {
+            unit_id: unit.id,
+            rate: dec!(0.01),
+        };
+        let per_unit = Pricing::Usage(UsagePricingModel::PerUnit { rate: dec!(3) });
+        assert!(
+            resolve_subscription_fee(&usage, &per_unit, Some(&priced_in), &no_units(), None)
+                .is_err()
+        );
+        let pack = Pricing::Credit {
+            unit_price: dec!(40),
+            quantity: 1,
+            credit_amount: dec!(5000),
+            expiry: None,
+            credit_unit_id: Some(unit.id),
+            rollover: None,
+            once: false,
+        };
+        assert!(
+            resolve_subscription_fee(&FeeStructure::Credit {}, &pack, None, &no_units(), None)
+                .is_err()
+        );
+        assert_eq!(
+            credit_unit_ids(&pack, Some(&priced_in)).collect::<Vec<_>>(),
+            vec![unit.id, unit.id]
+        );
+    }
+
     #[test]
     fn test_resolve_rate() {
         let structure = FeeStructure::Rate {};
         let pricing = Pricing::Rate { rate: dec!(9.99) };
-        let fee = resolve_subscription_fee(&structure, &pricing, None).unwrap();
+        let fee = resolve_subscription_fee(&structure, &pricing, None, &no_units(), None).unwrap();
         match fee {
             SubscriptionFee::Rate { rate } => assert_eq!(rate, dec!(9.99)),
             _ => panic!("Expected Rate"),
@@ -469,7 +964,7 @@ mod tests {
             min_slots: Some(1),
             max_slots: Some(100),
         };
-        let fee = resolve_subscription_fee(&structure, &pricing, None).unwrap();
+        let fee = resolve_subscription_fee(&structure, &pricing, None, &no_units(), None).unwrap();
         match fee {
             SubscriptionFee::Slot {
                 unit,
@@ -505,7 +1000,8 @@ mod tests {
             billing_period: None,
             committed_capacity: None,
         };
-        let fee = resolve_subscription_fee(&structure, &pricing, Some(&params)).unwrap();
+        let fee = resolve_subscription_fee(&structure, &pricing, None, &no_units(), Some(&params))
+            .unwrap();
         match fee {
             SubscriptionFee::Slot { initial_slots, .. } => {
                 assert_eq!(initial_slots, 5);
@@ -523,13 +1019,14 @@ mod tests {
             included: 1000,
             overage_rate: dec!(0.05),
         };
-        let fee = resolve_subscription_fee(&structure, &pricing, None).unwrap();
+        let fee = resolve_subscription_fee(&structure, &pricing, None, &no_units(), None).unwrap();
         match fee {
             SubscriptionFee::Capacity {
                 metric_id: mid,
                 rate,
                 included,
                 overage_rate,
+                ..
             } => {
                 assert_eq!(mid, metric_id);
                 assert_eq!(rate, dec!(50.00));
@@ -548,11 +1045,12 @@ mod tests {
             model: UsageModel::PerUnit,
         };
         let pricing = Pricing::Usage(UsagePricingModel::PerUnit { rate: dec!(0.01) });
-        let fee = resolve_subscription_fee(&structure, &pricing, None).unwrap();
+        let fee = resolve_subscription_fee(&structure, &pricing, None, &no_units(), None).unwrap();
         match fee {
             SubscriptionFee::Usage {
                 metric_id: mid,
                 model,
+                ..
             } => {
                 assert_eq!(mid, metric_id);
                 match model {
@@ -573,7 +1071,7 @@ mod tests {
             unit_price: dec!(25.00),
             quantity: 2,
         };
-        let fee = resolve_subscription_fee(&structure, &pricing, None).unwrap();
+        let fee = resolve_subscription_fee(&structure, &pricing, None, &no_units(), None).unwrap();
         match fee {
             SubscriptionFee::Recurring {
                 rate,
@@ -595,7 +1093,7 @@ mod tests {
             unit_price: dec!(100.00),
             quantity: 1,
         };
-        let fee = resolve_subscription_fee(&structure, &pricing, None).unwrap();
+        let fee = resolve_subscription_fee(&structure, &pricing, None, &no_units(), None).unwrap();
         match fee {
             SubscriptionFee::OneTime { rate, quantity } => {
                 assert_eq!(rate, dec!(100.00));
@@ -613,7 +1111,7 @@ mod tests {
             min_slots: None,
             max_slots: None,
         };
-        assert!(resolve_subscription_fee(&structure, &pricing, None).is_err());
+        assert!(resolve_subscription_fee(&structure, &pricing, None, &no_units(), None).is_err());
     }
 
     // -----------------------------------------------------------------------
@@ -1027,11 +1525,12 @@ mod tests {
                 per_unit_price: dec!(0.03),
             }],
         });
-        let fee = resolve_subscription_fee(&structure, &pricing, None).unwrap();
+        let fee = resolve_subscription_fee(&structure, &pricing, None, &no_units(), None).unwrap();
         match fee {
             SubscriptionFee::Usage {
                 metric_id,
                 model: UsagePricingModel::Matrix { rates },
+                ..
             } => {
                 assert_eq!(metric_id, mid);
                 assert_eq!(rates.len(), 1);
@@ -1068,6 +1567,113 @@ mod tests {
         match fs {
             FeeStructure::Slot { unit_name, .. } => assert_eq!(unit_name, "seat"),
             _ => panic!("Expected Slot"),
+        }
+    }
+
+    fn included_pack(expiry: Option<CreditExpiry>, rollover: CreditRollover) -> Pricing {
+        Pricing::Credit {
+            unit_price: dec!(0),
+            quantity: 1,
+            credit_amount: dec!(500),
+            expiry,
+            credit_unit_id: None,
+            rollover: Some(rollover),
+            once: false,
+        }
+    }
+
+    /// $500 for $550 sells $50 of bonus credit; $600 for $550 would mint paid credit above face.
+    #[test]
+    fn a_money_pack_never_costs_more_than_its_credit() {
+        let pack = |unit_price, credit_unit_id| Pricing::Credit {
+            unit_price,
+            quantity: 1,
+            credit_amount: dec!(550),
+            expiry: Some(CreditExpiry::Month(12)),
+            credit_unit_id,
+            rollover: None,
+            once: false,
+        };
+        assert!(validate_pricing(&pack(dec!(500), None), "USD").is_ok());
+        assert!(validate_pricing(&pack(dec!(550), None), "USD").is_ok());
+        assert!(validate_pricing(&pack(dec!(600), None), "USD").is_err());
+        let unit = Some(common_domain::ids::CreditUnitId::new());
+        assert!(
+            validate_pricing(&pack(dec!(600), unit), "USD").is_ok(),
+            "credit units are not money"
+        );
+    }
+
+    #[test]
+    fn only_expiring_included_credit_rolls_over_for_a_term_under_a_positive_cap() {
+        let rollover = CreditRollover {
+            max_amount: Some(dec!(200)),
+            expiry: CreditExpiry::Month(1),
+        };
+        let monthly = Some(CreditExpiry::BillingPeriod);
+        assert!(validate_pricing(&included_pack(monthly, rollover), "EUR").is_ok());
+        let uncapped = CreditRollover {
+            max_amount: None,
+            ..rollover
+        };
+        assert!(validate_pricing(&included_pack(monthly, uncapped), "EUR").is_ok());
+
+        let paid = Pricing::Credit {
+            unit_price: dec!(10),
+            quantity: 1,
+            credit_amount: dec!(500),
+            expiry: monthly,
+            credit_unit_id: None,
+            rollover: Some(rollover),
+            once: false,
+        };
+        assert!(
+            validate_pricing(&paid, "EUR").is_err(),
+            "paid packs do not roll over"
+        );
+        assert!(
+            validate_pricing(&included_pack(None, rollover), "EUR").is_err(),
+            "credit that never expires has nothing to roll"
+        );
+        let once = Pricing::Credit {
+            unit_price: dec!(0),
+            quantity: 1,
+            credit_amount: dec!(500),
+            expiry: monthly,
+            credit_unit_id: None,
+            rollover: Some(rollover),
+            once: true,
+        };
+        assert!(
+            validate_pricing(&once, "EUR").is_err(),
+            "credit granted once does not roll over"
+        );
+        for refused in [
+            CreditRollover {
+                expiry: CreditExpiry::BillingPeriod,
+                ..rollover
+            },
+            CreditRollover {
+                expiry: CreditExpiry::Day(0),
+                ..rollover
+            },
+            CreditRollover {
+                expiry: CreditExpiry::Month(121),
+                ..rollover
+            },
+            CreditRollover {
+                max_amount: Some(dec!(0)),
+                ..rollover
+            },
+            CreditRollover {
+                max_amount: Some(dec!(0.001)),
+                ..rollover
+            },
+        ] {
+            assert!(
+                validate_pricing(&included_pack(monthly, refused), "EUR").is_err(),
+                "{refused:?}"
+            );
         }
     }
 }

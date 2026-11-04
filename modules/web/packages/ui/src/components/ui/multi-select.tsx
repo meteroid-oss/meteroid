@@ -197,7 +197,7 @@ const MultiSelectTrigger = forwardRef<MultiSelectTriggerElement, MultiSelectTrig
           data-disabled={disabled}
           {...props}
           className={cn(
-            'flex  min-h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-border bg-transparent px-3 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring [&>span]:line-clamp-1',
+            'flex  min-h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-border bg-input px-3 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring [&>span]:line-clamp-1',
             disabled ? 'cursor-not-allowed opacity-50' : 'cursor-text',
             className
           )}

@@ -6,7 +6,8 @@ use common_domain::ids::{
 };
 use diesel_models::entitlements::{EntitlementRow, FeatureRowNew, FeatureWithProductRow};
 use diesel_models::enums::{
-    FeatureStatusEnum as DbFeatureStatusEnum, FeatureTypeEnum as DbFeatureTypeEnum,
+    ConfigValueTypeEnum as DbConfigValueTypeEnum, FeatureStatusEnum as DbFeatureStatusEnum,
+    FeatureTypeEnum as DbFeatureTypeEnum,
 };
 use rust_decimal::Decimal;
 
@@ -62,10 +63,77 @@ pub struct EntitlementUsage {
     pub reset_at: Option<DateTime<Utc>>,
 }
 
+/// A synchronously-resolved configuration value carried by a `Config` feature. Unlike
+/// `Metered` it has no usage/counter and never touches the metering pipeline: it is stored in
+/// Postgres and resolved through the entitlement chain like a static setting. `Json` is the
+/// structured-metadata escape hatch — an object holds several related config fields at once.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum ConfigValue {
+    Number(Decimal),
+    Boolean(bool),
+    Text(String),
+    Json(serde_json::Value),
+}
+
+/// Authoritative value type of a Config feature — declared once at creation and immutable.
+/// `Map`/`Json` both store a JSON `ConfigValue` (Map is the key/value-editor variant); `Select`
+/// additionally constrains the value to `options`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ConfigValueType {
+    Number,
+    Boolean,
+    Text,
+    Map,
+    Json,
+    Select { options: Vec<String> },
+}
+
+impl ConfigValueType {
+    /// Split into the persisted (enum discriminator, options) pair.
+    pub fn into_db(self) -> (DbConfigValueTypeEnum, Option<Vec<String>>) {
+        match self {
+            ConfigValueType::Number => (DbConfigValueTypeEnum::Number, None),
+            ConfigValueType::Boolean => (DbConfigValueTypeEnum::Boolean, None),
+            ConfigValueType::Text => (DbConfigValueTypeEnum::Text, None),
+            ConfigValueType::Map => (DbConfigValueTypeEnum::Map, None),
+            ConfigValueType::Json => (DbConfigValueTypeEnum::Json, None),
+            ConfigValueType::Select { options } => (DbConfigValueTypeEnum::Select, Some(options)),
+        }
+    }
+
+    /// Rebuild from the persisted discriminator and options column. A missing discriminator
+    /// (legacy rows) falls back to `Select` when options exist, else `Text`.
+    pub fn from_db(kind: Option<DbConfigValueTypeEnum>, options: Option<Vec<String>>) -> Self {
+        match kind {
+            Some(DbConfigValueTypeEnum::Number) => ConfigValueType::Number,
+            Some(DbConfigValueTypeEnum::Boolean) => ConfigValueType::Boolean,
+            Some(DbConfigValueTypeEnum::Text) => ConfigValueType::Text,
+            Some(DbConfigValueTypeEnum::Map) => ConfigValueType::Map,
+            Some(DbConfigValueTypeEnum::Json) => ConfigValueType::Json,
+            Some(DbConfigValueTypeEnum::Select) => ConfigValueType::Select {
+                options: options.unwrap_or_default(),
+            },
+            None => match options {
+                Some(options) => ConfigValueType::Select { options },
+                None => ConfigValueType::Text,
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum FeatureType {
     Boolean,
-    Metered { metric_id: BillableMetricId },
+    Metered {
+        metric_id: BillableMetricId,
+    },
+    /// Static, typed configuration value. No metric, no usage — the value is resolved
+    /// synchronously from Postgres. `value_type` fixes the shape (number/bool/text/map/json or a
+    /// constrained select) for every entitlement of this feature.
+    Config {
+        value_type: ConfigValueType,
+    },
 }
 
 impl FeatureType {
@@ -81,6 +149,7 @@ pub struct Feature {
     /// Product this feature belongs to. `None` for tenant-global features.
     pub product: Option<FeatureProductRef>,
     pub name: String,
+    /// Unique key used to reference this feature in your code. Cannot be changed after creation.
     pub code: String,
     pub description: Option<String>,
     pub feature_type: FeatureType,
@@ -103,6 +172,14 @@ impl TryFrom<FeatureWithProductRow> for Feature {
                         "metered feature missing metric_id".into(),
                     ))
                 })?,
+            },
+            DbFeatureTypeEnum::Config => FeatureType::Config {
+                value_type: ConfigValueType::from_db(
+                    feature.config_value_type,
+                    feature
+                        .config_options
+                        .map(|opts| opts.into_iter().flatten().collect()),
+                ),
             },
         };
         Ok(Feature {
@@ -129,6 +206,7 @@ pub struct FeatureNew {
     pub tenant_id: TenantId,
     pub product_id: Option<ProductId>,
     pub name: String,
+    /// Unique key used to reference this feature in your code. Cannot be changed after creation.
     pub code: String,
     pub description: Option<String>,
     pub feature_type: FeatureType,
@@ -146,9 +224,16 @@ impl From<FeatureNew> for FeatureRowNew {
             feature_type,
             entitlement: _,
         } = f;
-        let (feature_type_enum, metric_id) = match feature_type {
-            FeatureType::Boolean => (DbFeatureTypeEnum::Boolean, None),
-            FeatureType::Metered { metric_id } => (DbFeatureTypeEnum::Metered, Some(metric_id)),
+        let (feature_type_enum, metric_id, config_options, config_value_type) = match feature_type {
+            FeatureType::Boolean => (DbFeatureTypeEnum::Boolean, None, None, None),
+            FeatureType::Metered { metric_id } => {
+                (DbFeatureTypeEnum::Metered, Some(metric_id), None, None)
+            }
+            FeatureType::Config { value_type } => {
+                let (kind, options) = value_type.into_db();
+                let options = options.map(|opts| opts.into_iter().map(Some).collect());
+                (DbFeatureTypeEnum::Config, None, options, Some(kind))
+            }
         };
         FeatureRowNew {
             id: FeatureId::new(),
@@ -160,6 +245,8 @@ impl From<FeatureNew> for FeatureRowNew {
             feature_type: feature_type_enum,
             status: DbFeatureStatusEnum::Active,
             metric_id,
+            config_options,
+            config_value_type,
         }
     }
 }
@@ -169,6 +256,8 @@ pub struct FeatureUpdate {
     pub name: Option<String>,
     pub description: Option<Option<String>>,
     pub product_id: Option<Option<ProductId>>,
+    /// `Some` ⇒ replace the select-config feature's allowed options. `None` ⇒ leave unchanged.
+    pub config_options: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -240,7 +329,11 @@ fn default_metered_enabled() -> bool {
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    from = "StoredEntitlementValue"
+)]
 pub enum EntitlementValue {
     Boolean {
         enabled: bool,
@@ -248,14 +341,131 @@ pub enum EntitlementValue {
     Metered {
         #[serde(skip_serializing_if = "Option::is_none")]
         limit: Option<Decimal>,
+        reset_period: ResetPeriod,
+        overage_behavior: OverageBehavior,
+        /// Percentages of the limit that send an alert when usage reaches them, ascending.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        thresholds: Vec<u32>,
+        enabled: bool,
+        /// Event property the limit is tracked per, e.g. one allowance per seat or per repository.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        group_by: Option<String>,
+    },
+    Config {
+        value: ConfigValue,
+    },
+}
+
+/// `EntitlementValue` as stored: values saved before `thresholds` carry a single
+/// `warning_threshold_pct` instead.
+#[derive(serde::Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum StoredEntitlementValue {
+    Boolean {
+        enabled: bool,
+    },
+    Metered {
+        limit: Option<Decimal>,
         #[serde(default = "default_reset_period")]
         reset_period: ResetPeriod,
         overage_behavior: OverageBehavior,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default)]
+        thresholds: Vec<u32>,
         warning_threshold_pct: Option<u32>,
         #[serde(default = "default_metered_enabled")]
         enabled: bool,
+        #[serde(default)]
+        group_by: Option<String>,
     },
+    Config {
+        value: ConfigValue,
+    },
+}
+
+impl From<StoredEntitlementValue> for EntitlementValue {
+    fn from(stored: StoredEntitlementValue) -> Self {
+        match stored {
+            StoredEntitlementValue::Boolean { enabled } => Self::Boolean { enabled },
+            StoredEntitlementValue::Metered {
+                limit,
+                reset_period,
+                overage_behavior,
+                thresholds,
+                warning_threshold_pct,
+                enabled,
+                group_by,
+            } => Self::Metered {
+                limit,
+                reset_period,
+                overage_behavior,
+                thresholds: merge_thresholds(&thresholds, warning_threshold_pct.as_slice()),
+                enabled,
+                group_by,
+            },
+            StoredEntitlementValue::Config { value } => Self::Config { value },
+        }
+    }
+}
+
+/// The thresholds an API request asks for: `thresholds`, sorted and distinct, else the deprecated
+/// single `warning_threshold_pct`. Writes validate the result.
+pub fn requested_thresholds(
+    mut thresholds: Vec<u32>,
+    warning_threshold_pct: Option<u32>,
+) -> Vec<u32> {
+    if thresholds.is_empty() {
+        return warning_threshold_pct.into_iter().collect();
+    }
+    thresholds.sort_unstable();
+    thresholds.dedup();
+    thresholds
+}
+
+/// Both sets of thresholds, ascending and distinct, at most `MAX_THRESHOLDS` of them.
+pub fn merge_thresholds(a: &[u32], b: &[u32]) -> Vec<u32> {
+    let mut merged = a.iter().chain(b).copied().collect::<Vec<_>>();
+    merged.sort_unstable();
+    merged.dedup();
+    merged.truncate(crate::domain::usage_limits::MAX_THRESHOLDS);
+    merged
+}
+
+impl EntitlementValue {
+    /// Without the limit terms that act on nothing, which writes refuse: no limit means Block,
+    /// no grace and no thresholds; a sliding window takes no thresholds. For copies of stored
+    /// values.
+    pub fn without_inert_limit_terms(self) -> Self {
+        match self {
+            Self::Metered {
+                limit,
+                reset_period,
+                overage_behavior,
+                thresholds,
+                enabled,
+                group_by,
+            } => {
+                let sliding = matches!(reset_period, ResetPeriod::SlidingWindow { .. });
+                Self::Metered {
+                    overage_behavior: match limit {
+                        Some(_) => overage_behavior,
+                        None => OverageBehavior::Block {
+                            grace_period_pct: None,
+                        },
+                    },
+                    thresholds: if limit.is_some() && !sliding {
+                        thresholds
+                    } else {
+                        Vec::new()
+                    },
+                    limit,
+                    reset_period,
+                    enabled,
+                    group_by,
+                }
+            }
+            other => other,
+        }
+    }
 }
 
 /// Repository output: feature type and entitlement value merged into a single variant.
@@ -270,8 +480,12 @@ pub enum ResolvedEntitlementValue {
         limit: Option<Decimal>,
         reset_period: ResetPeriod,
         overage_behavior: OverageBehavior,
-        warning_threshold_pct: Option<u32>,
+        thresholds: Vec<u32>,
         enabled: bool,
+        group_by: Option<String>,
+    },
+    Config {
+        value: ConfigValue,
     },
 }
 
@@ -287,9 +501,17 @@ pub enum EffectiveEntitlementValue {
         limit: Option<Decimal>,
         reset_period: ResetPeriod,
         overage_behavior: OverageBehavior,
-        warning_threshold_pct: Option<u32>,
+        thresholds: Vec<u32>,
+        /// False once a blocking limit (plus its grace) is reached, even when switched on.
         enabled: bool,
+        group_by: Option<String>,
         usage: EntitlementUsage,
+        /// Switched on, but refused because a blocking limit (plus its grace) is reached; never
+        /// for a grouped limit, which refuses per group.
+        limit_reached: bool,
+    },
+    Config {
+        value: ConfigValue,
     },
 }
 
@@ -304,6 +526,7 @@ pub struct FeatureProductRef {
 pub struct FeatureRef {
     pub id: FeatureId,
     pub name: String,
+    /// Unique key used to reference this feature in your code. Cannot be changed after creation.
     pub code: String,
     pub product: Option<FeatureProductRef>,
 }
@@ -353,4 +576,85 @@ pub struct EffectiveEntitlement {
     /// highest-priority contributing entity. Feature-level (tenant default) returns
     /// `EntitlementEntityId::Feature(feature_id)`.
     pub origin: ResolvedOrigin,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    #[test]
+    fn a_stored_value_without_thresholds_reads_and_writes_unchanged() {
+        let legacy = serde_json::json!({
+            "type": "metered", "limit": "5", "reset_period": {"type": "never"},
+            "overage_behavior": {"type": "allow"}, "enabled": true
+        });
+        let parsed: EntitlementValue = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(matches!(
+            &parsed,
+            EntitlementValue::Metered { group_by: None, thresholds, .. } if thresholds.is_empty()
+        ));
+        assert_eq!(serde_json::to_value(&parsed).unwrap(), legacy);
+    }
+
+    #[test]
+    fn a_stored_warning_threshold_reads_as_a_threshold_and_is_written_as_thresholds() {
+        let legacy = serde_json::json!({
+            "type": "metered", "limit": "5", "overage_behavior": {"type": "allow"},
+            "warning_threshold_pct": 80
+        });
+        let parsed: EntitlementValue = serde_json::from_value(legacy).unwrap();
+        let EntitlementValue::Metered {
+            thresholds,
+            reset_period,
+            enabled,
+            ..
+        } = &parsed
+        else {
+            panic!("metered expected");
+        };
+        assert_eq!(thresholds, &vec![80]);
+        assert_eq!(reset_period, &ResetPeriod::Never);
+        assert!(*enabled);
+        let written = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(written["thresholds"], serde_json::json!([80]));
+        assert!(written.get("warning_threshold_pct").is_none());
+
+        let both = serde_json::json!({
+            "type": "metered", "limit": "5", "overage_behavior": {"type": "allow"},
+            "warning_threshold_pct": 90, "thresholds": [50, 90]
+        });
+        assert!(matches!(
+            serde_json::from_value::<EntitlementValue>(both).unwrap(),
+            EntitlementValue::Metered { thresholds, .. } if thresholds == vec![50, 90]
+        ));
+    }
+
+    #[test]
+    fn grouped_values_with_thresholds_round_trip() {
+        let grouped = EntitlementValue::Metered {
+            limit: Some(dec!(5)),
+            reset_period: ResetPeriod::BillingCycle,
+            overage_behavior: OverageBehavior::Block {
+                grace_period_pct: Some(10),
+            },
+            thresholds: vec![50, 80, 100],
+            enabled: true,
+            group_by: Some("seat".to_owned()),
+        };
+        let json = serde_json::to_value(&grouped).unwrap();
+        assert_eq!(json["group_by"], "seat");
+        assert_eq!(
+            serde_json::from_value::<EntitlementValue>(json).unwrap(),
+            grouped
+        );
+    }
+
+    #[test]
+    fn merged_thresholds_are_ascending_distinct_and_bounded() {
+        assert_eq!(merge_thresholds(&[80, 50], &[50, 100]), vec![50, 80, 100]);
+        let many = (1..=8).collect::<Vec<_>>();
+        let more = (5..=15).collect::<Vec<_>>();
+        assert_eq!(merge_thresholds(&many, &more), (1..=10).collect::<Vec<_>>());
+    }
 }

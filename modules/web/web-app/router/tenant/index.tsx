@@ -3,22 +3,20 @@ import { RouteObject } from 'react-router-dom'
 
 import { StandardOnly } from '@/components/StandardOnly'
 import { TenantLayoutOutlet } from '@/components/layouts'
+import { editionTenantRoutes } from '@/edition'
 import { NotImplemented } from '@/features/NotImplemented'
+import { ManageConnectorModal } from '@/features/payments/ManageConnectorModal'
 import { PaymentProviderConnectModal } from '@/features/payments/PaymentProviderConnectModal'
-import { MrrReport } from '@/features/reports/charts/MrrReport'
-import { RevenueReport } from '@/features/reports/charts/RevenueReport'
+import { UpdateCredentialsModal } from '@/features/payments/UpdateCredentialsModal'
 import { EditHubspotIntegrationModal } from '@/features/settings/integrations/EditHubspotIntegrationModal'
 import { HubspotIntegrationModal } from '@/features/settings/integrations/HubspotIntegration'
 import { PennylaneIntegrationModal } from '@/features/settings/integrations/PennylaneIntegration'
-import { DeadLetterPage } from '@/pages/admin/deadletter'
-import { DeadLetterDetailPage } from '@/pages/admin/deadletter-detail'
+import { UserSettings } from '@/pages/profile/userSettings'
 import { BatchJobPage } from '@/pages/tenants/batchjob'
 import { DashboardPage as Dashboard } from '@/pages/tenants/dashboard'
-import { DeveloperSettings } from '@/pages/tenants/developers'
 import { EventsPage } from '@/pages/tenants/events'
 import { HelpPage } from '@/pages/tenants/help'
-import { ReportsPage } from '@/pages/tenants/reports'
-import { TenantSettings } from '@/pages/tenants/settings'
+import { SettingsIndexRedirect, TenantSettings } from '@/pages/tenants/settings'
 import { billingRoutes } from 'router/tenant/billing'
 import { productCatalogRoutes } from 'router/tenant/catalog'
 import { customersRoutes } from 'router/tenant/customers'
@@ -40,24 +38,41 @@ export const tenantRoutes: RouteObject = {
     },
     {
       path: 'settings',
-      element: <TenantSettings />,
-      handle: { title: 'Settings' },
+      handle: { title: 'Settings', overlay: true },
       children: [
+        { index: true, element: <SettingsIndexRedirect /> },
         {
-          path: 'connect-payment-provider/:providerKey',
-          element: <PaymentProviderConnectModal />,
-        },
-        {
-          path: 'connect-pennylane',
-          element: <PennylaneIntegrationModal />,
-        },
-        {
-          path: 'connect-hubspot',
-          element: <HubspotIntegrationModal />,
-        },
-        {
-          path: 'edit-hubspot-connection/:connectionId',
-          element: <EditHubspotIntegrationModal />,
+          path: ':tab',
+          element: <TenantSettings />,
+          children: [
+            // Webhooks subpages: the tab reads the URL and renders them in place.
+            { path: 'endpoints/:endpointId' },
+            { path: 'catalog' },
+            {
+              path: 'connect-payment-provider/:providerKey',
+              element: <PaymentProviderConnectModal />,
+            },
+            {
+              path: 'manage-connector/:connectorId',
+              element: <ManageConnectorModal />,
+            },
+            {
+              path: 'manage-connector/:connectorId/credentials',
+              element: <UpdateCredentialsModal />,
+            },
+            {
+              path: 'connect-pennylane',
+              element: <PennylaneIntegrationModal />,
+            },
+            {
+              path: 'connect-hubspot',
+              element: <HubspotIntegrationModal />,
+            },
+            {
+              path: 'edit-hubspot-connection/:connectionId',
+              element: <EditHubspotIntegrationModal />,
+            },
+          ],
         },
       ],
     },
@@ -66,6 +81,11 @@ export const tenantRoutes: RouteObject = {
       element: <HelpPage />,
       handle: { title: 'Help' },
     },
+    {
+      path: 'account',
+      element: <UserSettings />,
+      handle: { title: 'Account' },
+    },
     customersRoutes,
     billingRoutes,
     productCatalogRoutes,
@@ -73,27 +93,9 @@ export const tenantRoutes: RouteObject = {
       element: <StandardOnly />,
       children: [
         {
-          path: 'reports',
-          element: <ReportsPage />,
-          handle: { title: 'Reports' },
-          children: [
-            {
-              index: true,
-              element: <MrrReport />,
-              handle: { title: 'MRR' },
-            },
-            {
-              path: 'revenue',
-              element: <RevenueReport />,
-              handle: { title: 'Revenue' },
-            },
-          ],
-        },
-        {
           path: 'developers',
-          handle: { title: 'Developers' },
+          handle: { title: 'Batch job' },
           children: [
-            { index: true, element: <DeveloperSettings /> },
             {
               path: 'batch-jobs/:batchJobId',
               element: <BatchJobPage />,
@@ -113,21 +115,7 @@ export const tenantRoutes: RouteObject = {
         growthRoutes,
       ],
     },
-    {
-      path: 'admin',
-      children: [
-        {
-          path: 'dead-letters',
-          element: <DeadLetterPage />,
-          handle: { title: 'Dead letters' },
-        },
-        {
-          path: 'dead-letters/:deadLetterId',
-          element: <DeadLetterDetailPage />,
-          handle: { title: 'Dead letter' },
-        },
-      ],
-    },
+    ...editionTenantRoutes(),
     {
       path: '*',
       element: <NotImplemented />,

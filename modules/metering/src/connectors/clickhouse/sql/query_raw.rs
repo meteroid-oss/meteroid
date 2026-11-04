@@ -1,15 +1,59 @@
 use crate::connectors::clickhouse::sql::{BindValue, PropertyColumn, SafeQuery};
 use crate::domain::{
-    EventSortOrder, MeterAggregation, QueryMeterParams, QueryRawEventsParams, SegmentationFilter,
-    WindowSize,
+    EventAttribution, EventSortOrder, MeterAggregation, OriginFilter, PropertyFilterOp,
+    QueryMeterParams, QueryRawEventsParams, SegmentationFilter, WindowSize,
 };
 use chrono::Utc;
 use common_domain::ids::BaseId;
+use metric_core::sql::{EventDedup, LATEST_EVENT_ORDER};
+
+/// Append pre-aggregation property filters as WHERE conditions (ANDed), with binds pushed
+/// in lock-step. `In` keeps matching events; `NotIn` is presence-required (mapContains guards
+/// an absent key from passing `!=`). Shared by the meter and raw-event queries so the events
+/// explorer filters identically to how billing meters.
+fn push_property_filters(
+    filters: &[crate::domain::PropertyFilter],
+    conditions: &mut Vec<String>,
+    binds: &mut Vec<BindValue>,
+) {
+    for f in filters {
+        if f.values.is_empty() {
+            continue;
+        }
+        let col = PropertyColumn(&f.property);
+        match f.op {
+            PropertyFilterOp::In => {
+                let ored = f
+                    .values
+                    .iter()
+                    .map(|value| {
+                        let path = col.path_sql(binds);
+                        binds.push(BindValue::String(value.clone()));
+                        format!("{path} = ?")
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" OR ");
+                conditions.push(format!("({ored})"));
+            }
+            PropertyFilterOp::NotIn => {
+                binds.push(BindValue::String(f.property.clone()));
+                let mut parts = vec!["mapContains(properties, ?)".to_string()];
+                for value in &f.values {
+                    let path = col.path_sql(binds);
+                    binds.push(BindValue::String(value.clone()));
+                    parts.push(format!("{path} != ?"));
+                }
+                conditions.push(format!("({})", parts.join(" AND ")));
+            }
+        }
+    }
+}
 
 pub fn query_raw_events_sql(
     params: QueryRawEventsParams,
     events_table: &str,
 ) -> Result<SafeQuery, String> {
+    let dedup = EventDedup::new(params.keep_last_events);
     let mut conditions = Vec::new();
     let mut binds: Vec<BindValue> = Vec::new();
 
@@ -50,18 +94,51 @@ pub fn query_raw_events_sql(
         binds.push(BindValue::String(pattern));
     }
 
-    let order_by = match params.sort_order {
-        EventSortOrder::TimestampDesc => "timestamp DESC",
-        EventSortOrder::TimestampAsc => "timestamp ASC",
-        EventSortOrder::IngestedDesc => "ingested_at DESC",
-        EventSortOrder::IngestedAsc => "ingested_at ASC",
+    push_property_filters(&params.filters, &mut conditions, &mut binds);
+
+    let (order_by, keyset_cmp) = match params.sort_order {
+        EventSortOrder::TimestampDesc => ("timestamp DESC, id DESC", Some("<")),
+        EventSortOrder::TimestampAsc => ("timestamp ASC, id ASC", Some(">")),
+        EventSortOrder::IngestedDesc => ("ingested_at DESC", None),
+        EventSortOrder::IngestedAsc => ("ingested_at ASC", None),
     };
 
-    let dedup_subquery = build_dedup_subquery(RAW_EVENT_COLUMNS, events_table, &conditions);
+    let keyset = match params.after {
+        Some(after) => {
+            let cmp = keyset_cmp
+                .ok_or_else(|| "keyset pagination requires a timestamp sort order".to_string())?;
+            binds.push(BindValue::I64(after.timestamp_nanos));
+            binds.push(BindValue::I64(after.timestamp_nanos));
+            binds.push(BindValue::String(after.id));
+            Some(format!(
+                "(toUnixTimestamp64Nano(timestamp) {cmp} ? OR (toUnixTimestamp64Nano(timestamp) = ? AND id {cmp} ?))"
+            ))
+        }
+        None => None,
+    };
 
     let columns = RAW_EVENT_COLUMNS.join(", ");
-    let sql =
-        format!("SELECT {columns} FROM ( {dedup_subquery} ) ORDER BY {order_by} LIMIT ? OFFSET ?");
+    // Without a dedup the query stays flat: ClickHouse 25.6 lazy materialization segfaults on
+    // `ORDER BY .. LIMIT n` over a bare subquery of a Distributed table.
+    let sql = match dedup {
+        EventDedup::Off => {
+            conditions.extend(keyset);
+            format!(
+                "SELECT {columns} FROM {events_table} WHERE {} ORDER BY {order_by} LIMIT ? OFFSET ?",
+                conditions.join(" AND ")
+            )
+        }
+        EventDedup::LastIngested => {
+            let dedup_subquery =
+                build_dedup_subquery(RAW_EVENT_COLUMNS, events_table, dedup, &conditions);
+            let outer_where = keyset
+                .map(|keyset| format!("WHERE {keyset} "))
+                .unwrap_or_default();
+            format!(
+                "SELECT {columns} FROM ( {dedup_subquery} ) {outer_where}ORDER BY {order_by} LIMIT ? OFFSET ?"
+            )
+        }
+    };
     binds.push(BindValue::U32(params.limit));
     binds.push(BindValue::U32(params.offset));
 
@@ -78,9 +155,20 @@ const RAW_EVENT_COLUMNS: &[&str] = &[
     "properties",
 ];
 
-const METER_EVENT_COLUMNS: &[&str] = &["id", "customer_id", "timestamp", "properties"];
+const METER_EVENT_COLUMNS: &[&str] = &[
+    "id",
+    "customer_id",
+    "timestamp",
+    "ingested_at",
+    "properties",
+];
 
-fn build_dedup_subquery(columns: &[&str], events_table: &str, conditions: &[String]) -> String {
+fn build_dedup_subquery(
+    columns: &[&str],
+    events_table: &str,
+    dedup: EventDedup,
+    conditions: &[String],
+) -> String {
     let where_clause = if conditions.is_empty() {
         String::new()
     } else {
@@ -88,14 +176,75 @@ fn build_dedup_subquery(columns: &[&str], events_table: &str, conditions: &[Stri
     };
     let columns = columns.join(", ");
     format!(
-        "SELECT {columns} FROM {events_table} {where_clause} ORDER BY timestamp DESC LIMIT 1 BY id, customer_id"
+        "SELECT {columns} FROM {events_table} {where_clause}{}",
+        dedup.limit_by_suffix()
     )
 }
 
+/// Conditions on the deduplicated events, so the latest version of an event decides which
+/// subscription it belongs to and no two subscriptions read different versions of it.
+fn push_attribution(
+    attribution: &EventAttribution,
+    conditions: &mut Vec<String>,
+    binds: &mut Vec<BindValue>,
+) {
+    if attribution.segments.is_empty() {
+        return;
+    }
+    let segments = attribution
+        .segments
+        .iter()
+        .map(|segment| {
+            let mut parts = Vec::new();
+            if let Some(from) = segment.from {
+                parts.push("timestamp >= toDateTime(?)".to_string());
+                binds.push(BindValue::I64(from.timestamp()));
+            }
+            if let Some(to) = segment.to {
+                parts.push("timestamp < toDateTime(?)".to_string());
+                binds.push(BindValue::I64(to.timestamp()));
+            }
+            if let Some(matching) = &segment.matching {
+                let path = PropertyColumn(&matching.property).path_sql(binds);
+                binds.push(BindValue::String(matching.value.clone()));
+                parts.push(format!("{path} = ?"));
+            }
+            for claim in &segment.excluded {
+                let path = PropertyColumn(&claim.property).path_sql(binds);
+                binds.push(BindValue::String(claim.value.clone()));
+                let mut claimed = vec![
+                    format!("{path} = ?"),
+                    "timestamp >= toDateTime(?)".to_string(),
+                ];
+                binds.push(BindValue::I64(claim.from.timestamp()));
+                if let Some(to) = claim.to {
+                    claimed.push("timestamp < toDateTime(?)".to_string());
+                    binds.push(BindValue::I64(to.timestamp()));
+                }
+                parts.push(format!("NOT ({})", claimed.join(" AND ")));
+            }
+            if parts.is_empty() {
+                "1".to_string()
+            } else {
+                format!("({})", parts.join(" AND "))
+            }
+        })
+        .collect::<Vec<_>>();
+    conditions.push(format!("({})", segments.join(" OR ")));
+}
+
+fn push_origin_filter(origin: OriginFilter, _conditions: &mut Vec<String>) {
+    match origin {
+        OriginFilter::All => {}
+    }
+}
+
 pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<SafeQuery, String> {
+    let dedup = EventDedup::new(params.keep_last_events);
     let mut select_binds: Vec<BindValue> = Vec::new();
     let mut subquery_binds: Vec<BindValue> = Vec::new();
     let mut group_by_binds: Vec<BindValue> = Vec::new();
+    let mut attribution_binds: Vec<BindValue> = Vec::new();
 
     // Phase 1: Build subquery conditions
     let mut subquery_conditions = Vec::new();
@@ -109,8 +258,10 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
     subquery_conditions.push("timestamp >= toDateTime(?)".to_string());
     subquery_binds.push(BindValue::I64(params.from.timestamp()));
 
+    // Half-open [from, to): billing periods are half-open and consecutive periods share their
+    // boundary instant, so an inclusive upper bound bills the boundary event twice.
     if let Some(to) = params.to {
-        subquery_conditions.push("timestamp <= toDateTime(?)".to_string());
+        subquery_conditions.push("timestamp < toDateTime(?)".to_string());
         subquery_binds.push(BindValue::I64(to.timestamp()));
     }
 
@@ -171,6 +322,17 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
         }
     }
 
+    // Pre-aggregation property filters (WHERE-only). Unlike segmentation above, these add
+    // NO SELECT/GROUP BY columns — they only restrict which events are aggregated, so the
+    // rated result shape is unchanged. An empty `filters` adds nothing (byte-identical SQL).
+    push_property_filters(
+        &params.filters,
+        &mut subquery_conditions,
+        &mut subquery_binds,
+    );
+
+    push_origin_filter(params.origin, &mut subquery_conditions);
+
     if let Some(ref value_prop) = params.value_property
         && !matches!(params.aggregation, MeterAggregation::Count)
     {
@@ -201,6 +363,7 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
             WindowSize::Minute => "toIntervalMinute(1)",
             WindowSize::Hour => "toIntervalHour(1)",
             WindowSize::Day => "toIntervalDay(1)",
+            WindowSize::Week => "toIntervalWeek(1)",
         };
 
         select_binds.push(BindValue::String(tz.clone()));
@@ -228,7 +391,7 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
             };
             let col = PropertyColumn(value_prop);
             let path = col.path_sql(&mut select_binds);
-            format!("toFloat64(uniq({path})) AS value")
+            format!("toFloat64(uniqExact({path})) AS value")
         }
         agg => {
             let Some(ref value_prop) = params.value_property else {
@@ -243,7 +406,7 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
                 MeterAggregation::Min => format!("min({value_expr}) AS value"),
                 MeterAggregation::Max => format!("max({value_expr}) AS value"),
                 MeterAggregation::Latest => {
-                    format!("argMax({value_expr}, toDateTime(timestamp)) AS value")
+                    format!("argMax({value_expr}, {LATEST_EVENT_ORDER}) AS value")
                 }
                 MeterAggregation::Count | MeterAggregation::CountDistinct => unreachable!(),
             }
@@ -251,9 +414,9 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
     };
     select_columns.push(aggregation_column);
 
-    let add_customer_id_group_by =
-        !params.customer_ids.is_empty() && !params.group_by.contains(&"customer_id".to_string());
-    if !params.customer_ids.is_empty() {
+    // A `customer_id` group-by property is `properties['customer_id']`, not this column.
+    let group_by_customer = params.groups_by_customer();
+    if group_by_customer {
         select_columns.push("customer_id".to_string());
     }
 
@@ -262,7 +425,11 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
         select_columns.push(col.select_sql(&mut select_binds));
     }
 
-    if let Some(ref segmentation) = params.segmentation_filter {
+    let segment_dimensions = params
+        .segmentation_filter
+        .as_ref()
+        .filter(|_| !params.merge_segments);
+    if let Some(segmentation) = segment_dimensions {
         match segmentation {
             SegmentationFilter::Independent(filters) => {
                 for (column, _) in filters {
@@ -289,6 +456,7 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
             WindowSize::Minute => "toIntervalMinute(1)",
             WindowSize::Hour => "toIntervalHour(1)",
             WindowSize::Day => "toIntervalDay(1)",
+            WindowSize::Week => "toIntervalWeek(1)",
         };
         group_by_binds.push(BindValue::String(tz.clone()));
         group_by_columns.push(format!("tumbleStart(toDateTime(timestamp), {interval}, ?)"));
@@ -296,7 +464,7 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
         group_by_columns.push(format!("tumbleEnd(toDateTime(timestamp), {interval}, ?)"));
     }
 
-    if add_customer_id_group_by {
+    if group_by_customer {
         group_by_columns.push("customer_id".to_string());
     }
 
@@ -305,7 +473,7 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
         group_by_columns.push(col.path_sql(&mut group_by_binds));
     }
 
-    if let Some(ref segmentation) = params.segmentation_filter {
+    if let Some(segmentation) = segment_dimensions {
         match segmentation {
             SegmentationFilter::Independent(filters) => {
                 for (column, _) in filters {
@@ -327,12 +495,28 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
     }
 
     // Phase 4: Deduplication subquery
-    let dedup_subquery =
-        build_dedup_subquery(METER_EVENT_COLUMNS, events_table, &subquery_conditions);
+    let dedup_subquery = build_dedup_subquery(
+        METER_EVENT_COLUMNS,
+        events_table,
+        dedup,
+        &subquery_conditions,
+    );
+
+    let mut attribution_conditions = Vec::new();
+    if let Some(attribution) = &params.attribution {
+        push_attribution(
+            attribution,
+            &mut attribution_conditions,
+            &mut attribution_binds,
+        );
+    }
 
     // Phase 5: Assemble
     let mut sql = format!("SELECT {}", select_columns.join(", "));
     sql.push_str(&format!(" FROM ( {dedup_subquery} )"));
+    if !attribution_conditions.is_empty() {
+        sql.push_str(&format!(" WHERE {}", attribution_conditions.join(" AND ")));
+    }
     if !group_by_columns.is_empty() {
         sql.push_str(&format!(" GROUP BY {}", group_by_columns.join(", ")));
     }
@@ -342,6 +526,7 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
 
     let mut binds = select_binds;
     binds.extend(subquery_binds);
+    binds.extend(attribution_binds);
     binds.extend(group_by_binds);
 
     Ok(SafeQuery { sql, binds })
@@ -350,7 +535,10 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{MeterAggregation, QueryMeterParams, SegmentationFilter, WindowSize};
+    use crate::domain::{
+        MeterAggregation, PropertyFilter, PropertyFilterOp, QueryMeterParams, SegmentationFilter,
+        WindowSize,
+    };
     use chrono::{TimeZone, Utc};
     use common_domain::ids::{CustomerId, TenantId};
     use std::collections::HashMap;
@@ -395,8 +583,12 @@ mod tests {
     }
 
     #[test]
-    fn test_query_meter_dedup_with_minute_window() {
+    fn test_query_meter_with_minute_window() {
         let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
             aggregation: MeterAggregation::Sum,
             tenant_id: TenantId::default(),
             code: "test_event".to_string(),
@@ -406,8 +598,10 @@ mod tests {
             group_by: vec![],
             window_size: Some(WindowSize::Minute),
             window_time_zone: Some(chrono_tz::UTC),
+            filters: vec![],
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
+            keep_last_events: false,
         };
 
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
@@ -421,16 +615,15 @@ mod tests {
                     id,
                     customer_id,
                     timestamp,
+                    ingested_at,
                     properties
                 FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
-                    AND timestamp <= toDateTime(?)
+                    AND timestamp < toDateTime(?)
                     AND properties[?] != ''
                     AND isNotNull(toFloat64OrNull(properties[?]))
-                ORDER BY timestamp DESC
-                LIMIT 1 BY id, customer_id
             )
             GROUP BY
                 tumbleStart(toDateTime(timestamp), toIntervalMinute(1), ?),
@@ -449,8 +642,12 @@ mod tests {
     }
 
     #[test]
-    fn test_query_meter_dedup_with_count() {
+    fn test_query_meter_with_count() {
         let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
             aggregation: MeterAggregation::Count,
             tenant_id: TenantId::default(),
             code: "api_call".to_string(),
@@ -460,9 +657,11 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+            filters: vec![],
 
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
+            keep_last_events: false,
         };
 
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
@@ -476,14 +675,13 @@ mod tests {
                     id,
                     customer_id,
                     timestamp,
+                    ingested_at,
                     properties
                 FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
-                    AND timestamp <= toDateTime(?)
-                ORDER BY timestamp DESC
-                LIMIT 1 BY id, customer_id
+                    AND timestamp < toDateTime(?)
             )
         "#;
 
@@ -496,8 +694,12 @@ mod tests {
     }
 
     #[test]
-    fn test_query_meter_dedup_with_customer_filter() {
+    fn test_query_meter_with_customer_filter() {
         let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
             aggregation: MeterAggregation::Sum,
             tenant_id: TenantId::default(),
             code: "usage".to_string(),
@@ -510,9 +712,11 @@ mod tests {
             group_by: vec![],
             window_size: Some(WindowSize::Hour),
             window_time_zone: None,
+            filters: vec![],
 
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
+            keep_last_events: false,
         };
 
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
@@ -527,6 +731,7 @@ mod tests {
                     id,
                     customer_id,
                     timestamp,
+                    ingested_at,
                     properties
                 FROM raw_events_v2
                 WHERE tenant_id = ?
@@ -535,8 +740,6 @@ mod tests {
                     AND customer_id IN ?
                     AND properties[?] != ''
                     AND isNotNull(toFloat64OrNull(properties[?]))
-                ORDER BY timestamp DESC
-                LIMIT 1 BY id, customer_id
             )
             GROUP BY
                 tumbleStart(toDateTime(timestamp), toIntervalHour(1), ?),
@@ -558,8 +761,115 @@ mod tests {
     }
 
     #[test]
-    fn test_query_meter_dedup_with_group_by() {
+    fn test_query_meter_group_by_customer_without_customer_filter() {
         let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: true,
+            attribution: None,
+            merge_segments: false,
+            aggregation: MeterAggregation::Count,
+            tenant_id: TenantId::default(),
+            code: "api_call".to_string(),
+            value_property: None,
+            customer_ids: vec![],
+            segmentation_filter: None,
+            group_by: vec!["region".to_string()],
+            window_size: Some(WindowSize::Day),
+            window_time_zone: None,
+            filters: vec![],
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: Some(Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap()),
+            keep_last_events: false,
+        };
+
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
+        let expected = r#"
+            SELECT
+                tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?) AS window_start,
+                tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?) AS window_end,
+                toFloat64(count(*)) AS value,
+                customer_id,
+                properties[?] AS _prop_region
+            FROM (
+                SELECT
+                    id,
+                    customer_id,
+                    timestamp,
+                    ingested_at,
+                    properties
+                FROM raw_events_v2
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND timestamp < toDateTime(?)
+            )
+            GROUP BY
+                tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?),
+                tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?),
+                customer_id,
+                properties[?]
+            ORDER BY window_start
+        "#;
+
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        assert_bind_parity(&result);
+        let tenant = format!("Uuid:{}", Uuid::max());
+        assert_eq!(
+            bind_strings(&result.binds),
+            vec![
+                "S:UTC",
+                "S:UTC",
+                "S:region",
+                tenant.as_str(),
+                "S:api_call",
+                "I:1704067200",
+                "I:1706745600",
+                "S:UTC",
+                "S:UTC",
+                "S:region",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_query_meter_customer_id_property_is_grouped_alongside_the_column() {
+        // A `customer_id` group-by is the event property, so the column must still be grouped.
+        let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
+            aggregation: MeterAggregation::Count,
+            tenant_id: TenantId::default(),
+            code: "api_call".to_string(),
+            value_property: None,
+            customer_ids: vec![CustomerId::from(Uuid::from_u128(1))],
+            segmentation_filter: None,
+            group_by: vec!["customer_id".to_string()],
+            window_size: None,
+            window_time_zone: None,
+            filters: vec![],
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: None,
+            keep_last_events: false,
+        };
+
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
+        let sql = normalize_sql(&result.sql);
+        assert!(sql.contains(
+            "toFloat64(count(*)) AS value, customer_id, properties[?] AS _prop_customer_id"
+        ));
+        assert!(sql.ends_with("GROUP BY customer_id, properties[?]"));
+        assert_bind_parity(&result);
+    }
+
+    #[test]
+    fn test_query_meter_with_group_by() {
+        let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
             aggregation: MeterAggregation::Avg,
             tenant_id: TenantId::default(),
             code: "transaction".to_string(),
@@ -569,9 +879,11 @@ mod tests {
             group_by: vec!["region".to_string(), "endpoint".to_string()],
             window_size: Some(WindowSize::Day),
             window_time_zone: None,
+            filters: vec![],
 
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
+            keep_last_events: false,
         };
 
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
@@ -587,6 +899,7 @@ mod tests {
                     id,
                     customer_id,
                     timestamp,
+                    ingested_at,
                     properties
                 FROM raw_events_v2
                 WHERE tenant_id = ?
@@ -594,8 +907,6 @@ mod tests {
                     AND timestamp >= toDateTime(?)
                     AND properties[?] != ''
                     AND isNotNull(toFloat64OrNull(properties[?]))
-                ORDER BY timestamp DESC
-                LIMIT 1 BY id, customer_id
             )
             GROUP BY
                 tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?),
@@ -614,8 +925,12 @@ mod tests {
     }
 
     #[test]
-    fn test_query_meter_dedup_with_independent_segmentation() {
+    fn test_query_meter_with_independent_segmentation() {
         let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
             aggregation: MeterAggregation::Sum,
             tenant_id: TenantId::default(),
             code: "sale".to_string(),
@@ -631,9 +946,11 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+            filters: vec![],
 
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
+            keep_last_events: false,
         };
 
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
@@ -649,6 +966,7 @@ mod tests {
                     id,
                     customer_id,
                     timestamp,
+                    ingested_at,
                     properties
                 FROM raw_events_v2
                 WHERE tenant_id = ?
@@ -658,8 +976,6 @@ mod tests {
                     AND (properties[?] = ?)
                     AND properties[?] != ''
                     AND isNotNull(toFloat64OrNull(properties[?]))
-                ORDER BY timestamp DESC
-                LIMIT 1 BY id, customer_id
             )
             GROUP BY properties[?], properties[?]
         "#;
@@ -677,7 +993,285 @@ mod tests {
     }
 
     #[test]
-    fn test_query_meter_dedup_with_linked_segmentation() {
+    fn test_query_meter_property_filter_in_is_where_only() {
+        // An `In` filter adds a WHERE condition but NO SELECT/GROUP BY column (unlike
+        // segmentation), so the rated result shape is unchanged.
+        let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
+            aggregation: MeterAggregation::Sum,
+            tenant_id: TenantId::default(),
+            code: "usage".to_string(),
+            value_property: Some("amount".to_string()),
+            customer_ids: vec![],
+            segmentation_filter: None,
+            filters: vec![PropertyFilter {
+                property: "operation".to_string(),
+                op: PropertyFilterOp::In,
+                values: vec!["write".to_string(), "delete".to_string()],
+            }],
+            group_by: vec![],
+            window_size: None,
+            window_time_zone: None,
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: None,
+            keep_last_events: false,
+        };
+
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
+        let expected = r#"
+            SELECT
+                min(toDateTime(timestamp)) AS window_start,
+                max(toDateTime(timestamp)) AS window_end,
+                sum(toFloat64OrZero(properties[?])) AS value
+            FROM (
+                SELECT id, customer_id, timestamp, ingested_at, properties
+                FROM raw_events_v2
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND (properties[?] = ? OR properties[?] = ?)
+                    AND properties[?] != ''
+                    AND isNotNull(toFloat64OrNull(properties[?]))
+            )
+        "#;
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        assert_bind_parity(&result);
+        // No grouping/select column for the filtered property.
+        assert!(!result.sql.contains("_prop_operation"));
+        assert!(!result.sql.contains("GROUP BY"));
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"S:operation".to_string()));
+        assert!(bs.contains(&"S:write".to_string()));
+        assert!(bs.contains(&"S:delete".to_string()));
+    }
+
+    #[test]
+    fn test_query_meter_property_filter_not_in_requires_presence() {
+        // `NotIn` is presence-required: mapContains guards against an absent key passing `!=`.
+        let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
+            aggregation: MeterAggregation::Count,
+            tenant_id: TenantId::default(),
+            code: "usage".to_string(),
+            value_property: None,
+            customer_ids: vec![],
+            segmentation_filter: None,
+            filters: vec![PropertyFilter {
+                property: "tier".to_string(),
+                op: PropertyFilterOp::NotIn,
+                values: vec!["free".to_string()],
+            }],
+            group_by: vec![],
+            window_size: None,
+            window_time_zone: None,
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: None,
+            keep_last_events: false,
+        };
+
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
+        let expected = r#"
+            SELECT
+                min(toDateTime(timestamp)) AS window_start,
+                max(toDateTime(timestamp)) AS window_end,
+                toFloat64(count(*)) AS value
+            FROM (
+                SELECT id, customer_id, timestamp, ingested_at, properties
+                FROM raw_events_v2
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND (mapContains(properties, ?) AND properties[?] != ?)
+            )
+        "#;
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        assert_bind_parity(&result);
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"S:tier".to_string()));
+        assert!(bs.contains(&"S:free".to_string()));
+    }
+
+    fn attributed(attribution: Option<EventAttribution>) -> QueryMeterParams {
+        QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution,
+            merge_segments: false,
+            aggregation: MeterAggregation::Sum,
+            tenant_id: TenantId::default(),
+            code: "tokens".to_string(),
+            value_property: Some("tokens".to_string()),
+            customer_ids: vec![CustomerId::default()],
+            segmentation_filter: None,
+            filters: vec![],
+            group_by: vec!["model".to_string()],
+            window_size: None,
+            window_time_zone: None,
+            from: Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap(),
+            to: Some(Utc.with_ymd_and_hms(2026, 10, 1, 0, 0, 0).unwrap()),
+            keep_last_events: false,
+        }
+    }
+
+    #[test]
+    fn test_query_meter_attribution_filters_the_deduplicated_events() {
+        use crate::domain::{AttributionSegment, EventClaim, EventMatch};
+        let change = Utc.with_ymd_and_hms(2026, 9, 10, 0, 0, 0).unwrap();
+        let claim_to = Utc.with_ymd_and_hms(2026, 9, 20, 14, 30, 0).unwrap();
+        let result = query_meter_sql(
+            attributed(Some(EventAttribution {
+                segments: vec![
+                    AttributionSegment {
+                        from: None,
+                        to: Some(change),
+                        matching: Some(EventMatch {
+                            property: "project".to_string(),
+                            value: "p1".to_string(),
+                        }),
+                        excluded: vec![],
+                    },
+                    AttributionSegment {
+                        from: Some(change),
+                        to: None,
+                        matching: None,
+                        excluded: vec![EventClaim {
+                            property: "api_key".to_string(),
+                            value: "key-A".to_string(),
+                            from: change,
+                            to: Some(claim_to),
+                        }],
+                    },
+                ],
+            })),
+            "raw_events_v2",
+        )
+        .unwrap();
+        let expected = r#"
+            SELECT
+                min(toDateTime(timestamp)) AS window_start,
+                max(toDateTime(timestamp)) AS window_end,
+                sum(toFloat64OrZero(properties[?])) AS value,
+                customer_id,
+                properties[?] AS _prop_model
+            FROM (
+                SELECT id, customer_id, timestamp, ingested_at, properties
+                FROM raw_events_v2
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND timestamp < toDateTime(?)
+                    AND customer_id IN ?
+                    AND properties[?] != ''
+                    AND isNotNull(toFloat64OrNull(properties[?]))
+            )
+            WHERE ((timestamp < toDateTime(?) AND properties[?] = ?)
+                OR (timestamp >= toDateTime(?)
+                    AND NOT (properties[?] = ? AND timestamp >= toDateTime(?) AND timestamp < toDateTime(?))))
+            GROUP BY customer_id, properties[?]
+        "#;
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        assert_bind_parity(&result);
+        let binds = bind_strings(&result.binds);
+        let attribution_binds = &binds[binds.len() - 9..binds.len() - 1];
+        assert_eq!(
+            attribution_binds,
+            [
+                format!("I:{}", change.timestamp()),
+                "S:project".to_string(),
+                "S:p1".to_string(),
+                format!("I:{}", change.timestamp()),
+                "S:api_key".to_string(),
+                "S:key-A".to_string(),
+                format!("I:{}", change.timestamp()),
+                format!("I:{}", claim_to.timestamp()),
+            ]
+        );
+        assert_eq!(binds.last(), Some(&"S:model".to_string()));
+    }
+
+    #[test]
+    fn test_keep_last_tenant_attributes_the_last_ingested_copy() {
+        use crate::domain::{AttributionSegment, EventMatch};
+        let mut params = attributed(Some(EventAttribution {
+            segments: vec![AttributionSegment {
+                from: None,
+                to: None,
+                matching: Some(EventMatch {
+                    property: "project".to_string(),
+                    value: "p1".to_string(),
+                }),
+                excluded: vec![],
+            }],
+        }));
+        params.keep_last_events = true;
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
+        assert!(
+            normalize_sql(&result.sql).contains(
+                "ORDER BY ingested_at DESC LIMIT 1 BY id, customer_id ) WHERE ((properties[?] = ?))"
+            ),
+            "{}",
+            result.sql
+        );
+        assert_bind_parity(&result);
+    }
+
+    #[test]
+    fn test_query_meter_without_attribution_is_unchanged() {
+        let none = query_meter_sql(attributed(None), "raw_events_v2").unwrap();
+        let empty = query_meter_sql(
+            attributed(Some(EventAttribution::default())),
+            "raw_events_v2",
+        )
+        .unwrap();
+        assert_eq!(none.sql, empty.sql);
+        assert_eq!(bind_strings(&none.binds), bind_strings(&empty.binds));
+        assert!(!none.sql.contains(") WHERE"));
+    }
+
+    #[test]
+    fn test_query_meter_empty_property_filters_is_noop() {
+        // The safety invariant: no filters ⇒ identical SQL to the pre-feature baseline.
+        let base = |filters: Vec<PropertyFilter>| QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
+            aggregation: MeterAggregation::Count,
+            tenant_id: TenantId::default(),
+            code: "event".to_string(),
+            value_property: None,
+            customer_ids: vec![],
+            segmentation_filter: None,
+            filters,
+            group_by: vec![],
+            window_size: None,
+            window_time_zone: None,
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
+            keep_last_events: false,
+        };
+        let empty = query_meter_sql(base(vec![]), "raw_events_v2").unwrap();
+        // A filter with no values is skipped, so it must produce the same SQL as no filter.
+        let empty_values = query_meter_sql(
+            base(vec![PropertyFilter {
+                property: "x".to_string(),
+                op: PropertyFilterOp::In,
+                values: vec![],
+            }]),
+            "raw_events_v2",
+        )
+        .unwrap();
+        assert_eq!(normalize_sql(&empty.sql), normalize_sql(&empty_values.sql));
+    }
+
+    #[test]
+    fn test_query_meter_with_linked_segmentation() {
         let mut values = HashMap::new();
         values.insert(
             "prod1".to_string(),
@@ -686,6 +1280,10 @@ mod tests {
         values.insert("prod2".to_string(), vec!["v3".to_string()]);
 
         let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
             aggregation: MeterAggregation::Sum,
             tenant_id: TenantId::default(),
             code: "usage".to_string(),
@@ -699,9 +1297,11 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+            filters: vec![],
 
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
+            keep_last_events: false,
         };
 
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
@@ -719,6 +1319,7 @@ mod tests {
                     id,
                     customer_id,
                     timestamp,
+                    ingested_at,
                     properties
                 FROM raw_events_v2
                 WHERE tenant_id = ?
@@ -728,8 +1329,6 @@ mod tests {
                          OR (properties[?] = ? AND properties[?] IN ?))
                     AND properties[?] != ''
                     AND isNotNull(toFloat64OrNull(properties[?]))
-                ORDER BY timestamp DESC
-                LIMIT 1 BY id, customer_id
             )
             GROUP BY properties[?], properties[?]
         "#;
@@ -746,6 +1345,7 @@ mod tests {
                     id,
                     customer_id,
                     timestamp,
+                    ingested_at,
                     properties
                 FROM raw_events_v2
                 WHERE tenant_id = ?
@@ -755,8 +1355,6 @@ mod tests {
                          OR (properties[?] = ? AND properties[?] IN ?))
                     AND properties[?] != ''
                     AND isNotNull(toFloat64OrNull(properties[?]))
-                ORDER BY timestamp DESC
-                LIMIT 1 BY id, customer_id
             )
             GROUP BY properties[?], properties[?]
         "#;
@@ -781,8 +1379,72 @@ mod tests {
     }
 
     #[test]
-    fn test_query_meter_dedup_with_count_distinct() {
+    fn test_query_meter_merged_segments_filter_without_breakdown() {
+        let customer = CustomerId::from(Uuid::from_u128(1));
         let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: true,
+            aggregation: MeterAggregation::Max,
+            tenant_id: TenantId::default(),
+            code: "usage".to_string(),
+            value_property: Some("count".to_string()),
+            customer_ids: vec![customer],
+            segmentation_filter: Some(SegmentationFilter::Linked {
+                dimension1_key: "product".to_string(),
+                dimension2_key: "version".to_string(),
+                values: HashMap::from([("prod1".to_string(), vec!["v1".to_string()])]),
+            }),
+            group_by: vec![],
+            window_size: None,
+            window_time_zone: None,
+            filters: vec![],
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: None,
+            keep_last_events: false,
+        };
+
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
+        let expected = r#"
+            SELECT
+                min(toDateTime(timestamp)) AS window_start,
+                max(toDateTime(timestamp)) AS window_end,
+                max(toFloat64OrZero(properties[?])) AS value,
+                customer_id
+            FROM (
+                SELECT
+                    id,
+                    customer_id,
+                    timestamp,
+                    ingested_at,
+                    properties
+                FROM raw_events_v2
+                WHERE tenant_id = ?
+                    AND code = ?
+                    AND timestamp >= toDateTime(?)
+                    AND customer_id IN ?
+                    AND ((properties[?] = ? AND properties[?] IN ?))
+                    AND properties[?] != ''
+                    AND isNotNull(toFloat64OrNull(properties[?]))
+            )
+            GROUP BY customer_id
+        "#;
+
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        assert_bind_parity(&result);
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"S:prod1".to_string()));
+        assert!(bs.contains(&"S:product".to_string()));
+    }
+
+    #[test]
+    fn test_query_meter_with_count_distinct() {
+        let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
             aggregation: MeterAggregation::CountDistinct,
             tenant_id: TenantId::default(),
             code: "login".to_string(),
@@ -792,9 +1454,11 @@ mod tests {
             group_by: vec![],
             window_size: Some(WindowSize::Day),
             window_time_zone: None,
+            filters: vec![],
 
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
+            keep_last_events: false,
         };
 
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
@@ -802,20 +1466,19 @@ mod tests {
             SELECT
                 tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?) AS window_start,
                 tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?) AS window_end,
-                toFloat64(uniq(properties[?])) AS value
+                toFloat64(uniqExact(properties[?])) AS value
             FROM (
                 SELECT
                     id,
                     customer_id,
                     timestamp,
+                    ingested_at,
                     properties
                 FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
                     AND properties[?] != ''
-                ORDER BY timestamp DESC
-                LIMIT 1 BY id, customer_id
             )
             GROUP BY
                 tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?),
@@ -831,8 +1494,12 @@ mod tests {
     }
 
     #[test]
-    fn test_query_meter_dedup_with_latest_aggregation() {
+    fn test_query_meter_with_latest_aggregation() {
         let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
             aggregation: MeterAggregation::Latest,
             tenant_id: TenantId::default(),
             code: "status".to_string(),
@@ -842,9 +1509,11 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+            filters: vec![],
 
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
+            keep_last_events: false,
         };
 
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
@@ -852,12 +1521,13 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                argMax(toFloat64OrZero(properties[?]), toDateTime(timestamp)) AS value
+                argMax(toFloat64OrZero(properties[?]), (timestamp, ingested_at, id)) AS value
             FROM (
                 SELECT
                     id,
                     customer_id,
                     timestamp,
+                    ingested_at,
                     properties
                 FROM raw_events_v2
                 WHERE tenant_id = ?
@@ -865,8 +1535,6 @@ mod tests {
                     AND timestamp >= toDateTime(?)
                     AND properties[?] != ''
                     AND isNotNull(toFloat64OrNull(properties[?]))
-                ORDER BY timestamp DESC
-                LIMIT 1 BY id, customer_id
             )
         "#;
 
@@ -878,8 +1546,12 @@ mod tests {
     }
 
     #[test]
-    fn test_query_meter_dedup_validates_empty_segmentation() {
+    fn test_query_meter_validates_empty_segmentation() {
         let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
             aggregation: MeterAggregation::Sum,
             tenant_id: TenantId::default(),
             code: "test".to_string(),
@@ -892,9 +1564,11 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+            filters: vec![],
 
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
+            keep_last_events: false,
         };
 
         let result = query_meter_sql(params, "raw_events_v2");
@@ -903,8 +1577,12 @@ mod tests {
     }
 
     #[test]
-    fn test_query_meter_dedup_validates_value_property_required() {
+    fn test_query_meter_validates_value_property_required() {
         let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
             aggregation: MeterAggregation::Sum,
             tenant_id: TenantId::default(),
             code: "test".to_string(),
@@ -914,9 +1592,11 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+            filters: vec![],
 
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
+            keep_last_events: false,
         };
 
         let result = query_meter_sql(params, "raw_events_v2");
@@ -928,8 +1608,12 @@ mod tests {
     }
 
     #[test]
-    fn test_query_meter_dedup_includes_value_property_filter() {
+    fn test_query_meter_includes_value_property_filter() {
         let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
             aggregation: MeterAggregation::Sum,
             tenant_id: TenantId::default(),
             code: "purchase".to_string(),
@@ -939,9 +1623,11 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+            filters: vec![],
 
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
+            keep_last_events: false,
         };
 
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
@@ -955,6 +1641,7 @@ mod tests {
                     id,
                     customer_id,
                     timestamp,
+                    ingested_at,
                     properties
                 FROM raw_events_v2
                 WHERE tenant_id = ?
@@ -962,8 +1649,6 @@ mod tests {
                     AND timestamp >= toDateTime(?)
                     AND properties[?] != ''
                     AND isNotNull(toFloat64OrNull(properties[?]))
-                ORDER BY timestamp DESC
-                LIMIT 1 BY id, customer_id
             )
         "#;
 
@@ -974,8 +1659,12 @@ mod tests {
     }
 
     #[test]
-    fn test_query_meter_dedup_time_filters_in_cte() {
+    fn test_query_meter_time_filters_in_cte() {
         let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
             aggregation: MeterAggregation::Count,
             tenant_id: TenantId::default(),
             code: "event".to_string(),
@@ -985,9 +1674,11 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+            filters: vec![],
 
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
+            keep_last_events: false,
         };
 
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
@@ -1001,14 +1692,13 @@ mod tests {
                     id,
                     customer_id,
                     timestamp,
+                    ingested_at,
                     properties
                 FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
-                    AND timestamp <= toDateTime(?)
-                ORDER BY timestamp DESC
-                LIMIT 1 BY id, customer_id
+                    AND timestamp < toDateTime(?)
             )
         "#;
 
@@ -1020,8 +1710,59 @@ mod tests {
     }
 
     #[test]
-    fn test_query_meter_dedup_with_reserved_column_in_group_by() {
+    fn test_query_meter_upper_bound_is_exclusive() {
+        // Consecutive billing periods share their boundary instant (arrear end == next advance
+        // start), so an inclusive upper bound would rate the boundary event on both invoices.
+        let boundary = Utc.with_ymd_and_hms(2026, 7, 31, 0, 0, 0).unwrap();
+        let params = |from, to| QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
+            aggregation: MeterAggregation::Sum,
+            tenant_id: TenantId::default(),
+            code: "memory".to_string(),
+            value_property: Some("gib".to_string()),
+            customer_ids: vec![],
+            segmentation_filter: None,
+            group_by: vec![],
+            window_size: None,
+            window_time_zone: None,
+            filters: vec![],
+            from,
+            to: Some(to),
+            keep_last_events: false,
+        };
+
+        let first = query_meter_sql(
+            params(
+                Utc.with_ymd_and_hms(2026, 7, 16, 0, 0, 0).unwrap(),
+                boundary,
+            ),
+            "raw_events_v2",
+        )
+        .unwrap();
+        let second = query_meter_sql(
+            params(
+                boundary,
+                Utc.with_ymd_and_hms(2026, 8, 31, 0, 0, 0).unwrap(),
+            ),
+            "raw_events_v2",
+        )
+        .unwrap();
+
+        assert!(first.sql.contains("timestamp < toDateTime(?)"));
+        assert!(!first.sql.contains("timestamp <= toDateTime(?)"));
+        assert!(second.sql.contains("timestamp >= toDateTime(?)"));
+    }
+
+    #[test]
+    fn test_query_meter_with_reserved_column_in_group_by() {
         let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
             aggregation: MeterAggregation::Sum,
             tenant_id: TenantId::default(),
             code: "purchase".to_string(),
@@ -1031,9 +1772,11 @@ mod tests {
             group_by: vec!["code".to_string()],
             window_size: None,
             window_time_zone: None,
+            filters: vec![],
 
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
+            keep_last_events: false,
         };
 
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
@@ -1048,6 +1791,7 @@ mod tests {
                     id,
                     customer_id,
                     timestamp,
+                    ingested_at,
                     properties
                 FROM raw_events_v2
                 WHERE tenant_id = ?
@@ -1055,8 +1799,6 @@ mod tests {
                     AND timestamp >= toDateTime(?)
                     AND properties[?] != ''
                     AND isNotNull(toFloat64OrNull(properties[?]))
-                ORDER BY timestamp DESC
-                LIMIT 1 BY id, customer_id
             )
             GROUP BY properties[?]
         "#;
@@ -1069,8 +1811,12 @@ mod tests {
     }
 
     #[test]
-    fn test_query_meter_dedup_with_customer_id_in_segmentation() {
+    fn test_query_meter_with_customer_id_in_segmentation() {
         let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
             aggregation: MeterAggregation::Sum,
             tenant_id: TenantId::default(),
             code: "usage".to_string(),
@@ -1083,9 +1829,11 @@ mod tests {
             group_by: vec![],
             window_size: None,
             window_time_zone: None,
+            filters: vec![],
 
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
+            keep_last_events: false,
         };
 
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
@@ -1100,6 +1848,7 @@ mod tests {
                     id,
                     customer_id,
                     timestamp,
+                    ingested_at,
                     properties
                 FROM raw_events_v2
                 WHERE tenant_id = ?
@@ -1108,8 +1857,6 @@ mod tests {
                     AND (properties[?] = ? OR properties[?] = ?)
                     AND properties[?] != ''
                     AND isNotNull(toFloat64OrNull(properties[?]))
-                ORDER BY timestamp DESC
-                LIMIT 1 BY id, customer_id
             )
             GROUP BY properties[?]
         "#;
@@ -1124,8 +1871,12 @@ mod tests {
     }
 
     #[test]
-    fn test_query_meter_dedup_mixed_reserved_and_custom_columns() {
+    fn test_query_meter_mixed_reserved_and_custom_columns() {
         let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
             aggregation: MeterAggregation::Count,
             tenant_id: TenantId::default(),
             code: "event".to_string(),
@@ -1139,9 +1890,11 @@ mod tests {
             ],
             window_size: None,
             window_time_zone: None,
+            filters: vec![],
 
             from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
             to: None,
+            keep_last_events: false,
         };
 
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
@@ -1158,13 +1911,12 @@ mod tests {
                     id,
                     customer_id,
                     timestamp,
+                    ingested_at,
                     properties
                 FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
-                ORDER BY timestamp DESC
-                LIMIT 1 BY id, customer_id
             )
             GROUP BY properties[?], properties[?], properties[?]
         "#;
@@ -1189,20 +1941,19 @@ mod tests {
             event_codes: vec![],
             customer_ids: vec![],
             sort_order: EventSortOrder::TimestampDesc,
+            filters: vec![],
+            after: None,
+            keep_last_events: false,
         };
 
         let result = query_raw_events_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
-            FROM (
-                SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
-                FROM raw_events_v2
-                WHERE tenant_id = ?
-                    AND timestamp >= toDateTime(?)
-                    AND timestamp < toDateTime(?)
-                ORDER BY timestamp DESC LIMIT 1 BY id, customer_id
-            )
-            ORDER BY timestamp DESC LIMIT ? OFFSET ?
+            FROM raw_events_v2
+            WHERE tenant_id = ?
+                AND timestamp >= toDateTime(?)
+                AND timestamp < toDateTime(?)
+            ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?
         "#;
 
         assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
@@ -1229,21 +1980,20 @@ mod tests {
                 CustomerId::from(Uuid::from_u128(2)),
             ],
             sort_order: EventSortOrder::IngestedDesc,
+            filters: vec![],
+            after: None,
+            keep_last_events: false,
         };
 
         let result = query_raw_events_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
-            FROM (
-                SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
-                FROM raw_events_v2
-                WHERE tenant_id = ?
-                    AND timestamp >= toDateTime(?)
-                    AND timestamp < toDateTime(?)
-                    AND customer_id IN ?
-                    AND code IN ?
-                ORDER BY timestamp DESC LIMIT 1 BY id, customer_id
-            )
+            FROM raw_events_v2
+            WHERE tenant_id = ?
+                AND timestamp >= toDateTime(?)
+                AND timestamp < toDateTime(?)
+                AND customer_id IN ?
+                AND code IN ?
             ORDER BY ingested_at DESC LIMIT ? OFFSET ?
         "#;
 
@@ -1252,6 +2002,54 @@ mod tests {
         assert!(bs.contains(&"A:api_call,storage".to_string()));
         assert!(bs.contains(&"U:20".to_string()));
         assert!(bs.contains(&"U:5".to_string()));
+    }
+
+    #[test]
+    fn test_query_raw_events_with_property_filters() {
+        // The events explorer applies the metric's filters (IN + presence-required NOT_IN)
+        // to the events it lists, so it lists only the events the metric would count.
+        let params = QueryRawEventsParams {
+            tenant_id: TenantId::default(),
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: None,
+            limit: 10,
+            offset: 0,
+            search: None,
+            event_codes: vec![],
+            customer_ids: vec![],
+            filters: vec![
+                PropertyFilter {
+                    property: "region".to_string(),
+                    op: PropertyFilterOp::In,
+                    values: vec!["eu-west".to_string(), "us-east".to_string()],
+                },
+                PropertyFilter {
+                    property: "tier".to_string(),
+                    op: PropertyFilterOp::NotIn,
+                    values: vec!["free".to_string()],
+                },
+            ],
+            sort_order: EventSortOrder::TimestampDesc,
+            after: None,
+            keep_last_events: false,
+        };
+
+        let result = query_raw_events_sql(params, "raw_events_v2").unwrap();
+        let n = normalize_sql(&result.sql);
+        assert!(
+            n.contains("(properties[?] = ? OR properties[?] = ?)"),
+            "{n}"
+        );
+        assert!(
+            n.contains("(mapContains(properties, ?) AND properties[?] != ?)"),
+            "{n}"
+        );
+        assert_bind_parity(&result);
+        let bs = bind_strings(&result.binds);
+        assert!(bs.contains(&"S:region".to_string()));
+        assert!(bs.contains(&"S:eu-west".to_string()));
+        assert!(bs.contains(&"S:tier".to_string()));
+        assert!(bs.contains(&"S:free".to_string()));
     }
 
     #[test]
@@ -1266,25 +2064,215 @@ mod tests {
             event_codes: vec![],
             customer_ids: vec![],
             sort_order: EventSortOrder::TimestampAsc,
+            filters: vec![],
+            after: None,
+            keep_last_events: false,
         };
 
         let result = query_raw_events_sql(params, "raw_events_v2").unwrap();
         let expected = r#"
             SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
-            FROM (
-                SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
-                FROM raw_events_v2
-                WHERE tenant_id = ?
-                    AND timestamp >= toDateTime(?)
-                    AND timestamp < toDateTime(?)
-                    AND (id ILIKE ? OR code ILIKE ? OR arrayStringConcat(mapValues(properties), ' ') ILIKE ?)
-                ORDER BY timestamp DESC LIMIT 1 BY id, customer_id
-            )
-            ORDER BY timestamp ASC LIMIT ? OFFSET ?
+            FROM raw_events_v2
+            WHERE tenant_id = ?
+                AND timestamp >= toDateTime(?)
+                AND timestamp < toDateTime(?)
+                AND (id ILIKE ? OR code ILIKE ? OR arrayStringConcat(mapValues(properties), ' ') ILIKE ?)
+            ORDER BY timestamp ASC, id ASC LIMIT ? OFFSET ?
         "#;
 
         assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
         let bs = bind_strings(&result.binds);
         assert_eq!(bs.iter().filter(|b| *b == "S:%foo%").count(), 3);
+    }
+
+    #[test]
+    fn test_query_raw_events_keyset() {
+        let params = QueryRawEventsParams {
+            tenant_id: TenantId::default(),
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: None,
+            limit: 10,
+            offset: 0,
+            search: None,
+            event_codes: vec![],
+            customer_ids: vec![],
+            sort_order: EventSortOrder::TimestampAsc,
+            filters: vec![],
+            after: Some(crate::domain::EventCursor {
+                timestamp_nanos: 1_704_067_200_000_000_001,
+                id: "evt_1".to_string(),
+            }),
+            keep_last_events: false,
+        };
+
+        let result = query_raw_events_sql(params, "raw_events_v2").unwrap();
+        let expected = r#"
+            SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties
+            FROM raw_events_v2
+            WHERE tenant_id = ?
+                AND timestamp >= toDateTime(?)
+                AND timestamp < toDateTime(?)
+                AND (toUnixTimestamp64Nano(timestamp) > ? OR (toUnixTimestamp64Nano(timestamp) = ? AND id > ?))
+            ORDER BY timestamp ASC, id ASC LIMIT ? OFFSET ?
+        "#;
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
+        assert_bind_parity(&result);
+        let bs = bind_strings(&result.binds);
+        assert_eq!(
+            bs.iter().filter(|b| *b == "I:1704067200000000001").count(),
+            2
+        );
+        assert!(bs.contains(&"S:evt_1".to_string()));
+    }
+
+    #[test]
+    fn test_query_raw_events_keyset_rejects_ingested_order() {
+        let params = QueryRawEventsParams {
+            tenant_id: TenantId::default(),
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: None,
+            limit: 10,
+            offset: 0,
+            search: None,
+            event_codes: vec![],
+            customer_ids: vec![],
+            sort_order: EventSortOrder::IngestedAsc,
+            filters: vec![],
+            after: Some(crate::domain::EventCursor {
+                timestamp_nanos: 0,
+                id: String::new(),
+            }),
+            keep_last_events: false,
+        };
+        assert!(query_raw_events_sql(params, "raw_events_v2").is_err());
+    }
+
+    fn count_meter_sql(keep_last_events: bool) -> SafeQuery {
+        let params = QueryMeterParams {
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            attribution: None,
+            merge_segments: false,
+            aggregation: MeterAggregation::Count,
+            tenant_id: TenantId::default(),
+            code: "api_call".to_string(),
+            value_property: None,
+            customer_ids: vec![],
+            segmentation_filter: None,
+            group_by: vec![],
+            window_size: None,
+            window_time_zone: None,
+            filters: vec![],
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
+            keep_last_events,
+        };
+        let result = query_meter_sql(params, "raw_events_v2").unwrap();
+        assert_bind_parity(&result);
+        result
+    }
+
+    const COUNT_METER_SUBQUERY: &str = "SELECT id, customer_id, timestamp, ingested_at, properties \
+        FROM raw_events_v2 \
+        WHERE tenant_id = ? AND code = ? \
+        AND timestamp >= toDateTime(?) AND timestamp < toDateTime(?)";
+
+    #[test]
+    fn test_query_meter_keep_last_tenant_keeps_last_ingested() {
+        let result = count_meter_sql(true);
+        let expected = format!(
+            "SELECT min(toDateTime(timestamp)) AS window_start, \
+             max(toDateTime(timestamp)) AS window_end, toFloat64(count(*)) AS value \
+             FROM ( {COUNT_METER_SUBQUERY} \
+             ORDER BY ingested_at DESC LIMIT 1 BY id, customer_id )"
+        );
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(&expected));
+    }
+
+    #[test]
+    fn test_query_meter_default_tenant_has_no_sort() {
+        let with = count_meter_sql(true);
+        let without = count_meter_sql(false);
+        let expected = format!(
+            "SELECT min(toDateTime(timestamp)) AS window_start, \
+             max(toDateTime(timestamp)) AS window_end, toFloat64(count(*)) AS value \
+             FROM ( {COUNT_METER_SUBQUERY} )"
+        );
+        assert_eq!(normalize_sql(&without.sql), normalize_sql(&expected));
+        assert_eq!(bind_strings(&with.binds), bind_strings(&without.binds));
+    }
+
+    fn raw_events_sql(keep_last_events: bool) -> String {
+        let params = QueryRawEventsParams {
+            tenant_id: TenantId::default(),
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
+            limit: 10,
+            offset: 0,
+            search: None,
+            event_codes: vec![],
+            customer_ids: vec![],
+            sort_order: EventSortOrder::IngestedDesc,
+            filters: vec![],
+            after: None,
+            keep_last_events,
+        };
+        let result = query_raw_events_sql(params, "raw_events_v2").unwrap();
+        assert_bind_parity(&result);
+        normalize_sql(&result.sql)
+    }
+
+    const RAW_EVENTS_SUBQUERY: &str = "SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties \
+        FROM raw_events_v2 \
+        WHERE tenant_id = ? AND timestamp >= toDateTime(?) AND timestamp < toDateTime(?)";
+
+    #[test]
+    fn test_query_raw_events_keep_last_tenant_keeps_last_ingested() {
+        let expected = format!(
+            "SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties \
+             FROM ( {RAW_EVENTS_SUBQUERY} ORDER BY ingested_at DESC LIMIT 1 BY id, customer_id ) \
+             ORDER BY ingested_at DESC LIMIT ? OFFSET ?"
+        );
+        assert_eq!(raw_events_sql(true), normalize_sql(&expected));
+    }
+
+    #[test]
+    fn test_query_raw_events_default_tenant_reads_the_table_flat() {
+        let expected = format!("{RAW_EVENTS_SUBQUERY} ORDER BY ingested_at DESC LIMIT ? OFFSET ?");
+        assert_eq!(raw_events_sql(false), normalize_sql(&expected));
+    }
+
+    #[test]
+    fn test_query_raw_events_keep_last_keyset_filters_the_deduplicated_events() {
+        let params = QueryRawEventsParams {
+            tenant_id: TenantId::default(),
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
+            limit: 1,
+            offset: 0,
+            search: None,
+            event_codes: vec![],
+            customer_ids: vec![],
+            sort_order: EventSortOrder::TimestampAsc,
+            filters: vec![],
+            after: Some(crate::domain::EventCursor {
+                timestamp_nanos: 7,
+                id: "evt_1".to_string(),
+            }),
+            keep_last_events: true,
+        };
+        let result = query_raw_events_sql(params, "raw_events_v2").unwrap();
+        let expected = format!(
+            "SELECT id, code, customer_id, tenant_id, timestamp, ingested_at, properties \
+             FROM ( {RAW_EVENTS_SUBQUERY} ORDER BY ingested_at DESC LIMIT 1 BY id, customer_id ) \
+             WHERE (toUnixTimestamp64Nano(timestamp) > ? OR (toUnixTimestamp64Nano(timestamp) = ? AND id > ?)) \
+             ORDER BY timestamp ASC, id ASC LIMIT ? OFFSET ?"
+        );
+        assert_eq!(normalize_sql(&result.sql), normalize_sql(&expected));
+        assert_bind_parity(&result);
+        assert_eq!(
+            bind_strings(&result.binds)[3..],
+            ["I:7", "I:7", "S:evt_1", "U:1", "U:0"]
+        );
     }
 }

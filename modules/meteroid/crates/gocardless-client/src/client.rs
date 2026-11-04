@@ -61,7 +61,7 @@ impl GoCardlessClient {
 
     pub fn from_parts(base: &str, connect_timeout: Duration, timeout: Duration) -> Self {
         Self {
-            client: Client::builder()
+            client: http_client_tracing::client_builder()
                 .connect_timeout(connect_timeout)
                 .timeout(timeout)
                 .build()
@@ -172,7 +172,11 @@ impl GoCardlessClient {
     ) -> Result<RequestBuilder, GoCardlessError> {
         let url = {
             let mut u = self.api_base.clone();
+            let (path, query) = path
+                .split_once('?')
+                .map_or((path, None), |(p, q)| (p, Some(q)));
             u.set_path(path);
+            u.set_query(query);
             u
         };
         let mut headers = HeaderMap::new();
@@ -227,7 +231,7 @@ impl GoCardlessClient {
                     .try_clone()
                     .expect("non-streaming requests are cloneable");
 
-                let result = try_req.send().await;
+                let result = http_client_tracing::send(try_req).await;
                 let response = match result {
                     Ok(r) => r,
                     Err(e) => {

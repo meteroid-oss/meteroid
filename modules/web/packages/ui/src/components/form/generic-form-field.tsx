@@ -127,7 +127,11 @@ export const GenericFormField = <
           <FormControl>
             {render({ ...fieldProps, className: cn(inputVariants({ layout }), className) })}
           </FormControl>
-          {description && <FormDescription>{description}</FormDescription>}
+          {description && (
+            <FormDescription className={formFieldMessageVariants({ layout })}>
+              {description}
+            </FormDescription>
+          )}
           <FormMessage className={formFieldMessageVariants({ layout })} />
         </FormItem>
       )}

@@ -1,0 +1,14 @@
+global:
+  objectStore:
+    uri: s3://meteroid
+  secrets:
+    databaseUrl: postgresql://meteroid:ci@postgres:5432/meteroid
+    jwtPrivateKey: ci
+    internalApiSecret: ci
+    secretsCryptkey: ci
+  kafka:
+    bootstrapServers: kafka:9092
+  clickhouse:
+    address: tcp://clickhouse:9000
+    httpAddress: http://clickhouse:8123
+    tcpAddress: clickhouse:9000

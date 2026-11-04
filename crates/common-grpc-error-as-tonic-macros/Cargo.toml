@@ -12,3 +12,4 @@ license.workspace = true
 tonic.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

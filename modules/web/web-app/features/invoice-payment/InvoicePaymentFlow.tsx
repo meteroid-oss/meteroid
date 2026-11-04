@@ -1,14 +1,17 @@
+import { ConnectError } from '@connectrpc/connect'
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import { AlertCircle } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { pagePortalToken } from '@/features/auth/portalToken'
 import { CheckoutThemePane } from '@/features/checkout/CheckoutThemePane'
 import { PaymentPanel } from '@/features/checkout/PaymentPanel'
 import { BillingInfo } from '@/features/checkout/components/BillingInfo'
 import { ReadonlyPaymentView } from '@/features/checkout/components/ReadonlyPaymentView'
 import { resolveCheckoutTheme } from '@/features/checkout/resolveCheckoutTheme'
+import { CheckoutSuccessState } from '@/features/checkout/utils/checkoutRedirect'
 import { completeNextAction } from '@/features/checkout/utils/completeNextAction'
 import {
   type HostedRail,
@@ -16,11 +19,13 @@ import {
   stashHostedPreAttempt,
 } from '@/features/checkout/utils/hostedReturn'
 import { getInvoicePaymentAvailability } from '@/features/checkout/utils/paymentAvailability'
+import { INVOICE_SUBMIT_LABEL } from '@/features/checkout/utils/submitLabel'
 import { Transaction_PaymentStatusEnum } from '@/rpc/api/invoices/v1/models_pb'
 import {
   confirmInvoicePayment,
   getInvoicePayment,
   initiateHostedInvoicePayment,
+  resumeInvoicePaymentAuthentication,
 } from '@/rpc/portal/invoice/v1/invoice-PortalInvoiceService_connectquery'
 import { ConnectionTypeEnum } from '@/rpc/portal/shared/v1/models_pb'
 import { formatCurrency } from '@/utils/numbers'
@@ -29,6 +34,11 @@ import { BankTransferInfo } from './components/BankTransferInfo'
 import { InvoicePdfDownload } from './components/InvoicePdfDownload'
 import { InvoiceSummary } from './components/InvoiceSummary'
 import { TransactionList } from './components/TransactionList'
+import {
+  invoicePaymentOutcome,
+  invoicePaymentPortalUrl,
+  invoicePaymentSuccessUrl,
+} from './paymentOutcome'
 import { InvoicePaymentData } from './types'
 
 interface Props extends InvoicePaymentData {
@@ -50,6 +60,10 @@ const InvoicePaymentFlow: React.FC<Props> = ({
   const [resumeError, setResumeError] = useState<string | null>(null)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const successState = useMemo((): CheckoutSuccessState => {
+    const url = invoicePaymentPortalUrl(pagePortalToken(window.location))
+    return url ? { backTo: { url, label: `Back to ${invoicePaymentData.tradeName}` } } : {}
+  }, [invoicePaymentData.tradeName])
   const themeConfig = useMemo(
     () =>
       resolveCheckoutTheme({
@@ -88,6 +102,7 @@ const InvoicePaymentFlow: React.FC<Props> = ({
   })
 
   const initiateHostedInvoicePaymentMutation = useMutation(initiateHostedInvoicePayment)
+  const resumeAuthenticationMutation = useMutation(resumeInvoicePaymentAuthentication)
 
   // Explicit pay CLICK for hosted-redirect card providers: the RPC pre-creates
   // the transaction, mints the capturing intent and returns the redirect we
@@ -142,6 +157,42 @@ const InvoicePaymentFlow: React.FC<Props> = ({
     })
   }, [queryClient])
 
+  // "Authenticate payment" for a charge made while the customer was away: the challenge is
+  // re-read from the provider (its secret is never stored) and completed like an on-session one.
+  const handleResumeAuthentication = async () => {
+    setResumeError(null)
+    setIsResuming(true)
+    try {
+      const res = await resumeAuthenticationMutation.mutateAsync({ invoiceId: invoice?.id })
+      if (!res.nextAction) {
+        throw new Error('The payment provider returned nothing to authenticate. Please try again.')
+      }
+      await completeNextAction(res.nextAction)
+      // Authenticated, but the charge settles through the provider's webhook: "submitted",
+      // not "successful".
+      navigate(
+        invoicePaymentSuccessUrl({
+          invoiceNumber: invoice?.invoiceNumber,
+          customerName: customer?.name,
+          processing: true,
+        }),
+        { state: successState }
+      )
+    } catch (error) {
+      console.error('Payment authentication error:', error)
+      setResumeError(
+        error instanceof ConnectError
+          ? error.rawMessage
+          : error instanceof Error
+            ? error.message
+            : 'Unable to authenticate the payment. Please try again.'
+      )
+      setIsResuming(false)
+      // A failed or lapsed authentication ends the attempt: reload so the form comes back.
+      refreshInvoice()
+    }
+  }
+
   const handlePaymentSubmit = async (paymentMethodId: string) => {
     try {
       if (!invoice?.currency) {
@@ -155,18 +206,24 @@ const InvoicePaymentFlow: React.FC<Props> = ({
         invoiceId: invoice.id,
       })
 
+      const outcome = invoicePaymentOutcome(res.transaction)
+      if (outcome.kind === 'declined') {
+        // The failed attempt now shows in the invoice's transactions; the form stays to retry.
+        refreshInvoice()
+        throw new Error(outcome.message)
+      }
+
       // If the charge needs 3DS/SCA, complete it before navigating.
       await completeNextAction(res.nextAction)
 
-      const params = new URLSearchParams({
-        invoice: invoice.invoiceNumber || '',
-        customer: customer?.name || '',
-      })
-      // Async rails (direct debit) settle later: "processing", not "successful".
-      if (res.transaction?.status === Transaction_PaymentStatusEnum.PENDING && !res.nextAction) {
-        params.set('status', 'processing')
-      }
-      navigate(`success?${params.toString()}`)
+      navigate(
+        invoicePaymentSuccessUrl({
+          invoiceNumber: invoice.invoiceNumber,
+          customerName: customer?.name,
+          processing: outcome.processing,
+        }),
+        { state: successState }
+      )
     } catch (error) {
       console.error('Payment submission error:', error)
       throw error // Let the PaymentPanel handle this error
@@ -201,7 +258,8 @@ const InvoicePaymentFlow: React.FC<Props> = ({
   const paymentAvailability =
     hostedProcessing &&
     (baseAvailability.type === 'payment_form' ||
-      baseAvailability.type === 'resumable_hosted_payment')
+      baseAvailability.type === 'resumable_hosted_payment' ||
+      baseAvailability.type === 'awaiting_authentication')
       ? ({ type: 'readonly', reason: 'pending_payment', displayTransactions: true } as const)
       : baseAvailability
 
@@ -257,13 +315,22 @@ const InvoicePaymentFlow: React.FC<Props> = ({
             </>
           )}
 
-          {paymentAvailability.type === 'resumable_hosted_payment' && (
+          {(paymentAvailability.type === 'resumable_hosted_payment' ||
+            paymentAvailability.type === 'awaiting_authentication') && (
             <>
-              <ReadonlyPaymentView
-                reason="pending_payment"
-                title="Payment Not Completed"
-                message="You started a payment for this invoice but did not finish it. You can continue where you left off."
-              />
+              {paymentAvailability.type === 'resumable_hosted_payment' ? (
+                <ReadonlyPaymentView
+                  reason="pending_payment"
+                  title="Payment Not Completed"
+                  message="You started a payment for this invoice but did not finish it. You can continue where you left off."
+                />
+              ) : (
+                <ReadonlyPaymentView
+                  reason="pending_payment"
+                  title="Authentication Required"
+                  message="Your bank asked to confirm this payment. Authenticate it to complete the payment of this invoice."
+                />
+              )}
 
               {resumeError && (
                 <div
@@ -277,7 +344,11 @@ const InvoicePaymentFlow: React.FC<Props> = ({
 
               <button
                 type="button"
-                onClick={() => handleResumeHostedPayment(paymentAvailability.connectionId)}
+                onClick={() =>
+                  paymentAvailability.type === 'resumable_hosted_payment'
+                    ? handleResumeHostedPayment(paymentAvailability.connectionId)
+                    : handleResumeAuthentication()
+                }
                 disabled={isResuming}
                 className="w-full py-3 rounded-lg transition-all font-medium disabled:cursor-not-allowed disabled:opacity-60 hover:opacity-90"
                 style={{ background: 'var(--mtp-accent)', color: 'var(--mtp-on-accent)' }}
@@ -288,7 +359,11 @@ const InvoicePaymentFlow: React.FC<Props> = ({
                     Processing...
                   </div>
                 ) : (
-                  `Continue payment · ${formatCurrency(Number(invoice.amountDue) || 0, invoice.currency)}`
+                  `${
+                    paymentAvailability.type === 'resumable_hosted_payment'
+                      ? 'Continue payment'
+                      : 'Authenticate payment'
+                  } · ${formatCurrency(Number(invoice.amountDue) || 0, invoice.currency)}`
                 )}
               </button>
 
@@ -314,6 +389,7 @@ const InvoicePaymentFlow: React.FC<Props> = ({
                 <PaymentPanel
                   customer={customer}
                   paymentMethods={paymentMethods || []}
+                  submitLabel={INVOICE_SUBMIT_LABEL}
                   currency={invoice.currency}
                   totalAmount={formatCurrency(Number(invoice.amountDue) || 0, invoice.currency)}
                   onPaymentSubmit={handlePaymentSubmit}
@@ -324,6 +400,7 @@ const InvoicePaymentFlow: React.FC<Props> = ({
                   preAttemptFailedTxIds={preAttemptFailedTxIds}
                   onHostedInvoicePayment={handleHostedInvoicePayment}
                   themeConfig={themeConfig}
+                  showPoweredBy={invoicePaymentData.showPoweredBy}
                 />
               )}
 

@@ -1,13 +1,5 @@
-import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query';
+import { skipToken } from '@connectrpc/connect-query';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
   Badge,
   Button,
   ScrollArea,
@@ -18,24 +10,29 @@ import {
   SheetTitle,
   Skeleton,
 } from '@md/ui'
-import { useQueryClient } from '@tanstack/react-query'
-import { ArchiveRestoreIcon, ExternalLinkIcon, PencilIcon, PowerIcon } from 'lucide-react'
+import { ArchiveIcon, ArchiveRestoreIcon, ExternalLinkIcon, PencilIcon, PowerIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import { EntityEntitlementsSection } from '@/features/entitlements/EntityEntitlementsSection'
 import { FeatureStatusBadge } from '@/features/entitlements/features/FeatureStatusBadge'
-import { featureKindFromProto, featureTypeLabel, MeteredFeatureKind } from '@/features/entitlements/utils'
+import {
+  FeatureActionDialog,
+  PendingFeatureAction,
+} from '@/features/entitlements/features/statusActions'
+import {
+  configKindLabel,
+  entitlementValueLabel,
+  featureKindFromProto,
+  featureTypeLabel,
+  MeteredFeatureKind,
+} from '@/features/entitlements/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 import { getBillableMetric } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
-import {
-  getFeature,
-  listFeatures,
-  setFeatureStatus,
-} from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
+import { getFeature } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import { FeatureStatus } from '@/rpc/api/entitlements/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
 
@@ -55,33 +52,13 @@ const MetricLink = ({ kind }: { kind: MeteredFeatureKind }) => {
   )
 }
 
-type PendingAction = 'toggle' | 'archive' | null
-
 export const FeatureDetailSheet = () => {
   const { featureId } = useParams<{ featureId: string }>()
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
-  const [pendingAction, setPendingAction] = useState<PendingAction>(null)
+  const [pendingAction, setPendingAction] = useState<PendingFeatureAction | null>(null)
 
   const featureQuery = useQuery(getFeature, featureId ? { id: featureId } : skipToken)
   const feature = featureQuery.data?.feature
-
-  const setStatusMutation = useMutation(setFeatureStatus, {
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: listFeatures.parent,
-        cardinality: undefined
-      }) })
-      navigate('..')
-    },
-  })
-
-  const targetStatusForToggle = feature?.status === FeatureStatus.ACTIVE
-    ? FeatureStatus.DISABLED
-    : FeatureStatus.ACTIVE
-  const targetStatus = pendingAction === 'archive'
-    ? FeatureStatus.ARCHIVED
-    : targetStatusForToggle
 
   return (
     <>
@@ -115,30 +92,49 @@ export const FeatureDetailSheet = () => {
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => navigate(`../edit/${feature.id}`)}
-                      >
-                        <PencilIcon size={15} />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setPendingAction('toggle')}
-                        title={feature.status === FeatureStatus.ACTIVE ? 'Disable feature' : 'Re-activate feature'}
-                      >
-                        <PowerIcon size={15} />
-                      </Button>
-                      {isArchived && (
+                      {isArchived ? (
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => setPendingAction('toggle')}
-                          title="Restore (Active)"
+                          onClick={() => setPendingAction({ feature, target: FeatureStatus.ACTIVE })}
+                          title="Unarchive feature"
                         >
                           <ArchiveRestoreIcon size={15} />
                         </Button>
+                      ) : (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => navigate(`../edit/${feature.id}`)}
+                          >
+                            <PencilIcon size={15} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() =>
+                              setPendingAction({
+                                feature,
+                                target:
+                                  feature.status === FeatureStatus.ACTIVE
+                                    ? FeatureStatus.DISABLED
+                                    : FeatureStatus.ACTIVE,
+                              })
+                            }
+                            title={feature.status === FeatureStatus.ACTIVE ? 'Disable feature' : 'Enable feature'}
+                          >
+                            <PowerIcon size={15} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setPendingAction({ feature, target: FeatureStatus.ARCHIVED })}
+                            title="Archive feature"
+                          >
+                            <ArchiveIcon size={15} />
+                          </Button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -175,6 +171,30 @@ export const FeatureDetailSheet = () => {
                     </section>
                   )}
 
+                  {kind.type === 'config' && (
+                    <section>
+                      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
+                        Value type
+                      </div>
+                      <p className="text-sm">{configKindLabel(kind.valueType)}</p>
+                    </section>
+                  )}
+
+                  {kind.type === 'config' && kind.valueType === 'select' && kind.options && (
+                    <section>
+                      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
+                        Options
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {kind.options.map(o => (
+                          <Badge key={o} variant="secondary">
+                            {o}
+                          </Badge>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
                   <section>
                     <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
                       Product
@@ -196,10 +216,27 @@ export const FeatureDetailSheet = () => {
                   {env.entitlementsEnabled && (
                     <>
                       <Separator />
-                      <EntityEntitlementsSection
-                        entity={{ EntityId: { case: 'featureId', value: feature.id } }}
-                        hint="The default for every customer. Plans, add-ons, and subscriptions can override it. Disabling the feature blocks it everywhere."
-                      />
+                      {isArchived ? (
+                        // Read-only: the default is hidden from resolution and lists while archived.
+                        <div>
+                          <h3 className="text-sm font-medium mb-3">Default entitlement</h3>
+                          {feature.entitlement ? (
+                            <div className="border rounded-md flex items-center justify-between px-3 py-2 text-sm">
+                              <span className="font-medium">{feature.name}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {entitlementValueLabel(feature.entitlement.value?.value)}
+                              </span>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">No entitlements configured.</p>
+                          )}
+                        </div>
+                      ) : (
+                        <EntityEntitlementsSection
+                          entity={{ EntityId: { case: 'featureId', value: feature.id } }}
+                          hint="The default for every customer. Plans, add-ons, and subscriptions can override it. Disabling the feature blocks it everywhere."
+                        />
+                      )}
                     </>
                   )}
                 </div>
@@ -209,37 +246,11 @@ export const FeatureDetailSheet = () => {
         </SheetContent>
       </Sheet>
 
-      <AlertDialog open={pendingAction !== null} onOpenChange={open => !open && setPendingAction(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {targetStatus === FeatureStatus.ACTIVE
-                ? 'Re-activate feature?'
-                : targetStatus === FeatureStatus.DISABLED
-                  ? 'Disable feature?'
-                  : 'Archive feature?'}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {targetStatus === FeatureStatus.ACTIVE
-                ? 'Customers regain access to this feature. All entitlement settings come back as they were.'
-                : targetStatus === FeatureStatus.DISABLED
-                  ? "Customers will lose access while it's off. Settings stay saved — turning it back on restores everything."
-                  : 'Archives the feature and hides it from customers. Settings stay saved for audit and can be brought back later.'}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (!feature) return
-                setStatusMutation.mutate({ id: feature.id, status: targetStatus })
-              }}
-            >
-              Confirm
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <FeatureActionDialog
+        pending={pendingAction}
+        onClose={() => setPendingAction(null)}
+        onDone={() => navigate('..')}
+      />
     </>
   )
 }

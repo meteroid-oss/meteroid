@@ -318,10 +318,21 @@
     "currency": "GEL",
     "standard_rate": 0.18
   },
+  "GF": {
+    "type": "none",
+    "currency": "EUR",
+    "standard_rate": 0
+  },
   "GH": {
     "type": "vat",
     "currency": "GHS",
     "standard_rate": 0.15
+  },
+  "GP": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.085,
+    "reduced_rate": 0.021
   },
   "GR": {
     "type": "vat",
@@ -461,7 +472,7 @@
   "LI": {
     "type": "vat",
     "currency": "CHF",
-    "standard_rate": 0.077
+    "standard_rate": 0.081
   },
   "LK": {
     "type": "vat",
@@ -535,6 +546,12 @@
     "type": "vat",
     "currency": "MNT",
     "standard_rate": 0.1
+  },
+  "MQ": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.085,
+    "reduced_rate": 0.021
   },
   "MT": {
     "type": "vat",
@@ -669,6 +686,12 @@
     "type": "vat",
     "currency": "QAR",
     "standard_rate": 0.05
+  },
+  "RE": {
+    "type": "vat",
+    "currency": "EUR",
+    "standard_rate": 0.085,
+    "reduced_rate": 0.021
   },
   "RO": {
     "type": "vat",
@@ -1009,6 +1032,11 @@
     "type": "vat",
     "currency": "EUR",
     "standard_rate": 0.18
+  },
+  "YT": {
+    "type": "none",
+    "currency": "EUR",
+    "standard_rate": 0
   },
   "ZA": {
     "type": "vat",

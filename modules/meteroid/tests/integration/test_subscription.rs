@@ -1,6 +1,6 @@
 use crate::helpers;
 use chrono::{Datelike, Months, NaiveDate, NaiveDateTime};
-use meteroid::api::shared::conversions::ProtoConv;
+use meteroid_app::conversions::ProtoConv;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal_macros::dec;
@@ -56,7 +56,7 @@ async fn test_subscription_create() {
     let plan_version_id = "018c344b-da87-7392-bbae-c5c8780adb1b".to_string();
     let component_id = "018c344c-9ec9-7608-b115-1537b6985e73".to_string();
 
-    let now = chrono::offset::Local::now().date_naive();
+    let now = chrono::Utc::now().date_naive();
 
     let subscription = clients
         .subscriptions
@@ -180,6 +180,10 @@ async fn test_subscription_create() {
             None,
             None,
             None,
+            None,
+            false,
+            None,
+            vec![],
             Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(10),
@@ -208,12 +212,15 @@ async fn test_subscription_create() {
 #[tokio::test]
 #[ignore] // subscription seed is broken
 async fn test_subscription_cancel() {
-    let TestContext { setup: _, clients } = setup_test(SeedLevel::PLANS).await.unwrap();
+    let TestContext {
+        setup: _setup,
+        clients,
+    } = setup_test(SeedLevel::PLANS).await.unwrap();
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
     let plan_version_id = "018c344b-da87-7392-bbae-c5c8780adb1b".to_string();
     let component_id = "018c344c-9ec9-7608-b115-1537b6985e73".to_string();
 
-    let now = chrono::offset::Local::now().date_naive();
+    let now = chrono::Utc::now().date_naive();
 
     let subscription = clients
         .subscriptions
@@ -489,6 +496,10 @@ async fn test_subscription_create_invoice_seats() {
             None,
             None,
             None,
+            None,
+            false,
+            None,
+            vec![],
             Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(10),
@@ -677,6 +688,10 @@ async fn test_subscription_create_invoice_rate() {
             None,
             None,
             None,
+            None,
+            false,
+            None,
+            vec![],
             Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(10),
@@ -814,6 +829,10 @@ async fn test_subscription_create_invoice_usage() {
             None,
             None,
             None,
+            None,
+            false,
+            None,
+            vec![],
             Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(10),

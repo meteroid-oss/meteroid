@@ -13,6 +13,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { PencilIcon, Trash2Icon } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 
+import { Gate } from '@/components/Gate'
 import { LocalId } from '@/components/LocalId'
 import { EntityActivityTimeline } from '@/features/activity/EntityActivityTimeline'
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
@@ -96,23 +97,25 @@ export const AddonDetailPanel = () => {
                   {Icon && <Icon className="w-5 h-5 text-muted-foreground" />}
                   <h3 className="text-lg font-semibold">{addOn.name}</h3>
                 </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => navigate(`../edit/${addOn.id}`)}
-                  >
-                    <PencilIcon size={16} />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-destructive hover:text-destructive"
-                    onClick={handleRemove}
-                  >
-                    <Trash2Icon size={16} />
-                  </Button>
-                </div>
+                <Gate perm="catalog:manage">
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => navigate(`../edit/${addOn.id}`)}
+                    >
+                      <PencilIcon size={16} />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive hover:text-destructive"
+                      onClick={handleRemove}
+                    >
+                      <Trash2Icon size={16} />
+                    </Button>
+                  </div>
+                </Gate>
               </div>
               <LocalId localId={addOn.id} className="max-w-24" />
               {addOn.description && (

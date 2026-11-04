@@ -1,23 +1,26 @@
 import {
   Button,
   CheckboxFormField,
-  Flex,
   FormControl,
   FormField,
   FormItem,
   FormLabel,
-  FormMessage,
-  Input,
   InputFormField,
-  SelectFormField,
-  SelectItem,
+  Label,
+  RadioGroup,
+  RadioGroupItem,
 } from '@md/ui'
-import { Minus, Plus, X } from 'lucide-react'
+import { Minus, Plus } from 'lucide-react'
 import { useState } from 'react'
-import { Control, useFieldArray, useWatch } from 'react-hook-form'
+import { Control, useWatch } from 'react-hook-form'
 
 import { CountrySelect } from '@/components/CountrySelect'
+import { InvoiceLanguageSelect } from '@/components/InvoiceLanguageSelect'
+import { CustomPropertiesFields } from '@/features/customproperties/CustomPropertiesFields'
 import { CustomerFormSchema } from '@/lib/schemas/customers'
+import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
+
+import { CustomerTaxFields } from './CustomerTaxFields'
 
 interface CustomerFormFieldsProps<T extends CustomerFormSchema> {
   control: Control<T>
@@ -33,30 +36,74 @@ export const CustomerFormFields = <T extends CustomerFormSchema>({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const control = _control as any as Control<CustomerFormSchema>
 
-  const { fields, append, remove } = useFieldArray({
-    control,
-    name: 'customTaxes',
-  })
-
-  const customTaxes = useWatch({ control, name: 'customTaxes' })
-  const hasCustomTaxes = customTaxes && customTaxes.length > 0
-
-  const taxStatus = useWatch({ control, name: 'taxStatus' })
-  const showExemptionReason = taxStatus === 'EXEMPT' || taxStatus === 'REVERSE_CHARGE'
+  const customerType = useWatch({ control, name: 'customerType' })
+  const isIndividual = customerType === 'INDIVIDUAL'
 
   return (
     <>
       {/* Customer Details Section */}
       <div className="space-y-4">
         <h3 className="font-semibold">Customer details</h3>
-        <InputFormField
+        <FormField
           control={control}
-          required
-          label="Name"
-          name="name"
-          layout="horizontal"
-          placeholder="ACME Inc"
+          name="customerType"
+          render={({ field }) => (
+            <FormItem className="space-y-1">
+              <FormLabel>Type</FormLabel>
+              <FormControl>
+                <RadioGroup
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  className="flex items-center gap-4 h-8"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="COMPANY" id="customer-type-company" />
+                    <Label htmlFor="customer-type-company" className="font-normal cursor-pointer">
+                      Company
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="INDIVIDUAL" id="customer-type-individual" />
+                    <Label
+                      htmlFor="customer-type-individual"
+                      className="font-normal cursor-pointer"
+                    >
+                      Individual
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </FormControl>
+            </FormItem>
+          )}
         />
+        {!isIndividual && (
+          <InputFormField
+            control={control}
+            required
+            label="Name"
+            name="name"
+            layout="horizontal"
+            placeholder="ACME Inc"
+          />
+        )}
+        {isIndividual && (
+          <>
+            <InputFormField
+              control={control}
+              required
+              label="First name"
+              name="firstName"
+              layout="horizontal"
+            />
+            <InputFormField
+              control={control}
+              required
+              label="Last name"
+              name="lastName"
+              layout="horizontal"
+            />
+          </>
+        )}
         <InputFormField
           control={control}
           label="Alias (external ID)"
@@ -70,7 +117,7 @@ export const CustomerFormFields = <T extends CustomerFormSchema>({
           name="email"
           layout="horizontal"
           type="email"
-          placeholder="account@company.com"
+          placeholder={isIndividual ? 'jane@example.com' : 'account@company.com'}
         />
         <InputFormField
           control={control}
@@ -78,7 +125,7 @@ export const CustomerFormFields = <T extends CustomerFormSchema>({
           name="invoicingEmail"
           layout="horizontal"
           type="email"
-          placeholder="billing@company.com"
+          placeholder={isIndividual ? 'jane@example.com' : 'billing@company.com'}
         />
         <InputFormField
           control={control}
@@ -87,114 +134,12 @@ export const CustomerFormFields = <T extends CustomerFormSchema>({
           layout="horizontal"
           type="tel"
         />
-      </div>
-
-      {/* Tax Information Section */}
-      <div className="space-y-4">
-        <h3 className="font-semibold">Tax information</h3>
-        <InputFormField control={control} label="VAT number" name="vatNumber" layout="horizontal" />
-
-        <div className="space-y-2">
-          <Flex align="center" justify="between">
-            <FormLabel>Custom Taxes</FormLabel>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => append({ taxCode: '', name: '', rate: 0 } as never)}
-            >
-              <Plus size={14} className="mr-1" />
-              Add Tax
-            </Button>
-          </Flex>
-          {fields.length > 1 && (
-            <span className="text-xs text-muted-foreground">
-              All taxes will be applied cumulatively to this customer&apos;s invoices
-            </span>
-          )}
-          {fields.map((field, index) => (
-            <Flex key={field.id} className="gap-2 items-start px-1">
-              <FormField
-                control={control}
-                name={`customTaxes.${index}.taxCode`}
-                render={({ field }) => (
-                  <FormItem className="flex-1">
-                    {index === 0 && <FormLabel>Code</FormLabel>}
-                    <FormControl>
-                      <Input {...field} placeholder="GST" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={control}
-                name={`customTaxes.${index}.name`}
-                render={({ field }) => (
-                  <FormItem className="flex-[2]">
-                    {index === 0 && <FormLabel>Name</FormLabel>}
-                    <FormControl>
-                      <Input {...field} placeholder="Goods and Services Tax" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={control}
-                name={`customTaxes.${index}.rate`}
-                render={({ field }) => (
-                  <FormItem className="flex-1">
-                    {index === 0 && <FormLabel>Rate (%)</FormLabel>}
-                    <FormControl>
-                      <Input
-                        {...field}
-                        type="number"
-                        step="0.01"
-                        placeholder="5.0"
-                        onChange={e => field.onChange(parseFloat(e.target.value))}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => remove(index)}
-                className={index === 0 ? 'mt-8' : ''}
-              >
-                <X size={16} />
-              </Button>
-            </Flex>
-          ))}
-        </div>
-
-        {!hasCustomTaxes && (
-          <>
-            <SelectFormField
-              control={control}
-              label="Tax status"
-              name="taxStatus"
-              className="max-w-xs"
-            >
-              <SelectItem value="TAXABLE">Taxable</SelectItem>
-              <SelectItem value="EXEMPT">Exempt</SelectItem>
-              <SelectItem value="REVERSE_CHARGE">Reverse charge</SelectItem>
-            </SelectFormField>
-            {showExemptionReason && (
-              <InputFormField
-                control={control}
-                label="Exemption reason"
-                name="exemptionReason"
-                layout="horizontal"
-                placeholder="Legal mention shown on invoices"
-              />
-            )}
-          </>
-        )}
+        <InvoiceLanguageSelect
+          control={control}
+          name="preferredLanguage"
+          label="Preferred language"
+          layout="horizontal"
+        />
       </div>
 
       {/* Billing Address Section */}
@@ -233,11 +178,17 @@ export const CustomerFormFields = <T extends CustomerFormSchema>({
         <CountrySelect
           control={control}
           label="Country"
+          required={isIndividual}
           name="billingAddress.country"
           className="col-span-8 bg-input text-muted-foreground"
           layout="horizontal"
         />
       </div>
+
+      <section className="space-y-4">
+        {!isIndividual && <h3 className="font-semibold">Tax information</h3>}
+        <CustomerTaxFields key={customerType} control={control} />
+      </section>
 
       {/* Shipping Address Section */}
       <div className="space-y-4">
@@ -261,6 +212,13 @@ export const CustomerFormFields = <T extends CustomerFormSchema>({
           <ShippingAddressFields control={control} onRemove={() => setShowShippingAddress(false)} />
         )}
       </div>
+
+      <CustomPropertiesFields
+        control={control}
+        entityType={CustomPropertyEntityType.CUSTOMER}
+        titleClassName="font-semibold text-base"
+        layout="horizontal"
+      />
     </>
   )
 }

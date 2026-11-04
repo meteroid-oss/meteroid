@@ -1,18 +1,21 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { Badge, Button, Skeleton } from '@md/ui'
+import { cn } from '@ui/lib'
 import { useAtom } from 'jotai'
 import { ArrowRight, Minus, Plus } from 'lucide-react'
 import { useEffect } from 'react'
 import { useWizard } from 'react-use-wizard'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
+import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
 import { formatSubscriptionFeeCompact } from '@/features/subscriptions/utils/fees'
+import { ComponentChoiceControls } from '@/pages/tenants/subscription/changePlan/ComponentChoiceControls'
 import { changePlanAtom } from '@/pages/tenants/subscription/changePlan/state'
-import {
-  SubscriptionFee,
-  SubscriptionFeeBillingPeriod,
-} from '@/rpc/api/subscriptions/v1/models_pb'
+import { usePlanChangeParameters } from '@/pages/tenants/subscription/changePlan/usePlanChangeParameters'
+import { SubscriptionFee, SubscriptionFeeBillingPeriod } from '@/rpc/api/subscriptions/v1/models_pb'
 import { previewPlanChange } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
+
+import type { PlanChangeAddedComponent } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 
 const formatPeriod = (period: SubscriptionFeeBillingPeriod): string => {
   const map: Record<number, string> = {
@@ -33,12 +36,15 @@ const FeeLabel = ({
   fee?: SubscriptionFee
   period?: SubscriptionFeeBillingPeriod
   currency: string
-}) => (
-  <span className="text-xs text-muted-foreground">
-    {formatSubscriptionFeeCompact(fee as SubscriptionFee | undefined, currency)}
-    {period !== undefined && <span className="ml-1.5 opacity-70">{formatPeriod(period)}</span>}
-  </span>
-)
+}) => {
+  const creditUnits = useCreditUnits()
+  return (
+    <span className="text-xs text-muted-foreground">
+      {formatSubscriptionFeeCompact(fee as SubscriptionFee | undefined, currency, creditUnits)}
+      {period !== undefined && <span className="ml-1.5 opacity-70">{formatPeriod(period)}</span>}
+    </span>
+  )
+}
 
 const DirectionBadge = ({ direction }: { direction: string }) => {
   switch (direction) {
@@ -68,14 +74,17 @@ export const StepReviewMapping = () => {
   const [state, setState] = useAtom(changePlanAtom)
 
   const previewMut = useMutation(previewPlanChange)
+  const { addedTargets, configurable, parameterizedComponents, parametersKey, choose, ready } =
+    usePlanChangeParameters()
 
   useEffect(() => {
-    if (state.targetPlanVersionId && state.subscriptionId) {
+    if (ready && state.targetPlanVersionId && state.subscriptionId) {
       previewMut.mutate(
         {
           subscriptionId: state.subscriptionId,
           newPlanVersionId: state.targetPlanVersionId,
           applyMode: state.applyMode,
+          parameterizedComponents,
         },
         {
           onSuccess: data => {
@@ -87,31 +96,21 @@ export const StepReviewMapping = () => {
         }
       )
     }
-  }, [state.targetPlanVersionId, state.subscriptionId, state.applyMode])
+  }, [ready, state.targetPlanVersionId, state.subscriptionId, state.applyMode, parametersKey])
 
-  const preview = previewMut.data
+  const preview = state.preview
   const currency = state.currency || 'USD'
 
-  if (previewMut.isPending) {
-    return (
-      <div className="space-y-6">
-        <PageSection
-          header={{
-            title: 'Review Component Mapping',
-            subtitle: 'Loading preview...',
-          }}
-        >
-          <div className="space-y-4">
-            <Skeleton height={60} />
-            <Skeleton height={60} />
-            <Skeleton height={60} />
-          </div>
-        </PageSection>
-      </div>
-    )
+  // Preview rows carry no component id: the added ones follow the target plan's order.
+  const configurableFor = (added: PlanChangeAddedComponent, idx: number) => {
+    const target =
+      addedTargets[idx]?.name === added.name
+        ? addedTargets[idx]
+        : addedTargets.find(t => t.name === added.name)
+    return target && configurable.find(c => c.component.id === target.id)
   }
 
-  if (previewMut.isError) {
+  if (!preview && previewMut.isError) {
     return (
       <div className="space-y-6">
         <PageSection
@@ -135,6 +134,25 @@ export const StepReviewMapping = () => {
     )
   }
 
+  if (!preview) {
+    return (
+      <div className="space-y-6">
+        <PageSection
+          header={{
+            title: 'Review Component Mapping',
+            subtitle: 'Loading preview...',
+          }}
+        >
+          <div className="space-y-4">
+            <Skeleton height={60} />
+            <Skeleton height={60} />
+            <Skeleton height={60} />
+          </div>
+        </PageSection>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <PageSection
@@ -143,14 +161,25 @@ export const StepReviewMapping = () => {
           subtitle: `${state.currentPlanName} → ${state.targetPlanName}`,
         }}
       >
-        {preview?.changeDirection && (
+        {previewMut.isError && (
+          <div className="mb-4 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+            {previewMut.error?.message ?? 'An error occurred while loading the preview.'}
+          </div>
+        )}
+
+        {preview.changeDirection && (
           <div className="mb-6">
             <DirectionBadge direction={preview.changeDirection} />
           </div>
         )}
 
         {/* Table view */}
-        <div className="bg-card rounded-lg shadow-sm overflow-hidden">
+        <div
+          className={cn(
+            'bg-card rounded-lg shadow-sm overflow-hidden transition-opacity',
+            previewMut.isPending && 'opacity-60'
+          )}
+        >
           <table className="w-full">
             <thead className="bg-muted/40">
               <tr>
@@ -167,7 +196,7 @@ export const StepReviewMapping = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {preview?.matched.map((match, idx) => (
+              {preview.matched.map((match, idx) => (
                 <tr key={`matched-${idx}`}>
                   <td className="px-4 py-3">
                     <div className="text-sm text-foreground">{match.currentName}</div>
@@ -182,11 +211,7 @@ export const StepReviewMapping = () => {
                   </td>
                   <td className="px-4 py-3">
                     <div className="text-sm font-medium text-foreground">{match.newName}</div>
-                    <FeeLabel
-                      fee={match.newFee}
-                      period={match.newPeriod}
-                      currency={currency}
-                    />
+                    <FeeLabel fee={match.newFee} period={match.newPeriod} currency={currency} />
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Badge variant="secondary" size="sm">
@@ -196,25 +221,38 @@ export const StepReviewMapping = () => {
                 </tr>
               ))}
 
-              {preview?.added.map((added, idx) => (
-                <tr key={`added-${idx}`}>
-                  <td className="px-4 py-3 text-sm text-muted-foreground italic">--</td>
-                  <td className="px-2 py-3 text-center">
-                    <Plus className="h-4 w-4 text-brand inline-block" />
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-sm font-medium text-foreground">{added.name}</div>
-                    <FeeLabel fee={added.fee} period={added.period} currency={currency} />
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Badge variant="outline" size="sm" className="text-brand border-brand/30">
-                      Added
-                    </Badge>
-                  </td>
-                </tr>
-              ))}
+              {preview.added.map((added, idx) => {
+                const choices = configurableFor(added, idx)
+                return (
+                  <tr key={`added-${idx}`}>
+                    <td className="px-4 py-3 text-sm text-muted-foreground italic">--</td>
+                    <td className="px-2 py-3 text-center">
+                      <Plus className="h-4 w-4 text-brand inline-block" />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="text-sm font-medium text-foreground">{added.name}</div>
+                      <FeeLabel fee={added.fee} period={added.period} currency={currency} />
+                      {choices && (
+                        <ComponentChoiceControls
+                          configurable={choices}
+                          currency={currency}
+                          slotUnit={
+                            added.fee?.fee.case === 'slot' ? added.fee.fee.value.unit : undefined
+                          }
+                          onChange={choice => choose(choices.component.id, choice)}
+                        />
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Badge variant="outline" size="sm" className="text-brand border-brand/30">
+                        Added
+                      </Badge>
+                    </td>
+                  </tr>
+                )
+              })}
 
-              {preview?.removed.map((removed, idx) => (
+              {preview.removed.map((removed, idx) => (
                 <tr key={`removed-${idx}`} className="bg-destructive/5">
                   <td className="px-4 py-3">
                     <div className="text-sm text-foreground line-through">{removed.name}</div>
@@ -238,8 +276,7 @@ export const StepReviewMapping = () => {
             </tbody>
           </table>
 
-          {preview &&
-            preview.matched.length === 0 &&
+          {preview.matched.length === 0 &&
             preview.added.length === 0 &&
             preview.removed.length === 0 && (
               <div className="p-8 text-center text-sm text-muted-foreground">
@@ -253,7 +290,11 @@ export const StepReviewMapping = () => {
         <Button variant="secondary" onClick={previousStep}>
           Back
         </Button>
-        <Button variant="primary" onClick={nextStep}>
+        <Button
+          variant="primary"
+          onClick={nextStep}
+          disabled={previewMut.isPending || previewMut.isError}
+        >
           Next
         </Button>
       </div>

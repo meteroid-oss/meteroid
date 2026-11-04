@@ -4,6 +4,7 @@ use diesel_models::prices::PriceRow;
 use diesel_models::products::ProductRow;
 use diesel_models::subscription_components::SubscriptionComponentRow;
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 use uuid::Uuid;
 
 use crate::StoreResult;
@@ -62,76 +63,37 @@ impl Services {
 
         validate_matrix_product(&product_row.fee_structure)?;
 
-        let prices = PriceRow::list_by_product_id(&mut conn, product_id, tenant_id)
+        drop(conn);
+
+        // Live subscriptions price from these rows: read under their lock, so two concurrent
+        // edits cannot both start from the same rates, then the tenant's bump.
+        let update = &update;
+        self.store
+            .transaction_bumping_tenant(tenant_id, |conn| {
+                async move {
+                    let prices = PriceRow::lock_by_product_id(conn, product_id, tenant_id).await?;
+                    let planned = plan_matrix_update(prices, update)?;
+                    let mut updated_prices = Vec::with_capacity(planned.len());
+                    for (price_row, pricing_json) in planned {
+                        let row = match pricing_json {
+                            Some(pricing_json) => {
+                                PriceRow::update_pricing(
+                                    conn,
+                                    price_row.id,
+                                    tenant_id,
+                                    pricing_json,
+                                )
+                                .await?
+                            }
+                            None => price_row,
+                        };
+                        updated_prices.push(Price::try_from(row)?);
+                    }
+                    Ok(updated_prices)
+                }
+                .scope_boxed()
+            })
             .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        let mut updated_prices = Vec::new();
-
-        for price_row in prices {
-            let pricing: Pricing =
-                serde_json::from_value(price_row.pricing.clone()).map_err(|e| {
-                    Report::new(StoreError::SerdeError(
-                        "Failed to deserialize Pricing".to_string(),
-                        e,
-                    ))
-                })?;
-
-            if let Pricing::Usage(UsagePricingModel::Matrix { mut rates }) = pricing {
-                let mut modified = false;
-
-                // Remove rows matching remove_rows
-                for key in &update.remove_rows {
-                    let before = rates.len();
-                    rates.retain(|r| !dimension_key_matches(r, key));
-                    if rates.len() != before {
-                        modified = true;
-                    }
-                }
-
-                // Add rows for add_rows (skip if already present)
-                for row_add in &update.add_rows {
-                    let key = MatrixDimensionKey {
-                        dimension1: row_add.dimension1.clone(),
-                        dimension2: row_add.dimension2.clone(),
-                    };
-                    if !rates.iter().any(|r| dimension_key_matches(r, &key)) {
-                        let per_unit_price = row_add
-                            .per_unit_prices
-                            .get(&price_row.currency)
-                            .copied()
-                            .unwrap_or(rust_decimal::Decimal::ZERO);
-                        rates.push(MatrixRow {
-                            dimension1: row_add.dimension1.clone(),
-                            dimension2: row_add.dimension2.clone(),
-                            per_unit_price,
-                        });
-                        modified = true;
-                    }
-                }
-
-                if modified {
-                    let new_pricing = Pricing::Usage(UsagePricingModel::Matrix { rates });
-                    let pricing_json = serde_json::to_value(&new_pricing).map_err(|e| {
-                        Report::new(StoreError::SerdeError(
-                            "Failed to serialize Pricing".to_string(),
-                            e,
-                        ))
-                    })?;
-
-                    let updated_row =
-                        PriceRow::update_pricing(&mut conn, price_row.id, tenant_id, pricing_json)
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?;
-
-                    updated_prices.push(Price::try_from(updated_row)?);
-                } else {
-                    updated_prices.push(Price::try_from(price_row)?);
-                }
-            }
-        }
-
-        Ok(updated_prices)
     }
 
     pub(crate) async fn preview_matrix_update(
@@ -229,4 +191,70 @@ impl Services {
             affected_plans,
         })
     }
+}
+
+/// The new pricing of each matrix price row, `None` where the update changes nothing.
+fn plan_matrix_update(
+    prices: Vec<PriceRow>,
+    update: &MatrixPriceUpdate,
+) -> StoreResult<Vec<(PriceRow, Option<serde_json::Value>)>> {
+    let mut planned: Vec<(PriceRow, Option<serde_json::Value>)> = Vec::new();
+
+    for price_row in prices {
+        let pricing: Pricing = serde_json::from_value(price_row.pricing.clone()).map_err(|e| {
+            Report::new(StoreError::SerdeError(
+                "Failed to deserialize Pricing".to_string(),
+                e,
+            ))
+        })?;
+
+        if let Pricing::Usage(UsagePricingModel::Matrix { mut rates }) = pricing {
+            let mut modified = false;
+
+            // Remove rows matching remove_rows
+            for key in &update.remove_rows {
+                let before = rates.len();
+                rates.retain(|r| !dimension_key_matches(r, key));
+                if rates.len() != before {
+                    modified = true;
+                }
+            }
+
+            // Add rows for add_rows (skip if already present)
+            for row_add in &update.add_rows {
+                let key = MatrixDimensionKey {
+                    dimension1: row_add.dimension1.clone(),
+                    dimension2: row_add.dimension2.clone(),
+                };
+                if !rates.iter().any(|r| dimension_key_matches(r, &key)) {
+                    let per_unit_price = row_add
+                        .per_unit_prices
+                        .get(&price_row.currency)
+                        .copied()
+                        .unwrap_or(rust_decimal::Decimal::ZERO);
+                    rates.push(MatrixRow {
+                        dimension1: row_add.dimension1.clone(),
+                        dimension2: row_add.dimension2.clone(),
+                        per_unit_price,
+                    });
+                    modified = true;
+                }
+            }
+
+            if modified {
+                let new_pricing = Pricing::Usage(UsagePricingModel::Matrix { rates });
+                let pricing_json = serde_json::to_value(&new_pricing).map_err(|e| {
+                    Report::new(StoreError::SerdeError(
+                        "Failed to serialize Pricing".to_string(),
+                        e,
+                    ))
+                })?;
+
+                planned.push((price_row, Some(pricing_json)));
+            } else {
+                planned.push((price_row, None));
+            }
+        }
+    }
+    Ok(planned)
 }

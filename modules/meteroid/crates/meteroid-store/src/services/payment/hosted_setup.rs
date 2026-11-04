@@ -3,8 +3,9 @@
 //! ([`crate::adapters::payment::HostedSetupCompletion::PollingRequired`]).
 //! The return redirect (and the sweeper re-running this same routine) IS the
 //! money path: complete the intent on the adapter, ownership-check its
-//! metadata (unauthenticated endpoint — fail closed), upsert the card as
-//! default, then handle the first payment. For invoice and checkout intents
+//! metadata (unauthenticated endpoint — fail closed), upsert the card (the
+//! default only when the customer has none and nothing is paid with it here),
+//! then handle the first payment. For invoice and checkout intents
 //! the hosted page captured the REAL amount in-flow: that captured payment is
 //! the SINGLE charge — its id is recorded on the pre-created transaction and
 //! settled/materialized from, never a second server-initiated charge. Legacy
@@ -17,20 +18,19 @@ use crate::adapters::payment::error::{HostedSetupFailed, HostedSetupPending};
 use crate::adapters::payment::{PaymentConnector, initialize_payment_connector};
 use crate::domain::connectors::Connector;
 use crate::domain::entity_activity::Actor;
-use crate::domain::{
-    CustomerPatch, CustomerPaymentMethod, CustomerPaymentMethodNew, PaymentStatusEnum,
-};
+use crate::domain::{CustomerPaymentMethod, CustomerPaymentMethodNew, PaymentStatusEnum};
 use crate::errors::StoreError;
-use crate::repositories::CustomersInterface;
 use crate::repositories::InvoiceInterface;
 use crate::repositories::checkout_sessions::CheckoutSessionsInterface;
 use crate::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::services::Services;
 use common_domain::ids::{
-    BaseId, CheckoutSessionId, CustomerConnectionId, CustomerPaymentMethodId, InvoiceId,
+    BaseId, CheckoutSessionId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId,
+    InvoiceId, TenantId,
 };
 use diesel_models::customer_connection::CustomerConnectionDetailsRow;
+use diesel_models::customers::CustomerRow;
 use error_stack::{Report, ResultExt};
 use scoped_futures::ScopedFutureExt;
 use std::time::Duration;
@@ -125,7 +125,7 @@ impl Services {
             Connector::from_row(&self.store.settings.crypt_key, connection_row.connector)?;
 
         // Only providers that persist a sweepable intent id take this path.
-        let completes_here = crate::adapters::payment::provider_capabilities(&connector.provider)
+        let completes_here = crate::adapters::payment::payment_capabilities(&connector.provider())
             .is_some_and(|caps| caps.completes_pending_hosted_intents());
         if !completes_here {
             return Err(Report::new(StoreError::InvalidArgument(
@@ -144,7 +144,7 @@ impl Services {
         for attempt in 1..=complete_attempts {
             let result = tokio::time::timeout(
                 PAYMENT_PROVIDER_TIMEOUT,
-                connector_impl.complete_mandate_setup(&connector, &intent_id),
+                connector_impl.complete_mandate_setup(&intent_id),
             )
             .await
             .map_err(|_| {
@@ -234,37 +234,28 @@ impl Services {
                 card_exp_month: snapshot.card_exp_month,
                 card_exp_year: snapshot.card_exp_year,
                 fingerprint: snapshot.fingerprint,
+                saved_for_payment: invoice_to_charge.is_some()
+                    || checkout_session_to_complete.is_some(),
             })
             .await?;
 
-        let patch = CustomerPatch {
-            id: customer_id,
-            name: None,
-            alias: None,
-            billing_email: None,
-            phone: None,
-            balance_value_cents: None,
-            currency: None,
-            billing_address: None,
-            shipping_address: None,
-            invoicing_entity_id: None,
-            vat_number: None,
-            current_payment_method_id: Some(Some(payment_method.id)),
-            invoicing_emails: None,
-            tax_status: None,
-            exemption_reason: None,
-            custom_taxes: None,
-            connected_account_id: None,
-        };
-        self.store
-            .patch_customer(Actor::System, tenant_id, patch)
+        // A setup the customer made on its own is their new default; one that pays something
+        // becomes it once that payment settles.
+        if invoice_to_charge.is_none() && checkout_session_to_complete.is_none() {
+            self.adopt_default_payment_method(
+                Actor::Customer { id: customer_id },
+                tenant_id,
+                customer_id,
+                payment_method.id,
+                DefaultMethodAdoption::Replace,
+            )
             .await?;
+        }
 
         if let Some(invoice_id_str) = invoice_to_charge {
             self.settle_invoice_after_hosted_setup(
                 tenant_id,
                 customer_id,
-                &connector,
                 connector_impl.as_ref(),
                 payment_method,
                 &invoice_id_str,
@@ -299,7 +290,6 @@ impl Services {
         &self,
         tenant_id: common_domain::ids::TenantId,
         customer_id: common_domain::ids::CustomerId,
-        connector: &Connector,
         connector_impl: &dyn PaymentConnector,
         payment_method: CustomerPaymentMethod,
         invoice_id_str: &str,
@@ -434,7 +424,6 @@ impl Services {
                 self.record_captured_invoice_payment(
                     tenant_id,
                     invoice_id,
-                    connector,
                     connector_impl,
                     payment_method,
                     &row,
@@ -462,7 +451,6 @@ impl Services {
         self.settle_invoice_after_hosted_setup(
             tenant_id,
             customer_id,
-            connector,
             connector_impl.as_ref(),
             payment_method,
             invoice_id_str,
@@ -479,7 +467,6 @@ impl Services {
         &self,
         tenant_id: common_domain::ids::TenantId,
         invoice_id: InvoiceId,
-        connector: &Connector,
         connector_impl: &dyn PaymentConnector,
         payment_method: CustomerPaymentMethod,
         row: &diesel_models::payments::PaymentTransactionRow,
@@ -490,7 +477,7 @@ impl Services {
 
         let remote = tokio::time::timeout(
             PAYMENT_PROVIDER_TIMEOUT,
-            connector_impl.fetch_transaction_status(connector, &payment_id),
+            connector_impl.fetch_transaction_status(&payment_id),
         )
         .await
         .map_err(|_| {
@@ -518,6 +505,7 @@ impl Services {
                     next_action: None,
                     status: PaymentStatusEnum::Failed,
                     last_payment_error: Some(message.clone()),
+                    decline_kind: None,
                     processed_at: None,
                 };
                 // No method: the customer's own hosted attempt, so no dunning.
@@ -543,6 +531,7 @@ impl Services {
                     next_action: None,
                     status: PaymentStatusEnum::Cancelled,
                     last_payment_error: None,
+                    decline_kind: None,
                     processed_at: None,
                 };
                 // No method: the customer's own hosted attempt, so no dunning.
@@ -567,6 +556,7 @@ impl Services {
                     next_action: None,
                     status: PaymentStatusEnum::Settled,
                     last_payment_error: None,
+                    decline_kind: None,
                     processed_at: Some(processed_at),
                 };
                 let final_tx = self
@@ -613,6 +603,7 @@ impl Services {
                     next_action: None,
                     status: PaymentStatusEnum::Pending,
                     last_payment_error: None,
+                    decline_kind: None,
                     processed_at: None,
                 };
                 self.consolidate_hosted_intent(tenant_id, row.id, intent, Some(payment_method.id))
@@ -874,7 +865,6 @@ impl Services {
                 .record_captured_checkout_payment(
                     tenant_id,
                     checkout_session_id,
-                    connector,
                     connector_impl,
                     payment_method,
                     &row,
@@ -888,26 +878,22 @@ impl Services {
         // racing re-visit dedupes at the provider (unique_id conflict → adopt).
         let outcome = tokio::time::timeout(
             PAYMENT_PROVIDER_TIMEOUT,
-            connector_impl.charge_off_session(
-                connector,
-                ChargeRequest {
-                    transaction_id: row.id,
-                    customer_external_id: external_customer_id,
-                    payment_method_external_id: &payment_method.external_payment_method_id,
-                    payment_method_type: PaymentMethodTypeEnum::Card,
-                    amount_minor: row.amount,
-                    currency: &row.currency,
-                    idempotency_key: IdempotencyKey::new(format!("charge:{}", row.id.as_base62())),
-                    // Off-session: 3DS already ran on the hosted page.
-                    on_session: false,
-                    descriptor: None,
-                    webhook_url: Some(crate::adapters::payment::model::connector_webhook_url(
-                        self.store.settings.webhook_base_url(),
-                        connector.tenant_id,
-                        &connector.alias,
-                    )),
-                },
-            ),
+            connector_impl.charge_off_session(ChargeRequest {
+                transaction_id: row.id,
+                customer_external_id: external_customer_id,
+                payment_method_external_id: &payment_method.external_payment_method_id,
+                payment_method_type: PaymentMethodTypeEnum::Card,
+                amount_minor: row.amount,
+                currency: &row.currency,
+                idempotency_key: IdempotencyKey::new(format!("charge:{}", row.id.as_base62())),
+                // Off-session: 3DS already ran on the hosted page.
+                on_session: false,
+                descriptor: None,
+                webhook_url: crate::adapters::payment::model::connector_webhook_url(
+                    self.store.settings.webhook_base_url(),
+                    connector,
+                ),
+            }),
         )
         .await
         .map_err(|_| {
@@ -993,7 +979,6 @@ impl Services {
         &self,
         tenant_id: common_domain::ids::TenantId,
         checkout_session_id: CheckoutSessionId,
-        connector: &Connector,
         connector_impl: &dyn PaymentConnector,
         payment_method: CustomerPaymentMethod,
         row: &diesel_models::payments::PaymentTransactionRow,
@@ -1004,7 +989,7 @@ impl Services {
 
         let remote = tokio::time::timeout(
             PAYMENT_PROVIDER_TIMEOUT,
-            connector_impl.fetch_transaction_status(connector, &payment_id),
+            connector_impl.fetch_transaction_status(&payment_id),
         )
         .await
         .map_err(|_| {
@@ -1034,6 +1019,7 @@ impl Services {
                     next_action: None,
                     status: PaymentStatusEnum::Failed,
                     last_payment_error: Some(message.clone()),
+                    decline_kind: None,
                     processed_at: None,
                 };
                 self.consolidate_hosted_checkout_intent(tenant_id, row.id, intent)
@@ -1058,6 +1044,7 @@ impl Services {
                     next_action: None,
                     status: PaymentStatusEnum::Cancelled,
                     last_payment_error: None,
+                    decline_kind: None,
                     processed_at: None,
                 };
                 self.consolidate_hosted_checkout_intent(tenant_id, row.id, intent)
@@ -1081,6 +1068,7 @@ impl Services {
                     next_action: None,
                     status: PaymentStatusEnum::Settled,
                     last_payment_error: None,
+                    decline_kind: None,
                     processed_at: Some(processed_at),
                 };
                 let final_tx = self
@@ -1310,13 +1298,136 @@ fn resolve_captured_payment(
                 }
             }
         }
-        RemoteTransactionStatus::Pending | RemoteTransactionStatus::Unknown => {
-            CapturedPaymentResolution::RecordPending
-        }
+        RemoteTransactionStatus::Pending
+        | RemoteTransactionStatus::Processing
+        | RemoteTransactionStatus::Unknown => CapturedPaymentResolution::RecordPending,
         RemoteTransactionStatus::Failed { code, message, .. } => {
             CapturedPaymentResolution::Declined { code, message }
         }
         RemoteTransactionStatus::Cancelled => CapturedPaymentResolution::Cancelled,
+    }
+}
+
+/// How a method becomes the customer's default: one set up on its own, or completing a subscription
+/// checkout, replaces it; another that paid replaces it only when saved for that payment on-session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DefaultMethodAdoption {
+    /// When there is no usable default (none, archived, or on an inactive connector).
+    IfNone,
+    Replace,
+    /// It paid, or started a checkout with nothing due, in a payment started at `started_at`.
+    /// Consumes its saved-for-payment mark.
+    Paid {
+        on_session: bool,
+        started_at: chrono::DateTime<chrono::Utc>,
+    },
+}
+
+impl Services {
+    /// In the caller's transaction. A method of another customer is never adopted.
+    pub(crate) async fn adopt_default_payment_method_tx(
+        &self,
+        conn: &mut crate::store::PgConn,
+        actor: &Actor,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        payment_method_id: CustomerPaymentMethodId,
+        adoption: DefaultMethodAdoption,
+    ) -> StoreResult<bool> {
+        let method = diesel_models::customer_payment_methods::CustomerPaymentMethodRow::get_by_id(
+            conn,
+            &tenant_id,
+            &payment_method_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+        if method.customer_id != customer_id || method.archived_at.is_some() {
+            return Ok(false);
+        }
+        let Some(lock) = CustomerRow::lock_many(conn, tenant_id, &[customer_id])
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .pop()
+        else {
+            return Ok(false);
+        };
+        let replace = match adoption {
+            DefaultMethodAdoption::IfNone => false,
+            DefaultMethodAdoption::Replace => true,
+            DefaultMethodAdoption::Paid {
+                on_session,
+                started_at,
+            } => {
+                let saved_for_payment =
+                    diesel_models::customer_payment_methods::CustomerPaymentMethodRow::take_saved_for_payment(
+                        conn,
+                        tenant_id,
+                        payment_method_id,
+                        started_at,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                on_session && saved_for_payment
+            }
+        };
+        let Some(updated) =
+            CustomerRow::adopt_current_payment_method(conn, &lock, payment_method_id, replace)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+        else {
+            return Ok(false);
+        };
+        crate::services::orchestration::payment_transaction_failed::rearm_hard_declined_retries(
+            &self.store,
+            conn,
+            tenant_id,
+            customer_id,
+            payment_method_id,
+        )
+        .await?;
+        diesel_models::query::credit_inputs::bump_customer(conn, &lock)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let updated: crate::domain::Customer = updated.try_into()?;
+        self.store
+            .internal
+            .record_outbox_batch_tx(
+                conn,
+                tenant_id,
+                actor,
+                vec![crate::domain::outbox_event::OutboxEvent::customer_updated(
+                    updated.into(),
+                )],
+            )
+            .await?;
+        Ok(true)
+    }
+
+    pub(crate) async fn adopt_default_payment_method(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        payment_method_id: CustomerPaymentMethodId,
+        adoption: DefaultMethodAdoption,
+    ) -> StoreResult<bool> {
+        self.store
+            .transaction(|conn| {
+                let actor = &actor;
+                async move {
+                    self.adopt_default_payment_method_tx(
+                        conn,
+                        actor,
+                        tenant_id,
+                        customer_id,
+                        payment_method_id,
+                        adoption,
+                    )
+                    .await
+                }
+                .scope_boxed()
+            })
+            .await
     }
 }
 

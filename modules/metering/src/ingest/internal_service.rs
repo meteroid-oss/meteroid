@@ -46,6 +46,7 @@ impl InternalEventsServiceGrpc for InternalEventsService {
                 TenantId::from_proto(req.tenant_id)?,
                 req.allow_backfilling,
                 req.fail_on_error,
+                req.keep_last_events,
             )
             .await?;
 

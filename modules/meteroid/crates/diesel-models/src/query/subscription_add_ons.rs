@@ -3,8 +3,8 @@ use crate::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew}
 use crate::{DbResult, PgConn};
 use chrono::NaiveDate;
 use common_domain::ids::{ProductId, SubscriptionAddOnId, SubscriptionId, TenantId};
-use diesel::{BoolExpressionMethods, ExpressionMethods, OptionalExtension, SelectableHelper};
-use diesel::{QueryDsl, debug_query};
+use diesel::QueryDsl;
+use diesel::{BoolExpressionMethods, ExpressionMethods, SelectableHelper};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 
@@ -26,7 +26,7 @@ impl SubscriptionAddOnRow {
         )
         .returning(SubscriptionAddOnRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -43,7 +43,7 @@ impl SubscriptionAddOnRow {
 
         let query = diesel::insert_into(sao_dsl::subscription_add_on).values(batch);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -68,7 +68,7 @@ impl SubscriptionAddOnRow {
             .filter(d::id.eq_any(ids))
             .select((d::id, d::lineage_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -91,12 +91,39 @@ impl SubscriptionAddOnRow {
             .filter(s_dsl::tenant_id.eq(tenant_id))
             .select(SubscriptionAddOnRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
             .await
             .attach("Error while listing SubscriptionAddOn by subscription_id")
+            .into_db_result()
+    }
+
+    /// Every add-on of the subscriptions, closed ones included.
+    pub async fn list_all_by_subscriptions(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_ids: &[SubscriptionId],
+    ) -> DbResult<Vec<SubscriptionAddOnRow>> {
+        use crate::schema::subscription::dsl as s_dsl;
+        use crate::schema::subscription_add_on::dsl as sao_dsl;
+
+        if subscription_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let query = sao_dsl::subscription_add_on
+            .inner_join(s_dsl::subscription)
+            .filter(sao_dsl::subscription_id.eq_any(subscription_ids))
+            .filter(s_dsl::tenant_id.eq(tenant_id))
+            .select(SubscriptionAddOnRow::as_select());
+
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing every add-on of subscriptions")
             .into_db_result()
     }
 
@@ -116,7 +143,7 @@ impl SubscriptionAddOnRow {
             .filter(sao_dsl::effective_to.is_null())
             .select(SubscriptionAddOnRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -142,7 +169,7 @@ impl SubscriptionAddOnRow {
             .filter(sao_dsl::effective_to.is_null())
             .set(sao_dsl::effective_to.eq(effective_to));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -172,59 +199,13 @@ impl SubscriptionAddOnRow {
             )
             .select(SubscriptionAddOnRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
             .await
             .attach("Error while listing add-on history for period")
             .into_db_result()
-    }
-
-    pub async fn delete_by_id(
-        conn: &mut PgConn,
-        id: SubscriptionAddOnId,
-        subscription_id: &SubscriptionId,
-        tenant_id: &TenantId,
-    ) -> DbResult<()> {
-        use crate::errors::{DatabaseError, DatabaseErrorContainer};
-        use crate::schema::subscription::dsl as s_dsl;
-        use crate::schema::subscription_add_on::dsl as sao_dsl;
-
-        // Verify the subscription belongs to the tenant
-        let sub_exists = s_dsl::subscription
-            .filter(s_dsl::id.eq(subscription_id))
-            .filter(s_dsl::tenant_id.eq(tenant_id))
-            .select(s_dsl::id)
-            .first::<SubscriptionId>(conn)
-            .await
-            .optional()
-            .attach("Error verifying subscription tenant")
-            .into_db_result()?;
-
-        if sub_exists.is_none() {
-            return Err(DatabaseErrorContainer::from(DatabaseError::NotFound));
-        }
-
-        let query = diesel::delete(
-            sao_dsl::subscription_add_on
-                .filter(sao_dsl::id.eq(id))
-                .filter(sao_dsl::subscription_id.eq(subscription_id)),
-        );
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        let affected = query
-            .execute(conn)
-            .await
-            .attach("Error while deleting SubscriptionAddOn")
-            .into_db_result()?;
-
-        if affected == 0 {
-            return Err(DatabaseErrorContainer::from(DatabaseError::NotFound));
-        }
-
-        Ok(())
     }
 
     pub async fn list_active_add_on_ids(
@@ -247,7 +228,7 @@ impl SubscriptionAddOnRow {
             .filter(sao_dsl::effective_to.is_null())
             .select(sao_dsl::add_on_id);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -279,7 +260,7 @@ impl SubscriptionAddOnRow {
             .filter(not(sao_dsl::product_id.is_null()))
             .select(sao_dsl::product_id);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         let rows: Vec<Option<ProductId>> = query
             .get_results(conn)
@@ -288,5 +269,32 @@ impl SubscriptionAddOnRow {
             .into_db_result()?;
 
         Ok(rows.into_iter().flatten().collect())
+    }
+}
+
+impl SubscriptionAddOnRow {
+    /// The subscription of each of `ids` that belongs to the tenant.
+    pub async fn subscription_ids_by_ids(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        ids: &[SubscriptionAddOnId],
+    ) -> DbResult<std::collections::HashMap<SubscriptionAddOnId, SubscriptionId>> {
+        use crate::schema::subscription::dsl as s;
+        use crate::schema::subscription_add_on::dsl as d;
+        use diesel::JoinOnDsl;
+
+        if ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        d::subscription_add_on
+            .inner_join(s::subscription.on(s::id.eq(d::subscription_id)))
+            .filter(s::tenant_id.eq(tenant_id))
+            .filter(d::id.eq_any(ids))
+            .select((d::id, d::subscription_id))
+            .load::<(SubscriptionAddOnId, SubscriptionId)>(conn)
+            .await
+            .attach("Error while reading the subscriptions of add-ons")
+            .into_db_result()
+            .map(|rows| rows.into_iter().collect())
     }
 }

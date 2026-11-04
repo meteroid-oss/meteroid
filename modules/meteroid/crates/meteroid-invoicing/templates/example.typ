@@ -51,12 +51,12 @@
   (
     method: "Card •••• 7726",
     date: "2025-03-15",
-    amount: 1500.0,
+    amount: decimal("1500.00"),
   ),
   (
     method: "Bank Transfer",
     date: "2025-03-20",
-    amount: 1080.0,
+    amount: decimal("1080.00"),
   ),
 )
 
@@ -65,24 +65,24 @@
     name: "Consulting Services",
     description: "Technical consulting for Q1 2025",
     quantity: 15.0,
-    unit_price: 50.0,
+    unit_price: decimal("50.00"),
     vat_rate: 20.0,
-    subtotal: 750.0,
-    total: 750.0,
+    subtotal: decimal("750.00"),
+    total: decimal("750.00"),
     start_date: "2025-03-01",
     end_date: "2025-03-31",
     sub_lines: (
       (
         name: "Frontend Development",
         quantity: 5.0,
-        unit_price: 50.0,
-        total: 250.0,
+        unit_price: decimal("50.00"),
+        total: decimal("250.00"),
       ),
       (
         name: "Backend Development",
         quantity: 10.0,
-        unit_price: 50.0,
-        total: 500.0,
+        unit_price: decimal("50.00"),
+        total: decimal("500.00"),
       ),
     ),
   ),
@@ -90,10 +90,10 @@
     name: "Software License",
     description: "Annual license renewal",
     quantity: 1.0,
-    unit_price: 250.0,
+    unit_price: decimal("250.00"),
     vat_rate: 20.0,
-    subtotal: 250.0,
-    total: 250.0,
+    subtotal: decimal("250.00"),
+    total: decimal("250.00"),
     start_date: "2025-03-01",
     end_date: "2025-03-31",
     sub_lines: (),
@@ -102,24 +102,24 @@
     name: "Managed Services",
     description: "Monthly subscription",
     quantity: 1.0,
-    unit_price: 350.0,
+    unit_price: decimal("350.00"),
     vat_rate: 20.0,
-    subtotal: 350.0,
-    total: 350.0,
+    subtotal: decimal("350.00"),
+    total: decimal("350.00"),
     start_date: "2025-03-01",
     end_date: "2025-03-31",
     sub_lines: (
       (
         name: "Cloud Hosting",
         quantity: 1.0,
-        unit_price: 200.0,
-        total: 200.0,
+        unit_price: decimal("200.00"),
+        total: decimal("200.00"),
       ),
       (
         name: "Maintenance",
         quantity: 1.0,
-        unit_price: 150.0,
-        total: 150.0,
+        unit_price: decimal("150.00"),
+        total: decimal("150.00"),
       ),
     ),
   ),
@@ -127,10 +127,10 @@
     name: "Training Sessions",
     description: "Staff training workshops",
     quantity: 2.0,
-    unit_price: 175.0,
+    unit_price: decimal("175.00"),
     vat_rate: 20.0,
-    subtotal: 350.0,
-    total: 350.0,
+    subtotal: decimal("350.00"),
+    total: decimal("350.00"),
     start_date: "2025-03-15",
     end_date: "2025-03-16",
     sub_lines: (),
@@ -139,10 +139,10 @@
     name: "Hardware Supplies",
     description: "Various equipment",
     quantity: 1.0,
-    unit_price: 450.0,
+    unit_price: decimal("450.00"),
     vat_rate: 20.0,
-    subtotal: 450.0,
-    total: 450.0,
+    subtotal: decimal("450.00"),
+    total: decimal("450.00"),
     start_date: "2025-03-10",
     end_date: "2025-03-10",
     sub_lines: (),
@@ -166,7 +166,6 @@
   subtotal: "Subtotal",
   total_due: "Total",
   legal_info: "Legal Information",
-  vat_exempt_legal: "VAT not applicable",
   vat_id: "VAT ID",
   pay_online: "Pay online",
   payment_status: "PAYMENT STATUS",
@@ -183,22 +182,18 @@
   exchange_rate_info: "Exchange rate: 1 EUR = 1.08 USD | Converted amount = USD 1296.00",
   no_transactions: "No payments received",
   payment_info_title: "PAYMENT INFORMATION",
-  vat_standard: "VAT (Standard Rate)",
-  vat_reduced: "VAT (Reduced Rate)",
   vat_exempt_notice: "VAT exempt items not included in tax calculation",
   reverse_charge_notice: "Reverse charge applicable - customer liable for VAT",
-  intra_eu_notice: "Intra-EU supply - Art. 138 EU VAT Directive",
-  b2b_notice: "Business-to-business transaction",
 )
 
 #let example_coupons = (
   (
     name: "Spring Promotion 10% off",
-    total: 25.0,
+    total: decimal("25.00"),
   ),
   (
     name: "Loyalty Discount",
-    total: 15.0,
+    total: decimal("15.00"),
   ),
 )
 
@@ -206,12 +201,12 @@
   (
     name: "VAT (Standard Rate)",
     rate: 20.0,
-    amount: 380.0,
+    amount: decimal("380.00"),
   ),
   (
     name: "VAT (Reduced Rate)",
     rate: 10.0,
-    amount: 50.0,
+    amount: decimal("50.00"),
   ),
 )
 
@@ -224,15 +219,16 @@
   "purchase order",        // purchase order
   "April 1, 2025",         // issue_date
   "April 15, 2025",        // due_date
-  2150.0,                  // subtotal
-  430.0,                   // tax_amount
-  2580.0,                  // total_amount
+  decimal("2150.00"),               // subtotal
+  decimal("430.00"),                // tax_amount
+  decimal("2580.00"),               // total_amount
   "EUR",                   // currency_code
   "€",                     // currency_symbol
   "Thank you for your subscription!", // memo
   14,                      // payment_term
   example_lines,           // lines
   example_coupons,         // coupons
+  decimal("0.00"),                  // discount
   example_tax_breakdown,   // tax_breakdown
   example_translations,    // translations
   pay_online_url: "https://pay.meteroid.com/inv-2025-001", // Optional payment URL

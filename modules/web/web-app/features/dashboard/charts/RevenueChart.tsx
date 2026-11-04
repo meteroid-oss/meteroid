@@ -2,6 +2,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { linearGradientDef } from '@nivo/core'
 import { ComputedSerie, LineSvgProps, ResponsiveLine } from '@nivo/line'
 import { ChevronDownIcon } from '@radix-ui/react-icons'
+import { differenceInCalendarDays, subDays } from 'date-fns'
 import { useMemo, useRef, useState } from 'react'
 
 import { ChartNoData } from '@/features/dashboard/charts/ChartNoData'
@@ -48,6 +49,18 @@ export const RevenueChart = ({
     endDate: mapDate(to),
     plansId: plansId,
   })
+
+  // Previous equal-length window immediately preceding [from, to], for the
+  // "vs last period" comparison.
+  const periodDays = differenceInCalendarDays(to, from)
+  const previousTo = subDays(from, 1)
+  const previousFrom = subDays(from, periodDays + 1)
+  const previousChartData = useQuery(totalRevenueChart, {
+    startDate: mapDate(previousFrom),
+    endDate: mapDate(previousTo),
+    plansId: plansId,
+  })
+
   const { formatAmount } = useCurrency()
 
   const data =
@@ -89,17 +102,21 @@ export const RevenueChart = ({
 
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Get the last data point's total revenue for display
+  // The last cumulative point is the total revenue billed over the range.
   const lastDataPoint = data[0]?.data[data[0]?.data.length - 1]
-  const firstDataPoint = data[0]?.data[0]
   const currentTotal = lastDataPoint?.y ?? 0
-  const startTotal = firstDataPoint?.y ?? 0
 
-  // Calculate change percentage based on the chart data
+  // Total revenue billed over the previous equal-length window.
+  const previousTotal = useMemo(() => {
+    const series = previousChartData.data?.series[0]?.data
+    return Number(series?.[series.length - 1]?.revenue ?? 0)
+  }, [previousChartData.data])
+
+  // Change of this period's total vs the previous period's total.
   const changePercent = useMemo(() => {
-    if (!startTotal || startTotal === 0) return 0
-    return ((currentTotal - startTotal) / startTotal) * 100
-  }, [currentTotal, startTotal])
+    if (!previousTotal) return 0
+    return ((currentTotal - previousTotal) / previousTotal) * 100
+  }, [currentTotal, previousTotal])
 
   const isPositive = changePercent >= 0
 
@@ -145,6 +162,7 @@ export const RevenueChart = ({
           serie={serie}
           interval="All"
           containerRef={containerRef}
+          marginLeft={50}
           tooltip={{
             format: 'currency',
             labels: {

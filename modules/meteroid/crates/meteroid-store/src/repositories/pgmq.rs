@@ -41,11 +41,8 @@ pub trait PgmqInterface {
 
     async fn pgmq_delete(&self, queue: PgmqQueue, ids: Vec<MessageId>) -> StoreResult<()>;
 
-    async fn pgmq_list_archived(
-        &self,
-        queue: PgmqQueue,
-        ids: Vec<MessageId>,
-    ) -> StoreResult<Vec<PgmqMessage>>;
+    /// Hides each message until `now() + vt` seconds (per-message retry delay).
+    async fn pgmq_set_vt(&self, queue: PgmqQueue, vts: Vec<(MessageId, i32)>) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -116,15 +113,12 @@ impl PgmqInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)
     }
 
-    async fn pgmq_list_archived(
-        &self,
-        queue: PgmqQueue,
-        ids: Vec<MessageId>,
-    ) -> StoreResult<Vec<PgmqMessage>> {
+    async fn pgmq_set_vt(&self, queue: PgmqQueue, vts: Vec<(MessageId, i32)>) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
-        pgmq::list_archived(&mut conn, queue.as_str(), &ids)
+        let (ids, vts): (Vec<_>, Vec<_>) = vts.into_iter().unzip();
+
+        pgmq::set_vt(&mut conn, queue.as_str(), &ids, &vts)
             .await
-            .map(|rows| rows.into_iter().map(Into::into).collect())
             .map_err(Into::<Report<StoreError>>::into)
     }
 }

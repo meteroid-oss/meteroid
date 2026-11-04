@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package meteroid.api.invoiceannextemplates.v1;
+
+import "api/invoiceannextemplates/v1/models.proto";
+import "api/invoices/v1/models.proto";
+
+message ListAnnexTemplatesRequest {}
+message ListAnnexTemplatesResponse {
+  repeated AnnexTemplate templates = 1;
+}
+
+message GetAnnexTemplateRequest {
+  string id = 1;
+}
+message GetAnnexTemplateResponse {
+  AnnexTemplate template = 1;
+}
+
+message CreateAnnexTemplateRequest {
+  AnnexTemplateData data = 1;
+}
+message CreateAnnexTemplateResponse {
+  AnnexTemplate template = 1;
+}
+
+message UpdateAnnexTemplateRequest {
+  string id = 1;
+  AnnexTemplateData data = 2;
+}
+message UpdateAnnexTemplateResponse {
+  AnnexTemplate template = 1;
+}
+
+message DeleteAnnexTemplateRequest {
+  string id = 1;
+}
+message DeleteAnnexTemplateResponse {}
+
+// Binding management: which annex templates a plan version emits on its invoices.
+message SetPlanVersionAnnexTemplatesRequest {
+  string plan_version_id = 1;
+  repeated string template_ids = 2;
+}
+message SetPlanVersionAnnexTemplatesResponse {}
+
+message ListPlanVersionAnnexTemplatesRequest {
+  string plan_version_id = 1;
+}
+message ListPlanVersionAnnexTemplatesResponse {
+  repeated AnnexTemplate templates = 1;
+}
+
+// Rebuilds a correction's annexes from the event stream; other drafts re-derive theirs.
+message RegenerateInvoiceAnnexesRequest {
+  string invoice_id = 1;
+}
+message RegenerateInvoiceAnnexesResponse {
+  meteroid.api.invoices.v1.DetailedInvoice invoice = 1;
+}
+
+service AnnexTemplatesService {
+  rpc ListAnnexTemplates(ListAnnexTemplatesRequest) returns (ListAnnexTemplatesResponse) {}
+  rpc GetAnnexTemplate(GetAnnexTemplateRequest) returns (GetAnnexTemplateResponse) {}
+  rpc CreateAnnexTemplate(CreateAnnexTemplateRequest) returns (CreateAnnexTemplateResponse) {}
+  rpc UpdateAnnexTemplate(UpdateAnnexTemplateRequest) returns (UpdateAnnexTemplateResponse) {}
+  rpc DeleteAnnexTemplate(DeleteAnnexTemplateRequest) returns (DeleteAnnexTemplateResponse) {}
+  rpc SetPlanVersionAnnexTemplates(SetPlanVersionAnnexTemplatesRequest) returns (SetPlanVersionAnnexTemplatesResponse) {}
+  rpc ListPlanVersionAnnexTemplates(ListPlanVersionAnnexTemplatesRequest) returns (ListPlanVersionAnnexTemplatesResponse) {}
+  rpc RegenerateInvoiceAnnexes(RegenerateInvoiceAnnexesRequest) returns (RegenerateInvoiceAnnexesResponse) {}
+}

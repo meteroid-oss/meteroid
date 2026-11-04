@@ -1,7 +1,5 @@
 use chrono::{DateTime, Utc};
-use diesel::{
-    ExpressionMethods, JoinOnDsl, OptionalExtension, QueryDsl, SelectableHelper, debug_query,
-};
+use diesel::{ExpressionMethods, JoinOnDsl, OptionalExtension, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use tap::TapFallible;
@@ -16,7 +14,7 @@ impl OrganizationInviteRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<OrganizationInviteRow> {
         use crate::schema::organization_invite::dsl::organization_invite;
         let query = diesel::insert_into(organization_invite).values(self);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
         query
             .get_result(conn)
             .await
@@ -32,7 +30,7 @@ impl OrganizationInviteRow {
     ) -> DbResult<OrganizationInviteRow> {
         use crate::schema::organization_invite::dsl as oi_dsl;
         let query = oi_dsl::organization_invite.filter(oi_dsl::id.eq(id));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
         query
             .first(conn)
             .await
@@ -54,7 +52,7 @@ impl OrganizationInviteRow {
             .filter(oi_dsl::accepted_at.is_null())
             .filter(oi_dsl::revoked_at.is_null())
             .filter(oi_dsl::expires_at.gt(now));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
         query
             .first(conn)
             .await
@@ -72,7 +70,7 @@ impl OrganizationInviteRow {
         let query = diesel::update(oi_dsl::organization_invite)
             .filter(oi_dsl::id.eq(id))
             .set(oi_dsl::expires_at.eq(new_expires_at));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
         query
             .execute(conn)
             .await
@@ -91,7 +89,7 @@ impl OrganizationInviteRow {
         let query = diesel::update(oi_dsl::organization_invite)
             .filter(oi_dsl::id.eq(id))
             .set(oi_dsl::accepted_at.eq(accepted_at));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
         query
             .execute(conn)
             .await
@@ -110,7 +108,7 @@ impl OrganizationInviteRow {
         let query = diesel::update(oi_dsl::organization_invite)
             .filter(oi_dsl::id.eq(id))
             .set(oi_dsl::revoked_at.eq(revoked_at));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
         query
             .execute(conn)
             .await
@@ -151,7 +149,7 @@ impl OrganizationInviteRow {
             .filter(oi_dsl::revoked_at.is_null())
             .filter(oi_dsl::expires_at.le(now))
             .set(oi_dsl::revoked_at.eq(now));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
         query
             .execute(conn)
             .await
@@ -177,6 +175,19 @@ impl OrganizationInviteRow {
             .get_results(conn)
             .await
             .attach("Error listing pending invites with inviter")
+            .into_db_result()
+    }
+
+    /// Every invite addressed to `email`, in any state and any organization.
+    pub async fn delete_all_for_email(conn: &mut PgConn, email: &str) -> DbResult<usize> {
+        use crate::schema::organization_invite::dsl as oi_dsl;
+        let query = diesel::delete(oi_dsl::organization_invite)
+            .filter(oi_dsl::invited_email.eq(email.to_lowercase()));
+        crate::debug_sql(&query);
+        query
+            .execute(conn)
+            .await
+            .attach("Error deleting invites for email")
             .into_db_result()
     }
 }

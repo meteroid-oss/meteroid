@@ -4,6 +4,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { match } from 'ts-pattern'
 
 import { MeteroidTitle } from '@/components/svg'
+import { useIsCloud } from '@/hooks/useIsCloud'
 import { useLogout } from '@/hooks/useLogout'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 import { useForceTheme } from 'providers/ThemeProvider'
@@ -12,6 +13,7 @@ export const OnboardingLayout = () => {
   useForceTheme('dark')
 
   const meQuery = useQuery(me)
+  const isCloud = useIsCloud()
 
   const logout = useLogout()
   const { pathname } = useLocation()
@@ -21,7 +23,10 @@ export const OnboardingLayout = () => {
   const currentStep = match(pathname)
     .with('/onboarding/user', () => 0)
     .with('/onboarding/organization', () => 1)
+    .when(path => path.startsWith('/onboarding/demo/'), () => 2)
     .otherwise(() => 0)
+  // Self-hosted onboarding ends with the optional demo data step.
+  const steps = isCloud === false || currentStep === 2 ? [0, 1, 2] : [0, 1]
 
   return (
     <div
@@ -50,7 +55,7 @@ export const OnboardingLayout = () => {
           </div>
         </Flex>
         <Flex justify="center">
-          {[0, 1].map(step => (
+          {steps.map(step => (
             <div
               key={step}
               className={`w-2 h-2 mx-1 rounded-full ${

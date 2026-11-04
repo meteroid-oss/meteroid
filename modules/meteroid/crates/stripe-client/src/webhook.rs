@@ -1,6 +1,7 @@
 use crate::error::WebhookError;
 use crate::payment_intents::StripePaymentIntent;
 use crate::payment_methods::PaymentMethod;
+pub use crate::refunds::StripeRefund;
 use crate::setup_intents::SetupIntent;
 use chrono::Utc;
 use hmac::{Hmac, KeyInit, Mac};
@@ -21,8 +22,12 @@ pub mod event_type {
     pub const SETUP_INTENT_REQUIRES_ACTION: &str = "setup_intent.requires_action";
     pub const SETUP_INTENT_CANCELED: &str = "setup_intent.canceled";
 
-    // Charges (refunds piggy-back on the parent charge object)
+    // Charges (the cumulative refunded total rides on the parent charge object)
     pub const CHARGE_REFUNDED: &str = "charge.refunded";
+
+    // Refunds (per-refund lifecycle; the second name is Stripe's legacy alias)
+    pub const REFUND_UPDATED: &str = "refund.updated";
+    pub const CHARGE_REFUND_UPDATED: &str = "charge.refund.updated";
 
     // Disputes
     pub const CHARGE_DISPUTE_CREATED: &str = "charge.dispute.created";
@@ -51,6 +56,8 @@ pub static STRIPE_PAYMENT_WEBHOOKS: &[&str] = &[
     event_type::SETUP_INTENT_REQUIRES_ACTION,
     event_type::SETUP_INTENT_CANCELED,
     event_type::CHARGE_REFUNDED,
+    event_type::REFUND_UPDATED,
+    event_type::CHARGE_REFUND_UPDATED,
     event_type::CHARGE_DISPUTE_CREATED,
     event_type::CHARGE_DISPUTE_CLOSED,
     event_type::CHARGE_DISPUTE_FUNDS_WITHDRAWN,
@@ -68,6 +75,7 @@ pub enum EventObject {
     SetupIntent(SetupIntent),
     PaymentMethod(PaymentMethod),
     Charge(StripeCharge),
+    Refund(StripeRefund),
     Dispute(StripeDispute),
     Mandate(StripeMandate),
     /// Any object type we don't model (e.g. `customer`, `invoice`). Stripe may
@@ -90,26 +98,15 @@ pub struct StripeCharge {
     pub currency: String,
     /// NOT inlined by default since Stripe API version 2022-11-15 — and our
     /// self-registered endpoints pin a newer version — so expect `None` on
-    /// `charge.refunded` payloads. Individual refund rows require a follow-up
-    /// retrieve with `expand[]=refunds` (or `refund.created`/`refund.updated`
-    /// events). Kept for tolerance of pre-2022-11-15 payloads; consumers must
-    /// not rely on it being populated.
+    /// `charge.refunded` payloads. Consumers must not rely on it being
+    /// populated: `amount_refunded` is the authoritative cumulative figure, and
+    /// per-refund detail otherwise arrives as `refund.updated`.
     pub refunds: Option<StripeRefundList>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct StripeRefundList {
     pub data: Vec<StripeRefund>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct StripeRefund {
-    pub id: String,
-    pub amount: i64,
-    pub currency: Option<String>,
-    pub status: Option<String>,
-    pub payment_intent: Option<String>,
-    pub charge: Option<String>,
 }
 
 /// Same shape for all four dispute event types; `Event::event_type` discriminates.

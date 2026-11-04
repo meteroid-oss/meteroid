@@ -1,0 +1,171 @@
+syntax = "proto3";
+
+package meteroid.api.customeremails.v1;
+
+import "api/activity/v1/activity.proto";
+
+// Closed set of customer-facing email kinds. Only PAYMENT_REMINDER has operator-editable copy.
+enum EmailKind {
+  EMAIL_KIND_UNSPECIFIED = 0;
+  INVOICE_READY = 1;
+  INVOICE_PAID = 2;
+  CREDIT_NOTE_ISSUED = 3;
+  PAYMENT_FAILED = 4;
+  AUTHENTICATION_REQUIRED = 5;
+  PAYMENT_REMINDER = 6;
+  QUOTE_READY = 7;
+  WALLET_BALANCE_LOW = 8;
+  AUTO_TOP_UP_FAILED = 9;
+  BUDGET_THRESHOLD = 10;
+  BUDGET_EXCEEDED = 11;
+}
+
+enum EmailAudienceMode {
+  EMAIL_AUDIENCE_MODE_UNSPECIFIED = 0;
+  // Everyone except the audience.
+  EXCLUDE = 1;
+  // Only the audience.
+  ONLY = 2;
+}
+
+// "Send to" rule of a kind; evaluated on live data when the email is about to be sent.
+message EmailKindAudience {
+  EmailAudienceMode mode = 1;
+  // Same JSON as payment reminder sequence audiences.
+  string audience = 2;
+}
+
+message EmailKindInfo {
+  EmailKind kind = 1;
+  bool enabled = 2;
+  bool editable_copy = 3;
+  bool attaches_document = 4;
+  // Absent = everyone. Never set for PAYMENT_REMINDER (sequences target audiences).
+  optional EmailKindAudience audience = 5;
+  // QUOTE_READY and the prepaid-balance kinds: no invoice, only customer, country and customer
+  // property rules apply.
+  bool customer_level_audience = 6;
+}
+
+// Scope: the entity's newest 5,000 finalized invoices, or its customers for QUOTE_READY
+// (invoice counts are then 0). "Receiving" applies the requested mode.
+message EmailKindAudiencePreview {
+  uint32 scanned_invoices = 1;
+  uint32 scanned_customers = 2;
+  uint32 matched_invoices = 3;
+  uint32 matched_customers = 4;
+  uint32 receiving_invoices = 5;
+  uint32 receiving_customers = 6;
+}
+
+// Per-invoicing-entity sender configuration. An entity without a stored row reports the defaults.
+message EmailSettings {
+  string invoicing_entity_id = 1;
+  optional string sender_name = 2;
+  // Computed "{sender_name or legal_name} <customer_from_addr>".
+  string from_address = 3;
+  optional string reply_to = 4;
+  repeated string bcc = 5;
+  repeated EmailKindInfo kinds = 6;
+  // IANA zone for the reminder send hour; absent = UTC.
+  optional string timezone = 7;
+  uint32 reminder_send_hour = 8;
+  // The entity's resolved customer-facing default locale (e.g. "fr-FR"): what emails fall back to.
+  string effective_locale = 9;
+  // READ-ONLY mirror of the invoicing entity's customer_extra_locales (edited on the entity).
+  repeated string extra_locales = 10;
+}
+
+message StringList {
+  repeated string values = 1;
+}
+
+// Patch: absent = unchanged; an empty string clears a scalar; bcc replaces the whole list.
+message EmailSettingsData {
+  optional string sender_name = 1;
+  optional string reply_to = 2;
+  optional StringList bcc = 3;
+  optional string timezone = 4;
+  optional uint32 reminder_send_hour = 5;
+  // Was extra_locales: the locales now live on the invoicing entity (customer_extra_locales).
+  reserved 6;
+  reserved "extra_locales";
+}
+
+// Operator copy: subject is plain text, body is restricted Markdown, both may use {{variable}}.
+message EmailCopy {
+  string subject = 1;
+  string body = 2;
+}
+
+// Template locale ("fr-FR", "en-US") -> copy. Absent = unchanged, present = replaces the set.
+message EmailCopyByLocale {
+  map<string, EmailCopy> by_locale = 1;
+}
+
+message EmailVariable {
+  string name = 1;
+  // "text" | "date" | "money" | "int"
+  string kind = 2;
+  string example = 3;
+}
+
+message RenderedEmail {
+  string subject = 1;
+  string body_html = 2;
+  string from = 3;
+  optional string reply_to = 4;
+  repeated string bcc = 5;
+  repeated string attachment_names = 6;
+  // {{variables}} found in the draft that are not part of the whitelist.
+  repeated string unknown_variables = 7;
+  string locale = 8;
+}
+
+message SentEmailSummary {
+  string id = 1;
+  string sent_at = 2;
+  EmailKind kind = 3;
+  string subject = 4;
+  repeated string recipients = 5;
+  optional string locale = 6;
+  string entity_type = 7;
+  string entity_id = 8;
+  optional string entity_label = 9;
+  optional string customer_id = 10;
+  optional string customer_name = 11;
+  // Id of the original sent email when this one is a resend.
+  optional string resent_from = 12;
+}
+
+message SkippedEmailSummary {
+  // Id of the skip activity entry.
+  string id = 1;
+  string skipped_at = 2;
+  EmailKind kind = 3;
+  // `SkipReason` snake_case value ("emails_off", "test_mode", "audience_excluded", ...).
+  optional string reason = 4;
+  string entity_type = 5;
+  string entity_id = 6;
+  optional string entity_label = 7;
+  optional string customer_id = 8;
+  optional string customer_name = 9;
+}
+
+// Fields 1-9 mirror `activity.v1.SentEmail` so one preview component reads both services.
+message SentEmail {
+  // Shared with the corresponding `entity.email_sent` activity row.
+  string activity_id = 1;
+  string subject = 2;
+  string from_addr = 3;
+  optional string reply_to = 4;
+  repeated string recipients = 5;
+  string body_html = 6;
+  repeated meteroid.api.activity.v1.SentEmailAttachment attachments = 7;
+  string sent_at = 8;
+  // Tenant-scoped token to download attachments via the REST file endpoint.
+  optional string attachments_share_key = 9;
+  EmailKind kind = 10;
+  optional string locale = 11;
+  optional string resent_from = 12;
+}

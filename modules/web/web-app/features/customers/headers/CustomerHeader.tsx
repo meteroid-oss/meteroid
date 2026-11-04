@@ -1,5 +1,6 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
+  Badge,
   Button,
   cn,
   Dialog,
@@ -34,7 +35,9 @@ import {
 import { useBasePath } from '@/hooks/useBasePath'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
+import { usePermissions } from '@/hooks/usePermissions'
 import { useQuery } from '@/lib/connectrpc'
+import { lifecycleStateLabel, lifecycleStateVariant } from '@/lib/lifecycle'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
@@ -50,20 +53,28 @@ interface CustomerHeaderProps {
   id?: string
   name?: string
   archivedAt?: Date
-  setEditPanelVisible: (visible: boolean) => void
-  setShowEditCustomer?: () => void
+  lifecycleState?: string
+  setShowEditCustomer: () => void
 }
 
 export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
   id,
   name,
   archivedAt,
+  lifecycleState,
   setShowEditCustomer,
 }) => {
   const basePath = useBasePath()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const isExpress = useIsExpressOrganization()
+  const { has } = usePermissions()
+  const canManage = has('customers:manage')
+  const canManageSubscriptions = has('billing:subscriptions:manage')
+  const canManageInvoices = has('billing:invoices:manage')
+  const canManageQuotes = has('billing:quotes:manage')
+  const showActions =
+    !isExpress && (canManage || canManageSubscriptions || canManageInvoices || canManageQuotes)
 
   const [search, setSearch] = useState('')
   const [showSyncHubspotModal, setShowSyncHubspotModal] = useState(false)
@@ -122,7 +133,7 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
       await queryClient.invalidateQueries({
         queryKey: createConnectQueryKey({
           schema: listCustomers,
-          cardinality: 'finite'
+          cardinality: 'finite',
         }),
       })
       navigate(`${basePath}/customers`)
@@ -139,14 +150,14 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
         queryClient.invalidateQueries({
           queryKey: createConnectQueryKey({
             schema: listCustomers,
-            cardinality: 'finite'
+            cardinality: 'finite',
           }),
         }),
         queryClient.invalidateQueries({
           queryKey: createConnectQueryKey({
             schema: getCustomerById,
             input: { id },
-            cardinality: 'finite'
+            cardinality: 'finite',
           }),
         }),
       ])
@@ -225,14 +236,19 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
             </div>
             <ChevronRight size={14} className="text-muted-foreground" />
             <div className="text-[15px] font-medium">{name}</div>
+            {lifecycleState && (
+              <Badge size="sm" variant={lifecycleStateVariant(lifecycleState)}>
+                {lifecycleStateLabel(lifecycleState)}
+              </Badge>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <NewFlex
                   align="center"
                   justify="center"
-                  className="h-4 w-4 cursor-pointer rounded bg-[#323232]"
+                  className="h-4 w-4 cursor-pointer rounded bg-muted"
                 >
-                  <ChevronDown size={15} className="text-[#76777D]" />
+                  <ChevronDown size={15} className="text-muted-foreground" />
                 </NewFlex>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" alignOffset={-134} sideOffset={5} className="w-56">
@@ -263,8 +279,8 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
               </DropdownMenuContent>
             </DropdownMenu>
           </NewFlex>
-          {!isExpress && (
-            <div className="flex flex-row gap-2">
+          <div className="flex flex-row items-center gap-2">
+            {showActions && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button hasIcon size="sm" variant="secondary">
@@ -272,79 +288,103 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-[241px]">
-                  <DropdownMenuItem id="edit_customer" onClick={setShowEditCustomer}>
-                    Edit Customer
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    id="create_invoice"
-                    onClick={() => navigate(`${basePath}/invoices/create?customerId=${id}`)}
-                  >
-                    Create Invoice
-                  </DropdownMenuItem>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem
-                          id="sync_to_hubspot"
-                          disabled={!isHubspotConnected}
-                          onClick={() => setShowSyncHubspotModal(true)}
-                        >
-                          Sync to Hubspot
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {!isHubspotConnected && (
-                      <TooltipContent>Hubspot integration not connected</TooltipContent>
-                    )}
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <DropdownMenuItem
-                          id="sync_to_pennylane"
-                          disabled={!isPennylaneConnected}
-                          onClick={() => setShowSyncPennylaneModal(true)}
-                        >
-                          Sync to Pennylane
-                        </DropdownMenuItem>
-                      </span>
-                    </TooltipTrigger>
-                    {!isPennylaneConnected && (
-                      <TooltipContent>Pennylane integration not connected</TooltipContent>
-                    )}
-                  </Tooltip>
-                  <DropdownMenuSeparator />
-                  {isArchived ? (
-                    <DropdownMenuItem
-                      id="unarchive_customer"
-                      onClick={handleUnarchiveCustomer}
-                      disabled={unarchiveCustomerMut.isPending}
-                    >
-                      {unarchiveCustomerMut.isPending ? 'Unarchiving...' : 'Unarchive customer'}
+                  {canManage && (
+                    <DropdownMenuItem id="edit_customer" onClick={() => setShowEditCustomer()}>
+                      Edit customer
                     </DropdownMenuItem>
-                  ) : (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span>
-                          <DropdownMenuItem
-                            id="archive_customer"
-                            disabled={hasActiveSubscriptions}
-                            onClick={() => setShowArchiveDialog(true)}
-                            className="text-destructive focus:text-destructive"
-                          >
-                            Archive customer
-                          </DropdownMenuItem>
-                        </span>
-                      </TooltipTrigger>
-                      {hasActiveSubscriptions && (
-                        <TooltipContent>Customer has active subscriptions</TooltipContent>
+                  )}
+                  {canManageSubscriptions && (
+                    <DropdownMenuItem
+                      id="create_subscription"
+                      onClick={() => navigate(`${basePath}/subscriptions/create?customerId=${id}`)}
+                    >
+                      New subscription
+                    </DropdownMenuItem>
+                  )}
+                  {canManageInvoices && (
+                    <DropdownMenuItem
+                      id="create_invoice"
+                      onClick={() => navigate(`${basePath}/invoices/create?customerId=${id}`)}
+                    >
+                      New invoice
+                    </DropdownMenuItem>
+                  )}
+                  {canManageQuotes && (
+                    <DropdownMenuItem
+                      id="create_quote"
+                      onClick={() => navigate(`${basePath}/quotes/create?customerId=${id}`)}
+                    >
+                      Create quote
+                    </DropdownMenuItem>
+                  )}
+                  {canManage && (
+                    <>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <DropdownMenuItem
+                              id="sync_to_hubspot"
+                              disabled={!isHubspotConnected}
+                              onClick={() => setShowSyncHubspotModal(true)}
+                            >
+                              Sync to Hubspot
+                            </DropdownMenuItem>
+                          </span>
+                        </TooltipTrigger>
+                        {!isHubspotConnected && (
+                          <TooltipContent>Hubspot integration not connected</TooltipContent>
+                        )}
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <DropdownMenuItem
+                              id="sync_to_pennylane"
+                              disabled={!isPennylaneConnected}
+                              onClick={() => setShowSyncPennylaneModal(true)}
+                            >
+                              Sync to Pennylane
+                            </DropdownMenuItem>
+                          </span>
+                        </TooltipTrigger>
+                        {!isPennylaneConnected && (
+                          <TooltipContent>Pennylane integration not connected</TooltipContent>
+                        )}
+                      </Tooltip>
+                      <DropdownMenuSeparator />
+                      {isArchived ? (
+                        <DropdownMenuItem
+                          id="unarchive_customer"
+                          onClick={handleUnarchiveCustomer}
+                          disabled={unarchiveCustomerMut.isPending}
+                        >
+                          {unarchiveCustomerMut.isPending ? 'Unarchiving...' : 'Unarchive customer'}
+                        </DropdownMenuItem>
+                      ) : (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span>
+                              <DropdownMenuItem
+                                id="archive_customer"
+                                disabled={hasActiveSubscriptions}
+                                onClick={() => setShowArchiveDialog(true)}
+                                className="text-destructive focus:text-destructive"
+                              >
+                                Archive customer
+                              </DropdownMenuItem>
+                            </span>
+                          </TooltipTrigger>
+                          {hasActiveSubscriptions && (
+                            <TooltipContent>Customer has active subscriptions</TooltipContent>
+                          )}
+                        </Tooltip>
                       )}
-                    </Tooltip>
+                    </>
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
-            </div>
-          )}
+            )}
+          </div>
         </div>
         <div className="mx-[-16px]">
           <Separator />

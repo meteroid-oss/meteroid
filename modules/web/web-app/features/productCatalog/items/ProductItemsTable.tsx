@@ -1,8 +1,19 @@
+import {
+  Badge,
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@md/ui'
 import { ColumnDef, PaginationState, SortingState } from '@tanstack/react-table'
+import { ArchiveIcon, ArchiveRestoreIcon, MoreVerticalIcon } from 'lucide-react'
 import { FC, useMemo } from 'react'
 
+import { Gate } from '@/components/Gate'
 import { LocalId } from '@/components/LocalId'
 import { StandardTable } from '@/components/table/StandardTable'
+import { useProductArchive } from '@/features/productCatalog/items/useProductArchive'
 import { feeTypeLabel } from '@/lib/mapping/prices'
 import { FeeType } from '@/rpc/api/prices/v1/models_pb'
 import { ProductMeta } from '@/rpc/api/products/v1/models_pb'
@@ -30,6 +41,8 @@ export const ProductsTable: FC<ProductsTableProps> = ({
   sorting,
   onSortingChange,
 }) => {
+  const { archive, unarchive } = useProductArchive()
+
   const columns = useMemo<ColumnDef<ProductMeta>[]>(
     () => [
       {
@@ -55,7 +68,7 @@ export const ProductsTable: FC<ProductsTableProps> = ({
         cell: ({ row }) => {
           const ft = row.original.feeType
           if (ft === undefined) return null
-          return <span className="text-sm">{feeTypeLabel(ft as FeeType)}</span>
+          return<>{feeTypeLabel(ft as FeeType)}</>
         },
         enableSorting: false,
       },
@@ -73,18 +86,59 @@ export const ProductsTable: FC<ProductsTableProps> = ({
           const ts = row.original.createdAt
           if (!ts) return null
           return (
-            <span className="text-sm text-muted-foreground">
+            <span className=" text-muted-foreground">
               {parseAndFormatDate(ts)}
             </span>
           )
         },
       },
+      {
+        header: 'Status',
+        enableSorting: false,
+        cell: ({ row }) =>
+          row.original.archivedAt ? (
+            <Badge variant="secondary">Archived</Badge>
+          ) : (
+            <Badge variant="success">Active</Badge>
+          ),
+      },
+      {
+        id: 'actions',
+        header: '',
+        maxSize: 0.1,
+        enableSorting: false,
+        cell: ({ row }) => (
+          <Gate perm="catalog:manage">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  <MoreVerticalIcon size={16} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {row.original.archivedAt ? (
+                  <DropdownMenuItem onClick={() => unarchive(row.original.id)}>
+                    <ArchiveRestoreIcon size={16} className="mr-2" />
+                    Unarchive
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem onClick={() => archive(row.original.id)}>
+                    <ArchiveIcon size={16} className="mr-2" />
+                    Archive
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </Gate>
+        ),
+      },
     ],
-    [onProductClick]
+    [onProductClick, archive, unarchive]
   )
 
   return (
     <StandardTable
+      tableKey="product_items"
       columns={columns}
       data={data}
       sortable={true}

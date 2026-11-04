@@ -10,11 +10,13 @@ import {
   TabsList,
   TabsTrigger,
 } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { AlertCircle, ArrowDown, ArrowUp, XCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { invalidateSubscriptionBilling } from '@/features/subscriptions/invalidateSubscriptionBilling'
 import { useBasePath } from '@/hooks/useBasePath'
 import { SlotTransactionStatus } from '@/rpc/api/subscriptions/v1/models_pb'
 import {
@@ -37,6 +39,7 @@ export const SlotTransactionsModal = ({
   open,
   onClose,
 }: SlotTransactionsModalProps) => {
+  const queryClient = useQueryClient()
   const transactionsQuery = useQuery(
     listSlotTransactions,
     {
@@ -51,7 +54,7 @@ export const SlotTransactionsModal = ({
   const cancelMutation = useMutation(cancelSlotTransaction, {
     onSuccess: () => {
       toast.success('Slot change cancelled')
-      transactionsQuery.refetch()
+      void invalidateSubscriptionBilling(queryClient, subscriptionId)
     },
     onError: error => {
       toast.error(`Failed to cancel: ${error instanceof Error ? error.message : 'Unknown error'}`)

@@ -7,9 +7,10 @@ rust-version.workspace = true
 repository.workspace = true
 
 [dependencies]
-proc-macro2.workspace = true
 quote.workspace = true
 syn = { workspace = true, features = ["full"] }
+proc-macro2.workspace = true
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
 
 
 [lib]
@@ -17,4 +18,7 @@ proc-macro = true
 
 [package.metadata.cargo-machete]
 # proc-macro2 is required in proc macro crates even without explicit use statements
+ignored = ["proc-macro2"]
+
+[package.metadata.cargo-shear]
 ignored = ["proc-macro2"]

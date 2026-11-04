@@ -13,9 +13,10 @@ use crate::data::ids::*;
 use crate::harness::{
     InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env, test_env_with_usage,
 };
+use diesel_models::enums::SubscriptionStatusEnum;
 use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use meteroid_store::clients::usage::{
-    GroupedUsageData, MockUsageClient, MockUsageDataParams, UsageData,
+    GroupedUsageData, MockUsageClient, MockUsageDataParams, MutableMockUsageClient, UsageData,
 };
 use meteroid_store::domain::enums::FeeTypeEnum;
 use meteroid_store::domain::enums::{
@@ -34,10 +35,11 @@ use meteroid_store::domain::subscription_changes::{ChangeDirection, PlanChangeMo
 use meteroid_store::domain::{BillingPeriodEnum, UsagePeriod, UsagePricingModel};
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::credit_notes::CreditNoteInterface;
+use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
 use rust_decimal::Decimal;
 
 /// Create a catalog add-on (new product) with a monthly EUR Rate price.
-async fn create_rate_addon(
+pub(super) async fn create_rate_addon(
     env: &TestEnv,
     name: &str,
     rate_cents: i64,
@@ -56,6 +58,7 @@ async fn create_rate_addon(
                 pricing: Pricing::Rate {
                     rate: Decimal::new(rate_cents, 2),
                 },
+                credit_unit: None,
             }),
             None,
             true,
@@ -126,6 +129,7 @@ fn extra_rate_component(name: &str, rate_cents: i64) -> AddExtraComponent {
             pricing: Pricing::Rate {
                 rate: Decimal::new(rate_cents, 2),
             },
+            credit_unit: None,
         }),
     }
 }
@@ -148,6 +152,7 @@ fn extra_arrears_component(name: &str, rate_cents: i64) -> AddExtraComponent {
                 unit_price: Decimal::new(rate_cents, 2),
                 quantity: 1,
             },
+            credit_unit: None,
         }),
     }
 }
@@ -169,6 +174,7 @@ fn extra_onetime_component(name: &str, rate_cents: i64) -> AddExtraComponent {
                 unit_price: Decimal::new(rate_cents, 2),
                 quantity: 1,
             },
+            credit_unit: None,
         }),
     }
 }
@@ -633,6 +639,7 @@ async fn test_apply_amendment_add_addon_immediate(#[future] test_env: TestEnv) {
                 pricing: Pricing::Rate {
                     rate: Decimal::new(2000, 2),
                 },
+                credit_unit: None,
             }),
             None,
             true,
@@ -724,6 +731,7 @@ async fn test_apply_amendment_add_multi_instance_addon_shows_count(#[future] tes
                 pricing: Pricing::Rate {
                     rate: Decimal::new(2000, 2),
                 },
+                credit_unit: None,
             }),
             None,
             true,
@@ -932,6 +940,147 @@ async fn test_add_arrears_component_immediate_prorated_at_renewal(#[future] test
     assert_eq!(arrears_line.start_date, jan16);
     assert_eq!(arrears_line.end_date, feb1);
     assert_eq!(renewal.total, 5448, "€39 advance + €15.48 prorated arrears");
+}
+
+/// Regression: a fixed-rate in-arrears fee must prorate to the elapsed fraction when the
+/// subscription is cancelled mid-period (15/31 of €31 = €15.00), not bill the full period.
+#[rstest]
+#[tokio::test]
+async fn test_mid_period_cancel_prorates_fixed_arrears(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let jan1 = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let jan16 = NaiveDate::from_ymd_opt(2024, 1, 16).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(jan1)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    // A €31/mo fixed arrears component active for the whole first period.
+    env.services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            amendment_add_component(
+                PlanChangeMode::Immediate,
+                extra_arrears_component("Overage Fee", 3100),
+            ),
+            jan1,
+        )
+        .await
+        .expect("add arrears component failed");
+
+    // Cancel effective Jan 16 — mid first period.
+    env.services()
+        .cancel_subscription(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            Some("mid-period cancel".to_string()),
+            CancellationEffectiveAt::Date(jan16),
+        )
+        .await
+        .expect("cancel_subscription failed");
+
+    env.process_due_events().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.status, SubscriptionStatusEnum::Cancelled);
+
+    let invoices = env.get_invoices(sub_id).await;
+    let terminal = invoices
+        .iter()
+        .find(|i| i.invoice_date == jan16 && i.invoice_type == InvoiceType::Recurring)
+        .expect("a terminal recurring invoice dated at the cancellation");
+
+    let arrears_line = terminal
+        .line_items
+        .iter()
+        .find(|l| l.name.contains("Overage Fee"))
+        .expect("the terminal invoice must bill the fixed arrears component");
+    assert_eq!(
+        arrears_line.amount_subtotal, 1500,
+        "fixed arrears must prorate to 15/31 of €31 on a mid-period cancel, not bill in full (3100)"
+    );
+    assert!(
+        arrears_line.is_prorated,
+        "the mid-period cancellation arrears charge is prorated"
+    );
+    assert_eq!(arrears_line.start_date, jan1);
+    assert_eq!(arrears_line.end_date, jan16);
+}
+
+/// Regression: when a fixed arrears component is BOTH added mid-period and the subscription is
+/// cancelled mid-period, the temporal-bound proration and the cancellation proration compose
+/// (multiply) rather than clobber. Component effective Jan 10, cancel Jan 20 of a Jan 1–Feb 1
+/// period → window [Jan 10, Jan 20] = 10 of 31 days: 19/31 × 10/19 = 10/31 of €31 = €10.00.
+#[rstest]
+#[tokio::test]
+async fn test_add_then_cancel_mid_period_composes_arrears_proration(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let jan1 = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let jan10 = NaiveDate::from_ymd_opt(2024, 1, 10).unwrap();
+    let jan20 = NaiveDate::from_ymd_opt(2024, 1, 20).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(jan1)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    // Add the €31/mo fixed arrears component mid-period (Jan 10).
+    env.services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            amendment_add_component(
+                PlanChangeMode::Immediate,
+                extra_arrears_component("Overage Fee", 3100),
+            ),
+            jan10,
+        )
+        .await
+        .expect("add arrears component failed");
+
+    // Cancel mid-period (Jan 20), before the component's first full period ever renews.
+    env.services()
+        .cancel_subscription(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            Some("mid-period cancel".to_string()),
+            CancellationEffectiveAt::Date(jan20),
+        )
+        .await
+        .expect("cancel_subscription failed");
+
+    env.process_due_events().await;
+
+    let invoices = env.get_invoices(sub_id).await;
+    let terminal = invoices
+        .iter()
+        .find(|i| i.invoice_date == jan20 && i.invoice_type == InvoiceType::Recurring)
+        .expect("a terminal recurring invoice dated at the cancellation");
+
+    let arrears_line = terminal
+        .line_items
+        .iter()
+        .find(|l| l.name.contains("Overage Fee"))
+        .expect("the terminal invoice must bill the fixed arrears component");
+    assert_eq!(
+        arrears_line.amount_subtotal, 1000,
+        "composed proration must be 10/31 of €31 = €10.00 (19/31 × 10/19), not 15/31 or full"
+    );
+    assert!(arrears_line.is_prorated);
+    assert_eq!(arrears_line.start_date, jan10);
+    assert_eq!(arrears_line.end_date, jan20);
 }
 
 /// Regression: a ONE-TIME component scheduled end-of-period must appear on the next
@@ -1268,6 +1417,7 @@ async fn test_remove_arrears_addon_final_segment_billed() {
                 pricing: Pricing::Usage(UsagePricingModel::PerUnit {
                     rate: Decimal::new(10, 2),
                 }),
+                credit_unit: None,
             }),
             None,
             true,
@@ -1323,6 +1473,128 @@ async fn test_remove_arrears_addon_final_segment_billed() {
         .expect("renewal should contain the historical usage add-on line");
     assert_eq!(usage_line.amount_total, 1000, "100 units × €0.10 = €10");
     let _ = feb1;
+}
+
+/// Late-import variant of the above: the closed usage add-on's final segment must still be billed
+/// when its usage is imported *after* the empty renewal draft exists. With the add-on removed the
+/// subscription is advance-only, so `can_accrue_arrears()` over its currently-active components is
+/// false — the refresh would short-circuit on the draft's advance-only lines and drop the late
+/// usage, unless it also consults the closed add-on (`can_accrue_arrears_in_period`).
+#[tokio::test]
+async fn test_remove_arrears_addon_late_usage_still_billed() {
+    let jan1 = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
+    let jan15 = NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
+
+    // The usage client starts empty: the segment's usage lands only during the grace period,
+    // after the renewal draft has already been created without a usage line.
+    let usage = MutableMockUsageClient::new();
+    let env = test_env_with_usage(Arc::new(usage.clone())).await;
+    // Grace period so the renewal draft's finalization runs in a later step, after the late import.
+    env.set_consolidate_and_grace(false, 720).await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(jan1)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    let add_on_id = env
+        .store()
+        .create_add_on_from_ref(
+            "Metered API".to_string(),
+            ProductRef::New {
+                name: "Metered API Product".to_string(),
+                fee_type: FeeTypeEnum::Usage,
+                fee_structure: FeeStructure::Usage {
+                    metric_id: METRIC_BANDWIDTH,
+                    model: UsageModel::PerUnit,
+                },
+            },
+            PriceEntry::New(PriceInput {
+                cadence: BillingPeriodEnum::Monthly,
+                currency: "EUR".to_string(),
+                pricing: Pricing::Usage(UsagePricingModel::PerUnit {
+                    rate: Decimal::new(10, 2),
+                }),
+                credit_unit: None,
+            }),
+            None,
+            true,
+            None,
+            TENANT_ID,
+            PRODUCT_FAMILY_ID,
+            vec![],
+        )
+        .await
+        .expect("create usage add-on failed")
+        .id;
+
+    // Add at Jan 1, remove at Jan 15 → the subscription is advance-only from Jan 15 on, with the
+    // usage add-on left as a closed segment [Jan 1, Jan 15].
+    env.services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            add_addon_amendment(PlanChangeMode::Immediate, add_on_id, 1),
+            jan1,
+        )
+        .await
+        .expect("add usage add-on failed");
+    env.services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            SubscriptionAmendment {
+                apply_mode: PlanChangeMode::Immediate,
+                component_changes: ComponentChanges::default(),
+                add_on_changes: AddOnChanges {
+                    added: vec![],
+                    edited: vec![],
+                    removed: vec![active_addon_id(&env, sub_id).await],
+                },
+            },
+            jan15,
+        )
+        .await
+        .expect("remove usage add-on failed");
+
+    // Renewal at Feb 1 creates the draft (Starter advance lines, no usage line — usage not imported
+    // yet); its finalization is deferred by the grace period.
+    env.process_cycle_transitions().await;
+
+    // The segment's usage is imported only now, after the draft exists.
+    usage.set_usage(
+        MockUsageDataParams {
+            metric_id: METRIC_BANDWIDTH,
+            period_start: jan1.and_time(NaiveTime::MIN),
+            period_end: jan15.and_time(NaiveTime::MIN),
+        },
+        UsageData {
+            data: vec![GroupedUsageData {
+                value: Decimal::new(100, 0),
+                dimensions: HashMap::new(),
+            }],
+            period: UsagePeriod {
+                start: jan1.and_time(NaiveTime::MIN),
+                end: jan15.and_time(NaiveTime::MIN),
+            },
+        },
+    );
+
+    // Finalize the deferred draft: the refresh must recompute and bill the closed segment.
+    env.process_due_events().await;
+
+    let invoices = env.get_invoices(sub_id).await;
+    let usage_line = invoices
+        .iter()
+        .flat_map(|i| &i.line_items)
+        .find(|l| l.metric_id == Some(METRIC_BANDWIDTH))
+        .expect("late-imported usage for the closed add-on segment must be billed, not dropped");
+    assert_eq!(usage_line.amount_total, 1000, "100 units × €0.10 = €10");
 }
 
 // =============================================================================
@@ -1513,6 +1785,7 @@ async fn test_amendment_edit_component_price(#[future] test_env: TestEnv) {
                             pricing: Pricing::Rate {
                                 rate: Decimal::new(9900, 2),
                             },
+                            credit_unit: None,
                         }),
                     }],
                     added: vec![],
@@ -1684,6 +1957,7 @@ async fn test_amendment_edit_usage_component_temporal_split() {
                             pricing: Pricing::Usage(UsagePricingModel::PerUnit {
                                 rate: Decimal::new(20, 2),
                             }),
+                            credit_unit: None,
                         }),
                     }],
                     added: vec![],
@@ -1920,7 +2194,7 @@ async fn test_amendment_removal_unpaid_issues_debt_cancellation(#[future] test_e
         .get_invoices(sub_id)
         .await
         .into_iter()
-        .find(|i| i.invoice_type == InvoiceType::Recurring && i.invoice_date == start_date)
+        .find(|i| i.invoice_type == InvoiceType::Recurring && i.billing_period_start == start_date)
         .expect("recurring invoice for the first period");
     assert_eq!(recurring.status, InvoiceStatusEnum::Finalized);
     assert_eq!(recurring.payment_status, InvoicePaymentStatus::Unpaid);
@@ -1999,7 +2273,7 @@ async fn test_amendment_removal_at_period_start_is_not_prorated(#[future] test_e
         .get_invoices(sub_id)
         .await
         .into_iter()
-        .find(|i| i.invoice_type == InvoiceType::Recurring && i.invoice_date == start_date)
+        .find(|i| i.invoice_type == InvoiceType::Recurring && i.billing_period_start == start_date)
         .expect("recurring invoice for the first period");
 
     let platform = env
@@ -2081,7 +2355,7 @@ async fn test_amendment_removal_paid_issues_credit_to_balance(#[future] test_env
         .get_invoices(sub_id)
         .await
         .into_iter()
-        .find(|i| i.invoice_type == InvoiceType::Recurring && i.invoice_date == start_date)
+        .find(|i| i.invoice_type == InvoiceType::Recurring && i.billing_period_start == start_date)
         .expect("recurring invoice for the first period");
     assert_eq!(recurring.payment_status, InvoicePaymentStatus::Paid);
 
@@ -2098,7 +2372,7 @@ async fn test_amendment_removal_paid_issues_credit_to_balance(#[future] test_env
         .expect("Platform Fee line on the original invoice");
     let expected_credit = platform_line.amount_subtotal / 2;
 
-    let balance_before = env.get_customer(CUST_UBER_ID).await.balance_value_cents;
+    let balance_before = env.invoice_credit_balance_minor(CUST_UBER_ID).await;
 
     env.services()
         .apply_amendment_immediate_at(
@@ -2132,7 +2406,7 @@ async fn test_amendment_removal_paid_issues_credit_to_balance(#[future] test_env
     assert!(cn.credited_amount_cents > 0);
 
     // The credit lands on the customer balance (same currency, so 1:1).
-    let balance_after = env.get_customer(CUST_UBER_ID).await.balance_value_cents;
+    let balance_after = env.invoice_credit_balance_minor(CUST_UBER_ID).await;
     assert_eq!(balance_after - balance_before, cn.credited_amount_cents);
 }
 
@@ -2247,7 +2521,7 @@ async fn test_amendment_add_then_remove_addon_credits_adjustment_invoice(
         .get_invoices(sub_id)
         .await
         .into_iter()
-        .find(|i| i.invoice_type == InvoiceType::Recurring && i.invoice_date == start_date)
+        .find(|i| i.invoice_type == InvoiceType::Recurring && i.billing_period_start == start_date)
         .expect("recurring invoice");
     let recurring_cns = env
         .store()
@@ -2272,4 +2546,220 @@ async fn active_addon_id(
             .expect("list active add-ons");
     assert_eq!(active.len(), 1, "expected exactly one active add-on");
     active[0].id
+}
+
+/// Removing a component mid-period credits only what the customer was charged for its unused
+/// part: the coupon's share stays off the credit, the promotional credit the line took goes back
+/// to its grant with the tax it saved, and the preview shows exactly the note that is issued.
+#[rstest]
+#[tokio::test]
+async fn test_amendment_removal_nets_the_coupon_and_returns_promotional_credit(
+    #[future] test_env: TestEnv,
+) {
+    use crate::helpers::credit::{Grant, fund_promotional_grant, grant_remaining};
+    let env = test_env.await;
+    env.seed_payments().await;
+    let coupon = env.create_percentage_coupon("AMEND20", 20).await;
+    let promo = fund_promotional_grant(
+        env.store(),
+        TENANT_ID,
+        CUST_UBER_ID,
+        None,
+        Grant::invoice(1_000),
+    )
+    .await;
+    let today = chrono::Utc::now().naive_utc().date();
+    let start_date = today - chrono::Duration::days(10);
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .auto_charge()
+        .coupon(coupon)
+        .create(env.services())
+        .await;
+    env.run_outbox_and_orchestration().await;
+
+    let recurring = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .find(|i| i.invoice_type == InvoiceType::Recurring && i.billing_period_start == start_date)
+        .expect("recurring invoice for the first period");
+    let platform = env
+        .get_subscription_components(sub_id)
+        .await
+        .into_iter()
+        .find(|c| c.name == "Platform Fee")
+        .expect("Platform Fee component");
+    let platform_line = recurring
+        .line_items
+        .iter()
+        .find(|l| l.sub_component_id == Some(platform.id))
+        .expect("Platform Fee line on the original invoice");
+    let taken = platform_line.promotional_credit.unwrap_or(0);
+    assert!(taken > 0, "the promotional credit took part of the line");
+    assert!(
+        platform_line.taxable_amount < platform_line.amount_subtotal - taken,
+        "and the coupon another part"
+    );
+
+    let amendment = SubscriptionAmendment {
+        apply_mode: PlanChangeMode::Immediate,
+        component_changes: ComponentChanges {
+            edited: vec![],
+            added: vec![],
+            removed: vec![platform.id],
+        },
+        add_on_changes: AddOnChanges::default(),
+    };
+    let preview = env
+        .services()
+        .preview_amendment(sub_id, TENANT_ID, amendment.clone())
+        .await
+        .expect("preview_amendment failed")
+        .credit_note
+        .expect("a credit-note preview");
+    let before = grant_remaining(env.store(), TENANT_ID, CUST_UBER_ID, promo).await;
+
+    env.services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            amendment,
+            today,
+        )
+        .await
+        .expect("apply amendment failed");
+
+    let credit_notes = env
+        .store()
+        .list_credit_notes_by_invoice_id(TENANT_ID, recurring.id)
+        .await
+        .expect("list credit notes");
+    assert_eq!(credit_notes.len(), 1, "exactly one credit note expected");
+    let cn = &credit_notes[0];
+    let line = &cn.line_items[0];
+    let returned = -line
+        .promotional_credit
+        .expect("the note returns promotional credit");
+    assert!(returned > 0 && returned <= taken);
+    assert!(
+        line.taxable_amount > line.amount_subtotal,
+        "the credit is net of the coupon and the promotional credit"
+    );
+    assert_eq!(line.amount_total, line.taxable_amount + line.tax_amount);
+    assert_eq!(cn.total, line.amount_total);
+    assert_eq!(
+        grant_remaining(env.store(), TENANT_ID, CUST_UBER_ID, promo).await - before,
+        returned,
+        "the promotional share goes back to its grant"
+    );
+
+    assert_eq!(preview.subtotal, cn.subtotal, "the preview is the note");
+    assert_eq!(preview.tax_amount, cn.tax_amount);
+    assert_eq!(preview.total, cn.total);
+    assert_eq!(preview.promotional_credits, -returned);
+    assert_eq!(
+        preview.subtotal - preview.discount - preview.promotional_credits + preview.tax_amount,
+        preview.total
+    );
+}
+
+/// Under a minimum commitment a decrease waits for the period's end (founder): removing a €29 fee
+/// immediately is refused, in preview and apply; at the period's end it applies. Increases apply
+/// at once and count toward the period's true-up (test_plan_minimum).
+#[rstest]
+#[tokio::test]
+async fn test_immediate_amendment_under_a_minimum_commitment_is_refused(
+    #[future] test_env: TestEnv,
+) {
+    use diesel_async::RunQueryDsl;
+    use diesel_models::plan_version_adjustments::PlanVersionAdjustmentRowNew;
+
+    let env = test_env.await;
+    diesel::insert_into(diesel_models::schema::plan_version_adjustment::table)
+        .values(&PlanVersionAdjustmentRowNew {
+            kind: diesel_models::enums::AdjustmentKindEnum::Minimum,
+            plan_version_id: PLAN_VERSION_STARTER_ID,
+            amount_subunit: 10_000,
+            includes_all_components: true,
+        })
+        .execute(&mut env.conn().await)
+        .await
+        .expect("seed the minimum");
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let platform = env
+        .get_subscription_components(sub_id)
+        .await
+        .into_iter()
+        .find(|c| c.name == "Platform Fee")
+        .expect("Platform Fee component");
+    let removal = |apply_mode| SubscriptionAmendment {
+        apply_mode,
+        component_changes: ComponentChanges {
+            edited: vec![],
+            added: vec![],
+            removed: vec![platform.id],
+        },
+        add_on_changes: AddOnChanges::default(),
+    };
+
+    let refused = env
+        .services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            removal(PlanChangeMode::Immediate),
+            NaiveDate::from_ymd_opt(2024, 1, 16).unwrap(),
+        )
+        .await
+        .expect_err("refused under a minimum commitment");
+    assert!(
+        format!("{refused:?}").contains("minimum commitment"),
+        "{refused:?}"
+    );
+    let previewed = env
+        .services()
+        .preview_amendment(sub_id, TENANT_ID, removal(PlanChangeMode::Immediate))
+        .await
+        .expect_err("the immediate preview is refused too");
+    assert!(format!("{previewed:?}").contains("minimum commitment"));
+
+    assert!(
+        env.get_subscription_components(sub_id)
+            .await
+            .iter()
+            .any(|c| c.id == platform.id),
+        "the fee stays"
+    );
+    assert!(
+        env.store()
+            .list_credit_notes_by_customer_id(TENANT_ID, CUST_UBER_ID)
+            .await
+            .expect("credit notes")
+            .is_empty(),
+        "nothing is credited"
+    );
+    assert_eq!(env.get_invoices(sub_id).await.len(), 1);
+
+    env.services()
+        .schedule_amendment(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            removal(PlanChangeMode::EndOfPeriod),
+        )
+        .await
+        .expect("an amendment at the period's end is accepted");
 }

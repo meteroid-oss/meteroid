@@ -24,7 +24,9 @@ message MeRequest {}
 message MeResponse {
   User user = 1;
   repeated meteroid.api.organizations.v1.Organization organizations = 2;
-  optional OrganizationUserRole current_organization_role = 3;
+  // True when one of the user's organizations enforces MFA but the user has
+  // not enrolled. The UI should gate the entire app behind enrollment.
+  bool mfa_enrollment_required = 4;
 }
 
 message LoginRequest {
@@ -33,6 +35,54 @@ message LoginRequest {
 }
 
 message LoginResponse {
+  // Empty when an MFA challenge is required (see `mfa_challenge_token`).
+  string token = 1;
+  // Only populated when authentication is complete.
+  User user = 2;
+  // Short-lived (5 min) token to be exchanged for a session via VerifyMfa.
+  optional string mfa_challenge_token = 3;
+}
+
+message InitMfaEnrollmentRequest {}
+
+message InitMfaEnrollmentResponse {
+  // Base32-encoded TOTP secret. Show to the user as a fallback if they
+  // can't scan the QR code.
+  string secret_base32 = 1;
+  // otpauth://... URI suitable for QR-code rendering on the client.
+  string otpauth_uri = 2;
+}
+
+message ConfirmMfaEnrollmentRequest {
+  string code = 1;
+}
+
+message ConfirmMfaEnrollmentResponse {
+  // Plaintext one-time-use recovery codes. Shown ONCE — only hashes persist.
+  repeated string recovery_codes = 1;
+}
+
+message DisableMfaRequest {
+  string password = 1;
+}
+
+message DisableMfaResponse {}
+
+message RegenerateMfaRecoveryCodesRequest {
+  string password = 1;
+}
+
+message RegenerateMfaRecoveryCodesResponse {
+  repeated string recovery_codes = 1;
+}
+
+message VerifyMfaRequest {
+  string mfa_challenge_token = 1;
+  // Either the 6-digit TOTP code, or one of the user's recovery codes.
+  string code = 2;
+}
+
+message VerifyMfaResponse {
   string token = 1;
   User user = 2;
 }
@@ -43,6 +93,8 @@ message InitRegistrationRequest {
   optional string invite_key = 2;
   // Relative path to redirect to after email validation (e.g. /connect/onboard/{token})
   optional string return_path = 3;
+  // Acquisition source, e.g. "github-readme". Tracked for attribution in Loops.
+  optional string signup_source = 4;
 }
 
 message InitRegistrationResponse {
@@ -67,11 +119,21 @@ message OnboardMeRequest {
   optional string first_name = 1;
   optional string last_name = 2;
   optional string department = 3;
-  optional string know_us_from = 4;
+  optional string heard_from = 4;
 }
 
 message OnboardMeResponse {
   User user = 1;
+}
+
+message UpdateUserPreferencesRequest {
+  // Partial preferences as a JSON object; shallow-merged into the stored value.
+  string preferences = 1;
+}
+
+message UpdateUserPreferencesResponse {
+  // The full merged preferences as a JSON object.
+  string preferences = 1;
 }
 
 message InitResetPasswordRequest {
@@ -93,7 +155,10 @@ message AcceptInviteRequest {
 
 message InviteMemberRequest {
   string email = 1;
+  // Built-in tier (ADMIN/MEMBER). A custom role sits on top of the MEMBER tier.
   OrganizationUserRole role = 2;
+  // When set, the invitee is granted this custom role on accept (implies MEMBER).
+  optional string custom_role_id = 3;
 }
 message InviteMemberResponse {
   string invite_id = 1;
@@ -117,6 +182,8 @@ message OrganizationInvite {
   string created_at = 5;
   string expires_at = 6;
   bool is_expired = 7;
+  // Custom role granted on accept, if any. Absent for plain tier invites.
+  optional string custom_role_id = 8;
 }
 
 message ListPendingInvitesRequest {}
@@ -139,10 +206,17 @@ message RemoveMemberResponse {}
 service UsersService {
   rpc Me(MeRequest) returns (MeResponse) {}
   rpc OnboardMe(OnboardMeRequest) returns (OnboardMeResponse) {}
+  rpc UpdateUserPreferences(UpdateUserPreferencesRequest) returns (UpdateUserPreferencesResponse) {}
   rpc GetUserById(GetUserByIdRequest) returns (GetUserByIdResponse) {}
   rpc ListUsers(ListUsersRequest) returns (ListUsersResponse) {}
 
   rpc Login(LoginRequest) returns (LoginResponse) {}
+  rpc VerifyMfa(VerifyMfaRequest) returns (VerifyMfaResponse) {}
+
+  rpc InitMfaEnrollment(InitMfaEnrollmentRequest) returns (InitMfaEnrollmentResponse) {}
+  rpc ConfirmMfaEnrollment(ConfirmMfaEnrollmentRequest) returns (ConfirmMfaEnrollmentResponse) {}
+  rpc DisableMfa(DisableMfaRequest) returns (DisableMfaResponse) {}
+  rpc RegenerateMfaRecoveryCodes(RegenerateMfaRecoveryCodesRequest) returns (RegenerateMfaRecoveryCodesResponse) {}
 
   rpc InitRegistration(InitRegistrationRequest) returns (InitRegistrationResponse) {}
   rpc CompleteRegistration(CompleteRegistrationRequest) returns (CompleteRegistrationResponse) {}

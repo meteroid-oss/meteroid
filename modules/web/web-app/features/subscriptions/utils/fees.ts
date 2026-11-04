@@ -1,6 +1,20 @@
 
-import { SubscriptionFee, SubscriptionFeeBillingPeriod } from "@/rpc/api/subscriptions/v1/models_pb"
-import { formatCurrencyNoRounding } from "@/utils/numbers"
+import { CreditPackExpiry_Unit } from "@/rpc/api/prices/v1/models_pb"
+import {
+  SubscriptionFee,
+  SubscriptionFeeBillingPeriod,
+  SubscriptionFee_FeeCreditUnit,
+} from "@/rpc/api/subscriptions/v1/models_pb"
+import { formatCurrencyNoRounding, formatUsage } from "@/utils/numbers"
+
+import type { CreditUnit } from "@/rpc/api/creditunits/v1/models_pb"
+
+/** The period a fee bills on: a credit granted once at start repeats on none. */
+export const feeBillingPeriod = (
+  period: SubscriptionFeeBillingPeriod,
+  fee: Pick<SubscriptionFee, 'fee'> | undefined
+) =>
+  fee?.fee.case === 'credit' && fee.fee.value.once ? SubscriptionFeeBillingPeriod.ONE_TIME : period
 
 export const formatSubscriptionFeeBillingPeriod = (
   period: SubscriptionFeeBillingPeriod
@@ -21,9 +35,45 @@ export const formatSubscriptionFeeBillingPeriod = (
   }
 }
 
+export type CreditUnitNames = readonly Pick<CreditUnit, 'id' | 'name' | 'pluralName'>[]
+
+// The unit's code is internal: name it from the tenant's units or the names the fee carries
+// (portal checkout), generically until either is known.
+const unitNamer = (unit: SubscriptionFee_FeeCreditUnit, units: CreditUnitNames | undefined) => {
+  const named = units?.find(candidate => candidate.id === unit.creditUnitId)
+  const singular = named?.name ?? unit.name ?? 'credit'
+  const plural = named?.pluralName ?? unit.pluralName ?? 'credits'
+  return (quantity: number) => (quantity === 1 ? singular : plural)
+}
+
+// Usage, or a capacity fee's overage, priced in a credit unit: its amounts are credits, billed in
+// money at `rate` only for what the unit's wallet does not cover.
+const usagePricing = (
+  fee: SubscriptionFee,
+  currency: string,
+  units: CreditUnitNames | undefined
+) => {
+  const unit = fee.creditUnit?.rate ? fee.creditUnit : undefined
+  const name = unit && unitNamer(unit, units)
+  return {
+    price: (value: number | string) =>
+      name
+        ? `${formatUsage(Number(value))} ${name(Number(value))}`
+        : formatCurrencyNoRounding(Number(value), currency),
+    rateNote:
+      unit && name
+        ? `1 ${name(1)} = ${formatCurrencyNoRounding(Number(unit.rate), currency)}, billed when not covered by ${name(2)}`
+        : undefined,
+  }
+}
+
+const withNote = (text: string | undefined, note: string | undefined) =>
+  [text, note].filter(Boolean).join('\n') || undefined
+
 export const formatSubscriptionFee = (
   fee: SubscriptionFee | undefined,
-  currency: string
+  currency: string,
+  units?: CreditUnitNames
 ): {
   type: string
   details: string
@@ -76,14 +126,47 @@ export const formatSubscriptionFee = (
       }
     }
 
+    case 'credit': {
+      const credit = fee.fee.value
+      const name = fee.creditUnit && unitNamer(fee.creditUnit, units)
+      const creditOf = (value: string) =>
+        name
+          ? `${formatUsage(Number(value))} ${name(Number(value))}`
+          : formatCurrencyNoRounding(Number(value), currency)
+      const rollover = credit.rollover
+      const term =
+        rollover?.expiry &&
+        `${rollover.expiry.value} ${rollover.expiry.unit === CreditPackExpiry_Unit.DAY ? 'day' : 'month'}${rollover.expiry.value === 1 ? '' : 's'}`
+      // Credits already name themselves; money reads "$50.00 of credit".
+      const ofCredit = fee.creditUnit ? '' : ' of credit'
+      const granted =
+        credit.quantity > 1
+          ? `${credit.quantity}x ${creditOf(credit.creditAmount)}${ofCredit}`
+          : `${creditOf(credit.creditAmount)}${ofCredit}`
+      return {
+        type: 'Credit',
+        details: credit.once ? `${granted}, once at start` : granted,
+        amount: formatCurrencyNoRounding(Number(credit.total || credit.rate), currency),
+        breakdown: credit.once
+          ? "Once at start: granted on the subscription's first invoice only"
+          : rollover && term
+            ? `Unused credit rolls over: ${rollover.maxAmount ? `up to ${creditOf(rollover.maxAmount)}` : 'all of it'}, for ${term}`
+            : undefined,
+      }
+    }
+
     case 'capacity': {
       const capacityFee = fee.fee.value
       const hasOverage = parseFloat(capacityFee.overageRate) > 0
+      const overage = usagePricing(fee, currency, units)
       return {
         type: 'Capacity',
         details: 'Capacity',
         amount: formatCurrencyNoRounding(Number(capacityFee.rate), currency),
-        breakdown: `${capacityFee.included.toString()} included${hasOverage ? `, then ${formatCurrencyNoRounding(Number(capacityFee.overageRate), currency)} per unit` : ''}`,
+        breakdown: withNote(
+          `${formatUsage(Number(capacityFee.included))} included${hasOverage ? `, then ${overage.price(capacityFee.overageRate)} per unit` : ''}`,
+          hasOverage ? overage.rateNote : undefined
+        ),
       }
     }
 
@@ -92,24 +175,25 @@ export const formatSubscriptionFee = (
       const limits = []
 
       if (slotFee.minSlots !== undefined) {
-        limits.push(`min: ${slotFee.minSlots}`)
+        limits.push(`min: ${formatUsage(slotFee.minSlots)}`)
       }
 
       if (slotFee.maxSlots !== undefined) {
-        limits.push(`max: ${slotFee.maxSlots}`)
+        limits.push(`max: ${formatUsage(slotFee.maxSlots)}`)
       }
 
       const limitStr = limits.length > 0 ? ` (${limits.join(', ')})` : ''
 
       return {
         type: 'Slot',
-        details: `${slotFee.initialSlots} ${slotFee.unit}(s)${limitStr}`,
+        details: `${formatUsage(slotFee.initialSlots)} ${slotFee.unit}(s)${limitStr}`,
         amount: `${formatCurrencyNoRounding(Number(slotFee.unitRate), currency)} per ${slotFee.unit}`,
       }
     }
 
     case 'usage': {
       const usageFee = fee.fee.value
+      const { price, rateNote } = usagePricing(fee, currency, units)
 
       switch (usageFee.model?.case) {
         case 'perUnit': {
@@ -117,7 +201,8 @@ export const formatSubscriptionFee = (
           return {
             type: 'Usage',
             details: 'Per unit',
-            amount: `${formatCurrencyNoRounding(Number(perUnitPrice), currency)}/unit`,
+            amount: `${price(Number(perUnitPrice))} per unit`,
+            breakdown: rateNote,
           }
         }
 
@@ -132,21 +217,21 @@ export const formatSubscriptionFee = (
           const minPrice = Math.min(...prices)
           const maxPrice = Math.max(...prices)
           const summary = minPrice === maxPrice
-            ? `${formatCurrencyNoRounding(minPrice, currency)}/unit`
-            : `${formatCurrencyNoRounding(minPrice, currency)} - ${formatCurrencyNoRounding(maxPrice, currency)}/unit`
+            ? `${price(minPrice)} per unit`
+            : `${price(minPrice)}–${price(maxPrice)} per unit`
           // Breakdown: show all tiers
           const breakdown = rows.map((row, idx) => {
             const nextRow = rows[idx + 1]
             const rangeStart = Number(row.firstUnit)
             const rangeEnd = nextRow ? Number(nextRow.firstUnit) - 1 : '∞'
-            const price = formatCurrencyNoRounding(Number(row.unitPrice), currency)
-            return `${rangeStart}-${rangeEnd}: ${price}`
+            const formatted = price(Number(row.unitPrice))
+            return `${rangeStart}-${rangeEnd}: ${formatted}`
           }).join('\n')
           return {
             type: 'Usage',
             details: 'Tiered',
             amount: summary,
-            breakdown,
+            breakdown: withNote(breakdown, rateNote),
           }
         }
 
@@ -161,21 +246,21 @@ export const formatSubscriptionFee = (
           const minPrice = Math.min(...prices)
           const maxPrice = Math.max(...prices)
           const summary = minPrice === maxPrice
-            ? `${formatCurrencyNoRounding(minPrice, currency)}/unit`
-            : `${formatCurrencyNoRounding(minPrice, currency)} - ${formatCurrencyNoRounding(maxPrice, currency)}/unit`
+            ? `${price(minPrice)} per unit`
+            : `${price(minPrice)}–${price(maxPrice)} per unit`
           // Breakdown: show all tiers
           const breakdown = rows.map((row, idx) => {
             const nextRow = rows[idx + 1]
             const rangeStart = Number(row.firstUnit)
             const rangeEnd = nextRow ? Number(nextRow.firstUnit) - 1 : '∞'
-            const price = formatCurrencyNoRounding(Number(row.unitPrice), currency)
-            return `${rangeStart}-${rangeEnd}: ${price}`
+            const formatted = price(Number(row.unitPrice))
+            return `${rangeStart}-${rangeEnd}: ${formatted}`
           }).join('\n')
           return {
             type: 'Usage',
             details: 'Volume',
             amount: summary,
-            breakdown,
+            breakdown: withNote(breakdown, rateNote),
           }
         }
 
@@ -184,7 +269,8 @@ export const formatSubscriptionFee = (
           return {
             type: 'Usage',
             details: 'Package',
-            amount: `${formatCurrencyNoRounding(Number(pkg.packagePrice), currency)} / ${pkg.blockSize} units`,
+            amount: `${price(Number(pkg.packagePrice))} / ${pkg.blockSize} units`,
+            breakdown: rateNote,
           }
         }
 
@@ -199,21 +285,21 @@ export const formatSubscriptionFee = (
           const minPrice = Math.min(...prices)
           const maxPrice = Math.max(...prices)
           const summary = minPrice === maxPrice
-            ? `${formatCurrencyNoRounding(minPrice, currency)}/unit`
-            : `${formatCurrencyNoRounding(minPrice, currency)} - ${formatCurrencyNoRounding(maxPrice, currency)}/unit`
+            ? `${price(minPrice)} per unit`
+            : `${price(minPrice)}–${price(maxPrice)} per unit`
           // Breakdown: show all matrix price points
           const breakdown = rows.map(row => {
             const dims = [row.dimension1]
             if (row.dimension2) dims.push(row.dimension2)
-            const dimStr = dims.map(d => `${d?.key}=${d?.value}`).join(', ')
-            const price = formatCurrencyNoRounding(Number(row.perUnitPrice), currency)
-            return `${dimStr}: ${price}`
+            const dimStr = dims.map(d => d?.value).join(' · ')
+            const formatted = price(Number(row.perUnitPrice))
+            return `${dimStr}: ${formatted}`
           }).join('\n')
           return {
             type: 'Usage',
             details: 'Matrix',
             amount: summary,
-            breakdown,
+            breakdown: withNote(breakdown, rateNote),
           }
         }
 
@@ -244,12 +330,13 @@ export const formatSubscriptionFee = (
  */
 export const formatSubscriptionFeeCompact = (
   fee: SubscriptionFee | undefined,
-  currency: string
+  currency: string,
+  units?: CreditUnitNames
 ): string => {
   if (!fee || !fee.fee.case) {
     return 'N/A'
   }
 
-  const formatted = formatSubscriptionFee(fee, currency)
+  const formatted = formatSubscriptionFee(fee, currency, units)
   return `${formatted.type}: ${formatted.amount}`
 }

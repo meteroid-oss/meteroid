@@ -25,16 +25,68 @@ message InvoicingEntity {
   string country = 20;
   string accounting_currency = 21;
   TaxResolver tax_resolver = 22;
-  reserved 23; // consolidate_recurring_invoices, enterprise-only
-  // Customer-portal theme default. "light" | "dark".
+  // Customer-portal theme defaults. "light" | "dark".
   optional string portal_theme_mode = 24;
-  // Customer-portal control roundness. "Sharp" | "Modern" | "Rounded".
+  // "Sharp" | "Modern" | "Rounded".
   optional string portal_roundness = 25;
   // Apply reverse charge only to VIES-verified VAT numbers (off = fail-open).
   bool require_vies_valid_for_reverse_charge = 26;
-  bool require_billing_information = 27;
+  // Default document language (e.g. "en-US", "fr-FR"); a customer override wins over it.
+  optional string invoicing_language = 27;
+  // Per-locale overrides of the footer text; the base fields above are the default.
+  FooterTranslations invoice_footer_translations = 28;
+  // Resolved document language for this entity (a supported template locale like
+  // "fr-FR"): what its documents render in by default. Lets the UI lead with the
+  // entity's own language instead of a "Default" tab.
+  string effective_document_language = 29;
+  // The template locale implied by the entity's country alone, ignoring
+  // `invoicing_language`: the language the untagged base footer is written in. A
+  // French seller issuing English invoices still has a French base footer.
+  string country_document_language = 30;
   // Fallback tax category for lines whose product carries none.
-  optional string default_tax_category_id = 28;
+  optional string default_tax_category_id = 31;
+  // Structured e-invoicing standard this entity issues under. UNSPECIFIED = PDF only.
+  EInvoicingFormat einvoicing_format = 32;
+  // BT-30 — the seller's national register identifier (SIREN/SIRET, HRB).
+  optional string legal_number = 33;
+  // Same placeholders as `invoice_number_pattern`.
+  string credit_note_number_pattern = 34;
+  // Customer-facing language (emails, portal), e.g. "en-US". Unset = same as the invoice language.
+  optional string customer_locale = 35;
+  // Further customer-facing locales a customer's preferred locale may pick (default excluded).
+  repeated string customer_extra_locales = 36;
+  // Resolved customer-facing default: `customer_locale` when set, else the invoice language.
+  string effective_customer_locale = 37;
+  // Brand colour for white backgrounds (emails). Unset = derived from `brand_color`.
+  optional string brand_color_light = 38;
+  // BT-41 / BT-42 / BT-43 — who a buyer contacts about an invoice. Required by XRechnung.
+  optional string contact_name = 39;
+  optional string contact_phone = 40;
+  optional string contact_email = 41;
+  // Customers may buy credit with a saved payment method from the portal.
+  bool portal_top_up_enabled = 42;
+  // Customers may configure automatic top-ups from the portal.
+  bool portal_auto_top_up_enabled = 43;
+  // Customers may set and remove their own spend budgets from the portal.
+  bool portal_budgets_enabled = 44;
+  // Checkout completes only once the customer has a billing email and a complete billing
+  // address (line 1, city, postal code, country).
+  bool require_billing_information = 45;
+}
+
+message LocaleList {
+  repeated string values = 1;
+}
+
+// Locale-specific footer text; a blank field falls back to the base footer.
+message FooterTranslation {
+  optional string info = 1;
+  optional string legal = 2;
+}
+
+message FooterTranslations {
+  // Template locale ("fr-FR", "en-US") -> footer override.
+  map<string, FooterTranslation> by_locale = 1;
 }
 
 message InvoicingEntityPublic {
@@ -51,6 +103,8 @@ message InvoicingEntityPublic {
   optional string city = 18;
   optional string vat_number = 19;
   string country = 20;
+  // BT-30 — the seller's national register identifier (SIREN/SIRET, HRB).
+  optional string legal_number = 33;
 }
 
 message InvoicingEntityData {
@@ -70,13 +124,43 @@ message InvoicingEntityData {
   optional string vat_number = 19;
   optional string country = 20;
   optional TaxResolver tax_resolver = 21;
-  reserved 22; // consolidate_recurring_invoices, enterprise-only
   optional string portal_theme_mode = 23;
   optional string portal_roundness = 24;
   optional bool require_vies_valid_for_reverse_charge = 25;
-  optional bool require_billing_information = 26;
+  optional string invoicing_language = 26;
+  // Absent = leave footer translations unchanged; present (even empty) = replace the set.
+  optional FooterTranslations invoice_footer_translations = 27;
   // Fallback tax category for lines whose product carries none. Empty string clears it.
-  optional string default_tax_category_id = 27;
+  optional string default_tax_category_id = 28;
+  // Absent = leave unchanged; UNSPECIFIED turns structured e-invoicing off.
+  optional EInvoicingFormat einvoicing_format = 29;
+  // BT-30 — seller register identifier. Empty string clears it.
+  optional string legal_number = 30;
+  optional string credit_note_number_pattern = 31;
+  // Customer-facing language. Absent = unchanged; empty string clears (follow the invoice language).
+  optional string customer_locale = 32;
+  // Absent = unchanged; present (even empty) = replace the set.
+  optional LocaleList customer_extra_locales = 33;
+  // Hex colour (#RRGGBB / #RGB). Absent = unchanged; empty string clears.
+  optional string brand_color_light = 34;
+  // Seller contact (BT-41..43). Absent = unchanged; empty string clears.
+  optional string contact_name = 35;
+  optional string contact_phone = 36;
+  optional string contact_email = 37;
+  optional bool portal_top_up_enabled = 38;
+  optional bool portal_auto_top_up_enabled = 39;
+  optional bool portal_budgets_enabled = 40;
+  optional bool require_billing_information = 41;
+}
+
+// Siblings, not levels: XRechnung and Peppol BIS are each a CIUS of EN 16931
+// that forbids what the other allows, and Factur-X is the core model carried
+// inside the PDF rather than beside it.
+enum EInvoicingFormat {
+  EINVOICING_FORMAT_UNSPECIFIED = 0;
+  FACTUR_X = 1;
+  XRECHNUNG = 2;
+  PEPPOL_BIS = 3;
 }
 
 enum TaxResolver {

@@ -121,8 +121,8 @@ pub struct SlotUpdatePreview {
     pub effective_at: chrono::NaiveDate,
     pub current_period_end: chrono::NaiveDate,
     pub next_invoice_delta: Decimal,
-    /// The prorated charge billed now for an increase (`None` for deferred
-    /// decreases). OSS builds this as an untaxed preview from `prorated_amount`;
-    /// the enterprise portal computes a fully taxed adjustment invoice here.
+    /// The taxed prorated invoice charged now for an increase, computed by the
+    /// same path that the apply route bills. `None` for decreases (deferred, no
+    /// immediate charge).
     pub adjustment_invoice: Option<ComputedInvoiceContent>,
 }

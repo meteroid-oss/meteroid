@@ -1,14 +1,15 @@
-<div class="content-section">
-  <h1>Thank you for your payment !</h1>
-</div>
-
-<div class="content-section">
-  <h2><%= label %></h2>
-  <div class="summary-box">
-    <p>• <strong>Invoice n°:</strong> <%= invoice_number %></p>
-    <p>• <strong>Invoice date:</strong> <%= invoice_date %></p>
-    <p>• <strong>Due at:</strong> <%= invoice_due_date %></p>
-    <p>• <strong>Amount paid:</strong> <%= amount_paid %></p>
-  </div>
-
-</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr>
+    <td>
+      <h1 class="h1" style="margin:0;font-size:24px;line-height:32px;font-weight:600;letter-spacing:-0.3px;color:#111318;"><%= heading %></h1>
+<% if let Some(label) = label { %>
+      <p style="margin:8px 0 0;font-size:15px;line-height:24px;color:#414651;"><%= label %></p>
+<% } %>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding-top:28px;">
+      <%+ summary %>
+    </td>
+  </tr>
+</table>

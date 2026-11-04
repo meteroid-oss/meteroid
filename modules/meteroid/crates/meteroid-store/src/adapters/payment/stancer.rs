@@ -12,22 +12,26 @@
 //! and resolves through the reconciliation worker; mandate completion surfaces
 //! through the return-URL redirect.
 
+use super::account::{ValidatedCredentials, mask_secret, static_methods};
 use super::connector::{
-    ConnectorCapabilities, ConnectorIdentity, CredentialOps, CustomerOps, HostedSetupCompletion,
-    MandateOps, MandateSetupMode, PaymentOps, ReconcileOps, RefundOps, WebhookOps,
+    ConnectorIdentity, ConnectorRef, CredentialOps, CustomerOps, HostedSetupCompletion, MandateOps,
+    MandateSetup, PaymentCapabilities, PaymentOps, ReconcileOps, RefundOps, RefundSupport,
+    WebhookOps,
 };
-use super::error::{ConnectorError, HostedSetupPending};
+use super::error::{ConnectorError, CredentialsRejected, HostedSetupPending, adoption_mismatch};
 use super::events::{NormalizedEventSubscription, NormalizedWebhookEvent};
 use super::model::{
     ChargeAcknowledged, ChargeCancelled, ChargeFailure, ChargeOutcome, ChargeReceipt,
     ChargeRequest, CreateCustomerRequest, DeclineKind, ExternalCustomerRef,
-    MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot, RefundOutcome,
-    RefundRequest, RefundSnapshot, RegisteredWebhook, RemoteTransactionStatus,
+    MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot, RefundAcknowledged,
+    RefundFailure, RefundOutcome, RefundReceipt, RefundRequest, RefundSnapshot, RegisteredWebhook,
+    RemoteRefundStatus, RemoteTransactionStatus,
 };
 use crate::domain::connectors::{
-    Connector, ProviderData, ProviderSensitiveData, StancerPublicData,
+    MethodState, PaymentConnectorPublicData, ProviderAccount, StancerPublicData,
+    StancerSensitiveData,
 };
-use crate::domain::enums::ConnectorProviderEnum;
+use crate::domain::enums::PaymentProvider;
 use crate::domain::{Customer, CustomerConnection, PaymentMethodTypeEnum};
 use async_trait::async_trait;
 use common_domain::ids::BaseId;
@@ -42,36 +46,35 @@ use stancer_client::payment_intents::{
     ThreeDsMode, UpdatePaymentIntent,
 };
 use stancer_client::payments::{CreatePayment, StancerPayment, StancerPaymentStatus};
+use stancer_client::refunds::{CreateRefund, RefundStatus as StancerRefundStatus, StancerRefund};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-pub(super) const STANCER_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
-    supports_cards: true,
+pub(super) const STANCER_CAPABILITIES: PaymentCapabilities = PaymentCapabilities {
+    supported_payment_methods: &[PaymentMethodTypeEnum::Card],
     // The saved card token is a reusable off-session instrument (a "mandate").
     supports_mandates: true,
-    // `refund()` returns Unsupported — refunds are not wired into the billing
-    // layer for any provider yet.
-    supports_refunds: false,
-    supports_partial_refunds: false,
+    refunds: RefundSupport::Partial,
+    // A refund carries no idempotency key, so an unconfirmed one is never replayed.
+    refund_replay_window: None,
     // The hosted page runs the 3DS challenge (`threeds: required` on the
     // intent). Off-session charges omit `auth` → no 3DS (MIT posture).
     supports_3ds: true,
     supports_disputes: false,
-    // No webhook mechanism at all (spec-verified) — nothing to register.
-    supports_self_webhook_registration: false,
+    // No webhook mechanism at all (spec-verified) — nothing to register, no secret, and no
+    // replay window to state.
+    webhooks: None,
     // Charges land as `to_capture`/`capture_sent`; reconcile settles them.
     asynchronous_settlement: true,
-    supported_payment_methods: &[PaymentMethodTypeEnum::Card],
-    mandate_setup_mode: MandateSetupMode::HostedRedirect,
-    // Moot (no webhooks, verify_signature always rejects) but the capability
-    // contract requires a value > 0.
-    webhook_replay_tolerance_secs: 3600,
-    // The return redirect is the only push signal; the sweeper polls persisted
-    // pending intents as the lost-return backstop.
-    hosted_setup_completion: HostedSetupCompletion::PollingRequired,
-    supports_hosted_invoice_payment: true,
+    mandate_setup: MandateSetup::HostedRedirect {
+        // The return redirect is the only push signal; the sweeper polls persisted
+        // pending intents as the lost-return backstop.
+        completion: HostedSetupCompletion::PollingRequired,
+        invoice_payment: true,
+    },
     supports_hosted_checkout: true,
     pending_charge_accepted: true,
+    is_test_gateway: false,
 };
 
 /// Currencies Stancer accepts; anything else is rejected up-front.
@@ -81,55 +84,82 @@ const SUPPORTED_CURRENCIES: &[&str] = &[
 
 /// One API base for test and live — the mode rides on the secret key prefix
 /// (`stest_…` / `sprod_…`) — so a single client singleton serves all tenants.
-#[derive(Debug, Clone, Copy)]
-pub struct StancerConnector;
+/// Stancer has no public data (no account id): the secret key alone
+/// authenticates, so the adapter holds only its identity and that key.
+#[derive(Debug, Clone)]
+pub struct StancerConnector {
+    connector: ConnectorRef,
+    sensitive: StancerSensitiveData,
+}
 
 impl StancerConnector {
-    pub fn new() -> Self {
-        StancerConnector
+    pub fn new(connector: ConnectorRef, sensitive: StancerSensitiveData) -> Self {
+        Self {
+            connector,
+            sensitive,
+        }
     }
 
     fn client() -> &'static StancerClient {
         static CLIENT: OnceLock<StancerClient> = OnceLock::new();
         CLIENT.get_or_init(StancerClient::new)
     }
-}
 
-impl Default for StancerConnector {
-    fn default() -> Self {
-        Self::new()
+    /// The key this adapter was built with. The store refuses to store a blank one, and Stancer
+    /// answers 401 for a bad one, which surfaces as rejected credentials.
+    fn secret_key(&self) -> SecretString {
+        self.sensitive.api_secret_key.clone()
     }
 }
 
 impl ConnectorIdentity for StancerConnector {
-    fn provider(&self) -> ConnectorProviderEnum {
-        ConnectorProviderEnum::Stancer
+    fn provider(&self) -> PaymentProvider {
+        PaymentProvider::Stancer
     }
-    fn capabilities(&self) -> &ConnectorCapabilities {
+    fn capabilities(&self) -> &PaymentCapabilities {
         &STANCER_CAPABILITIES
     }
 }
 
 #[async_trait]
 impl CredentialOps for StancerConnector {
-    async fn validate_credentials(
-        &self,
-        connector: &Connector,
-    ) -> Result<ProviderData, Report<ConnectorError>> {
-        let secret = extract_secret_key(connector)?;
+    /// No account endpoint: the account id stays empty and cards are always enabled.
+    async fn validate_credentials(&self) -> Result<ValidatedCredentials, Report<ConnectorError>> {
+        let secret = self.secret_key();
         Self::client().ping(&secret).await.map_err(|e| match &e {
             stancer_client::error::StancerError::Stancer(req)
                 if matches!(req.http_status, 400 | 401 | 403) =>
             {
-                Report::new(ConnectorError::Configuration(format!(
-                    "Invalid Stancer key: {e}"
-                )))
+                let report = Report::new(ConnectorError::Configuration(
+                    "Invalid secret key".to_string(),
+                ))
+                .attach(e.to_string());
+                if req.http_status == 400 {
+                    report
+                } else {
+                    report.attach_opaque(CredentialsRejected)
+                }
             }
             _ => Report::new(ConnectorError::Transport(format!(
                 "Couldn't reach Stancer to verify the key: {e}"
             ))),
         })?;
-        Ok(ProviderData::Stancer(StancerPublicData::default()))
+        let secret = secrecy::ExposeSecret::expose_secret(&secret);
+        Ok(ValidatedCredentials {
+            public: PaymentConnectorPublicData::Stancer(StancerPublicData::default()),
+            account: ProviderAccount {
+                // Stancer exposes no account: the secret key alone identifies the merchant.
+                account_id: None,
+                display_name: None,
+                livemode: secret.starts_with("sprod_"),
+                key_hint: Some(mask_secret(secret)),
+                methods: static_methods(
+                    STANCER_CAPABILITIES.supported_payment_methods,
+                    MethodState::Enabled,
+                ),
+                checked_at: chrono::Utc::now().naive_utc(),
+            },
+        })
     }
 }
 
@@ -140,11 +170,10 @@ impl CustomerOps for StancerConnector {
     /// retried create conflicts on it and resolves by lookup instead of failing.
     async fn create_customer(
         &self,
-        connector: &Connector,
         customer: &Customer,
         _request: CreateCustomerRequest,
     ) -> Result<ExternalCustomerRef, Report<ConnectorError>> {
-        let secret_key = extract_secret_key(connector)?;
+        let secret_key = self.secret_key();
         let client = Self::client();
 
         let external_id = customer.id.as_base62();
@@ -226,11 +255,10 @@ impl MandateOps for StancerConnector {
     /// intent from a retry is harmless (only ONE hosted page is ever shown).
     async fn initiate_mandate_setup(
         &self,
-        connector: &Connector,
         connection: &CustomerConnection,
         request: MandateSetupRequest<'_>,
     ) -> Result<MandateSetupInstruction, Report<ConnectorError>> {
-        let secret_key = extract_secret_key(connector)?;
+        let secret_key = self.secret_key();
         let client = Self::client();
 
         if !request
@@ -274,7 +302,7 @@ impl MandateOps for StancerConnector {
             setup_intent_posture(request.checkout.as_ref(), request.invoice_payment.as_ref())
                 .map_err(|msg| Report::new(ConnectorError::MandateSetup(msg)))?;
 
-        let metadata = setup_intent_metadata(connector, connection, &request);
+        let metadata = setup_intent_metadata(&self.connector, connection, &request);
 
         let intent = client
             .create_payment_intent(
@@ -320,11 +348,10 @@ impl MandateOps for StancerConnector {
 
     async fn fetch_payment_method(
         &self,
-        connector: &Connector,
         external_payment_method_id: &str,
         _external_customer_id: &str,
     ) -> Result<PaymentMethodSnapshot, Report<ConnectorError>> {
-        let secret_key = extract_secret_key(connector)?;
+        let secret_key = self.secret_key();
         let card = Self::client()
             .get_card(external_payment_method_id, &secret_key)
             .await
@@ -339,10 +366,9 @@ impl MandateOps for StancerConnector {
     /// dead intent → failed; absent otherwise → retryable ([`HostedSetupPending`]).
     async fn complete_mandate_setup(
         &self,
-        connector: &Connector,
         intent_id: &str,
     ) -> Result<PaymentMethodSnapshot, Report<ConnectorError>> {
-        let secret_key = extract_secret_key(connector)?;
+        let secret_key = self.secret_key();
         let client = Self::client();
 
         let intent: StancerPaymentIntent = client
@@ -386,12 +412,8 @@ impl MandateOps for StancerConnector {
     /// is certainly dead (DELETE ok, 404, or a follow-up read shows
     /// `canceled`/`unpaid`). Any intent that still could — or did — capture
     /// money is `Err`, so callers fail closed instead of orphaning it.
-    async fn cancel_mandate_setup(
-        &self,
-        connector: &Connector,
-        intent_id: &str,
-    ) -> Result<(), Report<ConnectorError>> {
-        let secret_key = extract_secret_key(connector)?;
+    async fn cancel_mandate_setup(&self, intent_id: &str) -> Result<(), Report<ConnectorError>> {
+        let secret_key = self.secret_key();
         let client = Self::client();
 
         match client.delete_payment_intent(intent_id, &secret_key).await {
@@ -447,10 +469,9 @@ impl PaymentOps for StancerConnector {
     /// DB rollback + retry dedupes at the provider instead of charging twice.
     async fn charge_off_session(
         &self,
-        connector: &Connector,
         request: ChargeRequest<'_>,
     ) -> Result<ChargeOutcome, Report<ConnectorError>> {
-        let secret_key = extract_secret_key(connector)?;
+        let secret_key = self.secret_key();
         let client = Self::client();
 
         let currency = validate_currency(request.currency)
@@ -491,6 +512,17 @@ impl PaymentOps for StancerConnector {
                             .into_iter()
                             .find(|p| p.unique_id.as_deref() == Some(unique_id.as_str()))
                         {
+                            if existing.amount != request.amount_minor
+                                || !existing.currency.eq_ignore_ascii_case(request.currency)
+                            {
+                                return Err(adoption_mismatch(
+                                    &existing.id,
+                                    existing.amount,
+                                    &existing.currency,
+                                    payment_to_outcome(existing.clone(), existing.amount),
+                                    &request,
+                                ));
+                            }
                             log::info!(
                                 "Stancer payment for unique_id {unique_id} already exists as {}; adopting",
                                 existing.id
@@ -513,30 +545,54 @@ impl PaymentOps for StancerConnector {
     }
 }
 
+/// No unconfirmed intents: wallet top-ups are offered on providers that can pin one.
+impl super::connector::WalletOps for StancerConnector {}
+
 #[async_trait]
 impl RefundOps for StancerConnector {
     async fn refund(
         &self,
-        _connector: &Connector,
-        _request: RefundRequest<'_>,
+        request: RefundRequest<'_>,
     ) -> Result<RefundOutcome, Report<ConnectorError>> {
-        Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Stancer,
-            capability: "refund",
-        }))
+        let refund = Self::client()
+            .create_refund(
+                CreateRefund {
+                    payment: request.external_transaction_id.to_string(),
+                    amount: Some(request.amount_minor),
+                },
+                &self.secret_key(),
+            )
+            .await
+            .map_err(|e| match e {
+                // The refund may have gone through before the response failed to parse.
+                StancerError::JSONSerialize(e) => Report::new(ConnectorError::Transport(format!(
+                    "unreadable stancer refund response: {e}"
+                ))),
+                e => map_stancer_error(StancerOp::Refund, e),
+            })?;
+
+        Ok(refund_outcome(refund))
     }
 
-    /// `fetch_refund` exists to resolve amount-less refund *webhooks*; Stancer
-    /// has no webhooks, so nothing can ever observe a refund this way.
+    /// Stancer pushes nothing, so the reconcile sweep reads a pending refund here.
     async fn fetch_refund(
         &self,
-        _connector: &Connector,
-        _external_refund_id: &str,
+        external_refund_id: &str,
+        _external_transaction_id: Option<&str>,
     ) -> Result<RefundSnapshot, Report<ConnectorError>> {
-        Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Stancer,
-            capability: "fetch_refund",
-        }))
+        let refund = Self::client()
+            .get_refund(external_refund_id, &self.secret_key())
+            .await
+            .map_err(|e| map_stancer_error(StancerOp::Refund, e))?;
+
+        Ok(RefundSnapshot {
+            status: remote_refund_status(refund.status, &refund.id),
+            external_transaction_id: refund.payment,
+            external_refund_id: refund.id,
+            amount_minor: refund.amount,
+            cumulative_refunded_minor: None,
+            currency: refund.currency.to_ascii_uppercase(),
+        })
     }
 }
 
@@ -546,10 +602,9 @@ impl ReconcileOps for StancerConnector {
     /// the reconcile worker polls every Pending transaction to resolution.
     async fn fetch_transaction_status(
         &self,
-        connector: &Connector,
         external_transaction_id: &str,
     ) -> Result<RemoteTransactionStatus, Report<ConnectorError>> {
-        let secret_key = extract_secret_key(connector)?;
+        let secret_key = self.secret_key();
 
         let result = Self::client()
             .get_payment(external_transaction_id, &secret_key)
@@ -568,35 +623,29 @@ impl ReconcileOps for StancerConnector {
 impl WebhookOps for StancerConnector {
     async fn register_webhook(
         &self,
-        _connector: &Connector,
         _url: &str,
         _subscriptions: &[NormalizedEventSubscription],
     ) -> Result<RegisteredWebhook, Report<ConnectorError>> {
         Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Stancer,
+            provider: self.provider().into(),
             capability: "webhook.register (Stancer has no webhook mechanism)",
         }))
     }
 
-    async fn unregister_webhook(
-        &self,
-        _connector: &Connector,
-        _endpoint_id: &str,
-    ) -> Result<(), Report<ConnectorError>> {
+    async fn unregister_webhook(&self, _endpoint_id: &str) -> Result<(), Report<ConnectorError>> {
         Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Stancer,
+            provider: self.provider().into(),
             capability: "webhook.unregister",
         }))
     }
 
     async fn sync_webhook_events(
         &self,
-        _connector: &Connector,
         _endpoint_id: &str,
         _subscriptions: &[NormalizedEventSubscription],
     ) -> Result<(), Report<ConnectorError>> {
         Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Stancer,
+            provider: self.provider().into(),
             capability: "webhook.sync",
         }))
     }
@@ -605,7 +654,6 @@ impl WebhookOps for StancerConnector {
     /// one is rejected unconditionally.
     fn verify_signature(
         &self,
-        _connector: &Connector,
         _payload: &[u8],
         _headers: &HeaderMap,
         _secret: &SecretString,
@@ -615,7 +663,6 @@ impl WebhookOps for StancerConnector {
 
     fn parse_event(
         &self,
-        _connector: &Connector,
         _payload: &[u8],
         _headers: &HeaderMap,
     ) -> Result<Option<NormalizedWebhookEvent>, Report<ConnectorError>> {
@@ -666,7 +713,7 @@ fn setup_intent_posture(
 /// Correlation ids, plus exactly one of the invoice or checkout context with
 /// the pre-created transaction the capture must be recorded onto.
 fn setup_intent_metadata(
-    connector: &Connector,
+    connector: &ConnectorRef,
     connection: &CustomerConnection,
     request: &MandateSetupRequest<'_>,
 ) -> HashMap<String, String> {
@@ -708,18 +755,6 @@ fn setup_intent_metadata(
         );
     }
     metadata
-}
-
-fn extract_secret_key(connector: &Connector) -> Result<SecretString, Report<ConnectorError>> {
-    match &connector.sensitive {
-        Some(ProviderSensitiveData::Stancer(d)) => Ok(SecretString::from(d.api_secret_key.clone())),
-        Some(_) => Err(Report::new(ConnectorError::Configuration(
-            "connector is not a stancer connector".into(),
-        ))),
-        None => Err(Report::new(ConnectorError::Configuration(
-            "stancer connector has no api_secret_key".into(),
-        ))),
-    }
 }
 
 /// Caller's idempotency key → Stancer `unique_id` (≤36 chars): verbatim when
@@ -783,17 +818,13 @@ fn decline_kind_for(response: Option<&str>) -> DeclineKind {
 }
 
 /// Map the synchronous `POST /v2/payments/` response. Stancer captures in an
-/// end-of-day batch, so `to_capture`/`capture_sent` (bank-authorized, funds
-/// committed — Stancer shows these as "paid") settle like `captured`, not Pending.
+/// end-of-day batch, and a `to_capture`/`capture_sent` payment can still end
+/// `canceled` (live-verified), so only `captured` settles; reconcile polls the rest.
 fn payment_to_outcome(payment: StancerPayment, amount_minor: i64) -> ChargeOutcome {
     let id = payment.id;
     let response = payment.response.filter(|r| r != "00");
     match payment.status {
-        Some(
-            StancerPaymentStatus::Captured
-            | StancerPaymentStatus::ToCapture
-            | StancerPaymentStatus::CaptureSent,
-        ) => ChargeOutcome::Succeeded(ChargeReceipt {
+        Some(StancerPaymentStatus::Captured) => ChargeOutcome::Succeeded(ChargeReceipt {
             external_id: id,
             // No separate settled figure exists on the create response.
             amount_received_minor: amount_minor,
@@ -803,7 +834,9 @@ fn payment_to_outcome(payment: StancerPayment, amount_minor: i64) -> ChargeOutco
         // `authorized` can still expire/cancel; `Unknown` is unmodeled — never
         // fabricate success/failure, let reconcile re-poll to a modeled status.
         Some(
-            StancerPaymentStatus::Authorize
+            StancerPaymentStatus::ToCapture
+            | StancerPaymentStatus::CaptureSent
+            | StancerPaymentStatus::Authorize
             | StancerPaymentStatus::Authorized
             | StancerPaymentStatus::Capture
             | StancerPaymentStatus::Unknown,
@@ -853,23 +886,23 @@ fn payment_to_outcome(payment: StancerPayment, amount_minor: i64) -> ChargeOutco
 fn remote_status_from_payment(payment: StancerPayment) -> RemoteTransactionStatus {
     let response = payment.response.filter(|r| r != "00");
     match payment.status {
+        Some(StancerPaymentStatus::Captured | StancerPaymentStatus::Disputed) => {
+            RemoteTransactionStatus::Succeeded {
+                amount_received_minor: payment.amount,
+                currency: payment.currency,
+                processed_at: chrono::Utc::now().naive_utc(),
+            }
+        }
+        // Authorized by the bank: only the capture is left, nothing awaits the customer.
         Some(
-            StancerPaymentStatus::Captured
-            | StancerPaymentStatus::ToCapture
+            StancerPaymentStatus::ToCapture
             | StancerPaymentStatus::CaptureSent
-            | StancerPaymentStatus::Disputed,
-        ) => RemoteTransactionStatus::Succeeded {
-            amount_received_minor: payment.amount,
-            currency: payment.currency,
-            processed_at: chrono::Utc::now().naive_utc(),
-        },
-        Some(
-            StancerPaymentStatus::Authorize
             | StancerPaymentStatus::Authorized
-            | StancerPaymentStatus::Capture
-            | StancerPaymentStatus::Unknown,
-        )
-        | None => RemoteTransactionStatus::Pending,
+            | StancerPaymentStatus::Capture,
+        ) => RemoteTransactionStatus::Processing,
+        Some(StancerPaymentStatus::Authorize | StancerPaymentStatus::Unknown) | None => {
+            RemoteTransactionStatus::Pending
+        }
         Some(StancerPaymentStatus::Canceled) => RemoteTransactionStatus::Cancelled,
         Some(
             status @ (StancerPaymentStatus::Refused
@@ -883,6 +916,48 @@ fn remote_status_from_payment(payment: StancerPayment) -> RemoteTransactionStatu
     }
 }
 
+fn remote_refund_status(status: StancerRefundStatus, refund_id: &str) -> RemoteRefundStatus {
+    match status {
+        StancerRefundStatus::Refunded => RemoteRefundStatus::Succeeded,
+        StancerRefundStatus::ToRefund
+        | StancerRefundStatus::RefundSent
+        | StancerRefundStatus::AwaitingApproval
+        | StancerRefundStatus::Unknown => RemoteRefundStatus::Pending,
+        StancerRefundStatus::PaymentCanceled => RemoteRefundStatus::Canceled,
+        status @ (StancerRefundStatus::NotHonored | StancerRefundStatus::Failed) => {
+            RemoteRefundStatus::Failed {
+                code: Some(format!("{status:?}")),
+                message: format!("Stancer refund {refund_id} {status:?}"),
+            }
+        }
+    }
+}
+
+fn refund_outcome(refund: StancerRefund) -> RefundOutcome {
+    match remote_refund_status(refund.status, &refund.id) {
+        RemoteRefundStatus::Succeeded => RefundOutcome::Succeeded(RefundReceipt {
+            external_refund_id: refund.id,
+            amount_refunded_minor: refund.amount,
+            processed_at: chrono::Utc::now().naive_utc(),
+            provider_request_id: None,
+        }),
+        RemoteRefundStatus::Pending => RefundOutcome::Pending(RefundAcknowledged {
+            external_refund_id: refund.id,
+            provider_request_id: None,
+        }),
+        RemoteRefundStatus::Failed { code, message } => RefundOutcome::Failed(RefundFailure {
+            code,
+            message,
+            provider_request_id: None,
+        }),
+        RemoteRefundStatus::Canceled => RefundOutcome::Failed(RefundFailure {
+            code: Some("PaymentCanceled".to_string()),
+            message: format!("Stancer refund {} canceled with its payment", refund.id),
+            provider_request_id: None,
+        }),
+    }
+}
+
 /// Which operation produced an error, so a 4xx maps to the right semantic
 /// `ConnectorError` variant instead of everything reading as a failed charge.
 #[derive(Clone, Copy, Debug)]
@@ -891,6 +966,7 @@ enum StancerOp {
     Mandate,
     PaymentMethod,
     Charge,
+    Refund,
 }
 
 impl StancerOp {
@@ -901,6 +977,7 @@ impl StancerOp {
             // Reading a card is a read on the customer's setup.
             StancerOp::PaymentMethod => ConnectorError::CustomerOp(msg),
             StancerOp::Charge => ConnectorError::Charge(msg),
+            StancerOp::Refund => ConnectorError::Refund(msg),
         }
     }
 }
@@ -919,6 +996,7 @@ fn map_stancer_error(op: StancerOp, e: StancerError) -> Report<ConnectorError> {
                 "stancer rejected credentials ({}): {req_err}",
                 req_err.http_status
             )))
+            .attach_opaque(CredentialsRejected)
         }
         // Throttling / request timeout: transient, retryable.
         StancerError::Stancer(req_err) if matches!(req_err.http_status, 408 | 429) => {
@@ -949,9 +1027,13 @@ fn normalize_stancer_mobile(phone: Option<&str>) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::connector::MandateSetupMode;
     use super::*;
-    use crate::domain::connectors::{Connector, StancerPublicData, StancerSensitiveData};
-    use crate::domain::enums::ConnectorTypeEnum;
+    use crate::domain::connectors::{Connector, CredentialState, StancerSensitiveData};
+    use crate::domain::connectors::{
+        ConnectorConfig, PaymentConnectorConfig, PaymentProviderConfig,
+    };
+
     use chrono::NaiveDateTime;
     use common_domain::ids::{ConnectorId, TenantId};
 
@@ -975,19 +1057,29 @@ mod tests {
 
     fn test_connector() -> Connector {
         Connector {
+            status: crate::domain::enums::ConnectorStatusEnum::Active,
+            credentials: CredentialState::Unverified,
+            webhook_route: None,
             id: ConnectorId::new(),
             created_at: NaiveDateTime::default(),
             tenant_id: TenantId::new(),
             alias: "stancer-test".into(),
-            connector_type: ConnectorTypeEnum::PaymentProvider,
-            provider: ConnectorProviderEnum::Stancer,
-            data: Some(crate::domain::connectors::ProviderData::Stancer(
-                StancerPublicData::default(),
+            config: ConnectorConfig::Payment(PaymentConnectorConfig::configured(
+                PaymentProviderConfig::Stancer(test_sensitive()),
             )),
-            sensitive: Some(ProviderSensitiveData::Stancer(StancerSensitiveData {
-                api_secret_key: "stest_unit".into(),
-            })),
         }
+    }
+
+    fn test_sensitive() -> StancerSensitiveData {
+        StancerSensitiveData {
+            api_secret_key: "stest_unit".into(),
+        }
+    }
+
+    /// The adapter as the factory builds it: bound to one connector, holding
+    /// its secret for life.
+    fn test_stancer(connector: &Connector) -> StancerConnector {
+        StancerConnector::new(ConnectorRef::from(connector), test_sensitive())
     }
 
     fn payment(status: Option<StancerPaymentStatus>, response: Option<&str>) -> StancerPayment {
@@ -1027,17 +1119,20 @@ mod tests {
 
     #[test]
     fn capabilities_match_provider_reality() {
-        let connector = StancerConnector::new();
-        let caps = connector.capabilities();
-        assert!(caps.supports_cards);
+        let stancer = test_stancer(&test_connector());
+        let caps = stancer.capabilities();
+        assert!(caps.supports_cards());
         assert!(caps.supports_mandates);
-        assert!(!caps.supports_refunds, "refund() is Unsupported");
-        assert!(!caps.supports_partial_refunds);
+        assert!(caps.supports_partial_refunds());
+        assert!(
+            caps.refund_replay_window.is_none(),
+            "a refund has no idempotency key, so it is never replayed"
+        );
         assert!(caps.supports_3ds);
         assert!(!caps.supports_disputes);
-        assert!(!caps.supports_self_webhook_registration);
+        assert!(!caps.supports_self_webhook_registration());
         assert!(caps.asynchronous_settlement);
-        assert_eq!(caps.mandate_setup_mode, MandateSetupMode::HostedRedirect);
+        assert_eq!(caps.mandate_setup_mode(), MandateSetupMode::HostedRedirect);
         assert_eq!(
             caps.supported_payment_methods,
             &[PaymentMethodTypeEnum::Card]
@@ -1061,26 +1156,15 @@ mod tests {
             payment_to_outcome(payment(Some(StancerPaymentStatus::Disputed), None), 4_200),
             ChargeOutcome::Succeeded(_)
         ));
-        // Batch capture: to_capture/capture_sent are bank-authorized and committed
-        // (Stancer shows them "paid"), so they settle immediately like captured.
-        for status in [
-            StancerPaymentStatus::ToCapture,
-            StancerPaymentStatus::CaptureSent,
-        ] {
-            assert!(
-                matches!(
-                    payment_to_outcome(payment(Some(status.clone()), None), 4_200),
-                    ChargeOutcome::Succeeded(_)
-                ),
-                "status {status:?} must be Succeeded"
-            );
-        }
     }
 
-    /// Unmodeled statuses must never be fabricated into a success or failure.
+    /// Unmodeled statuses must never be fabricated into a success or failure, and a batch
+    /// capture not yet run can still end `canceled`.
     #[test]
     fn payment_to_outcome_pending_states() {
         for status in [
+            Some(StancerPaymentStatus::ToCapture),
+            Some(StancerPaymentStatus::CaptureSent),
             Some(StancerPaymentStatus::Authorize),
             Some(StancerPaymentStatus::Authorized),
             Some(StancerPaymentStatus::Capture),
@@ -1160,21 +1244,22 @@ mod tests {
             remote_status_from_payment(payment(Some(StancerPaymentStatus::Disputed), None)),
             RemoteTransactionStatus::Succeeded { .. }
         ));
-        for settled in [
+        for processing in [
             StancerPaymentStatus::ToCapture,
             StancerPaymentStatus::CaptureSent,
+            StancerPaymentStatus::Authorized,
+            StancerPaymentStatus::Capture,
         ] {
             assert!(
                 matches!(
-                    remote_status_from_payment(payment(Some(settled.clone()), None)),
-                    RemoteTransactionStatus::Succeeded { .. }
+                    remote_status_from_payment(payment(Some(processing.clone()), None)),
+                    RemoteTransactionStatus::Processing
                 ),
-                "status {settled:?} must reconcile as Succeeded"
+                "status {processing:?} must reconcile as Processing"
             );
         }
         for pending in [
             Some(StancerPaymentStatus::Authorize),
-            Some(StancerPaymentStatus::Capture),
             Some(StancerPaymentStatus::Unknown),
             None,
         ] {
@@ -1356,9 +1441,8 @@ mod tests {
     #[test]
     fn webhooks_always_reject() {
         let connector = test_connector();
-        let stancer = StancerConnector::new();
+        let stancer = test_stancer(&connector);
         let result = stancer.verify_signature(
-            &connector,
             b"{}",
             &HeaderMap::new(),
             &SecretString::from("any".to_string()),
@@ -1368,38 +1452,60 @@ mod tests {
             Some(ConnectorError::SignatureVerification)
         ));
 
-        let parsed = stancer.parse_event(&connector, b"{}", &HeaderMap::new());
+        let parsed = stancer.parse_event(b"{}", &HeaderMap::new());
         assert!(matches!(
             parsed.as_ref().err().map(|r| r.current_context()),
             Some(ConnectorError::PayloadDecode(_))
         ));
     }
 
-    #[tokio::test]
-    async fn refund_ops_are_unsupported() {
-        let connector = test_connector();
-        let stancer = StancerConnector::new();
-        let refund = stancer
-            .refund(
-                &connector,
-                RefundRequest {
-                    external_transaction_id: "paym_x",
-                    amount_minor: 100,
-                    currency: "EUR",
-                    reason: None,
-                    idempotency_key: super::super::model::IdempotencyKey::new("k"),
-                },
-            )
-            .await;
-        assert!(matches!(
-            refund.as_ref().err().map(|r| r.current_context()),
-            Some(ConnectorError::Unsupported { .. })
-        ));
+    fn stancer_refund(status: &str) -> StancerRefund {
+        serde_json::from_value(serde_json::json!({
+            "id": "refd_1", "payment": "paym_1", "amount": 250, "currency": "eur", "status": status
+        }))
+        .unwrap()
+    }
 
-        let fetched = stancer.fetch_refund(&connector, "refund_x").await;
+    #[test]
+    fn refund_outcome_follows_the_refund_status() {
         assert!(matches!(
-            fetched.as_ref().err().map(|r| r.current_context()),
-            Some(ConnectorError::Unsupported { .. })
+            refund_outcome(stancer_refund("refunded")),
+            RefundOutcome::Succeeded(ref r) if r.external_refund_id == "refd_1" && r.amount_refunded_minor == 250
+        ));
+        for pending in [
+            "to_refund",
+            "refund_sent",
+            "awaiting_approval",
+            "something_new",
+        ] {
+            assert!(
+                matches!(
+                    refund_outcome(stancer_refund(pending)),
+                    RefundOutcome::Pending(ref a) if a.external_refund_id == "refd_1"
+                ),
+                "{pending} must stay Pending"
+            );
+        }
+        for refused in ["not_honored", "failed", "payment_canceled"] {
+            assert!(
+                matches!(
+                    refund_outcome(stancer_refund(refused)),
+                    RefundOutcome::Failed(_)
+                ),
+                "{refused} must fail the refund"
+            );
+        }
+    }
+
+    #[test]
+    fn remote_refund_status_separates_cancel_from_failure() {
+        assert!(matches!(
+            remote_refund_status(StancerRefundStatus::PaymentCanceled, "refd_1"),
+            RemoteRefundStatus::Canceled
+        ));
+        assert!(matches!(
+            remote_refund_status(StancerRefundStatus::NotHonored, "refd_1"),
+            RemoteRefundStatus::Failed { code: Some(ref c), .. } if c == "NotHonored"
         ));
     }
 
@@ -1465,6 +1571,7 @@ mod tests {
         use common_domain::ids::{CustomerConnectionId, CustomerId};
 
         let connector = test_connector();
+        let connector_ref = ConnectorRef::from(&connector);
         let connection = CustomerConnection {
             id: CustomerConnectionId::new(),
             customer_id: CustomerId::new(),
@@ -1479,6 +1586,7 @@ mod tests {
                 MandateSetupRequest {
                     descriptor: None,
                     webhook_url: None,
+                    purpose: crate::adapters::payment::model::SetupPurpose::Settings,
                     payment_methods: &[PaymentMethodTypeEnum::Card],
                     idempotency_key: IdempotencyKey::new("k"),
                     return_url: Some("https://api.example.invalid/return".into()),
@@ -1500,7 +1608,7 @@ mod tests {
             }),
             None,
         );
-        let metadata = setup_intent_metadata(&connector, &connection, &checkout_request);
+        let metadata = setup_intent_metadata(&connector_ref, &connection, &checkout_request);
         assert_eq!(
             metadata
                 .get("meteroid.checkout_session_id")
@@ -1531,7 +1639,7 @@ mod tests {
                 currency: "EUR".into(),
             }),
         );
-        let metadata = setup_intent_metadata(&connector, &connection, &in_flow_invoice_request);
+        let metadata = setup_intent_metadata(&connector_ref, &connection, &in_flow_invoice_request);
         assert_eq!(
             metadata.get("meteroid.invoice_id").map(String::as_str),
             Some("invB62")
@@ -1545,7 +1653,7 @@ mod tests {
         // Legacy setup carries no transaction id — completion keys the
         // off-session fallback on its absence.
         let invoice_request = base_request(Some("invB62".into()), None, None);
-        let metadata = setup_intent_metadata(&connector, &connection, &invoice_request);
+        let metadata = setup_intent_metadata(&connector_ref, &connection, &invoice_request);
         assert_eq!(
             metadata.get("meteroid.invoice_id").map(String::as_str),
             Some("invB62")
@@ -1568,13 +1676,13 @@ mod tests {
             external_customer_id: "cust_ext".into(),
             supported_payment_types: Some(vec![PaymentMethodTypeEnum::Card]),
         };
-        let result = StancerConnector::new()
+        let result = test_stancer(&connector)
             .initiate_mandate_setup(
-                &connector,
                 &connection,
                 MandateSetupRequest {
                     descriptor: None,
                     webhook_url: None,
+                    purpose: crate::adapters::payment::model::SetupPurpose::Settings,
                     payment_methods: &[PaymentMethodTypeEnum::DirectDebitSepa],
                     idempotency_key: super::super::model::IdempotencyKey::new("k"),
                     return_url: Some("https://api.example.invalid/return".into()),

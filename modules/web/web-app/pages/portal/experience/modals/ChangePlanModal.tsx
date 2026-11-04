@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 
 import { ChangeDirection } from '@/rpc/portal/subscription/v1/subscription_pb'
 
-import { date, feeLabel, money } from '../format'
+import { date, feeLabel, money, packLineView } from '../format'
 import { useSubscription } from '../hooks'
 import { Modal, ModalCloseButton, Mono, PButton, Spinner } from '../primitives'
 
@@ -99,7 +99,15 @@ export const ChangePlanModal = ({
           </p>
         </div>
       ) : plans.length <= 1 ? (
-        <div style={{ padding: '40px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div
+          style={{
+            padding: '40px 24px',
+            textAlign: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+          }}
+        >
           <span style={{ fontSize: 14, fontWeight: 600 }}>No other plans available</span>
           <p style={{ fontSize: 13, color: 'var(--mtp-text-2)', margin: 0 }}>
             There are no other self-service plans to switch to right now. Reach out to your account
@@ -214,7 +222,10 @@ export const ChangePlanModal = ({
               </span>
               {sm.isPreviewLoading && <Spinner size={14} />}
             </div>
-            <Line label="New plan" value={selected.headlineFee ? feeLabel(selected.headlineFee, currency) : 'Custom'} />
+            <Line
+              label="New plan"
+              value={selected.headlineFee ? feeLabel(selected.headlineFee, currency) : 'Custom'}
+            />
             {preview?.proration && preview.proration.daysInPeriod > 0 && (
               <Line
                 label={`Prorated · ${preview.proration.daysRemaining}/${preview.proration.daysInPeriod} days`}
@@ -222,6 +233,17 @@ export const ChangePlanModal = ({
                 accent
               />
             )}
+            {preview?.proration?.packChanges.map((line, idx) => {
+              const view = packLineView(line, currency)
+              return view ? (
+                <Line
+                  key={`${line.kind}-${line.name}-${idx}`}
+                  label={view.label}
+                  hint={line.name}
+                  value={view.value}
+                />
+              ) : null
+            })}
             {preview && preview.proration && Number(preview.proration.arrearsChargeCents) > 0 && (
               <Line
                 label="Added to next invoice"
@@ -263,15 +285,20 @@ export const ChangePlanModal = ({
 
 const Line = ({
   label,
+  hint,
   value,
   accent,
 }: {
   label: string
+  hint?: string
   value: string
   accent?: boolean
 }) => (
-  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-    <span style={{ fontSize: 12.5, color: 'var(--mtp-text-2)' }}>{label}</span>
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+    <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+      <span style={{ fontSize: 12.5, color: 'var(--mtp-text-2)' }}>{label}</span>
+      {hint && <span style={{ fontSize: 11.5, color: 'var(--mtp-text-3)' }}>{hint}</span>}
+    </span>
     <Mono
       style={{
         fontSize: 12.5,

@@ -10,6 +10,7 @@ interface ReadonlyPaymentViewProps {
     | 'external_payment'
     | 'already_active'
     | 'draft_invoice'
+    | 'closed'
     | 'pending_payment'
   title?: string
   message?: string
@@ -99,6 +100,13 @@ function getReasonConfig(reason: ReadonlyPaymentViewProps['reason']) {
       title: 'Draft Invoice',
       message:
         'This invoice is still in draft status and cannot be paid yet. It will be available for payment once finalized.',
+    },
+    closed: {
+      icon: <Info className="h-6 w-6" />,
+      iconColor: 'text-gray-500',
+      title: 'Invoice Closed',
+      message:
+        'This billing period settled with nothing to bill, so no payment is required.',
     },
     pending_payment: {
       icon: <Clock className="h-6 w-6" />,

@@ -12,7 +12,9 @@ message GetInstanceResponse {
   optional string google_oauth_client_id = 6;
   optional string hubspot_oauth_client_id = 7;
   optional string pennylane_oauth_client_id = 8;
-  bool svix_enabled = 9;
+  reserved 9;
+  // Meteroid Cloud, as opposed to a self-hosted instance.
+  bool is_cloud = 10;
 }
 
 message GetInviteDetailsRequest {
@@ -22,6 +24,9 @@ message GetInviteDetailsResponse {
   string organization_name = 1;
   meteroid.api.users.v1.OrganizationUserRole role = 2;
   string invited_email = 3;
+  // Name of the custom role the invitee will receive, when the invite grants one
+  // (implies the MEMBER tier). Absent for plain-tier invites.
+  optional string custom_role_name = 4;
 }
 
 message GetCountriesRequest {}

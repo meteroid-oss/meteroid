@@ -31,10 +31,11 @@ use meteroid_store::domain::PaymentStatusEnum;
 use meteroid_store::domain::checkout_sessions::{
     CheckoutCompletionResult, CheckoutSession, CheckoutSessionStatus, CheckoutType,
 };
-use meteroid_store::domain::connectors::{Connector, GocardlessPublicData, ProviderData};
-use meteroid_store::domain::enums::{
-    ConnectorProviderEnum, ConnectorTypeEnum, InvoicePaymentStatus, InvoiceStatusEnum,
+use meteroid_store::domain::connectors::{
+    Connector, ConnectorConfig, CredentialState, GocardlessEnvironment, GocardlessPublicData,
+    GocardlessSensitiveData, PaymentConnectorConfig, PaymentProviderConfig,
 };
+use meteroid_store::domain::enums::{InvoicePaymentStatus, InvoiceStatusEnum};
 use meteroid_store::domain::payment_transactions::PaymentNextAction;
 use meteroid_store::domain::{CreateCheckoutSession, PaymentTransaction};
 use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
@@ -54,17 +55,26 @@ const HOSTED_PAYMENT_ID: &str = "PM_HOSTED_CK_001";
 /// needed in the DB and no API credentials are used (parse is offline).
 fn gocardless_connector() -> Connector {
     Connector {
+        status: meteroid_store::domain::enums::ConnectorStatusEnum::Active,
+        credentials: CredentialState::Unverified,
+        webhook_route: None,
         id: ConnectorId::new(),
         created_at: chrono::Utc::now().naive_utc(),
         tenant_id: TENANT_ID,
         alias: "gocardless-hosted-checkout-test".to_string(),
-        connector_type: ConnectorTypeEnum::PaymentProvider,
-        provider: ConnectorProviderEnum::Gocardless,
-        data: Some(ProviderData::Gocardless(GocardlessPublicData {
-            creditor_id: Some("CR000TEST0001".to_string()),
-            environment: "sandbox".to_string(),
-        })),
-        sensitive: None,
+        // Webhook parsing never calls the API, but a stored connector always carries credentials.
+        config: ConnectorConfig::Payment(PaymentConnectorConfig::configured(
+            PaymentProviderConfig::Gocardless(
+                GocardlessPublicData {
+                    creditor_id: Some("CR000TEST0001".to_string()),
+                    environment: GocardlessEnvironment::Sandbox,
+                },
+                GocardlessSensitiveData {
+                    access_token: "fake_token".to_string().into(),
+                    webhook_secret: "fake_secret".to_string().into(),
+                },
+            ),
+        )),
     }
 }
 
@@ -78,7 +88,7 @@ async fn deliver_gocardless_webhook(env: &TestEnv, payload: &str) {
         initialize_payment_connector(&connector).expect("gocardless connector init");
 
     let event = connector_impl
-        .parse_event(&connector, payload.as_bytes(), &HeaderMap::new())
+        .parse_event(payload.as_bytes(), &HeaderMap::new())
         .expect("parse_event ok")
         .expect("an event was produced");
 
@@ -156,6 +166,8 @@ async fn create_selfserve_session(env: &TestEnv) -> CheckoutSession {
             checkout_type: CheckoutType::SelfServe,
             subscription_id: None,
             change_date: None,
+            success_url: None,
+            cancel_url: None,
         })
         .await
         .expect("create checkout session")
@@ -184,6 +196,9 @@ async fn initiate(
         .expect("initiate_hosted_checkout succeeds");
 
     match result {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::AwaitingPayment {
             transaction,
             next_action,
@@ -788,7 +803,7 @@ async fn test_combined_billing_request_fulfilled_parses_to_mandate_setup_complet
         initialize_payment_connector(&connector).expect("gocardless connector init");
 
     let event = connector_impl
-        .parse_event(&connector, payload.as_bytes(), &HeaderMap::new())
+        .parse_event(payload.as_bytes(), &HeaderMap::new())
         .expect("parse ok")
         .expect("event produced");
 

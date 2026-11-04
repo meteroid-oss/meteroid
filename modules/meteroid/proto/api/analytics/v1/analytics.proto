@@ -1,0 +1,398 @@
+syntax = "proto3";
+
+package meteroid.api.analytics.v1;
+
+import "api/analytics/v1/models.proto";
+import "api/customers/v1/models.proto";
+
+message ListAtRiskCustomersRequest {
+  uint32 count = 1;
+}
+
+message ListAtRiskCustomersResponse {
+  repeated AtRiskCustomer customers = 1;
+}
+
+message ListOpportunityCustomersRequest {
+  uint32 count = 1;
+}
+
+message ListOpportunityCustomersResponse {
+  repeated OpportunityCustomer customers = 1;
+}
+
+message ListRetentionCohortsRequest {
+  // Most-recent cohorts + max age (months) to include. Default 12 when 0.
+  uint32 months = 1;
+}
+
+message ListRetentionCohortsResponse {
+  repeated RetentionCohort cohorts = 1;
+}
+
+service AnalyticsService {
+  // The "at-risk customers" surface: active customers ranked by revenue-weighted
+  // negative MRR momentum (a high-MRR customer that's contracting is the highest
+  // risk). Tenant scope is taken from the authenticated request, never the body.
+  rpc ListAtRiskCustomers(ListAtRiskCustomersRequest) returns (ListAtRiskCustomersResponse);
+  rpc ListOpportunityCustomers(ListOpportunityCustomersRequest) returns (ListOpportunityCustomersResponse);
+  rpc ListRetentionCohorts(ListRetentionCohortsRequest) returns (ListRetentionCohortsResponse);
+
+  // Explore plane: evaluate a semantic metric definition (the analytics metric
+  // compiler's JSON contract) over the analytics tables. Tenant/customer scope
+  // is taken from the authenticated request, never the explore body. Proxies to
+  // the metering UsageQueryService.ResolveExplore.
+  rpc Explore(ExploreRequest) returns (ExploreResponse);
+
+  // Resolve a named segment's CohortSpec definition to its matching customers (for
+  // the segment builder's live preview + export). Tenant scope is enforced server-side.
+  rpc PreviewSegment(PreviewSegmentRequest) returns (PreviewSegmentResponse);
+
+  // The live roster of a per-customer signal (segment alert): the customers
+  // currently inside it, with MRR + momentum, for the signal detail view.
+  rpc ListSignalMembers(ListSignalMembersRequest) returns (ListSignalMembersResponse);
+
+  // The server-owned, metric-aware catalog: every metric's group, unit,
+  // breakdowns, filters, valid transforms and supported visualizations. The UI
+  // renders its controls from this instead of a hardcoded mirror. Static,
+  // tenant-agnostic data (auth still required).
+  rpc ListMetrics(ListMetricsRequest) returns (ListMetricsResponse);
+
+  // The intelligence / steering surface: the server scans a curated set of
+  // catalog metrics, runs anomaly / trend / segment-movement detection over the
+  // same Explore series the charts show, and returns the ranked findings worth a
+  // human's attention (risk, opportunity, anomaly, trend). Tenant scope is taken
+  // from the authenticated request.
+  rpc ListInsights(ListInsightsRequest) returns (ListInsightsResponse);
+
+  // Cheap, cached per-metric preview series for the /reports catalog cards: a
+  // coarse (weekly) sampling of each accessible metric over a trailing window,
+  // returned as bare y-values for a decorative mini chart — not the interactive
+  // Explore chart. Server-cached per tenant (Redis, in-memory fallback), so the
+  // grid's whole fan-out collapses to one warm read. Tenant scope is taken from
+  // the authenticated request; metrics above the tenant's plan are omitted.
+  rpc ListMetricPreviews(ListMetricPreviewsRequest) returns (ListMetricPreviewsResponse);
+}
+
+message ListMetricPreviewsRequest {
+}
+
+// A compact, cache-friendly preview for one catalog metric: just the *shape* the
+// card draws as a mini chart. Values are the raw per-window totals (oldest →
+// newest), single-series (no breakdown); the client normalizes them to the
+// card's viewBox, so absolute scale and currency are intentionally omitted.
+message MetricPreview {
+  string metric_key = 1;
+  repeated double points = 2;
+}
+
+message ListMetricPreviewsResponse {
+  // One entry per metric with activity in the window. Metrics with no data (or
+  // above the tenant's plan) are omitted; the card falls back to its motif.
+  repeated MetricPreview previews = 1;
+}
+
+message ListMetricsRequest {
+}
+
+message ListMetricsResponse {
+  repeated MetricDescriptor metrics = 1;
+}
+
+enum MetricGroup {
+  METRIC_GROUP_UNSPECIFIED = 0;
+  METRIC_GROUP_RECURRING_REVENUE = 1;
+  METRIC_GROUP_REVENUE = 2;
+  METRIC_GROUP_CASH = 3;
+  METRIC_GROUP_SUBSCRIPTIONS = 4;
+  METRIC_GROUP_CUSTOMERS = 5;
+  METRIC_GROUP_USAGE = 6;
+  METRIC_GROUP_RETENTION = 7;
+}
+
+enum MetricUnit {
+  METRIC_UNIT_UNSPECIFIED = 0;
+  METRIC_UNIT_CURRENCY = 1;
+  METRIC_UNIT_COUNT = 2;
+  METRIC_UNIT_PERCENT = 3;
+  METRIC_UNIT_DURATION = 4;
+}
+
+enum SummaryKind {
+  SUMMARY_KIND_UNSPECIFIED = 0;
+  // Sum a per-period quantity over the range.
+  SUMMARY_KIND_FLOW = 1;
+  // Take the latest value of a cumulative balance.
+  SUMMARY_KIND_STOCK = 2;
+}
+
+enum Visualization {
+  VISUALIZATION_UNSPECIFIED = 0;
+  VISUALIZATION_LINE = 1;
+  VISUALIZATION_AREA = 2;
+  VISUALIZATION_BAR = 3;
+  VISUALIZATION_STACKED_BAR = 4;
+  VISUALIZATION_TABLE = 5;
+  VISUALIZATION_BREAKDOWN_TABLE = 6;
+  VISUALIZATION_KPI = 7;
+}
+
+// Whether a rising value is good, bad or directionless — drives trend/delta colouring.
+enum Polarity {
+  POLARITY_UNSPECIFIED = 0;
+  POLARITY_HIGHER_IS_BETTER = 1;
+  POLARITY_LOWER_IS_BETTER = 2;
+  // A mix/breakdown metric with no good/bad direction.
+  POLARITY_NEUTRAL = 3;
+}
+
+enum MetricGrain {
+  METRIC_GRAIN_UNSPECIFIED = 0;
+  METRIC_GRAIN_MINUTE = 1;
+  METRIC_GRAIN_HOUR = 2;
+  METRIC_GRAIN_DAY = 3;
+  METRIC_GRAIN_WEEK = 4;
+}
+
+enum FilterKind {
+  FILTER_KIND_UNSPECIFIED = 0;
+  FILTER_KIND_PLAN = 1;
+  FILTER_KIND_COUNTRY = 2;
+  // A closed set; allowed values are carried in MetricFilter.enum_values.
+  FILTER_KIND_ENUM = 3;
+  // Entity filters: values are opaque ids resolved through a searchable picker,
+  // not a fixed enum. A display hint only — resolution keys off MetricFilter.key.
+  FILTER_KIND_PRODUCT = 4;
+  FILTER_KIND_CUSTOMER = 5;
+}
+
+enum TransformKind {
+  TRANSFORM_KIND_UNSPECIFIED = 0;
+  TRANSFORM_KIND_RUNNING_TOTAL = 1;
+  TRANSFORM_KIND_PERIOD_OVER_PERIOD_DELTA = 2;
+  TRANSFORM_KIND_PERCENT_CHANGE = 3;
+  TRANSFORM_KIND_MOVING_AVERAGE = 4;
+}
+
+message MetricBreakdown {
+  // The fact column the builder groups on (e.g. movement_type).
+  string key = 1;
+  string label = 2;
+}
+
+message MetricFilter {
+  string key = 1;
+  string label = 2;
+  FilterKind kind = 3;
+  // Allowed values when kind == FILTER_KIND_ENUM.
+  repeated string enum_values = 4;
+}
+
+message MetricTransform {
+  TransformKind kind = 1;
+  // Window length for TRANSFORM_KIND_MOVING_AVERAGE; otherwise 0.
+  uint32 periods = 2;
+}
+
+// Raw-event aggregation operator for a tenant-defined usage metric.
+enum AggregateOp {
+  AGGREGATE_OP_UNSPECIFIED = 0;
+  AGGREGATE_OP_SUM = 1;
+  AGGREGATE_OP_AVG = 2;
+  AGGREGATE_OP_MIN = 3;
+  AGGREGATE_OP_MAX = 4;
+  AGGREGATE_OP_COUNT = 5;
+  AGGREGATE_OP_COUNT_DISTINCT = 6;
+  AGGREGATE_OP_LATEST = 7;
+}
+
+// How to project a tenant billable/usage metric into the analytics framework:
+// an aggregation over the raw event stream. The client echoes this back in the
+// explore request so the chosen usage metric resolves to a raw-event query.
+message CustomMetricSpec {
+  string event_code = 1;
+  AggregateOp aggregate = 2;
+  // Event property to aggregate; empty for COUNT.
+  string value_property = 3;
+  // Unit-conversion divisor from the billable metric: usage is divided by this factor
+  // to match billing. Absent (or <= 1) means no conversion.
+  optional int32 unit_conversion_factor = 4;
+  // Pre-aggregation filters from the billable metric, collapsed to include/exclude, so a
+  // saved metric explored here is restricted exactly like the billing path meters it.
+  repeated CustomMetricFilter filters = 5;
+}
+
+message CustomMetricFilter {
+  string property = 1;
+  repeated string values = 2;
+  FilterOp op = 3;
+  enum FilterOp {
+    IN = 0;
+    NOT_IN = 1;
+  }
+}
+
+// The product-facing record for one catalog metric: everything the UI needs to
+// render controls and visualizations without hardcoding metadata.
+message MetricDescriptor {
+  string key = 1;
+  string label = 2;
+  MetricGroup group = 3;
+  string description = 4;
+  MetricUnit unit = 5;
+  SummaryKind summary = 6;
+  bool is_currency = 7;
+  Visualization default_visualization = 8;
+  repeated Visualization supported_visualizations = 9;
+  MetricGrain default_grain = 10;
+  repeated MetricGrain available_grains = 11;
+  repeated MetricBreakdown available_breakdowns = 12;
+  // The dimension the series splits by when the client sends no breakdown (the
+  // metric's natural split, e.g. movement_type). Absent for metrics that read as
+  // a single series by default — the client must not auto-split those.
+  optional string default_breakdown = 19;
+  repeated MetricFilter available_filters = 13;
+  repeated MetricTransform available_transforms = 14;
+  bool supports_cohort = 15;
+  // Whether a `cp:<key>` breakdown (a customer custom property) is accepted.
+  bool supports_customer_property_breakdown = 21;
+  repeated string related_metrics = 16;
+  Polarity polarity = 20;
+  // Set for tenant-defined usage metrics; the client must echo it in the
+  // explore request. Absent for built-in catalog metrics.
+  optional CustomMetricSpec custom_metric = 17;
+  // Entitlement tier this metric needs. The catalog lists every metric; the
+  // client renders the ones above the tenant's plan as locked. Explore is the
+  // authoritative gate — a locked metric's query is rejected server-side.
+  MetricTier tier = 18;
+}
+
+enum MetricTier {
+  METRIC_TIER_UNSPECIFIED = 0;
+  METRIC_TIER_FREE = 1;
+  METRIC_TIER_ANALYTICS = 2;
+  METRIC_TIER_ADVANCED = 3;
+}
+
+message ExploreRequest {
+  // Serialized metering ExploreRequest JSON: metric catalog + select + window +
+  // filters + optional cohort. Carried as JSON to avoid mirroring the recursive
+  // metric model in protobuf.
+  string explore_json = 1;
+  // Restrict the series to these customers. A scope *narrowing* enforced
+  // server-side alongside the tenant scope — kept out of explore_json so the
+  // untrusted body cannot widen visibility. Empty = the full tenant.
+  repeated string customer_ids = 2;
+}
+
+message ExplorePoint {
+  // ISO-8601 date (yyyy-mm-dd) of the window bounds.
+  string window_start = 1;
+  string window_end = 2;
+  double value = 3;
+  // Per-dimension values for grouped queries (e.g. movement_type, plan_id).
+  map<string, string> dimensions = 4;
+  // For a per-customer breakdown, the id of the customer this series belongs to
+  // (so the client can deep-link the row). Empty otherwise.
+  string customer_id = 5;
+}
+
+message ExploreResponse {
+  repeated ExplorePoint points = 1;
+  // ISO-4217 code of the tenant reporting currency the point `value`s are
+  // expressed in. Values are converted from the USD-normalised analytics tables
+  // at read time, so a client formats every series in this single currency.
+  string currency = 2;
+}
+
+message PreviewSegmentRequest {
+  // Serialized CohortSpec JSON — the named segment's definition (the same shape the
+  // cohort builder produces and `segment.definition` stores).
+  string definition = 1;
+  // Behavioral-predicate evaluation window (yyyy-mm-dd). Defaults to a trailing
+  // 90 days ending now when unset.
+  optional string from = 2;
+  optional string to = 3;
+}
+
+message PreviewSegmentResponse {
+  repeated meteroid.api.customers.v1.CustomerBrief customers = 1;
+}
+
+message ListSignalMembersRequest {
+  // The signal = an alert_definition of kind risk/opportunity, metric_key "segment".
+  string alert_definition_id = 1;
+}
+
+// One customer on a signal's live roster: who they are, their revenue weight, and
+// how long they've been flagged — the actionable row a CS/revops user works.
+message SignalMember {
+  string customer_id = 1;
+  string customer_name = 2;
+  // Current MRR in USD minor units (0 when the customer has no MRR snapshot, e.g.
+  // trials / free) — the same USD base the at-risk report renders.
+  int64 current_mrr = 3;
+  // 30-day MRR change, percent (0 when flat / no prior).
+  float mrr_change_pct = 4;
+  // When the customer entered the segment (ISO-8601) — drives "in segment since".
+  string entered_at = 5;
+}
+
+message ListSignalMembersResponse {
+  repeated SignalMember members = 1;
+  // Sum of members' current_mrr (USD minor units) — the headline "MRR at risk".
+  int64 total_mrr = 2;
+}
+
+// What class of finding an insight is — drives icon/colour and the steering tabs.
+enum InsightKind {
+  INSIGHT_KIND_UNSPECIFIED = 0;
+  INSIGHT_KIND_OPPORTUNITY = 1;
+  INSIGHT_KIND_RISK = 2;
+  INSIGHT_KIND_ANOMALY = 3;
+  INSIGHT_KIND_TREND = 4;
+}
+
+enum InsightSeverity {
+  INSIGHT_SEVERITY_UNSPECIFIED = 0;
+  INSIGHT_SEVERITY_INFO = 1;
+  INSIGHT_SEVERITY_WARNING = 2;
+  INSIGHT_SEVERITY_CRITICAL = 3;
+}
+
+message ListInsightsRequest {
+  // Trailing window the scan covers, in days. 0 => server default (30).
+  uint32 lookback_days = 1;
+  // Max insights to return. 0 => server default (12).
+  uint32 limit = 2;
+}
+
+// One ranked finding about one metric (optionally one of its segments). The FE
+// deep-links the explorer using metric_key + breakdown, and can seed an alert.
+message Insight {
+  InsightKind kind = 1;
+  InsightSeverity severity = 2;
+  string metric_key = 3;
+  string metric_label = 4;
+  // The breakdown dimension key when this is a per-segment insight (e.g. country).
+  optional string breakdown = 5;
+  // The segment label when per-segment (e.g. "country=US").
+  optional string segment = 6;
+  string title = 7;
+  string detail = 8;
+  // Value at window_start; the FE formats it by the metric's unit.
+  double value = 9;
+  optional double change_pct = 10;
+  // Anomaly z-score, when this came from the outlier detector.
+  optional double score = 11;
+  // ISO-8601 date (yyyy-mm-dd) of the window the finding is anchored at.
+  string window_start = 12;
+  // Cross-metric ranking score in [0, 1]; results are returned highest first.
+  double rank = 13;
+}
+
+message ListInsightsResponse {
+  // Currency the money-metric `value`s are expressed in (tenant reporting currency).
+  string currency = 1;
+  repeated Insight insights = 2;
+}

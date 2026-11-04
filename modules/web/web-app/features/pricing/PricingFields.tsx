@@ -7,10 +7,17 @@ import {
   FormControl,
   FormField,
   FormItem,
+  FormLabel,
   FormMessage,
   GenericFormField,
   Input,
   InputFormField,
+  Label,
+  RadioGroup,
+  RadioGroupItem,
+  SelectFormField,
+  SelectItem,
+  SwitchFormField,
 } from '@md/ui'
 import { ColumnDef } from '@tanstack/react-table'
 import { PlusIcon, XIcon } from 'lucide-react'
@@ -19,9 +26,14 @@ import { Control, FieldValues, useFieldArray, useFormContext, useWatch } from 'r
 
 import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
+import { currencyPrecision } from '@/lib/data/currency-precision'
+import { formatCurrencyNoRounding } from '@/lib/utils/numbers'
 
-import { PricingType, type TierRowSchema } from './schemas'
+import { CreditPackUnitField, useGrantedCreditUnit } from './CreditPackUnitField'
+import { creditValue, packCreditPrice } from './creditValue'
+import { PricingType, isZeroAmount, type TierRowSchema } from './schemas'
 
+import type { CreditUnit } from '@/rpc/api/creditunits/v1/models_pb'
 import type { z } from 'zod'
 
 type TierRow = z.infer<typeof TierRowSchema>
@@ -40,6 +52,8 @@ interface PricingFieldsProps {
   pricingType: PricingType
   control: Control<FieldValues>
   currency: string
+  /** For capacity pricing: what the overage is priced in, when not `currency` (a credit unit) */
+  overageCurrency?: string
   /** For matrix pricing: dimension headers to display */
   dimensionHeaders?: string[]
   /** For matrix pricing: valid dimension combinations from the product's metric */
@@ -55,6 +69,7 @@ export function PricingFields({
   pricingType,
   control,
   currency,
+  overageCurrency,
   dimensionHeaders,
   validCombinations,
 }: PricingFieldsProps) {
@@ -64,7 +79,13 @@ export function PricingFields({
     case 'slot':
       return <SlotPricingFields control={control} currency={currency} />
     case 'capacity':
-      return <CapacityPricingFields control={control} currency={currency} />
+      return (
+        <CapacityPricingFields
+          control={control}
+          currency={currency}
+          overageCurrency={overageCurrency}
+        />
+      )
     case 'perUnit':
       return <PerUnitPricingFields control={control} currency={currency} />
     case 'tiered':
@@ -85,6 +106,8 @@ export function PricingFields({
       return <ExtraRecurringPricingFields control={control} currency={currency} />
     case 'oneTime':
       return <OneTimePricingFields control={control} currency={currency} />
+    case 'credit':
+      return <CreditPricingFields control={control} currency={currency} />
   }
 }
 
@@ -153,9 +176,11 @@ function SlotPricingFields({
 function CapacityPricingFields({
   control,
   currency,
+  overageCurrency,
 }: {
   control: Control<FieldValues>
   currency: string
+  overageCurrency?: string
 }) {
   const { fields, append, remove } = useFieldArray({
     control,
@@ -211,7 +236,7 @@ function CapacityPricingFields({
         ),
       },
       {
-        header: 'Overage rate',
+        header: overageCurrency ? 'Overage rate (credits)' : 'Overage rate',
         cell: ({ row }) => (
           <GenericFormField
             control={control}
@@ -219,7 +244,8 @@ function CapacityPricingFields({
             render={({ field }) => (
               <UncontrolledPriceInput
                 {...field}
-                currency={currency}
+                currency={overageCurrency ?? currency}
+                unitLabel={overageCurrency ? 'credits' : undefined}
                 showCurrency={false}
                 precision={8}
               />
@@ -238,7 +264,7 @@ function CapacityPricingFields({
           ),
       },
     ],
-    [control, currency, fields.length, remove]
+    [control, currency, overageCurrency, fields.length, remove]
   )
 
   return (
@@ -744,6 +770,231 @@ function OneTimePricingFields({
           <UncontrolledPriceInput {...field} currency={currency} className="max-w-xs" />
         )}
       />
+    </div>
+  )
+}
+
+// --- Credit ---
+
+/** "≈ $0.009 per credit (10% off $0.01)": what a sold pack charges per credit. */
+const PackCreditPrice = ({
+  unit,
+  currency,
+  packPrice,
+  creditsPerPack,
+}: {
+  unit: CreditUnit
+  currency: string
+  packPrice: string
+  creditsPerPack: string
+}) => {
+  const value = creditValue(unit, currency)
+  const price = packCreditPrice(packPrice, creditsPerPack, value)
+  if (!price) return null
+  const money = (amount: string) => formatCurrencyNoRounding(amount, currency)
+  const versus =
+    value && price.discountPct !== undefined && price.discountPct !== 0
+      ? price.discountPct > 0
+        ? ` (${price.discountPct}% off ${money(value)})`
+        : ` (${-price.discountPct}% above ${money(value)})`
+      : ''
+  return (
+    <p className="text-xs text-muted-foreground">
+      ≈ {money(price.perCredit)} per {unit.name}
+      {versus}
+    </p>
+  )
+}
+
+const CREDIT_GRANT_OPTIONS = [
+  { value: 'period', label: 'Every period', hint: 'On each billing period.' },
+  { value: 'once', label: 'Once at start', hint: 'On the first invoice only.' },
+] as const
+
+function CreditPricingFields({
+  control,
+  currency,
+}: {
+  control: Control<FieldValues>
+  currency: string
+}) {
+  const expiryUnit = useWatch({ control, name: 'expiryUnit' }) ?? 'NONE'
+  const unitPrice = useWatch({ control, name: 'unitPrice' })
+  const creditAmount = useWatch({ control, name: 'creditAmount' })
+  const included = isZeroAmount(unitPrice)
+  const rolloverEnabled = useWatch({ control, name: 'rolloverEnabled' }) ?? false
+  const rolloverExpiryUnit = useWatch({ control, name: 'rolloverExpiryUnit' }) ?? 'MONTH'
+  const once = useWatch({ control, name: 'once' }) ?? false
+  const canRollOver = included && expiryUnit !== 'NONE' && !once
+  const rolloverUnavailableReason = !included
+    ? 'Rollover is available for included (free) packs only.'
+    : once
+      ? 'Credit granted once at start cannot roll over.'
+      : expiryUnit === 'NONE'
+        ? 'Credit that never expires has nothing to roll over.'
+        : undefined
+  const { setValue, getValues, getFieldState } = useFormContext()
+  useEffect(() => {
+    if (!canRollOver && getValues('rolloverEnabled')) setValue('rolloverEnabled', false)
+  }, [canRollOver, getValues, setValue])
+  const grantedUnit = useGrantedCreditUnit(control)
+  const creditCurrency = grantedUnit?.code ?? currency
+  const creditPrecision = grantedUnit ? grantedUnit.precision : currencyPrecision(currency)
+  return (
+    <div className="space-y-4">
+      <InputFormField
+        name="quantity"
+        label="Packs included"
+        description="How many packs each subscriber gets."
+        type="number"
+        step={1}
+        className="max-w-xs"
+        control={control}
+      />
+      <GenericFormField
+        control={control}
+        name="unitPrice"
+        label="Price per pack"
+        render={({ field }) => (
+          <UncontrolledPriceInput {...field} currency={currency} className="max-w-xs" />
+        )}
+      />
+      <CreditPackUnitField control={control} currency={currency} />
+      <GenericFormField
+        control={control}
+        name="creditAmount"
+        label={grantedUnit ? `${grantedUnit.pluralName} granted per pack` : 'Credit granted per pack'}
+        render={({ field }) => (
+          <UncontrolledPriceInput
+            {...field}
+            currency={creditCurrency}
+            unitLabel={grantedUnit ? 'credits' : undefined}
+            precision={creditPrecision}
+            placeholder={creditPrecision === 0 ? '0' : '0.00'}
+            className="max-w-xs"
+          />
+        )}
+      />
+      {grantedUnit && !included && (
+        <PackCreditPrice
+          unit={grantedUnit}
+          currency={currency}
+          packPrice={String(unitPrice ?? '')}
+          creditsPerPack={String(creditAmount ?? '')}
+        />
+      )}
+      <FormField
+        control={control}
+        name="once"
+        render={({ field }) => (
+          <FormItem className="space-y-2">
+            <FormLabel>Grant</FormLabel>
+            <FormControl>
+              <RadioGroup
+                value={field.value ? 'once' : 'period'}
+                onValueChange={value => {
+                  const toOnce = value === 'once'
+                  field.onChange(toOnce)
+                  if (toOnce) setValue('rolloverEnabled', false)
+                  // Moves the expiry along with the grant mode only while it is the other mode's
+                  // default: period credit resets each period, credit granted once never expires.
+                  if (
+                    !getFieldState('expiryUnit').isDirty &&
+                    getValues('expiryUnit') === (toOnce ? 'BILLING_PERIOD' : 'NONE')
+                  ) {
+                    setValue('expiryUnit', toOnce ? 'NONE' : 'BILLING_PERIOD')
+                  }
+                }}
+                className="grid gap-2 sm:grid-cols-2 max-w-md"
+              >
+                {CREDIT_GRANT_OPTIONS.map(option => {
+                  const id = `credit-grant-${option.value}`
+                  return (
+                    <Label
+                      key={option.value}
+                      htmlFor={id}
+                      className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-3 font-normal has-[[data-state=checked]]:border-primary"
+                    >
+                      <RadioGroupItem value={option.value} id={id} className="mt-0.5" />
+                      <span className="space-y-0.5">
+                        <span className="block text-sm font-medium">{option.label}</span>
+                        <span className="block text-xs text-muted-foreground">{option.hint}</span>
+                      </span>
+                    </Label>
+                  )
+                })}
+              </RadioGroup>
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <SelectFormField control={control} name="expiryUnit" label="Unused credit expires">
+        <SelectItem value="NONE">Never</SelectItem>
+        <SelectItem value="BILLING_PERIOD">At the end of the billing period</SelectItem>
+        <SelectItem value="DAY">Days after {included ? 'the period starts' : 'payment'}</SelectItem>
+        <SelectItem value="MONTH">Months after {included ? 'the period starts' : 'payment'}</SelectItem>
+      </SelectFormField>
+      {(expiryUnit === 'DAY' || expiryUnit === 'MONTH') && (
+        <InputFormField
+          control={control}
+          name="expiryValue"
+          label={expiryUnit === 'DAY' ? 'Number of days' : 'Number of months'}
+          type="number"
+          min={1}
+          className="max-w-xs"
+        />
+      )}
+      <SwitchFormField
+        control={control}
+        name="rolloverEnabled"
+        label="Roll over unused credit"
+        disabled={!canRollOver}
+        description={
+          rolloverUnavailableReason ?? 'Leftover credit carries over once and is spent first.'
+        }
+      />
+      {canRollOver && rolloverEnabled && (
+        <div className="space-y-4 pl-4 border-l border-border">
+          <GenericFormField
+            control={control}
+            name="rolloverMaxAmount"
+            label="Most credit carried per pack"
+            description="Leave empty to carry everything left."
+            render={({ field }) => (
+              <UncontrolledPriceInput
+                {...field}
+                currency={creditCurrency}
+                unitLabel={grantedUnit ? 'credits' : undefined}
+                precision={creditPrecision}
+                placeholder={creditPrecision === 0 ? '0' : '0.00'}
+                className="max-w-xs"
+              />
+            )}
+          />
+          <SelectFormField control={control} name="rolloverExpiryUnit" label="Rolled credit expires">
+            <SelectItem value="DAY">Days after the original expiry</SelectItem>
+            <SelectItem value="MONTH">Months after the original expiry</SelectItem>
+          </SelectFormField>
+          <InputFormField
+            control={control}
+            name="rolloverExpiryValue"
+            label={rolloverExpiryUnit === 'DAY' ? 'Number of days' : 'Number of months'}
+            type="number"
+            min={1}
+            className="max-w-xs"
+          />
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground max-w-md">
+        {included
+          ? once
+            ? 'Credit arrives when the first period is invoiced'
+            : 'Credit arrives when each period is invoiced'
+          : "Credit arrives when the pack's invoice is paid"}
+        {expiryUnit === 'BILLING_PERIOD' ? ' and expires at period end.' : '.'}
+        {!included && ' Credit never pays for a pack.'}
+      </p>
     </div>
   )
 }

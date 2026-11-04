@@ -110,6 +110,8 @@ pub mod action {
     /// The refund has been paid out to the customer.
     pub const PAID: &str = "paid";
     pub const REFUND_SETTLED: &str = "refund_settled";
+    /// The customer's bank sent the refund back; the money is the merchant's again.
+    pub const FUNDS_RETURNED: &str = "funds_returned";
 }
 
 pub struct GoCardlessWebhook;

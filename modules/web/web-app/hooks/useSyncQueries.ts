@@ -95,7 +95,9 @@ export function useSyncQueries() {
 
     const invalidateAll = () => {
       serviceTypeNames.forEach(typeName => {
-        queryClient.invalidateQueries({ queryKey: [typeName] })
+        // connect-query v2 keys are structured as ['connect-query', { serviceName, ... }].
+        // Partial-match on serviceName to invalidate every query of that service.
+        queryClient.invalidateQueries({ queryKey: ['connect-query', { serviceName: typeName }] })
       })
     }
 

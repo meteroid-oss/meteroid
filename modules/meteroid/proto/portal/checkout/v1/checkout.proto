@@ -12,6 +12,7 @@ enum CheckoutType {
   CHECKOUT_TYPE_SUBSCRIPTION_ACTIVATION = 1;
   CHECKOUT_TYPE_PLAN_CHANGE = 2;
   CHECKOUT_TYPE_ADDON_PURCHASE = 3;
+  CHECKOUT_TYPE_TOP_UP = 4;
 }
 
 // GetCheckout - works with CheckoutSession token
@@ -38,6 +39,10 @@ message GetCheckoutResponse {
   CheckoutType checkout_type = 2;
   optional PlanChangeCheckoutContext plan_change_context = 3;
   optional AddOnPurchaseCheckoutContext addon_purchase_context = 4;
+  // Merchant-set redirect targets from the checkout session. `success_url` already carries the
+  // `checkout_session_id` query parameter.
+  optional string success_url = 5;
+  optional string cancel_url = 6;
 }
 
 // ConfirmCheckout - works with CheckoutSession token

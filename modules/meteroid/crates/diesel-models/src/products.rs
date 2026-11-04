@@ -19,6 +19,8 @@ pub struct ProductRow {
     pub fee_type: FeeTypeEnum,
     pub fee_structure: serde_json::Value,
     pub catalog: bool,
+    /// Trigger-maintained analytics ingestion marker; never written by app code.
+    pub store_committed_at: NaiveDateTime,
     pub tax_category_id: Option<TaxCategoryId>,
 }
 

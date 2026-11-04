@@ -1,0 +1,7 @@
+<table role="presentation" class="btn" cellpadding="0" cellspacing="0" border="0">
+  <tr>
+    <td class="button" align="center" bgcolor="<%= color %>" style="border-radius:8px;background-color:<%= color %>;mso-padding-alt:12px 24px;">
+      <a href="<%= url %>" target="_blank" style="display:inline-block;padding:12px 24px;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:20px;font-weight:600;color:<%= crate::template::on_color(&color) %>;text-decoration:none;"><%= label %></a>
+    </td>
+  </tr>
+</table>

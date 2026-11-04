@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package meteroid.api.walletcontrols.v1;
+
+import "api/walletcontrols/v1/models.proto";
+
+// The live estimates of customer wallets. Amounts are minor units of the wallet currency.
+service WalletControlsService {
+  // How long the credit a subscription can use lasts, one outlook per wallet it draws on.
+  rpc GetSubscriptionCreditOutlook(GetSubscriptionCreditOutlookRequest) returns (GetSubscriptionCreditOutlookResponse);
+  // The outlooks of every live subscription of the customer, in one computation.
+  rpc ListCustomerCreditOutlooks(ListCustomerCreditOutlooksRequest) returns (ListCustomerCreditOutlooksResponse);
+  // What one subscription can spend of each of the customer's wallets: its own and the
+  // customer-wide credit.
+  rpc ListSubscriptionWalletBalances(ListSubscriptionWalletBalancesRequest) returns (ListSubscriptionWalletBalancesResponse);
+}
+
+message ListSubscriptionWalletBalancesRequest {
+  string customer_id = 1;
+  string subscription_id = 2;
+}
+message ListSubscriptionWalletBalancesResponse { repeated SubscriptionWalletBalance balances = 1; }
+
+message ListCustomerCreditOutlooksRequest { string customer_id = 1; }
+message ListCustomerCreditOutlooksResponse { repeated CreditOutlook outlooks = 1; }
+
+message GetSubscriptionCreditOutlookRequest { string subscription_id = 1; }
+message GetSubscriptionCreditOutlookResponse { repeated CreditOutlook outlooks = 1; }

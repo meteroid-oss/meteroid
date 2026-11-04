@@ -2,6 +2,8 @@ import { PaymentActionRequired } from '@/rpc/api/invoices/v1/models_pb'
 
 import { getStripePromise } from '../stripeClient'
 
+import { MOCK_PUBLISHABLE_KEY_PREFIX, completeMockChallenge } from './mockChallenge'
+
 /**
  * Complete a 3DS/SCA step returned by a confirm response. Resolves on success;
  * throws on authentication failure so the caller surfaces it. A redirect action
@@ -15,6 +17,10 @@ export const completeNextAction = async (
   switch (nextAction.action.case) {
     case 'useSdk': {
       const { publishableKey, clientSecret } = nextAction.action.value
+      // Test gateway: there is no SDK to load; the "client secret" is its challenge path.
+      if (publishableKey.startsWith(MOCK_PUBLISHABLE_KEY_PREFIX)) {
+        return completeMockChallenge(clientSecret)
+      }
       const stripe = await getStripePromise(publishableKey)
       if (!stripe) throw new Error('Failed to initialize the payment provider')
       const { error } = await stripe.handleNextAction({ clientSecret })

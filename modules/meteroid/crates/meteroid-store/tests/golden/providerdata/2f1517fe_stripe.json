@@ -1,0 +1,6 @@
+{
+  "Stripe": {
+    "api_publishable_key": "pk_test_x",
+    "account_id": "acct_test_x"
+  }
+}

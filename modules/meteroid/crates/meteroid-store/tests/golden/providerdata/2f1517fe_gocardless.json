@@ -1,0 +1,6 @@
+{
+  "Gocardless": {
+    "creditor_id": "CR000TEST",
+    "environment": "sandbox"
+  }
+}

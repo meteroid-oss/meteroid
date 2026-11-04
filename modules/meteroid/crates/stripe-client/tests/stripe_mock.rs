@@ -28,6 +28,7 @@ use secrecy::SecretString;
 use stripe_client::client::StripeClient;
 use stripe_client::customers::{CreateCustomer, Customer, CustomerApi};
 use stripe_client::payment_intents::{PaymentIntentApi, PaymentIntentRequest, StripeCaptureMethod};
+use stripe_client::refunds::{CreateRefund, RefundApi, StripeRefundReason};
 use stripe_client::setup_intents::{
     CreateSetupIntent, CreateSetupIntentUsage, SetupIntentApi, StripeMandateRequest,
     StripeMandateType, StripePaymentMethodType,
@@ -166,4 +167,39 @@ async fn create_setup_intent_with_mandate_roundtrips() {
         si.id
     );
     assert!(!si.client_secret.is_empty());
+}
+
+#[tokio::test]
+async fn create_refund_roundtrips() {
+    let (client, key) = client_or_skip!();
+
+    let mut metadata = HashMap::new();
+    metadata.insert("meteroid.refund_id".to_string(), "pay_ref_1".to_string());
+
+    let refund = client
+        .create_refund(
+            CreateRefund {
+                payment_intent: "pi_123".to_string(),
+                amount: Some(750),
+                reason: Some(StripeRefundReason::RequestedByCustomer),
+                metadata,
+            },
+            &key,
+            "idem-re-1".to_string(),
+        )
+        .await
+        .expect("create_refund should deserialize against stripe-mock");
+
+    assert!(
+        refund.id.starts_with("re_"),
+        "expected a refund id, got {}",
+        refund.id
+    );
+
+    // Prove the read path the reconcile sweep relies on also parses.
+    let fetched = client
+        .get_refund(&refund.id, &key)
+        .await
+        .expect("get_refund should deserialize against stripe-mock");
+    assert!(fetched.id.starts_with("re_"));
 }

@@ -1,6 +1,8 @@
 import { create } from '@bufbuild/protobuf';
+import { ConnectError } from '@connectrpc/connect'
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
+  Alert,
   DialogDescription,
   DialogTitle,
   Form,
@@ -21,7 +23,22 @@ import { useEffect } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import {
+  CustomPropertiesFields,
+  parseCustomProperties,
+  serializeCustomProperties,
+} from '@/features/customproperties/CustomPropertiesFields'
+import {
+  UsageFilterFields,
+  formatUsageFilter,
+  refineUsageFilter,
+  USAGE_FILTER_CHANGE_WARNING,
+  usageFilterFormFields,
+  usageFilterFromForm,
+  usageFilterToForm,
+} from '@/features/subscriptions/UsageFilterFields'
 import { useZodForm } from '@/hooks/useZodForm'
+import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 import {
   BankTransferSchema,
   ExternalSchema,
@@ -31,6 +48,8 @@ import {
 } from '@/rpc/api/subscriptions/v1/models_pb';
 import {
   getSubscriptionDetails,
+  listSubscriptions,
+  listUnattributedUsage,
   updateSubscription,
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 
@@ -39,14 +58,18 @@ import type { PaymentMethodsConfig } from '@/rpc/api/subscriptions/v1/models_pb'
 
 type PaymentMethodsType = 'online' | 'bankTransfer' | 'external'
 
-const editSubscriptionSchema = z.object({
-  chargeAutomatically: z.boolean(),
-  autoAdvanceInvoices: z.boolean(),
-  netTerms: z.coerce.number().int().min(0).max(365),
-  invoiceMemo: z.string().max(500).optional(),
-  purchaseOrder: z.string().max(100).optional(),
-  paymentMethodsType: z.enum(['online', 'bankTransfer', 'external']),
-})
+const editSubscriptionSchema = z
+  .object({
+    chargeAutomatically: z.boolean(),
+    autoAdvanceInvoices: z.boolean(),
+    netTerms: z.coerce.number().int().min(0).max(365),
+    invoiceMemo: z.string().max(500).optional(),
+    purchaseOrder: z.string().max(100).optional(),
+    paymentMethodsType: z.enum(['online', 'bankTransfer', 'external']),
+    customProperties: z.record(z.string(), z.unknown()).optional(),
+    ...usageFilterFormFields,
+  })
+  .superRefine(refineUsageFilter)
 
 type EditSubscriptionFormValues = z.infer<typeof editSubscriptionSchema>
 
@@ -85,12 +108,18 @@ const buildProtoPaymentMethodsConfig = (type: PaymentMethodsType): PaymentMethod
 
 interface EditSubscriptionModalProps {
   subscription: Subscription
+  /** A usage filter means something only on a subscription that has not ended and bills usage. */
+  usageFilterEditable: boolean
   onClose: () => void
   onSuccess?: () => void
 }
 
+// The server's refusals of a usage filter, shown on the field rather than as a toast.
+const USAGE_FILTER_ERROR = /usage filter|already bills the events where/i
+
 export const EditSubscriptionModal = ({
   subscription,
+  usageFilterEditable,
   onClose,
   onSuccess,
 }: EditSubscriptionModalProps) => {
@@ -105,15 +134,23 @@ export const EditSubscriptionModal = ({
       invoiceMemo: subscription.invoiceMemo ?? '',
       purchaseOrder: subscription.purchaseOrder ?? '',
       paymentMethodsType: getPaymentMethodsTypeFromProto(subscription.paymentMethodsConfig),
+      customProperties: parseCustomProperties(subscription.customProperties),
+      ...usageFilterToForm(subscription.usageFilter),
     },
     mode: 'onSubmit',
   })
 
   // Watch payment methods type and charge automatically for cross-validation
-  const [paymentMethodsType, chargeAutomatically] = methods.watch([
-    'paymentMethodsType',
-    'chargeAutomatically',
-  ])
+  const [paymentMethodsType, chargeAutomatically, usageFilterProperty, usageFilterValue] =
+    methods.watch([
+      'paymentMethodsType',
+      'chargeAutomatically',
+      'usageFilterProperty',
+      'usageFilterValue',
+    ])
+  const usageFilterChanged = (property?: string, value?: string) =>
+    (property ?? '') !== (subscription.usageFilter?.property ?? '') ||
+    (value ?? '') !== (subscription.usageFilter?.value ?? '')
 
   // Auto-disable chargeAutomatically when Bank or External payment methods selected
   useEffect(() => {
@@ -139,18 +176,32 @@ export const EditSubscriptionModal = ({
           cardinality: 'finite'
         }),
       })
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({ schema: listSubscriptions, cardinality: undefined }),
+      })
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({ schema: listUnattributedUsage, cardinality: undefined }),
+      })
       toast.success('Subscription updated')
       onSuccess?.()
       onClose()
     },
     onError: error => {
-      toast.error(
-        `Failed to update subscription: ${error instanceof Error ? error.message : 'Unknown error'}`
-      )
+      const message = ConnectError.from(error).rawMessage
+      if (usageFilterEditable && USAGE_FILTER_ERROR.test(message)) {
+        methods.setError('usageFilterValue', { type: 'server', message })
+        return
+      }
+      toast.error(`Failed to update subscription: ${message || 'Unknown error'}`)
     },
   })
 
   const onSubmit = async (values: EditSubscriptionFormValues) => {
+    // Sent only when changed: the server applies it from the first usage nobody has invoiced.
+    const usageFilter =
+      usageFilterEditable && usageFilterChanged(values.usageFilterProperty, values.usageFilterValue)
+        ? { filter: usageFilterFromForm(values) }
+        : undefined
     await updateMutation.mutateAsync({
       subscriptionId: subscription.id,
       chargeAutomatically: values.chargeAutomatically,
@@ -159,6 +210,8 @@ export const EditSubscriptionModal = ({
       invoiceMemo: values.invoiceMemo || undefined,
       purchaseOrder: values.purchaseOrder || undefined,
       paymentMethodsConfig: buildProtoPaymentMethodsConfig(values.paymentMethodsType),
+      customProperties: serializeCustomProperties(values.customProperties),
+      usageFilter,
     })
   }
 
@@ -262,6 +315,34 @@ export const EditSubscriptionModal = ({
               placeholder="PO-12345"
               maxLength={100}
             />
+
+            <CustomPropertiesFields
+              control={methods.control}
+              entityType={CustomPropertyEntityType.SUBSCRIPTION}
+            />
+
+            {usageFilterEditable && (
+              <div className="space-y-3 pt-2 border-t">
+                <h4 className="text-sm font-medium">Usage filter</h4>
+                <UsageFilterFields control={methods.control} />
+                {usageFilterChanged(usageFilterProperty, usageFilterValue) && (
+                  <Alert variant="warning" className="text-xs">
+                    {USAGE_FILTER_CHANGE_WARNING}
+                  </Alert>
+                )}
+              </div>
+            )}
+            {!usageFilterEditable && subscription.usageFilter && (
+              <div className="space-y-1 pt-2 border-t">
+                <h4 className="text-sm font-medium">Usage filter</h4>
+                <p className="text-sm text-foreground">
+                  {formatUsageFilter(subscription.usageFilter)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Applies only while the subscription bills usage, so it cannot be changed here.
+                </p>
+              </div>
+            )}
           </div>
         </Form>
       </Modal.Content>

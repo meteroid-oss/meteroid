@@ -54,6 +54,8 @@ pub struct QuoteRow {
     pub invoice_threshold: Option<rust_decimal::Decimal>,
     pub create_subscription_on_acceptance: bool,
     pub payment_methods_config: Option<serde_json::Value>,
+    /// User-defined property values, keyed by definition `key`.
+    pub custom_properties: serde_json::Value,
 }
 
 #[derive(Insertable, Debug)]
@@ -91,6 +93,8 @@ pub struct QuoteRowNew {
     pub invoice_threshold: Option<rust_decimal::Decimal>,
     pub create_subscription_on_acceptance: bool,
     pub payment_methods_config: Option<serde_json::Value>,
+    /// User-defined property values, keyed by definition `key`.
+    pub custom_properties: serde_json::Value,
 }
 
 #[derive(Debug, AsChangeset, Default)]
@@ -129,6 +133,75 @@ pub struct QuoteRowUpdate {
     pub invoice_threshold: Option<Option<rust_decimal::Decimal>>,
     pub create_subscription_on_acceptance: Option<bool>,
     pub payment_methods_config: Option<Option<serde_json::Value>>,
+}
+
+/// Full replacement of the editable columns of a draft quote; `None` clears the column.
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = crate::schema::quote)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+#[diesel(treat_none_as_null = true)]
+pub struct QuoteRowReplace {
+    pub customer_id: CustomerId,
+    pub plan_version_id: PlanVersionId,
+    pub currency: String,
+    pub quote_number: String,
+    pub trial_duration_days: Option<i32>,
+    pub billing_start_date: Option<NaiveDate>,
+    pub billing_end_date: Option<NaiveDate>,
+    pub billing_day_anchor: Option<i32>,
+    pub activation_condition: SubscriptionActivationConditionEnum,
+    pub valid_until: Option<NaiveDateTime>,
+    pub expires_at: Option<NaiveDateTime>,
+    pub internal_notes: Option<String>,
+    pub cover_image: Option<StoredDocumentId>,
+    pub overview: Option<String>,
+    pub terms_and_services: Option<String>,
+    pub net_terms: i32,
+    pub attachments: Vec<Option<StoredDocumentId>>,
+    pub pdf_document_id: Option<StoredDocumentId>,
+    pub recipients: serde_json::Value,
+    pub auto_advance_invoices: bool,
+    pub charge_automatically: bool,
+    pub invoice_memo: Option<String>,
+    pub invoice_threshold: Option<rust_decimal::Decimal>,
+    pub create_subscription_on_acceptance: bool,
+    pub payment_methods_config: Option<serde_json::Value>,
+    pub custom_properties: serde_json::Value,
+    pub updated_at: Option<NaiveDateTime>,
+}
+
+impl From<QuoteRowNew> for QuoteRowReplace {
+    fn from(row: QuoteRowNew) -> Self {
+        Self {
+            customer_id: row.customer_id,
+            plan_version_id: row.plan_version_id,
+            currency: row.currency,
+            quote_number: row.quote_number,
+            trial_duration_days: row.trial_duration_days,
+            billing_start_date: row.billing_start_date,
+            billing_end_date: row.billing_end_date,
+            billing_day_anchor: row.billing_day_anchor,
+            activation_condition: row.activation_condition,
+            valid_until: row.valid_until,
+            expires_at: row.expires_at,
+            internal_notes: row.internal_notes,
+            cover_image: row.cover_image,
+            overview: row.overview,
+            terms_and_services: row.terms_and_services,
+            net_terms: row.net_terms,
+            attachments: row.attachments,
+            pdf_document_id: None,
+            recipients: row.recipients,
+            auto_advance_invoices: row.auto_advance_invoices,
+            charge_automatically: row.charge_automatically,
+            invoice_memo: row.invoice_memo,
+            invoice_threshold: row.invoice_threshold,
+            create_subscription_on_acceptance: row.create_subscription_on_acceptance,
+            payment_methods_config: row.payment_methods_config,
+            custom_properties: row.custom_properties,
+            updated_at: Some(chrono::Utc::now().naive_utc()),
+        }
+    }
 }
 
 #[derive(Debug, Queryable, Selectable)]

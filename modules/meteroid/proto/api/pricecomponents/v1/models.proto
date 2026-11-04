@@ -55,5 +55,7 @@ message PriceInput {
     meteroid.api.prices.v1.UsagePricing usage_pricing = 6;
     meteroid.api.prices.v1.ExtraRecurringPricing extra_recurring_pricing = 7;
     meteroid.api.prices.v1.OneTimePricing one_time_pricing = 8;
+    meteroid.api.prices.v1.CreditPricing credit_pricing = 9;
   }
+  optional meteroid.api.prices.v1.PriceCreditUnit credit_unit = 10;
 }

@@ -7,40 +7,48 @@ on:
       - main
     paths:
       - ".github/workflows/ci-rust.yaml"
+      - ".github/scripts/**"
       - ".github/actions/rust-setup/**"
       - "Cargo.*"
       - "crates/**"
-      - "extra/**"
       - "modules/meteroid/**"
       - "modules/metering/**"
       - "modules/adapters/**"
+      - "modules/metric-core/**"
+      - "spec/**"
+      - "editions/**"
+      - "ee/**"
+      - "scripts/editions/**"
   pull_request:
     types: [ opened, reopened, synchronize ]
     paths:
       - ".github/workflows/ci-rust.yaml"
+      - ".github/scripts/**"
       - ".github/actions/rust-setup/**"
       - "Cargo.*"
       - "crates/**"
-      - "extra/**"
       - "modules/meteroid/**"
       - "modules/metering/**"
       - "modules/adapters/**"
+      - "modules/metric-core/**"
+      - "spec/**"
+      - "editions/**"
+      - "ee/**"
+      - "scripts/editions/**"
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
   cancel-in-progress: true
 
 env:
-  # Trim debug info in CI only (local dev profiles are untouched): smaller
-  # target dir, faster codegen/linking, and a lighter cache to store/restore.
-  CARGO_PROFILE_DEV_DEBUG: line-tables-only
-  CARGO_PROFILE_TEST_DEBUG: line-tables-only
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
 
 jobs:
   check:
     name: Test
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: ${{ vars.CI_RUNNER && 45 || 120 }}
     services:
       postgres:
         image: ghcr.io/meteroid-oss/meteroid-postgres:18.3-standard
@@ -50,7 +58,10 @@ jobs:
           POSTGRES_DB: postgres
         ports:
           - 5432:5432
+        # Every integration test clones a template database of ~1,200 relation files: on tmpfs
+        # that takes ~50 ms instead of ~320 ms.
         options: >-
+          --tmpfs /var/lib/postgresql
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s
           --health-timeout 5s
@@ -58,28 +69,13 @@ jobs:
     env:
       METEROID_TEST_PG_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
     steps:
-      - uses: actions/checkout@v7
+      # GitHub's runners (the public repository) keep ~14 GB free: drop toolchains the build does not use.
       - name: Free disk space
+        if: ${{ !vars.CI_RUNNER }}
         run: |
-          df -h
-          sudo apt-get remove -y '^llvm-.*'
-          sudo apt-get remove -y 'php.*'
-          sudo apt-get remove -y azure-cli google-cloud-sdk hhvm google-chrome-stable firefox powershell mono-devel || true
-          sudo apt-get autoremove -y
-          sudo apt-get clean
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache
-          sudo rm -rf /usr/lib/jvm
-          sudo rm -rf /usr/local/julia*
-          sudo rm -rf /usr/local/share/chromium
-          sudo rm -rf /opt/microsoft /opt/google
-          sudo rm -rf /opt/az
-          sudo rm -rf /usr/local/.ghcup
-          sudo docker image prune -a -f
-          sudo docker builder prune -a
-          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/rust-setup
       - name: Login to Docker Hub
         # Secrets aren't exposed to workflows from forked PRs, so the login
@@ -90,35 +86,181 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_PASSWORD }}
+      - name: Pull the test container images in the background
+        run: nohup .github/scripts/pull-test-images.sh "$RUNNER_TEMP/test-images-pulled" > "$RUNNER_TEMP/test-images.log" 2>&1 &
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
+      # A service container takes no command line. Every test's DROP DATABASE forces a
+      # checkpoint, which with fsync on flushes the pages of every test running in parallel.
+      - name: Make the test Postgres non-durable
+        run: >-
+          docker exec ${{ job.services.postgres.id }} psql -U postgres
+          -c "ALTER SYSTEM SET fsync = off"
+          -c "ALTER SYSTEM SET full_page_writes = off"
+          -c "ALTER SYSTEM SET synchronous_commit = off"
+          -c "SELECT pg_reload_conf()"
+      # The OSS mirror has no ee/ and skips this; see the script for why.
+      - name: Fold ee/ into the root workspace
+        if: ${{ hashFiles('ee/Cargo.toml') != '' }}
+        run: python3 scripts/editions/fold-ee-into-root.py
+      # Dependencies optimized for this job only: it compiles once and runs every test, which
+      # otherwise spend most of their time in unoptimized dependency code. Workspace crates stay at 0.
+      - name: Build tests
+        id: build
+        run: cargo nextest run --no-run --config 'profile.dev.package."*".opt-level=3'
+      # Built like the tests (whole workspace, dev-dependency features, test profile) so it only links.
+      - name: Validate OpenAPI
+        run: |
+          cargo build --profile test --config 'profile.dev.package."*".opt-level=3' --workspace --tests --bin openapi-generate
+          ./target/debug/openapi-generate
+          if [[ -n "$(git status --porcelain spec/api/v1/openapi.json spec/client)" ]]; then
+            echo "The OpenAPI specs are not up to date. Please run 'cargo run -p meteroid-oss-openapi' and commit changes."
+            git --no-pager diff spec/api/v1/openapi.json spec/client
+            git status --porcelain spec/client
+            exit 1
+          fi
+      - name: Validate OpenAPI (Enterprise)
+        if: ${{ hashFiles('ee/editions/enterprise/openapi/Cargo.toml') != '' }}
+        run: |
+          cargo build --profile test --config 'profile.dev.package."*".opt-level=3' --workspace --tests --bin openapi-generate-enterprise
+          ./target/debug/openapi-generate-enterprise
+          if [[ -n "$(git status --porcelain ee/spec)" ]]; then
+            echo "The Enterprise OpenAPI specs are not up to date. Run 'cargo run -p meteroid-enterprise-openapi' in ee/ and commit changes."
+            git --no-pager diff ee/spec
+            git status --porcelain ee/spec
+            exit 1
+          fi
+      - name: Wait for the test container images
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          timeout 600 sh -c 'until [ -f "$RUNNER_TEMP/test-images-pulled" ]; do sleep 2; done'
+          cat "$RUNNER_TEMP/test-images.log"
       - name: Test
-        run: cargo nextest run --locked
-      - name: Final disk space
-        run: df -h
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: cargo nextest run --config 'profile.dev.package."*".opt-level=3'
+
+  # Enterprise repository only: the OSS mirror has no ee/ and skips every step.
+  editions:
+    name: Editions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: The EE workspace dependencies follow the root ones
+        if: ${{ hashFiles('ee/Cargo.toml') != '' }}
+        run: python3 scripts/editions/sync-ee-workspace.py --check
+      - name: Both lockfiles resolve shared packages alike
+        if: ${{ hashFiles('ee/Cargo.toml') != '' }}
+        run: python3 scripts/editions/check-lockfiles.py
+      - name: The EE lockfile is up to date
+        if: ${{ hashFiles('ee/Cargo.toml') != '' }}
+        working-directory: ee
+        # This job installs no sccache; metadata compiles nothing.
+        env:
+          RUSTC_WRAPPER: ""
+        run: cargo metadata --locked --format-version 1 > /dev/null
+      - name: Exported code does not point into ee/ or excluded paths
+        if: ${{ hashFiles('ee/Cargo.toml') != '' }}
+        run: python3 scripts/editions/check-oss-boundary.py
+
+  # The Enterprise workspace on its own, as it ships. Too slow for every pull request: the checks
+  # above and the folded build stand in for it there. The OSS export is built on its own by
+  # oss-export.yaml (after merge, and on pull requests labelled `oss-export`).
+  editions-alone:
+    name: Editions build alone
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      # GitHub's runners (the public repository) keep ~14 GB free: drop toolchains the build does not use.
+      - name: Free disk space
+        if: ${{ !vars.CI_RUNNER }}
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/rust-setup
+        if: ${{ hashFiles('ee/Cargo.toml') != '' }}
+      - name: The Enterprise workspace builds on its own
+        if: ${{ hashFiles('ee/Cargo.toml') != '' }}
+        working-directory: ee
+        run: cargo check --locked --workspace --all-targets
 
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/rust-setup
         with:
           components: rustfmt
           install-deps: 'false'
+          sccache: 'false'
           mold: 'false'
       - name: Rustfmt Check
         uses: actions-rust-lang/rustfmt@v1
+      - name: Rustfmt Check (Enterprise)
+        if: ${{ hashFiles('ee/Cargo.toml') != '' }}
+        working-directory: ee
+        run: cargo fmt --all --check
+
+  workspace-hack:
+    name: Workspace hack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/rust-setup
+        with:
+          install-deps: 'false'
+          sccache: 'false'
+          mold: 'false'
+      - name: Install cargo-hakari
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hakari
+      # Every crate builds against the same third-party features, so `cargo run -p` and the
+      # tests reuse one set of artifacts. Fix with `cargo hakari generate && cargo hakari manage-deps`.
+      - name: The workspace-hack is up to date
+        env:
+          RUSTC_WRAPPER: ""
+        run: |
+          cargo hakari generate --diff
+          cargo hakari manage-deps --dry-run
 
   clippy:
     name: Clippy
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v7
+      # GitHub's runners (the public repository) keep ~14 GB free: drop toolchains the build does not use.
+      - name: Free disk space
+        if: ${{ !vars.CI_RUNNER }}
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/rust-setup
         with:
           components: clippy
+      - name: Fold ee/ into the root workspace
+        if: ${{ hashFiles('ee/Cargo.toml') != '' }}
+        run: python3 scripts/editions/fold-ee-into-root.py
+      - name: Only ring is compiled in, and only our wrappers use it
+        run: ./.github/scripts/check-crypto-backends.sh
       - name: Linting
-        run: cargo clippy --locked -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
+
+  migrations:
+    name: Migration versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check for duplicate migration versions
+        run: ./.github/scripts/check-migration-versions.sh
+
+  lock-sites:
+    name: Row lock sites
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check every row lock is in an allowlisted function
+        run: ./.github/scripts/check-lock-sites.sh

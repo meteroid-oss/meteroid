@@ -2,7 +2,114 @@ syntax = "proto3";
 
 package meteroid.api.webhooks.out.v1;
 
-message PortalAccess {
-  string url = 1;
-  string token = 2;
+enum WebhookEndpointDisabledReasonEnum {
+  MANUAL = 0;
+  AUTO_FAILURES = 1;
+  GONE = 2;
+}
+
+enum WebhookDeliveryStatusEnum {
+  PENDING = 0;
+  IN_FLIGHT = 1;
+  SUCCEEDED = 2;
+  FAILED = 3;
+  CANCELLED = 4;
+}
+
+// A custom header sent with every delivery. A sensitive header never returns its
+// value; `set` says whether it has one.
+message WebhookHeader {
+  string name = 1;
+  optional string value = 2;
+  bool sensitive = 3;
+  bool set = 4;
+}
+
+// A header as written. A sensitive header sent without a value keeps the value it
+// already had.
+message WebhookHeaderInput {
+  string name = 1;
+  optional string value = 2;
+  bool sensitive = 3;
+}
+
+// A tenant's outbound webhook destination. The signing secret is never part of this
+// message; it is read through GetWebhookEndpointSecret / RotateWebhookEndpointSecret.
+message WebhookEndpoint {
+  string id = 1;
+  string url = 2;
+  optional string description = 3;
+  // Empty means every event type except Beta ones, sent only to endpoints that list them.
+  repeated string event_types = 4;
+  bool disabled = 5;
+  optional WebhookEndpointDisabledReasonEnum disabled_reason = 6;
+  string created_at = 7;
+  optional string updated_at = 8;
+  optional string last_success_at = 9;
+  optional string last_failure_at = 10;
+  int32 consecutive_failures = 11;
+  // How many deliveries this endpoint may have in flight at once. Read-only.
+  int32 max_in_flight = 12;
+  repeated WebhookHeader headers = 13;
+  // A sensitive header still waits for its value; the endpoint cannot be enabled
+  // until it is set.
+  bool needs_setup = 14;
+  reserved 15;
+  // The endpoint was unreachable several times in a row: nothing is sent before this
+  // time, then it is retried one delivery at a time until it answers again.
+  optional string paused_until = 16;
+  // First failure since the last success. After 5 days of failures only, the endpoint
+  // is disabled.
+  optional string failing_since = 17;
+  // Deliveries started per second, at most.
+  optional int32 rate_limit_per_sec = 18;
+}
+
+message WebhookDelivery {
+  string id = 1;
+  string message_id = 2;
+  string endpoint_id = 3;
+  string event_type = 4;
+  WebhookDeliveryStatusEnum status = 5;
+  // Retry budget spent in the current cycle (out of 8): a probe of a paused endpoint
+  // does not spend it, and a resend resets it. For the number of attempts, see `attempts`.
+  int32 attempt_count = 6;
+  optional string next_attempt_at = 7;
+  optional int32 last_response_status = 8;
+  optional string last_error = 9;
+  string created_at = 10;
+  optional string completed_at = 11;
+  bool manual = 12;
+  // Attempts made so far, across resends: the length of the attempt log.
+  int64 attempts = 13;
+}
+
+message WebhookAttempt {
+  string id = 1;
+  int32 attempt_number = 2;
+  string attempted_at = 3;
+  int32 duration_ms = 4;
+  optional int32 response_status = 5;
+  optional string response_body = 6;
+  optional string error = 7;
+  bool succeeded = 8;
+}
+
+// One payload field of an event type, e.g. `data.invoice_id`.
+message WebhookEventField {
+  string path = 1;
+  string type = 2;
+  optional string description = 3;
+  bool required = 4;
+}
+
+message WebhookEventType {
+  string name = 1;
+  string group = 2;
+  optional string description = 3;
+  // An example payload, as JSON.
+  string example_json = 4;
+  repeated WebhookEventField fields = 5;
+  // Sent only to endpoints that select it, never through "all event types".
+  bool beta = 6;
 }

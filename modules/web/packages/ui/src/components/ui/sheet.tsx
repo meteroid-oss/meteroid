@@ -46,6 +46,8 @@ const sheetVariants = cva(
         small: 'w-full sm:min-w-[450px] sm:w-[450px] ',
         medium: 'w-full sm:min-w-[580px] sm:w-[580px]',
         large: 'w-full sm:w-2/3 lg:w-1/2 sm:min-w-[580px]',
+        // Near-full-screen for split-pane forms (form + live preview).
+        xlarge: 'w-full sm:w-[96vw] sm:max-w-[1700px] sm:min-w-[580px]',
       },
     },
     defaultVariants: {

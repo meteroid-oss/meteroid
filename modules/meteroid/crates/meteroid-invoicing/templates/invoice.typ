@@ -1,5 +1,10 @@
 #import sys: inputs
 
+// A value counts as set only when it is neither none nor empty. Cleared text fields
+// can still reach us as "", and a section gated on `!= none` alone would then print
+// its heading with nothing under it.
+#let present(value) = value != none and value != ""
+
 // Main invoice function with modern, clean design
 #let invoice(
   lang,
@@ -35,7 +40,18 @@
   whitelabel: false,         // Hide meteroid branding
   parent_invoice_number: none,     // Set when this is a corrective invoice
   parent_invoice_date: none,       // Date of the original invoice
+  annexes: (),                     // list of appendices rendered after the invoice body
+  tax_inclusive: false,            // Lines and subtotal are quoted tax-included; tax is listed as included
+  total_excl_tax: none,            // Net total shown above the included tax on a tax-inclusive document
+  promotional_credit: 0,           // Promotional credit drawn before tax, like a discount
+  prepaid_amount: 0,               // Customer credit applied at issuance, deducted from the total
+  amount_due: none,                // total_amount - prepaid_amount; defaults to total_amount
+  prepaid_credit_purchase: false,  // Sells currency credit, taxed when the credit is used
 ) = {
+  let amount_due = if amount_due == none { total_amount } else { amount_due }
+  // Credit, or a note, covered it all: no due date to state and nothing to pay online.
+  let nothing_due = amount_due <= 0
+
   // Define color palette with named variables
   let color = (
     heading: rgb(25, 25, 25),
@@ -54,15 +70,20 @@
     unpaid: rgb(244, 67, 54),
   )
 
-  // Format currency values
+  // Amounts are decimals scaled by the renderer, the template only places the currency symbol
   let format_amount = (amount) => {
-    let formatted = calc.round(amount, digits: 2)
     if lang.starts-with("fr") {
-      str(formatted) + " " + currency_symbol
+      str(amount) + "\u{00A0}" + currency_symbol
     } else {
-      currency_symbol + " " + str(formatted)
+      currency_symbol + "\u{00A0}" + str(amount)
     }
   }
+  let due_summary = if nothing_due {
+    translations.at("nothing_to_pay", default: "Nothing to pay")
+  } else {
+    format_amount(amount_due) + " " + translations.due_label + " " + due_date
+  }
+
 
   // Import custom font
   let inter = "inter"
@@ -86,11 +107,11 @@
             #show link: underline
             #link("https://meteroid.com?utm_source=invoice", [
               #text(font: inter, size: 8pt, fill: color.heading, [Billing automation for SaaS])
-            ]) • #number • #format_amount(total_amount) #translations.due_label #due_date
+            ]) • #number • #due_summary
           ])
         } else {
           text(font: inter, size: 8pt, fill: color.footer_text, [
-            #number • #format_amount(total_amount) #translations.due_label #due_date
+            #number • #due_summary
           ])
         },
 
@@ -150,15 +171,22 @@
 
     ..if organization.tax_id != none {
       (
-        [#text(fill: color.accent, weight: "medium", translations.seller_vat_id)],
+        [#text(fill: color.accent, weight: "medium", translations.seller_tax_label)],
         [#text(weight: "medium", organization.tax_id)],
       )
     },
 
     ..if customer.tax_id != none {
       (
-        [#text(fill: color.accent, weight: "medium", translations.customer_vat_id)],
+        [#text(fill: color.accent, weight: "medium", translations.customer_tax_label)],
         [#text(weight: "medium", customer.tax_id)],
+      )
+    },
+
+    ..if present(customer.legal_number) {
+      (
+        [#text(fill: color.accent, weight: "medium", translations.at("customer_registration", default: "Customer registration number"))],
+        [#text(weight: "medium", customer.legal_number)],
       )
     },
   )
@@ -217,12 +245,16 @@
     // Amount due section with prominent display
     [
       #align(right, [
-        #text(size: 16pt, weight: "bold", fill: color.heading, [
-          #format_amount(total_amount)
-        ])
-         #text(size: 12pt, weight: "bold", fill: color.heading, [
-          #translations.due_label #due_date
-        ])
+        #if nothing_due {
+          text(size: 16pt, weight: "bold", fill: color.heading, translations.at("nothing_to_pay", default: "Nothing to pay"))
+        } else [
+          #text(size: 16pt, weight: "bold", fill: color.heading, [
+            #format_amount(amount_due)
+          ])
+          #text(size: 12pt, weight: "bold", fill: color.heading, [
+            #translations.due_label #due_date
+          ])
+        ]
 
 
         #if memo != none {
@@ -234,7 +266,7 @@
         #v(4pt)
 
         // Add payment button with url link if provided
-        #if pay_online_url != none {
+        #if pay_online_url != none and not nothing_due {
           link(pay_online_url,
             box(
               fill: color.button,
@@ -256,7 +288,7 @@
 
   // Simple table header with subtle styling and smaller font
   grid(
-    columns: (4fr, 1fr, 1fr, 0.8fr, 1.2fr),
+    columns: (3.6fr, 0.85fr, 1.5fr, 0.8fr, 1.25fr),
     column-gutter: 2pt,
     row-gutter: 0pt,
 
@@ -283,7 +315,7 @@
 
     block(breakable: false, width: 100%, [
       #grid(
-        columns: (4fr, 1fr, 1fr, 0.8fr, 1.2fr),
+        columns: (3.6fr, 0.85fr, 1.5fr, 0.8fr, 1.25fr),
         column-gutter: 6pt,
         row-gutter: 0pt,
 
@@ -294,6 +326,10 @@
           ]
           #if item.description != none [
             #text(size: 9pt, fill: color.accent, item.description)
+          ]
+          #if item.at("credit", default: none) != none [
+            #linebreak()
+            #text(size: 8pt, fill: color.accent, item.credit.consumed + " " + translations.credits_used + " · " + item.credit.covered + " " + translations.credits_covered)
           ]
           #linebreak()
           #text(size: 8pt, fill: color.date_text, item.start_date + " → " + item.end_date)
@@ -317,7 +353,7 @@
           [
             #for (sub_index, sub_item) in item.sub_lines.enumerate() {
               grid(
-                columns: (4fr, 1fr, 1fr, 0.8fr, 1.2fr),
+                columns: (3.6fr, 0.85fr, 1.5fr, 0.8fr, 1.25fr),
                 column-gutter: 6pt,
                 row-gutter: 0pt,
 
@@ -458,29 +494,58 @@
           for coupon in coupons {
             (
               text(fill: color.accent, coupon.name),
-              align(right, text(weight: "regular", "-" + format_amount(coupon.total))),
+              align(right, text(weight: "regular", sym.minus + format_amount(coupon.total))),
             )
           }
         } else if discount > 0 {
           (
             text(fill: color.accent, translations.discount),
-            align(right, text(weight: "regular", "-" + format_amount(discount))),
+            align(right, text(weight: "regular", sym.minus + format_amount(discount))),
           )
         },
 
+        ..if promotional_credit > 0 {
+          (
+            text(fill: color.accent, translations.at("promotional_credit", default: "Promotional credit")),
+            align(right, text(weight: "regular", sym.minus + format_amount(promotional_credit))),
+          )
+        },
+
+        // Tax-inclusive: the quoted subtotal less the discount and promotional credit already
+        // is the total, so the net total gets its own row and each tax row is marked as
+        // included, not added.
+        ..if tax_inclusive and total_excl_tax != none and tax_amount > 0 {
+          (
+            text(fill: color.accent, translations.at("total_excl_tax", default: "Total excluding tax")),
+            align(right, text(weight: "regular", format_amount(total_excl_tax))),
+          )
+        },
 
         ..if tax_breakdown.len() > 0 and tax_amount > 0 {
           // Show tax breakdown for any non-zero tax
           for tax_item in tax_breakdown {
             (
-              text(fill: color.accent, tax_item.name + " " + str(tax_item.rate) + "%"),
+              text(fill: color.accent, tax_item.name + " " + str(tax_item.rate) + "%" + if tax_inclusive { " (" + translations.at("tax_row_included", default: "included") + ")" } else { "" }),
               align(right, text(weight: "regular", format_amount(tax_item.amount))),
             )
           }
         },
 
-        text(weight: "medium", size: 12pt, fill: color.heading, translations.total_due),
-        align(right, text(weight: "medium", size: 12pt, fill: color.heading, format_amount(total_amount))),
+        ..if prepaid_amount > 0 {
+          (
+            text(fill: color.accent, translations.at("total", default: "Total")),
+            align(right, text(weight: "regular", format_amount(total_amount))),
+            text(fill: color.accent, translations.at("credits_applied", default: "Credits applied")),
+            align(right, text(weight: "regular", sym.minus + format_amount(prepaid_amount))),
+            text(weight: "medium", size: 12pt, fill: color.heading, translations.amount_due),
+            align(right, text(weight: "medium", size: 12pt, fill: color.heading, format_amount(amount_due))),
+          )
+        } else {
+          (
+            text(weight: "medium", size: 12pt, fill: color.heading, translations.total_due),
+            align(right, text(weight: "medium", size: 12pt, fill: color.heading, format_amount(total_amount))),
+          )
+        },
       )
     ])
   ))
@@ -544,67 +609,168 @@
             #v(4pt)
 
             #let has_reverse_charge = tax_breakdown.any(item => item.at("exemption_type", default: none) == "reverse_charge")
+            #let has_export = tax_breakdown.any(item => item.at("exemption_type", default: none) == "export")
+            // Out of scope without leaving the seller's territory (Guyane, Mayotte):
+            // the same headline as an export, but its own citation, CGI art. 294-1.
+            #let has_no_vat_territory = tax_breakdown.any(item => item.at("exemption_type", default: none) == "no_vat_territory")
             #let has_tax_exempt = tax_breakdown.any(item => item.at("exemption_type", default: none) == "tax_exempt")
 
-            #if has_reverse_charge {
-              text(size: 9pt, translations.tax_reverse_charge)
-              linebreak()
-              text(size: 8pt, fill: color.footer_text, translations.at("reverse_charge_notice", default: ""))
-            } else if has_tax_exempt {
-              text(size: 9pt, translations.vat_exempt_legal)
-              linebreak()
-              text(size: 8pt, fill: color.footer_text, translations.at("vat_exempt_notice", default: ""))
-            } else if tax_breakdown.len() == 0 {
-              text(size: 9pt, translations.at("no_tax_applied", default: "No tax applied"))
-            } else {
-              text(size: 9pt, translations.at("tax_included_text", default: "All prices include tax"))
+            // The merchant's own legal mention for the exemption, where one is
+            // configured. It replaces the derived statutory headline AND citation —
+            // the precedence the EN 16931 mapping gives BT-120 — so the PDF and the
+            // embedded XML never state two different tax positions on one document.
+            // Only the determinate exemption branches consult it: on a taxed or
+            // undetermined document the XML carries no BT-120 for it to mirror.
+            #let merchant_mention = tax_breakdown.map(item => item.at("exemption_reason", default: none)).find(present)
+
+            // The mention itself always renders — an invoice must state its tax
+            // treatment. Only the supporting citation is dropped when absent, so a
+            // missing bundle key leaves no dangling blank line under the heading.
+            #let citation = (footnote) => {
+              if present(footnote) {
+                linebreak()
+                text(size: 8pt, fill: color.footer_text, footnote)
+              }
             }
 
-            // EU compliance notice for international transactions
-            #if customer.tax_id != none and organization.tax_id != none {
-              v(6pt)
-              text(size: 8pt, fill: color.footer_text, translations.at("eu_vat_directive_notice", default: ""))
+            #if (has_reverse_charge or has_export or has_no_vat_territory or has_tax_exempt) and merchant_mention != none {
+              text(size: 9pt, merchant_mention)
+            } else if has_reverse_charge {
+              text(size: 9pt, translations.tax_reverse_charge)
+              citation(translations.at("reverse_charge_notice", default: ""))
+            } else if has_export {
+              text(size: 9pt, translations.at("vat_not_applicable_legal", default: "VAT not applicable"))
+              citation(translations.at("export_notice_resolved", default: ""))
+            } else if has_no_vat_territory {
+              text(size: 9pt, translations.at("vat_not_applicable_legal", default: "VAT not applicable"))
+              citation(translations.at("no_vat_territory_notice_resolved", default: ""))
+            } else if has_tax_exempt {
+              // An exemption is not an out-of-scope supply: its own headline, or a
+              // document labels an exempt supply as one the tax simply does not reach.
+              text(size: 9pt, translations.at("vat_exempt_legal", default: "Tax exempt"))
+              citation(translations.at("vat_exempt_notice_resolved", default: ""))
+            } else if tax_amount > 0 {
+              text(size: 9pt, translations.at("tax_included_resolved", default: "All prices include tax"))
+            } else {
+              text(size: 9pt, translations.at("no_tax_applied", default: "No tax applied"))
             }
+
           ] else []
         )
       ]
     )
   }
 
-  v(16pt)
+  // Shown whatever the section flags: the customer is told when the tax is charged.
+  if prepaid_credit_purchase {
+    v(8pt, weak: true)
+    text(size: 8pt, fill: color.footer_text, translations.at("prepaid_credit_tax_note", default: ""))
+  }
 
-  // Legal, footer, and exchange rate info — kept together to avoid orphan breaks
-  block(breakable: false, width: 100%, [
-    // Legal information
-    #if show_legal_info and organization.footer_legal != none {
-      grid(
-        columns: (1fr),
-        [
-          #text(fill: color.heading, weight: "medium", size: 10pt, translations.legal_info)
-          #v(4pt)
-          #text(size: 8pt, fill: color.footer_text, organization.footer_legal)
+  // Legal, footer, and exchange rate info — kept together to avoid orphan breaks.
+  // Emitted only when at least one of them has content: an empty block plus its
+  // leading spacing is enough to spill a page carrying nothing but the page footer,
+  // when the body happens to end near the bottom margin.
+  let has_legal_number = show_legal_info and present(organization.legal_number)
+  let has_legal_info = show_legal_info and present(organization.footer_legal)
+  let has_footer_info = show_footer_custom_info and present(organization.footer_info)
+  let has_exchange_rate = organization.exchange_rate != none and organization.accounting_currency_code != none and present(translations.at("exchange_rate_info", default: none))
 
-          #if organization.legal_number != none {
-            v(4pt)
-            text(size: 8pt, fill: color.footer_text, [
-              #translations.at("company_registration", default: "Registration"): #organization.legal_number
-            ])
+  if has_legal_info or has_legal_number or has_footer_info or has_exchange_rate {
+    // Weak, so it collapses rather than pushing a page when the block breaks over.
+    v(16pt, weak: true)
+
+    block(breakable: false, width: 100%, [
+      // Legal information
+      #if has_legal_info or has_legal_number {
+        grid(
+          columns: (1fr),
+          [
+            #text(fill: color.heading, weight: "medium", size: 10pt, translations.legal_info)
+            #v(4pt)
+            #if has_legal_info {
+              text(size: 8pt, fill: color.footer_text, organization.footer_legal)
+            }
+
+            #if has_legal_number {
+              v(4pt)
+              text(size: 8pt, fill: color.footer_text, [
+                #translations.at("company_registration", default: "Registration"): #organization.legal_number
+              ])
+            }
+          ]
+        )
+      }
+
+      // Footer custom information
+      #if has_footer_info {
+        v(16pt)
+        text(size: 8pt, fill: color.footer_text, organization.footer_info)
+      }
+
+      // Exchange rate info
+      #if has_exchange_rate {
+        v(8pt)
+        text(size: 8pt, fill: color.footer_text, translations.exchange_rate_info)
+      }
+    ])
+  }
+
+  // Annexes: each appendix starts on a fresh page and renders a (possibly
+  // multi-page) detail table. Grouping is display-only — rows are listed as-is.
+  for annex in annexes {
+    pagebreak(weak: true)
+
+    text(weight: "bold", size: 16pt, fill: color.heading, annex.title)
+    v(6pt)
+
+    if annex.at("description", default: none) != none {
+      text(size: 9pt, fill: color.accent, annex.description)
+      v(8pt)
+    }
+
+    let col_count = annex.columns.len()
+
+    // Tableless annexes (e.g. static text) render just the title + description above.
+    if col_count > 0 {
+      // Header cells.
+      let header_cells = annex.columns.map(c =>
+        table.cell(fill: color.light_border, text(weight: "medium", size: 8.5pt, fill: color.heading, c))
+      )
+
+      // Body: group heading rows (spanning all columns) interleaved with data rows.
+      let body_cells = ()
+      for group in annex.groups {
+        if group.at("heading", default: none) != none {
+          body_cells.push(
+            table.cell(colspan: col_count, fill: color.light_border.lighten(40%),
+              text(weight: "medium", size: 9pt, fill: color.heading, group.heading))
+          )
+        }
+        for row in group.rows {
+          let emphasized = row.at("emphasis", default: false)
+          for cell in row.cells {
+            if emphasized {
+              body_cells.push(table.cell(
+                fill: color.light_border,
+                text(weight: "bold", size: 8.5pt, fill: color.heading, cell),
+              ))
+            } else {
+              body_cells.push(text(size: 8.5pt, fill: color.text, cell))
+            }
           }
-        ]
+        }
+      }
+
+      table(
+        columns: col_count,
+        inset: (x: 6pt, y: 4pt),
+        align: left,
+        stroke: 0.5pt + color.border,
+        ..header_cells,
+        ..body_cells,
       )
     }
-
-    // Footer custom information
-    #if show_footer_custom_info and organization.footer_info != none {
-      v(16pt)
-      text(size: 8pt, fill: color.footer_text, organization.footer_info)
-    }
-
-    // Exchange rate info
-    #if organization.exchange_rate != none and organization.accounting_currency_code != none and translations.at("exchange_rate_info", default: none) != none {
-      v(8pt)
-      text(size: 8pt, fill: color.footer_text, translations.exchange_rate_info)
-    }
-  ])
+  }
 }
 

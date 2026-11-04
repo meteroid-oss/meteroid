@@ -1,0 +1,20 @@
+#[derive(Debug, thiserror::Error)]
+#[allow(clippy::enum_variant_names)]
+pub enum PgmqError {
+    #[error("HandleMessagesError")]
+    HandleMessages,
+    #[error("ReadMessagesError")]
+    ReadMessages,
+    #[error("ReadMessagesTimeout")]
+    ReadMessagesTimeout,
+    #[error("DeleteMessagesError")]
+    DeleteMessages,
+    #[error("ArchiveMessagesError")]
+    ArchiveMessages,
+    #[error("DeadLetterMessagesError")]
+    DeadLetterMessages,
+    #[error("SetVisibilityTimeoutError")]
+    SetVisibilityTimeout,
+    #[error("SerdeError")]
+    Serde(#[from] serde_json::Error),
+}

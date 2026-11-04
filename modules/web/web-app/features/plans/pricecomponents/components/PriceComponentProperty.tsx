@@ -24,3 +24,19 @@ export const PriceComponentProperty: React.FC<Props> = ({
     </div>
   )
 }
+
+export const PriceComponentProperties: React.FC<{
+  items: { label: string; value: React.ReactNode }[]
+  className?: string
+}> = ({ items, className }) => {
+  if (items.length === 0) return null
+  return (
+    <div className={cn('flex flex-wrap gap-x-10 gap-y-3', className)}>
+      {items.map(item => (
+        <PriceComponentProperty key={item.label} label={item.label}>
+          {item.value}
+        </PriceComponentProperty>
+      ))}
+    </div>
+  )
+}

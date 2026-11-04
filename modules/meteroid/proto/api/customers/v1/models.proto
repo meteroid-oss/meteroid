@@ -14,6 +14,26 @@ message CustomerBrief {
   optional string country = 5;
   string created_at = 6;
   string local_id = 7;
+  // Sum of active (ACTIVE/PENDING_CHARGE) subscriptions' MRR, in cents.
+  int64 mrr_cents = 8;
+  string currency = 9;
+  // Derived lifecycle state (snake_case, e.g. "active_paying"); computed on read.
+  string lifecycle_state = 10;
+  // JSON-encoded object of user-defined custom property values, keyed by definition key.
+  optional string custom_properties = 11;
+  // Internal account owner (ADR-0002); absent = unassigned. display_name may be empty on
+  // the list row (batch-resolved by the caller); the id always carries the "my accounts" key.
+  optional CustomerOwner owner = 12;
+  // The customer's open (firing) signals; absent without alerts:read or the Signals entitlement.
+  optional CustomerOpenSignals open_signals = 13;
+}
+
+message CustomerOpenSignals {
+  uint32 count = 1;
+  // Category of the signal with the largest |impact|: "expansion" | "risk" | "contracts" | "billing".
+  string top_category = 2;
+  // At least one open signal is CRITICAL.
+  bool critical = 3;
 }
 
 message Address {
@@ -34,6 +54,21 @@ message CustomerTaxRate {
   string tax_code = 1;
   string name = 2;
   string rate = 3;
+}
+
+// Company vs. individual (B2C) customer. COMPANY (0) is the default, matching legacy rows.
+enum CustomerType {
+  CUSTOMER_TYPE_COMPANY = 0;
+  CUSTOMER_TYPE_INDIVIDUAL = 1;
+}
+
+// The internal user who owns an account (ADR-0002). Internal-only; never exposed
+// to the customer portal.
+message CustomerOwner {
+  string user_id = 1;
+  // Best-effort human label (name, falling back to email); may be empty if the
+  // owning user can no longer be resolved in this tenant's organization.
+  string display_name = 2;
 }
 
 // External (VIES) verification state of the customer's VAT number.
@@ -61,7 +96,6 @@ message Customer {
   optional string alias = 4;
   repeated string invoicing_emails = 6;
   optional string phone = 7;
-  int64 balance_value_cents = 8;
   string currency = 9;
   optional google.protobuf.Timestamp archived_at = 10;
   optional google.protobuf.Timestamp created_at = 11;
@@ -78,15 +112,33 @@ message Customer {
   repeated CustomerConnection customer_connections = 23;
   repeated CustomerPaymentMethod payment_methods = 24;
   optional string connected_account_id = 25;
-  reserved 26; // lifecycle_state, enterprise-only
+  // Derived lifecycle state (snake_case, e.g. "active_paying"); computed on read.
+  string lifecycle_state = 26;
   VatNumberValidationStatus vat_number_validation_status = 27;
   optional google.protobuf.Timestamp vat_number_checked_at = 28;
   // Registered company name returned by VIES with the last definitive answer.
   optional string vat_number_registered_name = 29;
   // VIES consultation number (audit proof); present only for qualified checks.
   optional string vat_number_consultation_number = 30;
+  // JSON-encoded object of user-defined custom property values, keyed by definition key.
+  optional string custom_properties = 31;
+  // Preferred document languages, most-preferred first (BCP-47 tags, e.g. ["fr-FR", "en"]);
+  // overrides the invoicing entity default. Replaces the former `invoicing_language`.
+  reserved 32;
+  repeated string preferred_locales = 35;
   // Free-text legal exemption mention (EU exempt/reverse-charge invoices).
-  optional string exemption_reason = 31;
+  optional string exemption_reason = 33;
+  // BT-47 — the buyer's national register identifier (SIREN/SIRET, HRB).
+  // Required by the French e-invoicing mandate; not by EN 16931's core model.
+  optional string legal_number = 34;
+  CustomerType customer_type = 36;
+  optional string first_name = 37;
+  optional string last_name = 38;
+  // Internal account owner (ADR-0002); absent = unassigned.
+  optional CustomerOwner owner = 39;
+  // BT-10 — the reference the buyer routes invoices by (Leitweg-ID for German public
+  // bodies). Required by XRechnung.
+  optional string buyer_reference = 40;
 }
 
 message CustomerNew {
@@ -103,7 +155,20 @@ message CustomerNew {
   repeated CustomerTaxRate custom_taxes = 17;
   optional CustomerTaxStatus tax_status = 18;
   optional string connected_account_id = 19;
-  optional string exemption_reason = 20;
+  // JSON-encoded object of custom property values, keyed by definition key.
+  optional string custom_properties = 20;
+  // Preferred document languages, most-preferred first (BCP-47 tags, e.g. ["fr-FR", "en"]);
+  // overrides the invoicing entity default. Replaces the former `invoicing_language`.
+  reserved 21;
+  repeated string preferred_locales = 24;
+  optional string exemption_reason = 22;
+  // BT-47 — the buyer's national register identifier (SIREN/SIRET, HRB).
+  optional string legal_number = 23;
+  CustomerType customer_type = 25;
+  optional string first_name = 26;
+  optional string last_name = 27;
+  // BT-10 — buyer reference (Leitweg-ID).
+  optional string buyer_reference = 28;
 }
 
 
@@ -114,7 +179,6 @@ message UpdateCustomer {
   optional string alias = 3;
   InvoicingEmails invoicing_emails = 4;
   optional string phone = 5;
-  optional int64 balance_value_cents = 6;
   optional string currency = 7;
   optional Address billing_address = 8;
   optional ShippingAddress shipping_address = 9;
@@ -123,6 +187,20 @@ message UpdateCustomer {
   CustomTaxesList custom_taxes = 17;
   optional CustomerTaxStatus tax_status = 18;
   optional string exemption_reason = 19;
+  // JSON-encoded object of custom property values to merge (send a key with null to remove it).
+  optional string custom_properties = 20;
+  // Preferred document languages, most-preferred first (BCP-47 tags, e.g. ["fr-FR", "en"]);
+  // overrides the invoicing entity default. This RPC carries a full form, so an empty list
+  // resets to "inherit". Replaces the former `invoicing_language`.
+  reserved 21;
+  repeated string preferred_locales = 23;
+  // BT-47 — the buyer's national register identifier. Empty string clears it.
+  optional string legal_number = 22;
+  optional CustomerType customer_type = 24;
+  optional string first_name = 25;
+  optional string last_name = 26;
+  // BT-10 — buyer reference (Leitweg-ID). Empty string clears it.
+  optional string buyer_reference = 27;
 
   message InvoicingEmails {
     repeated string emails = 1;

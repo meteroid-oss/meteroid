@@ -2,7 +2,9 @@ use cached::proc_macro::cached;
 use common_domain::ids::{ApiTokenId, OrganizationId, TenantId};
 use common_grpc::GrpcServiceMethod;
 use common_grpc::middleware::common::auth::API_KEY_HEADER;
-use common_grpc::middleware::server::auth::api_token_validator::ApiTokenValidator;
+use common_grpc::middleware::server::auth::api_token_validator::{
+    ApiTokenSecretDigest, ApiTokenValidator,
+};
 use common_grpc::middleware::server::auth::{AuthenticatedState, TenantEnv};
 use http::HeaderMap;
 use meteroid_store::Store;
@@ -18,12 +20,14 @@ const FORBIDDEN_SERVICES: [&str; 5] = [
     "meteroid.api.instance.v1.InstanceService",
 ];
 
+// The key must include the presented secret: keying on the token id alone lets anyone
+// quoting a known id reuse the entry a legitimate request populated, skipping validate_hash.
 #[cached(
     result = true,
-    size = 100,
+    size = 50_000,
     time = 120, // 2 min
-    key = "ApiTokenId",
-    convert = r#"{ *api_key_id }"#
+    key = "(ApiTokenId, ApiTokenSecretDigest)",
+    convert = r#"{ (*api_key_id, validator.secret_digest()) }"#
 )]
 async fn validate_api_token_by_id_cached(
     store: &Store,
@@ -39,6 +43,8 @@ async fn validate_api_token_by_id_cached(
         .validate_hash(&res.hash)
         .map_err(|_| Status::unauthenticated("Invalid API key"))?;
 
+    spawn_usage_stamp(store, api_key_id);
+
     let tenant_env = if res.environment == TenantEnvironmentEnum::Production {
         TenantEnv::Production
     } else {
@@ -48,12 +54,26 @@ async fn validate_api_token_by_id_cached(
     Ok((res.organization_id, res.tenant_id, tenant_env))
 }
 
+/// Fire-and-forget `last_used_at`/`first_used_at` stamp; runs only on a
+/// validation-cache miss.
+fn spawn_usage_stamp(store: &Store, api_key_id: &ApiTokenId) {
+    let store = store.clone();
+    let api_key_id = *api_key_id;
+    tokio::spawn(async move {
+        if let Err(err) = store.report_api_token_usage(&api_key_id).await {
+            tracing::warn!("Failed to record api token usage for {api_key_id}: {err:?}");
+        }
+    });
+}
+
 pub async fn validate_api_key(
     header_map: &HeaderMap,
     store: &Store,
     gm: &GrpcServiceMethod,
 ) -> Result<AuthenticatedState, Status> {
-    if FORBIDDEN_SERVICES.contains(&gm.service.as_str()) {
+    if FORBIDDEN_SERVICES.contains(&gm.service.as_str())
+        || gm.service.starts_with("meteroid.admin.")
+    {
         return Err(Status::permission_denied("Forbidden"));
     }
 

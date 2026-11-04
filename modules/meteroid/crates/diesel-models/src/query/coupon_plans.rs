@@ -2,7 +2,7 @@ use crate::coupon_plans::{CouponPlanRow, CouponPlanRowNew};
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 use common_domain::ids::{CouponId, PlanId};
-use diesel::{ExpressionMethods, QueryDsl, debug_query};
+use diesel::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
 use std::collections::HashMap;
 
@@ -17,7 +17,7 @@ impl CouponPlanRowNew {
 
         let query = diesel::insert_into(coupon_plan).values(rows);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -39,7 +39,7 @@ impl CouponPlanRow {
             .filter(coupon_id.eq(param_coupon_id))
             .select(plan_id);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -61,7 +61,7 @@ impl CouponPlanRow {
 
         let query = coupon_plan.filter(coupon_id.eq_any(coupon_ids));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         let rows: Vec<CouponPlanRow> = query
             .load(conn)
@@ -83,7 +83,7 @@ impl CouponPlanRow {
 
         let query = diesel::delete(coupon_plan.filter(coupon_id.eq(param_coupon_id)));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)

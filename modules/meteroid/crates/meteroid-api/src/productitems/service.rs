@@ -1,0 +1,330 @@
+use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId, TaxCategoryId};
+use common_grpc::middleware::server::auth::RequestExt;
+use meteroid_grpc::meteroid::api::products::v1::{
+    ArchiveProductRequest, ArchiveProductResponse, CreateProductRequest, CreateProductResponse,
+    GetProductRequest, GetProductResponse, ListProductsRequest, ListProductsResponse,
+    ListProductsWithPricesRequest, ListProductsWithPricesResponse, SearchProductsRequest,
+    SearchProductsResponse, UnarchiveProductRequest, UnarchiveProductResponse,
+    UpdateProductRequest, UpdateProductResponse, products_service_server::ProductsService,
+};
+use meteroid_store::domain;
+use meteroid_store::domain::prices::FeeStructure;
+use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
+use meteroid_store::repositories::prices::PriceInterface;
+use meteroid_store::repositories::products::{ProductInterface, ProductUpdate};
+use tonic::{Request, Response, Status};
+
+use crate::productitems::error::ProductApiError;
+use crate::productitems::mapping::products::{
+    ProductMetaWrapper, ProductWithPriceWrapper, ProductWrapper, fee_structure_from_proto,
+    fee_type_from_proto,
+};
+use meteroid_grpc_mapping::utils::PaginationExt;
+
+use super::ProductServiceComponents;
+
+#[tonic::async_trait]
+impl ProductsService for ProductServiceComponents {
+    #[tracing::instrument(skip_all)]
+    async fn create_product(
+        &self,
+        request: Request<CreateProductRequest>,
+    ) -> Result<Response<CreateProductResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let actor_typed = request.actor_typed()?;
+
+        let req = request.into_inner();
+
+        let fee_type = fee_type_from_proto(req.fee_type)?;
+        let fee_structure = req
+            .fee_structure
+            .map(fee_structure_from_proto)
+            .transpose()?
+            .ok_or_else(|| Status::invalid_argument("fee_structure is required"))?;
+
+        let res = self
+            .store
+            .create_product(
+                actor_typed,
+                domain::ProductNew {
+                    name: req.name,
+                    description: req.description,
+                    tenant_id,
+                    family_id: ProductFamilyId::from_proto(req.family_local_id)?,
+                    fee_type,
+                    fee_structure,
+                    catalog: req.catalog.unwrap_or(true),
+                    tax_category_id: req
+                        .tax_category_id
+                        .map(TaxCategoryId::from_proto)
+                        .transpose()?,
+                },
+            )
+            .await
+            .map_err(Into::<ProductApiError>::into)
+            .map(|x| ProductWrapper::from(x).0)?;
+
+        Ok(Response::new(CreateProductResponse { product: Some(res) }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn update_product(
+        &self,
+        request: Request<UpdateProductRequest>,
+    ) -> Result<Response<UpdateProductResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
+        let req = request.into_inner();
+
+        let product_id = ProductId::from_proto(req.product_id.as_str())?;
+        let fee_type = req.fee_type.map(fee_type_from_proto).transpose()?;
+        let fee_structure = req
+            .fee_structure
+            .map(fee_structure_from_proto)
+            .transpose()?;
+
+        let res = self
+            .store
+            .update_product(
+                actor,
+                ProductUpdate {
+                    id: product_id,
+                    tenant_id,
+                    name: Some(req.name),
+                    description: req.description.map(Some),
+                    fee_type,
+                    fee_structure,
+                    tax_category_id: match req.tax_category_id {
+                        None => None,
+                        Some(s) if s.is_empty() => Some(None),
+                        Some(s) => Some(Some(TaxCategoryId::from_proto(s)?)),
+                    },
+                },
+            )
+            .await
+            .map_err(Into::<ProductApiError>::into)
+            .map(|x| ProductWrapper::from(x).0)?;
+
+        Ok(Response::new(UpdateProductResponse { product: Some(res) }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn list_products(
+        &self,
+        request: Request<ListProductsRequest>,
+    ) -> Result<Response<ListProductsResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let pagination_req = req.pagination.into_domain();
+
+        let catalog_only = req.catalog_only.unwrap_or(true);
+
+        let res = self
+            .store
+            .list_products(
+                tenant_id,
+                ProductFamilyId::from_proto_opt(req.family_local_id)?,
+                catalog_only,
+                pagination_req,
+                None,
+            )
+            .await
+            .map_err(Into::<ProductApiError>::into)?;
+
+        let response = ListProductsResponse {
+            pagination_meta: req
+                .pagination
+                .into_response(res.total_pages, res.total_results),
+            products: res
+                .items
+                .into_iter()
+                .map(|x| ProductMetaWrapper::from(x).0)
+                .collect::<Vec<_>>(),
+        };
+
+        Ok(Response::new(response))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn search_products(
+        &self,
+        request: Request<SearchProductsRequest>,
+    ) -> Result<Response<SearchProductsResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+        let pagination_req = req.pagination.into_domain();
+
+        let catalog_only = req.catalog_only.unwrap_or(true);
+
+        let res = self
+            .store
+            .search_products(
+                tenant_id,
+                ProductFamilyId::from_proto_opt(req.family_local_id)?,
+                req.query.unwrap_or_default().as_str(), // todo add some validation on the query
+                catalog_only,
+                req.archived.unwrap_or(false),
+                pagination_req,
+                req.order_by,
+            )
+            .await
+            .map_err(Into::<ProductApiError>::into)?;
+
+        let response = SearchProductsResponse {
+            pagination_meta: req
+                .pagination
+                .into_response(res.total_pages, res.total_results),
+            products: res
+                .items
+                .into_iter()
+                .map(|x| ProductMetaWrapper::from(x).0)
+                .collect::<Vec<_>>(),
+        };
+
+        Ok(Response::new(response))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn get_product(
+        &self,
+        request: Request<GetProductRequest>,
+    ) -> Result<Response<GetProductResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let product_id = ProductId::from_proto(req.product_id.as_str())?;
+
+        let domain_product = self
+            .store
+            .find_product_by_id(product_id, tenant_id)
+            .await
+            .map_err(Into::<ProductApiError>::into)?;
+
+        let metric_id: Option<BillableMetricId> = match &domain_product.fee_structure {
+            FeeStructure::Capacity { metric_id } | FeeStructure::Usage { metric_id, .. } => {
+                Some(*metric_id)
+            }
+            _ => None,
+        };
+
+        let metric_name = if let Some(mid) = metric_id {
+            self.store
+                .find_billable_metric_by_id(mid, tenant_id)
+                .await
+                .ok()
+                .map(|m| m.name)
+        } else {
+            None
+        };
+
+        let product = ProductWrapper::from(domain_product).0;
+
+        let prices = self
+            .store
+            .list_prices_by_product_id(product_id, tenant_id)
+            .await
+            .map_err(Into::<ProductApiError>::into)?;
+
+        let mut currencies: Vec<String> = prices
+            .iter()
+            .map(|p| p.currency.clone())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        currencies.sort();
+
+        Ok(Response::new(GetProductResponse {
+            product: Some(product),
+            currencies,
+            metric_name,
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn list_products_with_prices(
+        &self,
+        request: Request<ListProductsWithPricesRequest>,
+    ) -> Result<Response<ListProductsWithPricesResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let pagination_req = req.pagination.into_domain();
+
+        let catalog_only = req.catalog_only.unwrap_or(true);
+
+        let fee_types: Vec<_> = req
+            .fee_types
+            .iter()
+            .map(|&ft| fee_type_from_proto(ft))
+            .collect::<Result<_, _>>()?;
+
+        let res = self
+            .store
+            .list_products_with_latest_price(
+                tenant_id,
+                ProductFamilyId::from_proto_opt(req.family_local_id)?,
+                &req.currency,
+                req.query.as_deref(),
+                catalog_only,
+                fee_types,
+                pagination_req,
+            )
+            .await
+            .map_err(Into::<ProductApiError>::into)?;
+
+        let response = ListProductsWithPricesResponse {
+            pagination_meta: req
+                .pagination
+                .into_response(res.total_pages, res.total_results),
+            products: res
+                .items
+                .into_iter()
+                .map(|x| ProductWithPriceWrapper::from(x).0)
+                .collect(),
+        };
+
+        Ok(Response::new(response))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn archive_product(
+        &self,
+        request: Request<ArchiveProductRequest>,
+    ) -> Result<Response<ArchiveProductResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
+        let product_id = ProductId::from_proto(request.into_inner().product_id.as_str())?;
+
+        let product = self
+            .store
+            .archive_product(actor, product_id, tenant_id)
+            .await
+            .map_err(Into::<ProductApiError>::into)
+            .map(|x| ProductWrapper::from(x).0)?;
+
+        Ok(Response::new(ArchiveProductResponse {
+            product: Some(product),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn unarchive_product(
+        &self,
+        request: Request<UnarchiveProductRequest>,
+    ) -> Result<Response<UnarchiveProductResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let product_id = ProductId::from_proto(request.into_inner().product_id.as_str())?;
+
+        let product = self
+            .store
+            .unarchive_product(product_id, tenant_id)
+            .await
+            .map_err(Into::<ProductApiError>::into)
+            .map(|x| ProductWrapper::from(x).0)?;
+
+        Ok(Response::new(UnarchiveProductResponse {
+            product: Some(product),
+        }))
+    }
+}

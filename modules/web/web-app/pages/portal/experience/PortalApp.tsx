@@ -2,12 +2,16 @@ import { AlertCircle } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import { useScrollFade } from '@/hooks/useScrollFade'
+
 import { usePortalConfig } from './PortalThemeProvider'
-import { PortalNav, PortalNavContext, PORTAL_TABS, PortalTab } from './context'
-import { useInvalidatePortal, usePortalOverview, usePortalToken } from './hooks'
+import { PORTAL_TABS, PortalNav, PortalNavContext, PortalTab } from './context'
+import { useInvalidatePortal, useLicenses, usePortalOverview, usePortalToken } from './hooks'
 import { ChangePlanModal } from './modals/ChangePlanModal'
 import { CenterState, Spinner } from './primitives'
+import { BalanceScreen } from './screens/BalanceScreen'
 import { InvoicesScreen } from './screens/InvoicesScreen'
+import { LicensesScreen } from './screens/LicensesScreen'
 import { OverviewScreen } from './screens/OverviewScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
 import { SubscriptionDetailScreen } from './screens/SubscriptionDetailScreen'
@@ -93,7 +97,6 @@ const Header = ({
         </span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-
         <div
           style={{
             display: 'flex',
@@ -128,62 +131,79 @@ const Header = ({
   </header>
 )
 
-const Tabs = ({ active, onChange }: { active: PortalTab; onChange: (t: PortalTab) => void }) => (
-  <div
-    style={{
-      maxWidth: 920,
-      margin: '0 auto',
-      padding: '0 20px',
-      display: 'flex',
-      gap: 24,
-      overflowX: 'auto',
-      marginBottom: -1,
-    }}
-    className="mtp-scroll"
-  >
-    {PORTAL_TABS.map(t => {
-      const isActive = active === t.key
-      return (
-        <button
-          key={t.key}
-          onClick={() => onChange(t.key)}
-          className="mtp-tab"
-          style={{
-            padding: '15px 0',
-            fontSize: 13.5,
-            fontWeight: 500,
-            fontFamily: 'inherit',
-            cursor: 'pointer',
-            background: 'none',
-            border: 'none',
-            borderBottom: isActive ? '2px solid var(--mtp-accent-ink)' : '2px solid transparent',
-            color: isActive ? 'var(--mtp-text)' : 'var(--mtp-text-2)',
-            whiteSpace: 'nowrap',
-            transition: 'color .12s',
-          }}
-        >
-          {t.label}
-        </button>
-      )
-    })}
-  </div>
-)
+const Tabs = ({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: { key: PortalTab; label: string }[]
+  active: PortalTab
+  onChange: (t: PortalTab) => void
+}) => {
+  const fade = useScrollFade<HTMLDivElement>('[data-active="true"]')
+  const fadeClass = [fade.fadeLeft && 'scroll-fade-x-left', fade.fadeRight && 'scroll-fade-x-right']
+    .filter(Boolean)
+    .join(' ')
+  return (
+    <div
+      ref={fade.ref}
+      style={{
+        maxWidth: 920,
+        margin: '0 auto',
+        padding: '0 20px',
+        display: 'flex',
+        gap: 24,
+        overflowX: 'auto',
+        marginBottom: -1,
+      }}
+      className={`mtp-scroll ${fadeClass}`}
+    >
+      {tabs.map(t => {
+        const isActive = active === t.key
+        return (
+          <button
+            key={t.key}
+            data-active={isActive || undefined}
+            onClick={() => onChange(t.key)}
+            className="mtp-tab"
+            style={{
+              padding: '15px 0',
+              fontSize: 13.5,
+              fontWeight: 500,
+              fontFamily: 'inherit',
+              cursor: 'pointer',
+              background: 'none',
+              border: 'none',
+              borderBottom: isActive ? '2px solid var(--mtp-accent-ink)' : '2px solid transparent',
+              color: isActive ? 'var(--mtp-text)' : 'var(--mtp-text-2)',
+              whiteSpace: 'nowrap',
+              transition: 'color .12s',
+            }}
+          >
+            {t.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
 export const PortalApp = () => {
   const { data, isLoading, error, refetch, overview } = usePortalOverview()
   const token = usePortalToken()
   const config = usePortalConfig()
   const invalidatePortal = useInvalidatePortal()
+  const hasLicenses = (useLicenses().data?.licenses.length ?? 0) > 0
 
   // Screen state lives in the URL (?page=, ?sub=) so it survives reloads and is
   // deep-linkable from embedded widgets. The change-plan modal stays ephemeral.
   const [searchParams, setSearchParams] = useSearchParams()
   const [changePlanSubId, setChangePlanSubId] = useState<string | null>(null)
 
-  const pageParam = searchParams.get('page')
-  const tab: PortalTab = PORTAL_TABS.some(t => t.key === pageParam)
-    ? (pageParam as PortalTab)
-    : 'overview'
+  // The Licenses tab shows once the customer holds a license; a `?page=licenses` link always opens it.
+  const tabs = PORTAL_TABS.filter(t => hasLicenses || t.key !== 'licenses')
+  const requestedTab = searchParams.get('page')
+  const tab = PORTAL_TABS.find(t => t.key === requestedTab)?.key ?? 'overview'
   const detailSubId = searchParams.get('sub')
 
   // Mutate the query string while preserving token / theme / embed params.
@@ -262,8 +282,12 @@ export const PortalApp = () => {
         return <SubscriptionsScreen />
       case 'usage':
         return <UsageScreen />
+      case 'balance':
+        return <BalanceScreen />
       case 'invoices':
         return <InvoicesScreen />
+      case 'licenses':
+        return <LicensesScreen />
       case 'settings':
         return <SettingsScreen />
     }
@@ -273,16 +297,13 @@ export const PortalApp = () => {
     <PortalNavContext.Provider value={nav}>
       <Header overview={overview!} brandName={brandName} logoUrl={config.branding.logoUrl} />
       <div style={{ borderBottom: '1px solid var(--mtp-border)' }}>
-        <Tabs
-          active={tab}
-          onChange={t => nav.goTo(t)}
-        />
+        <Tabs tabs={tabs} active={tab} onChange={t => nav.goTo(t)} />
       </div>
 
       <main style={{ maxWidth: 920, margin: '0 auto', padding: '28px 20px 48px' }}>
         {renderScreen()}
 
-        {config.branding.showPoweredBy !== false && (
+        {config.branding.showPoweredBy === true && (
           <div
             style={{
               marginTop: 36,
@@ -299,7 +320,12 @@ export const PortalApp = () => {
               href="https://meteroid.com/?utm_source=portal"
               target="_blank"
               rel="noopener noreferrer"
-              style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--mtp-text-2)', textDecoration: 'none' }}
+              style={{
+                fontSize: 12.5,
+                fontWeight: 600,
+                color: 'var(--mtp-text-2)',
+                textDecoration: 'none',
+              }}
             >
               Meteroid
             </a>

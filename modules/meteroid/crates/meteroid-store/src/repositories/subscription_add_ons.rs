@@ -1,3 +1,4 @@
+use crate::StoreResult;
 use crate::domain::Product;
 use crate::domain::add_ons::AddOn;
 use crate::domain::prices::Price;
@@ -6,72 +7,13 @@ use crate::domain::subscription_add_ons::{
 };
 use crate::errors::StoreError;
 use crate::store::PgConn;
-use crate::{Store, StoreResult};
-use common_domain::ids::{PriceId, ProductId, SubscriptionAddOnId, SubscriptionId, TenantId};
+use common_domain::ids::{PriceId, ProductId, SubscriptionId};
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
 use error_stack::Report;
 use std::collections::HashMap;
 
-#[async_trait::async_trait]
-pub trait SubscriptionAddOnInterface {
-    async fn insert_subscription_add_on(
-        &self,
-        tenant_id: TenantId,
-        new: SubscriptionAddOnNew,
-    ) -> StoreResult<()>;
-
-    async fn delete_subscription_add_on(
-        &self,
-        id: SubscriptionAddOnId,
-        subscription_id: SubscriptionId,
-        tenant_id: TenantId,
-    ) -> StoreResult<()>;
-}
-
-#[async_trait::async_trait]
-impl SubscriptionAddOnInterface for Store {
-    async fn insert_subscription_add_on(
-        &self,
-        tenant_id: TenantId,
-        new: SubscriptionAddOnNew,
-    ) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
-
-        // Verify the subscription belongs to the tenant
-        diesel_models::subscriptions::SubscriptionRow::get_subscription_by_id(
-            &mut conn,
-            &tenant_id,
-            new.subscription_id,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        let row_new: SubscriptionAddOnRowNew = new.try_into().map_err(|e: Report<StoreError>| e)?;
-
-        SubscriptionAddOnRow::insert_batch(&mut conn, vec![&row_new])
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        Ok(())
-    }
-
-    async fn delete_subscription_add_on(
-        &self,
-        id: SubscriptionAddOnId,
-        subscription_id: SubscriptionId,
-        tenant_id: TenantId,
-    ) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
-
-        SubscriptionAddOnRow::delete_by_id(&mut conn, id, &subscription_id, &tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-    }
-}
-
 /// Resolves checkout add-ons against their catalog definitions and persists them.
 /// Used by both the synchronous checkout completion and the async payment settlement webhook.
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn resolve_and_insert_checkout_addons(
     conn: &mut PgConn,
     subscription_id: SubscriptionId,
@@ -79,6 +21,7 @@ pub(crate) async fn resolve_and_insert_checkout_addons(
     create_add_ons: &[CreateSubscriptionAddOn],
     products_by_id: &HashMap<ProductId, Product>,
     prices_by_id: &HashMap<PriceId, Price>,
+    units: &crate::domain::credit_units::CreditUnitsById,
     effective_from: chrono::NaiveDate,
 ) -> StoreResult<()> {
     let mut addon_rows_new: Vec<SubscriptionAddOnRowNew> = Vec::new();
@@ -94,7 +37,7 @@ pub(crate) async fn resolve_and_insert_checkout_addons(
             })?;
 
         let resolved = addon
-            .resolve_customized(products_by_id, prices_by_id, &cs_ao.customization)
+            .resolve_customized(products_by_id, prices_by_id, units, &cs_ao.customization)
             .map_err(Report::new)?;
 
         let new_internal = SubscriptionAddOnNewInternal {

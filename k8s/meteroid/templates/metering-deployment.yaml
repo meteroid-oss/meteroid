@@ -17,7 +17,7 @@ spec:
     rollingUpdate:
       maxSurge: 1
       maxUnavailable: 0
-  revisionHistoryLimit: {{ .Values.meteroid.revisionHistoryLimit }}
+  revisionHistoryLimit: {{ .Values.meteroid.revisionHistoryLimit | default 10 }}
   selector:
     matchLabels:
       {{- include "meteroid.meteringSelectorLabels" . | nindent 6 }}
@@ -49,7 +49,7 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.metering.terminationGracePeriodSeconds | default 30 }}
       containers:
         - name: {{ .Chart.Name }}-metering
-          image: "{{ .Values.metering.image.repository }}:{{ .Values.metering.image.tag }}"
+          image: "{{ .Values.metering.image.repository }}:{{ .Values.metering.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.metering.image.pullPolicy }}
           ports:
             - name: http
@@ -64,6 +64,12 @@ spec:
             {{- with .Values.metering.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+            - name: LICENSE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: license-key
+                  optional: true
             - name: INTERNAL_API_SECRET
               valueFrom:
                 secretKeyRef:
@@ -92,6 +98,10 @@ spec:
               value: {{ .Values.global.clickhouse.tcpAddress }}
             - name: CLICKHOUSE_HTTP_ADDRESS
               value: {{ .Values.global.clickhouse.httpAddress }}
+            {{- with .Values.global.clickhouse.consumerInsertQuorum }}
+            - name: CLICKHOUSE_CONSUMER_INSERT_QUORUM
+              value: {{ . | quote }}
+            {{- end }}
             - name: CLICKHOUSE_USERNAME
               value: {{ .Values.global.clickhouse.username | quote }}
             - name: CLICKHOUSE_PASSWORD
@@ -104,16 +114,16 @@ spec:
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: {{ include "meteroid.kafka.bootstrapServers" . }}
             {{- end }}
-            - name: KAFKA_TOPIC
-              value: {{ .Values.metering.config.kafka.topic }}
+            - name: KAFKA_RAW_TOPIC
+              value: {{ dig "config" "kafka" "topic" "meteroid-events-raw" .Values.metering }}
             - name: KAFKA_PRODUCER_LINGER_MS
-              value: {{ .Values.metering.config.kafka.producerLingerMs | quote }}
+              value: {{ dig "config" "kafka" "producerLingerMs" 100 .Values.metering | quote }}
             - name: KAFKA_PRODUCER_QUEUE_MIB
-              value: {{ .Values.metering.config.kafka.producerQueueMib | quote }}
+              value: {{ dig "config" "kafka" "producerQueueMib" 100 .Values.metering | quote }}
             - name: KAFKA_MESSAGE_TIMEOUT_MS
-              value: {{ .Values.metering.config.kafka.messageTimeoutMs | quote }}
+              value: {{ dig "config" "kafka" "messageTimeoutMs" 30000 .Values.metering | quote }}
             - name: KAFKA_COMPRESSION_CODEC
-              value: {{ .Values.metering.config.kafka.compressionCodec }}
+              value: {{ dig "config" "kafka" "compressionCodec" "gzip" .Values.metering }}
             {{- if .Values.global.kafka.saslUsername }}
             - name: KAFKA_SASL_USERNAME
               value: {{ .Values.global.kafka.saslUsername }}
@@ -146,20 +156,21 @@ spec:
               readOnly: true
           {{- end }}
   
+          # Migrations run at start: a kill mid-migration rolls it back and starts it over.
           startupProbe:
             grpc:
               port: {{ .Values.metering.service.ports.grpc }}
-            initialDelaySeconds: {{ .Values.metering.grpcStartupProbe.initialDelaySeconds | default 5 }}
-            periodSeconds: {{ .Values.metering.grpcStartupProbe.periodSeconds | default 5 }}
-            failureThreshold: {{ .Values.metering.grpcStartupProbe.failureThreshold | default 10 }}
+            initialDelaySeconds: {{ dig "grpcStartupProbe" "initialDelaySeconds" 5 .Values.metering }}
+            periodSeconds: {{ dig "grpcStartupProbe" "periodSeconds" 5 .Values.metering }}
+            failureThreshold: {{ dig "grpcStartupProbe" "failureThreshold" 360 .Values.metering }}
           livenessProbe:
             grpc:
               port: {{ .Values.metering.service.ports.grpc }}
-            periodSeconds: {{ .Values.metering.grpcLivenessProbe.periodSeconds | default 20 }}
+            periodSeconds: {{ dig "grpcLivenessProbe" "periodSeconds" 20 .Values.metering }}
           readinessProbe:
             grpc:
               port: {{ .Values.metering.service.ports.grpc }}
-            periodSeconds: {{ .Values.metering.grpcReadinessProbe.periodSeconds | default 10 }}
+            periodSeconds: {{ dig "grpcReadinessProbe" "periodSeconds" 10 .Values.metering }}
 
           resources:
             {{- toYaml .Values.metering.resources | nindent 12 }}

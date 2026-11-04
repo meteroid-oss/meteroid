@@ -138,18 +138,33 @@ export const Pill = ({ badge, dot }: { badge: StatusBadge; dot?: boolean }) => (
 
 /* --------------------------------------------------------------------- meter */
 
+export type MeterTone = 'default' | 'warning' | 'danger'
+
+const FILL_BY_TONE: Record<MeterTone, string> = {
+  default: 'var(--mtp-fill)',
+  warning: 'var(--mtp-warn-text)',
+  danger: 'var(--mtp-danger)',
+}
+
 export const Meter = ({
   pct,
   spot,
   height = 8,
+  tone,
+  label,
 }: {
   pct: number
   spot?: boolean
   height?: number
+  /** Explicit tone (e.g. budget thresholds crossed); defaults to danger at 90%+. */
+  tone?: MeterTone
+  label?: string
 }) => {
-  const danger = pct >= 90
+  const resolvedTone: MeterTone = tone ?? (pct >= 90 ? 'danger' : 'default')
   return (
     <div
+      role={label ? 'img' : undefined}
+      aria-label={label}
       style={{
         height,
         borderRadius: 20,
@@ -159,14 +174,10 @@ export const Meter = ({
     >
       <div
         style={{
-          width: `${Math.max(2, Math.min(100, pct))}%`,
+          width: pct > 0 ? `${Math.max(2, Math.min(100, pct))}%` : 0,
           height: '100%',
           borderRadius: 'inherit',
-          background: spot
-            ? 'var(--mtp-spot-fill)'
-            : danger
-              ? 'var(--mtp-danger)'
-              : 'var(--mtp-fill)',
+          background: spot ? 'var(--mtp-spot-fill)' : FILL_BY_TONE[resolvedTone],
         }}
       />
     </div>
@@ -516,4 +527,45 @@ export const CenterState = ({
 
 export const Divider = ({ style }: { style?: CSSProperties }) => (
   <div style={{ height: 1, background: 'var(--mtp-border)', ...style }} />
+)
+
+/** "Page 2 of 5" with Previous / Next, for the footer of a PanelCard list. */
+export const Pager = ({
+  page,
+  totalPages,
+  hasPrev,
+  hasNext,
+  onPrev,
+  onNext,
+}: {
+  page: number
+  totalPages: number
+  hasPrev: boolean
+  hasNext: boolean
+  onPrev: () => void
+  onNext: () => void
+}) => (
+  <div
+    style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+      padding: '14px 20px',
+      borderTop: '1px solid var(--mtp-border)',
+    }}
+  >
+    <span style={{ fontSize: 12, color: 'var(--mtp-text-3)' }}>
+      Page {page}
+      {totalPages > 0 ? ` of ${totalPages}` : ''}
+    </span>
+    <div style={{ display: 'flex', gap: 8 }}>
+      <PButton variant="secondary" size="sm" disabled={!hasPrev} onClick={onPrev}>
+        Previous
+      </PButton>
+      <PButton variant="secondary" size="sm" disabled={!hasNext} onClick={onNext}>
+        Next
+      </PButton>
+    </div>
+  </div>
 )

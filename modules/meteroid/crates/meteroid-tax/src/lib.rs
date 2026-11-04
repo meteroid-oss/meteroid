@@ -1,7 +1,11 @@
 mod model;
 
 pub use model::*;
+pub mod apply;
 mod shared;
+pub use apply::{
+    LineToTax, TaxToApply, apply_taxes, effective_rate, largest_remainder, round_to_minor,
+};
 pub mod validation;
 pub mod vies;
 
@@ -74,6 +78,19 @@ enum ScenarioResolution {
     Scenario {
         scenario: TaxScenario,
         amount_f64: f64,
+        /// A VAT-registered seller invoicing outside its own VAT territory: a
+        /// zero/empty rate set must surface as `Export` (carrying the export mention)
+        /// rather than a plain `NoTax`/zero rate.
+        is_export: bool,
+        /// Whether the supply was priced as one to a taxable person. Travels with the
+        /// exemption so a document cites the place-of-supply article matching the
+        /// basis the tax was computed on, instead of re-deriving one at render time.
+        basis: SupplyBasis,
+        /// Whether the *seller's* own country runs a VAT-type system. Carried
+        /// explicitly rather than inferred from `is_export`: a seller registered for
+        /// VAT nowhere makes no taxable supply in any VAT system, so world-tax
+        /// answering "the destination's VAT, at zero" must not become a rate row.
+        source_is_vat: bool,
     },
 }
 
@@ -123,10 +140,73 @@ impl MeteroidTaxEngine {
             None => return Ok(ScenarioResolution::Immediate(CustomerTax::NoTax)),
         };
 
+        // Export: a VAT-registered seller invoicing outside its own VAT territory charges
+        // no VAT (mention text is resolved per jurisdiction at render time). World-tax
+        // returns an empty rate set (non-VAT destination, e.g. US) or a single
+        // VatRate::Zero (e.g. CH/GB).
+        //
+        // The comparison is between VAT *territories*, not country codes: a supply from
+        // Vaduz to Zurich, or from Paris to Monaco, never leaves the seller's territory
+        // and is domestic however different the two codes look.
+        let source_is_vat = TAX_DATABASE
+            .get_country(&invoicing_entity_country.code)
+            .map(|c| matches!(c.tax_type, world_tax::types::TaxSystemType::Vat))
+            .unwrap_or(false);
+        let intra_territory = common_domain::country::same_vat_territory(
+            &invoicing_entity_country.code,
+            &customer_billing_country.code,
+        );
+        let is_export = source_is_vat && !intra_territory;
+
+        // Guyane and Mayotte sit inside France's VAT territory yet levy no VAT at all
+        // (CGI art. 294-1). A supply taxable there from inside the territory is not an
+        // export, and it is not undetermined either: the law states the tax does not
+        // apply, and the document must say so. Recognised from the rate data — a
+        // `none`-type entry for a code belonging to another code's VAT territory —
+        // rather than from a list of codes. A seller outside the territory never gets
+        // here: for a VAT seller it is an export, for any other it stays undetermined.
+        let destination = &customer_billing_country.code;
+        let destination_levies_no_vat = intra_territory
+            && common_domain::country::vat_territory(destination) != destination.as_str()
+            && TAX_DATABASE
+                .get_country(destination)
+                .is_ok_and(|c| matches!(c.tax_type, world_tax::types::TaxSystemType::None));
+        if destination_levies_no_vat {
+            return Ok(ScenarioResolution::Immediate(CustomerTax::NoVatTerritory));
+        }
+
+        // Resolve against the country whose rate schedule actually applies. Monaco bills
+        // French rates, the Isle of Man UK rates and Liechtenstein Swiss ones, so a supply
+        // between such a territory and its host is domestic and bears the host's rate —
+        // not the 0% a "different country code" reading produces. This also puts Monaco
+        // inside the EU for the trade-agreement lookup, which it is.
+        let source_schedule =
+            common_domain::country::vat_rate_territory(&invoicing_entity_country.code);
+        let destination_schedule =
+            common_domain::country::vat_rate_territory(&customer_billing_country.code);
+
+        // One VAT territory normally means one rate schedule, and the fold above
+        // suffices. The exception is métropole ↔ the French overseas departments:
+        // GP/MQ/RE bill their own rates (CGI art. 296: 8.5% standard, 2.1% reduced)
+        // and GF/YT no VAT at all (CGI art. 294-1), yet a service between them and
+        // the mainland is neither an export nor reverse-charged — BOFiP
+        // BOI-TVA-GEO-20-40 §230 keeps the supplier liable in both directions, at
+        // the rate in force where the supply is taxable (§100), which for the
+        // services billed here is the destination side (CGI art. 259 1°, art. 259 D).
+        // Folding the scenario to domestic *in the destination* makes world-tax
+        // produce exactly that; left as two distinct codes, it would find no
+        // agreement between them and zero-rate a supply that owes real tax.
+        let (source_schedule, destination_schedule) =
+            if intra_territory && source_schedule != destination_schedule {
+                (destination_schedule, destination_schedule)
+            } else {
+                (source_schedule, destination_schedule)
+            };
+
         let scenario = TaxScenario::new(
-            Region::new(invoicing_entity_country.code.clone(), None)
+            Region::new(source_schedule.to_string(), None)
                 .change_context(TaxEngineError::InvalidCountryOrRegion)?,
-            Region::new(customer_billing_country.code.clone(), None)
+            Region::new(destination_schedule.to_string(), None)
                 .change_context(TaxEngineError::InvalidCountryOrRegion)?,
             if is_b2b {
                 world_tax::TransactionType::B2B
@@ -135,9 +215,9 @@ impl MeteroidTaxEngine {
             },
         );
 
-        let cur =
-            rusty_money::iso::find(currency).ok_or(Report::new(TaxEngineError::InvalidCurrency))?;
-        let amount_f64 = rusty_money::Money::from_minor(amount as i64, cur)
+        let cur = meteroid_money::iso::find(currency)
+            .ok_or(Report::new(TaxEngineError::InvalidCurrency))?;
+        let amount_f64 = meteroid_money::Money::from_minor(amount as i64, cur)
             .amount()
             .to_f64()
             .ok_or(Report::new(TaxEngineError::TaxCalculationError))?;
@@ -145,14 +225,36 @@ impl MeteroidTaxEngine {
         Ok(ScenarioResolution::Scenario {
             scenario,
             amount_f64,
+            is_export,
+            source_is_vat,
+            basis: if is_b2b {
+                SupplyBasis::Business
+            } else {
+                SupplyBasis::Consumer
+            },
         })
     }
 
     /// Resolves the destination country's standard rate(s) for the scenario
     /// (domestic / intra-EU reverse charge / intra-EU B2C destination / export zero).
+    ///
+    /// There is deliberately no unrated-domestic guard here any more. `resolve_scenario`
+    /// folds every supply that stays inside one VAT territory onto a single country
+    /// code, so a domestic scenario resolves against exactly one rate entry — and when
+    /// that entry is missing, `get_rates` itself fails loudly (CountryNotFound) instead
+    /// of returning zero. The zero or empty rate sets that do come back are therefore
+    /// all legitimate: an export, or a non-VAT federal country. (The no-VAT parts of
+    /// the territory — Guyane/Mayotte, CGI art. 294-1 — never reach here: they resolve
+    /// to `NoVatTerritory` in `resolve_scenario`.) The guard that used to sit here had
+    /// exactly one true positive — the then-unrated French overseas departments, rated
+    /// since (CGI art. 296) — and one false one: a non-VAT seller's supply to a country
+    /// we hold no rate data for, which owes nothing of ours regardless of that data.
     fn resolve_scenario_rates(
         scenario: &TaxScenario,
         amount_f64: f64,
+        is_export: bool,
+        basis: SupplyBasis,
+        source_is_vat: bool,
     ) -> Result<CustomerTax, Report<TaxEngineError>> {
         let mut sc = scenario.clone();
         sc.vat_rate = Some(world_tax::VatRate::Standard);
@@ -161,18 +263,58 @@ impl MeteroidTaxEngine {
             .get_rates(amount_f64, &TAX_DATABASE)
             .change_context(TaxEngineError::TaxCalculationError)?;
 
-        Ok(rates_to_customer_tax(rates))
+        Ok(rates_to_customer_tax(
+            rates,
+            is_export,
+            basis,
+            source_is_vat,
+        ))
     }
 }
 
-fn rates_to_customer_tax(rates: Vec<world_tax::TaxRate>) -> CustomerTax {
+fn rates_to_customer_tax(
+    rates: Vec<world_tax::TaxRate>,
+    is_export: bool,
+    basis: SupplyBasis,
+    source_is_vat: bool,
+) -> CustomerTax {
     match rates.len() {
-        0 => CustomerTax::NoTax,
-        1 => CustomerTax::ResolvedTaxRate(world_tax::TaxRate {
-            rate: rates[0].rate,
-            tax_type: rates[0].tax_type.clone(),
-            compound: rates[0].compound,
-        }),
+        0 => {
+            if is_export {
+                CustomerTax::Export(basis)
+            } else {
+                CustomerTax::NoTax
+            }
+        }
+        1 => {
+            let is_zero_rated = matches!(
+                rates[0].tax_type,
+                world_tax::TaxType::VAT(world_tax::VatRate::Zero)
+            );
+            if is_export && is_zero_rated {
+                CustomerTax::Export(basis)
+            } else if is_zero_rated && !source_is_vat {
+                // A seller whose own country runs no VAT-type system is registered for
+                // VAT nowhere this engine knows of. World-tax still answers "the
+                // destination's VAT, at zero" when the destination reads as VAT — but
+                // this seller makes no taxable supply in any VAT system, so a 0% VAT row
+                // (UNCL 5305 `Z`) would assert a zero-rated *taxable* supply that does
+                // not exist, and `Export` would assert "not subject to tax", which may
+                // equally be false: the supply can be subject to destination VAT through
+                // the non-Union One-Stop-Shop scheme, or to a customer-side reverse
+                // charge. Record no tax and leave the position undetermined, exactly as
+                // this seller's domestic sales already do. A merchant who is OSS-
+                // registered, or whose business customer self-accounts, says so through
+                // custom rates or the customer's reverse-charge status.
+                CustomerTax::NoTax
+            } else {
+                CustomerTax::ResolvedTaxRate(world_tax::TaxRate {
+                    rate: rates[0].rate,
+                    tax_type: rates[0].tax_type.clone(),
+                    compound: rates[0].compound,
+                })
+            }
+        }
         _ => CustomerTax::ResolvedMultipleTaxRates(
             rates
                 .into_iter()
@@ -222,7 +364,16 @@ impl TaxEngine for MeteroidTaxEngine {
             ScenarioResolution::Scenario {
                 scenario,
                 amount_f64,
-            } => Self::resolve_scenario_rates(&scenario, amount_f64)?,
+                is_export,
+                basis,
+                source_is_vat,
+            } => Self::resolve_scenario_rates(
+                &scenario,
+                amount_f64,
+                is_export,
+                basis,
+                source_is_vat,
+            )?,
         };
 
         let computed = shared::compute_tax(
@@ -252,7 +403,12 @@ impl TaxEngine for MeteroidTaxEngine {
             ScenarioResolution::Scenario {
                 scenario,
                 amount_f64,
-            } => Self::resolve_scenario_rates(&scenario, amount_f64),
+                is_export,
+                basis,
+                source_is_vat,
+            } => {
+                Self::resolve_scenario_rates(&scenario, amount_f64, is_export, basis, source_is_vat)
+            }
         }
     }
 }

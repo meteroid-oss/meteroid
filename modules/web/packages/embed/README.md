@@ -126,10 +126,9 @@ page; only the cards carry a surface.
 
 ## Branding
 
-Every widget shows a small **Powered by Meteroid** attribution by default. Hide
-it with `branding={false}` (vanilla: `branding: false`, script tag:
-`data-branding="false"`), which maps to `?branding=false` on the iframe. The
-tenant's portal branding settings can also disable it globally.
+Widgets show a small **Powered by Meteroid** attribution unless the merchant's
+plan includes white-labelling, in which case it is hidden everywhere. The
+`branding` option is deprecated and ignored.
 
 ## Theme overrides
 

@@ -3,10 +3,13 @@ import { PlusIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { Combobox } from '@/components/Combobox'
-import { CreateInvoicingEntityDialog } from '@/features/settings/CreateInvoiceEntityDialog'
+import { Slot, slotItems } from '@/edition'
 import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
 import { getCountryFlagEmoji } from '@/features/settings/utils'
+import { useFeaturesQuery } from '@/hooks/useEntitlement'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
+
+const canCreateEntities = () => slotItems('invoicingEntitySelect.createDialog').length > 0
 
 interface InvoicingEntitySelectProps {
   className?: string
@@ -22,6 +25,9 @@ export const InvoicingEntitySelect = ({
   const isExpress = useIsExpressOrganization()
   const { selectedEntityId, setSelectedEntityId, entities, isLoading } = useInvoicingEntity()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const limit = useFeaturesQuery().data?.invoicingEntityLimit
+  const atLimit = limit !== undefined && entities.length >= limit
+  const showCreate = showCreateAction && canCreateEntities()
 
   if (isExpress) return null
 
@@ -38,12 +44,11 @@ export const InvoicingEntitySelect = ({
         onChange={setSelectedEntityId}
         options={entities.map(entity => ({
           label: (
-            <div className="flex flex-row w-full">
-              <div className="pr-2">{getCountryFlagEmoji(entity.country)}</div>
-              <div>{entity.legalName}</div>
-              <div className="grow" />
+            <div className="flex w-full flex-row items-center gap-2">
+              <span className="shrink-0">{getCountryFlagEmoji(entity.country)}</span>
+              <span className="truncate">{entity.legalName}</span>
               {entity.isDefault && (
-                <Badge variant="default" size="sm">
+                <Badge variant="outline" size="sm" className="ml-auto shrink-0 font-normal">
                   Default
                 </Badge>
               )}
@@ -52,22 +57,30 @@ export const InvoicingEntitySelect = ({
           value: entity.id,
         }))}
         action={
-          showCreateAction ? (
-            <Button
-              size="content"
-              variant="ghost"
-              hasIcon
-              className="w-full border-none h-full"
-              onClick={() => setCreateDialogOpen(true)}
-            >
-              <PlusIcon size="12" /> New invoicing entity
-            </Button>
+          showCreate ? (
+            atLimit ? (
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                Your plan allows up to {limit} invoicing {limit === 1 ? 'entity' : 'entities'} per
+                tenant
+              </p>
+            ) : (
+              <Button
+                size="content"
+                variant="ghost"
+                hasIcon
+                className="w-full border-none h-full"
+                onClick={() => setCreateDialogOpen(true)}
+              >
+                <PlusIcon size="12" /> New invoicing entity
+              </Button>
+            )
           ) : undefined
         }
       />
 
-      {showCreateAction && (
-        <CreateInvoicingEntityDialog
+      {showCreate && (
+        <Slot
+          name="invoicingEntitySelect.createDialog"
           open={createDialogOpen}
           setOpen={setCreateDialogOpen}
           setInvoicingEntity={setSelectedEntityId}

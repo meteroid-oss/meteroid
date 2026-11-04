@@ -37,6 +37,7 @@ uuid = { workspace = true, features = ["serde"] }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 secrecy = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [build-dependencies]
 prost-build.workspace = true
@@ -48,4 +49,7 @@ default = ["client"]
 
 [package.metadata.cargo-machete]
 # serde used in middleware source files; machete misses it due to re-exports
+ignored = ["serde"]
+
+[package.metadata.cargo-shear]
 ignored = ["serde"]

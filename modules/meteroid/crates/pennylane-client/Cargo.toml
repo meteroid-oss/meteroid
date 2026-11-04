@@ -10,15 +10,17 @@ governor = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 secrecy = { workspace = true }
 thiserror = { workspace = true }
-reqwest = { workspace = true, features = ["default", "multipart"] }
+reqwest = { workspace = true, features = ["multipart"] }
 reqwest-retry = { workspace = true, features = ["default"] }
 reqwest-middleware = { workspace = true, features = ["json", "multipart", "query"] }
 async-trait = { workspace = true }
 nonzero_ext = { workspace = true }
 meteroid-middleware = { workspace = true, features = ["client"] }
+http-client-tracing = { workspace = true, features = ["middleware"] }
 bytes = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 rust_decimal = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
 rust_decimal_macros = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }

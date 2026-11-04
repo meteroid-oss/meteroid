@@ -2,11 +2,13 @@ use common_utils::date::NaiveDateExt;
 
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
 use crate::domain::{ComponentPeriods, Period};
+use crate::services::proration::DayFraction;
 use chrono::{Datelike, Months, NaiveDate};
 
 /**
  * For a given invoice date, this checks if a component with this period should be billed in that invoice and what are the related arrear/advance periods
  */
+#[allow(clippy::too_many_arguments)]
 pub fn calculate_component_period_for_invoice_date(
     invoice_date: NaiveDate,
     subscription_billing_period: &BillingPeriodEnum,
@@ -15,6 +17,7 @@ pub fn calculate_component_period_for_invoice_date(
     cycle_index: u32,
     billing_day: u32,
     is_completed: bool,
+    is_cancellation: bool,
 ) -> Option<ComponentPeriods> {
     if !applies_this_period(
         cycle_index,
@@ -29,6 +32,7 @@ pub fn calculate_component_period_for_invoice_date(
     match billing_period {
         None => Some(ComponentPeriods {
             proration_factor: None,
+            proration_days: None,
             arrear_proration_factor: None,
             advance: Some(Period {
                 start: invoice_date,
@@ -37,8 +41,8 @@ pub fn calculate_component_period_for_invoice_date(
             arrear: None,
         }),
         Some(billing_period) => {
-            let (advance_period, proration_factor) = if is_completed {
-                (None, None)
+            let (advance_period, proration_factor, proration_days) = if is_completed {
+                (None, None, None)
             } else {
                 let advance_period = calculate_advance_period_range(
                     invoice_date,
@@ -46,26 +50,40 @@ pub fn calculate_component_period_for_invoice_date(
                     billing_start_or_resume_date == invoice_date,
                     &billing_period,
                 );
-                let proration_factor = if cycle_index == 0 {
+                let full_period = if cycle_index == 0 {
                     subtract_months_at_billing_day(
                         advance_period.end,
                         billing_period.as_months(),
                         billing_day,
                     )
-                    .and_then(|full_start| {
-                        let full_period = Period {
-                            start: full_start,
-                            end: advance_period.end,
-                        };
-                        calculate_proration_factor(&advance_period, &full_period)
+                    .map(|full_start| Period {
+                        start: full_start,
+                        end: advance_period.end,
                     })
                 } else {
                     None
                 };
-                (Some(advance_period), proration_factor)
+                let proration_factor = full_period
+                    .as_ref()
+                    .and_then(|full| calculate_proration_factor(&advance_period, full));
+                let proration_days =
+                    full_period
+                        .filter(|_| proration_factor.is_some())
+                        .map(|full| {
+                            (
+                                (advance_period.end - advance_period.start).num_days(),
+                                (full.end - full.start).num_days(),
+                            )
+                        });
+                (Some(advance_period), proration_factor, proration_days)
             };
 
-            let arrear_period = if cycle_index == 0 {
+            // Cycle 0 normally has no elapsed period to bill in arrears — except when the
+            // subscription settles early (`is_completed`: termination, pause, completion), where
+            // the partial first period [billing_start, invoice_date] is real and its usage would
+            // otherwise never be billed. Mirrors the cycle>0 mid-period cancel, which also bills
+            // arrears up to the settlement date.
+            let arrear_period = if cycle_index == 0 && !is_completed {
                 None
             } else {
                 Some(calculate_arrear_period_range(
@@ -76,11 +94,34 @@ pub fn calculate_component_period_for_invoice_date(
                 ))
             };
 
+            // A cancellation clips the arrear window to the termination date; prorate the fixed-rate
+            // fee to the elapsed fraction, symmetric to the advance refund. Boundary settlements
+            // (renewal, completion, end-of-period cancel) cover the full period, so this stays None.
+            let arrear_proration_factor = if is_cancellation {
+                arrear_period.as_ref().and_then(|arrear| {
+                    let nominal_end = find_period_containing_date(
+                        billing_start_or_resume_date,
+                        invoice_date.pred_opt().unwrap_or(invoice_date),
+                        &billing_period,
+                        billing_day,
+                    )
+                    .end;
+                    calculate_proration_factor(
+                        arrear,
+                        &Period {
+                            start: arrear.start,
+                            end: nominal_end,
+                        },
+                    )
+                })
+            } else {
+                None
+            };
+
             Some(ComponentPeriods {
                 proration_factor,
-                // The arrear line is prorated only when a component's temporal bounds
-                // shrink its window (set later by restrict_arrear_period_by_temporal_bounds).
-                arrear_proration_factor: None,
+                proration_days,
+                arrear_proration_factor,
                 advance: advance_period,
                 arrear: arrear_period,
             })
@@ -88,9 +129,9 @@ pub fn calculate_component_period_for_invoice_date(
     }
 }
 
-/// Factor = partial_days / full_days, in `[0.0, 1.0)`. Returns `None` only when no
+/// Factor = partial_days / full_days in whole days, below one. Returns `None` only when no
 /// proration is needed (partial covers the whole reference period) or inputs are invalid.
-pub fn calculate_proration_factor(partial: &Period, full: &Period) -> Option<f64> {
+pub fn calculate_proration_factor(partial: &Period, full: &Period) -> Option<DayFraction> {
     let partial_days = partial.end.signed_duration_since(partial.start).num_days();
     let full_days = full.end.signed_duration_since(full.start).num_days();
 
@@ -98,7 +139,7 @@ pub fn calculate_proration_factor(partial: &Period, full: &Period) -> Option<f64
         return None;
     }
 
-    Some(partial_days as f64 / full_days as f64)
+    Some(DayFraction::new(partial_days, full_days))
 }
 
 fn applies_this_period(
@@ -364,13 +405,203 @@ fn add_months_at_billing_day(
         .and_then(|d| d.with_day(d.days_in_month().min(billing_day)))
 }
 
-fn subtract_months_at_billing_day(
+pub(crate) fn subtract_months_at_billing_day(
     date: NaiveDate,
     months_to_subtract: u32,
     billing_day: u32,
 ) -> Option<NaiveDate> {
     date.checked_sub_months(Months::new(months_to_subtract))
         .and_then(|d| d.with_day(d.days_in_month().min(billing_day)))
+}
+
+/// Periods after a change of cadence: they run from `origin` in full lengths of the cadence,
+/// whatever the cadence before.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CadenceRun {
+    /// The plan switch that changed the cadence.
+    pub switched_on: NaiveDate,
+    /// Where the new grid starts: the first renewal on or after the switch, or the one after it
+    /// when an earlier release renewed the new cadence from there.
+    pub origin: NaiveDate,
+    /// The latest renewal before the invoice being computed.
+    pub previous_renewal: NaiveDate,
+}
+
+impl CadenceRun {
+    /// The `n`-th boundary of a `months` grid from the origin.
+    pub fn boundary(&self, n: u32, months: u32, billing_day: u32) -> Option<NaiveDate> {
+        add_months_at_billing_day(self.origin, n.checked_mul(months)?, billing_day)
+    }
+
+    /// The grid period `[start, end)` holding `date`, `None` before the origin.
+    pub fn period_holding(&self, date: NaiveDate, months: u32, billing_day: u32) -> Option<Period> {
+        if date < self.origin || months == 0 {
+            return None;
+        }
+        let mut n = 0;
+        loop {
+            let start = self.boundary(n, months, billing_day)?;
+            let end = self.boundary(n + 1, months, billing_day)?;
+            if date < end {
+                return Some(Period { start, end });
+            }
+            n += 1;
+        }
+    }
+
+    /// Whether `date` is a boundary of a `months` grid from the origin.
+    pub fn is_boundary(&self, date: NaiveDate, months: u32, billing_day: u32) -> bool {
+        self.period_holding(date, months, billing_day)
+            .is_some_and(|period| period.start == date)
+    }
+
+    /// The windows an invoice dated `invoice_date` settles in arrears on a `months` grid, one per
+    /// grid period with the period it prorates against: what no renewal settled yet (from the
+    /// earlier of the previous renewal and the previous boundary), on a boundary or when the
+    /// subscription settles early. On the first renewal of the run, what ran since the previous
+    /// renewal, against the new cadence's period ending there.
+    pub fn arrear_windows(
+        &self,
+        invoice_date: NaiveDate,
+        months: u32,
+        billing_day: u32,
+        settles_early: bool,
+    ) -> Vec<(Period, Period)> {
+        if invoice_date <= self.origin.min(self.previous_renewal) || months == 0 {
+            return vec![];
+        }
+        if invoice_date == self.origin {
+            let Some(nominal_start) =
+                subtract_months_at_billing_day(self.origin, months, billing_day)
+            else {
+                return vec![];
+            };
+            let start = nominal_start.max(self.previous_renewal);
+            if start >= invoice_date {
+                return vec![];
+            }
+            return vec![(
+                Period {
+                    start,
+                    end: invoice_date,
+                },
+                Period {
+                    start: nominal_start,
+                    end: invoice_date,
+                },
+            )];
+        }
+        if !settles_early && !self.is_boundary(invoice_date, months, billing_day) {
+            return vec![];
+        }
+        let Some(last) = invoice_date
+            .pred_opt()
+            .and_then(|day| self.period_holding(day, months, billing_day))
+        else {
+            return vec![];
+        };
+        let start = self.previous_renewal.min(last.start).max(self.origin);
+        let mut windows = Vec::new();
+        let mut cursor = start;
+        while cursor < invoice_date {
+            let Some(grid) = self.period_holding(cursor, months, billing_day) else {
+                break;
+            };
+            let end = grid.end.min(invoice_date);
+            windows.push((Period { start: cursor, end }, grid.clone()));
+            cursor = end;
+        }
+        windows
+    }
+
+    /// The advance periods of a `months` grid an invoice dated `invoice_date` bills: the one
+    /// starting on it, and any started since the previous renewal that no renewal billed.
+    pub fn advance_periods(
+        &self,
+        invoice_date: NaiveDate,
+        months: u32,
+        billing_day: u32,
+        not_before: NaiveDate,
+    ) -> Vec<Period> {
+        let mut periods = Vec::new();
+        if months == 0 {
+            return periods;
+        }
+        let mut n = 0;
+        while let (Some(start), Some(end)) = (
+            self.boundary(n, months, billing_day),
+            self.boundary(n + 1, months, billing_day),
+        ) {
+            if start > invoice_date {
+                break;
+            }
+            if (start > self.previous_renewal || start == invoice_date) && start >= not_before {
+                periods.push(Period { start, end });
+            }
+            n += 1;
+        }
+        periods
+    }
+
+    /// The end of the grid period after `start` on a `months` grid: a renewal's period end.
+    pub fn period_end_after(
+        &self,
+        start: NaiveDate,
+        months: u32,
+        billing_day: u32,
+    ) -> Option<NaiveDate> {
+        self.period_holding(start, months, billing_day)
+            .map(|period| period.end)
+    }
+}
+
+/// The periods a component running on a [`CadenceRun`] bills on an invoice: each arrears window
+/// cut to the component's life and prorated against its own grid period, and each advance period.
+#[allow(clippy::too_many_arguments)]
+pub fn component_periods_in_run(
+    run: &CadenceRun,
+    invoice_date: NaiveDate,
+    component_billing_period: &SubscriptionFeeBillingPeriod,
+    billing_day: u32,
+    effective_from: Option<NaiveDate>,
+    effective_to: Option<NaiveDate>,
+    is_completed: bool,
+) -> Vec<ComponentPeriods> {
+    let Some(cadence) = component_billing_period.as_billing_period_opt() else {
+        return vec![];
+    };
+    let months = cadence.as_months();
+    let mut periods: Vec<ComponentPeriods> = Vec::new();
+    for (window, nominal) in run.arrear_windows(invoice_date, months, billing_day, is_completed) {
+        let start = effective_from.map_or(window.start, |from| from.max(window.start));
+        let end = effective_to.map_or(window.end, |to| to.min(window.end));
+        if start >= end {
+            continue;
+        }
+        let days = (end - start).num_days();
+        let nominal_days = (nominal.end - nominal.start).num_days();
+        periods.push(ComponentPeriods {
+            proration_factor: None,
+            proration_days: None,
+            arrear_proration_factor: (days < nominal_days)
+                .then(|| DayFraction::new(days, nominal_days)),
+            advance: None,
+            arrear: Some(Period { start, end }),
+        });
+    }
+    if !is_completed {
+        let not_before = effective_from.unwrap_or(run.switched_on);
+        for advance in run.advance_periods(invoice_date, months, billing_day, not_before) {
+            periods.push(ComponentPeriods {
+                proration_factor: None,
+                proration_days: None,
+                arrear_proration_factor: None,
+                advance: Some(advance),
+                arrear: None,
+            });
+        }
+    }
+    periods
 }
 
 #[cfg(test)]
@@ -1023,7 +1254,7 @@ mod test {
             let full = p("2025-01-01", "2025-02-01");
             let partial = p("2025-01-17", "2025-02-01");
             let factor = calculate_proration_factor(&partial, &full).unwrap();
-            assert!((factor - (15.0 / 31.0)).abs() < 1e-9);
+            assert_eq!(factor, crate::services::proration::DayFraction::new(15, 31));
         }
 
         #[test]
@@ -1034,7 +1265,7 @@ mod test {
                     &p("2025-01-15", "2025-01-15"),
                     &p("2025-01-01", "2025-02-01")
                 ),
-                Some(0.0)
+                Some(crate::services::proration::DayFraction::new(0, 31))
             );
         }
 
@@ -1072,6 +1303,7 @@ mod test {
                 0,
                 1,
                 false,
+                false,
             )
             .expect("should return periods");
 
@@ -1080,7 +1312,7 @@ mod test {
             assert_eq!(advance.end, NaiveDate::from_ymd_opt(2026, 1, 1).unwrap());
 
             let factor = periods.proration_factor.expect("should be prorated");
-            assert!((factor - 85.0 / 92.0).abs() < 1e-9, "got {factor}");
+            assert_eq!(factor, crate::services::proration::DayFraction::new(85, 92));
         }
 
         #[test]
@@ -1093,6 +1325,7 @@ mod test {
                 invoice_date,
                 0,
                 1,
+                false,
                 false,
             )
             .expect("should return periods");
@@ -1111,6 +1344,7 @@ mod test {
                 0,
                 1,
                 false,
+                false,
             )
             .expect("should return periods");
 
@@ -1119,7 +1353,10 @@ mod test {
             assert_eq!(advance.end, NaiveDate::from_ymd_opt(2026, 4, 1).unwrap());
 
             let factor = periods.proration_factor.expect("should be prorated");
-            assert!((factor - 351.0 / 365.0).abs() < 1e-9, "got {factor}");
+            assert_eq!(
+                factor,
+                crate::services::proration::DayFraction::new(351, 365)
+            );
         }
 
         #[test]
@@ -1132,10 +1369,218 @@ mod test {
                 1,
                 1,
                 false,
+                false,
             )
             .expect("should return periods");
 
             assert_eq!(periods.proration_factor, None);
         }
+
+        #[test]
+        fn mid_period_cancellation_prorates_arrears() {
+            // Cancelled Mar 15 in period [Mar 1, Apr 1]: arrears prorate to 14 elapsed of 31 days.
+            let periods = calculate_component_period_for_invoice_date(
+                NaiveDate::from_ymd_opt(2025, 3, 15).unwrap(),
+                &BillingPeriodEnum::Monthly,
+                &SubscriptionFeeBillingPeriod::Monthly,
+                NaiveDate::from_ymd_opt(2025, 3, 1).unwrap(),
+                1,
+                1,
+                true,
+                true,
+            )
+            .expect("should return periods");
+
+            let arrear = periods.arrear.expect("should have arrear");
+            assert_eq!(arrear.start, NaiveDate::from_ymd_opt(2025, 3, 1).unwrap());
+            assert_eq!(arrear.end, NaiveDate::from_ymd_opt(2025, 3, 15).unwrap());
+            let factor = periods
+                .arrear_proration_factor
+                .expect("arrears prorated on cancellation");
+            assert_eq!(factor, crate::services::proration::DayFraction::new(14, 31));
+        }
+
+        #[test]
+        fn boundary_cancellation_does_not_prorate_arrears() {
+            // Cancelled on the boundary (Apr 1): the arrear covers the full period, so no factor.
+            let periods = calculate_component_period_for_invoice_date(
+                NaiveDate::from_ymd_opt(2025, 4, 1).unwrap(),
+                &BillingPeriodEnum::Monthly,
+                &SubscriptionFeeBillingPeriod::Monthly,
+                NaiveDate::from_ymd_opt(2025, 3, 1).unwrap(),
+                1,
+                1,
+                true,
+                true,
+            )
+            .expect("should return periods");
+
+            assert_eq!(periods.arrear_proration_factor, None);
+        }
+
+        #[test]
+        fn annual_mid_period_cancellation_prorates_arrears() {
+            // Cancelled Jul 1 in annual period [Jan 1 2025, Jan 1 2026]: 181 elapsed of 365 days.
+            let periods = calculate_component_period_for_invoice_date(
+                NaiveDate::from_ymd_opt(2025, 7, 1).unwrap(),
+                &BillingPeriodEnum::Annual,
+                &SubscriptionFeeBillingPeriod::Annual,
+                NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+                0,
+                1,
+                true,
+                true,
+            )
+            .expect("should return periods");
+
+            let arrear = periods.arrear.expect("should have arrear");
+            assert_eq!(arrear.start, NaiveDate::from_ymd_opt(2025, 1, 1).unwrap());
+            assert_eq!(arrear.end, NaiveDate::from_ymd_opt(2025, 7, 1).unwrap());
+            let factor = periods
+                .arrear_proration_factor
+                .expect("arrears prorated on cancellation");
+            assert_eq!(
+                factor,
+                crate::services::proration::DayFraction::new(181, 365)
+            );
+        }
+
+        #[test]
+        fn first_partial_period_cancellation_prorates_by_partial_denominator() {
+            // billing_start Jan 10 (mid-month), cycle 0, cancelled Jan 20: the denominator is the
+            // partial first period [Jan 10, Feb 1] = 22 days, not the full month, so factor = 10/22.
+            let periods = calculate_component_period_for_invoice_date(
+                NaiveDate::from_ymd_opt(2025, 1, 20).unwrap(),
+                &BillingPeriodEnum::Monthly,
+                &SubscriptionFeeBillingPeriod::Monthly,
+                NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(),
+                0,
+                1,
+                true,
+                true,
+            )
+            .expect("should return periods");
+
+            let arrear = periods.arrear.expect("should have arrear");
+            assert_eq!(arrear.start, NaiveDate::from_ymd_opt(2025, 1, 10).unwrap());
+            assert_eq!(arrear.end, NaiveDate::from_ymd_opt(2025, 1, 20).unwrap());
+            let factor = periods
+                .arrear_proration_factor
+                .expect("arrears prorated on cancellation");
+            assert_eq!(factor, crate::services::proration::DayFraction::new(10, 22));
+        }
+    }
+
+    /// Monthly to quarterly at Feb 1. On grid, May 1 bills [May 1, Aug 1) and settles [Feb 1, May
+    /// 1). Left ending Mar 1 by an earlier release, Mar 1 bills nothing and May 1 the same as on
+    /// grid. Quarterly to monthly at Apr 1, left ending Jul 1: Jul 1 catches up month by month.
+    #[test]
+    fn a_cadence_run_bills_each_period_once_from_the_first_renewal_on_it() {
+        use super::CadenceRun;
+        let d = |m, day| NaiveDate::from_ymd_opt(2024, m, day).unwrap();
+        let p = |a: NaiveDate, b: NaiveDate| Period { start: a, end: b };
+        let run = |previous| CadenceRun {
+            switched_on: d(2, 1),
+            origin: d(2, 1),
+            previous_renewal: previous,
+        };
+        assert_eq!(
+            run(d(1, 1)).advance_periods(d(2, 1), 3, 1, d(2, 1)),
+            vec![p(d(2, 1), d(5, 1))]
+        );
+        assert_eq!(
+            run(d(1, 1)).arrear_windows(d(2, 1), 3, 1, false),
+            vec![(
+                p(d(1, 1), d(2, 1)),
+                p(NaiveDate::from_ymd_opt(2023, 11, 1).unwrap(), d(2, 1))
+            )]
+        );
+        assert_eq!(run(d(2, 1)).period_end_after(d(2, 1), 3, 1), Some(d(5, 1)));
+        assert_eq!(
+            run(d(2, 1)).advance_periods(d(5, 1), 3, 1, d(2, 1)),
+            vec![p(d(5, 1), d(8, 1))]
+        );
+        assert_eq!(
+            run(d(2, 1)).arrear_windows(d(5, 1), 3, 1, false),
+            vec![(p(d(2, 1), d(5, 1)), p(d(2, 1), d(5, 1)))]
+        );
+
+        assert!(
+            run(d(2, 1))
+                .advance_periods(d(3, 1), 3, 1, d(2, 1))
+                .is_empty()
+        );
+        assert!(run(d(2, 1)).arrear_windows(d(3, 1), 3, 1, false).is_empty());
+        assert_eq!(run(d(2, 1)).period_end_after(d(3, 1), 3, 1), Some(d(5, 1)));
+        assert_eq!(
+            run(d(3, 1)).arrear_windows(d(5, 1), 3, 1, false),
+            vec![(p(d(2, 1), d(5, 1)), p(d(2, 1), d(5, 1)))]
+        );
+
+        let monthly = CadenceRun {
+            switched_on: d(4, 1),
+            origin: d(4, 1),
+            previous_renewal: d(4, 1),
+        };
+        assert_eq!(
+            monthly.advance_periods(d(7, 1), 1, 1, d(4, 1)),
+            vec![
+                p(d(5, 1), d(6, 1)),
+                p(d(6, 1), d(7, 1)),
+                p(d(7, 1), d(8, 1))
+            ]
+        );
+        assert_eq!(
+            monthly.arrear_windows(d(7, 1), 1, 1, false),
+            vec![
+                (p(d(4, 1), d(5, 1)), p(d(4, 1), d(5, 1))),
+                (p(d(5, 1), d(6, 1)), p(d(5, 1), d(6, 1))),
+                (p(d(6, 1), d(7, 1)), p(d(6, 1), d(7, 1))),
+            ]
+        );
+        assert_eq!(monthly.period_end_after(d(7, 1), 1, 1), Some(d(8, 1)));
+    }
+
+    /// Monthly to quarterly at Feb 1, which an earlier release renewed on Mar 1 for [Mar 1, Jun 1):
+    /// the grid runs from Mar 1. Jun 1 bills [Jun 1, Sep 1) and settles [Mar 1, Jun 1); an early
+    /// end on Jul 15 settles from Jun 1; that release's Mar 1 draft settles February.
+    #[test]
+    fn a_grid_an_earlier_release_renewed_on_bills_each_period_once() {
+        use super::CadenceRun;
+        let d = |m, day| NaiveDate::from_ymd_opt(2024, m, day).unwrap();
+        let p = |a: NaiveDate, b: NaiveDate| Period { start: a, end: b };
+        let run = |previous| CadenceRun {
+            switched_on: d(2, 1),
+            origin: d(3, 1),
+            previous_renewal: previous,
+        };
+        assert_eq!(
+            run(d(3, 1)).advance_periods(d(6, 1), 3, 1, d(2, 1)),
+            vec![p(d(6, 1), d(9, 1))]
+        );
+        assert_eq!(
+            run(d(3, 1)).arrear_windows(d(6, 1), 3, 1, false),
+            vec![(p(d(3, 1), d(6, 1)), p(d(3, 1), d(6, 1)))]
+        );
+        assert_eq!(run(d(3, 1)).period_end_after(d(6, 1), 3, 1), Some(d(9, 1)));
+        assert_eq!(
+            run(d(6, 1)).arrear_windows(d(7, 15), 3, 1, true),
+            vec![(p(d(6, 1), d(7, 15)), p(d(6, 1), d(9, 1)))]
+        );
+        assert_eq!(
+            run(d(9, 1)).advance_periods(d(12, 1), 3, 1, d(2, 1)),
+            vec![p(d(12, 1), NaiveDate::from_ymd_opt(2025, 3, 1).unwrap())]
+        );
+        assert_eq!(
+            run(d(9, 1)).arrear_windows(d(12, 1), 3, 1, false),
+            vec![(p(d(9, 1), d(12, 1)), p(d(9, 1), d(12, 1)))]
+        );
+        assert_eq!(
+            run(d(2, 1)).arrear_windows(d(3, 1), 3, 1, false),
+            vec![(
+                p(d(2, 1), d(3, 1)),
+                p(NaiveDate::from_ymd_opt(2023, 12, 1).unwrap(), d(3, 1))
+            )]
+        );
     }
 }

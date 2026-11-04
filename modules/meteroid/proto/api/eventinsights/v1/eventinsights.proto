@@ -1,0 +1,204 @@
+syntax = "proto3";
+
+package meteroid.api.eventinsights.v1;
+
+import "google/protobuf/timestamp.proto";
+import "api/billablemetrics/v1/models.proto";
+
+// What core screens read from raw events, served by metering: event discovery for the metric
+// editor, metric usage (preview, top customers) and a customer's usage. Tenant scope is taken
+// from the authenticated request.
+service EventInsightsService {
+  // Distinct event codes, most frequent first, for an event-code autocomplete.
+  rpc DiscoverEventCodes(DiscoverEventCodesRequest) returns (DiscoverEventCodesResponse);
+  // The property keys an event code carries, with cardinality and a sample of values.
+  rpc DiscoverProperties(DiscoverPropertiesRequest) returns (DiscoverPropertiesResponse);
+  // The most frequent values of one property of one event code.
+  rpc DiscoverPropertyValues(DiscoverPropertyValuesRequest) returns (DiscoverPropertyValuesResponse);
+  // Per-property coverage, cardinality, numeric distribution and top values over a range.
+  rpc ProfileEventProperties(ProfileEventPropertiesRequest) returns (ProfileEventPropertiesResponse);
+  // A saved or draft metric's usage as billing reads it: its filters, its segmentation matrix
+  // as a filter and its unit conversion (unrounded).
+  rpc QueryMetricUsage(QueryMetricUsageRequest) returns (QueryMetricUsageResponse);
+  // A customer's usage of each of the tenant's billable metrics: whole-range total and daily trend.
+  rpc GetCustomerUsage(GetCustomerUsageRequest) returns (GetCustomerUsageResponse);
+}
+
+message DiscoverPropertiesRequest {
+  string event_code = 1;
+  // Trailing window in days (0 => server default) and max keys (0 => default).
+  uint32 lookback_days = 2;
+  uint32 limit = 3;
+}
+
+message DiscoveredProperty {
+  string key = 1;
+  uint64 cardinality = 2;
+  repeated string sample_values = 3;
+  // Fraction of non-empty values parseable as a number, in [0, 1] — best-effort
+  // number vs. text hint for the UI.
+  double numeric_ratio = 4;
+}
+
+message DiscoverPropertiesResponse {
+  repeated DiscoveredProperty properties = 1;
+}
+
+message DiscoverEventCodesRequest {
+  // Optional case-insensitive substring filter on the code.
+  string search = 1;
+  // Max codes to return (0 => server default).
+  uint32 limit = 2;
+}
+
+message EventCodeCount {
+  string code = 1;
+  uint64 count = 2;
+}
+
+message DiscoverEventCodesResponse {
+  repeated EventCodeCount codes = 1;
+}
+
+message DiscoverPropertyValuesRequest {
+  string event_code = 1;
+  string property_key = 2;
+  // Optional case-insensitive substring filter on the value.
+  string search = 3;
+  // Max values to return (0 => server default).
+  uint32 limit = 4;
+}
+
+message DiscoverPropertyValuesResponse {
+  repeated PropertyValueCount values = 1;
+}
+
+message ProfileEventPropertiesRequest {
+  string event_code = 1;
+  // Inclusive lower / exclusive upper bounds as ISO-8601 dates (yyyy-mm-dd).
+  // Empty => trailing 30 days ending now.
+  string from = 2;
+  string to = 3;
+  // Top-N distinct values per key (0 => default) and max keys (0 => default).
+  uint32 top_values = 4;
+  uint32 limit = 5;
+}
+
+message PropertyValueCount {
+  string value = 1;
+  uint64 count = 2;
+}
+
+// Distribution stats for a property whose values are (mostly) numeric.
+message PropertyNumericStats {
+  double min = 1;
+  double max = 2;
+  double avg = 3;
+  double sum = 4;
+  double p50 = 5;
+  double p95 = 6;
+}
+
+message PropertyProfile {
+  string key = 1;
+  // Events in range that carry this key.
+  uint64 event_count = 2;
+  // event_count / total events in range, in [0, 1] — the missing-data signal.
+  double coverage_ratio = 3;
+  uint64 cardinality = 4;
+  // Fraction of non-empty values parseable as a number, in [0, 1].
+  double numeric_ratio = 5;
+  // Present only when the property is (mostly) numeric.
+  optional PropertyNumericStats numeric = 6;
+  // Most frequent values, highest count first (empty values excluded).
+  repeated PropertyValueCount top_values = 7;
+}
+
+message ProfileEventPropertiesResponse {
+  // Total events (of this code, in range) — the coverage denominator.
+  uint64 total_events = 1;
+  repeated PropertyProfile properties = 2;
+}
+
+// An unsaved metric, as the editor holds it.
+message MetricDefinition {
+  string code = 1;
+  meteroid.api.billablemetrics.v1.Aggregation aggregation = 2;
+  meteroid.api.billablemetrics.v1.SegmentationMatrix segmentation_matrix = 3;
+  repeated meteroid.api.billablemetrics.v1.MetricFilter filters = 4;
+}
+
+message QueryMetricUsageRequest {
+  oneof metric {
+    string metric_id = 1;
+    MetricDefinition draft = 2;
+  }
+  // [from, to), at most 366 days apart.
+  google.protobuf.Timestamp from = 3;
+  google.protobuf.Timestamp to = 4;
+  Grain grain = 5;
+  Breakdown breakdown = 6;
+  // The property BREAKDOWN_PROPERTY splits by.
+  string breakdown_property = 7;
+  // Series kept by a breakdown (0 => 50, at most 50). Sum and count fold the rest into one
+  // `other` point per window; other aggregations drop them.
+  uint32 top_n = 8;
+  // Narrows to these customers. Several need BREAKDOWN_CUSTOMER.
+  repeated string customer_ids = 9;
+
+  enum Grain {
+    GRAIN_TOTAL = 0;
+    GRAIN_DAY = 1;
+  }
+
+  enum Breakdown {
+    BREAKDOWN_NONE = 0;
+    BREAKDOWN_CUSTOMER = 1;
+    BREAKDOWN_PROPERTY = 2;
+  }
+}
+
+message MetricUsagePoint {
+  // ISO-8601 dates (yyyy-mm-dd), window_end exclusive; GRAIN_TOTAL spans the requested range.
+  string window_start = 1;
+  string window_end = 2;
+  double value = 3;
+  // "customer" => the customer's name ("Other" on the other point) under BREAKDOWN_CUSTOMER,
+  // the breakdown property => its value under BREAKDOWN_PROPERTY.
+  map<string, string> dimensions = 4;
+  // Under BREAKDOWN_CUSTOMER, except on the other point.
+  string customer_id = 5;
+  bool other = 6;
+}
+
+message QueryMetricUsageResponse {
+  repeated MetricUsagePoint points = 1;
+}
+
+message GetCustomerUsageRequest {
+  string customer_id = 1;
+  // ISO-8601 date (yyyy-mm-dd) window bounds, both inclusive. Empty => a trailing 30 days.
+  string from = 2;
+  string to = 3;
+}
+
+// One billable metric's usage for the customer over the window.
+message CustomerUsageMetric {
+  string metric_id = 1;
+  string label = 2;
+  // The raw-event code the metric aggregates.
+  string code = 3;
+  // snake_case aggregation op (sum, max, latest, count_distinct, ...), for display.
+  string aggregation = 4;
+  // The whole-window value aggregated with the metric's own op, in its billed unit (unrounded).
+  double total = 5;
+  // Daily points for a sparkline.
+  repeated MetricUsagePoint trend = 6;
+}
+
+message GetCustomerUsageResponse {
+  repeated CustomerUsageMetric metrics = 1;
+  // Number of billable metrics the tenant has, so the client can show "N of M" when the set is
+  // capped or a metric's query failed.
+  uint32 total_count = 2;
+}

@@ -117,7 +117,7 @@ impl OauthInterface for Store {
     }
 }
 
-async fn get_verifier(store: &Store, state: SecretString) -> StoreResult<OauthVerifier> {
+pub(crate) async fn get_verifier(store: &Store, state: SecretString) -> StoreResult<OauthVerifier> {
     let verifier_ttl = chrono::Duration::minutes(10);
 
     // todo: we should probably migrate verifiers storage to Redis

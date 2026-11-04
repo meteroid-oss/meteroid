@@ -75,6 +75,8 @@ pub struct Quote {
         StoreError::SerdeError("Failed to deserialize payment_methods_config".to_string(), e)
     })?)]
     pub payment_methods_config: Option<PaymentMethodsConfig>,
+    /// User-defined property values, keyed by definition `key` (empty object when unset).
+    pub custom_properties: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,6 +130,9 @@ pub struct QuoteNew {
     StoreError::SerdeError("Failed to serialize payment_methods_config".to_string(), e)
     })?)]
     pub payment_methods_config: Option<PaymentMethodsConfig>,
+    /// User-supplied custom property values. Validated against the tenant's `QUOTE` definitions
+    /// by `insert_quote_with_details`; `Null` means "not managed" (stored as an empty object).
+    pub custom_properties: serde_json::Value,
     /// Entitlement specs to create inline when the quote is created.
     /// Not persisted to `quote_rows` — inserted into the entitlements table instead.
     #[ghost]
@@ -153,6 +158,7 @@ pub struct DetailedQuote {
     pub coupons: Vec<QuoteCoupon>,
     pub signatures: Vec<QuoteSignature>,
     pub entitlements: Vec<crate::domain::entitlements::Entitlement>,
+    pub minimum: Option<crate::domain::QuoteMinimum>,
 }
 
 #[derive(Debug, Clone)]
@@ -212,11 +218,7 @@ impl TryInto<QuoteComponentRowNew> for QuotePriceComponentNew {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<QuoteComponentRowNew, Self::Error> {
-        let legacy_fee = if self.price_id.is_some() {
-            None
-        } else {
-            Some(self.fee.try_into()?)
-        };
+        let legacy_fee = Some(self.fee.try_into()?);
 
         Ok(QuoteComponentRowNew {
             id: QuotePriceComponentId::new(),

@@ -12,6 +12,8 @@ export const SubscriptionStatusBadge = ({ status }: Props) => {
       return <Badge variant="success">Active</Badge>
     case SubscriptionStatus.CANCELED:
       return <Badge variant="secondary">Canceled</Badge>
+    case SubscriptionStatus.ABORTED:
+      return <Badge variant="secondary">Aborted</Badge>
     case SubscriptionStatus.ENDED:
       return <Badge variant="secondary">Ended</Badge>
     case SubscriptionStatus.PENDING:

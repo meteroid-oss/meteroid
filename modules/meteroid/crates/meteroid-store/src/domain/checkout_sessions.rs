@@ -32,6 +32,7 @@ pub enum CheckoutType {
     SubscriptionActivation,
     PlanChange,
     AddonPurchase,
+    TopUp,
 }
 
 #[derive(Debug, Clone)]
@@ -39,7 +40,7 @@ pub struct CheckoutSession {
     pub id: CheckoutSessionId,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
-    pub plan_version_id: PlanVersionId,
+    pub plan_version_id: Option<PlanVersionId>,
 
     // Basic subscription parameters
     pub billing_start_date: Option<NaiveDate>,
@@ -75,9 +76,20 @@ pub struct CheckoutSession {
     pub metadata: Option<serde_json::Value>,
     pub checkout_type: CheckoutType,
     pub change_date: Option<NaiveDate>,
+    pub success_url: Option<String>,
+    pub cancel_url: Option<String>,
 }
 
 impl CheckoutSession {
+    pub fn subscription_plan_version_id(&self) -> crate::StoreResult<PlanVersionId> {
+        self.plan_version_id.ok_or_else(|| {
+            crate::errors::StoreError::InvalidArgument(
+                "Top-up checkout has no subscription plan".into(),
+            )
+            .into()
+        })
+    }
+
     pub fn is_expired(&self) -> bool {
         self.status == CheckoutSessionStatus::Expired
             || self.expires_at.is_some_and(|exp| Utc::now() > exp)
@@ -94,10 +106,13 @@ impl CheckoutSession {
             && !self.is_expired()
     }
 
-    pub fn to_subscription_new(&self, start_date: NaiveDate) -> SubscriptionNew {
-        SubscriptionNew {
+    pub fn to_subscription_new(
+        &self,
+        start_date: NaiveDate,
+    ) -> crate::StoreResult<SubscriptionNew> {
+        Ok(SubscriptionNew {
             customer_id: self.customer_id,
-            plan_version_id: self.plan_version_id,
+            plan_version_id: self.subscription_plan_version_id()?,
             net_terms: self.net_terms.map(|n| n as u32),
             invoice_memo: self.invoice_memo.clone(),
             invoice_threshold: self.invoice_threshold,
@@ -116,14 +131,16 @@ impl CheckoutSession {
             backdate_invoices: false,
             skip_checkout_session: true,
             skip_past_invoices: false,
-        }
+            usage_filter: None,
+            custom_properties: serde_json::Value::Null,
+        })
     }
 
     pub fn to_create_subscription(
         &self,
         start_date: NaiveDate,
         coupon_ids: Vec<CouponId>,
-    ) -> CreateSubscription {
+    ) -> crate::StoreResult<CreateSubscription> {
         let coupons = if coupon_ids.is_empty() {
             None
         } else {
@@ -135,13 +152,15 @@ impl CheckoutSession {
             })
         };
 
-        CreateSubscription {
-            subscription: self.to_subscription_new(start_date),
+        Ok(CreateSubscription {
+            subscription: self.to_subscription_new(start_date)?,
             price_components: self.components.clone(),
             add_ons: self.add_ons.clone(),
             coupons,
             entitlements: vec![],
-        }
+            minimum_override: None,
+            drop_minimum: false,
+        })
     }
 }
 
@@ -210,6 +229,8 @@ impl From<CheckoutSessionRow> for CheckoutSession {
             metadata: row.metadata,
             checkout_type: row.checkout_type.into(),
             change_date: row.change_date,
+            success_url: row.success_url,
+            cancel_url: row.cancel_url,
         }
     }
 }
@@ -251,6 +272,8 @@ pub struct CreateCheckoutSession {
     pub checkout_type: CheckoutType,
     pub subscription_id: Option<SubscriptionId>,
     pub change_date: Option<NaiveDate>,
+    pub success_url: Option<String>,
+    pub cancel_url: Option<String>,
 }
 
 impl CreateCheckoutSession {
@@ -281,7 +304,7 @@ impl CreateCheckoutSession {
             id: CheckoutSessionId::new(),
             tenant_id: self.tenant_id,
             customer_id: self.customer_id,
-            plan_version_id: self.plan_version_id,
+            plan_version_id: Some(self.plan_version_id),
             billing_start_date: self.billing_start_date,
             billing_day_anchor: self.billing_day_anchor,
             net_terms: self.net_terms,
@@ -302,12 +325,17 @@ impl CreateCheckoutSession {
             checkout_type: self.checkout_type.into(),
             subscription_id: self.subscription_id,
             change_date: self.change_date,
+            success_url: self.success_url,
+            cancel_url: self.cancel_url,
         })
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum CheckoutCompletionResult {
+    TopUpCompleted {
+        transaction: crate::domain::PaymentTransaction,
+    },
     /// Checkout completed successfully - subscription and optionally invoice created
     Completed {
         subscription_id: SubscriptionId,

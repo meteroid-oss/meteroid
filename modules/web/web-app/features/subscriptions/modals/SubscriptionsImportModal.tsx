@@ -5,7 +5,9 @@ import { z } from 'zod'
 
 import { CSVImportDialog } from '@/components/CSVImportDialog'
 import { useBatchJobCreate, CreateBatchJobRequestSchema } from '@/features/batch-jobs/useBatchJobCreate'
+import { useCustomPropertyImportColumn } from '@/features/customproperties/useCustomPropertyImportColumn'
 import { BatchJobType } from '@/rpc/api/batchjobs/v1/models_pb'
+import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const BOOL_RE = /^(true|false)$/
@@ -48,6 +50,10 @@ export const SubscriptionsImportModal: FunctionComponent<SubscriptionsImportModa
   })
   const [batchJobId, setBatchJobId] = useState<string | null>(null)
   const [duplicateDetected, setDuplicateDetected] = useState(false)
+
+  const customPropertyColumn = useCustomPropertyImportColumn(
+    CustomPropertyEntityType.SUBSCRIPTION
+  )
 
   const createMutation = useBatchJobCreate({
     onSuccess: (jobId) => setBatchJobId(jobId),
@@ -109,7 +115,7 @@ export const SubscriptionsImportModal: FunctionComponent<SubscriptionsImportModa
       showRejectOnError={false}
       requiredColumns={[
         { name: 'customer_id_or_alias', tooltipMessage: 'Customer ID or alias' },
-        { name: 'plan_id', tooltipMessage: 'Plan Handle' },
+        { name: 'plan_id', tooltipMessage: 'Plan ID' },
         { name: 'start_date', tooltipMessage: 'YYYY-MM-DD format' },
         {
           name: 'activation_condition',
@@ -129,10 +135,16 @@ export const SubscriptionsImportModal: FunctionComponent<SubscriptionsImportModa
         { name: 'end_date', tooltipMessage: 'YYYY-MM-DD format' },
         { name: 'net_terms', tooltipMessage: 'Days until payment due' },
         {
+          name: 'backdate_invoices',
+          tooltipMessage:
+            'true to keep period dates on historical invoices instead of stamping the emission date',
+        },
+        {
           name: 'payment_method',
           tooltipMessage: 'ONLINE, BANK_TRANSFER, or EXTERNAL',
         },
         { name: 'purchase_order' },
+        ...customPropertyColumn,
       ]}
       additionalInfo={
         <ul>

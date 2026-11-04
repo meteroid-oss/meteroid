@@ -98,6 +98,16 @@
   }
 }
 
+/* Embed mode: make the document see-through so the portal iframe blends into
+   the host page. `color-scheme` must be neutralized too — a `dark` scheme makes
+   the browser paint an opaque dark canvas behind a transparent body. These
+   `!important` rules beat ThemeProvider's inline `colorScheme`/`bg-background`. */
+html.mtp-embed,
+html.mtp-embed body {
+  background: transparent !important;
+  color-scheme: normal !important;
+}
+
 @utility btn-brand {
   @apply inline-block rounded border border-green-500 bg-green-500 py-1 px-3 text-sm;
   color: #fff !important;
@@ -181,9 +191,11 @@ input[type='submit']:hover {
   }
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+@layer base {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 }
 
 input[type='radio'] {
@@ -250,45 +262,26 @@ div[data-radix-portal]:not(.portal--toast) {
   animation: bounce-logo 2s ease infinite;
 }
 
-/* Navigation item active state animation */
-@keyframes nav-active-state {
-  0% {
-    transform: translateX(-4px);
-    opacity: 0;
-  }
-  100% {
-    transform: translateX(0);
-    opacity: 1;
-  }
+/* Horizontally-scrollable tab bars: fade only the edge(s) that actually hide
+   content, combined by the caller from the element's scroll position (see
+   useScrollFade). Neither class applied means nothing is clipped. */
+.scroll-fade-x-left {
+  mask-image: linear-gradient(to right, transparent, black 16px);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 16px);
 }
-
-.nav-item-link {
-  @apply relative flex items-center justify-center mx-3 py-2 rounded-lg bg-transparent transition-colors duration-200;
-
-  &.active::before,
-  &[data-exit='true']::before {
-    content: '';
-    @apply absolute top-0 h-full;
-    right: -0.75rem;
-    width: 3px;
-    border-top-left-radius: 1.5px;
-    border-bottom-left-radius: 1.5px;
-    background: linear-gradient(180deg, #4f46ff -37.5%, #817aff 100%), #7b74ff;
-    animation: nav-active-state 0.3s ease-in;
-    transition: transform 0.3s ease-out, opacity 0.3s ease-out;
-  }
-
-  &[data-exit='true']::before {
-    transform: translateX(-4px);
-    opacity: 0;
-  }
+.scroll-fade-x-right {
+  mask-image: linear-gradient(to left, transparent, black 20px);
+  -webkit-mask-image: linear-gradient(to left, transparent, black 20px);
 }
-
-/* Navigation item divider */
-.nav-item-divider {
-  width: calc(100% - 1.5rem);
-  @apply h-px border-none ml-3;
-  background: linear-gradient(81deg, rgba(246, 202, 220, 0) 0%, hsl(var(--border)) 49%, rgba(255, 255, 255, 0) 100%);
+.scroll-fade-x-left.scroll-fade-x-right {
+  mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 20px), transparent);
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 16px,
+    black calc(100% - 20px),
+    transparent
+  );
 }
 
 /* Chart dotted background */

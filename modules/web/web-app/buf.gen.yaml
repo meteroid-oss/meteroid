@@ -1,43 +1,88 @@
 version: v1
 types:
   include:
+    - meteroid.api.activation.v1.ActivationService
     - meteroid.api.activity.v1.ActivityService
+    - meteroid.api.activity.v1.ActivityFeedService
     - meteroid.api.addons.v1.AddOnsService
+    - meteroid.api.alerts.v1.AlertsService
+    - meteroid.api.analytics.v1.AnalyticsService
     - meteroid.api.apitokens.v1.ApiTokensService
     - meteroid.api.bankaccounts.v1.BankAccountsService
     - meteroid.api.batchjobs.v1.BatchJobsService
     - meteroid.api.billablemetrics.v1.BillableMetricsService
+    - meteroid.api.connect.v1.ConnectAdminService
+    - meteroid.api.connect.v1.ConnectClientService
     - meteroid.api.connectors.v1.ConnectorsService
+    - meteroid.api.consolidation.v1.InvoiceConsolidationService
     - meteroid.api.customers.v1.CustomersService
+    - meteroid.api.customeremails.v1.CustomerEmailsService
+    - meteroid.api.customeremails.v1.EmailKind
     - meteroid.api.coupons.v1.CouponsService
+    - meteroid.api.domains.v1.DomainsService
     - meteroid.api.creditnotes.v1.CreditNotesService
+    - meteroid.api.creditunits.v1.CreditUnitsService
     - meteroid.api.events.v1.EventsService
+    - meteroid.api.eventinsights.v1.EventInsightsService
+    - meteroid.api.features.v1.FeaturesService
     - meteroid.api.entitlements.v1.EntitlementsService
     - meteroid.api.entitlements.v1.FeatureStatus
     - meteroid.api.instance.v1.InstanceService
     - meteroid.api.invoices.v1.InvoicesService
+    - meteroid.api.licenses.v1.LicensesService
+    - meteroid.api.licensing.v1.LicensingService
+    - meteroid.api.purchaselinks.v1.PurchaseLinksService
+    - meteroid.api.invoiceannextemplates.v1.AnnexTemplatesService
+    - meteroid.api.customproperties.v1.CustomPropertiesService
+    - meteroid.api.customproperties.v1.CustomPropertyDefinitionsService
+    - meteroid.api.customproperties.v1.CustomPropertyEntityType
+    - meteroid.api.customproperties.v1.CustomPropertyType
     - meteroid.api.plans.v1.PlansService
     - meteroid.api.components.v1.PriceComponentsService
     - meteroid.api.prices.v1.PricesService
     - meteroid.api.productfamilies.v1.ProductFamiliesService
     - meteroid.api.products.v1.ProductsService
     - meteroid.api.quotes.v1.QuotesService
+    - meteroid.api.savedviews.v1.SavedViewsService
+    - meteroid.api.listviews.v1.ListViewsService
     - meteroid.api.schedules.v1.SchedulesService
+    - meteroid.api.segments.v1.SegmentsService
+    - meteroid.api.signals.v1.SignalsService
+    - meteroid.api.notifications.v1.NotificationChannelsService
+    - meteroid.api.security.v1.SecurityAuditService
+    - meteroid.api.sso.v1.SsoService
     - meteroid.api.stats.v1.StatsService
     - meteroid.api.subscriptions.v1.SubscriptionsService
+    - meteroid.api.targets.v1.TargetsService
     - meteroid.api.tenants.v1.TenantsService
     - meteroid.api.users.v1.UsersService
+    - meteroid.api.budgets.v1.BudgetsService
+    - meteroid.api.wallets.v1.WalletsService
+    - meteroid.api.walletcontrols.v1.WalletControlsService
     - meteroid.api.organizations.v1.OrganizationsService
+    - meteroid.api.paymentreminders.v1.PaymentRemindersService
+    - meteroid.api.paymentreminders.v1.ReminderEnrolledVia
+    - meteroid.api.paymentreminders.v1.ReminderStopReason
+    - meteroid.api.paymentreminders.v1.InvoiceReminderStepStatus
+    - meteroid.api.paymentreminders.v1.NotEligibleReason
+    - meteroid.api.rbac.v1.RbacService
+    - meteroid.api.rbac.v1.CustomRolesService
     - meteroid.api.invoicingentities.v1.InvoicingEntitiesService
+    - meteroid.api.invoicingentities.v1.MultiEntityService
     - meteroid.api.taxes.v1.TaxesService
+    - meteroid.api.taxreports.v1.TaxReportsService
     - meteroid.api.webhooks.out.v1.WebhooksService
-    - meteroid.admin.deadletter.v1.DeadLetterService
     - meteroid.portal.checkout.v1.PortalCheckoutService
     - meteroid.portal.quotes.v1.PortalQuoteService
     - meteroid.portal.customer.v1.PortalCustomerService
+    - meteroid.portal.purchase.v1.PurchaseService
     - meteroid.portal.shared.v1.PortalSharedService
     - meteroid.portal.invoice.v1.PortalInvoiceService
     - meteroid.portal.subscription.v1.PortalSubscriptionService
+    - meteroid.portal.dashboard.v1.PortalDashboardService
+    - meteroid.portal.wallets.v1.PortalWalletsService
+    - meteroid.portal.walletcontrols.v1.PortalWalletControlsService
+    - meteroid.portal.budgets.v1.PortalBudgetsService
 plugins:
   - plugin: buf.build/bufbuild/es:v2.12.0
     opt:

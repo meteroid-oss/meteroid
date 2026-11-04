@@ -11,11 +11,9 @@ repository.workspace = true
 [dependencies]
 chrono = { workspace = true, features = [ "serde"] }
 diesel = { workspace = true, features = ["64-column-tables", "chrono"] }
-diesel-derive-enum.workspace = true
+diesel-schema.workspace = true
 diesel-async.workspace = true
-diesel-derive-newtype.workspace = true
-uuid = { workspace = true, features = ["serde"] }
-serde = { workspace = true, features = ["derive"] }
+uuid = { workspace = true, features = ["serde", "v5"] }
 serde_json.workspace = true
 error-stack.workspace = true
 thiserror.workspace = true
@@ -24,7 +22,16 @@ rust_decimal = { workspace = true, features = ["db-diesel2-postgres", "serde_jso
 tap.workspace = true
 itertools.workspace = true
 common-domain = { workspace = true, features = ["diesel"] }
+diesel-derive-newtype.workspace = true
+serde = { workspace = true, features = ["derive"] }
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
+
+[features]
+debug-sql = []
 
 [package.metadata.cargo-machete]
 # used via #[derive(DieselNewType)] and #[derive(Serialize, Deserialize)] — machete misses derive macro usage
+ignored = ["diesel-derive-newtype", "serde"]
+
+[package.metadata.cargo-shear]
 ignored = ["diesel-derive-newtype", "serde"]

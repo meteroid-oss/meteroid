@@ -11,6 +11,8 @@ type BaseProps = {
   className?: string
   inputClassName?: string
   precision?: number
+  /** Shown after the amount instead of `currency` (e.g. "credits" for a credit unit). */
+  unitLabel?: string
 }
 
 export const POSITIVE_NUM_REGEX = /^\d*\.?\d*$/
@@ -29,6 +31,7 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
       precision = 2,
       disabled,
       inputClassName,
+      unitLabel,
       ...props
     },
     ref
@@ -39,7 +42,8 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
       const numValue = e.target.valueAsNumber
       if (!isNaN(numValue)) {
         e.target.value = new Intl.NumberFormat('en-US', {
-          minimumFractionDigits: 2,
+          // A credit unit can have fewer than two decimals.
+          minimumFractionDigits: Math.min(2, precision),
           maximumFractionDigits: precision,
           useGrouping: false,
         }).format(numValue)
@@ -54,12 +58,17 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
     }
 
     const displaySymbol = useMemo(() => {
-      const formatter = new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: currency,
-        minimumFractionDigits: 2,
-      })
-      return formatter.format(0).replace(/\d|\./g, '').trim();
+      // A credit unit code (4+ characters) is no ISO currency: it has no symbol.
+      try {
+        const formatter = new Intl.NumberFormat('en-US', {
+          style: 'currency',
+          currency: currency,
+          minimumFractionDigits: 2,
+        })
+        return formatter.format(0).replace(/\d|\./g, '').trim();
+      } catch {
+        return ''
+      }
     }, [currency])
 
     return (
@@ -97,7 +106,7 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
         {showCurrency && (
           <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
             <span className="text-muted-foreground sm:text-sm" id="price-currency">
-              {currency}
+              {unitLabel ?? currency}
             </span>
           </div>
         )}

@@ -11,6 +11,8 @@ message InternalIngestRequest {
   bool allow_backfilling = 3;
   // If true, fail the entire batch if any event fails validation
   bool fail_on_error = 4;
+  // the tenant keeps the last copy of a re-sent event id instead of the first
+  bool keep_last_events = 5;
 }
 
 message InternalIngestResponse {

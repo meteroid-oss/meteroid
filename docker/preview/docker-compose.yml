@@ -1,0 +1,102 @@
+# Preview / ephemeral environment — build Meteroid from source and run it.
+# Target: a Coolify "Docker Compose" resource (also works with plain
+# `docker compose up`). Fast debug builds, degraded mode (no metering/clickhouse).
+# NOT for production — see docker/deploy/ for that.
+#
+# Coolify wiring: the SERVICE_FQDN_* vars below tell Coolify to generate & route
+# three preview domains and inject their public URLs back into the config:
+#   meteroid-web :80    -> app UI            (SERVICE_FQDN_WEB_80)
+#   meteroid     :50061 -> gRPC-web API      (SERVICE_FQDN_GRPCAPI_50061)
+#   meteroid     :8084  -> REST API          (SERVICE_FQDN_RESTAPI_8084)
+# The `${SERVICE_URL_*:-...}` fallbacks keep a local `docker compose up` working.
+# See README.md for the (short) Coolify setup.
+
+name: meteroid-preview
+
+volumes:
+  pg_data:
+
+networks:
+  meteroid_net:
+
+services:
+  meteroid-db:
+    image: ghcr.io/meteroid-oss/meteroid-postgres:18.3-standard
+    user: postgres
+    environment:
+      - POSTGRES_USER=meteroid
+      - POSTGRES_PASSWORD=secret
+      - POSTGRES_DB=meteroid
+    volumes:
+      - pg_data:/var/lib/postgresql
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [meteroid_net]
+
+  # All-in-one backend: gRPC-web (50061) + REST (8084) + workers. Runs its own
+  # migrations and bootstrap on startup, so no separate init step is needed.
+  meteroid:
+    build:
+      context: ../..
+      dockerfile: modules/meteroid/preview.Dockerfile
+    env_file:
+      - ./preview.env
+      - path: ../../ee/docker/preview/license.env
+        required: false
+    environment:
+      # Declared (valueless) so Coolify generates a domain routed to this
+      # container's port and back-fills the matching SERVICE_URL_* var.
+      - SERVICE_FQDN_GRPCAPI_50061
+      - SERVICE_FQDN_RESTAPI_8084
+      # Public URLs used for links, portal, webhook callbacks, CORS origins.
+      - METEROID_API_EXTERNAL_URL=${SERVICE_URL_GRPCAPI:-http://localhost:50061}
+      - METEROID_REST_API_EXTERNAL_URL=${SERVICE_URL_RESTAPI:-http://localhost:8084}
+      - METEROID_PUBLIC_URL=${SERVICE_URL_WEB:-http://localhost:3000}
+    depends_on:
+      meteroid-db:
+        condition: service_healthy
+    expose:
+      - "50061"
+      - "8084"
+    # For local testing, uncomment to publish on the host:
+    # ports:
+    #   - "50061:50061"
+    #   - "8084:8084"
+    healthcheck:
+      test: ['CMD', '/bin/grpc_health_probe', '-addr=:50061']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
+    networks: [meteroid_net]
+
+  # Static SPA served by nginx; the API URLs are injected at container start
+  # (init-docker-env.sh -> window._env), so the same image works on any domain.
+  meteroid-web:
+    build:
+      context: ../..
+      dockerfile: modules/web/web-app/Dockerfile
+    environment:
+      - SERVICE_FQDN_WEB_80
+      # The browser talks to the API cross-origin, so these must be the API's
+      # public URLs (not internal service names).
+      - VITE_METEROID_API_EXTERNAL_URL=${SERVICE_URL_GRPCAPI:-http://localhost:50061}
+      - VITE_METEROID_REST_API_EXTERNAL_URL=${SERVICE_URL_RESTAPI:-http://localhost:8084}
+    depends_on:
+      meteroid:
+        condition: service_started
+    expose:
+      - "80"
+    # For local testing, uncomment to publish on the host:
+    # ports:
+    #   - "3000:80"
+    networks: [meteroid_net]

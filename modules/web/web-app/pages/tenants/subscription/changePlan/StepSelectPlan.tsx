@@ -1,7 +1,8 @@
 import { Button } from '@md/ui'
 import { cn } from '@ui/lib'
 import { useAtom } from 'jotai'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useWizard } from 'react-use-wizard'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
@@ -9,6 +10,7 @@ import { useQuery } from '@/lib/connectrpc'
 import { changePlanAtom } from '@/pages/tenants/subscription/changePlan/state'
 import { PlanStatus, PlanType } from '@/rpc/api/plans/v1/models_pb'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { PlanChangeApplyMode } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 
 export const StepSelectPlan = () => {
   const { nextStep } = useWizard()
@@ -19,7 +21,7 @@ export const StepSelectPlan = () => {
 
   const plansQuery = useQuery(listPlans, {
     filters: {
-      types: [PlanType.STANDARD],
+      types: [PlanType.STANDARD, PlanType.FREE],
       statuses: [PlanStatus.ACTIVE],
       currency: state.currency || undefined,
     },
@@ -40,8 +42,25 @@ export const StepSelectPlan = () => {
       targetPlanVersionId: versionId,
       targetPlanName: planName,
       preview: undefined,
+      componentChoices: {},
+      // A new target may forbid an immediate change: its preview starts at the period's end.
+      applyMode: PlanChangeApplyMode.END_OF_PERIOD,
     }))
   }
+
+  // `?targetPlanVersionId=` (e.g. from a signal's option) preselects the target and moves on.
+  const [params] = useSearchParams()
+  const preset = params.get('targetPlanVersionId')
+  const presetApplied = useRef(false)
+  useEffect(() => {
+    if (!preset || presetApplied.current || !state.currentPlanVersionId) return
+    const target = eligiblePlans.find(plan => plan.activeVersion?.id === preset)
+    if (!target) return
+    presetApplied.current = true
+    handleSelect(preset, target.name)
+    nextStep()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset, state.currentPlanVersionId, eligiblePlans.length])
 
   const handleNext = () => {
     if (selectedVersionId) {

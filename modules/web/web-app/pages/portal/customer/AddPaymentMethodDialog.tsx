@@ -6,9 +6,11 @@ import { AlertCircle, Building, CreditCard, ExternalLink } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
+import { MockPaymentFields } from '@/features/checkout/components/MockPaymentFields'
 import { PaymentForm } from '@/features/checkout/components/PaymentForm'
 import { buildStripeAppearance } from '@/features/checkout/stripeAppearance'
 import { getStripePromise } from '@/features/checkout/stripeClient'
+import { useMockScenario } from '@/features/checkout/useMockScenario'
 import {
   hostedRedirectHelperText,
   isHostedRedirect,
@@ -19,6 +21,7 @@ import {
   consumeHostedReturn,
   hostedReturnErrorMessage,
   hostedReturnSuccessMessage,
+  hostedReturnTarget,
   hostedReturnUrl,
   stashHostedDeparture,
 } from '@/features/checkout/utils/hostedReturn'
@@ -57,16 +60,25 @@ enum PaymentState {
   ERROR = 'ERROR',
 }
 
-// Inner component wrapped by Stripe Elements
+/** Provider-agnostic body: the provider supplies the fields and the confirm step that yields an
+ *  external payment method id. */
 const AddPaymentMethodForm: React.FC<{
   activeConnectionId: string
   activeConnectionType: 'card' | 'directDebit'
   onSuccess: () => void
   onCancel: () => void
-}> = ({ activeConnectionId, activeConnectionType, onSuccess, onCancel }) => {
-  const stripe = useStripe()
-  const elements = useElements()
-
+  newMethodFields: React.ReactNode
+  confirmNewMethod: () => Promise<string>
+  providerNotReady?: boolean
+}> = ({
+  activeConnectionId,
+  activeConnectionType,
+  onSuccess,
+  onCancel,
+  newMethodFields,
+  confirmNewMethod,
+  providerNotReady,
+}) => {
   const [paymentState, setPaymentState] = useState<PaymentState>(PaymentState.INITIAL)
   const [paymentError, setPaymentError] = useState<string | null>(null)
 
@@ -79,34 +91,15 @@ const AddPaymentMethodForm: React.FC<{
     setPaymentError(null)
 
     try {
-      if (!stripe || !elements) {
-        throw new Error('Stripe has not been initialized')
-      }
+      const externalPaymentMethodId = await confirmNewMethod()
 
-      // Use confirmSetup for both card and direct debit
-      const { error, setupIntent } = await stripe.confirmSetup({
-        elements,
-        confirmParams: {
-          return_url: window.location.href,
-        },
-        redirect: 'if_required',
+      await addPaymentMethodMutation.mutateAsync({
+        connectionId: activeConnectionId,
+        externalPaymentMethodId,
       })
 
-      if (error) {
-        throw new Error(error.message)
-      }
-
-      if (setupIntent && setupIntent.payment_method) {
-        await addPaymentMethodMutation.mutateAsync({
-          connectionId: activeConnectionId,
-          externalPaymentMethodId: setupIntent.payment_method.toString(),
-        })
-
-        setPaymentState(PaymentState.SUCCESS)
-        onSuccess()
-      } else {
-        throw new Error('Payment method creation failed')
-      }
+      setPaymentState(PaymentState.SUCCESS)
+      onSuccess()
     } catch (err) {
       console.error('Payment method error:', err)
       setPaymentError(
@@ -133,7 +126,7 @@ const AddPaymentMethodForm: React.FC<{
           )}
         </div>
 
-        <PaymentForm />
+        {newMethodFields}
       </div>
 
       {/* Error message */}
@@ -156,7 +149,7 @@ const AddPaymentMethodForm: React.FC<{
         </Button>
         <Button
           type="submit"
-          disabled={paymentState === PaymentState.PROCESSING || !stripe}
+          disabled={paymentState === PaymentState.PROCESSING || providerNotReady}
           className="hover:opacity-90"
           style={{ background: 'var(--mtp-accent)', color: 'var(--mtp-on-accent)' }}
         >
@@ -171,6 +164,69 @@ const AddPaymentMethodForm: React.FC<{
         </Button>
       </div>
     </form>
+  )
+}
+
+/** Stripe binding: Elements collects the instrument, confirmSetup attaches it. */
+const StripeAddPaymentMethodForm: React.FC<{
+  activeConnectionId: string
+  activeConnectionType: 'card' | 'directDebit'
+  onSuccess: () => void
+  onCancel: () => void
+}> = props => {
+  const stripe = useStripe()
+  const elements = useElements()
+
+  const confirmNewMethod = async () => {
+    if (!stripe || !elements) {
+      throw new Error('Stripe has not been initialized')
+    }
+    const { error, setupIntent } = await stripe.confirmSetup({
+      elements,
+      confirmParams: {
+        // Stripe stores this URL: never with the page token, which the page restores on return.
+        return_url: hostedReturnTarget(window.location.href),
+      },
+      redirect: 'if_required',
+    })
+    if (error) {
+      throw new Error(error.message)
+    }
+    if (!setupIntent || !setupIntent.payment_method) {
+      throw new Error('Payment method creation failed')
+    }
+    return setupIntent.payment_method.toString()
+  }
+
+  return (
+    <AddPaymentMethodForm
+      {...props}
+      newMethodFields={<PaymentForm />}
+      confirmNewMethod={confirmNewMethod}
+      providerNotReady={!stripe}
+    />
+  )
+}
+
+/** Mock binding (dev only): the chosen test scenario becomes the payment method id; no instrument
+ *  details are collected. Remounted per tab by the caller. */
+const MockAddPaymentMethodForm: React.FC<{
+  activeConnectionId: string
+  activeConnectionType: 'card' | 'directDebit'
+  onSuccess: () => void
+  onCancel: () => void
+}> = props => {
+  const rail = props.activeConnectionType
+  const { scenarioId, setScenarioId, confirmNewMethod } = useMockScenario(rail)
+
+  return (
+    <AddPaymentMethodForm
+      {...props}
+      newMethodFields={
+        <MockPaymentFields rail={rail} scenarioId={scenarioId} onScenarioChange={setScenarioId} />
+      }
+      confirmNewMethod={confirmNewMethod}
+    />
   )
 }
 
@@ -265,7 +321,9 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
   )
   const mintSetupIntent = useMutation(setupIntent)
   const [redirectError, setRedirectError] = useState<string | null>(null)
-  useEffect(() => setRedirectError(null), [activeTab, open])
+  useEffect(() => {
+    setRedirectError(null)
+  }, [activeTab, open])
 
   const intent = setupIntentQuery.data?.setupIntent
   const intentSecret = intent?.intentSecret
@@ -274,6 +332,7 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
   const stripePublishableKey = intent?.providerPublicKey
   const connectionId = intent?.connectionId
   const hostedRedirect = isHostedRedirect(capabilities)
+  const isMock = !!capabilities?.isTestGateway
   // The hosted payment is created on click (`descriptorOnly` above).
   const mintsOnClick = !!capabilities?.supportsHostedInvoicePayment
   const hostedProviderLabel = connectorDisplayName(intent?.provider)
@@ -340,7 +399,7 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
             (setupIntentQuery.isError ||
               (!intentSecret && !mintsOnClick) ||
               !connectionId ||
-              (!hostedRedirect && !stripePublishableKey)) && (
+              (!hostedRedirect && !isMock && !stripePublishableKey)) && (
               <div className="p-6 text-center text-sm text-red-600">
                 Unable to initialize payment system. Please try again later.
               </div>
@@ -404,8 +463,19 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
             </div>
           )}
 
+          {/* Mock embedded flow (dev only): no SDK to mount. */}
+          {connectionId && isMock && (
+            <MockAddPaymentMethodForm
+              key={activeTab}
+              activeConnectionId={connectionId}
+              activeConnectionType={activeTab}
+              onSuccess={handleSuccess}
+              onCancel={handleCancel}
+            />
+          )}
+
           {/* Stripe embedded flow */}
-          {intentSecret && stripePublishableKey && connectionId && !hostedRedirect && (
+          {intentSecret && stripePublishableKey && connectionId && !hostedRedirect && !isMock && (
             <Elements
               key={intentSecret}
               stripe={getStripePromise(stripePublishableKey)}
@@ -414,7 +484,7 @@ export const AddPaymentMethodDialog: React.FC<AddPaymentMethodDialogProps> = ({
                 appearance: stripeAppearance,
               }}
             >
-              <AddPaymentMethodForm
+              <StripeAddPaymentMethodForm
                 activeConnectionId={connectionId}
                 activeConnectionType={activeTab}
                 onSuccess={handleSuccess}

@@ -7,12 +7,15 @@
 
 #![allow(clippy::too_many_arguments)]
 
+use chrono::NaiveDate;
+use common_domain::actor::Actor;
 use rstest::rstest;
 
 use crate::data::ids::*;
 use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
 use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
 use meteroid_store::domain::SubscriptionActivationCondition;
+use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
 
 // =============================================================================
 // ONSTART ACTIVATION TESTS
@@ -122,6 +125,73 @@ async fn test_oncheckout_no_trial_starts_pending(#[future] test_env: TestEnv) {
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().assert_empty();
+}
+
+/// Regression: cancelling a subscription that is still pending checkout (never
+/// activated, customer never paid) must NOT create an invoice.
+///
+/// Reproduces the reported activity trail on a "pending too long, won't subscribe"
+/// cancellation:
+///   1. cancellation scheduled (user)
+///   2. Invoice created (System)      <- BUG: bills a never-activated subscription
+///   3. subscription cancelled (System)
+///   4. Invoice finalized (System)    <- BUG
+///
+/// `terminate_subscription` bills unconditionally, unlike subscription creation
+/// which skips billing while `pending_checkout` is set. A pending-checkout
+/// subscription has no active period to charge, so cancelling it should leave it
+/// invoice-free.
+#[rstest]
+#[tokio::test]
+async fn test_cancel_pending_checkout_does_not_bill(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_mock_payment_provider(false).await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+
+    // OnCheckout, no trial => PendingActivation, pending_checkout=true, no invoice.
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID) // $35/month flat fee
+        .start_date(start_date)
+        .on_checkout()
+        .no_trial()
+        .auto_charge()
+        .create(env.services())
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert()
+        .is_pending_activation()
+        .has_pending_checkout(true);
+    env.get_invoices(sub_id).await.assert().assert_empty();
+
+    // Merchant gives up on the never-completed checkout and cancels it.
+    env.services()
+        .cancel_subscription(
+            Actor::User { id: USER_ID },
+            sub_id,
+            TENANT_ID,
+            Some("has been pending for too long. Won't subscribe.".to_string()),
+            CancellationEffectiveAt::Date(start_date),
+        )
+        .await
+        .expect("cancel_subscription failed");
+
+    // Process the scheduled cancellation, then any finalization it may have scheduled.
+    env.process_cycles().await;
+    env.process_cycles().await;
+
+    // A subscription cancelled before it ever activated is Aborted (never counted in the active
+    // population, so no churn -1), not Cancelled.
+    let sub = env.get_subscription(sub_id).await;
+    sub.assert().has_status(SubscriptionStatusEnum::Aborted);
+
+    // A subscription that never activated (customer never paid) must not be billed.
+    env.get_invoices(sub_id)
+        .await
+        .assert()
+        .with_context("cancelled pending-checkout subscription must have no invoice")
+        .assert_empty();
 }
 
 /// OnCheckout + Free Trial: Should be TrialActive with pending_checkout=true

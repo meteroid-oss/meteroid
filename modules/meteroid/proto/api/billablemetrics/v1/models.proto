@@ -90,6 +90,35 @@ message SegmentationMatrixValuesUpdate {
 }
 
 
+// A pre-aggregation filter on an event property. Restricts which raw events feed the
+// metric's aggregation (a WHERE-only condition); it does NOT split the result the way a
+// segmentation dimension does. Filters are ANDed together. EQUAL/NOT_EQUAL are the
+// single-value forms of IN/NOT_IN. Negation (NOT_EQUAL/NOT_IN) is presence-required:
+// an event that lacks the property is excluded.
+message MetricFilter {
+  enum Operator {
+    EQUAL = 0;
+    NOT_EQUAL = 1;
+    IN = 2;
+    NOT_IN = 3;
+  }
+  string property = 1;
+  Operator op = 2;
+  repeated string values = 3;
+}
+
+// Wrapper enabling tri-state on update: absent = leave filters untouched, present (even
+// empty) = replace the metric's filters with this list.
+message MetricFilterList {
+  repeated MetricFilter filters = 1;
+}
+
+// What one unit of a metric is called, e.g. "token" / "tokens".
+message MetricUnitLabel {
+  string singular = 1;
+  string plural = 2;
+}
+
 message BillableMetric {
   string id = 1;
   string name = 2;
@@ -103,6 +132,8 @@ message BillableMetric {
   optional string product_id = 10;
   string local_id = 11;
   string family_local_id = 12;
+  repeated MetricFilter filters = 13;
+  MetricUnitLabel unit_label = 14;
 }
 
 message BillableMetricMeta {
@@ -114,5 +145,7 @@ message BillableMetricMeta {
   optional string aggregation_key = 6;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp archived_at = 9;
+  optional int32 unit_conversion_factor = 10;
+  MetricUnitLabel unit_label = 11;
 }
 

@@ -1,9 +1,15 @@
 import { Button, Input } from '@md/ui'
 import { useMemo, useState } from 'react'
 
-import { formatSubscriptionFee } from '@/features/subscriptions/utils/fees'
+import { creditCouponNote } from '@/features/checkout/utils/creditCoupon'
+import {
+  formatSubscriptionFee,
+  formatSubscriptionFeeBillingPeriod,
+} from '@/features/subscriptions/utils/fees'
 import { formatCurrency, formatCurrencyNoRounding, rateToPercent } from '@/lib/utils/numbers'
+import { LineItemKind } from '@/rpc/api/invoices/v1/models_pb'
 import { FeeStructure_BillingType } from '@/rpc/api/prices/v1/models_pb'
+import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import { SubscriptionComponent, SubscriptionFee } from '@/rpc/api/subscriptions/v1/models_pb'
 import { Checkout } from '@/rpc/portal/checkout/v1/models_pb'
 
@@ -16,6 +22,20 @@ import type {
 const formatDate = (dateString: string): string => {
   const date = new Date(dateString)
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+// The unit of time a minimum commitment is owed over, e.g. "€50 / quarter".
+const billingPeriodNoun = (period: BillingPeriod | undefined): string => {
+  switch (period) {
+    case BillingPeriod.QUARTERLY:
+      return 'quarter'
+    case BillingPeriod.SEMIANNUAL:
+      return 'half-year'
+    case BillingPeriod.ANNUAL:
+      return 'year'
+    default:
+      return 'month'
+  }
 }
 
 // Label for the right column of orphan components (no charge today but billed later).
@@ -36,6 +56,7 @@ interface SubscriptionSummaryProps {
   onApplyCoupon: () => void
   onClearCoupon: () => void
   couponError?: string
+  isCouponValid?: boolean
   isApplyingCoupon?: boolean
   isPlanChange?: boolean
   isAddonPurchase?: boolean
@@ -50,6 +71,7 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
   onApplyCoupon,
   onClearCoupon,
   couponError,
+  isCouponValid,
   isApplyingCoupon,
   isPlanChange,
   isAddonPurchase,
@@ -65,11 +87,14 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
     subtotalAmount,
     taxAmount,
     discountAmount,
+    promotionalCredits,
     totalAmount,
     appliedCredits,
     amountDue,
     taxBreakdown,
     appliedCoupons,
+    creditCoupons,
+    nextInvoiceMinimum,
   } = checkoutData
 
   // Get currency from subscription
@@ -94,14 +119,49 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
     c => c.priceComponentId && !invoicedPriceComponentIds.has(c.priceComponentId)
   )
 
-  // Determine if there are any applied coupons
-  const hasCoupons: boolean = appliedCoupons.length > 0
+  // The minimum commitment is trued up on the invoice that closes each period, so it produces no
+  // line here: surface the committed term so the customer sees what they're signing up for.
+  const minimum = subscription?.minimumCommitment?.commitment
+  const minimumPeriod = billingPeriodNoun(subscription?.minimumCommitment?.period)
+  const minimumBilledToday = invoiceLines.some(l => l.kind === LineItemKind.MINIMUM_SHORTFALL)
+  const showMinimumTerm = !!minimum && !minimumBilledToday && !isPlanChange && !isAddonPurchase
+
+  // Product-scoped floors name their covered components, like the synthesized invoice line does.
+  const minimumScopeNames = useMemo(() => {
+    if (minimum?.scope?.kind?.case !== 'products') return []
+    const ids = new Set(minimum.scope.kind.value.productIds)
+    const names = (subscription?.priceComponents ?? [])
+      .filter(c => c.productId && ids.has(c.productId))
+      .map(c => c.name)
+    return [...new Set(names)].sort()
+  }, [minimum, subscription?.priceComponents])
+
+  // A promo code that adds credit discounts nothing, but it is applied all the same.
+  const hasCoupons: boolean = appliedCoupons.length > 0 || creditCoupons.length > 0
 
   // Determine if there are manual discounts
   const hasDiscounts = discountAmount > 0
 
   // Determine if there are taxes
   const hasTaxes = taxBreakdown && taxBreakdown.length > 0
+
+  // A tax-inclusive subscription is shown in the prices the customer was quoted: each line
+  // and the subtotal include the tax, which is then listed as already included rather than
+  // added. The amounts behind them are net; the quoted figures ride along on each line.
+  const taxInclusive = subscription?.subscription?.taxInclusive ?? false
+  const lineAmount = (line: (typeof invoiceLines)[number]) =>
+    taxInclusive ? (line.taxInclusiveQuote?.subtotal ?? line.subtotal) : line.subtotal
+  const displayedSubtotal = taxInclusive
+    ? invoiceLines.reduce((sum, line) => sum + Number(lineAmount(line)), 0)
+    : subtotalAmount
+
+  // Long product-scope lists wrap the row title — cap at two names.
+  const minimumScopeLabel =
+    minimumScopeNames.length === 0
+      ? ''
+      : ` (${minimumScopeNames.slice(0, 2).join(', ')}${
+          minimumScopeNames.length > 2 ? ` +${minimumScopeNames.length - 2}` : ''
+        })`
 
   // Check if subscription is in trial
   const isInTrial =
@@ -155,9 +215,6 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
           </>
         ) : (
           <>
-            {/* Show billing frequency TODO */}
-            <div className="text-sm text-gray-600 mt-1">Billed monthly</div>
-
             {isInTrial && (
               <div className="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                 {subscription?.subscription?.trialDuration} day trial
@@ -177,6 +234,9 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
           const hasQuantityLine =
             !!line.quantity && !!line.unitPrice && Number(line.quantity) > 1
           const showPricingSublabel = !!pricing && !hasQuantityLine && !pricing.redundantDetails
+          const frequency = component
+            ? formatSubscriptionFeeBillingPeriod(component.period)
+            : undefined
           return (
             <div key={line.id || index} className="flex justify-between">
               <div>
@@ -189,11 +249,14 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
                     {line.quantity} × {formatCurrencyNoRounding(Number(line.unitPrice), currency)}
                   </div>
                 )}
-                {showPricingSublabel && pricing && (
+                {showPricingSublabel && pricing ? (
                   <div className="text-xs text-muted-foreground">
                     {pricing.amount}
                     {pricing.details ? ` · ${pricing.details}` : ''}
+                    {frequency ? ` · ${frequency}` : ''}
                   </div>
+                ) : (
+                  frequency && <div className="text-xs text-muted-foreground">{frequency}</div>
                 )}
                 {pricing?.breakdown && (
                   <pre className="mt-0.5 text-[11px] text-muted-foreground font-mono whitespace-pre leading-tight">
@@ -207,7 +270,7 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
                   </div>
                 )}
               </div>
-              <div className="font-medium">{formatCurrency(line.subtotal, currency)}</div>
+              <div className="font-medium">{formatCurrency(lineAmount(line), currency)}</div>
             </div>
           )
         })}
@@ -225,6 +288,7 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
                 <div className="text-xs text-muted-foreground">
                   {pricing.amount}
                   {pricing.details && !pricing.redundantDetails ? ` · ${pricing.details}` : ''}
+                  {` · ${formatSubscriptionFeeBillingPeriod(c.period)}`}
                 </div>
                 {pricing.breakdown && (
                   <pre className="mt-0.5 text-[11px] text-muted-foreground font-mono whitespace-pre leading-tight">
@@ -236,13 +300,33 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
             </div>
           )
         })}
+
+        {showMinimumTerm && minimum && (
+          <div className="flex justify-between">
+            <div>
+              <div className="font-medium">Minimum commitment{minimumScopeLabel}</div>
+              <div className="text-xs text-muted-foreground">
+                You&apos;ll pay at least this each {minimumPeriod}
+              </div>
+            </div>
+            <div className="text-muted-foreground">
+              {formatCurrency(minimum.amountSubunit, currency)} / {minimumPeriod}
+            </div>
+          </div>
+        )}
+
+        {taxInclusive ? (
+          <div className="text-xs text-muted-foreground">All prices incl. tax</div>
+        ) : (
+          !hasTaxes && <div className="text-xs text-muted-foreground">All prices excl. tax</div>
+        )}
       </div>
 
       {/* Subtotal */}
       <div className="border-t border-gray-200 py-4">
         <div className="flex justify-between mb-2">
           <div>Subtotal</div>
-          <div>{formatCurrency(subtotalAmount, currency)}</div>
+          <div>{formatCurrency(displayedSubtotal, currency)}</div>
         </div>
 
         {hasCoupons ? (
@@ -253,6 +337,7 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
                 <div>-{formatCurrency(coupon.amount, currency)}</div>
               </div>
             ))}
+            {isCouponValid && <p className="text-green-600 text-xs">Valid coupon</p>}
           </>
         ) : null}
 
@@ -265,6 +350,25 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
           </>
         )}
 
+        {creditCoupons.map(coupon => (
+          <div key={coupon.couponCode} className="mb-1">
+            <div className="flex justify-between text-success">
+              <div className="text-sm">{coupon.couponCode}</div>
+              <div className="text-sm">
+                +{formatCurrency(coupon.amount, coupon.currency)} credit
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">{creditCouponNote(coupon)}</p>
+          </div>
+        ))}
+
+        {promotionalCredits > BigInt(0) && (
+          <div className="flex justify-between text-success mb-1">
+            <div className="text-sm">Promotional credit</div>
+            <div>-{formatCurrency(promotionalCredits, currency)}</div>
+          </div>
+        )}
+
         {/* Display tax breakdown if any */}
         {hasTaxes && (
           <>
@@ -272,7 +376,7 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
               {taxBreakdown.map((tax, index) => (
                 <div key={index} className="flex justify-between text-sm mb-1">
                   <div className="text-muted-foreground">
-                    {tax.name} ({rateToPercent(tax.rate)}%)
+                    {tax.name} ({rateToPercent(tax.rate)}%{taxInclusive ? ', included' : ''})
                   </div>
                   <div className="text-muted-foreground">
                     {formatCurrency(tax.amount, currency)}
@@ -331,6 +435,9 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
                   </Button>
                 </div>
                 {couponError && <p className="text-destructive text-xs">{couponError}</p>}
+                {isCouponValid && !couponError && (
+                  <p className="text-green-600 text-xs">Valid coupon</p>
+                )}
               </div>
             )}
           </div>
@@ -372,6 +479,16 @@ const SubscriptionSummary: React.FC<SubscriptionSummaryProps> = ({
         {hasTaxes && (
           <div className="text-xs text-muted-foreground mt-1">
             Includes {formatCurrency(taxAmount, currency)} in taxes
+          </div>
+        )}
+        {/* The floor isn't billed today, so "due today" alone reads as free: say what the next
+            invoice will be at least, net of the coupons that will still apply to it. */}
+        {showMinimumTerm && minimum && (
+          <div className="flex justify-between mt-2 text-muted-foreground">
+            <div>Total due next month</div>
+            <div>
+              Minimum {formatCurrency(nextInvoiceMinimum ?? minimum.amountSubunit, currency)}
+            </div>
           </div>
         )}
       </div>

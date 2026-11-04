@@ -14,6 +14,8 @@ pub struct ApiTokenRow {
     pub tenant_id: TenantId,
     pub hash: String,
     pub hint: String,
+    pub first_used_at: Option<NaiveDateTime>,
+    pub last_used_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Insertable)]
@@ -42,4 +44,7 @@ pub struct ApiTokenValidationRow {
     #[diesel(select_expression = crate::schema::tenant::environment)]
     #[diesel(select_expression_type = crate::schema::tenant::environment)]
     pub environment: TenantEnvironmentEnum,
+    #[diesel(select_expression = crate::schema::tenant::keep_last_events)]
+    #[diesel(select_expression_type = crate::schema::tenant::keep_last_events)]
+    pub keep_last_events: bool,
 }

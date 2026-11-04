@@ -2,13 +2,22 @@ import { createContext, useContext } from 'react'
 
 import type { CustomerPortalOverview } from '@/rpc/portal/customer/v1/models_pb'
 
-export type PortalTab = 'overview' | 'subscriptions' | 'usage' | 'invoices' | 'settings'
+export type PortalTab =
+  | 'overview'
+  | 'subscriptions'
+  | 'usage'
+  | 'balance'
+  | 'invoices'
+  | 'licenses'
+  | 'settings'
 
 export const PORTAL_TABS: { key: PortalTab; label: string }[] = [
   { key: 'overview', label: 'Overview' },
   { key: 'subscriptions', label: 'Subscriptions' },
   { key: 'usage', label: 'Usage' },
+  { key: 'balance', label: 'Credit' },
   { key: 'invoices', label: 'Invoices' },
+  { key: 'licenses', label: 'Licenses' },
   { key: 'settings', label: 'Settings' },
 ]
 

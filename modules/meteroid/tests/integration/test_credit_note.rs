@@ -10,10 +10,7 @@ use diesel_models::plan_versions::PlanVersionRowNew;
 use diesel_models::plans::{PlanRowNew, PlanRowPatch};
 use diesel_models::price_components::PriceComponentRowNew;
 use diesel_models::products::ProductRowNew;
-use meteroid::workers::pgmq::processors::{
-    run_once_invoice_orchestration, run_once_outbox_dispatch,
-};
-use meteroid_mailer::service::MockMailerService;
+use meteroid::workers::pgmq::processors::run_once_invoice_orchestration;
 use meteroid_store::clients::usage::MockUsageClient;
 use meteroid_store::domain::coupons::{CouponDiscount, CouponNew};
 use meteroid_store::domain::enums::InvoiceStatusEnum;
@@ -27,10 +24,10 @@ use meteroid_store::repositories::coupons::CouponInterface;
 use meteroid_store::repositories::credit_notes::{
     CreateCreditNoteParams, CreditLineItem, CreditType,
 };
-use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::{CreditNoteInterface, InvoiceInterface};
 use meteroid_store::store::PgConn;
+use meteroid_testkit::mailer::MockMailerService;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::str::FromStr;
@@ -41,7 +38,8 @@ use uuid::Uuid;
 #[tokio::test]
 async fn test_credit_note_partial_credits() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
 
     let mock_mailer = Arc::new(MockMailerService::new());
     let setup = meteroid_it::container::start_meteroid_with_clients(
@@ -76,7 +74,7 @@ async fn test_credit_note_partial_credits() {
     let (plan_version_id, _component_ids) = create_plan_with_4_components(&mut conn).await;
 
     // 3. Create customer with custom tax rate (10%)
-    let customer_id = create_customer_with_tax(&mut conn, 0).await; // No balance initially
+    let customer_id = create_customer_with_tax(&mut conn).await;
 
     // 4. Create a 10% coupon
     let coupon_id = store
@@ -122,6 +120,8 @@ async fn test_credit_note_partial_credits() {
                     backdate_invoices: false,
                     skip_checkout_session: false,
                     skip_past_invoices: false,
+                    usage_filter: None,
+                    custom_properties: serde_json::Value::Null,
                 },
                 price_components: None,
                 add_ons: None,
@@ -129,6 +129,8 @@ async fn test_credit_note_partial_credits() {
                     coupons: vec![CreateSubscriptionCoupon { coupon_id }],
                 }),
                 entitlements: vec![],
+                minimum_override: None,
+                drop_minimum: false,
             },
             TENANT_ID,
         )
@@ -146,6 +148,10 @@ async fn test_credit_note_partial_credits() {
             Some(subscription.id),
             None,
             None,
+            None,
+            false,
+            None,
+            vec![],
             Some("created_at.asc".to_string()),
             PaginationRequest {
                 page: 0,
@@ -238,6 +244,7 @@ async fn test_credit_note_partial_credits() {
                 reason: Some("Partial refund - first batch".to_string()),
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
+                custom_properties: None,
             },
         )
         .await
@@ -298,6 +305,7 @@ async fn test_credit_note_partial_credits() {
                 reason: Some("Partial refund - second batch".to_string()),
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
+                custom_properties: None,
             },
         )
         .await
@@ -466,6 +474,7 @@ async fn test_credit_note_partial_credits() {
                 reason: Some("Should fail - duplicate".to_string()),
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
+                custom_properties: None,
             },
         )
         .await;
@@ -488,7 +497,8 @@ async fn test_credit_note_partial_credits() {
 #[tokio::test]
 async fn test_credit_note_race_condition() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
 
     let mock_mailer = Arc::new(MockMailerService::new());
     let setup = meteroid_it::container::start_meteroid_with_clients(
@@ -507,7 +517,7 @@ async fn test_credit_note_race_condition() {
     let (plan_version_id, _) = create_plan_with_4_components(&mut conn).await;
 
     // Create customer
-    let customer_id = create_customer_with_tax(&mut conn, 0).await;
+    let customer_id = create_customer_with_tax(&mut conn).await;
 
     // Create subscription
     let subscription = services
@@ -533,11 +543,15 @@ async fn test_credit_note_race_condition() {
                     backdate_invoices: false,
                     skip_checkout_session: false,
                     skip_past_invoices: false,
+                    usage_filter: None,
+                    custom_properties: serde_json::Value::Null,
                 },
                 price_components: None,
                 add_ons: None,
                 coupons: None,
                 entitlements: vec![],
+                minimum_override: None,
+                drop_minimum: false,
             },
             TENANT_ID,
         )
@@ -555,6 +569,10 @@ async fn test_credit_note_race_condition() {
             Some(subscription.id),
             None,
             None,
+            None,
+            false,
+            None,
+            vec![],
             Some("created_at.asc".to_string()),
             PaginationRequest {
                 page: 0,
@@ -597,6 +615,7 @@ async fn test_credit_note_race_condition() {
                         reason: Some("Concurrent 1".to_string()),
                         memo: None,
                         credit_type: CreditType::CreditToBalance,
+                        custom_properties: None,
                     },
                 )
                 .await
@@ -615,6 +634,7 @@ async fn test_credit_note_race_condition() {
                         reason: Some("Concurrent 2".to_string()),
                         memo: None,
                         credit_type: CreditType::CreditToBalance,
+                        custom_properties: None,
                     },
                 )
                 .await
@@ -653,7 +673,8 @@ async fn test_credit_note_race_condition() {
 #[tokio::test]
 async fn test_credit_note_refund_with_applied_credits() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
 
     let mock_mailer = Arc::new(MockMailerService::new());
     let setup = meteroid_it::container::start_meteroid_with_clients(
@@ -671,8 +692,9 @@ async fn test_credit_note_refund_with_applied_credits() {
     // Create plan with 4 components
     let (plan_version_id, _) = create_plan_with_4_components(&mut conn).await;
 
-    // Create customer with 2000 cents balance
-    let customer_id = create_customer_with_tax(&mut conn, 2000).await;
+    // Create customer with 2000 cents of invoice credit
+    let customer_id = create_customer_with_tax(&mut conn).await;
+    crate::helpers::credit::fund(&store, TENANT_ID, customer_id, None, 2000).await;
 
     // Create subscription
     let subscription = services
@@ -698,11 +720,15 @@ async fn test_credit_note_refund_with_applied_credits() {
                     backdate_invoices: false,
                     skip_checkout_session: false,
                     skip_past_invoices: false,
+                    usage_filter: None,
+                    custom_properties: serde_json::Value::Null,
                 },
                 price_components: None,
                 add_ons: None,
                 coupons: None,
                 entitlements: vec![],
+                minimum_override: None,
+                drop_minimum: false,
             },
             TENANT_ID,
         )
@@ -717,6 +743,10 @@ async fn test_credit_note_refund_with_applied_credits() {
             Some(subscription.id),
             None,
             None,
+            None,
+            false,
+            None,
+            vec![],
             Some("created_at.asc".to_string()),
             PaginationRequest {
                 page: 0,
@@ -740,6 +770,10 @@ async fn test_credit_note_refund_with_applied_credits() {
             Some(subscription.id),
             None,
             None,
+            None,
+            false,
+            None,
+            vec![],
             Some("created_at.asc".to_string()),
             PaginationRequest {
                 page: 0,
@@ -752,11 +786,8 @@ async fn test_credit_note_refund_with_applied_credits() {
 
     assert_eq!(invoices.len(), 1, "Should have a single invoice");
 
-    let customer_balance = store
-        .find_customer_by_id(customer_id, TENANT_ID)
-        .await
-        .unwrap()
-        .balance_value_cents;
+    let customer_balance =
+        crate::helpers::credit::available(&store, TENANT_ID, customer_id, None).await;
 
     assert_eq!(
         customer_balance, 0,
@@ -771,6 +802,10 @@ async fn test_credit_note_refund_with_applied_credits() {
             Some(subscription.id),
             None,
             None,
+            None,
+            false,
+            None,
+            vec![],
             Some("created_at.asc".to_string()),
             PaginationRequest {
                 page: 0,
@@ -789,13 +824,11 @@ async fn test_credit_note_refund_with_applied_credits() {
             TENANT_ID,
             invoice.id,
             dec!(80.00), // amount due after applying 20€ credits from 100€ plan
-            invoice.created_at,
+            invoice.created_at.and_utc().fixed_offset(),
             None,
         )
         .await
         .unwrap();
-
-    run_once_outbox_dispatch(Arc::new(store.clone())).await;
 
     run_once_invoice_orchestration(Arc::new(store.clone()), Arc::new(services.clone())).await;
 
@@ -828,6 +861,7 @@ async fn test_credit_note_refund_with_applied_credits() {
                 reason: Some("Full refund with applied credits".to_string()),
                 memo: None,
                 credit_type: CreditType::Refund,
+                custom_properties: None,
             },
         )
         .await
@@ -862,11 +896,8 @@ async fn test_credit_note_refund_with_applied_credits() {
         "Credit note should be draft until processed"
     );
 
-    let customer_balance = store
-        .find_customer_by_id(customer_id, TENANT_ID)
-        .await
-        .unwrap()
-        .balance_value_cents;
+    let customer_balance =
+        crate::helpers::credit::available(&store, TENANT_ID, customer_id, None).await;
 
     assert_eq!(
         customer_balance, 0,
@@ -897,11 +928,8 @@ async fn test_credit_note_refund_with_applied_credits() {
         "Credit note should be finalized"
     );
 
-    let customer_balance = store
-        .find_customer_by_id(customer_id, TENANT_ID)
-        .await
-        .unwrap()
-        .balance_value_cents;
+    let customer_balance =
+        crate::helpers::credit::available(&store, TENANT_ID, customer_id, None).await;
 
     assert_eq!(
         customer_balance, 2000,
@@ -913,7 +941,8 @@ async fn test_credit_note_refund_with_applied_credits() {
 #[tokio::test]
 async fn test_credit_note_partial_amounts() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
 
     let mock_mailer = Arc::new(MockMailerService::new());
     let setup = meteroid_it::container::start_meteroid_with_clients(
@@ -948,7 +977,7 @@ async fn test_credit_note_partial_amounts() {
     let (plan_version_id, _) = create_plan_with_4_components(&mut conn).await;
 
     // 3. Create customer with custom tax rate (10%)
-    let customer_id = create_customer_with_tax(&mut conn, 0).await;
+    let customer_id = create_customer_with_tax(&mut conn).await;
 
     // 4. Create subscription
     let subscription = services
@@ -974,11 +1003,15 @@ async fn test_credit_note_partial_amounts() {
                     backdate_invoices: false,
                     skip_checkout_session: false,
                     skip_past_invoices: false,
+                    usage_filter: None,
+                    custom_properties: serde_json::Value::Null,
                 },
                 price_components: None,
                 add_ons: None,
                 coupons: None,
                 entitlements: vec![],
+                minimum_override: None,
+                drop_minimum: false,
             },
             TENANT_ID,
         )
@@ -996,6 +1029,10 @@ async fn test_credit_note_partial_amounts() {
             Some(subscription.id),
             None,
             None,
+            None,
+            false,
+            None,
+            vec![],
             Some("created_at.asc".to_string()),
             PaginationRequest {
                 page: 0,
@@ -1062,6 +1099,7 @@ async fn test_credit_note_partial_amounts() {
                 reason: Some("Partial amount credit test".to_string()),
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
+                custom_properties: None,
             },
         )
         .await
@@ -1160,6 +1198,7 @@ async fn test_credit_note_partial_amounts() {
                 reason: Some("Should fail - exceeds subtotal".to_string()),
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
+                custom_properties: None,
             },
         )
         .await;
@@ -1171,8 +1210,8 @@ async fn test_credit_note_partial_amounts() {
 
     let error_message = format!("{:?}", exceed_result.unwrap_err());
     assert!(
-        error_message.contains("exceeds"),
-        "Error should mention exceeding amount, got: {}",
+        error_message.contains("it was invoiced for 1"),
+        "Error should name the invoiced quantity, got: {}",
         error_message
     );
 
@@ -1190,6 +1229,7 @@ async fn test_credit_note_partial_amounts() {
                 reason: Some("Should fail - negative amount".to_string()),
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
+                custom_properties: None,
             },
         )
         .await;
@@ -1220,23 +1260,24 @@ async fn mark_invoice_paid_and_settle(
             TENANT_ID,
             invoice.id,
             Decimal::from(invoice.amount_due) / Decimal::from(100),
-            invoice.created_at,
+            invoice.created_at.and_utc().fixed_offset(),
             None,
         )
         .await
         .unwrap();
-    run_once_outbox_dispatch(Arc::new(store.clone())).await;
     run_once_invoice_orchestration(Arc::new(store.clone()), Arc::new(services.clone())).await;
 }
 
 /// Shared setup for DebtCancellation tests: one unpaid finalized invoice.
-async fn setup_unpaid_invoice() -> (
+pub(crate) async fn setup_unpaid_invoice() -> (
+    meteroid_it::container::MeteroidSetup,
     meteroid_store::Services,
     meteroid_store::Store,
     meteroid_store::domain::Invoice,
 ) {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let mock_mailer = Arc::new(MockMailerService::new());
     let setup = meteroid_it::container::start_meteroid_with_clients(
         postgres_connection_string,
@@ -1251,7 +1292,7 @@ async fn setup_unpaid_invoice() -> (
     let mut conn = setup.store.pool.get().await.unwrap();
 
     let (plan_version_id, _) = create_plan_with_4_components(&mut conn).await;
-    let customer_id = create_customer_with_tax(&mut conn, 0).await;
+    let customer_id = create_customer_with_tax(&mut conn).await;
 
     let subscription = services
         .insert_subscription(
@@ -1276,11 +1317,15 @@ async fn setup_unpaid_invoice() -> (
                     backdate_invoices: false,
                     skip_checkout_session: false,
                     skip_past_invoices: false,
+                    usage_filter: None,
+                    custom_properties: serde_json::Value::Null,
                 },
                 price_components: None,
                 add_ons: None,
                 coupons: None,
                 entitlements: vec![],
+                minimum_override: None,
+                drop_minimum: false,
             },
             TENANT_ID,
         )
@@ -1296,6 +1341,10 @@ async fn setup_unpaid_invoice() -> (
             Some(subscription.id),
             None,
             None,
+            None,
+            false,
+            None,
+            vec![],
             Some("created_at.asc".to_string()),
             PaginationRequest {
                 page: 0,
@@ -1314,7 +1363,7 @@ async fn setup_unpaid_invoice() -> (
     );
     assert!(invoice.amount_due > 0);
 
-    (services, store, invoice)
+    (setup, services, store, invoice)
 }
 
 async fn fetch_invoice(
@@ -1329,7 +1378,7 @@ async fn fetch_invoice(
 
 #[tokio::test]
 async fn test_credit_note_debt_cancellation_full_settles_invoice() {
-    let (_services, store, invoice) = setup_unpaid_invoice().await;
+    let (_setup, _services, store, invoice) = setup_unpaid_invoice().await;
 
     let credit_note = store
         .create_credit_note(
@@ -1341,6 +1390,7 @@ async fn test_credit_note_debt_cancellation_full_settles_invoice() {
                 reason: Some("Full debt cancellation".to_string()),
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                custom_properties: None,
             },
         )
         .await
@@ -1381,7 +1431,7 @@ async fn test_credit_note_debt_cancellation_full_settles_invoice() {
 /// Partial DebtCancellation leaves the invoice unpaid with reduced amount_due.
 #[tokio::test]
 async fn test_credit_note_debt_cancellation_partial_leaves_unpaid() {
-    let (_services, store, invoice) = setup_unpaid_invoice().await;
+    let (_setup, _services, store, invoice) = setup_unpaid_invoice().await;
     let line_ids: Vec<String> = invoice
         .line_items
         .iter()
@@ -1402,6 +1452,7 @@ async fn test_credit_note_debt_cancellation_partial_leaves_unpaid() {
                 reason: Some("Partial debt cancellation".to_string()),
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                custom_properties: None,
             },
         )
         .await
@@ -1433,7 +1484,7 @@ async fn test_credit_note_debt_cancellation_partial_leaves_unpaid() {
 
 #[tokio::test]
 async fn test_credit_note_debt_cancellation_rejected_on_paid_invoice() {
-    let (services, store, invoice) = setup_unpaid_invoice().await;
+    let (_setup, services, store, invoice) = setup_unpaid_invoice().await;
     mark_invoice_paid_and_settle(&services, &store, &invoice).await;
 
     let result = store
@@ -1446,6 +1497,7 @@ async fn test_credit_note_debt_cancellation_rejected_on_paid_invoice() {
                 reason: None,
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                custom_properties: None,
             },
         )
         .await;
@@ -1461,7 +1513,7 @@ async fn test_credit_note_debt_cancellation_rejected_on_paid_invoice() {
 
 #[tokio::test]
 async fn test_credit_note_credit_to_balance_rejected_on_unpaid_invoice() {
-    let (_services, store, invoice) = setup_unpaid_invoice().await;
+    let (_setup, _services, store, invoice) = setup_unpaid_invoice().await;
 
     let result = store
         .create_credit_note(
@@ -1473,6 +1525,7 @@ async fn test_credit_note_credit_to_balance_rejected_on_unpaid_invoice() {
                 reason: None,
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
+                custom_properties: None,
             },
         )
         .await;
@@ -1489,7 +1542,7 @@ async fn test_credit_note_credit_to_balance_rejected_on_unpaid_invoice() {
 /// Voiding a finalized DebtCancellation CN reverts the invoice payment status.
 #[tokio::test]
 async fn test_credit_note_debt_cancellation_void_reverts_invoice() {
-    let (_services, store, invoice) = setup_unpaid_invoice().await;
+    let (_setup, _services, store, invoice) = setup_unpaid_invoice().await;
 
     let credit_note = store
         .create_credit_note(
@@ -1501,6 +1554,7 @@ async fn test_credit_note_debt_cancellation_void_reverts_invoice() {
                 reason: None,
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                custom_properties: None,
             },
         )
         .await
@@ -1545,6 +1599,73 @@ async fn test_credit_note_debt_cancellation_void_reverts_invoice() {
     );
 }
 
+/// A void takes the customer and invoice before the note, as finalization does: a transaction
+/// holding the customer can still lock the note while the void waits, without a deadlock.
+#[tokio::test]
+async fn test_credit_note_void_locks_customer_before_note() {
+    use diesel_async::{RunQueryDsl, SimpleAsyncConnection};
+
+    let (_setup, _services, store, invoice) = setup_unpaid_invoice().await;
+    let credit_note = store
+        .create_credit_note(
+            common_domain::actor::Actor::System,
+            TENANT_ID,
+            CreateCreditNoteParams {
+                invoice_id: invoice.id,
+                line_items: vec![],
+                reason: None,
+                memo: None,
+                credit_type: CreditType::DebtCancellation,
+                custom_properties: None,
+            },
+        )
+        .await
+        .unwrap();
+    let finalized = store
+        .finalize_credit_note(
+            common_domain::actor::Actor::System,
+            TENANT_ID,
+            credit_note.id,
+        )
+        .await
+        .unwrap();
+
+    let mut holder = store.pool.get().await.unwrap();
+    holder
+        .batch_execute(&format!(
+            "BEGIN; SET LOCAL lock_timeout = '5s'; SELECT 1 FROM customer WHERE id = '{}' FOR UPDATE;",
+            invoice.customer_id.as_uuid()
+        ))
+        .await
+        .unwrap();
+
+    let voiding = {
+        let store = store.clone();
+        let note_id = finalized.id;
+        tokio::spawn(async move {
+            store
+                .void_credit_note(common_domain::actor::Actor::System, TENANT_ID, note_id)
+                .await
+        })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(!voiding.is_finished(), "the void waits for the customer");
+
+    diesel::sql_query(format!(
+        "SELECT 1 FROM credit_note WHERE id = '{}' FOR UPDATE",
+        finalized.id.as_uuid()
+    ))
+    .execute(&mut holder)
+    .await
+    .expect("the note is free while the void waits for its customer");
+    holder.batch_execute("COMMIT").await.unwrap();
+
+    voiding
+        .await
+        .unwrap()
+        .expect("the void completes once the customer is released");
+}
+
 // =============================================================================
 // Corrected invoice tests (Phase 5)
 // =============================================================================
@@ -1552,7 +1673,7 @@ async fn test_credit_note_debt_cancellation_void_reverts_invoice() {
 /// Helper: create a DebtCancellation CN on the unpaid invoice and finalize it.
 /// After this the parent invoice is settled (Paid, amount_due=0) and has one
 /// Finalized DebtCancellation credit note, ready to be reissued as a correction.
-async fn create_and_finalize_debt_cancellation_cn(
+pub(crate) async fn create_and_finalize_debt_cancellation_cn(
     store: &meteroid_store::Store,
     invoice: &meteroid_store::domain::Invoice,
 ) {
@@ -1566,6 +1687,7 @@ async fn create_and_finalize_debt_cancellation_cn(
                 reason: Some("Wrong billing amount".to_string()),
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                custom_properties: None,
             },
         )
         .await
@@ -1579,7 +1701,7 @@ async fn create_and_finalize_debt_cancellation_cn(
 
 #[tokio::test]
 async fn test_create_corrected_invoice_after_debt_cancellation() {
-    let (services, store, invoice) = setup_unpaid_invoice().await;
+    let (_setup, services, store, invoice) = setup_unpaid_invoice().await;
     create_and_finalize_debt_cancellation_cn(&store, &invoice).await;
 
     let corrected = services
@@ -1628,7 +1750,7 @@ async fn test_create_corrected_invoice_after_debt_cancellation() {
 /// Fallback corrected-invoice flow must refuse when the parent is not fully credited.
 #[tokio::test]
 async fn test_create_corrected_invoice_rejected_when_parent_not_fully_credited() {
-    let (services, _store, invoice) = setup_unpaid_invoice().await;
+    let (_setup, services, _store, invoice) = setup_unpaid_invoice().await;
 
     let err = services
         .create_corrected_invoice_from(TENANT_ID, invoice.id)
@@ -1645,7 +1767,7 @@ async fn test_create_corrected_invoice_rejected_when_parent_not_fully_credited()
 
 #[tokio::test]
 async fn test_create_corrected_invoice_rejected_when_child_already_exists() {
-    let (services, store, invoice) = setup_unpaid_invoice().await;
+    let (_setup, services, store, invoice) = setup_unpaid_invoice().await;
     create_and_finalize_debt_cancellation_cn(&store, &invoice).await;
 
     let _first = services
@@ -1670,7 +1792,7 @@ async fn test_create_corrected_invoice_rejected_when_child_already_exists() {
 async fn test_corrected_invoice_child_link_and_parent_link() {
     use meteroid_store::repositories::InvoiceInterface;
 
-    let (services, store, invoice) = setup_unpaid_invoice().await;
+    let (_setup, services, store, invoice) = setup_unpaid_invoice().await;
     create_and_finalize_debt_cancellation_cn(&store, &invoice).await;
 
     let corrected = services
@@ -1690,11 +1812,42 @@ async fn test_corrected_invoice_child_link_and_parent_link() {
     assert_eq!(reloaded.parent_invoice_id, Some(invoice.id));
 }
 
+/// The batch resolver backs the REST list endpoint: it must map only the parents that
+/// actually have a correction, so an invoice that is itself a child stays absent.
+#[tokio::test]
+async fn test_find_child_invoice_ids_batch() {
+    use meteroid_store::repositories::InvoiceInterface;
+
+    let (_setup, services, store, invoice) = setup_unpaid_invoice().await;
+    create_and_finalize_debt_cancellation_cn(&store, &invoice).await;
+
+    let corrected = services
+        .create_corrected_invoice_from(TENANT_ID, invoice.id)
+        .await
+        .unwrap();
+
+    let children = store
+        .find_child_invoice_ids(TENANT_ID, &[invoice.id, corrected.id])
+        .await
+        .unwrap();
+
+    assert_eq!(children.get(&invoice.id), Some(&corrected.id));
+    assert_eq!(
+        children.get(&corrected.id),
+        None,
+        "the corrective invoice has no correction of its own"
+    );
+    assert_eq!(children.len(), 1);
+
+    let empty = store.find_child_invoice_ids(TENANT_ID, &[]).await.unwrap();
+    assert!(empty.is_empty());
+}
+
 /// Partial DebtCancellation must NOT allow the fallback corrected-invoice flow:
 /// the parent is not fully credited, and reissuing would double-bill.
 #[tokio::test]
 async fn test_corrected_invoice_rejected_after_partial_debt_cancellation() {
-    let (services, store, invoice) = setup_unpaid_invoice().await;
+    let (_setup, services, store, invoice) = setup_unpaid_invoice().await;
 
     // Partial DC: credit only the first line item, then finalize.
     let line_id = invoice.line_items[0].local_id.clone();
@@ -1711,6 +1864,7 @@ async fn test_corrected_invoice_rejected_after_partial_debt_cancellation() {
                 reason: None,
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                custom_properties: None,
             },
         )
         .await
@@ -1744,7 +1898,7 @@ async fn test_corrected_invoice_rejected_after_partial_debt_cancellation() {
 
 #[tokio::test]
 async fn test_cn_with_reissue_unpaid_full_dc_happy_path() {
-    let (services, store, invoice) = setup_unpaid_invoice().await;
+    let (_setup, services, store, invoice) = setup_unpaid_invoice().await;
 
     let (credit_note, corrected) = services
         .create_and_finalize_credit_note_with_reissue(
@@ -1756,6 +1910,7 @@ async fn test_cn_with_reissue_unpaid_full_dc_happy_path() {
                 reason: Some("Wrong billing amount".to_string()),
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                custom_properties: None,
             },
             true,
         )
@@ -1797,7 +1952,7 @@ async fn test_cn_with_reissue_unpaid_full_dc_happy_path() {
 
 #[tokio::test]
 async fn test_cn_with_reissue_rejected_if_already_reissued() {
-    let (services, _store, invoice) = setup_unpaid_invoice().await;
+    let (_setup, services, _store, invoice) = setup_unpaid_invoice().await;
 
     services
         .create_and_finalize_credit_note_with_reissue(
@@ -1809,6 +1964,7 @@ async fn test_cn_with_reissue_rejected_if_already_reissued() {
                 reason: None,
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                custom_properties: None,
             },
             true,
         )
@@ -1834,7 +1990,7 @@ async fn test_cn_with_reissue_rejected_if_already_reissued() {
 
 #[tokio::test]
 async fn test_cn_with_reissue_rejected_when_partial() {
-    let (services, store, invoice) = setup_unpaid_invoice().await;
+    let (_setup, services, store, invoice) = setup_unpaid_invoice().await;
 
     // Partial DC via reissue flow: should reject at the fully-credited check.
     let line_id = invoice.line_items[0].local_id.clone();
@@ -1851,6 +2007,7 @@ async fn test_cn_with_reissue_rejected_when_partial() {
                 reason: None,
                 memo: None,
                 credit_type: CreditType::DebtCancellation,
+                custom_properties: None,
             },
             true,
         )
@@ -1879,7 +2036,7 @@ async fn test_cn_with_reissue_rejected_when_partial() {
 
 #[tokio::test]
 async fn test_cn_with_reissue_paid_full_refund_happy_path() {
-    let (services, store, invoice) = setup_unpaid_invoice().await;
+    let (_setup, services, store, invoice) = setup_unpaid_invoice().await;
     mark_invoice_paid_and_settle(&services, &store, &invoice).await;
 
     let (credit_note, corrected) = services
@@ -1892,6 +2049,7 @@ async fn test_cn_with_reissue_paid_full_refund_happy_path() {
                 reason: Some("Wrong plan billed".to_string()),
                 memo: None,
                 credit_type: CreditType::Refund,
+                custom_properties: None,
             },
             true,
         )
@@ -1920,16 +2078,11 @@ async fn test_cn_with_reissue_paid_full_refund_happy_path() {
 
 #[tokio::test]
 async fn test_cn_with_reissue_paid_full_ctb_happy_path() {
-    use meteroid_store::repositories::customers::CustomersInterfaceAuto;
-
-    let (services, store, invoice) = setup_unpaid_invoice().await;
+    let (_setup, services, store, invoice) = setup_unpaid_invoice().await;
     mark_invoice_paid_and_settle(&services, &store, &invoice).await;
 
-    let before = store
-        .find_customer_by_id(invoice.customer_id, TENANT_ID)
-        .await
-        .unwrap()
-        .balance_value_cents;
+    let before =
+        crate::helpers::credit::available(&store, TENANT_ID, invoice.customer_id, None).await;
 
     let (credit_note, corrected) = services
         .create_and_finalize_credit_note_with_reissue(
@@ -1941,6 +2094,7 @@ async fn test_cn_with_reissue_paid_full_ctb_happy_path() {
                 reason: None,
                 memo: None,
                 credit_type: CreditType::CreditToBalance,
+                custom_properties: None,
             },
             true,
         )
@@ -1951,11 +2105,8 @@ async fn test_cn_with_reissue_paid_full_ctb_happy_path() {
 
     assert_eq!(credit_note.credit_type, CreditType::CreditToBalance);
 
-    let after = store
-        .find_customer_by_id(invoice.customer_id, TENANT_ID)
-        .await
-        .unwrap()
-        .balance_value_cents;
+    let after =
+        crate::helpers::credit::available(&store, TENANT_ID, invoice.customer_id, None).await;
     assert!(after > before, "customer balance should have increased");
 
     assert_eq!(corrected.status, InvoiceStatusEnum::Draft);
@@ -2008,6 +2159,9 @@ async fn create_plan_with_4_components(
             trialing_plan_id: None,
             trial_is_free: false,
             uses_product_pricing: true,
+            tax_inclusive: false,
+            credit_exhausted_rule: None,
+            credit_exhausted_caps: serde_json::json!({}),
         }
         .insert(tx)
         .await?;
@@ -2020,6 +2174,7 @@ async fn create_plan_with_4_components(
             active_version_id: Some(Some(plan_version_id)),
             draft_version_id: None,
             self_service_rank: None,
+            issues_license: None,
         }
         .update(tx)
         .await?;
@@ -2074,8 +2229,8 @@ async fn create_plan_with_4_components(
     (plan_version_id, component_ids)
 }
 
-/// Create a customer with custom tax rate and optional balance
-async fn create_customer_with_tax(conn: &mut PgConn, balance_cents: i64) -> CustomerId {
+/// Create a customer with custom tax rate
+async fn create_customer_with_tax(conn: &mut PgConn) -> CustomerId {
     use diesel_models::customers::CustomerRowNew;
 
     let customer_id = CustomerId::from_proto(Uuid::new_v4().to_string()).unwrap();
@@ -2095,7 +2250,6 @@ async fn create_customer_with_tax(conn: &mut PgConn, balance_cents: i64) -> Cust
         created_at: Some(chrono::Utc::now().naive_utc()),
         tenant_id: TENANT_ID,
         alias: None,
-        balance_value_cents: balance_cents,
         currency: "EUR".to_string(),
         invoicing_entity_id: INVOICING_ENTITY_ID,
         billing_address: Some(serde_json::to_value(&address).unwrap()),
@@ -2103,6 +2257,8 @@ async fn create_customer_with_tax(conn: &mut PgConn, balance_cents: i64) -> Cust
         billing_email: None,
         current_payment_method_id: None,
         vat_number: Some("FR12345678901".to_string()),
+        legal_number: None,
+        buyer_reference: None,
         custom_taxes: serde_json::to_value(vec![CustomerTaxRate {
             tax_code: "vat".to_string(),
             name: "VAT".to_string(),
@@ -2116,9 +2272,492 @@ async fn create_customer_with_tax(conn: &mut PgConn, balance_cents: i64) -> Cust
         vat_number_format_valid: true,
         connected_account_id: None,
         vat_number_validation_status: None,
+        custom_properties: serde_json::Value::Null,
+        preferred_locales: vec![],
+        customer_type: diesel_models::enums::CustomerTypeEnum::Company,
+        first_name: None,
+        last_name: None,
     };
 
     customer_row.insert(conn).await.unwrap();
 
     customer_id
+}
+
+// =============================================================================
+// Corrected invoice annexes
+// =============================================================================
+
+fn sample_annex(rows: usize) -> meteroid_store::domain::invoices::InvoiceAnnex {
+    use meteroid_store::domain::invoices::{
+        InvoiceAnnex, InvoiceAnnexCell, InvoiceAnnexGroup, InvoiceAnnexRow, InvoiceAnnexTable,
+    };
+
+    InvoiceAnnex {
+        title: "Event detail".to_string(),
+        description: Some("Billed events".to_string()),
+        table: InvoiceAnnexTable {
+            columns: vec!["Event".to_string(), "Quantity".to_string()],
+            groups: vec![InvoiceAnnexGroup {
+                heading: Some("April".to_string()),
+                rows: (0..rows)
+                    .map(|i| InvoiceAnnexRow {
+                        cells: vec![
+                            InvoiceAnnexCell::Text(format!("evt-{i}")),
+                            InvoiceAnnexCell::Number(Decimal::from(i as i64 + 1)),
+                        ],
+                        emphasis: false,
+                    })
+                    .collect(),
+            }],
+        },
+    }
+}
+
+/// Writes an annex snapshot straight onto a finalized invoice row, standing in for the
+/// resolution that ran when it was issued.
+async fn set_invoice_annexes(
+    conn: &mut PgConn,
+    invoice_id: common_domain::ids::InvoiceId,
+    annexes: &[meteroid_store::domain::invoices::InvoiceAnnex],
+) {
+    use diesel::prelude::*;
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::invoice;
+
+    diesel::update(invoice::table.filter(invoice::id.eq(invoice_id)))
+        .set(invoice::annexes.eq(serde_json::to_value(annexes).unwrap()))
+        .execute(conn)
+        .await
+        .unwrap();
+}
+
+/// The events a finalized invoice details were already billed and issued, so the correction
+/// inherits its parent's appendix instead of re-deriving one, and keeps whatever the operator
+/// edits into it — finalization must not regenerate it.
+#[tokio::test]
+async fn test_corrected_invoice_inherits_and_freezes_parent_annexes() {
+    let (_setup, services, store, invoice) = setup_unpaid_invoice().await;
+
+    let mut conn = store.pool.get().await.unwrap();
+    set_invoice_annexes(&mut conn, invoice.id, &[sample_annex(3)]).await;
+
+    create_and_finalize_debt_cancellation_cn(&store, &invoice).await;
+
+    let corrected = services
+        .create_corrected_invoice_from(TENANT_ID, invoice.id)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        corrected.annexes,
+        vec![sample_annex(3)],
+        "the correction should carry the parent's frozen appendix"
+    );
+
+    // The operator drops a row (the corresponding usage was over-billed).
+    let edited = services
+        .update_draft_invoice(
+            corrected.id,
+            TENANT_ID,
+            meteroid_store::domain::UpdateInvoiceParams {
+                memo: None,
+                reference: None,
+                purchase_order: None,
+                due_date: None,
+                line_items: None,
+                discount: None,
+                customer_details: None,
+                invoicing_entity_id: None,
+                annexes: Some(vec![sample_annex(2)]),
+                custom_properties: None,
+            },
+        )
+        .await
+        .expect("annexes should be editable on a correction");
+
+    assert_eq!(edited.invoice.annexes, vec![sample_annex(2)]);
+
+    let finalized = services
+        .finalize_invoice(common_domain::actor::Actor::System, corrected.id, TENANT_ID)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        finalized.invoice.annexes,
+        vec![sample_annex(2)],
+        "finalization must issue the edited appendix, not a re-derived one"
+    );
+}
+
+/// A plain (non-correction) draft, copied off a finalized invoice.
+async fn insert_plain_draft(
+    store: &meteroid_store::Store,
+    from: &meteroid_store::domain::Invoice,
+) -> meteroid_store::domain::Invoice {
+    store
+        .insert_invoice(meteroid_store::domain::InvoiceNew {
+            status: InvoiceStatusEnum::Draft,
+            tenant_id: from.tenant_id,
+            customer_id: from.customer_id,
+            // Standalone: a second Recurring draft would collide with the parent on the
+            // one-invoice-per-subscription-period constraint.
+            subscription_id: None,
+            plan_version_id: from.plan_version_id,
+            invoice_type: meteroid_store::domain::InvoiceType::OneOff,
+            cycle_index: None,
+            currency: from.currency.clone(),
+            line_items: from.line_items.clone(),
+            coupons: vec![],
+            data_updated_at: None,
+            invoice_date: from.invoice_date,
+            billing_period_start: from.billing_period_start,
+            tax_inclusive: false,
+            finalized_at: None,
+            subtotal: from.subtotal,
+            subtotal_recurring: from.subtotal_recurring,
+            discount: from.discount,
+            tax_amount: from.tax_amount,
+            total: from.total,
+            amount_due: from.total,
+            applied_credits: 0,
+            promotional_credits: 0,
+            net_terms: from.net_terms,
+            invoice_number: "draft".to_string(),
+            reference: None,
+            purchase_order: None,
+            memo: None,
+            due_at: None,
+            plan_name: from.plan_name.clone(),
+            customer_details: from.customer_details.clone(),
+            seller_details: from.seller_details.clone(),
+            auto_advance: false,
+            payment_status: meteroid_store::domain::InvoicePaymentStatus::Unpaid,
+            tax_breakdown: from.tax_breakdown.clone(),
+            manual: false,
+            invoicing_entity_id: from.invoicing_entity_id,
+            parent_invoice_id: None,
+            consolidated_into_invoice_id: None,
+            annexes: vec![],
+            custom_properties: serde_json::Value::Null,
+        })
+        .await
+        .expect("failed to insert draft invoice")
+}
+
+/// Every other draft re-derives its appendix from the event stream, so an edit there would be
+/// silently overwritten: refuse it rather than pretend it stuck.
+#[tokio::test]
+async fn test_annexes_not_editable_outside_a_correction() {
+    let (_setup, services, store, _invoice) = setup_unpaid_invoice().await;
+
+    let draft = insert_plain_draft(&store, &_invoice).await;
+
+    let err = services
+        .update_draft_invoice(
+            draft.id,
+            TENANT_ID,
+            meteroid_store::domain::UpdateInvoiceParams {
+                memo: None,
+                reference: None,
+                purchase_order: None,
+                due_date: None,
+                line_items: None,
+                discount: None,
+                customer_details: None,
+                invoicing_entity_id: None,
+                annexes: Some(vec![sample_annex(1)]),
+                custom_properties: None,
+            },
+        )
+        .await
+        .expect_err("annexes are only editable on a correction invoice");
+
+    assert!(
+        format!("{err:?}").contains("correction invoice"),
+        "error should name the restriction: {err:?}"
+    );
+}
+
+/// The escape hatch: a correction whose parent carried no (or a stale) appendix can rebuild one
+/// from the billed period's events on demand. Everything else keeps the inherited snapshot.
+#[tokio::test]
+async fn test_regenerate_annexes_on_correction_rederives_from_templates() {
+    use meteroid_store::domain::invoice_annex_templates::{
+        AnnexDefinition, AnnexTemplateNew, StaticTextDefinition,
+    };
+    use meteroid_testkit::annex_templates::{
+        create_annex_template, set_plan_version_annex_templates,
+    };
+
+    let (_setup, services, store, invoice) = setup_unpaid_invoice().await;
+
+    let mut conn = store.pool.get().await.unwrap();
+    set_invoice_annexes(&mut conn, invoice.id, &[sample_annex(3)]).await;
+
+    let template = create_annex_template(
+        &store,
+        AnnexTemplateNew {
+            tenant_id: TENANT_ID,
+            name: "Terms".to_string(),
+            definition: AnnexDefinition::StaticText(StaticTextDefinition {
+                title: "Contract terms".to_string(),
+                description: Some("As agreed".to_string()),
+            }),
+        },
+    )
+    .await;
+
+    set_plan_version_annex_templates(
+        &store,
+        TENANT_ID,
+        invoice.plan_version_id.unwrap(),
+        &[template.id],
+    )
+    .await;
+
+    create_and_finalize_debt_cancellation_cn(&store, &invoice).await;
+
+    let corrected = services
+        .create_corrected_invoice_from(TENANT_ID, invoice.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        corrected.annexes,
+        vec![sample_annex(3)],
+        "the correction still inherits, rather than deriving, on creation"
+    );
+
+    let regenerated = services
+        .regenerate_invoice_annexes(TENANT_ID, corrected.id)
+        .await
+        .unwrap();
+
+    let annexes = regenerated.invoice.annexes;
+    assert_eq!(annexes.len(), 1);
+    assert_eq!(annexes[0].title, "Contract terms");
+    assert_eq!(annexes[0].description.as_deref(), Some("As agreed"));
+}
+
+/// Outside a correction the appendix is derived on every refresh, so an explicit rebuild would
+/// only be a confusing second path to the same thing.
+#[tokio::test]
+async fn test_regenerate_annexes_rejected_outside_a_correction() {
+    let (_setup, services, store, invoice) = setup_unpaid_invoice().await;
+
+    let draft = insert_plain_draft(&store, &invoice).await;
+
+    let err = services
+        .regenerate_invoice_annexes(TENANT_ID, draft.id)
+        .await
+        .expect_err("only a correction can be regenerated on demand");
+
+    assert!(
+        format!("{err:?}").contains("correction invoice"),
+        "error should name the restriction: {err:?}"
+    );
+}
+
+/// A hand-added row must be exactly as wide as the annex has columns: the renderer flattens rows
+/// into a fixed grid, so a short or long one shifts every cell after it instead of failing.
+#[tokio::test]
+async fn test_annex_row_width_is_enforced() {
+    use meteroid_store::domain::invoices::{InvoiceAnnexCell, InvoiceAnnexRow};
+
+    let (_setup, services, store, invoice) = setup_unpaid_invoice().await;
+
+    let mut conn = store.pool.get().await.unwrap();
+    set_invoice_annexes(&mut conn, invoice.id, &[sample_annex(2)]).await;
+
+    create_and_finalize_debt_cancellation_cn(&store, &invoice).await;
+
+    let corrected = services
+        .create_corrected_invoice_from(TENANT_ID, invoice.id)
+        .await
+        .unwrap();
+
+    let with_row = |cells: Vec<InvoiceAnnexCell>| {
+        let mut annex = sample_annex(2);
+        annex.table.groups[0].rows.push(InvoiceAnnexRow {
+            cells,
+            emphasis: false,
+        });
+        vec![annex]
+    };
+
+    let update = |annexes| meteroid_store::domain::UpdateInvoiceParams {
+        memo: None,
+        reference: None,
+        purchase_order: None,
+        due_date: None,
+        line_items: None,
+        discount: None,
+        customer_details: None,
+        invoicing_entity_id: None,
+        annexes: Some(annexes),
+        custom_properties: None,
+    };
+
+    // Two columns, one cell: rejected.
+    let err = services
+        .update_draft_invoice(
+            corrected.id,
+            TENANT_ID,
+            update(with_row(vec![InvoiceAnnexCell::Text("evt-x".to_string())])),
+        )
+        .await
+        .expect_err("a row narrower than the table must be refused");
+
+    assert!(
+        format!("{err:?}").contains("cells but 2 columns"),
+        "error should name the mismatch: {err:?}"
+    );
+
+    // Two columns, two cells: accepted.
+    let accepted = with_row(vec![
+        InvoiceAnnexCell::Text("evt-x".to_string()),
+        InvoiceAnnexCell::Number(Decimal::from(9)),
+    ]);
+
+    let updated = services
+        .update_draft_invoice(corrected.id, TENANT_ID, update(accepted.clone()))
+        .await
+        .expect("a row matching the column count is accepted");
+
+    assert_eq!(updated.invoice.annexes, accepted);
+    assert_eq!(updated.invoice.annexes[0].table.groups[0].rows.len(), 3);
+}
+
+#[tokio::test]
+async fn test_credit_note_number_follows_entity_pattern() {
+    use chrono::Datelike;
+
+    let (_setup, _services, store, invoice) = setup_unpaid_invoice().await;
+
+    let rejected = store
+        .patch_invoicing_entity(
+            common_domain::actor::Actor::System,
+            InvoicingEntityPatch {
+                id: INVOICING_ENTITY_ID,
+                credit_note_number_pattern: Some("AV-{YYYY}".to_string()),
+                ..Default::default()
+            },
+            TENANT_ID,
+        )
+        .await;
+    assert!(
+        rejected.is_err(),
+        "a pattern without {{number}} must be rejected"
+    );
+
+    store
+        .patch_invoicing_entity(
+            common_domain::actor::Actor::System,
+            InvoicingEntityPatch {
+                id: INVOICING_ENTITY_ID,
+                credit_note_number_pattern: Some("AV-{YYYY}-{number:3}".to_string()),
+                ..Default::default()
+            },
+            TENANT_ID,
+        )
+        .await
+        .unwrap();
+
+    let draft = store
+        .create_credit_note(
+            common_domain::actor::Actor::System,
+            TENANT_ID,
+            CreateCreditNoteParams {
+                invoice_id: invoice.id,
+                line_items: vec![],
+                reason: None,
+                memo: None,
+                credit_type: CreditType::DebtCancellation,
+                custom_properties: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    let finalized = store
+        .finalize_credit_note(common_domain::actor::Actor::System, TENANT_ID, draft.id)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        finalized.credit_note_number,
+        format!("AV-{}-001", chrono::Utc::now().year())
+    );
+}
+
+/// A debt cancellation written by a pod on the previous release (no `debt_cancelled_amount_cents`)
+/// still cancels its whole total: the column is stated by the row itself, so finalizing settles
+/// the invoice and voiding restores the exact amount due.
+#[tokio::test]
+async fn test_debt_cancellation_written_without_the_cancelled_amount_still_cancels_the_debt() {
+    use diesel_async::SimpleAsyncConnection;
+
+    let (_setup, _services, store, invoice) = setup_unpaid_invoice().await;
+    let credit_note = store
+        .create_credit_note(
+            common_domain::actor::Actor::System,
+            TENANT_ID,
+            CreateCreditNoteParams {
+                invoice_id: invoice.id,
+                line_items: vec![],
+                reason: None,
+                memo: None,
+                credit_type: CreditType::DebtCancellation,
+                custom_properties: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    // Re-written as the previous release inserts it: the column left at its default of 0.
+    let mut conn = store.pool.get().await.unwrap();
+    conn.batch_execute(&format!(
+        "WITH old AS (DELETE FROM credit_note WHERE id = '{id}' RETURNING *)
+         INSERT INTO credit_note
+         SELECT (jsonb_populate_record(NULL::credit_note,
+                    to_jsonb(old) || '{{\"debt_cancelled_amount_cents\": 0}}'::jsonb)).*
+         FROM old;",
+        id = credit_note.id.as_uuid()
+    ))
+    .await
+    .unwrap();
+    drop(conn);
+
+    let stored = store
+        .get_credit_note_by_id(TENANT_ID, credit_note.id)
+        .await
+        .unwrap();
+    assert_eq!(stored.debt_cancelled_amount_cents, stored.total.abs());
+    assert_eq!(stored.debt_cancelled_amount_cents, invoice.amount_due);
+
+    let finalized = store
+        .finalize_credit_note(
+            common_domain::actor::Actor::System,
+            TENANT_ID,
+            credit_note.id,
+        )
+        .await
+        .unwrap();
+    let settled = fetch_invoice(&store, invoice.id).await;
+    assert_eq!(settled.amount_due, 0);
+    assert_eq!(
+        settled.payment_status,
+        meteroid_store::domain::enums::InvoicePaymentStatus::Paid
+    );
+
+    store
+        .void_credit_note(common_domain::actor::Actor::System, TENANT_ID, finalized.id)
+        .await
+        .unwrap();
+    let reverted = fetch_invoice(&store, invoice.id).await;
+    assert_eq!(reverted.amount_due, invoice.amount_due);
+    assert_eq!(
+        reverted.payment_status,
+        meteroid_store::domain::enums::InvoicePaymentStatus::Unpaid
+    );
 }

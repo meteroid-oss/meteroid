@@ -8,6 +8,8 @@ import "api/pricecomponents/v1/models.proto";
 import "api/prices/v1/models.proto";
 import "api/coupons/v1/models.proto";
 import "api/connectors/v1/models.proto";
+import "api/plans/v1/models.proto";
+import "api/billablemetrics/v1/models.proto";
 
 package meteroid.api.subscriptions.v1;
 
@@ -33,6 +35,7 @@ enum SubscriptionStatus {
   ENDED = 4;
   TRIAL_EXPIRED = 5; // trial ended on paid plan without payment method, awaiting checkout
   ERRORED = 6;
+  ABORTED = 7; // cancelled before ever activating
 }
 
 message Subscription {
@@ -78,6 +81,23 @@ message Subscription {
   // Quote to subscription linking
   optional string quote_id = 42;
   optional PaymentMethodsConfig payment_methods_config = 43;
+
+  // JSON-encoded object of user-defined custom property values, keyed by definition key.
+  optional string custom_properties = 44;
+
+  // The subscription's prices are quoted tax-included (snapshotted from its plan version).
+  bool tax_inclusive = 45;
+
+  optional UsageFilter usage_filter = 46;
+  // RFC 3339: when the current usage filter, or its removal, started to apply.
+  optional string usage_filter_effective_from = 47;
+}
+
+// The customer's events a subscription bills: those whose `property` is `value`. A subscription
+// without one bills the customer's events that no usage filter of its other subscriptions matches.
+message UsageFilter {
+  string property = 1;
+  string value = 2;
 }
 
 // Trial configuration resolved from the plan version
@@ -97,6 +117,18 @@ message SubscriptionDetails {
   repeated meteroid.api.coupons.v1.AppliedCouponDetailed applied_coupons = 6;
   optional TrialConfig trial_config = 7;
   repeated PendingScheduledEvent pending_events = 8;
+  // Materialized minimum-commitment floor on this subscription (plan snapshot, quote
+  // override, or operator override). Empty when the subscription has no floor.
+  optional SubscriptionMinimum minimum_commitment = 9;
+}
+
+message SubscriptionMinimum {
+  meteroid.api.plans.v1.MinimumCommitment commitment = 1;
+  // True when set by an operator override or sourced from a quote_minimum.
+  // Plan changes preserve overrides; plain plan-snapshots get refreshed on plan changes.
+  bool is_override = 2;
+  // The billing period the commitment is owed over: the subscription's.
+  meteroid.api.shared.v1.BillingPeriod period = 3;
 }
 
 enum ScheduledEventType {
@@ -175,6 +207,16 @@ message CreateSubscription {
   // The subscription will be set to the current billing period with correct cycle_index.
   optional bool skip_past_invoices = 22;
   repeated meteroid.api.entitlements.v1.EntitlementSpec entitlements = 23;
+  // Operator-set minimum-commitment override applied at creation. When present it replaces
+  // the plan snapshot with an is_override=true entry (preserved across later plan changes).
+  optional meteroid.api.plans.v1.MinimumCommitment minimum_commitment_override = 24;
+  // Drop the plan's minimum-commitment floor for this subscription. When true (and no
+  // override is provided), the plan snapshot is NOT applied, so the subscription has no
+  // floor even though the plan defines one. Ignored when minimum_commitment_override is set.
+  bool drop_minimum_commitment = 25;
+  // JSON-encoded object of custom property values, validated against the tenant's subscription definitions.
+  optional string custom_properties = 26;
+  optional UsageFilter usage_filter = 27;
 }
 
 enum ActivationCondition {
@@ -283,6 +325,9 @@ message BillableMetric {
   string id = 1;
   string alias = 2;
   string name = 3;
+  // Raw units per priced unit (e.g. 1000000 when priced per 1M tokens).
+  optional int32 unit_conversion_factor = 4;
+  meteroid.api.billablemetrics.v1.MetricUnitLabel unit_label = 5;
 }
 
 
@@ -350,8 +395,23 @@ message SubscriptionFee {
     CapacitySubscriptionFee capacity = 4;
     SlotSubscriptionFee slot = 5;
     meteroid.api.components.v1.UsageFee usage = 6;
+    CreditSubscriptionFee credit = 7;
   }
 
+  // Usage, or a capacity fee's overage, priced in a credit unit: those amounts are credits, each
+  // worth `rate` of the subscription currency when billed as overage. On a credit pack, the unit
+  // its credit_amount is granted in (no rate: the pack itself is paid in money).
+  optional FeeCreditUnit credit_unit = 8;
+
+  message FeeCreditUnit {
+    string credit_unit_id = 1;
+    string code = 2;
+    uint32 precision = 3;
+    optional string rate = 4;
+    // The unit's names, set for readers that cannot list the tenant's units (portal checkout).
+    optional string name = 5;
+    optional string plural_name = 6;
+  }
 
 
   message RateSubscriptionFee {
@@ -364,6 +424,20 @@ message SubscriptionFee {
     string total = 3;
   }
 
+
+  // A credit pack: charged like a fixed fee (rate × quantity), funding credit_amount × quantity
+  // of invoice credit when its invoice is paid.
+  message CreditSubscriptionFee {
+    string rate = 1;
+    uint32 quantity = 2;
+    string total = 3;
+    string credit_amount = 4;
+    string credit_total = 5;
+    // Included credit only: unspent credit carried once into a new grant when it expires.
+    optional meteroid.api.prices.v1.CreditPackRollover rollover = 6;
+    // Granted once, on the subscription's first invoice, instead of every period.
+    bool once = 7;
+  }
 
   message ExtraRecurringSubscriptionFee {
     string rate = 1;
@@ -388,4 +462,26 @@ message SubscriptionFee {
     meteroid.api.prices.v1.FeeStructure.UpgradePolicy upgrade_policy = 6;
     meteroid.api.prices.v1.FeeStructure.DowngradePolicy downgrade_policy = 7;
   }
+}
+
+// A credit pack line of an immediate plan change: a new pack billed, or what changes for an old one.
+message PlanChangePackLine {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    // A new pack billed now, with the credit it grants.
+    KIND_CHARGE = 1;
+    // An old pack's credit for the period, removed.
+    KIND_CREDIT_REMOVED = 2;
+    // The old pack's fee credited back, never above what its unused paid credit is worth.
+    KIND_FEE_CREDIT = 3;
+  }
+  string name = 1;
+  Kind kind = 2;
+  // Money in the subscription currency's minor units, before tax; negative for a fee credit.
+  int64 amount_cents = 3;
+  // Credit granted or removed, in units of `credit_unit` (the subscription currency when unset).
+  string credit_amount = 4;
+  optional SubscriptionFee.FeeCreditUnit credit_unit = 5;
+  // Bonus or included credit rather than paid credit.
+  bool promotional = 6;
 }

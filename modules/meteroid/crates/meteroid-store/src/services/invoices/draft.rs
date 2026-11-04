@@ -8,11 +8,8 @@ use crate::domain::{
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::repositories::SubscriptionInterface;
-use crate::repositories::customer_balance::convert_currency;
 use crate::repositories::invoices::insert_invoice_tx;
-use crate::repositories::invoicing_entities::{
-    InvoicingEntityInterface, InvoicingEntityInterfaceAuto,
-};
+use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::services::Services;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use crate::store::PgConn;
@@ -34,7 +31,7 @@ use std::collections::HashMap;
 /// amount > 0) shows its real unit count with `unit_price = amount / quantity`, so
 /// `quantity × unit_price` reconciles to the line total; a single-unit tracked charge
 /// falls back to `1 × total`. Credits (amount ≤ 0) carry no quantity/unit_price.
-/// Prorated lines run to `period_end`; non-prorated (one-time) charges end at
+/// Prorated lines run to their stub's end (`period_end` by default); one-time charges end at
 /// `invoice_date`. Pure (no I/O) so it can be unit-tested directly.
 fn proration_lines_to_invoice_lines(
     lines: &[ProrationLineItem],
@@ -53,35 +50,42 @@ fn proration_lines_to_invoice_lines(
             };
 
             let end_date = if line.is_prorated {
-                period_end
+                line.period_end.unwrap_or(period_end)
             } else {
                 invoice_date
             };
 
             let billed_sub = line.sub_component_id.is_some() || line.sub_add_on_id.is_some();
-            let (quantity, unit_price) = if amount_subtotal > 0 {
-                match line.quantity.filter(|q| !q.is_zero()) {
-                    // Real billed quantity: show N × (amount / N) so qty × unit reconciles.
-                    Some(q) => {
-                        let unit = line.unit_price.unwrap_or_else(|| {
-                            Decimal::new(amount_subtotal, u32::from(precision)) / q
-                        });
-                        (Some(q), Some(unit))
+            let (quantity, unit_price) =
+                if let (Some(_), Some(q)) = (&line.pack, line.quantity.filter(|q| !q.is_zero())) {
+                    (
+                        Some(q),
+                        Some(Decimal::new(amount_subtotal.max(0), u32::from(precision)) / q),
+                    )
+                } else if amount_subtotal > 0 {
+                    match line.quantity.filter(|q| !q.is_zero()) {
+                        // Real billed quantity: show N × (amount / N) so qty × unit reconciles.
+                        Some(q) => {
+                            let unit = line.unit_price.unwrap_or_else(|| {
+                                Decimal::new(amount_subtotal, u32::from(precision)) / q
+                            });
+                            (Some(q), Some(unit))
+                        }
+                        // Single-unit tracked charge: 1 × total.
+                        None if billed_sub => (
+                            Some(Decimal::ONE),
+                            Some(Decimal::new(amount_subtotal, u32::from(precision))),
+                        ),
+                        None => (None, None),
                     }
-                    // Single-unit tracked charge: 1 × total.
-                    None if billed_sub => (
-                        Some(Decimal::ONE),
-                        Some(Decimal::new(amount_subtotal, u32::from(precision))),
-                    ),
-                    None => (None, None),
-                }
-            } else {
-                (None, None)
-            };
+                } else {
+                    (None, None)
+                };
 
             LineItem {
                 local_id: uuid::Uuid::now_v7().to_string(),
                 name: line.name.clone(),
+                charge_type: line.charge_type,
                 amount_subtotal,
                 tax_rate: Decimal::zero(),
                 taxable_amount,
@@ -101,9 +105,38 @@ fn proration_lines_to_invoice_lines(
                 metric_id: None,
                 description: None,
                 group_by_dimensions: None,
+                kind: if line.pack.is_some() {
+                    crate::domain::LineItemKind::Credit
+                } else {
+                    crate::domain::LineItemKind::Regular
+                },
+                credit_grant_amount: line.pack.as_ref().map(|pack| pack.credit_minor),
+                credit_grant_expiry: line.pack.as_ref().and_then(|pack| pack.expiry),
+                credit_grant_included: line.pack.as_ref().is_some_and(|pack| pack.included),
+                // A pack granting a credit unit is taxed when sold, as on a period invoice.
+                taxed_at_purchase: line.pack.as_ref().is_some_and(|pack| pack.unit.is_some()),
+                tax_inclusive_quote: None,
+                credit_unit: None,
+                credit_grant_unit: line.pack.as_ref().and_then(|pack| pack.unit.clone()),
+                credit_grant_rollover: line.pack.as_ref().and_then(|pack| pack.rollover),
+                promotional_credit: None,
+                subscription_id: None,
+                usage_ends_at: None,
             }
         })
         .collect()
+}
+
+/// How billing a subscription period treats an invoice that period already has.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PeriodBilling {
+    /// The period's invoice stands, a voided one included: the period was handled.
+    Bill,
+    /// The operator bills a period whose invoice was voided again.
+    RegenerateVoided,
+    /// An immediate cancellation on the first day of a period already invoiced: what the period
+    /// consumed until then goes on the subscription's final invoice, apart from the period's key.
+    Final,
 }
 
 impl Services {
@@ -113,37 +146,126 @@ impl Services {
         tenant_id: TenantId,
         subscription_details: &SubscriptionDetails,
         customer: Customer,
+        period_billing: PeriodBilling,
+    ) -> Result<Option<Invoice>, StoreErrorReport> {
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(self.create_subscription_draft_invoice_unboxed(
+            conn,
+            tenant_id,
+            subscription_details,
+            customer,
+            period_billing,
+        ))
+        .await
+    }
+
+    async fn create_subscription_draft_invoice_unboxed(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_details: &SubscriptionDetails,
+        customer: Customer,
+        period_billing: PeriodBilling,
     ) -> Result<Option<Invoice>, StoreErrorReport> {
         let subscription = &subscription_details.subscription;
 
         let invoice_date = subscription.current_period_start;
 
-        // Check if a recurring invoice already exists for this subscription and date.
-        // This prevents duplicate invoice creation (e.g., when cancelling a subscription
-        // that was already billed for the current period).
-        if let Some(existing_invoice) = InvoiceRow::find_existing_recurring_invoice(
-            conn,
-            tenant_id,
-            subscription.id,
-            invoice_date,
-        )
-        .await?
-        {
-            return Ok(Some(existing_invoice.try_into()?));
-        }
+        let invoice_type = match period_billing {
+            PeriodBilling::Final => {
+                // A subscription ends once: a retried termination finds its final invoice.
+                if let Some(existing) =
+                    InvoiceRow::find_final_invoice(conn, tenant_id, subscription.id).await?
+                {
+                    return Ok(Some(existing.try_into()?));
+                }
+                // Its window runs from the period's start to the cancellation instant.
+                if subscription
+                    .terminated_at
+                    .is_none_or(|at| at <= invoice_date.and_time(NaiveTime::MIN))
+                {
+                    return Ok(None);
+                }
+                InvoiceType::Final
+            }
+            PeriodBilling::Bill | PeriodBilling::RegenerateVoided => {
+                // A period is billed once: cancelling a subscription already billed for its
+                // current period, or whose invoice was voided, returns that invoice instead of
+                // billing it again.
+                if let Some(existing_invoice) = InvoiceRow::find_existing_recurring_invoice(
+                    conn,
+                    tenant_id,
+                    subscription.id,
+                    invoice_date,
+                )
+                .await?
+                {
+                    let voided =
+                        existing_invoice.status == diesel_models::enums::InvoiceStatusEnum::Void;
+                    if period_billing == PeriodBilling::Bill {
+                        return Ok(Some(existing_invoice.try_into()?));
+                    }
+                    if !voided {
+                        bail!(StoreError::InvalidArgument(format!(
+                            "The billing period starting {invoice_date} already has invoice {}",
+                            existing_invoice.id
+                        )));
+                    }
+                }
+                InvoiceType::Recurring
+            }
+        };
 
         // Compute invoice lines for the period
         let invoice_content = self
-            .compute_invoice(conn, &invoice_date, subscription_details, None, None)
+            .compute_invoice(
+                conn,
+                &invoice_date,
+                subscription_details,
+                None,
+                None,
+                invoice_type.clone(),
+            )
             .await
             .change_context(StoreError::InvoiceComputationError)?;
 
         if invoice_content.invoice_lines.is_empty() {
-            log::info!(
-                "No invoice lines computed for subscription {}. Skipping draft invoice creation.",
-                subscription.id
-            );
-            return Ok(None);
+            // An empty line set usually means nothing to bill. The exception is an *elapsed*
+            // arrears period, whose usage may still be imported during grace: keep the empty draft
+            // as the anchor that schedules finalization and captures that usage on refresh (still
+            // empty at finalization → Closed, never billed). A period has elapsed on a renewal, or
+            // whenever the subscription ends its current period early (including at cycle 0); a
+            // brand-new subscription's first advance cycle has no elapsed period to settle. A final
+            // invoice bills usage alone.
+            let anchor_for_late_usage = if invoice_type == InvoiceType::Final {
+                subscription_details
+                    .price_components
+                    .iter()
+                    .any(|c| c.fee.metric_id().is_some())
+                    || subscription_details
+                        .add_ons
+                        .iter()
+                        .any(|a| a.fee.metric_id().is_some())
+            } else {
+                let settles_elapsed_period = subscription.cycle_index.unwrap_or(0) > 0
+                    || subscription.status.settles_period_early();
+                settles_elapsed_period
+                    && self
+                        .can_accrue_arrears_in_period(
+                            conn,
+                            subscription_details,
+                            invoice_date,
+                            subscription.cycle_index.unwrap_or(0),
+                        )
+                        .await?
+            };
+            if !anchor_for_late_usage {
+                log::info!(
+                    "No invoice lines computed for subscription {}. Skipping draft invoice creation.",
+                    subscription.id
+                );
+                return Ok(None);
+            }
         }
 
         let due_date = (invoice_date + chrono::Duration::days(i64::from(subscription.net_terms)))
@@ -151,28 +273,45 @@ impl Services {
 
         let invoicing_entity = self
             .store
-            .get_invoicing_entity(tenant_id, Some(customer.invoicing_entity_id))
+            .get_invoicing_entity_with_conn(conn, tenant_id, Some(customer.invoicing_entity_id))
             .await?;
 
         // Draft invoice uses "draft" as invoice number
         let invoice_number = "draft";
+
+        // Resolve event-detail annexes bound to this plan version, scoped to the billed period.
+        let annexes = self
+            .resolve_invoice_annexes(
+                conn,
+                tenant_id,
+                Some(subscription.plan_version_id),
+                subscription.customer_id,
+                Some(subscription.id),
+                &invoice_content.invoice_lines,
+            )
+            .await?;
 
         let invoice_new = InvoiceNew {
             tenant_id: subscription.tenant_id,
             customer_id: subscription.customer_id,
             subscription_id: Some(subscription.id),
             plan_version_id: Some(subscription.plan_version_id),
-            invoice_type: InvoiceType::Recurring,
+            invoice_type,
+            // Pinned so a later refresh gates on this period, not the cycle reached by then.
+            cycle_index: subscription.cycle_index,
             currency: subscription.currency.clone(),
             line_items: invoice_content.invoice_lines,
             coupons: invoice_content.applied_coupons,
             data_updated_at: None,
             status: InvoiceStatusEnum::Draft,
             invoice_date,
+            billing_period_start: invoice_date,
+            tax_inclusive: subscription.tax_inclusive,
             finalized_at: None,
             total: invoice_content.total,
             amount_due: invoice_content.amount_due,
             applied_credits: invoice_content.applied_credits,
+            promotional_credits: invoice_content.promotional_credits,
             net_terms: subscription.net_terms as i32,
             subtotal: invoice_content.subtotal,
             subtotal_recurring: invoice_content.subtotal_recurring,
@@ -193,6 +332,8 @@ impl Services {
             invoicing_entity_id: subscription.invoicing_entity_id,
             parent_invoice_id: None,
             consolidated_into_invoice_id: None,
+            annexes,
+            custom_properties: serde_json::Value::Null,
         };
 
         let inserted_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;
@@ -215,10 +356,11 @@ impl Services {
         plan_version_id: Option<common_domain::ids::PlanVersionId>,
         parent_invoice_id: Option<common_domain::ids::InvoiceId>,
         memo: Option<String>,
+        tax_inclusive: bool,
     ) -> Result<Option<Invoice>, StoreErrorReport> {
         let invoicing_entity = self
             .store
-            .get_invoicing_entity(tenant_id, Some(customer.invoicing_entity_id))
+            .get_invoicing_entity_with_conn(conn, tenant_id, Some(customer.invoicing_entity_id))
             .await?;
 
         let invoice_content = self
@@ -231,6 +373,7 @@ impl Services {
                 currency.clone(),
                 discount,
                 prepaid_amount,
+                tax_inclusive,
             )
             .await
             .change_context(StoreError::InvoiceComputationError)?;
@@ -248,16 +391,21 @@ impl Services {
             subscription_id,
             plan_version_id,
             invoice_type: InvoiceType::OneOff,
+            // Not a subscription period: never period-refreshed, so no cycle to pin.
+            cycle_index: None,
             currency,
             line_items: invoice_content.invoice_lines,
             coupons: invoice_content.applied_coupons,
             data_updated_at: None,
             status: InvoiceStatusEnum::Draft,
             invoice_date,
+            billing_period_start: invoice_date,
+            tax_inclusive,
             finalized_at: None,
             total: invoice_content.total,
             amount_due: invoice_content.amount_due,
             applied_credits: invoice_content.applied_credits,
+            promotional_credits: invoice_content.promotional_credits,
             net_terms: invoicing_entity.net_terms,
             subtotal: invoice_content.subtotal,
             subtotal_recurring: invoice_content.subtotal_recurring,
@@ -272,9 +420,12 @@ impl Services {
                 name: customer.name.clone(),
                 billing_address: customer.billing_address.clone(),
                 vat_number: customer.vat_number.clone(),
+                legal_number: customer.legal_number.clone(),
+                buyer_reference: customer.buyer_reference.clone(),
                 email: customer.billing_email.clone(),
                 alias: customer.alias.clone(),
                 snapshot_at: chrono::Utc::now().naive_utc(),
+                preferred_locales: customer.preferred_locales.clone(),
             },
             seller_details: InlineInvoicingEntity {
                 id: invoicing_entity.id,
@@ -282,6 +433,11 @@ impl Services {
                 vat_number: invoicing_entity.vat_number.clone(),
                 address: invoicing_entity.address(),
                 snapshot_at: chrono::Utc::now().naive_utc(),
+                invoicing_language: invoicing_entity.invoicing_language.clone(),
+                legal_number: invoicing_entity.legal_number.clone(),
+                contact_name: invoicing_entity.contact_name.clone(),
+                contact_phone: invoicing_entity.contact_phone.clone(),
+                contact_email: invoicing_entity.contact_email.clone(),
             },
             auto_advance: true,
             payment_status: InvoicePaymentStatus::Unpaid,
@@ -292,6 +448,8 @@ impl Services {
             invoicing_entity_id: invoicing_entity.id,
             parent_invoice_id,
             consolidated_into_invoice_id: None,
+            annexes: vec![],
+            custom_properties: serde_json::Value::Null,
         };
 
         let inserted_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;
@@ -301,9 +459,9 @@ impl Services {
 
     /// Creates a draft corrected invoice that replaces a previous invoice whose debt was
     /// cancelled via a DebtCancellation credit note. The new draft clones the parent's line
-    /// items (with fresh local_ids), preserves subscription_id/plan_version_id, and links
-    /// back via parent_invoice_id. It is returned in Draft status so the user can edit
-    /// quantities / line items before finalising.
+    /// items (with fresh local_ids) and annexes, preserves subscription_id/plan_version_id, and
+    /// links back via parent_invoice_id. It is returned in Draft status so the user can edit
+    /// quantities / line items / annexes before finalising.
     pub async fn create_corrected_invoice_from(
         &self,
         tenant_id: TenantId,
@@ -329,12 +487,11 @@ impl Services {
         // Lock the parent row for the duration of the tx. This serializes concurrent
         // correction attempts on the same invoice (double-click / two tabs) so the 1:1
         // child check below is race-free.
-        let parent: Invoice =
-            InvoiceRow::select_for_update_by_id(conn, tenant_id, parent_invoice_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .invoice
-                .try_into()?;
+        let locked = InvoiceRow::select_for_update_by_id(conn, tenant_id, parent_invoice_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        diesel_models::query::credit_inputs::bump_customer(conn, &locked.lock).await?;
+        let parent: Invoice = locked.invoice.try_into()?;
 
         if parent.status != InvoiceStatusEnum::Finalized {
             bail!(StoreError::InvalidArgument(format!(
@@ -373,13 +530,25 @@ impl Services {
             )));
         }
 
-        // Clone line items with fresh local_ids so the new draft owns its identifiers.
+        // Clone line items with fresh local_ids so the new draft owns its identifiers; each keeps
+        // the subscription it bills, read from older lines' components where not recorded.
+        let owners = crate::services::credit::scope::LineOwners::load_tx(
+            conn,
+            tenant_id,
+            &parent.line_items,
+        )
+        .await?;
         let cloned_lines: Vec<LineItem> = parent
             .line_items
             .iter()
             .map(|l| {
                 let mut copy = l.clone();
                 copy.local_id = uuid::Uuid::now_v7().to_string();
+                copy.subscription_id = crate::services::credit::scope::line_subscription(
+                    l,
+                    parent.subscription_id,
+                    &owners,
+                );
                 copy
             })
             .collect();
@@ -396,16 +565,21 @@ impl Services {
             // A correction is a one-time remediation, not recurring revenue: OneOff
             // skips process_mrr and find_existing_recurring_invoice cleanly.
             invoice_type: InvoiceType::OneOff,
+            // Not a subscription period: never period-refreshed, so no cycle to pin.
+            cycle_index: None,
             currency: parent.currency.clone(),
             line_items: cloned_lines,
             coupons: vec![],
             data_updated_at: None,
             status: InvoiceStatusEnum::Draft,
             invoice_date,
+            billing_period_start: invoice_date,
+            tax_inclusive: parent.tax_inclusive,
             finalized_at: None,
             total: parent.total,
             amount_due: parent.total,
             applied_credits: 0,
+            promotional_credits: parent.promotional_credits,
             net_terms: parent.net_terms,
             subtotal: parent.subtotal,
             subtotal_recurring: parent.subtotal_recurring,
@@ -426,6 +600,11 @@ impl Services {
             invoicing_entity_id: parent.invoicing_entity_id,
             parent_invoice_id: Some(parent.id),
             consolidated_into_invoice_id: None,
+            // The parent's frozen appendix, carried over as-is: the events it details were
+            // already billed and issued, so it is copied, never re-derived (see
+            // `build_invoice_lines_patch`). The operator edits it alongside the lines.
+            annexes: parent.annexes.clone(),
+            custom_properties: serde_json::Value::Null,
         };
 
         insert_invoice_tx(&self.store, conn, invoice_new).await
@@ -455,6 +634,7 @@ impl Services {
                         tenant_id,
                         actor,
                         params,
+                        false,
                         false,
                     )
                     .await?;
@@ -495,7 +675,8 @@ impl Services {
     ) -> crate::StoreResult<AdjustmentInvoiceContent> {
         use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 
-        if proration.net_amount_cents == 0 {
+        // An included pack bills nothing yet grants its credit when the invoice is issued.
+        if proration.lines.is_empty() {
             return Ok(AdjustmentInvoiceContent {
                 computed: ComputedInvoiceContent {
                     invoice_lines: vec![],
@@ -504,6 +685,7 @@ impl Services {
                     discount: 0,
                     tax_breakdown: vec![],
                     applied_credits: 0,
+                    promotional_credits: 0,
                     total: 0,
                     tax_amount: 0,
                     amount_due: 0,
@@ -526,40 +708,53 @@ impl Services {
             crate::constants::Currencies::resolve_currency_precision(&subscription.currency)
                 .unwrap_or(2);
 
-        let invoice_lines =
+        let mut invoice_lines =
             proration_lines_to_invoice_lines(&netted, invoice_date, period_end, precision);
+        for line in &mut invoice_lines {
+            line.subscription_id = Some(subscription.id);
+        }
+
+        let scope = crate::services::credit::value_application::EstimateContext {
+            tenant_id,
+            customer_id: customer.id,
+            currency: &subscription.currency,
+            invoice_id: None,
+            subscription_id: Some(subscription.id),
+            periods: Vec::new(),
+            at: chrono::Utc::now(),
+            book: None,
+        };
+        self.take_promotional_estimate(conn, &scope, &mut invoice_lines)
+            .await?;
 
         let invoicing_entity = self
             .store
             .get_invoicing_entity_with_conn(conn, tenant_id, Some(customer.invoicing_entity_id))
             .await?;
 
-        let (invoice_lines, tax_breakdown) = self
+        // Proration credits and charges are priced off the subscription's own prices, so
+        // they read the way it does. There is no discount here for the netting to restate.
+        let taxed = self
             .process_invoice_lines_taxes(
+                conn,
                 invoice_lines,
                 &invoicing_entity,
                 customer,
                 subscription.currency.clone(),
                 &invoice_date,
+                subscription.tax_inclusive,
             )
             .await?;
+        let (invoice_lines, tax_breakdown) = (taxed.lines, taxed.breakdown);
 
         let subtotal: i64 = invoice_lines.iter().map(|l| l.amount_subtotal).sum();
         let tax_amount: i64 = invoice_lines.iter().map(|l| l.tax_amount).sum();
-        let total = subtotal + tax_amount;
+        let promotional_credits = crate::services::credit::promotional::net_total(&invoice_lines)?;
+        let total = subtotal - promotional_credits + tax_amount;
 
-        let applied_credits = if total > 0 {
-            let balance_in_invoice_currency = convert_currency(
-                conn,
-                customer.balance_value_cents.max(0),
-                &customer.currency,
-                &subscription.currency,
-            )
+        let applied_credits = self
+            .preview_credit_for_lines(conn, &scope, &invoice_lines, total, 0)
             .await?;
-            std::cmp::min(total as u64, balance_in_invoice_currency.max(0) as u64) as i64
-        } else {
-            0
-        };
         let amount_due = std::cmp::max(0, total - applied_credits);
 
         Ok(AdjustmentInvoiceContent {
@@ -570,6 +765,7 @@ impl Services {
                 discount: 0,
                 tax_breakdown,
                 applied_credits,
+                promotional_credits,
                 total,
                 tax_amount,
                 amount_due,
@@ -636,16 +832,21 @@ impl Services {
             subscription_id: Some(subscription.id),
             plan_version_id: Some(subscription.plan_version_id),
             invoice_type: InvoiceType::Adjustment,
+            // Not a subscription period: never period-refreshed, so no cycle to pin.
+            cycle_index: None,
             currency: subscription.currency.clone(),
             line_items: content.computed.invoice_lines,
             coupons: vec![],
             data_updated_at: None,
             status: InvoiceStatusEnum::Draft,
             invoice_date,
+            billing_period_start: invoice_date,
+            tax_inclusive: subscription.tax_inclusive,
             finalized_at: None,
             total: content.computed.total,
             amount_due: content.computed.amount_due,
             applied_credits: content.computed.applied_credits,
+            promotional_credits: content.computed.promotional_credits,
             net_terms: subscription.net_terms as i32,
             subtotal: content.computed.subtotal,
             subtotal_recurring: 0,
@@ -670,6 +871,8 @@ impl Services {
             invoicing_entity_id: subscription.invoicing_entity_id,
             parent_invoice_id: None,
             consolidated_into_invoice_id: None,
+            annexes: vec![],
+            custom_properties: serde_json::Value::Null,
         };
 
         let inserted_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;
@@ -701,6 +904,7 @@ impl Services {
         addons: &[AddOn],
         products_by_id: &HashMap<ProductId, Product>,
         prices_by_id: &HashMap<PriceId, Price>,
+        units: &crate::domain::credit_units::CreditUnitsById,
         as_of: chrono::NaiveDate,
     ) -> Result<AddonPurchaseInvoiceResult, StoreErrorReport> {
         let now = as_of;
@@ -734,7 +938,7 @@ impl Services {
                     )))
                 })?;
             let resolved = addon
-                .resolve_customized(products_by_id, prices_by_id, &cs_ao.customization)
+                .resolve_customized(products_by_id, prices_by_id, units, &cs_ao.customization)
                 .map_err(Report::new)?;
             addon_details
                 .add_ons
@@ -756,8 +960,10 @@ impl Services {
                 });
         }
 
+        // Addon purchases are standalone OneOff invoices — not tied to a billing period —
+        // so the minimum-commitment synthesis is skipped here by the OneOff gate.
         let invoice_content = self
-            .compute_invoice(conn, &now, &addon_details, None, None)
+            .compute_invoice(conn, &now, &addon_details, None, None, InvoiceType::OneOff)
             .await
             .change_context(StoreError::InvoiceComputationError)?;
 
@@ -772,13 +978,14 @@ impl Services {
         };
         let proration_factor =
             crate::utils::periods::calculate_proration_factor(&partial_period, &full_period)
-                .unwrap_or(1.0);
+                .map_or(1.0, |factor| factor.as_f64());
 
         let proration = ProrationResult {
             lines: invoice_content
                 .invoice_lines
                 .iter()
                 .map(|l| ProrationLineItem {
+                    period_end: Some(l.end_date),
                     name: l.name.clone(),
                     amount_cents: l.amount_subtotal,
                     full_period_amount_cents: l.amount_subtotal,
@@ -791,6 +998,8 @@ impl Services {
                     net_key: None,
                     sub_component_id: l.sub_component_id,
                     sub_add_on_id: l.sub_add_on_id,
+                    charge_type: l.charge_type,
+                    pack: None,
                 })
                 .collect(),
             net_amount_cents: invoice_content.subtotal,
@@ -825,6 +1034,7 @@ mod proration_invoice_lines_tests {
         billed: bool,
     ) -> ProrationLineItem {
         ProrationLineItem {
+            period_end: None,
             name: "Component".to_string(),
             amount_cents,
             full_period_amount_cents: amount_cents,
@@ -837,6 +1047,8 @@ mod proration_invoice_lines_tests {
             net_key: None,
             sub_component_id: billed.then(common_domain::ids::SubscriptionPriceComponentId::new),
             sub_add_on_id: None,
+            charge_type: None,
+            pack: None,
         }
     }
 

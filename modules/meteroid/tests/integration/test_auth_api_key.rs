@@ -18,7 +18,8 @@ use meteroid_grpc::meteroid::api::users::v1::users_service_client::UsersServiceC
 async fn test_api_key() {
     // Generic setup
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::MINIMAL).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
@@ -96,6 +97,8 @@ pub(crate) async fn generate_api_key(channel: &Channel) -> CreateApiTokenRespons
                 name: "Test Tenant".to_string(),
                 environment: 0,
                 disable_emails: None,
+                email_delivery_mode: None,
+                sandbox_preset: 0,
             },
         ))
         .await
@@ -147,6 +150,9 @@ async fn list_customers(
                 archived: None,
                 order_by: None,
                 pagination: None,
+                lifecycle_state: vec![],
+                country: vec![],
+                filters: vec![],
             },
         ))
         .await

@@ -1,0 +1,34 @@
+{{- $worker := include "meteroid.workerValues" . | fromYaml }}
+{{- if $worker.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "meteroid.workerFullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "meteroid.workerLabels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "meteroid.workerFullname" . }}
+  minReplicas: {{ $worker.autoscaling.minReplicas }}
+  maxReplicas: {{ $worker.autoscaling.maxReplicas }}
+  metrics:
+  {{- with $worker.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+  {{- end }}
+  {{- with $worker.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+  {{- end }}
+{{- end }}

@@ -50,6 +50,8 @@ message SearchProductsRequest {
   meteroid.common.v1.Pagination pagination = 3;
   optional bool catalog_only = 4;
   optional string order_by = 5;
+  // When true, returns archived products only. Defaults to active products.
+  optional bool archived = 6;
 }
 
 message SearchProductsResponse {
@@ -83,6 +85,22 @@ message ListProductsWithPricesResponse {
   meteroid.common.v1.PaginationResponse pagination_meta = 2;
 }
 
+message ArchiveProductRequest {
+  string product_id = 1;
+}
+
+message ArchiveProductResponse {
+  Product product = 1;
+}
+
+message UnarchiveProductRequest {
+  string product_id = 1;
+}
+
+message UnarchiveProductResponse {
+  Product product = 1;
+}
+
 service ProductsService {
   rpc CreateProduct(CreateProductRequest) returns (CreateProductResponse) {}
   rpc UpdateProduct(UpdateProductRequest) returns (UpdateProductResponse) {}
@@ -90,4 +108,6 @@ service ProductsService {
   rpc SearchProducts(SearchProductsRequest) returns (SearchProductsResponse) {}
   rpc GetProduct(GetProductRequest) returns (GetProductResponse) {}
   rpc ListProductsWithPrices(ListProductsWithPricesRequest) returns (ListProductsWithPricesResponse) {}
+  rpc ArchiveProduct(ArchiveProductRequest) returns (ArchiveProductResponse) {}
+  rpc UnarchiveProduct(UnarchiveProductRequest) returns (UnarchiveProductResponse) {}
 }

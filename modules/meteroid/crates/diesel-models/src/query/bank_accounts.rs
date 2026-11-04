@@ -3,7 +3,7 @@ use crate::errors::IntoDbResult;
 
 use crate::{DbResult, PgConn};
 use common_domain::ids::{BankAccountId, TenantId};
-use diesel::{ExpressionMethods, QueryDsl, debug_query};
+use diesel::{ExpressionMethods, QueryDsl};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use tap::TapFallible;
@@ -14,7 +14,7 @@ impl BankAccountRowNew {
 
         let query = diesel::insert_into(ba_dsl::bank_account).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -36,7 +36,7 @@ impl BankAccountRow {
             .filter(ba_dsl::id.eq(id))
             .filter(ba_dsl::tenant_id.eq(tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -53,7 +53,7 @@ impl BankAccountRow {
 
         let query = ba_dsl::bank_account.filter(ba_dsl::tenant_id.eq(tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -74,7 +74,7 @@ impl BankAccountRow {
             .filter(ba_dsl::id.eq(id))
             .filter(ba_dsl::tenant_id.eq(tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -94,7 +94,7 @@ impl BankAccountRow {
             .filter(ba_dsl::id.eq_any(ids))
             .filter(ba_dsl::tenant_id.eq(tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -114,7 +114,7 @@ impl BankAccountRowPatch {
             .filter(ba_dsl::tenant_id.eq(self.tenant_id))
             .set(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)

@@ -134,6 +134,9 @@ pub trait BatchJobsInterface {
 
     async fn set_error_output_key(&self, job_id: BatchJobId, key: String) -> StoreResult<()>;
 
+    /// Persist the finished output-artifact document id (e.g. the tax-report CSV).
+    async fn set_output_key(&self, job_id: BatchJobId, key: String) -> StoreResult<()>;
+
     async fn list_failed_item_indices(
         &self,
         job_id: BatchJobId,
@@ -615,6 +618,14 @@ impl BatchJobsInterface for Store {
     async fn set_error_output_key(&self, job_id: BatchJobId, key: String) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
         BatchJobRow::set_error_output_key(&mut conn, job_id, key)
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
+        Ok(())
+    }
+
+    async fn set_output_key(&self, job_id: BatchJobId, key: String) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+        BatchJobRow::set_output_key(&mut conn, job_id, key)
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
         Ok(())

@@ -24,6 +24,7 @@ mod tests {
             amount,
             custom_taxes,
             tax_category: None,
+            tax_inclusive: false,
         }
     }
 
@@ -45,6 +46,7 @@ mod tests {
         let line_items = vec![
             LineItemForTax {
                 tax_category: Some(NONTAXABLE_CATEGORY_KEY.to_string()),
+                tax_inclusive: false,
                 ..test_line_item("nontaxable", 10000, vec![])
             },
             test_line_item("taxable", 10000, vec![]),
@@ -105,6 +107,52 @@ mod tests {
         let breakdown = shared::compute_breakdown_from_line_items(&result);
         assert_eq!(breakdown.tax_amount, 0);
         assert_eq!(breakdown.total_amount_after_tax, 15000);
+    }
+
+    fn inclusive_line_item(id: &str, amount: i64) -> LineItemForTax {
+        LineItemForTax {
+            tax_inclusive: true,
+            ..test_line_item(id, amount, vec![])
+        }
+    }
+
+    #[tokio::test]
+    async fn an_inclusive_line_reports_its_net_as_the_taxable_base() {
+        let address = test_address("FR", None);
+        let result = shared::compute_tax(
+            flat_rate(dec!(0.2)),
+            address.clone(),
+            address,
+            vec![inclusive_line_item("item1", 999)],
+        )
+        .await
+        .unwrap();
+
+        // 9.99 quoted: 1.67 of it is tax (1.665 rounded), 8.32 is the net.
+        assert_eq!(result[0].pre_tax_amount, 832);
+
+        let breakdown = shared::compute_breakdown_from_line_items(&result);
+        assert_eq!(breakdown.tax_amount, 167);
+        assert_eq!(breakdown.total_amount_after_tax, 999);
+        assert_eq!(breakdown.breakdown[0].taxable_amount, 832);
+    }
+
+    #[tokio::test]
+    async fn an_untaxed_customer_pays_the_whole_inclusive_price() {
+        let address = test_address("FR", None);
+        let result = shared::compute_tax(
+            CustomerTax::ReverseCharge,
+            address.clone(),
+            address,
+            vec![inclusive_line_item("item1", 999)],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result[0].pre_tax_amount, 999);
+        let breakdown = shared::compute_breakdown_from_line_items(&result);
+        assert_eq!(breakdown.tax_amount, 0);
+        assert_eq!(breakdown.total_amount_after_tax, 999);
     }
 
     #[tokio::test]
@@ -380,6 +428,93 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_rate_is_rounded_once_over_the_whole_base() {
+        // 7.56 € at 19% is 1.4364 €, so the invoice owes 1.44 € however the lines
+        // are split — rounding each line on its own would have billed 1.43 €.
+        let customer_tax = flat_rate(dec!(0.19));
+        let address = test_address("DE", None);
+        let line_items = vec![
+            test_line_item("item1", 76, vec![]),
+            test_line_item("item2", 680, vec![]),
+        ];
+
+        let result = shared::compute_tax(customer_tax, address.clone(), address, line_items)
+            .await
+            .unwrap();
+
+        let breakdown = shared::compute_breakdown_from_line_items(&result);
+        assert_eq!(breakdown.tax_amount, 144);
+        assert_eq!(breakdown.total_amount_after_tax, 900);
+
+        // The rounded cent lands on the line with the largest remainder (0.44 vs 0.20).
+        let line_tax = |item: &LineItemWithTax| match &item.tax_details {
+            TaxDetails::MultipleTaxes {
+                total_tax_amount, ..
+            } => *total_tax_amount,
+            other => panic!("Expected tax details, got {other:?}"),
+        };
+        assert_eq!(line_tax(&result[0]), 15);
+        assert_eq!(line_tax(&result[1]), 129);
+    }
+
+    #[tokio::test]
+    async fn test_allocation_never_drifts_from_the_breakdown() {
+        // Ten lines that each round up on their own (0.33 * 0.2 = 0.066 €) would
+        // have billed 0.70 € instead of the 0.66 € owed on the 3.30 € base.
+        let customer_tax = flat_rate(dec!(0.20));
+        let address = test_address("DE", None);
+        let line_items = (0..10)
+            .map(|i| test_line_item(&format!("item{i}"), 33, vec![]))
+            .collect();
+
+        let result = shared::compute_tax(customer_tax, address.clone(), address, line_items)
+            .await
+            .unwrap();
+
+        let breakdown = shared::compute_breakdown_from_line_items(&result);
+        assert_eq!(breakdown.tax_amount, 66);
+        assert_eq!(breakdown.breakdown.len(), 1);
+        match &breakdown.breakdown[0].details {
+            TaxDetails::Tax { tax_amount, .. } => assert_eq!(*tax_amount, 66),
+            other => panic!("Expected a single tax breakdown item, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_statutory_vat_is_rounded_once_over_the_whole_base() {
+        // Same split as above, through the EU VAT engine rather than a custom rate.
+        let engine = MeteroidTaxEngine;
+        let customer = CustomerForTax {
+            vat_number: None,
+            vat_number_format_valid: false,
+            vat_number_vies_valid: None,
+            require_vies_valid_for_reverse_charge: false,
+            tax_status: CustomerTaxStatus::Taxable,
+            exemption_reason: None,
+            custom_tax_rates: vec![],
+            billing_address: test_address("DE", None),
+            shipping_address: None,
+        };
+
+        let result = engine
+            .calculate_line_items_tax(
+                "EUR".to_string(),
+                customer,
+                test_address("DE", None),
+                vec![
+                    test_line_item("item1", 76, vec![]),
+                    test_line_item("item2", 680, vec![]),
+                ],
+                chrono::NaiveDate::from_ymd_opt(2026, 9, 3).unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.tax_amount, 144);
+        assert_eq!(result.total_amount_after_tax, 900);
+    }
+
+    #[tokio::test]
     async fn test_zero_amount_line_items() {
         let customer_tax = flat_rate(dec!(0.20));
         let invoicing_entity_address = test_address("US", None);
@@ -454,7 +589,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_compound_multiple_tax_rates() {
-        use world_tax::{TaxRate, TaxType, VatRate};
+        use world_tax::{TaxRate, TaxType};
 
         // GST (5%, non-compound) + QST (9.975%, compounds on GST), Canadian style.
         let customer_tax = CustomerTax::ResolvedMultipleTaxRates(vec![
@@ -609,6 +744,521 @@ mod tests {
             // Should be reverse charge (0% tax but with reverse charge exemption)
             assert_eq!(result.tax_amount, 0);
             assert_eq!(result.total_amount_after_tax, 10000);
+        }
+
+        #[tokio::test]
+        async fn test_meteroid_tax_engine_export_non_vat_country() {
+            let engine = MeteroidTaxEngine;
+
+            // French seller invoicing a US customer: zero-rated export, no VAT applies.
+            let customer = test_customer(None, false, vec![], "US");
+            let invoicing_entity_address = test_address("FR", None);
+            let line_items = vec![test_line_item("item1", 10000, vec![])];
+
+            let result = engine
+                .calculate_line_items_tax(
+                    "EUR".to_string(),
+                    customer,
+                    invoicing_entity_address,
+                    line_items,
+                    chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(result.tax_amount, 0);
+            assert_eq!(result.total_amount_after_tax, 10000);
+            assert_eq!(result.breakdown.len(), 1);
+            match &result.breakdown[0].details {
+                TaxDetails::Exempt(VatExemptionReason::Export(_)) => {}
+                other => panic!("Expected export exemption, got {other:?}"),
+            }
+        }
+
+        /// Most of the world's ISO codes have no entry in the rate database. A supply
+        /// to one of them is still an export, and must resolve as one: the destination's
+        /// own tax system is irrelevant when no tax of ours applies. Before this, the
+        /// eager country lookup turned every such supply into a hard failure, which in
+        /// the billing worker means the subscription is never invoiced and is eventually
+        /// marked Errored.
+        #[tokio::test]
+        async fn an_export_to_a_country_we_hold_no_rate_data_for_still_resolves() {
+            let engine = MeteroidTaxEngine;
+
+            for (seller, cust) in [
+                ("FR", "HK"),
+                ("FR", "AF"),
+                ("FR", "GG"), // Guernsey: no VAT, and no rate-DB entry
+                ("FR", "SM"), // San Marino: not a VAT
+                ("DE", "MO"),
+            ] {
+                let result = engine
+                    .calculate_line_items_tax(
+                        "EUR".to_string(),
+                        test_customer(None, false, vec![], cust),
+                        test_address(seller, None),
+                        vec![test_line_item("i", 10000, vec![])],
+                        chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    )
+                    .await
+                    .unwrap_or_else(|e| panic!("{seller} -> {cust} should resolve: {e:?}"));
+
+                assert_eq!(result.tax_amount, 0, "{seller} -> {cust}");
+                assert!(
+                    matches!(
+                        result.breakdown[0].details,
+                        TaxDetails::Exempt(VatExemptionReason::Export(_))
+                    ),
+                    "{seller} -> {cust} should be an export, got {:?}",
+                    result.breakdown[0].details
+                );
+            }
+        }
+
+        /// The exception to the above: a supply that stays INSIDE the seller's VAT
+        /// territory is domestic and owes real tax — at the schedule of its
+        /// destination. For Guadeloupe, Martinique and La Réunion that schedule is
+        /// their own (CGI art. 296: 8.5% standard, 2.1% reduced), and BOFiP
+        /// BOI-TVA-GEO-20-40 §230 makes a métropole ↔ DOM service neither an export
+        /// nor reverse-charged: the supplier stays liable, at the rate in force where
+        /// the supply is taxable (§100).
+        #[tokio::test]
+        async fn a_dom_supply_is_domestic_at_the_destinations_rate() {
+            let engine = MeteroidTaxEngine;
+
+            for (seller, cust, expected) in [
+                // Métropole -> DOM: the DOM's own standard rate — not 20%, not 0%.
+                ("FR", "GP", 850i64),
+                ("FR", "MQ", 850),
+                ("FR", "RE", 850),
+                // Within one DOM: plain domestic at its rate.
+                ("GP", "GP", 850),
+                // DOM -> métropole: the supplier stays liable at the metropolitan rate
+                // (BOI-TVA-GEO-20-40 §230, art. 259 1° general-rule services).
+                ("RE", "FR", 2000),
+            ] {
+                let result = engine
+                    .calculate_line_items_tax(
+                        "EUR".to_string(),
+                        test_customer(None, false, vec![], cust),
+                        test_address(seller, None),
+                        vec![test_line_item("i", 10000, vec![])],
+                        chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    )
+                    .await
+                    .unwrap_or_else(|e| panic!("{seller} -> {cust} must resolve: {e:?}"));
+
+                assert_eq!(
+                    result.tax_amount, expected,
+                    "{seller} -> {cust} must bear the destination's rate"
+                );
+                for item in &result.breakdown {
+                    assert!(
+                        !matches!(
+                            item.details,
+                            TaxDetails::Exempt(VatExemptionReason::Export(_))
+                        ),
+                        "{seller} -> {cust} is domestic, not an export"
+                    );
+                }
+            }
+        }
+
+        /// Guyane and Mayotte sit inside France's VAT territory with no VAT at all —
+        /// CGI art. 294-1: "la taxe sur la valeur ajoutée n'est provisoirement pas
+        /// applicable". A supply to or within them owes nothing, and says why: not an
+        /// export (it never leaves the territory), and not the undetermined
+        /// `NotRegistered` either, which prints no citation and which EN 16931 cannot
+        /// express — it would cost every such invoice its e-invoice.
+        #[tokio::test]
+        async fn guyane_and_mayotte_bear_no_vat() {
+            let engine = MeteroidTaxEngine;
+
+            for (seller, cust, vat) in [
+                ("FR", "GF", None),
+                ("FR", "YT", None),
+                ("GF", "GF", None),
+                ("MC", "YT", None),
+                // A business customer changes nothing: there is no VAT to reverse-charge.
+                ("FR", "GF", Some("FR12889123456".to_string())),
+            ] {
+                let result = engine
+                    .calculate_line_items_tax(
+                        "EUR".to_string(),
+                        test_customer(vat.clone(), false, vec![], cust),
+                        test_address(seller, None),
+                        vec![test_line_item("i", 10000, vec![])],
+                        chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    )
+                    .await
+                    .unwrap_or_else(|e| panic!("{seller} -> {cust} must resolve: {e:?}"));
+
+                assert_eq!(result.tax_amount, 0, "{seller} -> {cust} bears no VAT");
+                assert_eq!(result.total_amount_after_tax, 10000, "{seller} -> {cust}");
+                assert_eq!(result.breakdown.len(), 1, "{seller} -> {cust}");
+                assert!(
+                    matches!(
+                        result.breakdown[0].details,
+                        TaxDetails::Exempt(VatExemptionReason::NoVatTerritory)
+                    ),
+                    "{seller} -> {cust} (vat {vat:?}) must state VAT does not apply, got {:?}",
+                    result.breakdown[0].details
+                );
+            }
+        }
+
+        /// The art. 294-1 position is only reachable from inside France's VAT
+        /// territory. From another member state Guyane is outside the EU VAT area —
+        /// an export — and a seller in no VAT system stays undetermined, as its other
+        /// cross-border sales do.
+        #[tokio::test]
+        async fn guyane_from_outside_the_territory_is_not_the_art_294_position() {
+            let engine = MeteroidTaxEngine;
+
+            for (seller, expect_export) in [("DE", true), ("US", false)] {
+                let result = engine
+                    .calculate_line_items_tax(
+                        "EUR".to_string(),
+                        test_customer(None, false, vec![], "GF"),
+                        test_address(seller, None),
+                        vec![test_line_item("i", 10000, vec![])],
+                        chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    )
+                    .await
+                    .unwrap_or_else(|e| panic!("{seller} -> GF must resolve: {e:?}"));
+
+                assert_eq!(result.tax_amount, 0, "{seller} -> GF");
+                let details = &result.breakdown[0].details;
+                if expect_export {
+                    assert!(
+                        matches!(details, TaxDetails::Exempt(VatExemptionReason::Export(_))),
+                        "{seller} -> GF is an export, got {details:?}"
+                    );
+                } else {
+                    assert!(
+                        matches!(
+                            details,
+                            TaxDetails::Exempt(VatExemptionReason::NotRegistered)
+                        ),
+                        "{seller} -> GF stays undetermined, got {details:?}"
+                    );
+                }
+            }
+        }
+
+        /// What the overseas departments used to exercise still holds where rate data
+        /// is genuinely missing: a domestic supply in a country without an entry
+        /// cannot be rated and must fail loudly rather than silently bill zero. The
+        /// failure now comes from world-tax's own lookup (CountryNotFound) — the
+        /// engine no longer keeps a guard of its own.
+        #[tokio::test]
+        async fn a_domestic_supply_without_rate_data_still_fails() {
+            let engine = MeteroidTaxEngine;
+
+            for (seller, cust) in [("HK", "HK"), ("AF", "AF")] {
+                let result = engine
+                    .calculate_line_items_tax(
+                        "EUR".to_string(),
+                        test_customer(None, false, vec![], cust),
+                        test_address(seller, None),
+                        vec![test_line_item("i", 10000, vec![])],
+                        chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    )
+                    .await;
+                assert!(
+                    result.is_err(),
+                    "{seller} -> {cust} is a domestic supply we cannot rate and must not \
+                     silently bill zero"
+                );
+            }
+        }
+
+        /// A seller whose own country runs no VAT-type system is registered for VAT
+        /// nowhere this engine knows of. World-tax still answers "the destination's VAT,
+        /// at zero" for a VAT destination, but that must not become a rate row: a 0% VAT
+        /// line asserts a zero-rated *taxable* supply (UNCL 5305 `Z`, input tax
+        /// deductible) that this seller cannot make, and "not subject to tax" would be
+        /// no safer — the supply may be within scope through the non-Union One-Stop-Shop
+        /// scheme or a customer-side reverse charge. The honest record is no tax and an
+        /// undetermined position, which is what this seller's domestic sales already do.
+        #[tokio::test]
+        async fn a_seller_outside_every_vat_system_records_no_tax_cross_border() {
+            let engine = MeteroidTaxEngine;
+
+            for (seller, cust, vat) in [
+                ("US", "FR", None),
+                ("US", "GB", None),
+                // A customer VAT number must not tip this into a reverse charge: whether
+                // the customer self-accounts is destination law, not something the
+                // seller's jurisdiction implies. The merchant says so per customer.
+                ("US", "FR", Some("FR12889123456".to_string())),
+                // Absent from the rate database entirely — must still resolve, not error.
+                ("US", "HK", None),
+            ] {
+                let result = engine
+                    .calculate_line_items_tax(
+                        "EUR".to_string(),
+                        test_customer(vat.clone(), false, vec![], cust),
+                        test_address(seller, None),
+                        vec![test_line_item("i", 10000, vec![])],
+                        chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    )
+                    .await
+                    .unwrap_or_else(|e| panic!("{seller} -> {cust} should resolve: {e:?}"));
+
+                assert_eq!(result.tax_amount, 0, "{seller} -> {cust}");
+                assert!(
+                    matches!(
+                        result.breakdown[0].details,
+                        TaxDetails::Exempt(VatExemptionReason::NotRegistered)
+                    ),
+                    "{seller} -> {cust} (vat {vat:?}) should record an undetermined \
+                     position, got {:?}",
+                    result.breakdown[0].details
+                );
+            }
+        }
+
+        /// A territory that adopts its host's rate schedule must be charged that rate.
+        /// Suppressing the export *mention* is not enough: without resolving the
+        /// scenario against the host, these fall to a silent 0% VAT line, which is
+        /// under-collected output tax on a real invoice.
+        #[tokio::test]
+        async fn a_folded_territory_is_charged_its_hosts_rate() {
+            let engine = MeteroidTaxEngine;
+
+            // (seller, customer, expected tax on 10000 minor units)
+            for (seller, cust, expected) in [
+                // Convention franco-monégasque art. 15: French bases and French rates.
+                ("FR", "MC", 2000i64),
+                ("MC", "FR", 2000),
+                // Manx VAT parallels UK VAT.
+                ("GB", "IM", 2000),
+                // CH/LI VAT union, 8.1% both sides since 1 Jan 2024.
+                ("CH", "LI", 810),
+                ("LI", "CH", 810),
+            ] {
+                let result = engine
+                    .calculate_line_items_tax(
+                        "EUR".to_string(),
+                        test_customer(None, false, vec![], cust),
+                        test_address(seller, None),
+                        vec![test_line_item("item1", 10000, vec![])],
+                        chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    result.tax_amount, expected,
+                    "{seller} -> {cust} should bear the host's rate"
+                );
+            }
+        }
+
+        /// A supply that never leaves the seller's VAT territory is domestic, however
+        /// different the two country codes look. Monaco is folded into France by
+        /// Directive art. 7(2), and Liechtenstein into Switzerland by the VAT union —
+        /// both were being zero-rated as exports and told so on the document.
+        #[tokio::test]
+        async fn a_supply_inside_the_sellers_vat_territory_is_not_an_export() {
+            let engine = MeteroidTaxEngine;
+
+            for (seller, customer_country) in [("FR", "MC"), ("CH", "LI"), ("LI", "CH")] {
+                let customer = test_customer(None, false, vec![], customer_country);
+                let result = engine
+                    .calculate_line_items_tax(
+                        "EUR".to_string(),
+                        customer,
+                        test_address(seller, None),
+                        vec![test_line_item("item1", 10000, vec![])],
+                        chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    )
+                    .await
+                    .unwrap();
+
+                for item in &result.breakdown {
+                    assert!(
+                        !matches!(
+                            item.details,
+                            TaxDetails::Exempt(VatExemptionReason::Export(_))
+                        ),
+                        "{seller} -> {customer_country} was treated as an export"
+                    );
+                }
+            }
+        }
+
+        /// The export mention says "outside the European Union" in every locale, so an
+        /// intra-EU supply must never reach the export branch at all.
+        #[tokio::test]
+        async fn an_intra_eu_supply_never_resolves_to_export() {
+            let engine = MeteroidTaxEngine;
+
+            for (vat, country) in [(Some("DE123456789".to_string()), "DE"), (None, "DE")] {
+                let result = engine
+                    .calculate_line_items_tax(
+                        "EUR".to_string(),
+                        test_customer(vat, false, vec![], country),
+                        test_address("FR", None),
+                        vec![test_line_item("item1", 10000, vec![])],
+                        chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    )
+                    .await
+                    .unwrap();
+
+                for item in &result.breakdown {
+                    assert!(
+                        !matches!(
+                            item.details,
+                            TaxDetails::Exempt(VatExemptionReason::Export(_))
+                        ),
+                        "FR -> {country} must not be an export"
+                    );
+                }
+            }
+        }
+
+        /// The basis travels with the exemption so the document can cite the matching
+        /// place-of-supply article instead of re-deriving one from its own snapshot.
+        #[tokio::test]
+        async fn an_export_records_the_basis_it_was_priced_on() {
+            let engine = MeteroidTaxEngine;
+
+            for (vat, expected) in [
+                (Some("DE123456789".to_string()), SupplyBasis::Business),
+                (None, SupplyBasis::Consumer),
+            ] {
+                let result = engine
+                    .calculate_line_items_tax(
+                        "EUR".to_string(),
+                        test_customer(vat.clone(), false, vec![], "US"),
+                        test_address("FR", None),
+                        vec![test_line_item("item1", 10000, vec![])],
+                        chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    )
+                    .await
+                    .unwrap();
+
+                match &result.breakdown[0].details {
+                    TaxDetails::Exempt(VatExemptionReason::Export(basis)) => {
+                        assert_eq!(*basis, expected, "vat_number: {vat:?}");
+                    }
+                    other => panic!("expected an export exemption, got {other:?}"),
+                }
+            }
+        }
+
+        #[tokio::test]
+        async fn test_meteroid_tax_engine_export_non_eu_vat_country() {
+            let engine = MeteroidTaxEngine;
+
+            // French seller invoicing a UK (non-EU, VAT) customer: zero-rated export.
+            let customer = test_customer(None, false, vec![], "GB");
+            let invoicing_entity_address = test_address("FR", None);
+            let line_items = vec![test_line_item("item1", 10000, vec![])];
+
+            let result = engine
+                .calculate_line_items_tax(
+                    "EUR".to_string(),
+                    customer,
+                    invoicing_entity_address,
+                    line_items,
+                    chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(result.tax_amount, 0);
+            assert_eq!(result.total_amount_after_tax, 10000);
+            assert_eq!(result.breakdown.len(), 1);
+            match &result.breakdown[0].details {
+                TaxDetails::Exempt(VatExemptionReason::Export(_)) => {}
+                other => panic!("Expected export exemption, got {other:?}"),
+            }
+        }
+
+        #[tokio::test]
+        async fn test_meteroid_tax_engine_export_switzerland() {
+            let engine = MeteroidTaxEngine;
+
+            // French seller invoicing a Swiss (non-EU, VAT) customer: zero-rated export.
+            let customer = test_customer(None, false, vec![], "CH");
+            let invoicing_entity_address = test_address("FR", None);
+            let line_items = vec![test_line_item("item1", 10000, vec![])];
+
+            let result = engine
+                .calculate_line_items_tax(
+                    "EUR".to_string(),
+                    customer,
+                    invoicing_entity_address,
+                    line_items,
+                    chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(result.tax_amount, 0);
+            assert_eq!(result.breakdown.len(), 1);
+            match &result.breakdown[0].details {
+                TaxDetails::Exempt(VatExemptionReason::Export(_)) => {}
+                other => panic!("Expected export exemption, got {other:?}"),
+            }
+        }
+
+        #[tokio::test]
+        async fn test_meteroid_tax_engine_non_french_seller_into_eu_is_not_export() {
+            let engine = MeteroidTaxEngine;
+
+            // US (non-VAT) seller invoicing a German customer must NOT emit a French
+            // export mention; the export exemption is French-seller only.
+            let customer = test_customer(None, false, vec![], "DE");
+            let invoicing_entity_address = test_address("US", None);
+            let line_items = vec![test_line_item("item1", 10000, vec![])];
+
+            let result = engine
+                .calculate_line_items_tax(
+                    "EUR".to_string(),
+                    customer,
+                    invoicing_entity_address,
+                    line_items,
+                    chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                )
+                .await
+                .unwrap();
+
+            if let TaxDetails::Exempt(VatExemptionReason::Export(_)) = &result.breakdown[0].details
+            {
+                panic!("non-French seller must not produce a French export exemption");
+            }
+        }
+
+        #[tokio::test]
+        async fn test_meteroid_tax_engine_non_french_vat_seller_is_still_export() {
+            let engine = MeteroidTaxEngine;
+
+            // German (VAT) seller invoicing a US customer is still a zero-rated export;
+            // the classification is jurisdiction-neutral and the French-specific mention
+            // is suppressed for non-FR sellers at render time.
+            let customer = test_customer(None, false, vec![], "US");
+            let invoicing_entity_address = test_address("DE", None);
+            let line_items = vec![test_line_item("item1", 10000, vec![])];
+
+            let result = engine
+                .calculate_line_items_tax(
+                    "EUR".to_string(),
+                    customer,
+                    invoicing_entity_address,
+                    line_items,
+                    chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(result.tax_amount, 0);
+            match &result.breakdown[0].details {
+                TaxDetails::Exempt(VatExemptionReason::Export(_)) => {}
+                other => panic!("Expected export exemption, got {other:?}"),
+            }
         }
 
         #[tokio::test]
@@ -837,6 +1487,7 @@ mod tests {
             amount: 10000,
             custom_taxes: vec![],
             tax_category: None,
+            tax_inclusive: false,
         }];
 
         let result = engine
@@ -900,6 +1551,7 @@ mod tests {
             amount: 10000,
             custom_taxes: vec![],
             tax_category: None,
+            tax_inclusive: false,
         }];
 
         let result = engine
@@ -953,6 +1605,7 @@ mod tests {
                     amount: 10000,
                     custom_taxes: vec![],
                     tax_category: None,
+                    tax_inclusive: false,
                 }],
                 chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
             )
@@ -1143,7 +1796,6 @@ mod tests {
         async fn regeneration_is_deterministic() {
             // Re-generating an invoice with identical inputs yields identical tax:
             // the destination-matched result must be stable across runs.
-            let engine = ManualTaxEngine;
             let make_customer = || {
                 customer_with_addresses(
                     test_address("DE", None),
@@ -1328,6 +1980,7 @@ mod tests {
                     amount: 10000,
                     custom_taxes: vec![],
                     tax_category: None,
+                    tax_inclusive: false,
                 }],
                 chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
             )
@@ -1429,6 +2082,7 @@ mod tests {
             let line_items = vec![
                 LineItemForTax {
                     tax_category: Some(NONTAXABLE_CATEGORY_KEY.to_string()),
+                    tax_inclusive: false,
                     ..test_line_item("exempt", 10000, vec![])
                 },
                 test_line_item("taxable", 10000, vec![]),

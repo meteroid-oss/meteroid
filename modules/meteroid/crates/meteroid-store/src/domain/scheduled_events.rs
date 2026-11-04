@@ -6,6 +6,7 @@ use crate::domain::subscription_components::SubscriptionFee;
 use crate::errors::StoreErrorReport;
 use crate::json_value_serde;
 use chrono::NaiveDateTime;
+use common_domain::actor::{Actor, ActorType};
 use common_domain::ids::{
     AddOnId, BaseId, InvoiceId, PlanVersionId, PriceComponentId, PriceId, ProductId,
     ScheduledEventId, SubscriptionAddOnId, SubscriptionId, SubscriptionPriceComponentId, TenantId,
@@ -14,6 +15,7 @@ use diesel_models::scheduled_events::ScheduledEventRow;
 use diesel_models::scheduled_events::ScheduledEventRowNew;
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Clone, Debug, o2o)]
 #[try_from_owned(ScheduledEventRow, StoreErrorReport)]
@@ -37,6 +39,18 @@ pub struct ScheduledEvent {
     pub processed_at: Option<NaiveDateTime>,
     pub source: String, // API, System, etc.
     pub created_by_customer: bool,
+    #[from(~.into())]
+    pub actor_type: ActorType,
+    pub actor_uuid: Option<Uuid>,
+    pub actor_alias: Option<String>,
+}
+
+impl ScheduledEvent {
+    /// The actor that scheduled this event, rebuilt from its persisted columns, so a
+    /// worker applying the event later can attribute the resulting activity to them.
+    pub fn created_by(&self) -> Actor {
+        Actor::from_parts(self.actor_type, self.actor_uuid, self.actor_alias.clone())
+    }
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -46,7 +60,11 @@ pub struct ScheduledEvent {
     event_type: @.event_data.to_event_type_enum().into(),
     status: diesel_models::enums::ScheduledEventStatus::Pending,
     priority: 0,
-    retries: 0
+    retries: 0,
+    created_by_customer: @.created_by.is_customer(),
+    actor_type: @.created_by.actor_type().into(),
+    actor_uuid: @.created_by.as_uuid(),
+    actor_alias: @.created_by.actor_alias()
 )] // TODO drop priority if unused
 pub struct ScheduledEventNew {
     pub subscription_id: SubscriptionId,
@@ -55,13 +73,22 @@ pub struct ScheduledEventNew {
     #[into(~.clone().try_into()?)]
     pub event_data: ScheduledEventData,
     pub source: String,
-    pub created_by_customer: bool,
+    /// The actor scheduling this event; decomposed into the persisted actor columns
+    /// (and `created_by_customer`) so the worker can attribute the terminal transition.
+    #[ghost]
+    pub created_by: Actor,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ScheduledEventData {
     CancelSubscription {
         reason: Option<String>,
+        /// The termination instant for an immediate cancellation, captured when the user requested
+        /// it so the terminal period bills usage up to that moment (not the worker-fire time, and
+        /// not the date-truncated midnight). None for a date-effective cancel, which settles at the
+        /// effective date's midnight. Defaulted for events serialized before this field existed.
+        #[serde(default)]
+        usage_cutoff: Option<NaiveDateTime>,
     },
     PauseSubscription,
     FinalizeInvoice {
@@ -212,7 +239,7 @@ impl ScheduledEventNew {
             scheduled_time,
             event_data: ScheduledEventData::EndTrial,
             source: source.into(),
-            created_by_customer: false,
+            created_by: Actor::System,
         })
     }
 }

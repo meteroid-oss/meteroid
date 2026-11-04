@@ -1,0 +1,18 @@
+[package]
+name = "http-client-tracing"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+reqwest = { workspace = true }
+rustls = { workspace = true, features = ["ring", "std"] }
+tracing = { workspace = true }
+async-trait = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
+reqwest-middleware = { workspace = true, optional = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[features]
+middleware = ["dep:async-trait", "dep:http", "dep:reqwest-middleware"]

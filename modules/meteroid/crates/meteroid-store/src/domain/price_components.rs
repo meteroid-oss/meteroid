@@ -4,6 +4,7 @@ use uuid::Uuid;
 // TODO duplicate as well
 use super::enums::{BillingPeriodEnum, BillingType, FeeTypeEnum, SubscriptionFeeBillingPeriod};
 
+use crate::domain::credit_units::CreditUnitsById;
 use crate::domain::prices::{self, FeeStructure, LegacyPricingData, Pricing};
 use crate::domain::{Price, Product, SubscriptionFee};
 use crate::errors::{StoreError, StoreErrorReport};
@@ -49,6 +50,16 @@ impl PriceEntry {
             PriceEntry::New(_) => None,
         }
     }
+
+    /// The credit units of a new price; an existing price's come with it.
+    pub fn new_credit_unit_ids(&self) -> Vec<common_domain::ids::CreditUnitId> {
+        match self {
+            PriceEntry::Existing(_) => Vec::new(),
+            PriceEntry::New(input) => {
+                prices::credit_unit_ids(&input.pricing, input.credit_unit.as_ref()).collect()
+            }
+        }
+    }
 }
 
 /// Per-cadence pricing input for creating a price with associated prices.
@@ -57,6 +68,9 @@ pub struct PriceInput {
     pub cadence: BillingPeriodEnum,
     pub currency: String,
     pub pricing: Pricing,
+    /// The credit unit `pricing`'s usage amounts are expressed in, with its money rate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credit_unit: Option<crate::domain::credit_units::PriceCreditUnit>,
 }
 
 /// High-level component definition used by `insert_plan` and the seeder.
@@ -126,11 +140,28 @@ pub struct ResolvedFee {
 }
 
 impl PriceComponent {
+    /// Whether the component sells credit for a price, as opposed to including it at no charge.
+    pub fn sells_credit(&self) -> bool {
+        let paid = |pricing: &Pricing| matches!(pricing, Pricing::Credit { unit_price, .. } if *unit_price > rust_decimal::Decimal::ZERO);
+        self.prices.iter().any(|price| paid(&price.pricing))
+            || self.legacy_pricing.as_ref().is_some_and(|legacy| {
+                legacy
+                    .pricing_entries
+                    .iter()
+                    .any(|(_, pricing)| paid(pricing))
+            })
+    }
+
+    pub fn credit_unit_ids(&self) -> impl Iterator<Item = common_domain::ids::CreditUnitId> + '_ {
+        self.prices.iter().flat_map(Price::credit_unit_ids)
+    }
+
     /// Centralized resolution — all components must have product + prices (v2).
     /// v1 components get synthesized prices at the repository/context layer.
     pub fn resolve_subscription_fee(
         &self,
         products: &HashMap<ProductId, Product>,
+        units: &CreditUnitsById,
         params: Option<&ComponentParameters>,
     ) -> Result<ResolvedFee, StoreError> {
         let product_id = self.product_id.ok_or_else(|| {
@@ -154,7 +185,13 @@ impl PriceComponent {
         }
 
         let price = self.select_price(params)?;
-        let fee = prices::resolve_subscription_fee(fee_structure, &price.pricing, params)?;
+        let fee = prices::resolve_subscription_fee(
+            fee_structure,
+            &price.pricing,
+            price.credit_unit.as_ref(),
+            units,
+            params,
+        )?;
         let period = prices::fee_type_billing_period(fee_structure)
             .unwrap_or_else(|| price.cadence.as_subscription_billing_period());
 
@@ -169,10 +206,11 @@ impl PriceComponent {
     pub fn resolve_fee(
         &self,
         products: &HashMap<ProductId, Product>,
+        units: &CreditUnitsById,
         params: Option<&ComponentParameters>,
     ) -> Result<ResolvedFee, StoreError> {
         if self.product_id.is_some() && !self.prices.is_empty() {
-            self.resolve_subscription_fee(products, params)
+            self.resolve_subscription_fee(products, units, params)
         } else if let Some(legacy) = &self.legacy_pricing {
             resolve_legacy_subscription_fee(legacy, params)
         } else {
@@ -227,7 +265,14 @@ pub fn resolve_legacy_subscription_fee(
     params: Option<&ComponentParameters>,
 ) -> Result<ResolvedFee, StoreError> {
     let (cadence, pricing) = select_legacy_pricing_entry(&legacy.pricing_entries, params)?;
-    let fee = prices::resolve_subscription_fee(&legacy.fee_structure, pricing, params)?;
+    // Legacy components are never priced in, nor grant, a credit unit.
+    let fee = prices::resolve_subscription_fee(
+        &legacy.fee_structure,
+        pricing,
+        None,
+        &CreditUnitsById::new(),
+        params,
+    )?;
     let period = prices::fee_type_billing_period(&legacy.fee_structure)
         .unwrap_or_else(|| cadence.as_subscription_billing_period());
     Ok(ResolvedFee {
@@ -277,6 +322,29 @@ pub enum UsagePricingModel {
     Matrix {
         rates: Vec<MatrixRow>,
     },
+}
+
+impl UsagePricingModel {
+    /// Decimal places to round this model's billable quantity to, at currency `precision`.
+    ///
+    /// Linear models (per-unit, graduated tiers) use the price-derived `quantity_scale` of
+    /// their largest rate; step models (package, volume) only strip float noise, since a
+    /// coarser scale would round genuine fractional usage across a `ceil`/tier boundary and
+    /// drop a whole block of revenue. Matrix is priced per cell at the call site.
+    pub fn billable_quantity_scale(&self, precision: u8) -> u32 {
+        use common_utils::decimals::{MAX_QUANTITY_SCALE, quantity_scale};
+        match self {
+            UsagePricingModel::PerUnit { rate } => quantity_scale(*rate, precision),
+            UsagePricingModel::Tiered { tiers, .. } => tiers
+                .iter()
+                .map(|t| t.rate)
+                .max()
+                .map_or(MAX_QUANTITY_SCALE, |rate| quantity_scale(rate, precision)),
+            UsagePricingModel::Package { .. }
+            | UsagePricingModel::Volume { .. }
+            | UsagePricingModel::Matrix { .. } => MAX_QUANTITY_SCALE,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -336,9 +404,71 @@ pub enum FeeType {
         unit_price: rust_decimal::Decimal,
         quantity: u32,
     },
+    /// A credit pack: charges `unit_price` × `quantity` in advance each period and, once paid,
+    /// funds `credit_amount` × `quantity` of invoice credit in the plan currency. A zero price
+    /// makes it credit the plan includes, funded when the period is invoiced.
+    Credit {
+        unit_price: rust_decimal::Decimal,
+        quantity: u32,
+        credit_amount: rust_decimal::Decimal,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expiry: Option<CreditExpiry>,
+        /// Billed on the subscription's first invoice only, never again.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        once: bool,
+    },
 }
 
 json_value_serde!(FeeType);
+
+/// Relative expiry of credit a pack or purchase funds. A plan is a template, so every purchase
+/// expires the span after its own payment rather than at one shared instant.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "unit", content = "value", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CreditExpiry {
+    Day(u32),
+    Month(u32),
+    /// The exclusive end of the invoiced component period, not a duration after payment.
+    BillingPeriod,
+}
+
+impl CreditExpiry {
+    /// Relative expiry from `at`; `None` on overflow or when an invoice period is required.
+    pub fn resolve(
+        &self,
+        at: chrono::DateTime<chrono::Utc>,
+    ) -> Option<chrono::DateTime<chrono::Utc>> {
+        match self {
+            CreditExpiry::Day(days) => {
+                at.checked_add_signed(chrono::Duration::try_days(i64::from(*days))?)
+            }
+            CreditExpiry::Month(months) => at.checked_add_months(chrono::Months::new(*months)),
+            CreditExpiry::BillingPeriod => None,
+        }
+    }
+
+    pub fn resolve_for_period(
+        &self,
+        at: chrono::DateTime<chrono::Utc>,
+        period_end: chrono::NaiveDate,
+    ) -> Option<chrono::DateTime<chrono::Utc>> {
+        match self {
+            Self::BillingPeriod => Some(period_end.and_time(chrono::NaiveTime::MIN).and_utc()),
+            _ => self.resolve(at),
+        }
+    }
+}
+
+/// Plan-included credit left unspent at expiry, carried once into a new grant that burns before
+/// the next period's credit.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CreditRollover {
+    /// Cap per rolled grant, in the pack's denomination (major units); None carries all that is left.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_amount: Option<rust_decimal::Decimal>,
+    /// Term of the rolled credit from the original expiry; `Day` or `Month` only.
+    pub expiry: CreditExpiry,
+}
 
 impl FeeType {
     pub fn metric_id(&self) -> Option<BillableMetricId> {
@@ -346,6 +476,19 @@ impl FeeType {
             FeeType::Capacity { metric_id, .. } => Some(*metric_id),
             FeeType::Usage { metric_id, .. } => Some(*metric_id),
             _ => None,
+        }
+    }
+
+    /// Revenue taxonomy, matching `SubscriptionFee::charge_type()`. Used to recover
+    /// the charge type of v1 plan components for legacy invoice lines.
+    pub fn charge_type(&self) -> super::invoice_lines::ChargeType {
+        use super::invoice_lines::ChargeType;
+        match self {
+            FeeType::Capacity { .. } | FeeType::Usage { .. } => ChargeType::Usage,
+            FeeType::OneTime { .. } | FeeType::Credit { .. } => ChargeType::OneTime,
+            FeeType::Rate { .. } | FeeType::Slot { .. } | FeeType::ExtraRecurring { .. } => {
+                ChargeType::Recurring
+            }
         }
     }
 }
@@ -467,3 +610,60 @@ golden!(FeeType, {
     },
 
 });
+
+#[cfg(test)]
+mod billable_quantity_scale_tests {
+    use super::*;
+    use common_utils::decimals::{MAX_QUANTITY_SCALE, quantity_scale};
+    use rust_decimal_macros::dec;
+
+    fn tier(first_unit: u64, rate: rust_decimal::Decimal) -> TierRow {
+        TierRow {
+            first_unit,
+            rate,
+            flat_fee: None,
+            flat_cap: None,
+        }
+    }
+
+    #[test]
+    fn per_unit_uses_the_price_derived_scale() {
+        assert_eq!(
+            UsagePricingModel::PerUnit { rate: dec!(0.02) }.billable_quantity_scale(2),
+            1
+        );
+    }
+
+    #[test]
+    fn tiered_uses_the_largest_tier_rate() {
+        let tiers = vec![tier(0, dec!(10)), tier(100, dec!(0.01))];
+        assert_eq!(
+            UsagePricingModel::Tiered {
+                tiers,
+                block_size: None,
+            }
+            .billable_quantity_scale(2),
+            quantity_scale(dec!(10), 2)
+        );
+    }
+
+    #[test]
+    fn step_models_only_strip_noise() {
+        assert_eq!(
+            UsagePricingModel::Package {
+                block_size: 1000,
+                rate: dec!(5),
+            }
+            .billable_quantity_scale(2),
+            MAX_QUANTITY_SCALE
+        );
+        assert_eq!(
+            UsagePricingModel::Volume {
+                tiers: vec![tier(0, dec!(10)), tier(100, dec!(1))],
+                block_size: None,
+            }
+            .billable_quantity_scale(2),
+            MAX_QUANTITY_SCALE
+        );
+    }
+}

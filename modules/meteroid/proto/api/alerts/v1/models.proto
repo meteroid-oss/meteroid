@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package meteroid.api.alerts.v1;
+
+enum AlertConditionKindEnum {
+  THRESHOLD = 0;
+  PCT_CHANGE = 1;
+  ANOMALY = 2;
+  LIMIT = 3;
+  FORECAST = 4;
+}
+
+enum AlertSeverityEnum {
+  INFO = 0;
+  WARNING = 1;
+  CRITICAL = 2;
+}
+
+enum AlertEventStatusEnum {
+  FIRING = 0;
+  ACKNOWLEDGED = 1;
+  RESOLVED = 2;
+}
+
+message AlertDefinition {
+  string id = 1;
+  string name = 2;
+  string metric_key = 3;
+  AlertConditionKindEnum condition_kind = 4;
+  // JSON-encoded condition parameters (threshold/pct/anomaly/limit)
+  string condition = 5;
+  string grain = 6;
+  // JSON-encoded filters, null if unset
+  optional string filters = 7;
+  // JSON-encoded cohort, null if unset
+  optional string cohort = 8;
+  // JSON-encoded array of channels
+  string channels = 9;
+  AlertSeverityEnum severity = 10;
+  int32 cooldown_secs = 11;
+  bool enabled = 12;
+  string created_at = 13;
+  optional string updated_at = 14;
+  optional string archived_at = 15;
+  // Steering classification: "risk" | "opportunity" | "operational".
+  string kind = 16;
+  // Cache of the most recent server evaluation (absent until first run).
+  optional string last_evaluated_at = 17;
+  optional bool last_active = 18;
+  optional double last_value = 19;
+  // Cached impact total (sum of member driver values, minor units) and a
+  // top-3 member preview (JSON array) for the signal card, absent until first run.
+  optional int64 last_impact_cents = 20;
+  optional string last_preview = 21;
+  // Monitors: who owns the monitored number. Distinct from account ownership.
+  optional string owner_user_id = 22;
+  // Set on built-in signal rows ("limit_burndown", …); absent on user-defined definitions.
+  optional string builtin_code = 23;
+  // JSON object of the built-in's thresholds; absent = defaults.
+  optional string settings = 24;
+  // Currency of last_impact_cents: the reporting currency for built-ins; absent = USD (segment signals).
+  optional string last_impact_currency = 25;
+  // Custom signals only: "expansion" | "risk" | "contracts" | "billing". Decides where the
+  // signal shows and whether its events carry a revenue impact. Absent on built-ins and monitors.
+  optional string category = 26;
+  // Until then the definition evaluates and records its firings, but sends nothing.
+  optional string muted_until = 27;
+}
+
+message AlertEvent {
+  string id = 1;
+  string alert_definition_id = 2;
+  string fired_at = 3;
+  string window_date = 4;
+  double metric_value = 5;
+  optional double baseline_value = 6;
+  optional double score = 7;
+  AlertSeverityEnum severity = 8;
+  AlertEventStatusEnum status = 9;
+  // JSON-encoded payload
+  string payload = 10;
+  optional string delivered_at = 11;
+  optional string acknowledged_at = 12;
+  // Set on per-customer (segment membership) events; the payload carries the
+  // customer_name for display.
+  optional string customer_id = 13;
+  // Label for the per-account driver carried in metric_value (e.g. "MRR").
+  optional string driver_label = 14;
+  // JSON SignalEvidence ({"kind": …, "v": 1, …}); set on built-in events.
+  optional string evidence = 15;
+  // Signed impact in impact_currency minor units (risk < 0, opportunity > 0).
+  optional int64 impact_cents = 16;
+  optional string impact_currency = 17;
+}
+
+// What a monitor's condition compares: the value itself, or its change on the previous window.
+enum MonitorQuantity {
+  MONITOR_QUANTITY_LEVEL = 0;
+  MONITOR_QUANTITY_PERCENT_CHANGE = 1;
+}
+
+message MonitorPoint {
+  string window_start = 1;
+  // The evaluated quantity: money in major units, a change in percent.
+  double value = 2;
+  // An anomaly's expected band.
+  optional double lower = 3;
+  optional double upper = 4;
+  // The condition holds on this window.
+  bool breach = 5;
+}

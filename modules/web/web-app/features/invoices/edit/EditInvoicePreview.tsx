@@ -34,7 +34,7 @@ export const EditInvoicePreview = ({ previewData, isLoading }: EditInvoicePrevie
 
   return (
     <div className="w-full h-full flex flex-col relative">
-      <div className="flex flex-col items-center justify-center gap-5 bg-gray-100 py-10 relative">
+      <div className="flex flex-col items-center justify-center gap-5 bg-gray-100 py-10 px-4 relative">
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center z-10">
             <div className="absolute inset-0 backdrop-blur-[2px] flex items-center justify-center z-10"></div>
@@ -46,7 +46,7 @@ export const EditInvoicePreview = ({ previewData, isLoading }: EditInvoicePrevie
 
         {displayedSvgs.map((svgContent, i) => (
           <div
-            className="bg-white"
+            className="bg-white max-w-full [&>svg]:h-auto [&>svg]:max-w-full"
             key={`svg-${i}`}
             style={{
               boxShadow: '0px 4px 12px rgba(89, 85, 101, .2)',

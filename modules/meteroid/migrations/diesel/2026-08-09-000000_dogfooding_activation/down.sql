@@ -1,0 +1,12 @@
+DROP INDEX idx_organization_invite_accepted_sync;
+DROP INDEX idx_organization_invite_created_sync;
+DROP INDEX idx_api_token_created_sync;
+DROP INDEX idx_organization_created_sync;
+DROP INDEX idx_organization_milestone_sync;
+DROP INDEX idx_org_security_audit_log_login_sync;
+DROP TABLE dogfooding_sync_state;
+DROP TABLE organization_milestone;
+DROP TYPE "MilestoneEnum";
+ALTER TABLE api_token
+    DROP COLUMN first_used_at,
+    DROP COLUMN last_used_at;

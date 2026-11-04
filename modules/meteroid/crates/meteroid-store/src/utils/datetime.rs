@@ -1,4 +1,4 @@
-use chrono::{Datelike, Months, NaiveDate, Weekday};
+use chrono::{Datelike, Months, NaiveDate, NaiveDateTime, NaiveTime, Weekday};
 
 pub fn start_of_week(date: NaiveDate) -> NaiveDate {
     if date.weekday() == Weekday::Mon {
@@ -72,6 +72,24 @@ pub fn end_of_year(date: NaiveDate) -> NaiveDate {
 pub fn sub_months(date: NaiveDate, n: u32) -> NaiveDate {
     date.checked_sub_months(Months::new(n))
         .expect("invalid date")
+}
+
+fn start_of(date: NaiveDate) -> NaiveDateTime {
+    date.and_time(NaiveTime::MIN)
+}
+
+/// Share of `[start, end_exclusive)` elapsed at `now`, clamped to 0..=1; an empty period is 1.
+pub fn elapsed_fraction(start: NaiveDate, end_exclusive: NaiveDate, now: NaiveDateTime) -> f64 {
+    elapsed_between(start_of(start), start_of(end_exclusive), now)
+}
+
+/// [`elapsed_fraction`] between two instants.
+pub fn elapsed_between(start: NaiveDateTime, end: NaiveDateTime, now: NaiveDateTime) -> f64 {
+    let total = (end - start).num_seconds();
+    if total <= 0 {
+        return 1.0;
+    }
+    ((now - start).num_seconds() as f64 / total as f64).clamp(0.0, 1.0)
 }
 
 #[cfg(test)]
@@ -152,5 +170,19 @@ mod tests {
 
         let res = sub_months(date, 12);
         assert_eq!(res, NaiveDate::from_ymd_opt(2023, 2, 21).unwrap());
+    }
+
+    #[test]
+    fn elapsed_between_instants_is_clamped() {
+        let at = |day: u32| {
+            NaiveDate::from_ymd_opt(2026, 9, day)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+        };
+        let (start, end) = (at(1), at(11));
+        assert_eq!(elapsed_between(start, end, at(6)), 0.5);
+        assert_eq!(elapsed_between(start, end, at(20)), 1.0);
+        assert_eq!(elapsed_between(start, start, at(6)), 1.0);
     }
 }

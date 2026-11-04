@@ -55,7 +55,7 @@ impl PennylaneClient {
         max_retries: u32,
         rps: NonZeroU32,
     ) -> Self {
-        let raw_client = Client::builder()
+        let raw_client = http_client_tracing::client_builder()
             .connect_timeout(connect_timeout)
             .timeout(timeout)
             .build()
@@ -70,6 +70,7 @@ impl PennylaneClient {
         let client = ClientBuilder::new(raw_client.clone())
             .with(RateLimitMiddleware::from_rate_limiter(rate_limiter.clone()))
             .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+            .with(http_client_tracing::ClientSpanMiddleware)
             .build();
 
         Self {

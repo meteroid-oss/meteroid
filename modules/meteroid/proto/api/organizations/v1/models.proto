@@ -10,6 +10,7 @@ message Organization {
   string trade_name = 3;
   string created_at = 4;
   bool is_express = 5;
+  bool mfa_required = 6;
 }
 
 message OrganizationWithTenant {
@@ -19,4 +20,5 @@ message OrganizationWithTenant {
   string created_at = 4;
   repeated meteroid.api.tenants.v1.Tenant tenants = 5;
   bool is_express = 6;
+  bool mfa_required = 7;
 }

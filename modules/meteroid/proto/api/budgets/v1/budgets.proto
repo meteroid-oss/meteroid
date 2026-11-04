@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package meteroid.api.budgets.v1;
+
+import "api/budgets/v1/models.proto";
+import "common/v1/pagination.proto";
+
+// A customer's spend estimates.
+service BudgetsService {
+  rpc ListBudgets(ListBudgetsRequest) returns (ListBudgetsResponse);
+  rpc CreateBudget(CreateBudgetRequest) returns (CreateBudgetResponse);
+  // The currency and the subscription are fixed at creation.
+  rpc UpdateBudget(UpdateBudgetRequest) returns (UpdateBudgetResponse);
+  rpc ArchiveBudget(ArchiveBudgetRequest) returns (ArchiveBudgetResponse);
+}
+
+message ListBudgetsRequest {
+  string customer_id = 1;
+  bool include_archived = 2;
+  meteroid.common.v1.Pagination pagination = 3;
+}
+message ListBudgetsResponse {
+  repeated Budget budgets = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+  // Currencies the customer is billed in, for choosing where to set a budget.
+  repeated string currencies = 3;
+}
+
+message CreateBudgetRequest {
+  string customer_id = 1;
+  string currency = 2;
+  int64 amount = 3;
+  // Empty for the defaults: 50, 80 and 100.
+  repeated uint32 thresholds = 4;
+  // Unspecified for soft.
+  BudgetBehavior behavior = 5;
+  // Counts only this subscription's usage; unset for the whole customer. Fixed at creation.
+  optional string subscription_id = 6;
+}
+message CreateBudgetResponse { Budget budget = 1; }
+
+message Thresholds { repeated uint32 values = 1; }
+
+// A stale expected_version is refused as aborted.
+message UpdateBudgetRequest {
+  string customer_id = 1;
+  string budget_id = 2;
+  int32 expected_version = 3;
+  optional int64 amount = 4;
+  optional Thresholds thresholds = 5;
+  // Unspecified leaves it unchanged.
+  BudgetBehavior behavior = 6;
+}
+message UpdateBudgetResponse { Budget budget = 1; }
+
+message ArchiveBudgetRequest {
+  string customer_id = 1;
+  string budget_id = 2;
+}
+message ArchiveBudgetResponse { Budget budget = 1; }

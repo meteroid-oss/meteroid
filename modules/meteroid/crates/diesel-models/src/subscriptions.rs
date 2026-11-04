@@ -53,9 +53,21 @@ pub struct SubscriptionRow {
     pub processing_started_at: Option<NaiveDateTime>,
     pub payment_methods_config: Option<serde_json::Value>,
     pub imported_at: Option<NaiveDateTime>,
+    pub custom_properties: serde_json::Value,
+    pub terminated_at: Option<NaiveDateTime>,
+    /// Snapshot of the plan version's setting at creation; see `InvoiceRow::tax_inclusive`.
+    pub tax_inclusive: bool,
+    /// The tax rate baked into the quoted prices, resolved at creation. `None` when the
+    /// subscription is tax-exclusive or bears no tax; see the migration for the semantics.
+    pub tax_inclusive_rate: Option<Decimal>,
+    pub usage_filter_property: Option<String>,
+    pub usage_filter_value: Option<String>,
+    pub usage_filter_since: Option<NaiveDateTime>,
+    /// Trigger-maintained: true while the tenant is not ACTIVE.
+    pub lifecycle_suspended: bool,
 }
 
-#[derive(Insertable, Debug)]
+#[derive(Insertable, Debug, Clone)]
 #[diesel(table_name = crate::schema::subscription)]
 pub struct SubscriptionRowNew {
     pub id: SubscriptionId,
@@ -89,6 +101,13 @@ pub struct SubscriptionRowNew {
     pub backdate_invoices: bool,
     pub payment_methods_config: Option<serde_json::Value>,
     pub imported_at: Option<NaiveDateTime>,
+    pub custom_properties: serde_json::Value,
+    pub tax_inclusive: bool,
+    /// See `SubscriptionRow::tax_inclusive_rate`.
+    pub tax_inclusive_rate: Option<Decimal>,
+    pub usage_filter_property: Option<String>,
+    pub usage_filter_value: Option<String>,
+    pub usage_filter_since: Option<NaiveDateTime>,
 }
 
 pub struct CancelSubscriptionParams {
@@ -145,6 +164,21 @@ pub struct SubscriptionCycleRowPatch {
     pub processing_started_at: Option<Option<NaiveDateTime>>,
     pub billing_start_date: Option<NaiveDate>,
     pub billing_day_anchor: Option<i16>,
+    pub terminated_at: Option<Option<NaiveDateTime>>,
+}
+
+/// The cadence a subscription renews on, and its current period on that cadence's grid.
+#[derive(AsChangeset)]
+#[diesel(table_name = crate::schema::subscription)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct SubscriptionCadenceRowPatch {
+    pub id: SubscriptionId,
+    pub tenant_id: TenantId,
+    pub period: BillingPeriodEnum,
+    pub current_period_start: NaiveDate,
+    pub current_period_end: Option<NaiveDate>,
+    pub cycle_index: Option<i32>,
+    pub next_cycle_action: Option<CycleActionEnum>,
 }
 
 #[derive(AsChangeset)]
@@ -159,7 +193,7 @@ pub struct SubscriptionCycleErrorRowPatch {
     pub status: Option<SubscriptionStatusEnum>,
 }
 
-#[derive(AsChangeset, Debug)]
+#[derive(AsChangeset, Debug, Clone)]
 #[diesel(table_name = crate::schema::subscription)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct SubscriptionRowPatch {
@@ -169,4 +203,23 @@ pub struct SubscriptionRowPatch {
     pub invoice_memo: Option<Option<String>>,
     pub purchase_order: Option<Option<String>>,
     pub payment_methods_config: Option<Option<serde_json::Value>>,
+    pub custom_properties: Option<serde_json::Value>,
+    pub usage_filter_property: Option<Option<String>>,
+    pub usage_filter_value: Option<Option<String>>,
+    pub usage_filter_since: Option<Option<NaiveDateTime>>,
+}
+
+impl SubscriptionRowPatch {
+    pub fn is_empty(&self) -> bool {
+        self.charge_automatically.is_none()
+            && self.auto_advance_invoices.is_none()
+            && self.net_terms.is_none()
+            && self.invoice_memo.is_none()
+            && self.purchase_order.is_none()
+            && self.payment_methods_config.is_none()
+            && self.custom_properties.is_none()
+            && self.usage_filter_property.is_none()
+            && self.usage_filter_value.is_none()
+            && self.usage_filter_since.is_none()
+    }
 }

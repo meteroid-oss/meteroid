@@ -10,6 +10,7 @@ async fn invite_and_get_token(clients: &meteroid_it::clients::AllClients, email:
         .invite_member(api::users::v1::InviteMemberRequest {
             email: email.to_string(),
             role: api::users::v1::OrganizationUserRole::Member as i32,
+            custom_role_id: None,
         })
         .await
         .unwrap()
@@ -20,7 +21,8 @@ async fn invite_and_get_token(clients: &meteroid_it::clients::AllClients, email:
 #[tokio::test]
 async fn test_users_basic() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::MINIMAL).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
@@ -96,7 +98,8 @@ async fn test_users_basic() {
 #[tokio::test]
 async fn test_leave_and_remove_member() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::MINIMAL).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
@@ -200,7 +203,8 @@ async fn test_leave_and_remove_member() {
 #[tokio::test]
 async fn test_org_invite_flow() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::MINIMAL).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
@@ -227,6 +231,7 @@ async fn test_org_invite_flow() {
         .invite_member(api::users::v1::InviteMemberRequest {
             email: me_email.to_string(),
             role: api::users::v1::OrganizationUserRole::Member as i32,
+            custom_role_id: None,
         })
         .await;
     assert!(self_invite_err.is_err());
@@ -241,6 +246,7 @@ async fn test_org_invite_flow() {
         .invite_member(api::users::v1::InviteMemberRequest {
             email: invitee_email.to_string(),
             role: api::users::v1::OrganizationUserRole::Member as i32,
+            custom_role_id: None,
         })
         .await
         .unwrap();
@@ -251,6 +257,7 @@ async fn test_org_invite_flow() {
         .invite_member(api::users::v1::InviteMemberRequest {
             email: invitee_email.to_string(),
             role: api::users::v1::OrganizationUserRole::Member as i32,
+            custom_role_id: None,
         })
         .await;
     assert!(dup_err.is_err());

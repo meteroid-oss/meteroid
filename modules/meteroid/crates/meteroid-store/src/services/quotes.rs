@@ -90,6 +90,8 @@ fn build_subscription_from_quote(
         backdate_invoices: false,
         skip_checkout_session: false,
         skip_past_invoices: false,
+        usage_filter: None,
+        custom_properties: serde_json::Value::Null,
     };
 
     let components: Vec<SubscriptionComponentNewInternal> = detailed_quote
@@ -129,7 +131,7 @@ fn build_subscription_from_quote(
         .iter()
         .map(|e| EntitlementSpec {
             feature_id: e.feature_id,
-            value: e.value.clone(),
+            value: e.value.clone().without_inert_limit_terms(),
         })
         .collect();
 
@@ -140,5 +142,9 @@ fn build_subscription_from_quote(
         coupon_ids,
         quote_id: quote.id,
         entitlements,
+        minimum_override: detailed_quote
+            .minimum
+            .as_ref()
+            .map(|minimum| (minimum.amount_subunit, minimum.create_scope())),
     })
 }

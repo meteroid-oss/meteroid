@@ -19,6 +19,7 @@ use o2o::o2o;
 use std::collections::HashMap;
 
 use crate::domain::ProductFamilyOverview;
+use crate::domain::credit_exhausted::CreditExhaustedRule;
 use crate::domain::price_components::{PriceComponent, PriceComponentNewInternal};
 use crate::domain::products::Product;
 
@@ -79,6 +80,10 @@ pub struct PlanVersionNewInternal {
     pub billing_cycles: Option<i32>,
     pub trial: Option<PlanTrial>,
     pub entitlements: Vec<crate::domain::entitlements::EntitlementSpec>,
+    /// The version's amounts are quoted tax-included. See `PlanVersion::tax_inclusive`.
+    pub tax_inclusive: bool,
+    /// Unset leaves a draft to the default its components give when it is published.
+    pub credit_exhausted_rule: Option<CreditExhaustedRule>,
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +105,11 @@ pub struct PlanVersionNew {
 
 impl PlanVersionNew {
     pub fn into_raw(self, tenant_currency: String) -> PlanVersionRowNew {
+        let (credit_exhausted_rule, credit_exhausted_caps) = self
+            .internal
+            .credit_exhausted_rule
+            .map(|rule| rule.to_row())
+            .unzip();
         PlanVersionRowNew {
             id: PlanVersionId::new(),
             plan_id: self.plan_id,
@@ -122,6 +132,9 @@ impl PlanVersionNew {
             currency: self.internal.currency.unwrap_or(tenant_currency),
             billing_cycles: self.internal.billing_cycles,
             uses_product_pricing: true,
+            tax_inclusive: self.internal.tax_inclusive,
+            credit_exhausted_rule,
+            credit_exhausted_caps: credit_exhausted_caps.unwrap_or_else(|| serde_json::json!({})),
         }
     }
 }
@@ -142,6 +155,7 @@ pub struct Plan {
     pub active_version_id: Option<PlanVersionId>,
     pub draft_version_id: Option<PlanVersionId>,
     pub self_service_rank: Option<i32>,
+    pub issues_license: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, o2o)]
@@ -161,8 +175,20 @@ pub struct PlanVersion {
     pub trial_is_free: bool,
     pub trial_duration_days: Option<i32>,
     pub uses_product_pricing: bool,
+    /// How this version's amounts read: tax-included ("9.99 incl. VAT") rather than net.
+    /// It belongs with `currency` — both say what a number on the plan means. Subscriptions
+    /// snapshot it at creation, so changing it here never re-reads what is already sold.
+    pub tax_inclusive: bool,
+    /// What usage does once the credit it draws on runs out. Unset on a draft whose rule was not
+    /// chosen: publishing sets the default its components give (see `default_for`).
+    #[from(@.credit_exhausted_rule.map(|rule| CreditExhaustedRule::from_row(rule, &@.credit_exhausted_caps)))]
+    pub credit_exhausted_rule: Option<CreditExhaustedRule>,
     #[ghost({vec![]})]
     pub entitlements: Vec<Entitlement>,
+    /// Plan-level minimum commitment. Populated by enriched loaders only (e.g. `FullPlan`
+    /// via `convert_full_plan_row`); other loaders leave this as `None`.
+    #[ghost({None})]
+    pub minimum: Option<crate::domain::plan_minimums::PlanMinimum>,
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -185,6 +211,7 @@ pub struct PlanOverview {
     pub has_draft_version: bool,
     pub subscription_count: Option<i64>,
     pub self_service_rank: Option<i32>,
+    pub issues_license: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, o2o)]
@@ -225,15 +252,35 @@ pub struct PlanForSubscription {
     pub trial_duration_days: Option<i32>,
     pub trial_is_free: bool,
     pub product_family_id: ProductFamilyId,
+    pub tax_inclusive: bool,
 }
 
-#[derive(Clone, Debug, o2o)]
-#[owned_into(PlanVersionRowPatch)]
+#[derive(Clone, Debug)]
 pub struct PlanVersionPatch {
     pub id: PlanVersionId,
     pub tenant_id: TenantId,
     pub currency: Option<String>,
     pub net_terms: Option<i32>,
+    pub tax_inclusive: Option<bool>,
+    pub credit_exhausted_rule: Option<CreditExhaustedRule>,
+}
+
+impl From<PlanVersionPatch> for PlanVersionRowPatch {
+    fn from(patch: PlanVersionPatch) -> Self {
+        let (credit_exhausted_rule, credit_exhausted_caps) = patch
+            .credit_exhausted_rule
+            .map(|rule| rule.to_row())
+            .unzip();
+        Self {
+            id: patch.id,
+            tenant_id: patch.tenant_id,
+            currency: patch.currency,
+            net_terms: patch.net_terms,
+            tax_inclusive: patch.tax_inclusive,
+            credit_exhausted_rule,
+            credit_exhausted_caps,
+        }
+    }
 }
 
 pub struct PlanAndVersionPatch {
@@ -252,6 +299,7 @@ pub struct PlanPatch {
     pub description: Option<Option<String>>,
     pub active_version_id: Option<Option<PlanVersionId>>,
     pub self_service_rank: Option<Option<i32>>,
+    pub issues_license: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, o2o)]

@@ -2,25 +2,34 @@
 //! All Stripe-specific type mapping lives here; the rest of the codebase only
 //! sees the normalized types from [`super::model`] and [`super::events`].
 
+use super::account::{ValidatedCredentials, mask_secret};
 use super::connector::{
-    ConnectorCapabilities, ConnectorIdentity, CredentialOps, CustomerOps, HostedSetupCompletion,
-    MandateOps, MandateSetupMode, PaymentOps, ReconcileOps, RefundOps, WebhookOps,
+    ConnectorIdentity, ConnectorRef, CredentialOps, CustomerOps, InboundWebhooks, MandateOps,
+    MandateSetup, PaymentCapabilities, PaymentOps, ReconcileOps, RefundOps, RefundSupport,
+    WebhookOps, subscription_fingerprint,
 };
-use super::error::ConnectorError;
+use super::error::{ConnectorError, CredentialsRejected};
 use super::events::{
     DisputeEvent, NormalizedEventKind, NormalizedEventSubscription, NormalizedWebhookEvent,
-    PaymentFailedEvent, PaymentMethodAttachedEvent, PaymentMethodDetachedEvent,
-    PaymentMethodUpdatedEvent, PaymentPendingEvent, PaymentRefundedEvent,
-    PaymentRequiresActionEvent, PaymentSucceededEvent,
+    ObservedRefundOnWire, PaymentFailedEvent, PaymentMethodAttachedEvent,
+    PaymentMethodDetachedEvent, PaymentMethodUpdatedEvent, PaymentPendingEvent,
+    PaymentRefundedEvent, PaymentRequiresActionEvent, PaymentSucceededEvent,
+    RefundStatusChangedEvent,
 };
 use super::model::{
     ChargeAcknowledged, ChargeCancelled, ChargeFailure, ChargeOutcome, ChargeReceipt,
     ChargeRequest, CreateCustomerRequest, DeclineKind, ExternalCustomerRef,
-    MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot, RefundOutcome,
-    RefundRequest, RefundSnapshot, RegisteredWebhook, RemoteTransactionStatus,
+    MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot, RefundAcknowledged,
+    RefundFailure, RefundOutcome, RefundReason, RefundReceipt, RefundRequest, RefundSnapshot,
+    RegisteredWebhook, RemoteRefundStatus, RemoteTransactionStatus, RequiresActionInstruction,
+    SetupPurpose,
 };
-use crate::domain::connectors::{Connector, ProviderData, ProviderSensitiveData};
-use crate::domain::enums::ConnectorProviderEnum;
+use crate::domain::ObservedRefundStatus;
+use crate::domain::connectors::{
+    MethodState, PaymentConnectorPublicData, PaymentMethodAvailability, ProviderAccount,
+    StripePublicData, StripeSensitiveData,
+};
+use crate::domain::enums::{PaymentProvider, ReversalKind};
 use crate::domain::{Address, Customer, CustomerConnection, PaymentMethodTypeEnum};
 use async_trait::async_trait;
 use chrono::DateTime;
@@ -29,7 +38,9 @@ use error_stack::Report;
 use http::HeaderMap;
 use secrecy::{ExposeSecret, SecretString};
 use std::collections::HashMap;
+use std::num::NonZeroU32;
 use std::sync::OnceLock;
+use std::time::Duration;
 use stripe_client::client::StripeClient;
 use stripe_client::customers::{
     CreateCustomer, CustomerApi, CustomerShipping, OptionalFieldsAddress,
@@ -39,58 +50,77 @@ use stripe_client::payment_intents::{
     PaymentIntentApi, PaymentIntentRequest, StripeNextAction, StripePaymentError,
     StripePaymentIntent, StripePaymentStatus,
 };
+use stripe_client::payment_method_configurations::PaymentMethodConfiguration;
 use stripe_client::payment_methods::{
     PaymentMethod, PaymentMethodsApi, StripePaymentMethodType as StripePmType,
+};
+use stripe_client::refunds::{
+    CreateRefund, RefundApi, StripeRefund, StripeRefundReason, refund_status,
 };
 use stripe_client::setup_intents::{
     CreateSetupIntent, CreateSetupIntentUsage, SetupIntentApi,
     StripePaymentMethodType as StripeSetupPmType,
 };
-use stripe_client::webhook::{Event, EventObject, StripeWebhook, event_type};
+use stripe_client::webhook::{Event, EventObject, StripeRefundList, StripeWebhook, event_type};
 use stripe_client::webhook_endpoints::{
     CreateWebhookEndpointRequest, UpdateWebhookEndpointRequest, WebhookEndpointApi,
 };
 
-/// The bits describe Stripe's *protocol* capability, gated by impl state:
-/// `supports_refunds` is `false` because `refund()` still returns
-/// `Unsupported` — flip it once that's implemented. (Webhook
-/// self-registration, by contrast, is implemented and auto-invoked on
-/// connect.)
-pub(super) const STRIPE_CAPABILITIES: ConnectorCapabilities = ConnectorCapabilities {
-    supports_cards: true,
-    supports_mandates: true,
-    supports_refunds: false,
-    // Implied by `supports_refunds` (see `assert_capabilities_consistent`
-    // in contract.rs): can't do partial refunds when `refund()` does none.
-    supports_partial_refunds: false,
-    supports_3ds: true,
-    supports_disputes: true,
-    supports_self_webhook_registration: true,
-    asynchronous_settlement: true,
+mod wallet;
+
+/// The bits describe Stripe's *protocol* capability, gated by impl state: every
+/// one advertised here is implemented, refunds and webhook self-registration
+/// included.
+pub(super) const STRIPE_CAPABILITIES: PaymentCapabilities = PaymentCapabilities {
     supported_payment_methods: &[
         PaymentMethodTypeEnum::Card,
         PaymentMethodTypeEnum::DirectDebitSepa,
         PaymentMethodTypeEnum::DirectDebitAch,
         PaymentMethodTypeEnum::DirectDebitBacs,
     ],
-    mandate_setup_mode: MandateSetupMode::EmbeddedClientSecret,
-    webhook_replay_tolerance_secs: 300,
+    supports_mandates: true,
+    // `POST /v1/refunds` takes an explicit `amount`.
+    refunds: RefundSupport::Partial,
+    // Stripe keeps an Idempotency-Key 24h; replays stay well inside it.
+    refund_replay_window: Some(Duration::from_secs(12 * 60 * 60)),
+    supports_3ds: true,
+    supports_disputes: true,
+    webhooks: Some(InboundWebhooks {
+        requires_secret: true,
+        // Implemented, and auto-invoked on connect.
+        self_registration: true,
+        replay_tolerance_secs: NonZeroU32::new(300).unwrap(),
+    }),
+    asynchronous_settlement: true,
     // Setup completes client-side and `payment_method.attached` /
     // `setup_intent.succeeded` webhooks back it up — never swept.
-    hosted_setup_completion: HostedSetupCompletion::WebhookBacked,
-    supports_hosted_invoice_payment: false,
+    mandate_setup: MandateSetup::EmbeddedClientSecret,
     supports_hosted_checkout: false,
     pending_charge_accepted: false,
+    is_test_gateway: false,
 };
 
-/// Wraps a process-wide [`StripeClient`]: every tenant shares one pool since
-/// they all hit `api.stripe.com`. Per-tenant data lives on [`Connector`].
-#[derive(Debug, Clone, Copy)]
-pub struct StripeConnector;
+/// Bound to one Stripe connector: holds its identity and typed credentials for
+/// life. The [`StripeClient`] itself is process-wide — every tenant shares one
+/// pool since they all hit `api.stripe.com`.
+#[derive(Debug, Clone)]
+pub struct StripeConnector {
+    connector: ConnectorRef,
+    public: StripePublicData,
+    sensitive: StripeSensitiveData,
+}
 
 impl StripeConnector {
-    pub fn new() -> Self {
-        StripeConnector
+    pub fn new(
+        connector: ConnectorRef,
+        public: StripePublicData,
+        sensitive: StripeSensitiveData,
+    ) -> Self {
+        Self {
+            connector,
+            public,
+            sensitive,
+        }
     }
 
     /// Process-wide pooled client; the wrapper holds tuning (timeouts, retry
@@ -99,20 +129,23 @@ impl StripeConnector {
         static CLIENT: OnceLock<StripeClient> = OnceLock::new();
         CLIENT.get_or_init(StripeClient::new)
     }
-}
 
-impl Default for StripeConnector {
-    fn default() -> Self {
-        Self::new()
+    fn secret_key(&self) -> SecretString {
+        self.sensitive.api_secret_key.clone()
+    }
+
+    /// The publishable key is public by definition; the client takes every key as a secret.
+    fn publishable_key(&self) -> SecretString {
+        SecretString::from(self.public.api_publishable_key.clone())
     }
 }
 
 impl ConnectorIdentity for StripeConnector {
-    fn provider(&self) -> ConnectorProviderEnum {
-        ConnectorProviderEnum::Stripe
+    fn provider(&self) -> PaymentProvider {
+        PaymentProvider::Stripe
     }
 
-    fn capabilities(&self) -> &ConnectorCapabilities {
+    fn capabilities(&self) -> &PaymentCapabilities {
         &STRIPE_CAPABILITIES
     }
 }
@@ -120,44 +153,118 @@ impl ConnectorIdentity for StripeConnector {
 #[async_trait]
 impl CredentialOps for StripeConnector {
     /// The account lookup doubles as the credential check; its id is stored in the public data.
-    async fn validate_credentials(
-        &self,
-        connector: &Connector,
-    ) -> Result<ProviderData, Report<ConnectorError>> {
+    async fn validate_credentials(&self) -> Result<ValidatedCredentials, Report<ConnectorError>> {
         use stripe_client::accounts::AccountsApi;
-        let secret = extract_secret_key(connector)?;
-        let publishable = extract_publishable_key(connector)?;
+        let secret = self.secret_key();
+        let publishable = self.publishable_key();
         let account = Self::client()
             .get_account(&secret)
             .await
             .map_err(|e| match &e {
                 StripeError::Stripe(req) if matches!(req.http_status, 400 | 401 | 403) => {
-                    Report::new(ConnectorError::Configuration(format!(
-                        "Stripe rejected these API keys: {e}"
-                    )))
+                    let report = Report::new(ConnectorError::Configuration(
+                        "Invalid API keys".to_string(),
+                    ))
+                    .attach(e.to_string());
+                    if req.http_status == 400 {
+                        report
+                    } else {
+                        report.attach_opaque(CredentialsRejected)
+                    }
                 }
                 _ => Report::new(ConnectorError::Transport(format!(
                     "Couldn't reach Stripe to verify the keys: {e}"
                 ))),
             })?;
-        Ok(ProviderData::Stripe(
-            crate::domain::connectors::StripePublicData {
-                api_publishable_key: publishable.expose_secret().to_string(),
-                account_id: account.id,
+        // Account details only: a key that can't read payment-method settings (a restricted
+        // key without that scope) still works, and falls back to the account capabilities.
+        let configuration = {
+            use stripe_client::payment_method_configurations::PaymentMethodConfigurationsApi;
+            Self::client()
+                .default_payment_method_configuration(&secret)
+                .await
+                .inspect_err(|e| log::warn!("Stripe payment method settings unavailable: {e}"))
+                .ok()
+                .flatten()
+        };
+        let secret = secret.expose_secret();
+        Ok(ValidatedCredentials {
+            account: ProviderAccount {
+                account_id: Some(account.id.clone()),
+                display_name: account.display_name(),
+                livemode: secret.starts_with("sk_live_") || secret.starts_with("rk_live_"),
+                key_hint: Some(mask_secret(secret)),
+                methods: stripe_methods(&account.capabilities, configuration.as_ref()),
+                checked_at: chrono::Utc::now().naive_utc(),
             },
-        ))
+            public: PaymentConnectorPublicData::Stripe(StripePublicData {
+                api_publishable_key: publishable.expose_secret().to_string(),
+                account_id: Some(account.id),
+                webhook_events_fingerprint: None,
+            }),
+        })
     }
+}
+
+/// Per rail: the Dashboard's payment-method settings decide when readable (direct accounts report
+/// no capabilities); otherwise the account capabilities (Connect accounts). A rail neither
+/// reports stays enabled, since blocking it could break a working setup.
+fn stripe_methods(
+    capabilities: &HashMap<String, String>,
+    configuration: Option<&PaymentMethodConfiguration>,
+) -> Vec<PaymentMethodAvailability> {
+    STRIPE_CAPABILITIES
+        .supported_payment_methods
+        .iter()
+        .map(|method| {
+            let (method_type, capability) = match method {
+                PaymentMethodTypeEnum::Card => ("card", "card_payments"),
+                PaymentMethodTypeEnum::DirectDebitSepa => ("sepa_debit", "sepa_debit_payments"),
+                PaymentMethodTypeEnum::DirectDebitAch => {
+                    ("us_bank_account", "us_bank_account_ach_payments")
+                }
+                PaymentMethodTypeEnum::DirectDebitBacs => ("bacs_debit", "bacs_debit_payments"),
+                PaymentMethodTypeEnum::Transfer | PaymentMethodTypeEnum::Other => ("", ""),
+            };
+            let setting = configuration.and_then(|c| c.method(method_type));
+            let (state, reason) = match (setting, capabilities.get(capability).map(String::as_str))
+            {
+                (_, Some("pending")) => (
+                    MethodState::Pending,
+                    Some("Stripe is still reviewing this payment method".to_string()),
+                ),
+                (Some(s), _) if !s.available => (
+                    MethodState::Unavailable,
+                    Some("Not available on this Stripe account".to_string()),
+                ),
+                (Some(s), _) if !s.is_on() => (
+                    MethodState::Unavailable,
+                    Some("Turned off in Stripe's payment method settings".to_string()),
+                ),
+                (Some(_), _) => (MethodState::Enabled, None),
+                (None, Some("inactive")) => (
+                    MethodState::Unavailable,
+                    Some("Not active on this Stripe account".to_string()),
+                ),
+                (None, _) => (MethodState::Enabled, None),
+            };
+            PaymentMethodAvailability {
+                method: method.clone(),
+                state,
+                reason,
+            }
+        })
+        .collect()
 }
 
 #[async_trait]
 impl CustomerOps for StripeConnector {
     async fn create_customer(
         &self,
-        connector: &Connector,
         customer: &Customer,
         request: CreateCustomerRequest,
     ) -> Result<ExternalCustomerRef, Report<ConnectorError>> {
-        let secret_key = extract_secret_key(connector)?;
+        let secret_key = self.secret_key();
 
         let mut metadata = HashMap::from([
             ("meteroid.id".to_string(), customer.id.as_base62()),
@@ -173,7 +280,7 @@ impl CustomerOps for StripeConnector {
         let res = Self::client()
             .create_customer(
                 CreateCustomer {
-                    name: Some(customer.name.clone()),
+                    name: Some(customer.display_name()),
                     address: customer.billing_address.as_ref().map(map_address),
                     email: customer.billing_email.clone(),
                     source: None,
@@ -183,7 +290,7 @@ impl CustomerOps for StripeConnector {
                         .and_then(|a| a.address.as_ref())
                         .map(|a| CustomerShipping {
                             address: map_address(a),
-                            name: customer.name.clone(),
+                            name: customer.display_name(),
                             phone: customer.phone.clone(),
                         }),
                     metadata: Some(metadata),
@@ -209,12 +316,11 @@ impl CustomerOps for StripeConnector {
 impl MandateOps for StripeConnector {
     async fn initiate_mandate_setup(
         &self,
-        connector: &Connector,
         connection: &CustomerConnection,
         request: MandateSetupRequest<'_>,
     ) -> Result<MandateSetupInstruction, Report<ConnectorError>> {
-        let secret_key = extract_secret_key(connector)?;
-        let publishable_key = extract_publishable_key(connector)?;
+        let secret_key = self.secret_key();
+        let publishable_key = self.publishable_key();
 
         let stripe_payment_methods: Vec<StripeSetupPmType> = request
             .payment_methods
@@ -225,7 +331,7 @@ impl MandateOps for StripeConnector {
         let metadata = HashMap::from([
             (
                 "meteroid.tenant_id".to_string(),
-                connector.tenant_id.as_base62(),
+                self.connector.tenant_id.as_base62(),
             ),
             (
                 "meteroid.customer_id".to_string(),
@@ -234,6 +340,10 @@ impl MandateOps for StripeConnector {
             (
                 "meteroid.connection_id".to_string(),
                 connection.id.as_base62(),
+            ),
+            (
+                SetupPurpose::METADATA_KEY.to_string(),
+                request.purpose.as_str().to_string(),
             ),
         ]);
 
@@ -261,11 +371,10 @@ impl MandateOps for StripeConnector {
 
     async fn fetch_payment_method(
         &self,
-        connector: &Connector,
         external_payment_method_id: &str,
         external_customer_id: &str,
     ) -> Result<PaymentMethodSnapshot, Report<ConnectorError>> {
-        let secret_key = extract_secret_key(connector)?;
+        let secret_key = self.secret_key();
 
         let method = Self::client()
             .get_payment_method(
@@ -281,13 +390,12 @@ impl MandateOps for StripeConnector {
 
     async fn complete_mandate_setup(
         &self,
-        _connector: &Connector,
         _intent_id: &str,
     ) -> Result<PaymentMethodSnapshot, Report<ConnectorError>> {
         // Stripe SetupIntents finalize client-side and confirm via the
         // `setup_intent.succeeded` webhook; no server-side complete step.
         Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Stripe,
+            provider: self.provider().into(),
             capability: "mandate.complete (Stripe finalizes client-side via webhook)",
         }))
     }
@@ -297,19 +405,16 @@ impl MandateOps for StripeConnector {
 impl PaymentOps for StripeConnector {
     async fn charge_off_session(
         &self,
-        connector: &Connector,
         request: ChargeRequest<'_>,
     ) -> Result<ChargeOutcome, Report<ConnectorError>> {
-        let secret_key = extract_secret_key(connector)?;
+        let secret_key = self.secret_key();
         // Non-secret; surfaced in next_action so the portal can init Stripe.js.
-        let publishable_key = extract_publishable_key(connector)
-            .map(|k| k.expose_secret().to_string())
-            .unwrap_or_default();
+        let publishable_key = self.public.api_publishable_key.clone();
 
         let metadata = HashMap::from([
             (
                 "meteroid.tenant_id".to_string(),
-                connector.tenant_id.as_base62(),
+                self.connector.tenant_id.as_base62(),
             ),
             (
                 "meteroid.transaction_id".to_string(),
@@ -343,8 +448,35 @@ impl PaymentOps for StripeConnector {
 
         match result {
             Ok(intent) => Ok(intent_to_outcome(intent, &publishable_key)),
+            Err(StripeError::Stripe(req_err)) if req_err.http_status == 402 => {
+                Ok(ChargeOutcome::Failed(card_error_to_failure(req_err)))
+            }
             Err(e) => Err(map_stripe_error(e)),
         }
+    }
+
+    async fn fetch_pending_action(
+        &self,
+        external_transaction_id: &str,
+    ) -> Result<Option<RequiresActionInstruction>, Report<ConnectorError>> {
+        let secret_key = self.secret_key();
+        let publishable_key = self.publishable_key();
+
+        let intent = Self::client()
+            .get_payment_intent(external_transaction_id, &secret_key)
+            .await
+            .map_err(map_stripe_error)?;
+
+        // Any other status means the challenge was answered or lapsed meanwhile.
+        if intent.status != StripePaymentStatus::RequiresCustomerAction {
+            return Ok(None);
+        }
+        Ok(Some(requires_action_instruction(
+            intent.id,
+            intent.next_action,
+            intent.client_secret,
+            publishable_key.expose_secret(),
+        )))
     }
 }
 
@@ -352,26 +484,52 @@ impl PaymentOps for StripeConnector {
 impl RefundOps for StripeConnector {
     async fn refund(
         &self,
-        _connector: &Connector,
-        _request: RefundRequest<'_>,
+        request: RefundRequest<'_>,
     ) -> Result<RefundOutcome, Report<ConnectorError>> {
-        // Refunds not implemented.
-        Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Stripe,
-            capability: "refund",
-        }))
+        let secret_key = self.secret_key();
+
+        let mut metadata: HashMap<String, String> = request.metadata.into_iter().collect();
+        // The tenant tag is what lets the dispatcher drop a refund event delivered
+        // to another tenant's endpoint; never override what the caller stamped.
+        metadata
+            .entry("meteroid.tenant_id".to_string())
+            .or_insert_with(|| self.connector.tenant_id.as_base62());
+        // Stripe's `reason` enum has no free-text member, so a merchant-typed
+        // reason rides along as metadata instead of being dropped.
+        if let Some(RefundReason::Other(text)) = &request.reason {
+            metadata.insert("meteroid.refund_reason".to_string(), text.clone());
+        }
+
+        let refund = Self::client()
+            .create_refund(
+                CreateRefund {
+                    payment_intent: request.external_transaction_id.to_string(),
+                    amount: Some(request.amount_minor),
+                    reason: request.reason.as_ref().and_then(to_stripe_refund_reason),
+                    metadata,
+                },
+                &secret_key,
+                request.idempotency_key.as_str().to_string(),
+            )
+            .await
+            .map_err(map_stripe_error)?;
+
+        Ok(refund_to_outcome(refund))
     }
 
     async fn fetch_refund(
         &self,
-        _connector: &Connector,
-        _external_refund_id: &str,
+        external_refund_id: &str,
+        _external_transaction_id: Option<&str>,
     ) -> Result<RefundSnapshot, Report<ConnectorError>> {
-        // `charge.refunded` already carries the cumulative amount inline.
-        Err(Report::new(ConnectorError::Unsupported {
-            provider: ConnectorProviderEnum::Stripe,
-            capability: "fetch_refund",
-        }))
+        let secret_key = self.secret_key();
+
+        let refund = Self::client()
+            .get_refund(external_refund_id, &secret_key)
+            .await
+            .map_err(map_stripe_error)?;
+
+        Ok(refund_snapshot(refund))
     }
 }
 
@@ -379,10 +537,9 @@ impl RefundOps for StripeConnector {
 impl ReconcileOps for StripeConnector {
     async fn fetch_transaction_status(
         &self,
-        connector: &Connector,
         external_transaction_id: &str,
     ) -> Result<RemoteTransactionStatus, Report<ConnectorError>> {
-        let secret_key = extract_secret_key(connector)?;
+        let secret_key = self.secret_key();
 
         let result = Self::client()
             .get_payment_intent(external_transaction_id, &secret_key)
@@ -430,10 +587,10 @@ fn remote_status_from_intent(intent: StripePaymentIntent) -> RemoteTransactionSt
         }
         StripePaymentStatus::Pending
         | StripePaymentStatus::Processing
-        | StripePaymentStatus::RequiresCustomerAction
+        | StripePaymentStatus::RequiresCapture => RemoteTransactionStatus::Processing,
+        StripePaymentStatus::RequiresCustomerAction
         | StripePaymentStatus::RequiresPaymentMethod
-        | StripePaymentStatus::RequiresConfirmation
-        | StripePaymentStatus::RequiresCapture => RemoteTransactionStatus::Pending,
+        | StripePaymentStatus::RequiresConfirmation => RemoteTransactionStatus::Pending,
         StripePaymentStatus::Canceled => RemoteTransactionStatus::Cancelled,
         // Source-only statuses, never returned for a PaymentIntent GET; kept
         // as a defensive Failed mapping rather than a panic/Unknown.
@@ -452,11 +609,10 @@ fn remote_status_from_intent(intent: StripePaymentIntent) -> RemoteTransactionSt
 impl WebhookOps for StripeConnector {
     async fn register_webhook(
         &self,
-        connector: &Connector,
         url: &str,
         subscriptions: &[NormalizedEventSubscription],
     ) -> Result<RegisteredWebhook, Report<ConnectorError>> {
-        let secret_key = extract_secret_key(connector)?;
+        let secret_key = self.secret_key();
         let enabled_events = subscriptions_to_stripe_events(subscriptions);
 
         let endpoint = Self::client()
@@ -464,7 +620,7 @@ impl WebhookOps for StripeConnector {
                 CreateWebhookEndpointRequest {
                     url: url.to_string(),
                     enabled_events,
-                    description: Some(format!("Meteroid (tenant {})", connector.tenant_id)),
+                    description: Some(format!("Meteroid (tenant {})", self.connector.tenant_id)),
                 },
                 &secret_key,
                 // Idempotency key must be stable across retries: keyed on
@@ -472,7 +628,7 @@ impl WebhookOps for StripeConnector {
                 // generated per call) — an unstable key orphans an endpoint per retry.
                 format!(
                     "webhook_register:{}:{}:{}",
-                    connector.tenant_id, connector.alias, url
+                    self.connector.tenant_id, self.connector.alias, url
                 ),
             )
             .await
@@ -490,12 +646,8 @@ impl WebhookOps for StripeConnector {
         })
     }
 
-    async fn unregister_webhook(
-        &self,
-        connector: &Connector,
-        endpoint_id: &str,
-    ) -> Result<(), Report<ConnectorError>> {
-        let secret_key = extract_secret_key(connector)?;
+    async fn unregister_webhook(&self, endpoint_id: &str) -> Result<(), Report<ConnectorError>> {
+        let secret_key = self.secret_key();
 
         Self::client()
             .delete_webhook_endpoint(endpoint_id, &secret_key)
@@ -506,29 +658,41 @@ impl WebhookOps for StripeConnector {
 
     async fn sync_webhook_events(
         &self,
-        connector: &Connector,
         endpoint_id: &str,
         subscriptions: &[NormalizedEventSubscription],
     ) -> Result<(), Report<ConnectorError>> {
-        let secret_key = extract_secret_key(connector)?;
+        let secret_key = self.secret_key();
         let enabled_events = subscriptions_to_stripe_events(subscriptions);
+        // Stripe refuses a reused key with a different body, so the key must change with the
+        // event list: a release that adds events re-syncs instead of replaying the old set.
+        let idempotency_key = format!(
+            "webhook_sync:{}:{}:{}",
+            self.connector.tenant_id,
+            endpoint_id,
+            self.webhook_subscription_fingerprint(subscriptions)
+        );
 
         Self::client()
             .update_webhook_endpoint(
                 endpoint_id,
                 UpdateWebhookEndpointRequest { enabled_events },
                 &secret_key,
-                // Stable across retries; `endpoint_id` is provider-side and persistent.
-                format!("webhook_sync:{}:{}", connector.tenant_id, endpoint_id),
+                idempotency_key,
             )
             .await
             .map(|_| ())
             .map_err(map_stripe_error)
     }
 
+    fn webhook_subscription_fingerprint(
+        &self,
+        subscriptions: &[NormalizedEventSubscription],
+    ) -> String {
+        subscription_fingerprint(&subscriptions_to_stripe_events(subscriptions))
+    }
+
     fn verify_signature(
         &self,
-        _connector: &Connector,
         payload: &[u8],
         headers: &HeaderMap,
         secret: &SecretString,
@@ -550,7 +714,6 @@ impl WebhookOps for StripeConnector {
 
     fn parse_event(
         &self,
-        _connector: &Connector,
         payload: &[u8],
         _headers: &HeaderMap,
     ) -> Result<Option<NormalizedWebhookEvent>, Report<ConnectorError>> {
@@ -571,34 +734,6 @@ impl WebhookOps for StripeConnector {
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────
-
-fn extract_secret_key(connector: &Connector) -> Result<SecretString, Report<ConnectorError>> {
-    match &connector.sensitive {
-        Some(ProviderSensitiveData::Stripe(data)) => {
-            Ok(SecretString::from(data.api_secret_key.clone()))
-        }
-        Some(_) => Err(Report::new(ConnectorError::Configuration(
-            "connector is not a stripe connector".to_string(),
-        ))),
-        None => Err(Report::new(ConnectorError::Configuration(
-            "stripe connector has no api_secret_key".to_string(),
-        ))),
-    }
-}
-
-fn extract_publishable_key(connector: &Connector) -> Result<SecretString, Report<ConnectorError>> {
-    match &connector.data {
-        Some(ProviderData::Stripe(data)) => {
-            Ok(SecretString::from(data.api_publishable_key.clone()))
-        }
-        Some(_) => Err(Report::new(ConnectorError::Configuration(
-            "connector is not a stripe connector".to_string(),
-        ))),
-        None => Err(Report::new(ConnectorError::Configuration(
-            "stripe connector has no api_publishable_key".to_string(),
-        ))),
-    }
-}
 
 fn map_address(a: &Address) -> OptionalFieldsAddress {
     OptionalFieldsAddress {
@@ -728,13 +863,15 @@ fn intent_to_outcome(intent: StripePaymentIntent, publishable_key: &str) -> Char
             external_id: intent.id,
             provider_request_id: None,
         }),
-        // 3DS/SCA: `next_action` says what the client must do. See requires_action_outcome.
-        StripePaymentStatus::RequiresCustomerAction => requires_action_outcome(
-            intent.id,
-            intent.next_action,
-            intent.client_secret,
-            publishable_key,
-        ),
+        // 3DS/SCA: `next_action` says what the client must do. See requires_action_instruction.
+        StripePaymentStatus::RequiresCustomerAction => {
+            ChargeOutcome::RequiresAction(requires_action_instruction(
+                intent.id,
+                intent.next_action,
+                intent.client_secret,
+                publishable_key,
+            ))
+        }
         StripePaymentStatus::RequiresPaymentMethod
         | StripePaymentStatus::RequiresConfirmation
         | StripePaymentStatus::Chargeable
@@ -769,13 +906,12 @@ fn intent_to_outcome(intent: StripePaymentIntent, publishable_key: &str) -> Char
 
 /// Prefer the hosted-redirect URL (works in any browser); fall back to the
 /// ClientSecret form for SDK-driven flows (Stripe.js, mobile SDK).
-fn requires_action_outcome(
+fn requires_action_instruction(
     intent_id: String,
     next_action: Option<StripeNextAction>,
     client_secret: Option<String>,
     publishable_key: &str,
-) -> ChargeOutcome {
-    use super::model::RequiresActionInstruction;
+) -> RequiresActionInstruction {
     // A bare redirect (rare for cards) can be opened directly. Everything else
     // is SDK-driven: the portal calls Stripe.js `handleNextAction` with the
     // PaymentIntent client_secret (returned on create), so carry it through.
@@ -784,7 +920,7 @@ fn requires_action_outcome(
         .and_then(|a| a.redirect_to_url.as_ref())
         .and_then(|r| r.url.clone());
 
-    let instruction = match redirect_url {
+    match redirect_url {
         Some(url) => RequiresActionInstruction::HostedUrl {
             external_id: intent_id,
             url,
@@ -795,8 +931,7 @@ fn requires_action_outcome(
             client_secret: client_secret.unwrap_or_default(),
             publishable_key: SecretString::from(publishable_key.to_string()),
         },
-    };
-    ChargeOutcome::RequiresAction(instruction)
+    }
 }
 
 /// `last_payment_error` is a nested `{ code, message, decline_code, ... }`;
@@ -812,16 +947,36 @@ fn stripe_error_code(err: &Option<StripePaymentError>) -> Option<String> {
 /// Covers the high-frequency decline codes (rest fall back to `Other`); the
 /// retry-policy layer uses the result to decide whether to retry the same card.
 fn decline_kind_from_error(err: &Option<StripePaymentError>) -> DeclineKind {
-    let Some(decline_code) = err
-        .as_ref()
-        .and_then(|e| e.decline_code.as_deref().or(e.code.as_deref()))
-    else {
+    let err = err.as_ref();
+    decline_kind_from_code(
+        err.and_then(|e| e.decline_code.as_deref().or(e.code.as_deref())),
+        err.and_then(|e| e.advice_code.as_deref()),
+    )
+}
+
+fn decline_kind_from_code(code: Option<&str>, advice_code: Option<&str>) -> DeclineKind {
+    if advice_code == Some("do_not_try_again") {
+        return DeclineKind::DoNotRetry;
+    }
+    let Some(decline_code) = code else {
         return DeclineKind::Other;
     };
     match decline_code {
+        // Card-network "do not reattempt" responses: re-presenting them draws scheme fees.
+        "pickup_card"
+        | "restricted_card"
+        | "invalid_account"
+        | "transaction_not_allowed"
+        | "stop_payment_order"
+        | "revocation_of_authorization"
+        | "revocation_of_all_authorizations"
+        | "security_violation"
+        | "do_not_try_again" => DeclineKind::DoNotRetry,
+        "new_account_information_available" => DeclineKind::CardExpired,
         "insufficient_funds" => DeclineKind::InsufficientFunds,
-        "do_not_honor" | "generic_decline" => DeclineKind::DoNotHonor,
-        "expired_card" | "incorrect_cvc" | "incorrect_number" => DeclineKind::CardExpired,
+        // Off-session charges submit no CVC, so a CVC failure says nothing about the card.
+        "do_not_honor" | "generic_decline" | "incorrect_cvc" => DeclineKind::DoNotHonor,
+        "expired_card" | "incorrect_number" => DeclineKind::CardExpired,
         "authentication_required" => DeclineKind::AuthenticationRequired,
         "fraudulent" | "stolen_card" | "lost_card" => DeclineKind::Fraud,
         "processing_error" | "issuer_not_available" | "try_again_later" => {
@@ -831,8 +986,126 @@ fn decline_kind_from_error(err: &Option<StripePaymentError>) -> DeclineKind {
     }
 }
 
-/// Network failures and Stripe 5xx map to `Transport` (safe to retry with the
-/// same idempotency key); 4xx map to `Charge`/`Configuration` (not retryable).
+/// Only Stripe's three enum members survive; `Other` is free text Stripe rejects,
+/// so `refund()` sends it as `meteroid.refund_reason` metadata instead.
+fn to_stripe_refund_reason(reason: &RefundReason) -> Option<StripeRefundReason> {
+    match reason {
+        RefundReason::Duplicate => Some(StripeRefundReason::Duplicate),
+        RefundReason::Fraudulent => Some(StripeRefundReason::Fraudulent),
+        RefundReason::RequestedByCustomer => Some(StripeRefundReason::RequestedByCustomer),
+        RefundReason::Other(_) => None,
+    }
+}
+
+/// An unknown or absent status stays `Pending`: the reconcile sweep re-reads the
+/// refund rather than the row being settled or failed on a guess.
+fn remote_refund_status(refund: &StripeRefund) -> RemoteRefundStatus {
+    match refund.status.as_deref() {
+        Some(refund_status::SUCCEEDED) => RemoteRefundStatus::Succeeded,
+        Some(refund_status::CANCELED) => RemoteRefundStatus::Canceled,
+        Some(refund_status::FAILED) => RemoteRefundStatus::Failed {
+            code: refund.failure_reason.clone(),
+            message: refund
+                .failure_reason
+                .clone()
+                .unwrap_or_else(|| "Refund failed".to_string()),
+        },
+        _ => RemoteRefundStatus::Pending,
+    }
+}
+
+fn refund_processed_at(refund: &StripeRefund) -> chrono::NaiveDateTime {
+    refund
+        .created
+        .and_then(|ts| DateTime::from_timestamp(ts, 0))
+        .unwrap_or_else(chrono::Utc::now)
+        .naive_utc()
+}
+
+/// `Canceled` is a refund Stripe gave up on — the funds never left, so the row is
+/// `Failed` like a decline, just without provider error text.
+fn refund_to_outcome(refund: StripeRefund) -> RefundOutcome {
+    match remote_refund_status(&refund) {
+        RemoteRefundStatus::Succeeded => RefundOutcome::Succeeded(RefundReceipt {
+            amount_refunded_minor: refund.amount,
+            processed_at: refund_processed_at(&refund),
+            external_refund_id: refund.id,
+            provider_request_id: None,
+        }),
+        RemoteRefundStatus::Pending => RefundOutcome::Pending(RefundAcknowledged {
+            external_refund_id: refund.id,
+            provider_request_id: None,
+        }),
+        RemoteRefundStatus::Failed { code, message } => RefundOutcome::Failed(RefundFailure {
+            code,
+            message,
+            provider_request_id: None,
+        }),
+        RemoteRefundStatus::Canceled => RefundOutcome::Failed(RefundFailure {
+            code: Some(refund_status::CANCELED.to_string()),
+            message: "Refund canceled by Stripe".to_string(),
+            provider_request_id: None,
+        }),
+    }
+}
+
+fn refund_snapshot(refund: StripeRefund) -> RefundSnapshot {
+    RefundSnapshot {
+        external_transaction_id: refund
+            .payment_intent
+            .clone()
+            .or_else(|| refund.charge.clone())
+            .unwrap_or_default(),
+        amount_minor: refund.amount,
+        status: remote_refund_status(&refund),
+        // Stripe reports the cumulative refunded total on the charge, never on a refund.
+        cumulative_refunded_minor: None,
+        currency: refund.currency.clone().unwrap_or_default(),
+        external_refund_id: refund.id,
+    }
+}
+
+fn observed_refunds_on_wire(refunds: &Option<StripeRefundList>) -> Vec<ObservedRefundOnWire> {
+    refunds
+        .as_ref()
+        .map(|list| {
+            list.data
+                .iter()
+                .map(|r| ObservedRefundOnWire {
+                    external_refund_id: r.id.clone(),
+                    amount_minor: Some(r.amount),
+                    status: match r.status.as_deref() {
+                        Some(refund_status::SUCCEEDED) => ObservedRefundStatus::Succeeded,
+                        Some(refund_status::FAILED) | Some(refund_status::CANCELED) => {
+                            ObservedRefundStatus::Failed
+                        }
+                        _ => ObservedRefundStatus::Pending,
+                    },
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A confirm-time decline (HTTP 402) is a definitive outcome, not an error: Stripe has
+/// recorded the failed attempt under this key, so it is reported like a `failed` intent.
+fn card_error_to_failure(req_err: stripe_client::error::RequestError) -> ChargeFailure {
+    let code = req_err.decline_code.clone().or(req_err.code.clone());
+    ChargeFailure {
+        external_id: req_err.payment_intent.map(|pi| pi.id),
+        decline_kind: decline_kind_from_code(code.as_deref(), req_err.advice_code.as_deref()),
+        code,
+        message: req_err
+            .message
+            .unwrap_or_else(|| "Payment declined".to_string()),
+        retryable: false,
+        provider_request_id: None,
+    }
+}
+
+/// Network failures, Stripe 5xx and idempotency conflicts map to `Transport` (the
+/// outcome is unknown, so never treat it as a decline); other 4xx map to
+/// `Charge`/`Configuration` (not retryable).
 fn map_stripe_error(e: StripeError) -> Report<ConnectorError> {
     match e {
         StripeError::Timeout => Report::new(ConnectorError::Transport("stripe timeout".into())),
@@ -840,11 +1113,27 @@ fn map_stripe_error(e: StripeError) -> Report<ConnectorError> {
         StripeError::Stripe(req_err) if req_err.http_status >= 500 => Report::new(
             ConnectorError::Transport(format!("stripe 5xx: {}", req_err)),
         ),
-        StripeError::Stripe(req_err) => Report::new(ConnectorError::Charge(format!(
-            "stripe rejected: {} (code={:?})",
-            req_err.message.unwrap_or_default(),
-            req_err.code
-        ))),
+        StripeError::Stripe(req_err)
+            if req_err.http_status == 409 || req_err.error_type == "idempotency_error" =>
+        {
+            Report::new(ConnectorError::Transport(format!(
+                "stripe idempotency conflict: {}",
+                req_err
+            )))
+        }
+        StripeError::Stripe(req_err) => {
+            let rejected_key = matches!(req_err.http_status, 401 | 403);
+            let report = Report::new(ConnectorError::Charge(format!(
+                "stripe rejected: {} (code={:?})",
+                req_err.message.unwrap_or_default(),
+                req_err.code
+            )));
+            if rejected_key {
+                report.attach_opaque(CredentialsRejected)
+            } else {
+                report
+            }
+        }
         StripeError::QueryStringSerialize(_)
         | StripeError::JSONSerialize(_)
         | StripeError::UnsupportedVersion => {
@@ -883,6 +1172,7 @@ fn object_owner_tenant_id(object: &EventObject) -> Option<String> {
     match object {
         EventObject::PaymentIntent(pi) => tenant(&pi.metadata),
         EventObject::SetupIntent(si) => tenant(&si.metadata),
+        EventObject::Refund(r) => tenant(&r.metadata),
         // Others are narrowed to the fields we use and carry no metadata here.
         _ => None,
     }
@@ -903,6 +1193,10 @@ fn normalize_kind(event_type: &str, object: EventObject) -> Option<NormalizedEve
                 payment_method_type: PaymentMethodTypeEnum::Other,
                 meteroid_connection_id: si.metadata.get("meteroid.connection_id").cloned(),
                 meteroid_customer_id: si.metadata.get("meteroid.customer_id").cloned(),
+                purpose: si
+                    .metadata
+                    .get(SetupPurpose::METADATA_KEY)
+                    .and_then(|purpose| SetupPurpose::parse(purpose)),
             })
         }
         (event_type::SETUP_INTENT_REQUIRES_ACTION, EventObject::SetupIntent(_si)) => {
@@ -931,6 +1225,19 @@ fn normalize_kind(event_type: &str, object: EventObject) -> Option<NormalizedEve
                 meteroid_transaction_id: pi.metadata.get("meteroid.transaction_id").cloned(),
             })
         }
+        // A failed attempt on a prepared top-up intent may still be retried from its exposed
+        // client secret, so the top-up workflow, not this event, closes its payment.
+        (event_type::PAYMENT_INTENT_FAILED, EventObject::PaymentIntent(pi))
+            if pi
+                .metadata
+                .get(wallet::PAYMENT_FLOW_METADATA_KEY)
+                .map(String::as_str)
+                == Some(wallet::WALLET_PAYMENT_FLOW) =>
+        {
+            NormalizedEventKind::Acknowledged {
+                reason: "payment_intent.payment_failed on a prepared top-up payment",
+            }
+        }
         (event_type::PAYMENT_INTENT_FAILED, EventObject::PaymentIntent(pi)) => {
             NormalizedEventKind::PaymentFailed(PaymentFailedEvent {
                 external_transaction_id: pi.id.clone(),
@@ -941,6 +1248,7 @@ fn normalize_kind(event_type: &str, object: EventObject) -> Option<NormalizedEve
                     decline_kind_from_error(&pi.last_payment_error),
                     DeclineKind::ProcessingError | DeclineKind::AuthenticationRequired
                 ),
+                decline_kind: decline_kind_from_error(&pi.last_payment_error),
                 meteroid_transaction_id: pi.metadata.get("meteroid.transaction_id").cloned(),
             })
         }
@@ -961,6 +1269,7 @@ fn normalize_kind(event_type: &str, object: EventObject) -> Option<NormalizedEve
             NormalizedEventKind::PaymentPending(PaymentPendingEvent {
                 external_transaction_id: pi.id,
                 meteroid_transaction_id: pi.metadata.get("meteroid.transaction_id").cloned(),
+                awaiting_customer: false,
             })
         }
         (event_type::PAYMENT_INTENT_PARTIALLY_FUNDED, EventObject::PaymentIntent(_pi)) => {
@@ -982,15 +1291,31 @@ fn normalize_kind(event_type: &str, object: EventObject) -> Option<NormalizedEve
                 .and_then(|r| r.data.last())
                 .map(|r| r.id.clone())
                 .unwrap_or_default();
+            let refunds = observed_refunds_on_wire(&charge.refunds);
             // `amount_refunded_minor` is always the charge's cumulative
             // refunded total (`charge.amount_refunded`), never a single
-            // refund's delta — unambiguous for a phase-2 reversal consumer
-            // that needs to reconcile against the charge, not sum deltas.
+            // refund's delta; `refunds` carries the individual ids so the
+            // handler can match what it already knows and record only the delta.
             NormalizedEventKind::PaymentRefunded(PaymentRefundedEvent {
                 external_transaction_id: parent_pi,
                 external_refund_id: refund_id,
                 amount_refunded_minor: charge.amount_refunded,
                 currency: charge.currency,
+                refunds,
+            })
+        }
+
+        // ── Refund lifecycle ─────────────────────────────────────────
+        (event_type::REFUND_UPDATED, EventObject::Refund(refund))
+        | (event_type::CHARGE_REFUND_UPDATED, EventObject::Refund(refund)) => {
+            NormalizedEventKind::RefundStatusChanged(RefundStatusChangedEvent {
+                external_transaction_id: refund
+                    .payment_intent
+                    .clone()
+                    .or_else(|| refund.charge.clone()),
+                status: remote_refund_status(&refund),
+                amount_minor: Some(refund.amount),
+                external_refund_id: refund.id,
             })
         }
 
@@ -1075,7 +1400,11 @@ fn subscriptions_to_stripe_events(subs: &[NormalizedEventSubscription]) -> Vec<S
                 ]);
             }
             NormalizedEventSubscription::Refunds => {
-                events.push(et::CHARGE_REFUNDED);
+                events.extend([
+                    et::CHARGE_REFUNDED,
+                    et::REFUND_UPDATED,
+                    et::CHARGE_REFUND_UPDATED,
+                ]);
             }
             NormalizedEventSubscription::Disputes => {
                 events.extend([
@@ -1098,7 +1427,40 @@ fn dispute_event(d: stripe_client::webhook::StripeDispute) -> DisputeEvent {
         external_transaction_id: d.payment_intent.unwrap_or(d.charge),
         amount_minor: d.amount,
         currency: d.currency,
+        failure: dispute_failure(&d.reason),
         reason: Some(d.reason),
+    }
+}
+
+/// Dispute reasons that are the payer's claim: the invoice stays paid.
+const DISPUTE_REASONS: &[&str] = &[
+    "check_returned",
+    "credit_not_processed",
+    "customer_initiated",
+    "debit_not_authorized",
+    "duplicate",
+    "fraudulent",
+    "general",
+    "noncompliant",
+    "product_not_received",
+    "product_unacceptable",
+    "subscription_canceled",
+    "unrecognized",
+];
+
+/// A bank debit (ACH, Bacs, SEPA) that failed after it succeeded arrives as a dispute with one of
+/// these reasons: a failed collection, so the invoice reopens. An unknown reason is a dispute.
+pub(crate) fn dispute_failure(reason: &str) -> Option<ReversalKind> {
+    match reason {
+        "insufficient_funds" => Some(ReversalKind::InsufficientFunds),
+        "incorrect_account_details" | "bank_cannot_process" => Some(ReversalKind::Returned),
+        known if DISPUTE_REASONS.contains(&known) => None,
+        unknown => {
+            log::warn!(
+                "Stripe dispute reason '{unknown}' is not classified: treated as a dispute, the invoice stays paid"
+            );
+            None
+        }
     }
 }
 
@@ -1128,10 +1490,87 @@ fn payment_method_update(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bank_returns_reported_as_disputes_are_failed_collections() {
+        use super::dispute_failure;
+        use crate::domain::enums::ReversalKind;
+        assert_eq!(
+            dispute_failure("insufficient_funds"),
+            Some(ReversalKind::InsufficientFunds)
+        );
+        assert_eq!(
+            dispute_failure("incorrect_account_details"),
+            Some(ReversalKind::Returned)
+        );
+        assert_eq!(
+            dispute_failure("bank_cannot_process"),
+            Some(ReversalKind::Returned)
+        );
+        assert_eq!(dispute_failure("fraudulent"), None);
+        assert_eq!(dispute_failure("debit_not_authorized"), None);
+        assert_eq!(dispute_failure("a_reason_from_tomorrow"), None);
+    }
+
+    #[test]
+    fn stripe_methods_follow_the_dashboard_settings_then_capabilities() {
+        use super::{MethodState, PaymentMethodTypeEnum, stripe_methods};
+        use std::collections::HashMap;
+
+        let config: stripe_client::payment_method_configurations::PaymentMethodConfiguration =
+            serde_json::from_value(serde_json::json!({
+                "id": "pmc_1", "active": true, "is_default": true, "parent": null,
+                "card": {"available": true, "display_preference": {"value": "on"}},
+                "sepa_debit": {"available": true, "display_preference": {"value": "on"}},
+                "us_bank_account": {"available": true, "display_preference": {"value": "off"}},
+                "bacs_debit": {"available": false, "display_preference": {"value": "on"}}
+            }))
+            .unwrap();
+        let state = |methods: &[super::PaymentMethodAvailability], m: PaymentMethodTypeEnum| {
+            methods.iter().find(|a| a.method == m).unwrap().state
+        };
+
+        // Direct account: no capabilities, the settings decide.
+        let direct = stripe_methods(&HashMap::new(), Some(&config));
+        assert_eq!(
+            state(&direct, PaymentMethodTypeEnum::Card),
+            MethodState::Enabled
+        );
+        assert_eq!(
+            state(&direct, PaymentMethodTypeEnum::DirectDebitAch),
+            MethodState::Unavailable
+        );
+        assert_eq!(
+            state(&direct, PaymentMethodTypeEnum::DirectDebitBacs),
+            MethodState::Unavailable
+        );
+
+        // No readable settings: explicit capabilities narrow, unreported rails stay enabled.
+        let caps = HashMap::from([
+            ("sepa_debit_payments".to_string(), "pending".to_string()),
+            ("bacs_debit_payments".to_string(), "inactive".to_string()),
+        ]);
+        let connect = stripe_methods(&caps, None);
+        assert_eq!(
+            state(&connect, PaymentMethodTypeEnum::DirectDebitSepa),
+            MethodState::Pending
+        );
+        assert_eq!(
+            state(&connect, PaymentMethodTypeEnum::DirectDebitBacs),
+            MethodState::Unavailable
+        );
+        assert_eq!(
+            state(&connect, PaymentMethodTypeEnum::DirectDebitAch),
+            MethodState::Enabled
+        );
+    }
+
     use super::*;
     use crate::adapters::payment::events::NormalizedEventKind;
-    use crate::domain::connectors::{Connector, StripeSensitiveData};
-    use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
+    use crate::domain::connectors::Connector;
+    use crate::domain::connectors::{
+        ConnectorConfig, CredentialState, PaymentConnectorConfig, PaymentProviderConfig,
+    };
+
     use chrono::NaiveDateTime;
     use common_domain::ids::{ConnectorId, TenantId};
     use hmac::{Hmac, KeyInit, Mac};
@@ -1142,21 +1581,43 @@ mod tests {
 
     fn test_connector() -> Connector {
         Connector {
+            status: crate::domain::enums::ConnectorStatusEnum::Active,
+            credentials: CredentialState::Unverified,
+            webhook_route: None,
             id: ConnectorId::new(),
             created_at: NaiveDateTime::default(),
             tenant_id: TenantId::new(),
             alias: "stripe-test".into(),
-            connector_type: ConnectorTypeEnum::PaymentProvider,
-            provider: ConnectorProviderEnum::Stripe,
-            data: None,
-            sensitive: Some(crate::domain::connectors::ProviderSensitiveData::Stripe(
-                StripeSensitiveData {
-                    api_secret_key: "sk_test_x".into(),
-                    webhook_secret: TEST_WEBHOOK_SECRET.into(),
-                    webhook_endpoint_id: None,
-                },
+            config: ConnectorConfig::Payment(PaymentConnectorConfig::configured(
+                PaymentProviderConfig::Stripe(test_public_data(), test_sensitive_data()),
             )),
         }
+    }
+
+    fn test_public_data() -> StripePublicData {
+        StripePublicData {
+            api_publishable_key: "pk_test_x".into(),
+            account_id: Some("acct_test_x".into()),
+            webhook_events_fingerprint: None,
+        }
+    }
+
+    fn test_sensitive_data() -> StripeSensitiveData {
+        StripeSensitiveData {
+            api_secret_key: "sk_test_x".into(),
+            webhook_secret: TEST_WEBHOOK_SECRET.into(),
+            webhook_endpoint_id: None,
+        }
+    }
+
+    /// The adapter under test, bound to the fixture connector.
+    fn test_adapter() -> StripeConnector {
+        let fixture = test_connector();
+        StripeConnector::new(
+            ConnectorRef::from(&fixture),
+            test_public_data(),
+            test_sensitive_data(),
+        )
     }
 
     fn sign_payload(payload: &str, secret: &str, timestamp: i64) -> String {
@@ -1176,7 +1637,7 @@ mod tests {
     /// Production contract: a correctly-signed, fresh payload must verify.
     #[test]
     fn verify_signature_accepts_valid() {
-        let connector = test_connector();
+        let adapter = test_adapter();
         let payload = br#"{"id":"evt_1","type":"payment_intent.succeeded","data":{"object":{"object":"payment_intent","id":"pi_1","amount":1000,"amount_received":1000,"currency":"usd","livemode":false,"status":"succeeded","metadata":{}}}}"#;
         let sig = sign_payload(
             std::str::from_utf8(payload).unwrap(),
@@ -1186,8 +1647,7 @@ mod tests {
         let headers = header_with_signature(&sig);
         let secret = SecretString::from(TEST_WEBHOOK_SECRET.to_string());
 
-        let result =
-            StripeConnector::new().verify_signature(&connector, payload, &headers, &secret);
+        let result = adapter.verify_signature(payload, &headers, &secret);
         assert!(result.is_ok(), "valid signature must verify: {result:?}");
     }
 
@@ -1195,7 +1655,7 @@ mod tests {
     /// A bug here = accepting forged webhooks.
     #[test]
     fn verify_signature_rejects_wrong_secret() {
-        let connector = test_connector();
+        let adapter = test_adapter();
         let payload = br#"{"id":"evt_2","type":"x"}"#;
         let sig = sign_payload(
             std::str::from_utf8(payload).unwrap(),
@@ -1205,8 +1665,7 @@ mod tests {
         let headers = header_with_signature(&sig);
         let secret = SecretString::from(TEST_WEBHOOK_SECRET.to_string());
 
-        let result =
-            StripeConnector::new().verify_signature(&connector, payload, &headers, &secret);
+        let result = adapter.verify_signature(payload, &headers, &secret);
         assert!(result.is_err(), "wrong-secret signature must be rejected");
     }
 
@@ -1214,7 +1673,7 @@ mod tests {
     /// 300s replay tolerance) must be rejected. Prevents replay attacks.
     #[test]
     fn verify_signature_rejects_stale_timestamp() {
-        let connector = test_connector();
+        let adapter = test_adapter();
         let payload = br#"{"id":"evt_3","type":"x"}"#;
         let one_hour_ago = chrono::Utc::now().timestamp() - 3600;
         let sig = sign_payload(
@@ -1225,21 +1684,19 @@ mod tests {
         let headers = header_with_signature(&sig);
         let secret = SecretString::from(TEST_WEBHOOK_SECRET.to_string());
 
-        let result =
-            StripeConnector::new().verify_signature(&connector, payload, &headers, &secret);
+        let result = adapter.verify_signature(payload, &headers, &secret);
         assert!(result.is_err(), "stale signature must be rejected");
     }
 
     /// Production contract: missing signature header = explicit error, not a panic.
     #[test]
     fn verify_signature_rejects_missing_header() {
-        let connector = test_connector();
+        let adapter = test_adapter();
         let payload = br#"{"id":"evt_4","type":"x"}"#;
         let headers = HeaderMap::new();
         let secret = SecretString::from(TEST_WEBHOOK_SECRET.to_string());
 
-        let result =
-            StripeConnector::new().verify_signature(&connector, payload, &headers, &secret);
+        let result = adapter.verify_signature(payload, &headers, &secret);
         assert!(result.is_err(), "missing signature must be rejected");
     }
 
@@ -1247,7 +1704,7 @@ mod tests {
     /// `PaymentSucceeded` with the right transaction id pulled from metadata.
     #[test]
     fn parse_event_normalizes_payment_intent_succeeded() {
-        let connector = test_connector();
+        let adapter = test_adapter();
         let payload = br#"{
             "id":"evt_succeeded_1",
             "type":"payment_intent.succeeded",
@@ -1266,8 +1723,8 @@ mod tests {
             }}
         }"#;
 
-        let parsed = StripeConnector::new()
-            .parse_event(&connector, payload, &HeaderMap::new())
+        let parsed = adapter
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse should succeed")
             .expect("event should be normalized");
 
@@ -1292,7 +1749,7 @@ mod tests {
     /// `PaymentFailed`, preserving the error message + meteroid metadata.
     #[test]
     fn parse_event_normalizes_payment_intent_failed() {
-        let connector = test_connector();
+        let adapter = test_adapter();
         let payload = br#"{
             "id":"evt_failed_1",
             "type":"payment_intent.payment_failed",
@@ -1313,8 +1770,8 @@ mod tests {
             }}
         }"#;
 
-        let parsed = StripeConnector::new()
-            .parse_event(&connector, payload, &HeaderMap::new())
+        let parsed = adapter
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse should succeed")
             .expect("event should be normalized");
 
@@ -1332,7 +1789,7 @@ mod tests {
     /// Pins `payment_intent.requires_action` normalization (redirect_to_url shape).
     #[test]
     fn parse_event_normalizes_payment_intent_requires_action() {
-        let connector = test_connector();
+        let adapter = test_adapter();
         let payload = br#"{
             "id":"evt_action_1",
             "type":"payment_intent.requires_action",
@@ -1354,8 +1811,8 @@ mod tests {
             }}
         }"#;
 
-        let parsed = StripeConnector::new()
-            .parse_event(&connector, payload, &HeaderMap::new())
+        let parsed = adapter
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse should succeed")
             .expect("event should be normalized");
 
@@ -1440,6 +1897,7 @@ mod tests {
             intent.last_payment_error = Some(StripePaymentError {
                 code: Some("card_declined".to_string()),
                 decline_code: Some("insufficient_funds".to_string()),
+                advice_code: None,
                 message: Some("Your card has insufficient funds.".to_string()),
                 error_type: Some("card_error".to_string()),
             });
@@ -1499,7 +1957,7 @@ mod tests {
     /// our local transaction).
     #[test]
     fn parse_event_normalizes_charge_refunded() {
-        let connector = test_connector();
+        let adapter = test_adapter();
         let payload = br#"{
             "id":"evt_refund_1",
             "type":"charge.refunded",
@@ -1523,8 +1981,8 @@ mod tests {
             }}
         }"#;
 
-        let parsed = StripeConnector::new()
-            .parse_event(&connector, payload, &HeaderMap::new())
+        let parsed = adapter
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse should succeed")
             .expect("event should be normalized");
 
@@ -1534,6 +1992,10 @@ mod tests {
                 assert_eq!(e.external_refund_id, "re_1");
                 assert_eq!(e.amount_refunded_minor, 500);
                 assert_eq!(e.currency, "usd");
+                assert_eq!(e.refunds.len(), 1);
+                assert_eq!(e.refunds[0].external_refund_id, "re_1");
+                assert_eq!(e.refunds[0].amount_minor, Some(500));
+                assert_eq!(e.refunds[0].status, ObservedRefundStatus::Succeeded);
             }
             other => panic!("expected PaymentRefunded, got {:?}", other),
         }
@@ -1544,7 +2006,7 @@ mod tests {
     /// refund's own amount — the two differ once more than one refund exists.
     #[test]
     fn parse_event_normalizes_charge_refunded_cumulative_amount() {
-        let connector = test_connector();
+        let adapter = test_adapter();
         let payload = br#"{
             "id":"evt_refund_2",
             "type":"charge.refunded",
@@ -1578,8 +2040,8 @@ mod tests {
             }}
         }"#;
 
-        let parsed = StripeConnector::new()
-            .parse_event(&connector, payload, &HeaderMap::new())
+        let parsed = adapter
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse should succeed")
             .expect("event should be normalized");
 
@@ -1594,6 +2056,14 @@ mod tests {
                     e.amount_refunded_minor, 800,
                     "amount must be the charge's cumulative amount_refunded (500+300), not the last refund's own amount (300)"
                 );
+                assert_eq!(
+                    e.refunds
+                        .iter()
+                        .map(|r| (r.external_refund_id.as_str(), r.amount_minor))
+                        .collect::<Vec<_>>(),
+                    vec![("re_1", Some(500)), ("re_2", Some(300))],
+                    "every refund on the wire must be carried so the handler can match what it knows"
+                );
             }
             other => panic!("expected PaymentRefunded, got {:?}", other),
         }
@@ -1603,7 +2073,7 @@ mod tests {
     /// still falls back to the charge's cumulative `amount_refunded`.
     #[test]
     fn parse_event_normalizes_charge_refunded_no_refund_list() {
-        let connector = test_connector();
+        let adapter = test_adapter();
         let payload = br#"{
             "id":"evt_refund_3",
             "type":"charge.refunded",
@@ -1617,8 +2087,8 @@ mod tests {
             }}
         }"#;
 
-        let parsed = StripeConnector::new()
-            .parse_event(&connector, payload, &HeaderMap::new())
+        let parsed = adapter
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse should succeed")
             .expect("event should be normalized");
 
@@ -1626,6 +2096,10 @@ mod tests {
             NormalizedEventKind::PaymentRefunded(e) => {
                 assert_eq!(e.external_refund_id, "");
                 assert_eq!(e.amount_refunded_minor, 2000);
+                assert!(
+                    e.refunds.is_empty(),
+                    "no refunds.data means nothing to match; only the cumulative total is known"
+                );
             }
             other => panic!("expected PaymentRefunded, got {:?}", other),
         }
@@ -1636,13 +2110,13 @@ mod tests {
     /// a hand-written payload.
     #[test]
     fn parse_event_normalizes_charge_refunded_real_fixture() {
-        let connector = test_connector();
+        let adapter = test_adapter();
         let payload = include_str!(
             "../../../../../tests/integration/fixtures/webhooks/stripe/charge.refunded.json"
         );
 
-        let parsed = StripeConnector::new()
-            .parse_event(&connector, payload.as_bytes(), &HeaderMap::new())
+        let parsed = adapter
+            .parse_event(payload.as_bytes(), &HeaderMap::new())
             .expect("parse should succeed")
             .expect("event should be normalized");
 
@@ -1655,16 +2129,261 @@ mod tests {
                     "must be the charge's cumulative amount_refunded (3000+2000), not the last refund's own amount (2000)"
                 );
                 assert_eq!(e.currency, "usd");
+                assert_eq!(
+                    e.refunds
+                        .iter()
+                        .map(|r| (r.external_refund_id.as_str(), r.amount_minor, r.status))
+                        .collect::<Vec<_>>(),
+                    vec![
+                        ("re_test_1", Some(3000), ObservedRefundStatus::Succeeded),
+                        ("re_test_2", Some(2000), ObservedRefundStatus::Succeeded)
+                    ]
+                );
             }
             other => panic!("expected PaymentRefunded, got {:?}", other),
         }
+    }
+
+    /// A `charge.refunded` whose list holds a failed refund must not count it as
+    /// succeeded — the handler would otherwise settle a REFUND row that never paid.
+    #[test]
+    fn parse_event_normalizes_charge_refunded_with_a_failed_refund() {
+        let adapter = test_adapter();
+        let payload = br#"{
+            "id":"evt_refund_4",
+            "type":"charge.refunded",
+            "data":{"object":{
+                "object":"charge",
+                "id":"ch_4",
+                "payment_intent":"pi_refund_parent_4",
+                "amount":2000,
+                "amount_refunded":700,
+                "currency":"usd",
+                "refunds":{
+                    "data":[
+                        {
+                            "id":"re_ok",
+                            "amount":700,
+                            "currency":"usd",
+                            "status":"succeeded",
+                            "payment_intent":"pi_refund_parent_4",
+                            "charge":"ch_4"
+                        },
+                        {
+                            "id":"re_ko",
+                            "amount":300,
+                            "currency":"usd",
+                            "status":"failed",
+                            "failure_reason":"declined",
+                            "payment_intent":"pi_refund_parent_4",
+                            "charge":"ch_4"
+                        }
+                    ]
+                }
+            }}
+        }"#;
+
+        let parsed = adapter
+            .parse_event(payload, &HeaderMap::new())
+            .expect("parse should succeed")
+            .expect("event should be normalized");
+
+        match parsed.kind {
+            NormalizedEventKind::PaymentRefunded(e) => {
+                assert_eq!(
+                    e.refunds
+                        .iter()
+                        .map(|r| (r.external_refund_id.as_str(), r.status))
+                        .collect::<Vec<_>>(),
+                    vec![
+                        ("re_ok", ObservedRefundStatus::Succeeded),
+                        ("re_ko", ObservedRefundStatus::Failed)
+                    ]
+                );
+                assert_eq!(
+                    e.amount_refunded_minor, 700,
+                    "the failed refund is excluded from the charge's cumulative total"
+                );
+            }
+            other => panic!("expected PaymentRefunded, got {:?}", other),
+        }
+    }
+
+    /// `refund.updated` settles the REFUND row it names; the parent PaymentIntent
+    /// is carried so the handler can fall back to the parent when the id is unknown.
+    #[test]
+    fn parse_event_normalizes_refund_updated_succeeded() {
+        let adapter = test_adapter();
+        let payload = br#"{
+            "id":"evt_re_updated_1",
+            "type":"refund.updated",
+            "data":{"object":{
+                "object":"refund",
+                "id":"re_updated_1",
+                "amount":1250,
+                "currency":"eur",
+                "status":"succeeded",
+                "payment_intent":"pi_updated_1",
+                "charge":"ch_updated_1",
+                "metadata":{"meteroid.tenant_id":"ten_abc"}
+            }}
+        }"#;
+
+        let parsed = adapter
+            .parse_event(payload, &HeaderMap::new())
+            .expect("parse should succeed")
+            .expect("event should be normalized");
+
+        assert_eq!(parsed.owner_tenant_id.as_deref(), Some("ten_abc"));
+        match parsed.kind {
+            NormalizedEventKind::RefundStatusChanged(e) => {
+                assert_eq!(e.external_refund_id, "re_updated_1");
+                assert_eq!(e.external_transaction_id.as_deref(), Some("pi_updated_1"));
+                assert_eq!(e.status, RemoteRefundStatus::Succeeded);
+                assert_eq!(e.amount_minor, Some(1250));
+            }
+            other => panic!("expected RefundStatusChanged, got {:?}", other),
+        }
+    }
+
+    /// Stripe's legacy alias for the same object; a failed refund must carry its
+    /// `failure_reason` so the row records why it did not pay.
+    #[test]
+    fn parse_event_normalizes_charge_refund_updated_failed() {
+        let adapter = test_adapter();
+        let payload = br#"{
+            "id":"evt_re_updated_2",
+            "type":"charge.refund.updated",
+            "data":{"object":{
+                "object":"refund",
+                "id":"re_updated_2",
+                "amount":400,
+                "currency":"usd",
+                "status":"failed",
+                "failure_reason":"lost_or_stolen_card",
+                "charge":"ch_updated_2"
+            }}
+        }"#;
+
+        let parsed = adapter
+            .parse_event(payload, &HeaderMap::new())
+            .expect("parse should succeed")
+            .expect("event should be normalized");
+
+        match parsed.kind {
+            NormalizedEventKind::RefundStatusChanged(e) => {
+                assert_eq!(e.external_refund_id, "re_updated_2");
+                assert_eq!(
+                    e.external_transaction_id.as_deref(),
+                    Some("ch_updated_2"),
+                    "a refund with no payment_intent falls back to its charge"
+                );
+                assert_eq!(
+                    e.status,
+                    RemoteRefundStatus::Failed {
+                        code: Some("lost_or_stolen_card".to_string()),
+                        message: "lost_or_stolen_card".to_string(),
+                    }
+                );
+            }
+            other => panic!("expected RefundStatusChanged, got {:?}", other),
+        }
+    }
+
+    /// An in-flight refund must stay Pending: settling or failing it on a guess
+    /// would either double-count the refund or wrongly free the amount again.
+    #[test]
+    fn parse_event_keeps_pending_and_unknown_refund_statuses_pending() {
+        let adapter = test_adapter();
+        let status_of = |status: &str| {
+            let payload = format!(
+                r#"{{"id":"evt_re_p","type":"refund.updated","data":{{"object":{{
+                    "object":"refund","id":"re_p","amount":100,"currency":"usd",
+                    "status":"{status}","payment_intent":"pi_p"
+                }}}}}}"#
+            );
+            match adapter
+                .parse_event(payload.as_bytes(), &HeaderMap::new())
+                .expect("parse should succeed")
+                .expect("event should be normalized")
+                .kind
+            {
+                NormalizedEventKind::RefundStatusChanged(e) => e.status,
+                other => panic!("expected RefundStatusChanged, got {:?}", other),
+            }
+        };
+
+        assert_eq!(status_of("pending"), RemoteRefundStatus::Pending);
+        assert_eq!(status_of("requires_action"), RemoteRefundStatus::Pending);
+        assert_eq!(status_of("something_new"), RemoteRefundStatus::Pending);
+        assert_eq!(status_of("canceled"), RemoteRefundStatus::Canceled);
+    }
+
+    fn test_refund(status: &str) -> StripeRefund {
+        serde_json::from_str(&format!(
+            r#"{{"id":"re_out","object":"refund","amount":900,"created":1721728695,
+                "currency":"usd","status":"{status}","payment_intent":"pi_out"}}"#
+        ))
+        .expect("parse refund fixture")
+    }
+
+    /// A canceled refund never moved money, so it is a failure like a decline —
+    /// leaving it Pending would keep the amount locked out of `refundable_amount`.
+    #[test]
+    fn refund_outcome_maps_stripe_statuses() {
+        match refund_to_outcome(test_refund("succeeded")) {
+            RefundOutcome::Succeeded(r) => {
+                assert_eq!(r.external_refund_id, "re_out");
+                assert_eq!(r.amount_refunded_minor, 900);
+                assert_eq!(
+                    r.processed_at,
+                    DateTime::from_timestamp(1721728695, 0).unwrap().naive_utc(),
+                    "Stripe's own timestamp, not wall-clock"
+                );
+            }
+            other => panic!("expected Succeeded, got {other:?}"),
+        }
+        assert!(matches!(
+            refund_to_outcome(test_refund("pending")),
+            RefundOutcome::Pending(_)
+        ));
+        assert!(matches!(
+            refund_to_outcome(test_refund("failed")),
+            RefundOutcome::Failed(_)
+        ));
+        match refund_to_outcome(test_refund("canceled")) {
+            RefundOutcome::Failed(f) => assert_eq!(f.code.as_deref(), Some("canceled")),
+            other => panic!("expected Failed, got {other:?}"),
+        }
+    }
+
+    /// Stripe reports the cumulative refunded total on the charge, never on a
+    /// refund, so the snapshot must leave it unset rather than echo this amount.
+    #[test]
+    fn refund_snapshot_leaves_the_cumulative_total_unknown() {
+        let snapshot = refund_snapshot(test_refund("succeeded"));
+        assert_eq!(snapshot.external_refund_id, "re_out");
+        assert_eq!(snapshot.external_transaction_id, "pi_out");
+        assert_eq!(snapshot.amount_minor, 900);
+        assert_eq!(snapshot.currency, "usd");
+        assert_eq!(snapshot.status, RemoteRefundStatus::Succeeded);
+        assert_eq!(snapshot.cumulative_refunded_minor, None);
+    }
+
+    /// Whatever `normalize_kind` parses must be registered, or Stripe never sends it.
+    #[test]
+    fn refund_subscription_registers_every_parsed_refund_event() {
+        let events = subscriptions_to_stripe_events(&[NormalizedEventSubscription::Refunds]);
+        assert!(events.contains(&event_type::CHARGE_REFUNDED.to_string()));
+        assert!(events.contains(&event_type::REFUND_UPDATED.to_string()));
+        assert!(events.contains(&event_type::CHARGE_REFUND_UPDATED.to_string()));
     }
 
     /// `charge.dispute.created` surfaces as `DisputeOpened` so the handler can
     /// flag the invoice for support attention.
     #[test]
     fn parse_event_normalizes_dispute_created() {
-        let connector = test_connector();
+        let adapter = test_adapter();
         let payload = br#"{
             "id":"evt_dispute_1",
             "type":"charge.dispute.created",
@@ -1680,8 +2399,8 @@ mod tests {
             }}
         }"#;
 
-        let parsed = StripeConnector::new()
-            .parse_event(&connector, payload, &HeaderMap::new())
+        let parsed = adapter
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse should succeed")
             .expect("event should be normalized");
 
@@ -1701,13 +2420,13 @@ mod tests {
     /// handler reverses the payment and reopens the invoice.
     #[test]
     fn parse_event_normalizes_dispute_funds_withdrawn_real_fixture() {
-        let connector = test_connector();
+        let adapter = test_adapter();
         let payload = include_str!(
             "../../../../../tests/integration/fixtures/webhooks/stripe/charge.dispute.funds_withdrawn.json"
         );
 
-        let parsed = StripeConnector::new()
-            .parse_event(&connector, payload.as_bytes(), &HeaderMap::new())
+        let parsed = adapter
+            .parse_event(payload.as_bytes(), &HeaderMap::new())
             .expect("parse should succeed")
             .expect("event should be normalized");
 
@@ -1724,7 +2443,7 @@ mod tests {
     /// (the event that triggers invoice locking).
     #[test]
     fn parse_event_normalizes_dispute_closed_lost() {
-        let connector = test_connector();
+        let adapter = test_adapter();
         let payload = br#"{
             "id":"evt_dispute_lost",
             "type":"charge.dispute.closed",
@@ -1740,8 +2459,8 @@ mod tests {
             }}
         }"#;
 
-        let parsed = StripeConnector::new()
-            .parse_event(&connector, payload, &HeaderMap::new())
+        let parsed = adapter
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse should succeed")
             .expect("event should be normalized");
 
@@ -1756,7 +2475,7 @@ mod tests {
     /// behalf and we need to keep our snapshot in sync.
     #[test]
     fn parse_event_normalizes_payment_method_auto_updated() {
-        let connector = test_connector();
+        let adapter = test_adapter();
         let payload = br#"{
             "id":"evt_pm_auto",
             "type":"payment_method.automatically_updated",
@@ -1774,8 +2493,8 @@ mod tests {
             }}
         }"#;
 
-        let parsed = StripeConnector::new()
-            .parse_event(&connector, payload, &HeaderMap::new())
+        let parsed = adapter
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse should succeed")
             .expect("event should be normalized");
 
@@ -1794,7 +2513,7 @@ mod tests {
     /// look up our internal records.
     #[test]
     fn parse_event_normalizes_setup_intent_succeeded() {
-        let connector = test_connector();
+        let adapter = test_adapter();
         let payload = br#"{
             "id":"evt_setup_1",
             "type":"setup_intent.succeeded",
@@ -1816,8 +2535,8 @@ mod tests {
             }}
         }"#;
 
-        let parsed = StripeConnector::new()
-            .parse_event(&connector, payload, &HeaderMap::new())
+        let parsed = adapter
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse should succeed")
             .expect("event should be normalized");
 
@@ -1838,7 +2557,7 @@ mod tests {
     /// whenever the endpoint is registered for more than our payment set.
     #[test]
     fn parse_event_tolerates_unknown_object_type() {
-        let connector = test_connector();
+        let adapter = test_adapter();
         let payload = br#"{
             "id":"evt_customer_created_1",
             "type":"customer.created",
@@ -1850,8 +2569,8 @@ mod tests {
             }}
         }"#;
 
-        let parsed = StripeConnector::new()
-            .parse_event(&connector, payload, &HeaderMap::new())
+        let parsed = adapter
+            .parse_event(payload, &HeaderMap::new())
             .expect("parse must not error on an unmodeled object type")
             .expect("event should still normalize");
 
@@ -1861,5 +2580,86 @@ mod tests {
             "unmodeled object types must be acknowledged, got {:?}",
             parsed.kind
         );
+    }
+
+    fn stripe_error(status: u16, body: serde_json::Value) -> stripe_client::error::RequestError {
+        let mut err: stripe_client::error::RequestError =
+            serde_json::from_value(body["error"].clone()).unwrap();
+        err.http_status = status;
+        err
+    }
+
+    /// A confirm-time 402 is recorded as a declined attempt, with the intent Stripe created.
+    #[test]
+    fn card_decline_is_a_failed_charge_not_an_error() {
+        let err = stripe_error(
+            402,
+            serde_json::json!({"error": {
+                "type": "card_error", "code": "card_declined", "decline_code": "insufficient_funds",
+                "message": "Your card has insufficient funds.",
+                "payment_intent": {"id": "pi_123", "object": "payment_intent", "status": "requires_payment_method"}
+            }}),
+        );
+        let failure = super::card_error_to_failure(err);
+        assert_eq!(failure.external_id.as_deref(), Some("pi_123"));
+        assert_eq!(failure.code.as_deref(), Some("insufficient_funds"));
+        assert_eq!(
+            failure.decline_kind,
+            crate::adapters::payment::model::DeclineKind::InsufficientFunds
+        );
+        assert!(!failure.retryable);
+    }
+
+    /// Network "do not reattempt" answers are hard declines, so dunning never re-presents them.
+    #[test]
+    fn do_not_retry_declines_are_hard() {
+        use crate::adapters::payment::model::DeclineKind;
+        let advised = stripe_error(
+            402,
+            serde_json::json!({"error": {
+                "type": "card_error", "code": "card_declined", "decline_code": "generic_decline",
+                "advice_code": "do_not_try_again", "message": "Your card was declined."
+            }}),
+        );
+        assert_eq!(
+            super::card_error_to_failure(advised).decline_kind,
+            DeclineKind::DoNotRetry
+        );
+        let revoked = stripe_error(
+            402,
+            serde_json::json!({"error": {
+                "type": "card_error", "code": "card_declined",
+                "decline_code": "revocation_of_authorization", "message": "Declined."
+            }}),
+        );
+        let kind = super::card_error_to_failure(revoked).decline_kind;
+        assert_eq!(kind, DeclineKind::DoNotRetry);
+        assert!(kind.is_hard());
+    }
+
+    /// An idempotency conflict says nothing about the original charge: never a decline.
+    #[test]
+    fn idempotency_conflicts_map_to_transport() {
+        use super::{ConnectorError, StripeError, map_stripe_error};
+        for (status, error_type) in [(409, "idempotency_error"), (400, "idempotency_error")] {
+            let err = stripe_error(
+                status,
+                serde_json::json!({"error": {"type": error_type, "message": "Keys for idempotent requests can only be used with the same parameters"}}),
+            );
+            let report = map_stripe_error(StripeError::Stripe(err));
+            assert!(
+                matches!(report.current_context(), ConnectorError::Transport(_)),
+                "{status} {error_type} must be Transport, got {:?}",
+                report.current_context()
+            );
+        }
+        let declined = stripe_error(
+            400,
+            serde_json::json!({"error": {"type": "invalid_request_error", "message": "bad"}}),
+        );
+        assert!(matches!(
+            map_stripe_error(StripeError::Stripe(declined)).current_context(),
+            ConnectorError::Charge(_)
+        ));
     }
 }

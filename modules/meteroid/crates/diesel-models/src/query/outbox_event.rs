@@ -3,7 +3,6 @@ use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 
 use crate::outbox_event::OutboxEventRowNew;
-use diesel::debug_query;
 use error_stack::ResultExt;
 
 impl OutboxEventRowNew {
@@ -13,7 +12,7 @@ impl OutboxEventRowNew {
 
         let query = diesel::insert_into(oe_dsl::outbox_event).values(events);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)

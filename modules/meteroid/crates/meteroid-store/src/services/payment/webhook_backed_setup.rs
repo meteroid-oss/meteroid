@@ -1,17 +1,16 @@
 //! Return-URL completion for webhook-backed hosted setups that carry an intent id (Mollie).
-//! Attaches the existing mandate as the default method, the same end state the webhook reaches.
+//! Attaches the existing mandate (the default when the customer has none), as the webhook does.
 //! No money moves here, so a lost or replayed return is harmless.
 
 use crate::StoreResult;
 use crate::adapters::payment::error::{
     ConnectorError, HostedSetupNotCompleted, HostedSetupPending,
 };
-use crate::adapters::payment::{HostedSetupCompletion, initialize_payment_connector};
+use crate::adapters::payment::initialize_payment_connector;
 use crate::domain::connectors::Connector;
 use crate::domain::entity_activity::Actor;
-use crate::domain::{CustomerPatch, CustomerPaymentMethod, CustomerPaymentMethodNew};
+use crate::domain::{CustomerPaymentMethod, CustomerPaymentMethodNew};
 use crate::errors::StoreError;
-use crate::repositories::CustomersInterface;
 use crate::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use crate::services::Services;
 use common_domain::ids::{BaseId, CustomerPaymentMethodId};
@@ -24,7 +23,7 @@ const PAYMENT_PROVIDER_TIMEOUT: Duration = Duration::from_secs(45);
 /// Customer-facing outcome of a webhook-backed hosted-setup return.
 #[derive(Debug)]
 pub enum WebhookBackedSetupOutcome {
-    /// The mandate exists and is now the customer's default method.
+    /// The mandate exists and is saved on the customer.
     MethodSaved(Box<CustomerPaymentMethod>),
     /// Not final at the provider yet; the webhook will complete it.
     Processing,
@@ -45,10 +44,8 @@ impl Services {
         let connection_id = connection_row.id;
         let connector =
             Connector::from_row(&self.store.settings.crypt_key, connection_row.connector)?;
-        let webhook_backed = crate::adapters::payment::provider_capabilities(&connector.provider)
-            .is_some_and(|caps| {
-                caps.hosted_setup_completion == HostedSetupCompletion::WebhookBacked
-            });
+        let webhook_backed = crate::adapters::payment::payment_capabilities(&connector.provider())
+            .is_some_and(|caps| caps.is_webhook_backed_hosted_setup());
         if !webhook_backed {
             return Err(Report::new(StoreError::InvalidArgument(
                 "connection's provider does not use webhook-backed hosted-setup completion"
@@ -63,7 +60,7 @@ impl Services {
 
         let result = tokio::time::timeout(
             PAYMENT_PROVIDER_TIMEOUT,
-            connector_impl.complete_mandate_setup(&connector, &intent_id),
+            connector_impl.complete_mandate_setup(&intent_id),
         )
         .await
         .map_err(|_| {
@@ -117,6 +114,7 @@ impl Services {
         let in_flow_invoice = snapshot.meteroid_invoice_id.clone();
         let in_flow_transaction = snapshot.meteroid_transaction_id.clone();
         let in_flow_captured = snapshot.payment_request_payment.clone();
+        let pays_checkout = snapshot.meteroid_checkout_session_id.is_some();
 
         let payment_method = self
             .store
@@ -133,31 +131,22 @@ impl Services {
                 card_exp_month: snapshot.card_exp_month,
                 card_exp_year: snapshot.card_exp_year,
                 fingerprint: snapshot.fingerprint,
+                saved_for_payment: in_flow_invoice.is_some() || pays_checkout,
             })
             .await?;
 
-        let patch = CustomerPatch {
-            id: customer_id,
-            name: None,
-            alias: None,
-            billing_email: None,
-            phone: None,
-            balance_value_cents: None,
-            currency: None,
-            billing_address: None,
-            shipping_address: None,
-            invoicing_entity_id: None,
-            vat_number: None,
-            current_payment_method_id: Some(Some(payment_method.id)),
-            invoicing_emails: None,
-            tax_status: None,
-            exemption_reason: None,
-            custom_taxes: None,
-            connected_account_id: None,
-        };
-        self.store
-            .patch_customer(Actor::System, tenant_id, patch)
+        // A setup the customer made on its own is their new default; one that pays something
+        // becomes it once that payment settles.
+        if in_flow_invoice.is_none() && !pays_checkout {
+            self.adopt_default_payment_method(
+                Actor::Customer { id: customer_id },
+                tenant_id,
+                customer_id,
+                payment_method.id,
+                super::hosted_setup::DefaultMethodAdoption::Replace,
+            )
             .await?;
+        }
 
         // Record the invoice capture now so it shows as paid on return; the webhook repeats this.
         if let (Some(invoice_id_str), Some(_)) = (&in_flow_invoice, &in_flow_transaction) {

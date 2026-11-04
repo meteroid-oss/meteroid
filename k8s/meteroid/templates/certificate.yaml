@@ -1,5 +1,5 @@
 {{- if and .Values.ingress.enabled .Values.ingress.tls }}
-{{- $clusterIssuer := index (.Values.ingress.annotations | default dict) "cert-manager.io/cluster-issuer" }}
+{{- $clusterIssuer := index .Values.ingress.annotations "cert-manager.io/cluster-issuer" }}
 {{- if $clusterIssuer }}
 {{- range .Values.ingress.tls }}
 ---

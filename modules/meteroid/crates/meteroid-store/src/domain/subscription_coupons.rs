@@ -59,8 +59,10 @@ pub struct AppliedCouponDetailed {
 }
 
 impl AppliedCouponDetailed {
+    /// Credit coupons pay out through the customer's wallet, never as an invoice discount.
     pub fn is_invoice_applicable(&self) -> bool {
-        self.applied_coupon.is_active
+        !self.coupon.discount.is_credit()
+            && self.applied_coupon.is_active
             && !self.reached_recurring_limit()
             && !self.amount_is_fully_consumed()
     }
@@ -73,7 +75,7 @@ impl AppliedCouponDetailed {
 
     fn amount_is_fully_consumed(&self) -> bool {
         match &self.coupon.discount {
-            CouponDiscount::Percentage(_) => false,
+            CouponDiscount::Percentage(_) | CouponDiscount::Credit { .. } => false,
             CouponDiscount::Fixed { amount, .. } => {
                 // todo currency conversion?
                 let fully_consumed = &self

@@ -1,0 +1,26 @@
+[package]
+name = "rate-limiter"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+tonic = ["dep:tower", "dep:futures-util", "dep:http", "dep:tonic"]
+axum = ["dep:axum", "dep:http", "dep:serde_json"]
+
+[dependencies]
+async-trait = { workspace = true }
+tracing = { workspace = true }
+
+# Optional dependencies for tonic middleware
+tower = { workspace = true, optional = true }
+futures-util = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
+tonic = { workspace = true, optional = true }
+
+# Optional dependencies for axum middleware
+axum = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

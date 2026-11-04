@@ -1,0 +1,6 @@
+{
+  "Gocardless": {
+    "access_token": "gc_token",
+    "webhook_secret": "gc_secret"
+  }
+}

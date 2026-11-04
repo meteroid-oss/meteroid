@@ -1,0 +1,53 @@
+<table role="presentation" class="summary" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f7f8fa" style="width:100%;border-collapse:separate;background-color:#f7f8fa;border:1px solid #e8eaee;border-radius:12px;">
+<% if let Some(hero) = &hero { %>
+  <tr>
+    <td class="panel-pad" style="padding:22px 24px 20px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td valign="middle" style="font-size:12px;line-height:16px;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;color:#6b7079;"><%= hero.label %></td>
+<% if let Some(status) = &hero.status { %>
+          <td valign="middle" align="right">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right">
+              <tr>
+                <td class="status" bgcolor="<%= status.background %>" style="padding:3px 10px;border-radius:999px;background-color:<%= status.background %>;font-size:12px;line-height:18px;font-weight:600;color:<%= status.color %>;white-space:nowrap;"><%= status.label %></td>
+              </tr>
+            </table>
+          </td>
+<% } %>
+        </tr>
+        <tr>
+          <td colspan="2" class="hero-amount" style="padding-top:8px;font-size:36px;line-height:44px;font-weight:600;letter-spacing:-0.8px;color:#111318;font-variant-numeric:tabular-nums;"><%= hero.amount %></td>
+        </tr>
+<% if let Some(caption) = &hero.caption { %>
+        <tr>
+          <td colspan="2" style="padding-top:4px;font-size:14px;line-height:20px;color:#414651;"><%= caption %></td>
+        </tr>
+<% } %>
+      </table>
+    </td>
+  </tr>
+<% if !rows.is_empty() { %>
+  <tr>
+    <td class="panel-pad" style="padding:0 24px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr><td height="1" style="height:1px;font-size:0;line-height:0;border-top:1px dashed #cfd3da;">&nbsp;</td></tr>
+      </table>
+    </td>
+  </tr>
+<% } %>
+<% } %>
+<% if !rows.is_empty() { %>
+  <tr>
+    <td class="panel-pad" style="padding:<%= if hero.is_some() { "12px 24px 14px" } else { "14px 24px" } %>;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+<% for (label, value) in rows { %>
+        <tr>
+          <td valign="top" style="padding:6px 16px 6px 0;font-size:14px;line-height:20px;color:#6b7079;"><%= label %></td>
+          <td valign="top" align="right" style="padding:6px 0;font-size:14px;line-height:20px;font-weight:500;color:#111318;text-align:right;"><%= value %></td>
+        </tr>
+<% } %>
+      </table>
+    </td>
+  </tr>
+<% } %>
+</table>

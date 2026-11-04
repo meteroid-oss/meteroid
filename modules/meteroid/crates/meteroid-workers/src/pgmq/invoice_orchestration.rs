@@ -1,0 +1,227 @@
+use crate::pgmq::PgmqResult;
+use crate::pgmq::error::PgmqError;
+use crate::pgmq::outbox::to_outbox_events;
+use crate::pgmq::processor::{HandleResult, PgmqHandler};
+use common_domain::pgmq::MessageId;
+use common_eventbus::Event;
+use error_stack::ResultExt;
+use meteroid_store::domain::PaymentStatusEnum;
+use meteroid_store::domain::outbox_event::OutboxEvent;
+use meteroid_store::domain::pgmq::{
+    CreditNotePdfRequestEvent, InvoicePdfRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue,
+};
+use meteroid_store::repositories::pgmq::PgmqInterface;
+use meteroid_store::{Services, Store, StoreResult};
+use std::sync::Arc;
+
+#[derive(Clone)]
+pub(crate) struct InvoiceOrchestration {
+    store: Arc<Store>,
+    services: Arc<Services>,
+}
+
+impl InvoiceOrchestration {
+    pub fn new(store: Arc<Store>, services: Arc<Services>) -> Self {
+        Self { store, services }
+    }
+}
+
+#[async_trait::async_trait]
+impl PgmqHandler for InvoiceOrchestration {
+    async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<HandleResult> {
+        let decoded = to_outbox_events(msgs);
+
+        // TODO optimize by grouping by event type
+        let tasks: Vec<_> = decoded
+            .events
+            .into_iter()
+            .map(|(msg_id, event)| {
+                let store_clone = self.store.clone();
+                let services_clone = self.services.clone();
+                let task = tokio::spawn(async move {
+                    orchestrate_invoice_event(&store_clone, &services_clone, msg_id, event).await
+                });
+                (msg_id, task)
+            })
+            .collect();
+
+        let mut succeeded = Vec::new();
+        let mut failed = decoded.failed;
+
+        for (msg_id, task) in tasks {
+            match task.await {
+                Ok(Ok(())) => succeeded.push(msg_id),
+                Ok(Err(err)) => failed.push(HandleResult::fail(msg_id, &err)),
+                Err(join_err) => {
+                    log::error!("Task panicked during invoice orchestration: {join_err}");
+                    failed.push(HandleResult::fail(msg_id, &join_err));
+                }
+            }
+        }
+
+        Ok(HandleResult { succeeded, failed })
+    }
+}
+
+#[tracing::instrument(skip_all, fields(
+    tenant_id = %event.tenant_id(),
+    customer_id = event.customer_id().map(tracing::field::display),
+    subscription_id = event.subscription_id().map(tracing::field::display),
+    invoice_id = event.invoice_id().map(tracing::field::display),
+    event_type = %event.event_type(),
+))]
+async fn orchestrate_invoice_event(
+    store: &Store,
+    services: &Services,
+    msg_id: MessageId,
+    event: OutboxEvent,
+) -> PgmqResult<()> {
+    let result = process_event(store, services, event).await;
+    if let Err(err) = &result {
+        log::error!("Failed to handle invoice orchestration message {msg_id:?}: {err:?}");
+    }
+    result
+}
+
+async fn process_event(store: &Store, services: &Services, event: OutboxEvent) -> PgmqResult<()> {
+    let tenant_id = event.tenant_id();
+    match event {
+        OutboxEvent::InvoiceFinalized(event) => {
+            // request the pdf to be generated
+            let evt: StoreResult<PgmqMessageNew> = InvoicePdfRequestEvent::new(
+                tenant_id,
+                event.invoice_id,
+                false, // we do not want to send the email yet
+            )
+            .try_into();
+            store
+                .pgmq_send_batch(
+                    PgmqQueue::InvoicePdfRequest,
+                    vec![evt.change_context(PgmqError::HandleMessages)?],
+                )
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+            // Published from the committed outbox: a finalization rolled back announces nothing.
+            let _ = store
+                .eventbus
+                .publish(Event::invoice_finalized(event.invoice_id, tenant_id))
+                .await;
+        }
+        OutboxEvent::InvoiceAccountingPdfGenerated(event) => {
+            services
+                .on_invoice_accounting_pdf_generated(*event, tenant_id)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+        OutboxEvent::InvoicePaid(event) => {
+            services
+                .on_invoice_paid(*event, tenant_id)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+        // REFUND rows never orchestrate: a voluntary refund leaves the invoice alone, so every
+        // arm below is about the collection it hangs off (an invoice payment or a top-up charge).
+        OutboxEvent::PaymentTransactionSaved(event)
+            if event.payment_type.is_collection()
+                && event.status == PaymentStatusEnum::Settled
+                && event.amount_refunded == 0
+                && event.amount_reversed == 0 =>
+        {
+            services
+                .on_payment_transaction_settled(*event)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+        // Belt-and-suspenders: a Failed/Cancelled payment carrying `refunded_at`
+        // means settled funds were clawed back without the synchronous reversal
+        // path running — reverse the invoice. No current path emits this shape
+        // (consolidate rejects Settled→Failed as out-of-order; webhook reversals
+        // via `reverse_transaction_tx` keep status Refunded / Settled and already
+        // did their invoice work synchronously, falling through to the no-op arm).
+        OutboxEvent::PaymentTransactionSaved(event)
+            if event.payment_type.is_collection()
+                && event.refunded_at.is_some()
+                && matches!(
+                    event.status,
+                    PaymentStatusEnum::Failed | PaymentStatusEnum::Cancelled
+                ) =>
+        {
+            services
+                .on_payment_transaction_reversed(*event)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+        OutboxEvent::CreditNoteFinalized(event) => {
+            // request the credit note pdf to be generated
+            let evt: StoreResult<PgmqMessageNew> =
+                CreditNotePdfRequestEvent::new(tenant_id, event.credit_note_id).try_into();
+            store
+                .pgmq_send_batch(
+                    PgmqQueue::CreditNotePdfRequest,
+                    vec![evt.change_context(PgmqError::HandleMessages)?],
+                )
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+            // After the PDF request: a retry re-sends it, which the render and its email collapse.
+            services
+                .credit_back_forgiven_late_packs(tenant_id, event.credit_note_id)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+        // A payment attempt that ended without collecting anything. Distinct from the
+        // reversal arm above: no `refunded_at` means no money ever moved, so the invoice
+        // goes back into collection and onto the dunning ladder rather than being reopened.
+        OutboxEvent::PaymentTransactionSaved(event)
+            if event.payment_type.is_collection()
+                && matches!(
+                    event.status,
+                    PaymentStatusEnum::Failed | PaymentStatusEnum::Cancelled
+                )
+                && event.refunded_at.is_none() =>
+        {
+            services
+                .on_payment_transaction_failed(*event)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+        // Any other payment-transaction event (Ready, or a Pending intermediate state)
+        // needs no orchestration. Ack it — returning Err here would dead-letter routine
+        // lifecycle transitions after the retry budget.
+        OutboxEvent::PaymentTransactionSaved(event) => {
+            log::debug!(
+                "No invoice-orchestration action for {:?} transaction {} (status {:?})",
+                event.payment_type,
+                event.payment_transaction_id,
+                event.status
+            );
+        }
+        // The refund lifecycle exists for the outbound webhooks; it moves no invoice.
+        OutboxEvent::RefundIssued(event)
+        | OutboxEvent::RefundSettled(event)
+        | OutboxEvent::RefundFailed(event) => {
+            log::debug!(
+                "No invoice-orchestration action for refund {}",
+                event.payment_transaction_id
+            );
+        }
+        // `reverse_transaction_tx` and `reinstate_transaction_tx` did their invoice work inside
+        // their own transaction.
+        OutboxEvent::PaymentReversed(event) | OutboxEvent::PaymentReinstated(event) => {
+            log::debug!(
+                "Payment {} was reversed or reinstated; its invoice was handled synchronously",
+                event.payment_transaction_id
+            );
+        }
+        //
+        // OutboxEvent::PaymentReceiptGenerated(event) =>  {
+        //     // we can send the email. Check if the invoice is paid first
+        //
+        // },
+        _ => {
+            log::warn!("Unhandled outbox event type: {:?}", event);
+            return Err(PgmqError::HandleMessages).attach("Invalid event type");
+        }
+    }
+
+    Ok(())
+}

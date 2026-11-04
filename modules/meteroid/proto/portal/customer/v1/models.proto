@@ -2,9 +2,12 @@ syntax = "proto3";
 
 package meteroid.portal.customer.v1;
 
+import "api/billablemetrics/v1/models.proto";
 import "api/customers/v1/models.proto";
 import "api/subscriptions/v1/models.proto";
 import "api/invoices/v1/models.proto";
+import "google/protobuf/timestamp.proto";
+import "portal/subscription/v1/subscription.proto";
 
 message CustomerPortalOverview {
   api.customers.v1.Customer customer = 1;
@@ -21,6 +24,10 @@ message CustomerPortalOverview {
   optional string invoicing_entity_theme_mode = 10;
   // "Sharp" | "Modern" | "Rounded".
   optional string invoicing_entity_roundness = 11;
+  reserved 12;
+  reserved "credit_billing_enabled";
+  // False when the merchant's plan includes white-label.
+  bool show_powered_by = 13;
 }
 
 message SubscriptionSummary {
@@ -30,13 +37,16 @@ message SubscriptionSummary {
   api.subscriptions.v1.SubscriptionStatus status = 4;
   optional string billing_start = 5;
   optional string billing_end = 6;
-  uint64 mrr_cents = 8;
   string currency = 9;
   optional string trial_start = 10;
   optional string trial_end = 11;
   optional string next_billing_date = 12;
   // Set when a cancellation is scheduled; the subscription ends on this date instead of renewing.
   optional string pending_cancellation_date = 13;
+  meteroid.portal.subscription.v1.PlanPrice plan_price = 14;
+  optional string plan_description = 15;
+  // Tells two subscriptions to one plan apart: the events each bills.
+  optional api.subscriptions.v1.UsageFilter usage_filter = 16;
 }
 
 message InvoiceSummary {
@@ -51,4 +61,62 @@ message InvoiceSummary {
   optional string plan_name = 9;
   api.invoices.v1.InvoicePaymentStatus payment_status = 10;
   optional string document_sharing_key = 11;
+  // Paid with credit on account; `total` minus this is what was charged.
+  uint64 applied_credits_cents = 12;
+  // PAID with nothing collected: credit notes cancelled the whole total.
+  bool settled_by_credit_notes = 13;
+  // The subscription the invoice bills; unset on an invoice of no single subscription.
+  optional string subscription_id = 14;
+}
+
+enum LimitOrigin {
+  LIMIT_ORIGIN_UNSPECIFIED = 0;
+  // Comes with the plan.
+  LIMIT_ORIGIN_PLAN = 1;
+  // Set on the account.
+  LIMIT_ORIGIN_ACCOUNT = 2;
+}
+
+// A cap on usage, as it stands in its current window. Decimal amounts are strings.
+message UsageLimitStatus {
+  string id = 1;
+  string name = 2;
+  LimitOrigin origin = 3;
+  // Event property usage is counted separately by, e.g. one limit per API key.
+  optional string group_by = 4;
+  string limit = 5;
+  // Requests beyond the limit are rejected.
+  bool hard = 6;
+  optional google.protobuf.Timestamp window_start = 7;
+  // Unset when the limit never resets.
+  optional google.protobuf.Timestamp resets_at = 8;
+  // Highest usage first; one group with an empty `group` when not grouped.
+  repeated LimitGroupUsage groups = 9;
+  // Usage split by the metric's own dimensions, highest first.
+  repeated LimitGroupUsage breakdown = 10;
+  // A hard limit a group has used up: its requests are rejected until the limit resets.
+  bool reached = 11;
+  // When usage first reached the limit in this window, as recorded when it crossed.
+  optional google.protobuf.Timestamp reached_at = 12;
+  // A group is at or over the limit's warning threshold, or has reached the limit.
+  bool warning = 13;
+  // The unit of the limited metric, when it names one; `limit` and usage are in it.
+  optional meteroid.api.billablemetrics.v1.MetricUnitLabel unit_label = 14;
+}
+
+message LimitGroupUsage {
+  map<string, string> group = 1;
+  string used = 2;
+}
+
+// A software license the customer holds, issued with one of their subscriptions or by hand.
+message PortalLicense {
+  string id = 1;
+  optional string subscription_id = 2;
+  optional string plan_name = 3;
+  // PENDING (not activated yet), ACTIVE or REVOKED.
+  string status = 4;
+  optional string instance_id = 5;
+  optional string last_refreshed_at = 6;
+  string created_at = 7;
 }

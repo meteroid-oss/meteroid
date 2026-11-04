@@ -4,7 +4,7 @@ use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
 use common_domain::ids::{AddOnId, PlanVersionId, TenantId};
-use diesel::{ExpressionMethods, PgTextExpressionMethods, QueryDsl, SelectableHelper, debug_query};
+use diesel::{ExpressionMethods, PgTextExpressionMethods, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use tap::TapFallible;
@@ -15,7 +15,7 @@ impl AddOnRowNew {
 
         let query = diesel::insert_into(ao_dsl::add_on).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -37,7 +37,7 @@ impl AddOnRow {
             .filter(ao_dsl::id.eq(id))
             .filter(ao_dsl::tenant_id.eq(tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -48,7 +48,6 @@ impl AddOnRow {
 
     /// List add-ons for a tenant. If `plan_version_id` is provided, filters through the junction table.
     /// If `currency` is provided, filters add-ons whose price matches that currency.
-    #[allow(clippy::too_many_arguments)]
     pub async fn list_by_tenant_id(
         conn: &mut PgConn,
         tenant_id: TenantId,
@@ -115,7 +114,7 @@ impl AddOnRow {
 
         let query = query.paginate(pagination);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load_and_count_pages(conn)
@@ -134,7 +133,7 @@ impl AddOnRow {
             .filter(ao_dsl::archived_at.is_null())
             .set(ao_dsl::archived_at.eq(diesel::dsl::now));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -154,7 +153,7 @@ impl AddOnRow {
             .filter(ao_dsl::tenant_id.eq(tenant_id))
             .set(ao_dsl::archived_at.eq::<Option<chrono::NaiveDateTime>>(None));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -178,7 +177,7 @@ impl AddOnRow {
             .filter(ao_dsl::tenant_id.eq(tenant_id))
             .filter(ao_dsl::archived_at.is_null());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -198,7 +197,7 @@ impl AddOnRowPatch {
             .filter(ao_dsl::tenant_id.eq(self.tenant_id))
             .set(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)

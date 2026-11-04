@@ -5,8 +5,13 @@ use crate::{Store, StoreResult};
 use chrono::{Duration, Utc};
 use common_domain::ids::{CheckoutSessionId, CustomerId, SubscriptionId, TenantId};
 use diesel_models::checkout_sessions::{CheckoutSessionRow, CheckoutSessionRowNew};
+use diesel_models::coupons::CouponRow;
 use diesel_models::enums::CheckoutSessionStatusEnum;
 use error_stack::Report;
+
+/// How long a plan-change checkout waits on the customer to authenticate its payment (3DS, a
+/// redirect) before it expires, as card issuers abandon the authentication well within it.
+const PLAN_CHANGE_AUTHENTICATION_WINDOW: Duration = Duration::hours(24);
 
 #[async_trait::async_trait]
 pub trait CheckoutSessionsInterface {
@@ -52,6 +57,17 @@ impl CheckoutSessionsInterface for Store {
         params: CreateCheckoutSession,
     ) -> StoreResult<CheckoutSession> {
         let mut conn = self.get_conn().await?;
+
+        // Refused now rather than ignored when the customer pays.
+        if params.coupon_ids.is_empty()
+            && let Some(code) = params.coupon_code.as_deref()
+        {
+            let codes = [code.to_owned()];
+            let rows = CouponRow::candidates_by_codes(&mut conn, params.tenant_id, &codes)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+            crate::repositories::coupons::match_coupon_codes(&codes, &rows)?;
+        }
 
         let row_new: CheckoutSessionRowNew = params.try_into_row()?;
 
@@ -137,9 +153,16 @@ impl CheckoutSessionsInterface for Store {
 
         let now = Utc::now();
 
-        CheckoutSessionRow::mark_expired_batch(&mut conn, now)
+        let expired = CheckoutSessionRow::mark_expired_batch(&mut conn, now)
             .await
-            .map_err(Into::<Report<StoreError>>::into)
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let stale = CheckoutSessionRow::expire_stale_plan_change_checkouts(
+            &mut conn,
+            now - PLAN_CHANGE_AUTHENTICATION_WINDOW,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+        Ok(expired + stale)
     }
 
     async fn cleanup_old_sessions(&self, older_than_days: u32) -> StoreResult<usize> {

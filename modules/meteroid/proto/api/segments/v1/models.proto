@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package meteroid.api.segments.v1;
+
+message Segment {
+  string id = 1;
+  string name = 2;
+  // JSON-encoded segment definition (a CohortSpec: { predicates: [...] }), owned by
+  // the client. Resolves to a customer set server-side; never widens tenant scope.
+  string definition = 3;
+  string created_at = 4;
+  optional string updated_at = 5;
+  optional string archived_at = 6;
+  // Matching-customer count over the trailing preview window. Only populated by
+  // ListSegments when `with_counts` is set; unset means "not computed".
+  optional uint64 member_count = 7;
+}

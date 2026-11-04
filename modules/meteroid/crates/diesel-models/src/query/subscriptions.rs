@@ -1,6 +1,7 @@
 use crate::errors::IntoDbResult;
 use chrono::NaiveDate;
 
+use crate::extend::filtering::{ListFilter, render_list_filter};
 use crate::subscriptions::{
     SubscriptionForDisplayRow, SubscriptionRow, SubscriptionRowNew, SubscriptionRowPatch,
 };
@@ -9,7 +10,7 @@ use crate::{DbResult, PgConn};
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, JoinOnDsl, NullableExpressionMethods,
     OptionalExtension, PgSortExpressionMethods, PgTextExpressionMethods, QueryDsl,
-    SelectableHelper, debug_query,
+    SelectableHelper,
 };
 use diesel_async::RunQueryDsl;
 
@@ -26,7 +27,7 @@ impl SubscriptionRowNew {
 
         let query = diesel::insert_into(subscription).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -37,6 +38,28 @@ impl SubscriptionRowNew {
 }
 
 impl SubscriptionRow {
+    /// Non-terminal subscriptions whose billing cursor has not yet reached today,
+    /// i.e. the billing worker is still generating their historical invoices.
+    pub async fn count_pending_billing_catchup(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        today: NaiveDate,
+    ) -> DbResult<i64> {
+        use crate::schema::subscription::dsl as s_dsl;
+
+        let query = s_dsl::subscription
+            .filter(s_dsl::tenant_id.eq(tenant_id))
+            .filter(s_dsl::status.eq_any(crate::enums::SubscriptionStatusEnum::not_terminal()))
+            .filter(s_dsl::current_period_end.le(today))
+            .count();
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while counting subscriptions pending billing catch-up")
+            .into_db_result()
+    }
+
     pub async fn insert_subscription_batch(
         conn: &mut PgConn,
         batch: Vec<&SubscriptionRowNew>,
@@ -45,7 +68,7 @@ impl SubscriptionRow {
 
         let query = diesel::insert_into(subscription).values(batch);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -73,7 +96,7 @@ impl SubscriptionRow {
             )
             .select(SubscriptionForDisplayRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result::<SubscriptionForDisplayRow>(conn)
@@ -99,6 +122,25 @@ impl SubscriptionRow {
             .into_db_result()
     }
 
+    /// Single-column status read — cheaper than `get_subscription_by_id` (no plan/customer joins)
+    /// for hot-path guards that only need the current lifecycle state.
+    pub async fn get_status(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+        subscription_id_param: SubscriptionId,
+    ) -> DbResult<crate::enums::SubscriptionStatusEnum> {
+        use crate::schema::subscription::dsl::{id, status, subscription, tenant_id};
+
+        subscription
+            .filter(id.eq(subscription_id_param))
+            .filter(tenant_id.eq(tenant_id_param))
+            .select(status)
+            .get_result(conn)
+            .await
+            .attach("Error while fetching subscription status")
+            .into_db_result()
+    }
+
     pub async fn get_subscription_period_by_id(
         conn: &mut PgConn,
         tenant_id_param: &TenantId,
@@ -120,7 +162,7 @@ impl SubscriptionRow {
             )
             .select((current_period_start, current_period_end));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result::<(NaiveDate, Option<NaiveDate>)>(conn)
@@ -148,7 +190,7 @@ impl SubscriptionRow {
             .order(id.desc())
             .select(SubscriptionForDisplayRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -175,7 +217,7 @@ impl SubscriptionRow {
             )
             .select(SubscriptionForDisplayRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -200,7 +242,7 @@ impl SubscriptionRow {
             )
             .select(SubscriptionForDisplayRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -223,7 +265,7 @@ impl SubscriptionRow {
             .inner_join(s_dsl::subscription.on(s_dsl::id.nullable().eq(i_dsl::subscription_id)))
             .select(s_dsl::id);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result::<SubscriptionId>(conn)
@@ -233,7 +275,6 @@ impl SubscriptionRow {
             .into_db_result()
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn list_subscriptions(
         conn: &mut PgConn,
         tenant_id_param: &TenantId,
@@ -241,6 +282,7 @@ impl SubscriptionRow {
         plan_id_param_opt: Option<PlanId>,
         status_opt: Option<Vec<crate::enums::SubscriptionStatusEnum>>,
         param_search: Option<String>,
+        filters: Vec<ListFilter>,
         order_by: Option<&str>,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<SubscriptionForDisplayRow>> {
@@ -280,6 +322,10 @@ impl SubscriptionRow {
                     .ilike(format!("%{param_search}%"))
                     .or(p_dsl::name.ilike(format!("%{param_search}%"))),
             );
+        }
+
+        for f in filters {
+            query = query.filter(render_list_filter(f, "subscription.custom_properties"));
         }
 
         let order = OrderByParam::parse(order_by, "created_at.desc");
@@ -328,7 +374,7 @@ impl SubscriptionRow {
             .select(SubscriptionForDisplayRow::as_select())
             .paginate(pagination);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated_query));
+        crate::debug_sql(&paginated_query);
 
         paginated_query
             .load_and_count_pages::<SubscriptionForDisplayRow>(conn)
@@ -373,7 +419,7 @@ impl SubscriptionRow {
         )
         .set(patch);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -414,12 +460,63 @@ impl SubscriptionRow {
             .filter(s_dsl::status.eq_any(active_statuses))
             .select(SubscriptionRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
             .await
             .attach("Error while fetching active subscriptions by customer")
+            .into_db_result()
+    }
+
+    pub async fn find_active_by_customers(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_ids: &[CustomerId],
+    ) -> DbResult<Vec<SubscriptionRow>> {
+        use crate::enums::SubscriptionStatusEnum;
+        use crate::schema::subscription::dsl as s_dsl;
+        use error_stack::ResultExt;
+
+        if customer_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        s_dsl::subscription
+            .filter(s_dsl::tenant_id.eq(tenant_id))
+            .filter(s_dsl::customer_id.eq_any(customer_ids))
+            .filter(s_dsl::status.eq_any(vec![
+                SubscriptionStatusEnum::Active,
+                SubscriptionStatusEnum::TrialActive,
+                SubscriptionStatusEnum::PendingCharge,
+            ]))
+            .select(SubscriptionRow::as_select())
+            .get_results(conn)
+            .await
+            .attach("Error while fetching the active subscriptions of customers")
+            .into_db_result()
+    }
+
+    /// The customer's subscriptions usage attribution reads: all but aborted ones, which never bill.
+    pub async fn list_for_usage_attribution(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+    ) -> DbResult<Vec<SubscriptionRow>> {
+        use crate::enums::SubscriptionStatusEnum;
+        use crate::schema::subscription::dsl as s_dsl;
+
+        let query = s_dsl::subscription
+            .filter(s_dsl::tenant_id.eq(tenant_id))
+            .filter(s_dsl::customer_id.eq(customer_id))
+            .filter(s_dsl::status.ne(SubscriptionStatusEnum::Aborted))
+            .select(SubscriptionRow::as_select());
+
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing the subscriptions of a customer for usage attribution")
             .into_db_result()
     }
 }

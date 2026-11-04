@@ -49,13 +49,33 @@ pub struct CustomerForTax {
     pub shipping_address: Option<Address>,
 }
 
+/// Whether the supply was priced as one to a taxable person. This is the *engine's*
+/// finding, not a re-reading of the document: the place-of-supply article a document
+/// cites has to match the basis the tax was computed on, and the two diverge as soon
+/// as anything downstream looks at a different field (an operator-edited invoice
+/// snapshot, a number that failed format validation, a pending VIES check).
+///
+/// Recorded alongside the exemption so renderers can cite the right article instead of
+/// re-deriving one. When an explicit customer type lands on the customer record, only
+/// the engine's `is_b2b` below changes and every consumer of this follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SupplyBasis {
+    Business,
+    Consumer,
+}
+
 #[derive(Debug)]
 pub enum CustomerTax {
     TaxRates(Vec<CustomerTaxRate>),
     ResolvedTaxRate(world_tax::TaxRate),
     ResolvedMultipleTaxRates(Vec<world_tax::TaxRate>),
     Exempt,
+    /// Zero-rated cross-border supply: no VAT applies and the document must carry the
+    /// "VAT not applicable" export mention for the basis the supply was priced on.
+    Export(SupplyBasis),
     ReverseCharge,
+    /// See [`VatExemptionReason::NoVatTerritory`].
+    NoVatTerritory,
     NoTax,
 }
 
@@ -81,7 +101,9 @@ impl Clone for CustomerTax {
                     .collect(),
             ),
             CustomerTax::Exempt => CustomerTax::Exempt,
+            CustomerTax::Export(basis) => CustomerTax::Export(*basis),
             CustomerTax::ReverseCharge => CustomerTax::ReverseCharge,
+            CustomerTax::NoVatTerritory => CustomerTax::NoVatTerritory,
             CustomerTax::NoTax => CustomerTax::NoTax,
         }
     }
@@ -126,6 +148,11 @@ pub struct LineItemForTax {
     /// invoicing entity default). Engines may price on it; None if unclassified.
     /// The `nontaxable` key is special-cased to exempt; all others are standard-rated.
     pub tax_category: Option<String>,
+    /// `amount` already contains the tax: the engine carves the tax out of it instead of
+    /// adding it on top, and reports what is left as the line's `pre_tax_amount`. A line
+    /// that resolves to no tax (exempt, reverse charge, export) keeps its whole amount —
+    /// the price the customer was quoted is what they pay.
+    pub tax_inclusive: bool,
 }
 
 /// Key of the built-in tax category that never yields tax, seeded in `tax_category`.
@@ -134,7 +161,15 @@ pub const NONTAXABLE_CATEGORY_KEY: &str = "nontaxable";
 #[derive(Debug, Clone)]
 pub struct LineItemWithTax {
     pub line_id: String,
+    /// The line's net base. For a tax-inclusive line this is its amount less the tax
+    /// carved out of it, so `pre_tax_amount + tax` is always the amount that came in.
     pub pre_tax_amount: i64,
+    /// What this line's resolved taxes come to per unit of net — compounding folded in,
+    /// and before any rounding. A tax-inclusive price of this line carries exactly this
+    /// much tax, so anything that has to divide such a price back down (MRR on a
+    /// tax-inclusive subscription) reads the rate here instead of re-deriving an
+    /// approximate one from the rounded amounts. Zero for an exempt line.
+    pub effective_rate: rust_decimal::Decimal,
     pub tax_details: TaxDetails,
 }
 
@@ -143,6 +178,40 @@ pub enum VatExemptionReason {
     TaxExempt,
     ReverseCharge,
     NotRegistered,
+    /// Zero-rated cross-border supply to a customer outside the seller's VAT
+    /// territory (e.g. an EU seller invoicing outside the EU). No VAT applies and the
+    /// document must carry the corresponding legal mention, whose place-of-supply
+    /// article depends on the basis the supply was priced on.
+    Export(SupplyBasis),
+    /// A supply taxable in a part of the seller's own VAT territory where VAT does not
+    /// apply at all: Guyane and Mayotte, CGI art. 294-1 ("la taxe sur la valeur
+    /// ajoutée n'est provisoirement pas applicable"). Not an export — the supply never
+    /// leaves the territory — and not undetermined either: the law states that no VAT
+    /// applies, and the document must say so and cite it.
+    NoVatTerritory,
+}
+
+/// What levy an engine-resolved rate is, as a fact rather than a display string.
+///
+/// `tax_name` stays alongside it as the engine's own (English) label: it is the
+/// grouping key, the persisted fallback for rows written before the kind was
+/// recorded, and what merchant-authored custom taxes carry (those are named by the
+/// merchant and have no kind). The renderer words the kind in the document's
+/// language — "VAT" is not a name but a word of the presentation language ("TVA",
+/// "USt.", "btw"), and the engine has no l10n to say it in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TaxKind {
+    Vat,
+    /// Goods and services tax (Canada federal, Australia, New Zealand, Singapore, India).
+    Gst,
+    /// Harmonized sales tax (Canadian provinces that merged PST into GST).
+    Hst,
+    /// Provincial sales tax (Canada).
+    Pst,
+    /// Quebec sales tax.
+    Qst,
+    /// US state sales tax.
+    SalesTax,
 }
 
 #[derive(Debug, Clone)]
@@ -150,6 +219,8 @@ pub struct TaxItem {
     pub tax_rate: rust_decimal::Decimal,
     pub tax_reference: String,
     pub tax_name: String,
+    /// `None` for merchant-authored custom taxes, whose name is the merchant's own.
+    pub tax_kind: Option<TaxKind>,
     pub tax_amount: i64,
 }
 
@@ -159,6 +230,8 @@ pub enum TaxDetails {
         tax_rate: rust_decimal::Decimal,
         tax_reference: String,
         tax_name: String,
+        /// See [`TaxItem::tax_kind`].
+        tax_kind: Option<TaxKind>,
         tax_amount: i64,
     },
     MultipleTaxes {

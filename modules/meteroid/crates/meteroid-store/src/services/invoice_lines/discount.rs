@@ -1,7 +1,7 @@
 use crate::domain::coupons::{AppliedCouponsDiscount, CouponDiscount};
 use crate::domain::{AppliedCouponDetailed, CouponLineItem, LineItem};
 use common_domain::ids::BaseId;
-use common_utils::decimals::ToSubunit;
+use common_utils::decimals::{ToSubunit, ToUnit};
 use common_utils::integers::ToNonNegativeU64;
 use itertools::Itertools;
 use rust_decimal::Decimal;
@@ -76,7 +76,7 @@ pub fn calculate_coupons_discount(
         .sorted_by_key(|x| {
             let type_precedence = match x.coupon.discount {
                 CouponDiscount::Percentage(_) => 0u8,
-                CouponDiscount::Fixed { .. } => 1u8,
+                CouponDiscount::Fixed { .. } | CouponDiscount::Credit { .. } => 1u8,
             };
             (type_precedence, x.coupon.id.as_uuid())
         })
@@ -100,7 +100,7 @@ pub fn calculate_coupons_discount(
                     continue;
                 }
                 // todo domain should use Currency type instead of string
-                let cur = rusty_money::iso::find(currency).unwrap_or(rusty_money::iso::USD);
+                let cur = meteroid_money::iso::find(currency).unwrap_or(meteroid_money::iso::USD);
 
                 let consumed_amount = &applicable_coupon
                     .applied_coupon
@@ -113,6 +113,7 @@ pub fn calculate_coupons_discount(
 
                 Decimal::from(discount_subunits).min(subtotal_subunits)
             }
+            CouponDiscount::Credit { .. } => continue,
         };
 
         subtotal_subunits -= discount;
@@ -124,6 +125,7 @@ pub fn calculate_coupons_discount(
             name: format!("Coupon ({})", applicable_coupon.coupon.code), // TODO allow defining a name in coupon
             code: applicable_coupon.coupon.code.clone(),
             value: discount,
+            quoted_value: None,
             discount: applicable_coupon.coupon.discount.clone(),
         });
     }
@@ -132,6 +134,44 @@ pub fn calculate_coupons_discount(
         discount_subunit: applied_coupons_items.iter().map(|x| x.value).sum(),
         applied_coupons: applied_coupons_items,
     }
+}
+
+/// What `coupons` will take off `subtotal` on the invoice that follows one which consumed
+/// `consumed`. Replays the state update finalization makes (see `refresh_applied_coupons`) so a
+/// coupon that has reached its cycle limit, or a fixed amount partly spent, is accounted for.
+pub fn calculate_next_invoice_coupons_discount(
+    subtotal: i64,
+    invoice_currency: &str,
+    coupons: &[AppliedCouponDetailed],
+    consumed: &[CouponLineItem],
+) -> i64 {
+    let precision =
+        crate::constants::Currencies::resolve_currency_precision(invoice_currency).unwrap_or(2);
+
+    let next: Vec<AppliedCouponDetailed> = coupons
+        .iter()
+        .cloned()
+        .map(|mut c| {
+            if let Some(line) = consumed
+                .iter()
+                .find(|l| l.applied_coupon_id == c.applied_coupon.id)
+            {
+                let applied = &mut c.applied_coupon;
+                applied.applied_count = Some(applied.applied_count.unwrap_or(0) + 1);
+                if c.coupon.recurring_value.is_some_and(|x| x >= 1) {
+                    applied.applied_amount = Some(
+                        applied.applied_amount.unwrap_or(Decimal::ZERO)
+                            + line.consumed_value().to_unit(precision),
+                    );
+                }
+            }
+            c
+        })
+        .collect();
+
+    calculate_coupons_discount(subtotal, invoice_currency, &next)
+        .discount_subunit
+        .max(0)
 }
 
 #[cfg(test)]
@@ -263,10 +303,52 @@ mod tests {
         assert_eq!(r1.discount_subunit, 6000);
     }
 
+    #[test]
+    fn a_credit_coupon_discounts_nothing() {
+        let credit = applied_coupon(
+            "WELCOME",
+            CouponDiscount::Credit {
+                currency: "USD".to_string(),
+                amount: Decimal::from(25),
+                expires_in_days: None,
+                scope: Default::default(),
+            },
+        );
+        let result = calculate_coupons_discount(10_000, "USD", &[credit]);
+        assert_eq!(result.discount_subunit, 0);
+        assert!(result.applied_coupons.is_empty());
+    }
+
+    #[test]
+    fn next_invoice_discount_ignores_coupons_unused_today() {
+        // Nothing billed today (usage in arrears): the coupon is untouched and fully applies to
+        // the next invoice's 50.00 floor.
+        let pct = applied_coupon("PCT", CouponDiscount::Percentage(Decimal::from(10)));
+        assert_eq!(
+            calculate_next_invoice_coupons_discount(5_000, "USD", &[pct], &[]),
+            500
+        );
+    }
+
+    #[test]
+    fn next_invoice_discount_drops_a_coupon_spent_today() {
+        // A one-cycle coupon consumed on today's invoice no longer applies next time.
+        let mut once = applied_coupon("ONCE", CouponDiscount::Percentage(Decimal::from(10)));
+        once.coupon.recurring_value = Some(1);
+        let today = calculate_coupons_discount(2_000, "USD", std::slice::from_ref(&once));
+        assert_eq!(today.discount_subunit, 200);
+
+        assert_eq!(
+            calculate_next_invoice_coupons_discount(5_000, "USD", &[once], &today.applied_coupons),
+            0
+        );
+    }
+
     fn new_line_item(amount_subtotal: i64) -> LineItem {
         LineItem {
             local_id: "test".to_string(),
             name: "test".to_string(),
+            charge_type: None,
             amount_subtotal,
             taxable_amount: amount_subtotal,
             tax_amount: 0,
@@ -286,6 +368,18 @@ mod tests {
             amount_total: amount_subtotal,
             group_by_dimensions: None,
             tax_details: vec![],
+            kind: crate::domain::LineItemKind::Regular,
+            credit_grant_amount: None,
+            credit_grant_expiry: None,
+            credit_grant_included: false,
+            taxed_at_purchase: false,
+            tax_inclusive_quote: None,
+            credit_unit: None,
+            credit_grant_unit: None,
+            credit_grant_rollover: None,
+            promotional_credit: None,
+            subscription_id: None,
+            usage_ends_at: None,
         }
     }
 

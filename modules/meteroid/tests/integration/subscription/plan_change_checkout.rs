@@ -82,6 +82,9 @@ async fn test_plan_change_checkout_from_free_trial_to_no_trial(#[future] test_en
         .expect("Checkout should succeed");
 
     let subscription_id = match result {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::Completed {
             subscription_id, ..
         } => subscription_id,
@@ -111,7 +114,7 @@ async fn test_plan_change_checkout_from_free_trial_to_no_trial(#[future] test_en
         .invoice_at(0)
         .with_context("first invoice after free trial plan change")
         .has_total(3900)
-        .has_invoice_date(change_date);
+        .has_billing_period_start(change_date);
 
     // Verify renewal works
     env.process_cycles().await;
@@ -203,10 +206,10 @@ async fn test_plan_change_checkout_from_free_trial_payment_fails(#[future] test_
 /// Paid Trial: Rate 9900/mo
 /// Starter: Platform Fee 2900 + Seats 1000 = 3900/mo
 ///
-/// Credit Rate:      -(9900 × 24/31).round() = -7665
+/// Credit Rate:      -(9900 × 24/31).round() = -7665, on a credit note to the balance
 /// Charge Platform:   (2900 × 24/31).round() = 2245
 /// Charge Seats:      (1000 × 24/31).round() = 774
-/// Net: -7665 + 2245 + 774 = -4646 (credit/downgrade, no charge needed)
+/// The balance pays the 3019 charged: 4646 of it is left, nothing to pay.
 #[rstest]
 #[tokio::test]
 async fn test_plan_change_checkout_from_paid_trial_downgrade(#[future] test_env: TestEnv) {
@@ -280,6 +283,9 @@ async fn test_plan_change_checkout_from_paid_trial_downgrade(#[future] test_env:
         .expect("Checkout should succeed for downgrade");
 
     match result {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::Completed {
             subscription_id,
             transaction,
@@ -303,8 +309,14 @@ async fn test_plan_change_checkout_from_paid_trial_downgrade(#[future] test_env:
         .assert()
         .invoice_at(1)
         .with_context("adjustment invoice for downgrade")
-        .has_total(-4646)
+        .has_total(3019)
+        .has_applied_credits(3019)
+        .has_amount_due(0)
         .check_prorated(true);
+    assert_eq!(
+        env.invoice_credit_balance_minor(sub.customer_id).await,
+        4646
+    );
 
     // Verify renewal at Starter rate
     env.process_cycles().await;
@@ -326,10 +338,8 @@ async fn test_plan_change_checkout_from_paid_trial_downgrade(#[future] test_env:
 /// start Jan 1, period [Jan 1, Feb 1] = 31 days, change on Jan 16.
 /// factor = 16/31
 ///
-/// Credit Rate:      -(9900 × 16/31).round() = -5110
-/// Charge Platform:   (9900 × 16/31).round() = 5110
+/// The platform fee is billed exactly as before: carried over, neither credited nor charged.
 /// Charge Seats:      (2500 × 16/31).round() = 1290
-/// Net: -5110 + 5110 + 1290 = 1290
 #[rstest]
 #[tokio::test]
 async fn test_plan_change_checkout_from_paid_trial_upgrade(#[future] test_env: TestEnv) {
@@ -394,6 +404,9 @@ async fn test_plan_change_checkout_from_paid_trial_upgrade(#[future] test_env: T
         .expect("Checkout should succeed for upgrade");
 
     match result {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::Completed {
             subscription_id,
             transaction,
@@ -448,10 +461,9 @@ async fn test_plan_change_checkout_from_paid_trial_upgrade(#[future] test_env: T
 /// Starter: Platform Fee 2900 + Seats 1000 = 3900/mo
 /// PaidFreeTrial: Rate 4900/mo
 ///
-/// Credit Platform: -(2900 × 16/31).round() = -1497
-/// Credit Seats:    -(1000 × 16/31).round() = -516
-/// Charge Rate:      (4900 × 16/31).round() = 2529
-/// Net: -1497 + -516 + 2529 = 516
+/// Credit Platform: -(2900 × 16/31).round() = -1497, on a credit note to the balance
+/// Credit Seats:    -(1000 × 16/31).round() = -516, likewise
+/// Charge Rate:      (4900 × 16/31).round() = 2529, the balance pays 2013: 516 to pay
 #[rstest]
 #[tokio::test]
 async fn test_plan_change_checkout_to_trial_plan_no_trial_applied(#[future] test_env: TestEnv) {
@@ -519,6 +531,9 @@ async fn test_plan_change_checkout_to_trial_plan_no_trial_applied(#[future] test
         .expect("Checkout should succeed");
 
     match result {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::Completed {
             subscription_id,
             transaction,
@@ -543,7 +558,8 @@ async fn test_plan_change_checkout_to_trial_plan_no_trial_applied(#[future] test
         .assert()
         .invoice_at(1)
         .with_context("adjustment invoice for upgrade")
-        .has_total(516)
+        .has_total(2529)
+        .has_applied_credits(2013)
         .check_prorated(true);
 
     // Verify renewal at new rate
@@ -963,12 +979,10 @@ async fn test_plan_change_checkout_roundtrip_downgrade(#[future] test_env: TestE
         .await
         .expect("preview should succeed");
 
-    // Net is negative (-4646), total should reflect the credit
-    assert!(
-        preview.total <= 0,
-        "Preview total for downgrade should be <= 0, got {}",
-        preview.total
-    );
+    // The 7665 credited to the balance pays the 3019 charged.
+    assert_eq!(preview.total, 3019);
+    assert_eq!(preview.applied_credits, 3019);
+    assert_eq!(preview.amount_due, 0, "nothing to pay for a downgrade");
 
     // Downgrade: charge 0
     let session = env
@@ -1105,6 +1119,9 @@ async fn test_plan_change_checkout_downgrade_then_upgrade_credits_applied(
         .expect("Downgrade checkout should succeed");
 
     match result {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::Completed {
             subscription_id,
             transaction,
@@ -1128,14 +1145,14 @@ async fn test_plan_change_checkout_downgrade_then_upgrade_credits_applied(
         .assert()
         .invoice_at(1)
         .with_context("downgrade adjustment")
-        .has_total(-4387)
+        .has_total(2013)
         .has_amount_due(0)
-        .has_applied_credits(0)
+        .has_applied_credits(2013)
         .is_finalized_paid();
 
-    let customer = env.get_customer(sub.customer_id).await;
+    let balance = env.invoice_credit_balance_minor(sub.customer_id).await;
     assert_eq!(
-        customer.balance_value_cents, 4387,
+        balance, 4387,
         "customer should have 4387 cents credit from downgrade"
     );
 
@@ -1147,9 +1164,13 @@ async fn test_plan_change_checkout_downgrade_then_upgrade_credits_applied(
         .await
         .expect("preview should succeed");
 
-    assert_eq!(preview.total, 4387, "Preview total should be net proration");
+    // Starter's fees come back to the balance first (2013): 6400 of balance pays 6400 charged.
     assert_eq!(
-        preview.applied_credits, 4387,
+        preview.total, 6400,
+        "Preview total is the new plan's charges"
+    );
+    assert_eq!(
+        preview.applied_credits, 6400,
         "Preview should show full credits applied"
     );
     assert_eq!(
@@ -1185,6 +1206,9 @@ async fn test_plan_change_checkout_downgrade_then_upgrade_credits_applied(
         .expect("Upgrade checkout should succeed (credits cover charge)");
 
     match result {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::Completed {
             subscription_id,
             transaction,
@@ -1212,15 +1236,15 @@ async fn test_plan_change_checkout_downgrade_then_upgrade_credits_applied(
         .assert()
         .invoice_at(2)
         .with_context("upgrade adjustment with credits")
-        .has_total(4387)
-        .has_applied_credits(4387)
+        .has_total(6400)
+        .has_applied_credits(6400)
         .has_amount_due(0)
         .is_finalized_paid();
 
     // Customer balance should be 0 (credits fully consumed)
-    let customer = env.get_customer(sub.customer_id).await;
+    let balance = env.invoice_credit_balance_minor(sub.customer_id).await;
     assert_eq!(
-        customer.balance_value_cents, 0,
+        balance, 0,
         "customer balance should be 0 after credits consumed by upgrade"
     );
 
@@ -1255,8 +1279,8 @@ async fn test_plan_change_checkout_downgrade_then_upgrade_credits_applied(
     );
 
     // Customer balance still 0
-    let customer = env.get_customer(sub.customer_id).await;
-    assert_eq!(customer.balance_value_cents, 0);
+    let balance = env.invoice_credit_balance_minor(sub.customer_id).await;
+    assert_eq!(balance, 0);
 }
 
 /// Upgrade with partial credits: downgrade to cheaper plan, then upgrade to a middle plan.
@@ -1351,9 +1375,9 @@ async fn test_plan_change_checkout_partial_credits_on_upgrade(#[future] test_env
     let sub = env.get_subscription(sub_id).await;
     assert_eq!(sub.plan_version_id, PLAN_VERSION_STARTER_ID);
 
-    let customer = env.get_customer(sub.customer_id).await;
+    let balance = env.invoice_credit_balance_minor(sub.customer_id).await;
     assert_eq!(
-        customer.balance_value_cents, 3016,
+        balance, 3016,
         "customer should have 3016 cents credit from downgrade (Pro→Starter, 11/31 factor)"
     );
 
@@ -1370,9 +1394,13 @@ async fn test_plan_change_checkout_partial_credits_on_upgrade(#[future] test_env
         .await
         .expect("preview should succeed");
 
-    assert_eq!(preview.total, 355, "Preview total = net proration");
+    // Starter's fees come back to the balance first (1384): 4400 of balance pays 1739 charged.
     assert_eq!(
-        preview.applied_credits, 355,
+        preview.total, 1739,
+        "Preview total is the new plan's charge"
+    );
+    assert_eq!(
+        preview.applied_credits, 1739,
         "Credits applied = min(total, balance)"
     );
     assert_eq!(preview.amount_due, 0, "Credits cover the full charge");
@@ -1418,9 +1446,9 @@ async fn test_plan_change_checkout_partial_credits_on_upgrade(#[future] test_env
     sub.assert().is_active();
 
     // Customer balance: 3016 - 355 = 2661
-    let customer = env.get_customer(sub.customer_id).await;
+    let balance = env.invoice_credit_balance_minor(sub.customer_id).await;
     assert_eq!(
-        customer.balance_value_cents, 2661,
+        balance, 2661,
         "customer balance should be 3016 - 355 = 2661 after partial credit use"
     );
 
@@ -1431,8 +1459,8 @@ async fn test_plan_change_checkout_partial_credits_on_upgrade(#[future] test_env
         .assert()
         .invoice_at(2)
         .with_context("upgrade adj with partial credits")
-        .has_total(355)
-        .has_applied_credits(355)
+        .has_total(1739)
+        .has_applied_credits(1739)
         .has_amount_due(0)
         .is_finalized_paid();
 
@@ -1457,9 +1485,9 @@ async fn test_plan_change_checkout_partial_credits_on_upgrade(#[future] test_env
         .has_applied_credits(2661);
 
     // Customer balance fully consumed by renewal
-    let customer = env.get_customer(sub.customer_id).await;
+    let balance = env.invoice_credit_balance_minor(sub.customer_id).await;
     assert_eq!(
-        customer.balance_value_cents, 0,
+        balance, 0,
         "customer balance should be 0 after renewal consumed remaining credits"
     );
 
@@ -1475,4 +1503,99 @@ async fn test_plan_change_checkout_partial_credits_on_upgrade(#[future] test_env
         detailed.transactions[0].amount, 2239,
         "payment transaction should be for amount_due (2239), not total (4900)"
     );
+}
+
+/// Free trial → Starter (39.00) by a customer holding customer-wide paid credit: the checkout
+/// charges what the credit leaves (10.00 of credit, 29.00 charged), or nothing when the credit
+/// covers it (50.00 of credit, 11.00 left), and the first invoice is paid either way.
+#[rstest]
+#[case::partially_covered(1_000, 2_900, 0)]
+#[case::fully_covered(5_000, 0, 1_100)]
+#[tokio::test]
+async fn test_plan_change_checkout_from_free_trial_with_customer_credit(
+    #[future] test_env: TestEnv,
+    #[case] credit: i64,
+    #[case] charged: u64,
+    #[case] credit_left: i64,
+) {
+    use crate::helpers::credit::{Grant, assert_ledger_balances, fund_grant, grant_remaining};
+    use meteroid_store::domain::InvoicePaymentStatus;
+
+    let env = test_env.await;
+    env.seed_payments().await;
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap();
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .trial_days(14)
+        .auto_charge()
+        .create(env.services())
+        .await;
+    let customer_id = env.get_subscription(sub_id).await.customer_id;
+    let grant = fund_grant(
+        env.store(),
+        TENANT_ID,
+        customer_id,
+        None,
+        Grant::invoice(credit),
+    )
+    .await;
+    let session = env
+        .services()
+        .create_plan_change_checkout_session(
+            TENANT_ID,
+            sub_id,
+            PLAN_VERSION_STARTER_ID,
+            customer_id,
+            None,
+            change_date,
+        )
+        .await
+        .expect("session");
+
+    let result = env
+        .services()
+        .complete_checkout(
+            TENANT_ID,
+            session.id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            charged,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("checkout");
+    assert!(matches!(result, CheckoutCompletionResult::Completed { .. }));
+
+    let invoices = env.get_invoices(sub_id).await;
+    assert_eq!(invoices.len(), 1);
+    let invoice = &invoices[0];
+    assert_eq!(
+        (invoice.total, invoice.applied_credits, invoice.amount_due),
+        (3_900, 3_900 - charged as i64, 0)
+    );
+    assert_eq!(invoice.payment_status, InvoicePaymentStatus::Paid);
+    let mut conn = env.conn().await;
+    let payments = diesel_models::payments::PaymentTransactionRow::list_by_invoice_id(
+        &mut conn, invoice.id, TENANT_ID,
+    )
+    .await
+    .expect("payments");
+    assert_eq!(
+        payments
+            .iter()
+            .map(|row| row.transaction.amount)
+            .collect::<Vec<_>>(),
+        if charged > 0 {
+            vec![charged as i64]
+        } else {
+            vec![]
+        }
+    );
+    assert_eq!(
+        grant_remaining(env.store(), TENANT_ID, customer_id, grant).await,
+        credit_left
+    );
+    assert_ledger_balances(env.store(), TENANT_ID, customer_id).await;
 }

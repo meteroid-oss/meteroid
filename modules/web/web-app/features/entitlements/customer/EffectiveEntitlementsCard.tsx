@@ -1,5 +1,5 @@
-import { create, type MessageInitShape } from '@bufbuild/protobuf';
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
+import { create, type MessageInitShape } from '@bufbuild/protobuf'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -9,6 +9,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  Badge,
   Button,
   Skeleton,
   Tooltip,
@@ -24,12 +25,17 @@ import { toast } from 'sonner'
 
 import { EntityEntitlementDialog } from '@/features/entitlements/EntityEntitlementDialog'
 import { InheritedIcon } from '@/features/entitlements/InheritedIcon'
+import { LimitTermsBadges, termsOfValue } from '@/features/entitlements/LimitTermsBadges'
+import { CreditPaidFeatures } from '@/features/entitlements/customer/CreditPaidFeatures'
 import { entitlementTooltip } from '@/features/entitlements/entitlementTooltips'
 import {
   buildInheritanceTooltip,
+  configuredEnabled,
+  effectiveValueLabel,
   entitlementValueToSpec,
   groupByProduct,
   isEntitlementDisabled,
+  isLimitReached,
 } from '@/features/entitlements/utils'
 import { useQuery } from '@/lib/connectrpc'
 import {
@@ -37,6 +43,7 @@ import {
   createEntitlement,
   deleteEntitlement,
   getEffectiveEntitlements,
+  listCreditPaidFeatures,
   listEntitlementsByEntity,
   updateEntitlement,
 } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
@@ -46,9 +53,9 @@ import {
   EntitlementEntitySchema,
   EntitlementSpecSchema,
   EntitlementValueSchema,
-} from '@/rpc/api/entitlements/v1/models_pb';
+} from '@/rpc/api/entitlements/v1/models_pb'
 
-import type { EntitlementEntity } from '@/rpc/api/entitlements/v1/models_pb';
+import type { EntitlementEntity } from '@/rpc/api/entitlements/v1/models_pb'
 
 interface Props {
   customerId: string
@@ -57,11 +64,24 @@ interface Props {
    * management actions (Override, Pin, Disable, Remove). When omitted, the card is read-only.
    */
   currentSubscriptionId?: string
+  /** Set to group the features paid with credit apart, linking to the customer's credit. */
+  onViewCredit?: () => void
 }
 
-export const EffectiveEntitlementsCard = ({ customerId, currentSubscriptionId }: Props) => {
+export const EffectiveEntitlementsCard = ({
+  customerId,
+  currentSubscriptionId,
+  onViewCredit,
+}: Props) => {
   const query = useQuery(getEffectiveEntitlements, { customerId })
   const entitlements = query.data?.entitlements ?? []
+  const creditPaidQuery = useQuery(
+    listCreditPaidFeatures,
+    { customerId },
+    { enabled: !!onViewCredit }
+  )
+  const creditPaid = onViewCredit ? (creditPaidQuery.data?.features ?? []) : []
+  const creditPaidIds = new Set(creditPaid.map(f => f.featureId))
 
   // When we have a current subscription, load its direct entitlements so we know which rows are
   // "pinned here" and can look up local row ids for delete/update.
@@ -81,29 +101,32 @@ export const EffectiveEntitlementsCard = ({ customerId, currentSubscriptionId }:
   const localEntitlements: Entitlement[] = localQuery.data?.entitlements ?? []
 
   const [dialog, setDialog] = useState<
-    | { open: false }
-    | { open: true; row?: EffectiveEntitlement }
+    { open: false } | { open: true; row?: EffectiveEntitlement }
   >({ open: false })
   const [pinAllOpen, setPinAllOpen] = useState(false)
 
   const queryClient = useQueryClient()
   const batchCreateMutation = useMutation(batchCreateEntitlements, {
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: listEntitlementsByEntity.parent,
-        cardinality: undefined
-      }) })
-      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: getEffectiveEntitlements.parent,
-        cardinality: undefined
-      }) })
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: listEntitlementsByEntity.parent,
+          cardinality: undefined,
+        }),
+      })
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({
+          schema: getEffectiveEntitlements.parent,
+          cardinality: undefined,
+        }),
+      })
       setPinAllOpen(false)
       toast.success('Entitlements pinned on this subscription.')
     },
     onError: err => toast.error(`Failed to pin entitlements: ${err.message}`),
   })
 
-  if (query.isLoading) {
+  if (query.isLoading || creditPaidQuery.isLoading) {
     return (
       <div className="flex flex-col gap-2">
         <Skeleton className="h-12 w-full" />
@@ -135,8 +158,10 @@ export const EffectiveEntitlementsCard = ({ customerId, currentSubscriptionId }:
     )
   }
 
-  const groups = groupByProduct(entitlements, e =>
-    e.feature?.product ? { id: e.feature.product.id, name: e.feature.product.name } : undefined
+  const groups = groupByProduct(
+    entitlements.filter(e => !creditPaidIds.has(e.feature?.id ?? '')),
+    e =>
+      e.feature?.product ? { id: e.feature.product.id, name: e.feature.product.name } : undefined
   )
 
   const existingFeatureIds = new Set<string>([
@@ -167,12 +192,11 @@ export const EffectiveEntitlementsCard = ({ customerId, currentSubscriptionId }:
       entity: subscriptionEntity,
       specs: unpinnedRows
         .filter(r => !!r.feature?.id)
-        .map(
-          r =>
-            create(EntitlementSpecSchema, {
-              featureId: r.feature!.id,
-              value: create(EntitlementValueSchema, entitlementValueToSpec(r.value)),
-            })
+        .map(r =>
+          create(EntitlementSpecSchema, {
+            featureId: r.feature!.id,
+            value: create(EntitlementValueSchema, entitlementValueToSpec(r.value)),
+          })
         ),
     })
   }
@@ -197,11 +221,19 @@ export const EffectiveEntitlementsCard = ({ customerId, currentSubscriptionId }:
                 </Button>
               </TooltipTrigger>
               <TooltipContent className="max-w-56">
-                Save local copies of every upstream entitlement on this subscription.
-                Already-pinned entries are skipped.
+                Save local copies of every upstream entitlement on this subscription. Already-pinned
+                entries are skipped.
               </TooltipContent>
             </Tooltip>
           </div>
+        )}
+        {onViewCredit && (
+          <CreditPaidFeatures
+            customerId={customerId}
+            entitlements={entitlements}
+            paid={creditPaid}
+            onViewCredit={onViewCredit}
+          />
         )}
         {[...groups]
           .sort((a, b) => {
@@ -210,48 +242,50 @@ export const EffectiveEntitlementsCard = ({ customerId, currentSubscriptionId }:
             return a.name.localeCompare(b.name)
           })
           .map(group => (
-          <div key={group.id ?? '__general__'}>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 px-1">
-              {group.name}
-            </p>
-            <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
-              {[...group.items]
-                .sort((a, b) => (a.feature?.name ?? '').localeCompare(b.feature?.name ?? ''))
-                .map((e, i) => (
-                <EntitlementRow
-                  key={i}
-                  entitlement={e}
-                  currentSubscriptionId={currentSubscriptionId}
-                  subscriptionEntity={subscriptionEntity}
-                  localEntitlements={localEntitlements}
-                  onOverride={row => setDialog({ open: true, row })}
-                />
-              ))}
+            <div key={group.id ?? '__general__'}>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 px-1">
+                {group.name}
+              </p>
+              <div className="border border-border rounded-lg divide-y divide-border overflow-hidden">
+                {[...group.items]
+                  .sort((a, b) => (a.feature?.name ?? '').localeCompare(b.feature?.name ?? ''))
+                  .map((e, i) => (
+                    <EntitlementRow
+                      key={i}
+                      entitlement={e}
+                      currentSubscriptionId={currentSubscriptionId}
+                      subscriptionEntity={subscriptionEntity}
+                      localEntitlements={localEntitlements}
+                      onOverride={row => setDialog({ open: true, row })}
+                    />
+                  ))}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
 
-        {dialog.open && subscriptionEntity && (() => {
-          const existing = dialog.row
-            ? localEntitlements.find(e => e.featureId === dialog.row?.feature?.id)
-            : undefined
-          // Inherited row → seed the dialog with the resolved value so the user adjusts
-          // an "Override" form pre-filled with current values (instead of an empty "Add" form).
-          const seedValue =
-            dialog.row && !existing
-              ? create(EntitlementValueSchema, entitlementValueToSpec(dialog.row.value))
+        {dialog.open &&
+          subscriptionEntity &&
+          (() => {
+            const existing = dialog.row
+              ? localEntitlements.find(e => e.featureId === dialog.row?.feature?.id)
               : undefined
-          return (
-            <EntityEntitlementDialog
-              entity={subscriptionEntity as MessageInitShape<typeof EntitlementEntitySchema>}
-              existing={existing}
-              seedValue={seedValue}
-              featureId={dialog.row?.feature?.id}
-              existingFeatureIds={existingFeatureIds}
-              onClose={() => setDialog({ open: false })}
-            />
-          )
-        })()}
+            // Inherited row → seed the dialog with the resolved value so the user adjusts
+            // an "Override" form pre-filled with current values (instead of an empty "Add" form).
+            const seedValue =
+              dialog.row && !existing
+                ? create(EntitlementValueSchema, entitlementValueToSpec(dialog.row.value))
+                : undefined
+            return (
+              <EntityEntitlementDialog
+                entity={subscriptionEntity as MessageInitShape<typeof EntitlementEntitySchema>}
+                existing={existing}
+                seedValue={seedValue}
+                featureId={dialog.row?.feature?.id}
+                existingFeatureIds={existingFeatureIds}
+                onClose={() => setDialog({ open: false })}
+              />
+            )
+          })()}
 
         <AlertDialog open={pinAllOpen} onOpenChange={setPinAllOpen}>
           <AlertDialogContent>
@@ -271,7 +305,7 @@ export const EffectiveEntitlementsCard = ({ customerId, currentSubscriptionId }:
         </AlertDialog>
       </div>
     </TooltipProvider>
-  );
+  )
 }
 
 interface RowProps {
@@ -333,14 +367,18 @@ const RowActions = ({
 
   const queryClient = useQueryClient()
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-      schema: listEntitlementsByEntity.parent,
-      cardinality: undefined
-    }) })
-    queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-      schema: getEffectiveEntitlements.parent,
-      cardinality: undefined
-    }) })
+    queryClient.invalidateQueries({
+      queryKey: createConnectQueryKey({
+        schema: listEntitlementsByEntity.parent,
+        cardinality: undefined,
+      }),
+    })
+    queryClient.invalidateQueries({
+      queryKey: createConnectQueryKey({
+        schema: getEffectiveEntitlements.parent,
+        cardinality: undefined,
+      }),
+    })
   }
 
   const createMutation = useMutation(createEntitlement, {
@@ -362,8 +400,7 @@ const RowActions = ({
     onError: err => toast.error(`Failed to remove override: ${err.message}`),
   })
 
-  const isBusy =
-    createMutation.isPending || updateMutation.isPending || deleteMutation.isPending
+  const isBusy = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending
 
   const handlePin = () => {
     if (!featureId) return
@@ -376,29 +413,8 @@ const RowActions = ({
 
   const handleToggleDisable = () => {
     if (!featureId) return
-    let flipped: MessageInitShape<typeof EntitlementValueSchema>
-    if (value.case === 'boolean') {
-      flipped = {
-        value: {
-          case: 'booleanValue' as const,
-          value: { enabled: !value.value.enabled },
-        },
-      }
-    } else if (value.case === 'metered') {
-      const m = value.value
-      flipped = {
-        value: {
-          case: 'meteredValue' as const,
-          value: {
-            limit: m.limit,
-            resetPeriod: m.resetPeriod,
-            enabled: !m.enabled,
-          },
-        },
-      }
-    } else {
-      return
-    }
+    if (value.case !== 'boolean' && value.case !== 'metered') return
+    const flipped = entitlementValueToSpec(value, !configuredEnabled(value))
 
     if (pinnedHere) {
       const local = localEntitlements.find(e => e.featureId === featureId)
@@ -479,12 +495,16 @@ const RowActions = ({
               onClick={handleToggleDisable}
               disabled={isBusy}
             >
-              {isDisabled
-                ? <CirclePower size={12} className="text-destructive" />
-                : <CirclePower size={12} className="text-primary" />}
+              {isDisabled ? (
+                <CirclePower size={12} className="text-destructive" />
+              ) : (
+                <CirclePower size={12} className="text-primary" />
+              )}
             </button>
           </TooltipTrigger>
-          <TooltipContent>{entitlementTooltip('subscription', isDisabled ? 'enable' : 'disable')}</TooltipContent>
+          <TooltipContent>
+            {entitlementTooltip('subscription', isDisabled ? 'enable' : 'disable')}
+          </TooltipContent>
         </Tooltip>
       )}
     </div>
@@ -518,19 +538,14 @@ const EntitlementRow = ({
     />
   ) : null
 
-  let valueLabel: string
-  if (value.case === 'boolean') {
-    valueLabel = value.value.enabled ? 'Enabled' : 'Disabled'
-  } else if (value.case === 'metered') {
-    const m = value.value
-    const consumed = m.consumed ? Number(m.consumed) : undefined
-    const limit = m.limit ? Number(m.limit) : undefined
-    valueLabel = consumed !== undefined
-      ? `${consumed.toLocaleString()} / ${limit !== undefined ? limit.toLocaleString() : '∞'}`
-      : limit !== undefined ? limit.toLocaleString() : 'Unlimited'
-  } else {
-    valueLabel = '—'
-  }
+  const valueLabel = effectiveValueLabel(value)
+  const metered = value.case === 'metered' ? value.value : undefined
+  const reached = isLimitReached(value)
+  const inOverage =
+    metered?.overageBehavior?.Inner?.case === 'allow' &&
+    metered.limit !== undefined &&
+    metered.consumed !== undefined &&
+    Number(metered.consumed) > Number(metered.limit)
 
   return (
     <div
@@ -545,8 +560,19 @@ const EntitlementRow = ({
           entitlement={entitlement}
           currentSubscriptionId={currentSubscriptionId}
         />
+        <LimitTermsBadges terms={termsOfValue(value)} />
       </div>
       <div className="flex items-center gap-2 shrink-0 ml-4">
+        {reached && (
+          <Badge size="sm" variant="destructive">
+            Access denied: limit reached
+          </Badge>
+        )}
+        {inOverage && (
+          <Badge size="sm" variant="ghost">
+            Over limit
+          </Badge>
+        )}
         <span className="text-muted-foreground text-xs tabular-nums">{valueLabel}</span>
         {actions}
       </div>

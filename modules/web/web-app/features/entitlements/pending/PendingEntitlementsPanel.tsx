@@ -26,6 +26,11 @@ import { FC, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
 import { InheritedIcon } from '@/features/entitlements/InheritedIcon'
+import {
+  LimitTermsBadges,
+  termsOfSpec,
+  termsOfValue,
+} from '@/features/entitlements/LimitTermsBadges'
 import { EntitlementSpecDialog } from '@/features/entitlements/creation/EntitlementSpecDialog'
 import {
   PendingEntitlementSpec,
@@ -45,6 +50,8 @@ import {
 } from '@/features/entitlements/utils'
 import { ResolvedEntitlement } from '@/rpc/api/entitlements/v1/models_pb'
 
+import type { LimitTerms } from '@/features/entitlements/utils'
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type MergedRow = {
@@ -60,6 +67,7 @@ type MergedRow = {
   pending?: PendingEntitlementSpec
   /** Set when the plan version has an inherited entitlement for this feature */
   inherited?: ResolvedEntitlement
+  terms?: LimitTerms
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -96,6 +104,7 @@ function buildMergedRows(
       valueLabel: formatResolvedValue(r.value),
       disabled: isEntitlementDisabled(r.value),
       inherited: r,
+      terms: termsOfValue(r.value),
     })
   }
 
@@ -118,6 +127,7 @@ function buildMergedRows(
       disabled: isPendingDisabled(spec),
       pending: spec,
       inherited: existing?.inherited,
+      terms: termsOfSpec(spec),
     })
   }
 
@@ -413,6 +423,7 @@ export const PendingEntitlementsPanel: FC<Props> = ({ selection, pending, onChan
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="font-medium truncate">{row.featureName}</span>
                             {showInheritanceIcon && <InheritedIcon tooltip={inheritanceTooltip}/>}
+                            <LimitTermsBadges terms={row.terms} />
                           </div>
 
                           {/* Right: value + kebab menu */}

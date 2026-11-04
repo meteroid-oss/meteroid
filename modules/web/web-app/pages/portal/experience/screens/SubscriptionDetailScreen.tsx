@@ -28,6 +28,9 @@ import {
   Spinner,
   Stepper,
 } from '../primitives'
+import { boundaryDay } from '../walletFormat'
+
+import { UsageFilterTag } from './UsageFilterTag'
 
 import type { LineItem } from '@/rpc/api/invoices/v1/models_pb'
 import type {
@@ -115,6 +118,7 @@ export const SubscriptionDetailScreen = ({
             <span style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.02em' }}>
               {sub.planName}
             </span>
+            <UsageFilterTag subscriptionId={sub.id} />
             <Pill badge={subStatusBadge(sub.status)} dot />
           </div>
           <span style={{ fontSize: 13, color: 'var(--mtp-text-2)' }}>
@@ -260,6 +264,8 @@ const OverviewTab = ({
   sm: ReturnType<typeof useSubscription>
 }) => {
   const inv = sm.upcomingInvoice
+  // Credit other pending invoices share is an estimate, and so is what is left to pay.
+  const approx = inv?.creditEstimateShared ? '≈ ' : ''
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }} className="mtp-two-col">
@@ -282,13 +288,41 @@ const OverviewTab = ({
           <div style={{ padding: 16 }}>
             <Spinner size={16} />
           </div>
+        ) : sm.isUpcomingError ? (
+          <p style={{ fontSize: 12.5, color: 'var(--mtp-text-3)', marginTop: 12 }}>
+            The next invoice is unavailable right now.
+          </p>
         ) : inv ? (
           <div style={{ marginTop: 10 }}>
             <Row label="Period" value={`${date(inv.periodStart)} – ${date(inv.periodEnd)}`} />
             <Row label="Subtotal" value={money(inv.subtotal, inv.currency)} />
             {inv.discount > 0n && <Row label="Discount" value={`−${money(inv.discount, inv.currency)}`} />}
+            {inv.promotionalCredits > 0n && (
+              <Row
+                label="Free credit"
+                value={`${approx}−${money(inv.promotionalCredits, inv.currency)}`}
+              />
+            )}
             <Row label="Tax" value={money(inv.taxAmount, inv.currency)} />
-            <Row label="Total due" value={money(inv.amountDue, inv.currency)} last />
+            {/* The amount due is the total less the credit applied, never below zero. */}
+            {inv.total > inv.amountDue && (
+              <Row
+                label="Paid with credit"
+                value={`${approx}−${money(inv.total - inv.amountDue, inv.currency)}`}
+              />
+            )}
+            <Row label="Total due" value={`${approx}${money(inv.amountDue, inv.currency)}`} last />
+            {inv.creditEstimateShared && inv.billedFirst.length > 0 && (
+              <p style={{ fontSize: 12, color: 'var(--mtp-text-3)', margin: '10px 0 0' }}>
+                Your credit is shared:{' '}
+                {inv.billedFirst
+                  .map(
+                    first =>
+                      `${first.planName ?? 'an earlier invoice'} bills first, on ${boundaryDay(first.invoiceDate)}`
+                  )
+                  .join(' · ')}
+              </p>
+            )}
           </div>
         ) : (
           <p style={{ fontSize: 12.5, color: 'var(--mtp-text-3)', marginTop: 12 }}>
@@ -673,6 +707,13 @@ const PreviewTab = ({
       <div style={{ padding: 32, display: 'flex', justifyContent: 'center' }}>
         <Spinner size={18} />
       </div>
+    )
+  if (sm.isUpcomingError)
+    return (
+      <CenterState
+        title="Preview unavailable"
+        hint="This cycle's charges can't be computed right now. Try again in a few minutes."
+      />
     )
   if (!inv || inv.lineItems.length === 0)
     return (

@@ -1,13 +1,10 @@
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-  Skeleton,
-} from '@md/ui'
+import { HoverCard, HoverCardContent, HoverCardTrigger, Skeleton } from '@md/ui'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
+import { copyToClipboard } from '@/lib/helpers'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { getSubscriptionDetails } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 
@@ -16,6 +13,11 @@ type CommonProps = {
   entityId: string
   label?: string
   className?: string
+  /**
+   * The entity is gone: render plain text that copies the id on click rather than a
+   * link to a dead page. Callers own the wording — `entityRef` appends "(deleted)".
+   */
+  deleted?: boolean
 }
 
 // `null` route = render as plain text, no link.
@@ -28,6 +30,7 @@ const ROUTE_FOR: Record<string, string | null> = {
   plan: 'plans',
   product: 'products',
   add_on: 'add-ons',
+  feature: 'features',
   coupon: 'coupons',
   billable_metric: 'billable-metrics',
   payment_transaction: null,
@@ -39,10 +42,37 @@ const ROUTE_FOR: Record<string, string | null> = {
   tenant: null,
 }
 
-export const EntityHoverCard = ({ entityType, entityId, label, className }: CommonProps) => {
+export const EntityHoverCard = ({
+  entityType,
+  entityId,
+  label,
+  className,
+  deleted,
+}: CommonProps) => {
   const basePath = useBasePath()
   const route = ROUTE_FOR[entityType]
   const text = label ?? defaultLabel(entityType, entityId)
+
+  if (deleted) {
+    const copyId = () => copyToClipboard(entityId, () => toast.success('Id copied to clipboard'))
+    return (
+      <span
+        role="button"
+        tabIndex={0}
+        title={`${entityId} — click to copy`}
+        className={`text-muted-foreground italic cursor-pointer ${className ?? ''}`}
+        onClick={copyId}
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            copyId()
+          }
+        }}
+      >
+        {text}
+      </span>
+    )
+  }
 
   const trigger = route ? (
     <Link
@@ -114,34 +144,22 @@ const CustomerPreview = ({ customerId }: { customerId: string }) => {
   return (
     <div className="space-y-1">
       <div className="text-sm font-semibold">{c.name}</div>
-      {c.billingEmail && (
-        <div className="text-xs text-muted-foreground">{c.billingEmail}</div>
-      )}
-      {c.currency && (
-        <div className="text-[11px] text-muted-foreground">{c.currency}</div>
-      )}
+      {c.billingEmail && <div className="text-xs text-muted-foreground">{c.billingEmail}</div>}
+      {c.currency && <div className="text-[11px] text-muted-foreground">{c.currency}</div>}
     </div>
   )
 }
 
 const SubscriptionPreview = ({ subscriptionId }: { subscriptionId: string }) => {
-  const query = useQuery(
-    getSubscriptionDetails,
-    { subscriptionId },
-    { staleTime: 60_000 },
-  )
+  const query = useQuery(getSubscriptionDetails, { subscriptionId }, { staleTime: 60_000 })
   if (query.isLoading) return <PreviewSkeleton />
   const s = query.data?.subscription
   if (!s) return <p className="text-xs text-muted-foreground">Subscription not available</p>
   return (
     <div className="space-y-1">
       <div className="text-sm font-semibold">{s.planName || 'Subscription'}</div>
-      {s.customerName && (
-        <div className="text-xs text-muted-foreground">{s.customerName}</div>
-      )}
-      {s.currency && (
-        <div className="text-[11px] text-muted-foreground">{s.currency}</div>
-      )}
+      {s.customerName && <div className="text-xs text-muted-foreground">{s.customerName}</div>}
+      {s.currency && <div className="text-[11px] text-muted-foreground">{s.currency}</div>}
     </div>
   )
 }

@@ -14,7 +14,7 @@ use crate::domain::subscription_components::SubscriptionComponentNewInternal;
 use crate::domain::{
     AppliedCouponDetailed, BillableMetric, CreateSubscriptionComponents, CreateSubscriptionCoupons,
     Customer, InvoicingEntity, PlanForSubscription, Schedule, SubscriptionComponent,
-    SubscriptionStatusEnum,
+    SubscriptionStatusEnum, SubscriptionUsageScopes, UsageFilter,
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::services::PaymentSetupResult;
@@ -199,6 +199,24 @@ pub struct Subscription {
     // Quote to subscription linking
     pub quote_id: Option<QuoteId>,
     pub payment_methods_config: Option<PaymentMethodsConfig>,
+    /// User-defined property values, keyed by definition `key`.
+    pub custom_properties: serde_json::Value,
+    /// When the subscription terminated. Immediate cancellation records the actual UTC instant;
+    /// a date-effective cancel or natural completion records that date at midnight. The terminal
+    /// period bills usage up to this instant (see `fetch_usage`). None while active.
+    pub terminated_at: Option<NaiveDateTime>,
+    /// The subscription's prices are quoted tax-included. Snapshotted from the plan version
+    /// at creation, like `currency`: what was sold keeps reading the way it was sold, and
+    /// everything billed under the subscription (add-ons, minimum, proration) follows it.
+    pub tax_inclusive: bool,
+    /// The tax rate those quoted prices carry, resolved once at creation. MRR is read off
+    /// the fee amounts, so this is what takes the tax back out of it. `None` when the
+    /// prices are net, or when the customer bears no tax at all.
+    pub tax_inclusive_rate: Option<rust_decimal::Decimal>,
+    /// Restricts the customer's events this subscription bills; see [`UsageFilter`].
+    pub usage_filter: Option<UsageFilter>,
+    /// When the current usage filter (or its removal) started to apply.
+    pub usage_filter_since: Option<NaiveDateTime>,
 }
 
 pub enum CyclePosition {
@@ -264,6 +282,15 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
                         e,
                     )
                 })?,
+            custom_properties: val.subscription.custom_properties,
+            terminated_at: val.subscription.terminated_at,
+            tax_inclusive: val.subscription.tax_inclusive,
+            tax_inclusive_rate: val.subscription.tax_inclusive_rate,
+            usage_filter: UsageFilter::from_columns(
+                val.subscription.usage_filter_property,
+                val.subscription.usage_filter_value,
+            )?,
+            usage_filter_since: val.subscription.usage_filter_since,
         })
     }
 }
@@ -306,6 +333,10 @@ pub struct SubscriptionNew {
     /// When true with a past start_date, skip creating invoices for past cycles.
     /// Used for migrations where past billing was handled externally.
     pub skip_past_invoices: bool,
+    /// JSON object of custom property values. Null means "not managed" (validation is skipped and
+    /// the row falls back to an empty object); validated against tenant definitions at insert time.
+    pub custom_properties: serde_json::Value,
+    pub usage_filter: Option<UsageFilter>,
 }
 
 pub struct SubscriptionNewEnriched<'a> {
@@ -329,6 +360,9 @@ pub struct SubscriptionNewEnriched<'a> {
     pub effective_trial_duration: Option<u32>,
     /// Set to now() when skip_past_invoices is true, to track migrated subscriptions
     pub imported_at: Option<NaiveDateTime>,
+    /// The tax the plan's quoted prices carry, resolved against this customer in the
+    /// context-gathering step. `None` for a tax-exclusive plan or an untaxed customer.
+    pub tax_inclusive_rate: Option<rust_decimal::Decimal>,
 }
 
 impl SubscriptionNewEnriched<'_> {
@@ -383,6 +417,17 @@ impl SubscriptionNewEnriched<'_> {
             backdate_invoices: sub.backdate_invoices,
             payment_methods_config,
             imported_at: self.imported_at,
+            // Validated/normalized against tenant definitions in persist_subscriptions_internal;
+            // a null bag (system/import flows) falls back to an empty object there.
+            custom_properties: sub.custom_properties.clone(),
+            tax_inclusive: self.plan.tax_inclusive,
+            tax_inclusive_rate: self.tax_inclusive_rate,
+            usage_filter_property: sub.usage_filter.as_ref().map(|f| f.property.clone()),
+            usage_filter_value: sub.usage_filter.as_ref().map(|f| f.value.clone()),
+            usage_filter_since: sub
+                .usage_filter
+                .as_ref()
+                .map(|_| sub.start_date.and_time(chrono::NaiveTime::MIN)),
         })
     }
 }
@@ -394,6 +439,14 @@ pub struct CreateSubscription {
     pub add_ons: Option<CreateSubscriptionAddOns>,
     pub coupons: Option<CreateSubscriptionCoupons>,
     pub entitlements: Vec<EntitlementSpec>,
+    /// Operator-set minimum override applied at creation. When present it replaces the plan
+    /// snapshot with an `is_override = true` entry (preserved across later plan changes). The scope
+    /// is unresolved here: inline new-product extras are referenced by name and resolved to their
+    /// minted product ids in the persist transaction.
+    pub minimum_override: Option<(i64, crate::domain::plan_minimums::CreateMinimumScope)>,
+    /// Drop the plan's minimum-commitment floor at creation: when `true` (and `minimum_override`
+    /// is `None`), the plan snapshot is not applied, leaving the subscription with no floor.
+    pub drop_minimum: bool,
 }
 
 /// Components and add-ons are already processed (fees computed), so we skip plan-based processing.
@@ -405,6 +458,8 @@ pub struct CreateSubscriptionFromQuote {
     pub coupon_ids: Vec<CouponId>,
     pub quote_id: QuoteId,
     pub entitlements: Vec<crate::domain::entitlements::EntitlementSpec>,
+    /// The quote's minimum, replacing the plan's (see `CreateSubscription::minimum_override`).
+    pub minimum_override: Option<(i64, crate::domain::plan_minimums::CreateMinimumScope)>,
 }
 
 /// Trial configuration from the plan version
@@ -445,11 +500,14 @@ pub struct SubscriptionDetails {
     pub price_components: Vec<SubscriptionComponent>,
     pub add_ons: Vec<SubscriptionAddOn>,
     pub applied_coupons: Vec<AppliedCouponDetailed>,
+    /// Scoped by `usage_scopes`, as are metrics loaded later for the subscription.
     pub metrics: Vec<BillableMetric>,
+    pub usage_scopes: SubscriptionUsageScopes,
     pub checkout_url: Option<String>,
     pub trial_config: Option<TrialConfig>,
     pub pending_events: Vec<PendingScheduledEvent>,
     pub entitlements: Vec<Entitlement>,
+    pub minimum: Option<crate::domain::subscription_minimums::SubscriptionMinimum>,
 }
 
 #[derive(Clone, Debug)]
@@ -462,6 +520,10 @@ pub struct SubscriptionPatch {
     pub purchase_order: Option<Option<String>>,
     /// None = no change, Some(None) = reset to inherit, Some(Some(config)) = set config
     pub payment_methods_config: Option<Option<PaymentMethodsConfig>>,
+    /// Raw provided delta (validated & merged by the store in-tx). `None` leaves properties as-is.
+    pub custom_properties: Option<serde_json::Value>,
+    /// None = no change, Some(None) = remove the filter.
+    pub usage_filter: Option<Option<UsageFilter>>,
 }
 
 golden::golden!(PaymentMethodsConfig, {
@@ -470,3 +532,76 @@ golden::golden!(PaymentMethodsConfig, {
     "bank_transfer" => PaymentMethodsConfig::bank_transfer(),
     "external" => PaymentMethodsConfig::external()
 });
+
+/// Net terms of a subscription or quote that names none: due on receipt when it sells credit,
+/// so the credit is funded as soon as the card is charged; otherwise the plan's own terms.
+pub fn default_net_terms(sells_credit: bool, plan_net_terms: u32) -> u32 {
+    if sells_credit { 0 } else { plan_net_terms }
+}
+
+#[cfg(test)]
+mod default_net_terms_tests {
+    use super::default_net_terms;
+    use crate::domain::SubscriptionFee;
+    use crate::domain::enums::BillingPeriodEnum;
+    use crate::domain::prices::Pricing;
+    use crate::domain::{Price, PriceComponent};
+    use common_domain::ids::{BaseId, PriceComponentId, PriceId, ProductId, TenantId};
+    use rust_decimal::Decimal;
+    use rust_decimal_macros::dec;
+
+    fn component(pricing: Pricing) -> PriceComponent {
+        PriceComponent {
+            id: PriceComponentId::new(),
+            name: "c".to_owned(),
+            product_id: None,
+            prices: vec![Price {
+                id: PriceId::new(),
+                product_id: ProductId::new(),
+                cadence: BillingPeriodEnum::Monthly,
+                currency: "USD".to_owned(),
+                pricing,
+                tenant_id: TenantId::new(),
+                created_at: chrono::NaiveDateTime::default(),
+                archived_at: None,
+                catalog: true,
+                credit_unit: None,
+            }],
+            legacy_pricing: None,
+        }
+    }
+
+    fn credit(unit_price: Decimal) -> Pricing {
+        Pricing::Credit {
+            unit_price,
+            quantity: 1,
+            credit_amount: dec!(550),
+            expiry: None,
+            credit_unit_id: None,
+            rollover: None,
+            once: false,
+        }
+    }
+
+    fn pack(rate: Decimal) -> SubscriptionFee {
+        SubscriptionFee::Credit {
+            rate,
+            quantity: 1,
+            credit_amount: dec!(550),
+            expiry: None,
+            credit_unit: None,
+            rollover: None,
+            once: false,
+        }
+    }
+
+    #[test]
+    fn selling_credit_is_due_on_receipt_otherwise_the_plan_terms_apply() {
+        assert!(component(credit(dec!(500))).sells_credit());
+        assert!(!component(credit(Decimal::ZERO)).sells_credit());
+        assert!(pack(dec!(500)).sells_credit());
+        assert!(!pack(Decimal::ZERO).sells_credit());
+        assert_eq!(default_net_terms(true, 30), 0);
+        assert_eq!(default_net_terms(false, 45), 45);
+    }
+}

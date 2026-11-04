@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package meteroid.api.listviews.v1;
+
+// The entity lists that keep saved views.
+enum EntityListType {
+  ENTITY_LIST_TYPE_UNSPECIFIED = 0;
+  ENTITY_LIST_TYPE_CUSTOMER = 1;
+  ENTITY_LIST_TYPE_SUBSCRIPTION = 2;
+  ENTITY_LIST_TYPE_INVOICE = 3;
+  ENTITY_LIST_TYPE_CREDIT_NOTE = 4;
+  ENTITY_LIST_TYPE_QUOTE = 5;
+  // The signals worklist.
+  ENTITY_LIST_TYPE_SIGNAL = 6;
+}
+
+// A saved list view, as seen by the caller.
+message EntityListView {
+  string id = 1;
+  string name = 2;
+  EntityListType entity_type = 3;
+  // Opaque JSON view spec ({ v, filters, quick, sort, columns }), owned by the web client.
+  string config = 4;
+  // Visible to every member of the tenant. Otherwise private to its creator.
+  bool shared = 5;
+  optional string created_by = 6;
+  optional string created_by_name = 7;
+  // Whether the caller created this view (only the creator may change `shared`).
+  bool is_owner = 8;
+  string created_at = 9;
+  optional string updated_at = 10;
+}

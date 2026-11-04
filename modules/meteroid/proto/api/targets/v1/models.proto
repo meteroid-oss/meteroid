@@ -1,0 +1,292 @@
+syntax = "proto3";
+
+package meteroid.api.targets.v1;
+
+import "api/signals/v1/models.proto";
+
+// A target covers a calendar month or a quarter; both start on the first day of a month.
+enum TargetPeriodGrain {
+  TARGET_PERIOD_GRAIN_UNSPECIFIED = 0;
+  TARGET_PERIOD_GRAIN_MONTH = 1;
+  TARGET_PERIOD_GRAIN_QUARTER = 2;
+}
+
+// Which direction of the metric is good.
+enum TargetPolarity {
+  TARGET_POLARITY_UNSPECIFIED = 0;
+  TARGET_POLARITY_HIGHER_IS_BETTER = 1;
+  // A cap: churned MRR, overdue receivables.
+  TARGET_POLARITY_LOWER_IS_BETTER = 2;
+  TARGET_POLARITY_NEUTRAL = 3;
+}
+
+// Where a target stands against the value expected by today.
+enum TargetStatus {
+  TARGET_STATUS_UNSPECIFIED = 0;
+  // The actual could not be read, or the target is in a currency the tenant no longer reports in.
+  TARGET_STATUS_UNRESOLVED = 1;
+  TARGET_STATUS_NOT_STARTED = 2;
+  TARGET_STATUS_NO_VERDICT = 3;
+  TARGET_STATUS_ON_TRACK = 4;
+  // Behind the expected value by at most 10% of the movement planned by today (2% of the level for
+  // a plan that holds it). A cap's landing can lower it, never lift it.
+  TARGET_STATUS_AT_RISK = 5;
+  TARGET_STATUS_OFF_TRACK = 6;
+  // The period is over and the final value met the target.
+  TARGET_STATUS_HIT = 7;
+  // The period is over and the final value fell short, or went over the cap.
+  TARGET_STATUS_MISSED = 8;
+}
+
+// The planned value of a catalog metric over a period, and who owns it.
+message Target {
+  string id = 1;
+  // A catalog metric key, or `bm:<billable metric id>` for a usage metric.
+  string metric_key = 2;
+  // Scope: the customers it counts, a JSON cohort spec (the segment builder's predicates), and
+  // how it reads. Both absent for the whole business.
+  optional string cohort = 3;
+  optional string scope_label = 4;
+  optional string owner_user_id = 5;
+  TargetPeriodGrain period_grain = 6;
+  // YYYY-MM-DD, the first day of the period.
+  string period_start = 7;
+  // Exclusive end, YYYY-MM-DD.
+  string period_end = 8;
+  // Decimal string in the metric's unit: minor units of `currency` for money.
+  string target_value = 9;
+  // The reporting currency a money target was set in.
+  optional string currency = 10;
+  string created_at = 11;
+  optional string updated_at = 12;
+  // A closed period's value, frozen when its books closed (`final_on`); absent before.
+  optional double final_value = 13;
+  // YYYY-MM-DD: the day the period's value is frozen, five days after it ends.
+  string final_on = 14;
+}
+
+// A target against its actual. Values are in the target's unit.
+message TargetAssessment {
+  optional double actual = 1;
+  // Where the expected path starts: 0 for a flow, the value the day before the period for a
+  // stock (100 for a retention ratio).
+  optional double opening = 2;
+  // On the expected path from the opening value to the target, as of today.
+  optional double expected_to_date = 3;
+  // At period end if nothing changes: the actual plus the movements billing has scheduled.
+  // Absent for metrics scheduled movements do not drive, and for scoped targets.
+  optional double projected = 4;
+  // How far the actual is from the value expected by today, as a share of the movement planned
+  // by today (not of a stock's level); positive = ahead, whatever the polarity.
+  optional double pace_gap_pct = 5;
+  // Share of the period covered, today included, in [0, 1].
+  double elapsed_fraction = 6;
+  TargetPolarity polarity = 7;
+  // The better of the pace and where it lands if nothing changes; Hit or Missed once closed.
+  TargetStatus status = 8;
+  // "If nothing changes" (the final value once closed) minus the target; positive is better for
+  // any polarity, so under a cap is positive.
+  optional double landing_gap = 9;
+  // The actual seven days ago.
+  optional double week_ago = 10;
+  // Past periods whose shape the expected path follows, blended with a straight line; 0 for a
+  // straight line.
+  uint32 pace_periods = 11;
+  // A frozen period whose value has been restated since: the value as it reads now. `actual`
+  // stays the frozen one.
+  optional double restated = 12;
+}
+
+message TargetRow {
+  Target target = 1;
+  // Absent without analytics:read.
+  optional TargetAssessment assessment = 2;
+  // In a listing by period or by metric, with analytics:read:
+  // the target as it read on Monday (the first day read this week, for one started since).
+  optional TargetDayPoint week_start = 3;
+  // YYYY-MM-DD: the first day of the current status's latest run, from the daily snapshots.
+  optional string status_since = 4;
+  // A closed target: "if nothing changes" five days before the period ended, to tell how close
+  // the projection came.
+  optional ForecastCheck forecast_check = 6;
+  // A movement metric (new business, expansion, contraction, churn, reactivation): the accounts
+  // that booked it in the period so far.
+  optional uint32 booked_accounts = 7;
+  // A quarter: each of its months so far, by the month's first day (a flow's month total, a
+  // balance's close).
+  repeated TargetPoint months = 8;
+}
+
+// A target's assessment on one day, from the daily snapshot.
+message TargetDayPoint {
+  string date = 1;
+  optional double actual = 2;
+  optional double projected = 3;
+  optional double expected = 4;
+  TargetStatus status = 5;
+  uint32 scheduled_count = 6;
+  // Rebuilt from billing records rather than read that day.
+  bool reconstructed = 7;
+}
+
+message ForecastCheck {
+  // YYYY-MM-DD.
+  string date = 1;
+  // The period's day number (1 for its first day).
+  uint32 day_of_period = 2;
+  double projected = 3;
+  // The reading was rebuilt from billing records.
+  bool reconstructed = 4;
+}
+
+enum MovementKind {
+  MOVEMENT_KIND_UNSPECIFIED = 0;
+  MOVEMENT_KIND_NEW_BUSINESS = 1;
+  MOVEMENT_KIND_EXPANSION = 2;
+  MOVEMENT_KIND_CONTRACTION = 3;
+  MOVEMENT_KIND_CHURN = 4;
+  MOVEMENT_KIND_REACTIVATION = 5;
+}
+
+enum MovementSource {
+  MOVEMENT_SOURCE_UNSPECIFIED = 0;
+  // A signed subscription starting later.
+  MOVEMENT_SOURCE_START = 1;
+  MOVEMENT_SOURCE_PLAN_CHANGE = 2;
+  MOVEMENT_SOURCE_CANCELLATION = 3;
+  MOVEMENT_SOURCE_END = 4;
+}
+
+// An MRR change billing already has on the calendar before the period ends.
+message ScheduledMovement {
+  string subscription_id = 1;
+  string customer_id = 2;
+  string customer_name = 3;
+  string plan_name = 4;
+  MovementSource source = 5;
+  MovementKind kind = 6;
+  // YYYY-MM-DD.
+  string date = 7;
+  // Signed, in the reporting currency's minor units.
+  int64 mrr_delta_cents = 8;
+  // The customer's account owner.
+  optional string owner_user_id = 9;
+  // A plan change: the version it leaves and the one it moves to ("Scale v2", "Scale v3").
+  optional string from_plan = 10;
+  optional string to_plan = 11;
+}
+
+// MRR booked in the period so far, by movement.
+message BookedMovement {
+  MovementKind kind = 1;
+  // Signed, in the reporting currency's minor units.
+  int64 mrr_cents = 2;
+}
+
+// One MRR movement booked in the period so far, in the reporting currency.
+message BookedRecord {
+  string date = 1;
+  string customer_id = 2;
+  string customer_name = 3;
+  string subscription_id = 4;
+  string plan_name = 5;
+  MovementKind kind = 6;
+  int64 mrr_cents = 7;
+  // The customer's account owner.
+  optional string owner_user_id = 8;
+}
+
+message TargetPoint {
+  // YYYY-MM-DD.
+  string date = 1;
+  // Flow metrics accumulate from the period start; stock metrics are the level that day.
+  double value = 2;
+}
+
+message TargetSnapshot {
+  string target_value = 1;
+  optional string currency = 2;
+  optional string owner_user_id = 3;
+}
+
+enum TargetChangeKind {
+  TARGET_CHANGE_KIND_UNSPECIFIED = 0;
+  TARGET_CHANGE_KIND_CREATED = 1;
+  TARGET_CHANGE_KIND_UPDATED = 2;
+  TARGET_CHANGE_KIND_DELETED = 3;
+}
+
+message TargetChange {
+  string id = 1;
+  TargetChangeKind kind = 2;
+  // From a plan import.
+  bool imported = 3;
+  optional string actor_user_id = 4;
+  optional TargetSnapshot before = 5;
+  optional TargetSnapshot after = 6;
+  string created_at = 7;
+  // A plan save: how many changes it wrote, this one included.
+  uint32 batch_size = 8;
+}
+
+// Everything behind one target: how it got here, what is scheduled, and the open signals that
+// could still move it.
+message TargetDetail {
+  TargetRow row = 1;
+  // The reporting currency.
+  string currency = 2;
+  // Daily actual over the period so far. Empty without analytics:read.
+  repeated TargetPoint series = 3;
+  // MRR metrics: movements booked so far. Empty otherwise.
+  repeated BookedMovement booked = 4;
+  // What "if nothing changes" adds, oldest first. Empty for scoped targets and for metrics
+  // scheduled movements do not drive.
+  repeated ScheduledMovement scheduled = 5;
+  // Signal categories that can move this metric ("expansion", "risk", ...).
+  repeated string signal_categories = 6;
+  // Open signals in those categories. Absent without the Signals add-on or alerts:read.
+  repeated meteroid.api.signals.v1.CategorySummary signals = 7;
+  // Newest first.
+  repeated TargetChange changes = 8;
+  // "If nothing changes" as dated steps: today's actual, each scheduled movement's date, then
+  // the last day of the period. Empty without a projection.
+  repeated TargetPoint projection = 9;
+  // The previous period's actual on the same day of its period (August at the same day); for a
+  // balance, its movement since that period opened.
+  optional double previous_same_day = 10;
+  // The movements behind `booked`, oldest first. MRR metrics only.
+  repeated BookedRecord booked_records = 11;
+  // The period's daily snapshots, oldest first.
+  repeated TargetDayPoint snapshots = 13;
+  // The expected value at the end of each day of the period. Empty without an opening value.
+  repeated TargetPoint expected = 14;
+}
+
+enum ImportOutcome {
+  IMPORT_OUTCOME_UNSPECIFIED = 0;
+  IMPORT_OUTCOME_CREATED = 1;
+  IMPORT_OUTCOME_REPLACED = 2;
+  IMPORT_OUTCOME_UNCHANGED = 3;
+}
+
+message ImportTargetRow {
+  string metric_key = 1;
+  // A JSON cohort spec and its name; both absent for the whole business.
+  optional string cohort = 2;
+  optional string scope_label = 3;
+  TargetPeriodGrain period_grain = 4;
+  string period_start = 5;
+  // Decimal string in the metric's unit (minor units of the reporting currency for money).
+  string target_value = 6;
+  // Absent keeps the owner of a target already set.
+  optional string owner_user_id = 7;
+  // Removes the target's owner; `owner_user_id` is then ignored.
+  bool clear_owner = 8;
+}
+
+message ImportTargetResult {
+  ImportTargetRow row = 1;
+  ImportOutcome outcome = 2;
+  // REPLACED and UNCHANGED: the target already set on that metric, scope and period.
+  optional Target existing = 3;
+}

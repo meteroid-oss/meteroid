@@ -1,0 +1,3 @@
+-- Postgres cannot drop a value from an enum type, so this addition is
+-- irreversible. Reverting would require recreating "TenantStatusEnum" without
+-- 'PENDING_DELETE' and rewriting the tenant.status column; intentionally a no-op.

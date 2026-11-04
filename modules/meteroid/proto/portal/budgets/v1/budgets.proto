@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package meteroid.portal.budgets.v1;
+
+import "portal/budgets/v1/models.proto";
+
+// The customer of the portal token, and only that customer: no request names a customer.
+service PortalBudgetsService {
+  rpc ListBudgets(ListBudgetsRequest) returns (ListBudgetsResponse);
+  // Currencies the customer is billed in; one active budget per currency.
+  rpc CreateBudget(CreateBudgetRequest) returns (CreateBudgetResponse);
+  // A stale expected_version is refused as aborted.
+  rpc UpdateBudget(UpdateBudgetRequest) returns (UpdateBudgetResponse);
+  rpc DeleteBudget(DeleteBudgetRequest) returns (DeleteBudgetResponse);
+}
+
+message ListBudgetsRequest {}
+message ListBudgetsResponse {
+  repeated Budget budgets = 1;
+  // Denominations the customer is billed in, for choosing where to set a budget.
+  repeated BudgetCurrency currencies = 2;
+  // Whether this invoicing entity lets its customers manage budgets from the portal.
+  // False hides the whole budgets section, even when budgets already exist.
+  bool enabled = 3;
+  // Whether the merchant's plan lets budgets be created and changed. False still lets the
+  // customer remove their own.
+  bool editable = 4;
+}
+
+message CreateBudgetRequest {
+  string currency = 1;
+  int64 amount = 2;
+  // Empty for the defaults: 50, 80 and 100.
+  repeated uint32 thresholds = 3;
+  // Client-generated; reuse it only to retry the same request.
+  string idempotency_key = 4;
+  // Unspecified for soft.
+  BudgetBehavior behavior = 5;
+}
+message CreateBudgetResponse { Budget budget = 1; }
+
+message Thresholds { repeated uint32 values = 1; }
+
+message UpdateBudgetRequest {
+  string budget_id = 1;
+  int32 expected_version = 2;
+  optional int64 amount = 3;
+  optional Thresholds thresholds = 4;
+  // Unspecified leaves it unchanged.
+  BudgetBehavior behavior = 5;
+}
+message UpdateBudgetResponse { Budget budget = 1; }
+
+message DeleteBudgetRequest { string budget_id = 1; }
+message DeleteBudgetResponse {}

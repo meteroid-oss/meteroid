@@ -52,6 +52,7 @@ export const StepPlanAndCustomer = () => {
       setState(prev => ({
         ...prev,
         components: { parameterized: [], overridden: [], extra: [], removed: [] },
+        netTerms: undefined,
       }))
     }
     prevPlanVersionId.current = planVersionId

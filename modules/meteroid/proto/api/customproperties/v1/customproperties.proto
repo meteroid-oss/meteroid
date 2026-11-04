@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package meteroid.api.customproperties.v1;
+
+import "api/customproperties/v1/models.proto";
+
+message ListCustomPropertyDefinitionsRequest {
+  optional CustomPropertyEntityType entity_type = 1;
+  bool include_archived = 2;
+}
+message ListCustomPropertyDefinitionsResponse {
+  repeated CustomPropertyDefinition definitions = 1;
+}
+
+message GetCustomPropertyDefinitionRequest {
+  string id = 1;
+}
+message GetCustomPropertyDefinitionResponse {
+  CustomPropertyDefinition definition = 1;
+}
+
+message CreateCustomPropertyDefinitionRequest {
+  CustomPropertyDefinitionData data = 1;
+}
+message CreateCustomPropertyDefinitionResponse {
+  CustomPropertyDefinition definition = 1;
+}
+
+message UpdateCustomPropertyDefinitionRequest {
+  string id = 1;
+  CustomPropertyDefinitionUpdate data = 2;
+}
+message UpdateCustomPropertyDefinitionResponse {
+  CustomPropertyDefinition definition = 1;
+}
+
+message ArchiveCustomPropertyDefinitionRequest {
+  string id = 1;
+}
+message ArchiveCustomPropertyDefinitionResponse {
+  CustomPropertyDefinition definition = 1;
+}
+
+service CustomPropertiesService {
+  rpc ListCustomPropertyDefinitions(ListCustomPropertyDefinitionsRequest) returns (ListCustomPropertyDefinitionsResponse) {}
+  rpc GetCustomPropertyDefinition(GetCustomPropertyDefinitionRequest) returns (GetCustomPropertyDefinitionResponse) {}
+}
+
+// Definition management, served by the Enterprise `custom-properties` module.
+service CustomPropertyDefinitionsService {
+  rpc CreateCustomPropertyDefinition(CreateCustomPropertyDefinitionRequest) returns (CreateCustomPropertyDefinitionResponse) {}
+  rpc UpdateCustomPropertyDefinition(UpdateCustomPropertyDefinitionRequest) returns (UpdateCustomPropertyDefinitionResponse) {}
+  rpc ArchiveCustomPropertyDefinition(ArchiveCustomPropertyDefinitionRequest) returns (ArchiveCustomPropertyDefinitionResponse) {}
+}

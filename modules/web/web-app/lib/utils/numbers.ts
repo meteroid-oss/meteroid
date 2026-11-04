@@ -1,6 +1,6 @@
 import Decimal from 'decimal.js'
 
-import { CURRENCIES } from '../data/currencies'
+import { currencyPrecision } from '../data/currency-precision'
 
 /**
  * Converts a decimal rate string to a percentage number.
@@ -31,50 +31,56 @@ export const formatUsage = (quantity: number) => {
   }
 
   return quantity.toLocaleString('en-US', {
-    useGrouping: false,
+    useGrouping: true,
     maximumFractionDigits: maxDecimals,
   })
 }
 
-export const formatCurrency = (amount: bigint | number, currencyCode: string) => {
-  const currency = CURRENCIES[currencyCode]
+/** `trimWholeAmounts` drops the decimals of whole amounts (`€800`, but `€72.50`). */
+export const formatCurrency = (
+  amount: bigint | number,
+  currencyCode: string,
+  { trimWholeAmounts = false }: { trimWholeAmounts?: boolean } = {}
+) => {
+  const precision = currencyPrecision(currencyCode)
+  const scale = Math.pow(10, precision)
+  const digits = trimWholeAmounts && Number(amount) % scale === 0 ? 0 : precision
 
-  if (!currency) {
-    console.warn(`Currency ${currencyCode} not found in CURRENCIES list, using default precision 2`)
+  const parsedAmount = Number(amount) / scale
+
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: currencyCode,
+      currencyDisplay: 'narrowSymbol',
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    }).format(parsedAmount)
+  } catch {
+    // A credit unit code is no ISO currency: show the amount followed by the code.
+    return `${new Intl.NumberFormat(undefined, {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    }).format(parsedAmount)} ${currencyCode}`
   }
-
-  const precision = currency?.precision ?? 2
-
-  const parsedAmount = Number(amount) / Math.pow(10, precision)
-
-  return new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: currencyCode,
-    currencyDisplay: 'narrowSymbol',
-    minimumFractionDigits: precision,
-    maximumFractionDigits: precision,
-  }).format(parsedAmount)
 }
 
-
 export const minorToMajorUnit = (amount: bigint | number, currencyCode: string): number => {
-  const currency = CURRENCIES[currencyCode]
-  const precision = currency?.precision ?? 2
-  
+  const precision = currencyPrecision(currencyCode)
+
   return Number(amount) / Math.pow(10, precision)
 }
 
 export const majorToMinorUnit = (amount: number, currencyCode: string): bigint => {
-  const currency = CURRENCIES[currencyCode]
-  const precision = currency?.precision ?? 2
-  
+  const precision = currencyPrecision(currencyCode)
+
   return BigInt(Math.round(amount * Math.pow(10, precision)))
 }
 
+// Keeps sub-cent unit prices readable. The 12 digit cap must match MAX_UNIT_PRICE_SCALE in
+// meteroid-invoicing/src/format.rs, so the invoice page and the PDF show the same price.
 export const formatCurrencyNoRounding = (amount: string | number, currencyCode: string) => {
-  const currency = CURRENCIES[currencyCode]
-
-  const precision = currency?.precision ?? 2
+  const precision = currencyPrecision(currencyCode)
 
   const parsedAmount = typeof amount === 'string' ? parseFloat(amount) : amount
 

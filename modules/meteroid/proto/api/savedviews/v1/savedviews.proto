@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package meteroid.api.savedviews.v1;
+
+import "api/savedviews/v1/models.proto";
+
+message ListSavedViewsRequest {
+  optional string metric_key = 1;
+}
+
+message ListSavedViewsResponse {
+  repeated SavedView saved_views = 1;
+}
+
+message GetSavedViewRequest {
+  string id = 1;
+}
+
+message GetSavedViewResponse {
+  SavedView saved_view = 1;
+}
+
+message CreateSavedViewRequest {
+  string name = 1;
+  string metric_key = 2;
+  string visualization = 3;
+  string config = 4;
+}
+
+message CreateSavedViewResponse {
+  SavedView saved_view = 1;
+}
+
+message UpdateSavedViewRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string metric_key = 3;
+  optional string visualization = 4;
+  optional string config = 5;
+}
+
+message UpdateSavedViewResponse {
+  SavedView saved_view = 1;
+}
+
+message DeleteSavedViewRequest {
+  string id = 1;
+}
+
+message DeleteSavedViewResponse {}
+
+// Publish (or re-publish) a dashboard saved view as a public link. `snapshot` is
+// a JSON-encoded, client-built capture of the dashboard's tiles (title + each
+// tile's display metadata and resolved exploreJson), stored server-side and
+// replayed for anonymous viewers. Returns a forever token for the embed URL.
+message ShareDashboardRequest {
+  string id = 1;
+  string snapshot = 2;
+}
+
+message ShareDashboardResponse {
+  string token = 1;
+}
+
+message GetDashboardShareRequest {
+  string id = 1;
+}
+
+message GetDashboardShareResponse {
+  bool shared = 1;
+  optional string token = 2;
+}
+
+message UnshareDashboardRequest {
+  string id = 1;
+}
+
+message UnshareDashboardResponse {}
+
+service SavedViewsService {
+  rpc ListSavedViews(ListSavedViewsRequest) returns (ListSavedViewsResponse) {}
+  rpc GetSavedView(GetSavedViewRequest) returns (GetSavedViewResponse) {}
+  rpc CreateSavedView(CreateSavedViewRequest) returns (CreateSavedViewResponse) {}
+  rpc UpdateSavedView(UpdateSavedViewRequest) returns (UpdateSavedViewResponse) {}
+  rpc DeleteSavedView(DeleteSavedViewRequest) returns (DeleteSavedViewResponse) {}
+  rpc ShareDashboard(ShareDashboardRequest) returns (ShareDashboardResponse) {}
+  rpc GetDashboardShare(GetDashboardShareRequest) returns (GetDashboardShareResponse) {}
+  rpc UnshareDashboard(UnshareDashboardRequest) returns (UnshareDashboardResponse) {}
+}

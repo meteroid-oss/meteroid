@@ -25,6 +25,7 @@ interface FormComboboxProps<
 > extends Omit<ControllerProps<TFieldValues, TName>, 'render'> {
   control: Control<TFieldValues>
   options: { label: React.ReactNode; value: string; keywords?: string[] }[]
+  required?: boolean
   label?: string
   description?: string
   containerClassName?: string
@@ -48,6 +49,7 @@ export function ComboboxFormField<
 >({
   options,
   label,
+  required,
   description,
   layout = 'vertical',
   containerClassName,
@@ -72,17 +74,24 @@ export function ComboboxFormField<
           {label && (
             <FormLabel className={cn('my-2', genVariants.label({ layout }), labelClassName)}>
               {label}
+              {required && <span className="text-destructive text-xs pl-1">*</span>}
             </FormLabel>
           )}
-          <Popover open={open} onOpenChange={setOpen}>
+          <Popover open={open} onOpenChange={setOpen} modal>
             <PopoverTrigger asChild>
               <FormControl>
                 <Button
                   variant="outline"
                   role="combobox"
                   aria-expanded={open}
+                  aria-required={required}
                   className={cn(
-                    'flex h-9 w-full border border-border items-center justify-between whitespace-nowrap rounded-md font-normal  bg-transparent hover:bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
+                    'flex h-9 w-full border border-border items-center justify-between whitespace-nowrap rounded-md font-normal  bg-input hover:bg-input px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
+                    // horizontal layout makes FormItem a 12-col grid — claim the 8 columns
+                    // the label leaves, like SelectFormField does. flex-row undoes the
+                    // variant's flex-col, which would stack the value above the caret.
+                    genVariants.input({ layout }),
+                    'flex-row',
                     className
                     //!field.value && ''
                   )}

@@ -49,8 +49,21 @@ message InitiateHostedInvoicePaymentResponse {
   api.invoices.v1.PaymentActionRequired next_action = 1;
 }
 
+// Resumes the invoice's charge left awaiting customer authentication (3DS / SCA), typically a
+// renewal charged while the customer was away.
+message ResumeInvoicePaymentAuthenticationRequest {
+  // Required with CustomerPortal tokens; InvoicePortal tokens carry the invoice.
+  optional string invoice_id = 1;
+}
+
+message ResumeInvoicePaymentAuthenticationResponse {
+  // Re-read from the provider for this response; the secret it carries is never stored.
+  api.invoices.v1.PaymentActionRequired next_action = 1;
+}
+
 service PortalInvoiceService {
   rpc GetInvoicePayment(GetInvoiceForPaymentRequest) returns (GetInvoiceForPaymentResponse) {}
   rpc ConfirmInvoicePayment(ConfirmInvoicePaymentRequest) returns (ConfirmInvoicePaymentResponse) {}
   rpc InitiateHostedInvoicePayment(InitiateHostedInvoicePaymentRequest) returns (InitiateHostedInvoicePaymentResponse) {}
+  rpc ResumeInvoicePaymentAuthentication(ResumeInvoicePaymentAuthenticationRequest) returns (ResumeInvoicePaymentAuthenticationResponse) {}
 }

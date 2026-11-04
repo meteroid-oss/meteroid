@@ -7,6 +7,9 @@ expression: "&list"
     {
       "id": "cus_xxx",
       "name": "Test Customer REST",
+      "customer_type": "COMPANY",
+      "first_name": null,
+      "last_name": null,
       "alias": "test-customer-rest",
       "billing_email": "billing@meteroid.com",
       "invoicing_emails": [
@@ -25,6 +28,8 @@ expression: "&list"
       "currency": "EUR",
       "invoicing_entity_id": "ive_xxx",
       "vat_number": "VAT123456",
+      "legal_number": null,
+      "buyer_reference": null,
       "custom_taxes": [
         {
           "tax_code": "TAX001",
@@ -32,11 +37,17 @@ expression: "&list"
           "rate": 20.0
         }
       ],
-      "connected_account_id": null
+      "connected_account_id": null,
+      "custom_properties": {},
+      "preferred_locales": [],
+      "invoicing_language": null
     },
     {
       "id": "cus_xxx",
       "name": "created_manual",
+      "customer_type": "COMPANY",
+      "first_name": null,
+      "last_name": null,
       "alias": "created_manual",
       "billing_email": "created_manual@meteroid.com",
       "invoicing_emails": [],
@@ -46,12 +57,20 @@ expression: "&list"
       "currency": "EUR",
       "invoicing_entity_id": "ive_xxx",
       "vat_number": null,
+      "legal_number": null,
+      "buyer_reference": null,
       "custom_taxes": [],
-      "connected_account_id": null
+      "connected_account_id": null,
+      "custom_properties": {},
+      "preferred_locales": [],
+      "invoicing_language": null
     },
     {
       "id": "cus_xxx",
       "name": "new name",
+      "customer_type": "COMPANY",
+      "first_name": null,
+      "last_name": null,
       "alias": "fffrrriiieeennndddsss",
       "billing_email": "fake@fake.com",
       "invoicing_emails": [],
@@ -61,8 +80,13 @@ expression: "&list"
       "currency": "EUR",
       "invoicing_entity_id": "ive_xxx",
       "vat_number": null,
+      "legal_number": null,
+      "buyer_reference": null,
       "custom_taxes": [],
-      "connected_account_id": null
+      "connected_account_id": null,
+      "custom_properties": {},
+      "preferred_locales": [],
+      "invoicing_language": null
     }
   ],
   "pagination_meta": {

@@ -1,0 +1,244 @@
+syntax = "proto3";
+
+package meteroid.api.signals.v1;
+
+import "api/alerts/v1/models.proto";
+import "common/v1/filters.proto";
+
+// One open signal: a per-customer event of a built-in or custom signal.
+message Signal {
+  string event_id = 1;
+  string alert_definition_id = 2;
+  // The signal definition's name ("Usage limit", …).
+  string name = 3;
+  // Steering classification: "risk" | "opportunity".
+  string kind = 4;
+  optional string builtin_code = 5;
+  // "expansion" | "risk" | "contracts" | "billing".
+  string category = 6;
+  meteroid.api.alerts.v1.AlertSeverityEnum severity = 7;
+  meteroid.api.alerts.v1.AlertEventStatusEnum status = 8;
+  // Signed, in the enclosing response's currency (risk < 0, opportunity > 0); absent = not priceable.
+  optional int64 impact_cents = 9;
+  // JSON SignalEvidence ({"kind": …, "v": 1, …}), canonical shape; absent on custom signals.
+  optional string evidence = 10;
+  string fired_at = 11;
+  string customer_id = 12;
+  string customer_name = 13;
+  optional string owner_user_id = 14;
+}
+
+enum SignalStatus {
+  SIGNAL_STATUS_UNSPECIFIED = 0;
+  // Firing, not dismissed.
+  SIGNAL_STATUS_OPEN = 1;
+  // Dismissed while its condition still holds.
+  SIGNAL_STATUS_DISMISSED = 2;
+}
+
+enum SignalSort {
+  SIGNAL_SORT_IMPACT = 0;
+  SIGNAL_SORT_RECENT = 1;
+}
+
+message SignalFilter {
+  repeated string alert_definition_ids = 1;
+  // One built-in signal ("limit_burndown", …).
+  optional string builtin_code = 2;
+  // Any of "expansion" | "risk" | "contracts" | "billing"; empty = every category.
+  repeated string categories = 3;
+  // Empty = open only.
+  repeated SignalStatus statuses = 4;
+  // Case-insensitive customer-name substring.
+  optional string search = 5;
+  // Only signals fired within the last N days (1–3650); omit/0 = any time.
+  optional uint32 flagged_within_days = 6;
+  // Customer attributes (owner, country, custom properties `cp:<key>`…), as on the customers list.
+  repeated meteroid.common.v1.Filter customer_filters = 7;
+  // One customer's signals.
+  optional string customer_id = 8;
+  // Critical signals only.
+  bool critical_only = 9;
+}
+
+// Signals of one category (or all), over a filter without its category.
+message CategorySummary {
+  // "expansion" | "risk" | "contracts" | "billing"; empty = all.
+  string category = 1;
+  uint32 count = 2;
+  // Σ |impact| of the priceable signals, in the response currency.
+  int64 impact_cents = 3;
+  // Distinct customers.
+  uint32 customers = 4;
+  // Σ impact, signed: upside and downside net out (e.g. legacy versions that would bill less).
+  int64 impact_net_cents = 5;
+}
+
+message ChartPoint {
+  // YYYY-MM-DD.
+  string date = 1;
+  // Decimal string, cumulative over the period.
+  string value = 2;
+}
+
+// Cumulative daily usage of one metric over the signal's billing cycle, and the pace to its end.
+message SignalChart {
+  string metric_id = 1;
+  string metric_name = 2;
+  string period_start = 3;
+  // Exclusive.
+  optional string period_end = 4;
+  string today = 5;
+  repeated ChartPoint actual = 6;
+  // From today to the end of the cycle at the current pace.
+  repeated ChartPoint forecast = 7;
+  // The previous cycle, aligned on the day of the cycle (usage collapse).
+  repeated ChartPoint comparison = 8;
+  // A horizontal line: the limit (entitlement limit).
+  optional string reference_value = 9;
+  optional string reference_label = 10;
+}
+
+// What happens if nothing changes.
+message SignalOutlook {
+  oneof outlook {
+    LimitOutlook limit = 1;
+    CollapseOutlook collapse = 2;
+    ShortfallOutlook shortfall = 3;
+    PaymentOutlook payment = 4;
+    RenewalOutlook renewal = 5;
+    PlanVersionOutlook plan_version = 6;
+  }
+}
+
+message LimitOutlook {
+  string limit = 1;
+  string projected_usage = 2;
+  // The day the limit is reached at the current pace; absent when already over or never.
+  optional string limit_reached_on = 3;
+  // "allow" | "block".
+  string overage_behavior = 4;
+  // Projected overage billed on invoice_date (allow, priced).
+  optional int64 overage_cents = 5;
+  string invoice_date = 6;
+  string currency = 7;
+}
+
+message CollapseOutlook {
+  string projected_usage = 1;
+  string previous_usage = 2;
+  // Signed: the cycle's usage revenue against the previous cycle's.
+  optional int64 revenue_change_cents = 3;
+  string invoice_date = 4;
+  string currency = 5;
+  // The headline metric: the one with the most revenue at risk.
+  string metric_name = 6;
+}
+
+message ShortfallOutlook {
+  // Billed as unused commitment on invoice_date.
+  int64 shortfall_cents = 1;
+  int64 floor_cents = 2;
+  int64 projected_cents = 3;
+  string invoice_date = 4;
+  string currency = 5;
+}
+
+// Dunning of the problem invoice with the next retry (else the oldest one).
+message PaymentOutlook {
+  optional string invoice_id = 1;
+  optional string invoice_number = 2;
+  uint32 attempts_failed = 3;
+  // Automatic retries in the dunning ladder.
+  uint32 retries_total = 4;
+  optional string next_retry_at = 5;
+  // No retry left: the invoice stays open for manual collection.
+  bool exhausted = 6;
+  int64 amount_due_cents = 7;
+  string currency = 8;
+}
+
+message RenewalOutlook {
+  // "ending" | "renewing".
+  string mode = 1;
+  string date = 2;
+  int64 mrr_cents = 3;
+  string currency = 4;
+  // The pending cancellation behind an ending, when there is one.
+  optional string cancellation_event_id = 5;
+}
+
+message PlanVersionOutlook {
+  string plan_name = 1;
+  uint32 current_version = 2;
+  uint32 active_version = 3;
+  int64 mrr_cents = 4;
+  int64 active_mrr_cents = 5;
+  string currency = 6;
+}
+
+message ReplayedInvoice {
+  string invoice_id = 1;
+  string invoice_number = 2;
+  string invoice_date = 3;
+  // As issued.
+  int64 actual_cents = 4;
+  // Recomputed on the option's plan version from the same usage.
+  int64 replayed_cents = 5;
+}
+
+// The money side of an option, in its currency.
+message OptionPreview {
+  string currency = 1;
+  // The next invoice's subtotal, before discounts and tax.
+  optional int64 next_invoice_cents = 2;
+  optional int64 mrr_cents = 3;
+  // The flagged feature's limit under this option.
+  optional string limit = 4;
+  repeated ReplayedInvoice replay = 5;
+  // Whether next_invoice_cents extrapolates this cycle's usage to its end (summed and counted
+  // metrics, far enough into the cycle); otherwise it prices the usage to date.
+  bool usage_projected = 6;
+}
+
+enum SignalOptionKind {
+  SIGNAL_OPTION_KIND_UNSPECIFIED = 0;
+  // Nothing changes: the reference the other options compare to.
+  SIGNAL_OPTION_KIND_STAY = 1;
+  SIGNAL_OPTION_KIND_CHANGE_PLAN = 2;
+  SIGNAL_OPTION_KIND_ADD_ADD_ON = 3;
+  SIGNAL_OPTION_KIND_MIGRATE_VERSION = 4;
+  SIGNAL_OPTION_KIND_UNDO_CANCELLATION = 5;
+  SIGNAL_OPTION_KIND_PAYMENT_LINK = 6;
+  SIGNAL_OPTION_KIND_CREATE_QUOTE = 7;
+}
+
+// A lever the signal implies, to compare with the others. Never a recommendation.
+message SignalOption {
+  SignalOptionKind kind = 1;
+  // "Scale plan", "Extra AI Actions add-on", …
+  string label = 2;
+  optional string subscription_id = 3;
+  // Target of CHANGE_PLAN / MIGRATE_VERSION.
+  optional string plan_version_id = 4;
+  optional string add_on_id = 5;
+  optional string invoice_id = 6;
+  optional string scheduled_event_id = 7;
+  optional OptionPreview preview = 8;
+}
+
+// Where the signal came from.
+message SignalProvenance {
+  // When the signal's definition last evaluated this customer.
+  optional string evaluated_at = 1;
+  optional string subscription_id = 2;
+  optional string plan_name = 3;
+  optional uint32 plan_version = 4;
+  repeated string metric_ids = 5;
+  repeated string metric_names = 6;
+  // Raw events behind the metrics over [window_start, window_end).
+  optional uint64 event_count = 7;
+  optional string window_start = 8;
+  optional string window_end = 9;
+  repeated string invoice_ids = 10;
+}

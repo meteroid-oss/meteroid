@@ -75,3 +75,18 @@
 .mtp-checkout-pane[data-mtp-theme='dark'] .border-t {
   border-color: var(--mtp-border);
 }
+
+/* Outline/ghost @md/ui buttons read host-app surface tokens (white) while the
+   text inherits the pane's light ink; remap them onto the portal tokens. */
+.mtp-checkout-pane[data-mtp-theme='dark'] .bg-background {
+  background-color: var(--mtp-surface);
+}
+.mtp-checkout-pane[data-mtp-theme='dark'] .border-border {
+  border-color: var(--mtp-border-2);
+}
+.mtp-checkout-pane[data-mtp-theme='dark'] .hover\:bg-accent:hover {
+  background-color: var(--mtp-surface-2);
+}
+.mtp-checkout-pane[data-mtp-theme='dark'] .hover\:text-accent-foreground:hover {
+  color: var(--mtp-text);
+}

@@ -16,6 +16,16 @@ use common_grpc_error_as_tonic_macros::{HEADER_SOURCE_DETAILS, SourceDetails};
 
 use crate::GrpcServiceMethod;
 
+fn level_for_code(code: Code) -> Option<Level> {
+    match code {
+        Code::Ok => None,
+        Code::Internal | Code::Unknown | Code::DataLoss | Code::Unavailable | Code::Aborted => {
+            Some(Level::Error)
+        }
+        _ => Some(Level::Warn),
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ErrorLoggerLayer;
 
@@ -42,11 +52,15 @@ where
     ReqBody: Send,
 {
     type Response = S::Response;
-    type Error = BoxError;
+    // A concrete error, not `BoxError`: the OTel layer wrapping this one requires
+    // `std::error::Error`.
+    type Error = Status;
     type Future = ResponseFuture<S::Future, S::Error>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx).map_err(Into::into)
+        self.inner
+            .poll_ready(cx)
+            .map_err(|err| Status::from_error(err.into()))
     }
 
     fn call(&mut self, request: Request<ReqBody>) -> Self::Future {
@@ -86,7 +100,7 @@ where
     F: Future<Output = Result<Response<ResBody>, E>>,
     E: Into<BoxError>,
 {
-    type Output = Result<Response<ResBody>, BoxError>;
+    type Output = Result<Response<ResBody>, Status>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
@@ -103,7 +117,7 @@ where
                 let _ = response.headers_mut().remove(HEADER_SOURCE_DETAILS);
 
                 if let Some(status) = maybe_status {
-                    if status.code() != Code::Ok {
+                    if let Some(level) = level_for_code(status.code()) {
                         let maybe_header_source_details =
                             metadata_map.get_bin(HEADER_SOURCE_DETAILS);
 
@@ -117,18 +131,37 @@ where
                                     .metadata(
                                         MetadataBuilder::new()
                                             .target(source_details.location_file.as_str())
-                                            .level(Level::Error)
+                                            .level(level)
                                             .build(),
                                     )
                                     .args(format_args!(
-                                        "Failed to process gRPC {}/{} due to {} : {}",
+                                        "Failed to process gRPC {}/{} with {:?} due to {} : {}",
                                         this.sm.service,
                                         this.sm.method,
+                                        status.code(),
                                         source_details.msg,
                                         source_details.source
                                     ))
                                     .file(Some(source_details.location_file.as_str()))
                                     .line(Some(source_details.location_line))
+                                    .build(),
+                            );
+                        } else {
+                            logger().log(
+                                &Record::builder()
+                                    .metadata(
+                                        MetadataBuilder::new()
+                                            .target(module_path!())
+                                            .level(level)
+                                            .build(),
+                                    )
+                                    .args(format_args!(
+                                        "Failed to process gRPC {}/{} with {:?} : {}",
+                                        this.sm.service,
+                                        this.sm.method,
+                                        status.code(),
+                                        status.message()
+                                    ))
                                     .build(),
                             );
                         }
@@ -140,10 +173,7 @@ where
 
                 Ok(response)
             }
-            Err(err) => {
-                let status = Status::from_error(err.into());
-                Err::<_, BoxError>(status.into())
-            }
+            Err(err) => Err(Status::from_error(err.into())),
         };
 
         Poll::Ready(result)

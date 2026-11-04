@@ -3,7 +3,9 @@ syntax = "proto3";
 package meteroid.api.quotes.v1;
 
 import "api/quotes/v1/models.proto";
+import "api/plans/v1/models.proto";
 import "api/subscriptions/v1/models.proto";
+import "common/v1/filters.proto";
 import "common/v1/pagination.proto";
 
 message CreateQuoteRequest {
@@ -28,6 +30,8 @@ message ListQuotesRequest {
   meteroid.common.v1.Pagination pagination = 3;
   optional QuoteStatus status = 4;
   optional string customer_id = 5;
+  // Dynamic filters over custom properties (field `cp:<key>`); AND-combined.
+  repeated meteroid.common.v1.Filter filters = 6;
 }
 
 message ListQuotesResponse {
@@ -37,27 +41,8 @@ message ListQuotesResponse {
 
 message UpdateQuoteRequest {
   string id = 1;
-  optional QuoteStatus status = 2;
-
-  optional uint32 trial_duration = 3;
-  optional string start_date = 4;
-  optional string billing_start_date = 5;
-  optional string end_date = 6;
-  optional uint32 billing_day_anchor = 7;
-  optional meteroid.api.subscriptions.v1.ActivationCondition activation_condition = 8;
-
-  optional string valid_until = 9;
-  optional string expires_at = 10;
-
-  optional string internal_notes = 11;
-  optional string cover_image = 12;
-  optional string overview = 13;
-  optional string terms_and_services = 14;
-  optional int32 net_terms = 15;
-  repeated string attachments = 16;
-  repeated RecipientDetails recipients = 17;
-
-  optional meteroid.api.subscriptions.v1.CreateSubscriptionComponents components = 18;
+  // Full replacement of a draft quote. `entitlements` is ignored: manage them on the quote itself.
+  CreateQuote quote = 2;
 }
 
 message UpdateQuoteResponse {

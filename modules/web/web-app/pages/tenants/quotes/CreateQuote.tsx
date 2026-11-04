@@ -1,5 +1,5 @@
 import { create } from '@bufbuild/protobuf';
-import { skipToken, useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query'
 import {
   Alert,
   Button,
@@ -23,16 +23,22 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
 import { Eye, InfoIcon, Plus, Save, Trash2 } from 'lucide-react'
-import { customAlphabet } from 'nanoid'
 import { useEffect, useMemo, useState } from 'react'
 import { useFieldArray } from 'react-hook-form'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { Slot, hasSlot } from '@/edition'
 import { AddOnCouponSelector } from '@/features/addons/AddOnCouponSelector'
+import { scopeOptionsWithPending } from '@/features/billing/minimumCommitment'
 import { CustomerSelect } from '@/features/customers/CustomerSelect'
+import {
+  CustomPropertiesFields,
+  serializeCustomProperties,
+} from '@/features/customproperties/CustomPropertiesFields'
 import { resolveEntitlementSpecs } from '@/features/entitlements/creation/resolveEntitlementSpecs'
 import { PendingEntitlementsPanel } from '@/features/entitlements/pending/PendingEntitlementsPanel'
 import { SubscribablePlanVersionSelect } from '@/features/plans/SubscribablePlanVersionSelect'
@@ -46,6 +52,11 @@ import {
 } from '@/features/pricing'
 import { QuotePriceComponentsWrapper } from '@/features/quotes/QuotePriceComponentsWrapper'
 import { QuoteView } from '@/features/quotes/QuoteView'
+import {
+  QuoteFormSeed,
+  emptyPriceComponentsState,
+  generateQuoteNumber,
+} from '@/features/quotes/quoteFormSeed'
 import { PriceComponentsState } from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
 import { PricingComponent } from '@/features/subscriptions/pricecomponents/SubscriptionPricingTable'
 import { useBasePath } from '@/hooks/useBasePath'
@@ -54,20 +65,26 @@ import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 import { mapDatev2 } from '@/lib/mapping'
 import {
+  defaultNetTerms,
+  formatDefaultNetTerms,
   getPrice,
   priceToSubscriptionFee,
   priceToSubscriptionPeriod,
 } from '@/lib/mapping/priceToSubscriptionFee'
+import { effectiveSubscriptionPrices } from '@/pages/tenants/subscription/create/state'
+import { listEntityActivity } from '@/rpc/api/activity/v1/activity-ActivityService_connectquery'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
 import { ListCouponRequest_CouponFilter } from '@/rpc/api/coupons/v1/coupons_pb'
+import { listCreditUnits } from '@/rpc/api/creditunits/v1/creditunits-CreditUnitsService_connectquery'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 import { createFeature } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import {
   getInvoicingEntity,
   getInvoicingEntityProviders,
 } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
-import { PlanType } from '@/rpc/api/plans/v1/models_pb'
+import { MinimumCommitment, PlanType } from '@/rpc/api/plans/v1/models_pb'
 import {
   getPlanWithVersionByVersionId,
   listPlans,
@@ -82,10 +99,16 @@ import {
   CreateQuoteSchema as CreateQuoteDataSchema,
   DetailedQuoteSchema,
   QuoteSchema,
+  QuoteStatus,
   QuoteUsageExampleSchema,
 } from '@/rpc/api/quotes/v1/models_pb';
-import { createQuote } from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
-import { CreateQuoteRequestSchema } from '@/rpc/api/quotes/v1/quotes_pb';
+import {
+  createQuote,
+  getQuote,
+  listQuotes,
+  updateQuote,
+} from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
+import { CreateQuoteRequestSchema, UpdateQuoteRequestSchema } from '@/rpc/api/quotes/v1/quotes_pb';
 import {
   ActivationCondition,
   BankTransferSchema,
@@ -127,7 +150,11 @@ const createQuoteSchema = z.object({
   internal_notes: z.string().optional(),
   overview: z.string().optional(),
   terms_and_services: z.string().optional(),
-  net_terms: z.number().min(0).default(30),
+  // Unset lets the server default it: due on receipt when the quote sells credit, else the plan's.
+  net_terms: z.preprocess(
+    val => (val === '' || val === null ? undefined : val),
+    z.number().int('Enter a whole number of days').min(0).optional()
+  ),
   recipients: z.array(recipientSchema).min(1, 'At least one recipient is required'),
   // Advanced settings
   activation_condition: z.enum(['ON_START', 'ON_CHECKOUT', 'MANUAL']).default('ON_START'),
@@ -136,11 +163,10 @@ const createQuoteSchema = z.object({
   charge_automatically: z.boolean().default(true),
   invoice_memo: z.string().optional(),
   create_subscription_on_acceptance: z.boolean().default(false),
+  customProperties: z.record(z.string(), z.unknown()).optional(),
 })
 
 type CreateQuoteFormData = z.infer<typeof createQuoteSchema>
-
-const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 10)
 
 // Helper functions for activation condition and payment strategy
 const activationConditionFromString = (
@@ -179,22 +205,28 @@ const buildPaymentMethodsConfig = (type: PaymentMethodsType): PaymentMethodsConf
   }
 }
 
-export const CreateQuote = () => {
+interface CreateQuoteProps {
+  seed?: QuoteFormSeed
+  editQuoteId?: string
+  template?: { sourceQuoteNumber: string; planOutdated: boolean }
+}
+
+export const CreateQuote = ({ seed, editQuoteId, template }: CreateQuoteProps = {}) => {
   const navigate = useNavigate()
   const basePath = useBasePath()
-  const [priceComponentsState, setPriceComponentsState] = useState<PriceComponentsState>({
-    components: {
-      removed: [],
-      parameterized: [],
-      overridden: [],
-      extra: [],
-      usageExamples: [],
-    },
-  })
+  const queryClient = useQueryClient()
+  const isEdit = Boolean(editQuoteId)
+  const [priceComponentsState, setPriceComponentsState] = useState<PriceComponentsState>(
+    () => seed?.priceComponents ?? emptyPriceComponentsState()
+  )
 
   // Add-ons and coupons state
-  const [selectedAddOns, setSelectedAddOns] = useState<{ addOnId: string; quantity?: number }[]>([])
-  const [selectedCoupons, setSelectedCoupons] = useState<{ couponId: string }[]>([])
+  const [selectedAddOns, setSelectedAddOns] = useState<{ addOnId: string; quantity?: number }[]>(
+    () => seed?.addOns ?? []
+  )
+  const [selectedCoupons, setSelectedCoupons] = useState<{ couponId: string }[]>(
+    () => seed?.coupons ?? []
+  )
   // Entitlements state
   const [pendingEntitlements, setPendingEntitlements] = useState<PendingEntitlementSpec[]>([])
 
@@ -214,22 +246,61 @@ export const CreateQuote = () => {
   const createFeatureMutation = useMutation(createFeature)
 
 
+  // Quote-level minimum override, applied at creation (bundled into the CreateQuote request).
+  // Undefined = inherit the plan's term. Without the commitments module a new quote cannot carry
+  // one (the server refuses it), while an edited quote keeps its own unchanged.
+  const [minimumOverride, setMinimumOverride] = useState<MinimumCommitment | undefined>(() =>
+    isEdit || hasSlot('quoteCreate.minimumCommitment') ? seed?.minimumCommitment : undefined
+  )
+
   const createQuoteMutation = useMutation(createQuote, {
-    onSuccess: data => {
-      navigate(`${basePath}/quotes/${data.quote?.quote?.id}`)
+    onSuccess: async data => {
+      const newQuoteId = data.quote?.quote?.id
+      navigate(`${basePath}/quotes/${newQuoteId}`)
     },
     onError: error => {
       toast.error(`Failed to create quote: ${error.message}`)
     },
   })
 
+  const updateQuoteMutation = useMutation(updateQuote, {
+    onSuccess: async response => {
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({ schema: getQuote.parent, cardinality: undefined }),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({ schema: listQuotes.parent, cardinality: undefined }),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({ schema: listEntityActivity, cardinality: undefined }),
+      })
+      if (response.quote?.quote?.status === QuoteStatus.PENDING) {
+        toast.success('Quote updated: its link shows the changes. Resend it to let the customer know.')
+      }
+      navigate(`${basePath}/quotes/${editQuoteId}`)
+    },
+    onError: error => {
+      toast.error(`Failed to update quote: ${error.message}`)
+    },
+  })
+
+  const isSaving = createQuoteMutation.isPending || updateQuoteMutation.isPending
+  const submitLabel = isEdit
+    ? isSaving
+      ? 'Saving...'
+      : 'Save Changes'
+    : isSaving
+      ? 'Creating...'
+      : 'Create Quote'
+
+  const [searchParams] = useSearchParams()
+
   const methods = useZodForm({
     schema: createQuoteSchema,
-    defaultValues: {
-      quote_number: `Q-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${nanoid(5)}`,
-      customer_id: '',
+    defaultValues: seed?.values ?? {
+      quote_number: generateQuoteNumber(),
+      customer_id: searchParams.get('customerId')?.trim() ?? '',
       plan_version_id: '',
-      net_terms: 30,
       recipients: [{ name: '', email: '' }],
       // Advanced settings defaults
       activation_condition: 'ON_START',
@@ -255,6 +326,14 @@ export const CreateQuote = () => {
     errors: [] as string[],
   })
   const [customerId, planVersionId] = methods.watch(['customer_id', 'plan_version_id'])
+
+  // Component customizations reference the plan's components, so they don't survive a plan change.
+  // Reset during render so the remounted pricing editor starts from the cleared state.
+  const [pricingPlanVersionId, setPricingPlanVersionId] = useState(planVersionId)
+  if (pricingPlanVersionId !== planVersionId) {
+    setPricingPlanVersionId(planVersionId)
+    setPriceComponentsState(emptyPriceComponentsState())
+  }
 
   const customerQuery = useQuery(
     getCustomerById,
@@ -304,6 +383,9 @@ export const CreateQuote = () => {
     { enabled: Boolean(customerQuery.data?.customer?.invoicingEntityId) }
   )
 
+  const creditUnitsQuery = useQuery(listCreditUnits, { includeArchived: true })
+  const creditUnits = creditUnitsQuery.data?.units
+
   const priceComponentsQuery = useQuery(
     listPriceComponents,
     {
@@ -344,6 +426,21 @@ export const CreateQuote = () => {
   const availableAddOns = addOnsQuery.data?.addOns || []
   const availableCoupons = couponsQuery.data?.coupons || []
 
+  // Display only: unset terms are left to the server, which applies this same default.
+  const planNetTerms = planQuery.data?.plan?.version?.netTerms
+  const netTermsDefault =
+    planCurrency && planNetTerms !== undefined && priceComponentsQuery.data && addOnsQuery.data
+      ? defaultNetTerms(
+          effectiveSubscriptionPrices(
+            priceComponentsQuery.data.components,
+            priceComponentsState.components,
+            selectedAddOns.map(sel => availableAddOns.find(a => a.id === sel.addOnId)?.price),
+            planCurrency
+          ),
+          planNetTerms
+        )
+      : undefined
+
   // Invoicing entity providers query for payment provider check
   const invoicingEntityId = customerQuery.data?.customer?.invoicingEntityId
   const providersQuery = useQuery(
@@ -362,27 +459,29 @@ export const CreateQuote = () => {
     'charge_automatically',
   ])
 
+  const { getValues, setValue } = methods
+
   // Auto-disable chargeAutomatically and reset activationCondition when no online provider
   useEffect(() => {
     if (!isLoadingProviders && !hasOnlinePaymentProvider) {
-      const currentActivation = methods.getValues('activation_condition')
-      const currentCharge = methods.getValues('charge_automatically')
+      const currentActivation = getValues('activation_condition')
+      const currentCharge = getValues('charge_automatically')
 
       if (currentActivation === 'ON_CHECKOUT') {
-        methods.setValue('activation_condition', 'ON_START')
+        setValue('activation_condition', 'ON_START')
       }
       if (currentCharge) {
-        methods.setValue('charge_automatically', false)
+        setValue('charge_automatically', false)
       }
     }
-  }, [hasOnlinePaymentProvider, isLoadingProviders, methods])
+  }, [hasOnlinePaymentProvider, isLoadingProviders, getValues, setValue])
 
   // Auto-set payment methods type to online when OnCheckout is selected
   useEffect(() => {
     if (activationCondition === 'ON_CHECKOUT' && paymentMethodsType !== 'online') {
-      methods.setValue('payment_methods_type', 'online')
+      setValue('payment_methods_type', 'online')
     }
-  }, [activationCondition, paymentMethodsType, methods])
+  }, [activationCondition, paymentMethodsType, setValue])
 
   // Auto-disable chargeAutomatically when Bank or External payment methods selected
   useEffect(() => {
@@ -390,9 +489,9 @@ export const CreateQuote = () => {
       (paymentMethodsType === 'bankTransfer' || paymentMethodsType === 'external') &&
       chargeAutomatically
     ) {
-      methods.setValue('charge_automatically', false)
+      setValue('charge_automatically', false)
     }
-  }, [paymentMethodsType, chargeAutomatically, methods])
+  }, [paymentMethodsType, chargeAutomatically, setValue])
 
   const onSubmit = async (data: CreateQuoteFormData) => {
     try {
@@ -470,12 +569,14 @@ export const CreateQuote = () => {
         chargeAutomatically: data.charge_automatically,
         invoiceMemo: data.invoice_memo,
         createSubscriptionOnAcceptance: data.create_subscription_on_acceptance,
+        customProperties: serializeCustomProperties(data.customProperties),
         attachments: [], // TODO: Add attachment support
         recipients: data.recipients.map(r => ({ name: r.name, email: r.email })),
         components: subscriptionComponents,
         addOns: addOns,
         coupons: coupons,
         entitlements: resolvedEntitlements,
+        minimumCommitmentOverride: minimumOverride,
         usageExamples: (priceComponentsState.components.usageExamples ?? [])
           .filter(e => e.quantity.trim() !== '')
           .map(
@@ -488,14 +589,18 @@ export const CreateQuote = () => {
           ),
       })
 
-      const request = create(CreateQuoteRequestSchema, {
-        quote: createQuoteData,
-      })
-
-      await createQuoteMutation.mutateAsync(request)
+      if (editQuoteId) {
+        await updateQuoteMutation.mutateAsync(
+          create(UpdateQuoteRequestSchema, { id: editQuoteId, quote: createQuoteData })
+        )
+      } else {
+        await createQuoteMutation.mutateAsync(
+          create(CreateQuoteRequestSchema, { quote: createQuoteData })
+        )
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
-      toast.error(`Failed to create quote: ${message}`)
+      toast.error(`Failed to ${isEdit ? 'update' : 'create'} quote: ${message}`)
     }
   }
 
@@ -529,7 +634,7 @@ export const CreateQuote = () => {
       internalNotes: data.internal_notes,
       overview: data.overview,
       termsAndServices: data.terms_and_services,
-      netTerms: data.net_terms,
+      netTerms: data.net_terms ?? netTermsDefault?.netTerms,
       recipients: data.recipients.map(r => ({ name: r.name, email: r.email })),
       createdAt: new Date().toISOString(),
     })
@@ -542,7 +647,7 @@ export const CreateQuote = () => {
         name: addOn.name,
         quantity: sel.quantity ?? 1,
         period: priceToSubscriptionPeriod(addOn.price),
-        fee: priceToSubscriptionFee(addOn.price),
+        fee: priceToSubscriptionFee(addOn.price, { creditUnits }),
       }]
     })
 
@@ -579,8 +684,10 @@ export const CreateQuote = () => {
       quantity: string | undefined,
       feeOptions?: { initialSlotCount?: number }
     ): PricingComponent => {
+      // An example in credits has no money amount to preview.
       if (
         price.pricing.case === 'usagePricing' &&
+        !price.creditUnit &&
         price.pricing.value.model.case &&
         price.pricing.value.model.case !== 'matrix' &&
         quantity &&
@@ -599,7 +706,7 @@ export const CreateQuote = () => {
         id,
         name,
         period: priceToSubscriptionPeriod(price),
-        fee: priceToSubscriptionFee(price, feeOptions),
+        fee: priceToSubscriptionFee(price, { ...feeOptions, creditUnits }),
         exampleUsageQuantity: quantity,
       }
     }
@@ -690,12 +797,9 @@ export const CreateQuote = () => {
             <Button variant="outline" onClick={() => setPreviewMode(false)}>
               Back to Edit
             </Button>
-            <Button
-              onClick={methods.handleSubmit(onSubmit)}
-              disabled={createQuoteMutation.isPending}
-            >
+            <Button onClick={methods.handleSubmit(onSubmit)} disabled={isSaving}>
               <Save className="w-4 h-4 mr-2" />
-              {createQuoteMutation.isPending ? 'Creating...' : 'Create Quote'}
+              {submitLabel}
             </Button>
           </div>
         </div>
@@ -708,8 +812,14 @@ export const CreateQuote = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-semibold">Create Quote</h1>
-          <p className="text-muted-foreground">Build a professional quote for your customer</p>
+          <h1 className="text-2xl font-semibold">{isEdit ? 'Edit Quote' : 'Create Quote'}</h1>
+          <p className="text-muted-foreground">
+            {isEdit
+              ? 'Update this draft quote before publishing it'
+              : template
+                ? `Based on quote ${template.sourceQuoteNumber}`
+                : 'Build a professional quote for your customer'}
+          </p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -727,21 +837,22 @@ export const CreateQuote = () => {
           </Button>
           <Button
             onClick={methods.handleSubmit(onSubmit)}
-            disabled={
-              createQuoteMutation.isPending ||
-              !customerId ||
-              !planVersionId ||
-              !pricingValidation.isValid
-            }
+            disabled={isSaving || !customerId || !planVersionId || !pricingValidation.isValid}
           >
             <Save className="w-4 h-4 mr-2" />
-            {createQuoteMutation.isPending ? 'Creating...' : 'Create Quote'}
+            {submitLabel}
           </Button>
         </div>
       </div>
 
       <Form {...methods}>
         <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-6">
+          {template?.planOutdated && (
+            <Alert variant="warning">
+              The plan of quote {template.sourceQuoteNumber} has a newer version, so its pricing
+              could not be reused. Select a plan to configure pricing.
+            </Alert>
+          )}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Main Form */}
             <div className="lg:col-span-2 space-y-6 pb-4">
@@ -834,6 +945,12 @@ export const CreateQuote = () => {
                     placeholder="Internal notes (not visible to customer)"
                     layout="vertical"
                   />
+
+                  <CustomPropertiesFields
+                    control={methods.control}
+                    entityType={CustomPropertyEntityType.QUOTE}
+                    title={null}
+                  />
                 </CardContent>
               </Card>
 
@@ -848,6 +965,7 @@ export const CreateQuote = () => {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <QuotePriceComponentsWrapper
+                      key={planVersionId}
                       planVersionId={planVersionId}
                       currency={planCurrency}
                       onValidationChange={(isValid, errors) =>
@@ -869,6 +987,43 @@ export const CreateQuote = () => {
                         </ul>
                       </div>
                     )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Contract terms */}
+              {planVersionId &&
+                customerId &&
+                planCurrency &&
+                hasSlot('quoteCreate.minimumCommitment') && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Contract terms</CardTitle>
+                    <CardDescription>
+                      Inherited from the plan by default. Override the minimum for this quote; it
+                      carries onto the subscription on conversion.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Slot
+                      name="quoteCreate.minimumCommitment"
+                      currency={planCurrency}
+                      allowPending
+                      components={scopeOptionsWithPending([
+                        ...(priceComponentsQuery.data?.components ?? []).filter(
+                          c => !priceComponentsState.components.removed.includes(c.id)
+                        ),
+                        ...priceComponentsState.components.extra.map(e => ({
+                          name: e.name,
+                          productId: e.productId,
+                        })),
+                      ])}
+                      planDefault={planQuery.data?.plan?.version?.minimumCommitment}
+                      override={minimumOverride}
+                      dropped={false}
+                      allowDrop={false}
+                      onChange={({ override }) => setMinimumOverride(override)}
+                    />
                   </CardContent>
                 </Card>
               )}
@@ -908,7 +1063,7 @@ export const CreateQuote = () => {
               )}
 
               {/* Entitlements */}
-              {env.entitlementsEnabled && planVersionId && (
+              {env.entitlementsEnabled && planVersionId && !isEdit && (
                 <Card>
                   <CardHeader>
                     <CardTitle>Entitlements</CardTitle>
@@ -1036,8 +1191,9 @@ export const CreateQuote = () => {
                         label="Net Terms"
                         control={methods.control}
                         type="number"
-                        placeholder="30"
-                        description="Payment terms in days"
+                        min={0}
+                        placeholder={netTermsDefault ? String(netTermsDefault.netTerms) : undefined}
+                        description={`Payment terms in days, 0 is due on receipt. Leave empty for the default${netTermsDefault ? `: ${formatDefaultNetTerms(netTermsDefault)}` : ''}`}
                         layout="vertical"
                       />
                     </div>
@@ -1308,10 +1464,10 @@ export const CreateQuote = () => {
                 <Button
                   className="w-full"
                   onClick={methods.handleSubmit(onSubmit)}
-                  disabled={createQuoteMutation.isPending}
+                  disabled={isSaving}
                 >
                   <Save className="w-4 h-4 mr-2" />
-                  {createQuoteMutation.isPending ? 'Creating...' : 'Create Quote'}
+                  {submitLabel}
                 </Button>
               </div>
             </div>

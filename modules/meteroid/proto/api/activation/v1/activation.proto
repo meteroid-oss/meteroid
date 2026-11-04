@@ -1,0 +1,162 @@
+syntax = "proto3";
+
+package meteroid.api.activation.v1;
+
+// A lens over the same milestones, not a property of the plan: a hybrid plan's
+// customer reads under more than one. Unspecified gets the tenant's default.
+enum Template {
+  TEMPLATE_UNSPECIFIED = 0;
+  // Usage-priced, self-serve: land, check out, go live, integrate, get paid.
+  USAGE = 1;
+  // Seat-priced: seats bought becoming seats provisioned.
+  SEATS = 2;
+  // Flat recurring, sales-led: quote to cash.
+  CONTRACT = 3;
+  // Flat recurring, self-serve: trial or checkout straight to a card.
+  SELF_SERVE = 4;
+}
+
+// A first-occurrence milestone a customer reached. Mirrors the store's
+// CustomerMilestoneEnum.
+enum Milestone {
+  MILESTONE_UNSPECIFIED = 0;
+  CUSTOMER_CREATED = 1;
+  QUOTE_CREATED = 2;
+  QUOTE_ACCEPTED = 3;
+  CHECKOUT_COMPLETED = 4;
+  TRIAL_STARTED = 5;
+  SUBSCRIPTION_ACTIVATED = 6;
+  PAYMENT_METHOD_ATTACHED = 7;
+  SEATS_PROVISIONED = 8;
+  FIRST_INVOICE_FINALIZED = 9;
+  FIRST_INVOICE_PAID = 10;
+  FIRST_EVENT_INGESTED = 11;
+}
+
+// Windows the COHORT — i.e. when customers reached the anchor step — not when
+// a later step happened. A customer anchored 6 months ago who converted
+// yesterday belongs to the 6-month-old cohort, never to a 30-day one.
+message Cohort {
+  Template template = 1;
+  // Customers anchored within the last N days; unset = all time.
+  optional uint32 anchored_within_days = 2;
+  // Restrict to a saved segment's members; unset = the whole book.
+  optional string segment_id = 3;
+  // How long each customer gets to reach a step, from their own anchor.
+  // Customers anchored too recently to have run the window out are excluded,
+  // so two readings of the same funnel are comparable. Unset counts a step
+  // whenever it happened, which is not comparable across readings.
+  optional uint32 conversion_window_days = 4;
+}
+
+message FunnelStep {
+  Milestone milestone = 1;
+  // Customers still on track here: they cleared every earlier gating step that
+  // applied to them, so anyone counted here was counted at every step before
+  // it. Never rises from one step to the next.
+  uint64 reached = 2;
+  // Median days from the anchor to this step; unset when nobody reached it.
+  optional double median_days = 3;
+  // Cohort members this step was ever on the path for. Zero means it applied to
+  // nobody here — an invoice-only book has no card step — so the client shows it
+  // as not applicable rather than as a drop to zero.
+  uint64 eligible = 4;
+  // Stopped at this step: they never completed it and got no further. Reported
+  // where the walk stopped, which is always a step that applied to them, so the
+  // band and the bar's fall are the same number.
+  uint64 stalled = 5;
+  // Of those on track, the ones the step applied to and who did it. Equal to
+  // reached where the step applies to the whole cohort.
+  uint64 completed = 6;
+  // Whether missing this step stops the walk. The spine — created, quoted,
+  // subscribed, invoiced, paid — does; setup steps like a stored card gate
+  // nothing, so they never strand a customer who went on to pay.
+  bool blocking = 7;
+}
+
+message GetActivationFunnelRequest {
+  Cohort cohort = 1;
+}
+
+message GetActivationFunnelResponse {
+  // In template order, always the full step list — steps nobody reached come
+  // back with reached = 0 so the funnel shape is stable. Counting is monotonic:
+  // a step counts only for customers who cleared every earlier gating step
+  // that applied to them, so the series never rises.
+  repeated FunnelStep steps = 1;
+  // The lens actually read, so a caller who sent TEMPLATE_UNSPECIFIED can show
+  // which default it got and offer to change it.
+  Template resolved_template = 2;
+}
+
+// What the walk made of one step for one customer.
+enum StepState {
+  STEP_STATE_UNSPECIFIED = 0;
+  // Counted at this step by the funnel.
+  COMPLETED = 1;
+  // Never on their path, so they walked past it.
+  SKIPPED = 2;
+  // On their path and not reached.
+  MISSED = 3;
+  // Reached, but only after missing an earlier step that gates, so the funnel
+  // does not count them here.
+  UNCOUNTED = 4;
+}
+
+message ActivationAccount {
+  string customer_id = 1;
+  string customer_name = 2;
+  string anchored_at = 3;
+  // Was the reached-milestone pair; the per-step arrays below replace it.
+  reserved 4, 5;
+  // One entry per step of the template, in order.
+  repeated StepState states = 6;
+  // Aligned with states; empty where the step was never reached.
+  repeated string occurred_at = 7;
+}
+
+message ListActivationAccountsRequest {
+  Cohort cohort = 1;
+  uint32 limit = 2;
+  uint32 offset = 3;
+}
+
+message ListActivationAccountsResponse {
+  repeated ActivationAccount accounts = 1;
+}
+
+message ActivationCustomer {
+  string customer_id = 1;
+  string customer_name = 2;
+  // When they reached the step being listed.
+  string reached_at = 3;
+  string anchored_at = 4;
+  // Was not_applicable, which the monotonic funnel cannot produce: a customer
+  // listed at a step reached it, so the step applied to them.
+  reserved 5;
+}
+
+message ListActivationCustomersRequest {
+  Cohort cohort = 1;
+  // Index into the template's step list: customers who reached this step.
+  uint32 step_index = 2;
+  // Keep only those who never reached the following step — the drop-off band.
+  // The last step has no band and returns empty.
+  bool stalled_only = 3;
+  uint32 limit = 4;
+}
+
+message ListActivationCustomersResponse {
+  repeated ActivationCustomer customers = 1;
+}
+
+// Customer activation: the first-time, forward-only path from one anchor to
+// the first revenue outcome. Gated on the `activation` entitlement.
+//
+// The three RPCs are three renderings of one cohort: aggregated by step,
+// un-aggregated per account, and the customers standing at a single step.
+service ActivationService {
+  rpc GetActivationFunnel(GetActivationFunnelRequest) returns (GetActivationFunnelResponse) {}
+  rpc ListActivationAccounts(ListActivationAccountsRequest) returns (ListActivationAccountsResponse) {}
+  rpc ListActivationCustomers(ListActivationCustomersRequest) returns (ListActivationCustomersResponse) {}
+}

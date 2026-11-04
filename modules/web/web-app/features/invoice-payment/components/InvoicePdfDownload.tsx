@@ -1,4 +1,3 @@
-import { Button } from '@md/ui'
 import { Download, FileText } from 'lucide-react'
 
 import { env } from '@/lib/env'
@@ -29,38 +28,53 @@ export const InvoicePdfDownload: React.FC<InvoicePdfDownloadProps> = ({
 
   if (compact) {
     return (
-      <Button variant="ghost" size="sm" onClick={handleDownload} className="text-sm">
+      <button
+        type="button"
+        onClick={handleDownload}
+        className="inline-flex items-center text-sm font-medium hover:opacity-80 transition-opacity"
+        style={{ color: 'var(--mtp-text-2)' }}
+      >
         <Download className="h-4 w-4 mr-2" />
         Download PDF
-      </Button>
+      </button>
     )
   }
 
   return (
-    <div className="mt-6 border border-gray-200 rounded-lg p-4">
+    <div
+      className="mt-6 p-4"
+      style={{
+        border: '1px solid var(--mtp-border)',
+        borderRadius: 'var(--mtp-r-ctrl)',
+        background: 'var(--mtp-surface)',
+      }}
+    >
       <div className="flex items-start justify-between">
         <div className="flex items-start">
-          <FileText className="h-5 w-5 text-gray-600 mt-0.5" />
+          <FileText className="h-5 w-5 mt-0.5" style={{ color: 'var(--mtp-text-2)' }} />
           <div className="ml-3">
-            <h4 className="text-sm font-medium text-gray-900">Invoice Document</h4>
-            <p className="mt-1 text-sm text-gray-600">
+            <h4 className="text-sm font-medium" style={{ color: 'var(--mtp-text)' }}>
+              Invoice Document
+            </h4>
+            <p className="mt-1 text-sm" style={{ color: 'var(--mtp-text-2)' }}>
               {invoiceNumber ? `Invoice ${invoiceNumber}` : 'Invoice PDF'}
             </p>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
+        <button
+          type="button"
           onClick={handleDownload}
+          className="inline-flex items-center shrink-0 text-sm font-medium px-3 py-1.5 transition-opacity hover:opacity-80"
           style={{
-            background: 'var(--mtp-surface)',
+            border: '1px solid var(--mtp-border-2)',
+            borderRadius: 'var(--mtp-r-sm)',
             color: 'var(--mtp-text)',
-            borderColor: 'var(--mtp-border)',
+            background: 'var(--mtp-surface-2)',
           }}
         >
           <Download className="h-4 w-4 mr-2" />
           Download
-        </Button>
+        </button>
       </div>
     </div>
   )

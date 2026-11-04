@@ -1,0 +1,1 @@
+DROP TABLE organization_sso_connection;

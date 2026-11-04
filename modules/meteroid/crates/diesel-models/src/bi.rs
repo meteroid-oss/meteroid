@@ -1,49 +1,16 @@
 use chrono::NaiveDate;
 use chrono::NaiveDateTime;
-use rust_decimal::Decimal;
 use uuid::Uuid;
 
 use super::enums::MrrMovementType;
-use common_domain::ids::{CustomerId, InvoiceId, PlanVersionId, TenantId};
+use common_domain::ids::{CustomerId, InvoiceId, PlanVersionId, SubscriptionId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable};
 
-#[derive(Queryable, Debug, Identifiable, Insertable)]
-#[diesel(table_name = crate::schema::bi_customer_ytd_summary, primary_key(tenant_id, customer_id, currency, revenue_year))]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct BiCustomerYtdSummaryRow {
-    pub tenant_id: TenantId,
-    pub customer_id: CustomerId,
-    pub revenue_year: i32,
-    pub currency: String,
-    pub total_revenue_cents: i64,
-}
-
-#[derive(Queryable, Debug, Identifiable, Insertable)]
-#[diesel(table_name = crate::schema::bi_delta_mrr_daily, primary_key(tenant_id, plan_version_id, currency, date))]
-pub struct BiDeltaMrrDailyRow {
-    pub tenant_id: TenantId,
-    pub plan_version_id: PlanVersionId,
-    pub date: NaiveDate,
-    pub currency: String,
-    pub net_mrr_cents: i64,
-    pub new_business_cents: i64,
-    pub new_business_count: i32,
-    pub expansion_cents: i64,
-    pub expansion_count: i32,
-    pub contraction_cents: i64,
-    pub contraction_count: i32,
-    pub churn_cents: i64,
-    pub churn_count: i32,
-    pub reactivation_cents: i64,
-    pub reactivation_count: i32,
-    pub historical_rate_id: Uuid,
-    pub net_mrr_cents_usd: Decimal,
-    pub new_business_cents_usd: Decimal,
-    pub expansion_cents_usd: Decimal,
-    pub contraction_cents_usd: Decimal,
-    pub churn_cents_usd: Decimal,
-    pub reactivation_cents_usd: Decimal,
-}
+// The MRR movement log: the transactional record of every MRR change, written
+// with billing events and projected into ClickHouse `fact_mrr_movement` by the
+// analytics projector. The former Postgres rollups over it (bi_delta_mrr_daily,
+// bi_revenue_daily, bi_customer_ytd_summary) are gone — the analytics plane
+// serves every aggregate read.
 
 #[derive(Queryable, Debug, Identifiable)]
 #[diesel(table_name = crate::schema::bi_mrr_movement_log)]
@@ -55,10 +22,12 @@ pub struct BiMrrMovementLogRow {
     pub currency: String,
     pub created_at: NaiveDateTime,
     pub applies_to: NaiveDate,
-    pub invoice_id: InvoiceId,
+    pub invoice_id: Option<InvoiceId>,
     pub credit_note_id: Option<Uuid>,
     pub plan_version_id: PlanVersionId,
     pub tenant_id: TenantId,
+    pub subscription_id: SubscriptionId,
+    pub customer_id: CustomerId,
 }
 
 #[derive(Insertable, Debug, Clone)]
@@ -70,22 +39,10 @@ pub struct BiMrrMovementLogRowNew {
     pub net_mrr_change: i64,
     pub currency: String,
     pub applies_to: NaiveDate,
-    pub invoice_id: InvoiceId,
+    pub invoice_id: Option<InvoiceId>,
     pub credit_note_id: Option<Uuid>,
     pub plan_version_id: PlanVersionId,
     pub tenant_id: TenantId,
-}
-
-#[derive(Queryable, Debug, Identifiable, Insertable)]
-#[diesel(table_name = crate::schema::bi_revenue_daily)]
-#[diesel(primary_key(tenant_id, plan_version_id, currency, revenue_date))]
-pub struct BiRevenueDailyRow {
-    pub tenant_id: TenantId,
-    pub plan_version_id: Option<Uuid>,
-    pub currency: String,
-    pub revenue_date: NaiveDate,
-    pub net_revenue_cents: i64,
-    pub historical_rate_id: Uuid,
-    pub net_revenue_cents_usd: Decimal,
-    pub id: Uuid,
+    pub subscription_id: SubscriptionId,
+    pub customer_id: CustomerId,
 }

@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
         - name: {{ .Chart.Name }}-web
-          image: "{{ .Values.web.image.repository }}:{{ .Values.web.image.tag }}"
+          image: "{{ .Values.web.image.repository }}:{{ .Values.web.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.web.image.pullPolicy }}
           ports:
             - name: http
@@ -29,6 +29,14 @@ spec:
               value: {{ .Values.global.publicApiUrl }}
             - name: VITE_METEROID_REST_API_EXTERNAL_URL
               value: {{ .Values.global.publicRestApiUrl }}
+            {{- with dig "config" "openReplay" "projectKey" "" .Values.web }}
+            - name: VITE_PUBLIC_OPENREPLAY_PROJECT_KEY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with dig "config" "openReplay" "ingestPoint" "" .Values.web }}
+            - name: VITE_PUBLIC_OPENREPLAY_INGEST_POINT
+              value: {{ . | quote }}
+            {{- end }}
             {{- with .Values.web.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

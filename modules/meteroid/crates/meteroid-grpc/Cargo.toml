@@ -15,6 +15,7 @@ common-grpc = { workspace = true }
 error-stack.workspace = true
 thiserror.workspace = true
 pbjson = "0.9.0"
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
 
 
 [build-dependencies]
@@ -33,4 +34,7 @@ needless_lifetimes = "allow"
 
 [package.metadata.cargo-machete]
 # all used in protobuf generated code which machete cannot analyze
+ignored = ["common-grpc", "error-stack", "pbjson", "prost", "prost-types", "serde", "thiserror", "tonic-prost"]
+
+[package.metadata.cargo-shear]
 ignored = ["common-grpc", "error-stack", "pbjson", "prost", "prost-types", "serde", "thiserror", "tonic-prost"]

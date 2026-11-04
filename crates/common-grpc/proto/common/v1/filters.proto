@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package meteroid.common.v1;
+
+// Operators a Filter can apply. The set of operators valid for a given field is
+// constrained server-side by the field's type (see the store operator matrix).
+enum FilterOperator {
+  FILTER_OPERATOR_UNSPECIFIED = 0;
+  EQUALS = 1;
+  NOT_EQUALS = 2;
+  IN = 3;
+  CONTAINS = 4;
+  GT = 5;
+  GTE = 6;
+  LT = 7;
+  LTE = 8;
+  BETWEEN = 9;
+  IS_SET = 10;
+  IS_EMPTY = 11;
+  IS_TRUE = 12;
+  IS_FALSE = 13;
+  BEFORE = 14;
+  AFTER = 15;
+}
+
+// A single predicate over an entity list. `field` is either a native column id
+// (e.g. "country", "status") or a custom property, prefixed "cp:" (e.g. "cp:region").
+// Values are always strings on the wire and coerced server-side against the field's type.
+message Filter {
+  string field = 1;
+  FilterOperator op = 2;
+  repeated string values = 3;
+}

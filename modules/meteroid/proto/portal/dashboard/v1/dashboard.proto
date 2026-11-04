@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package meteroid.portal.dashboard.v1;
+
+import "portal/dashboard/v1/models.proto";
+
+message GetPublicDashboardRequest {
+  // Viewer-selected dashboard range (a relative key like "7d"/"12m"/"ytd"). When
+  // absent the dashboard's own default range applies. Per-tile overrides always win.
+  optional string range = 1;
+}
+
+message GetPublicDashboardResponse {
+  PublicDashboard dashboard = 1;
+}
+
+// Anonymous, token-scoped access to a published dashboard. The token (a portal
+// JWT carrying the shared saved-view id) travels in the x-portal-token header.
+service PortalDashboardService {
+  rpc GetPublicDashboard(GetPublicDashboardRequest) returns (GetPublicDashboardResponse) {}
+}

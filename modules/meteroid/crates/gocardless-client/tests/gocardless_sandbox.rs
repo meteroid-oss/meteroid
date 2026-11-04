@@ -79,7 +79,7 @@ async fn raw_post(
     body: serde_json::Value,
     token: &str,
 ) -> (u16, serde_json::Value) {
-    let resp = reqwest::Client::new()
+    let resp = http_client_tracing::client()
         .post(format!("{base}{path}"))
         .header("GoCardless-Version", "2015-07-06")
         .header("Content-Type", "application/json")

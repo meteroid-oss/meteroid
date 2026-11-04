@@ -18,6 +18,7 @@ use crate::harness::{InvoicesAssertExt, TestEnv, subscription, test_env};
 use meteroid_store::domain::CreateCheckoutSession;
 use meteroid_store::domain::PaymentStatusEnum;
 use meteroid_store::domain::checkout_sessions::{CheckoutCompletionResult, CheckoutType};
+use meteroid_store::domain::connectors::MockChargeBehavior;
 use meteroid_store::domain::outbox_event::PaymentTransactionEvent;
 use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
@@ -51,7 +52,8 @@ async fn test_selfserve_double_completion_charges_once(#[future] test_env: TestE
 
     // Async provider: the charge is accepted but settles later, so the session
     // lands in AwaitingPayment (the state can_complete() allows re-entry from).
-    env.set_mock_charge_behavior("pending").await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Pending)
+        .await;
 
     let session = env
         .store()
@@ -79,6 +81,8 @@ async fn test_selfserve_double_completion_charges_once(#[future] test_env: TestE
             checkout_type: CheckoutType::SelfServe,
             subscription_id: None,
             change_date: None,
+            success_url: None,
+            cancel_url: None,
         })
         .await
         .expect("create checkout session");
@@ -98,6 +102,9 @@ async fn test_selfserve_double_completion_charges_once(#[future] test_env: TestE
         .expect("first completion");
 
     let tx1 = match first {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::AwaitingPayment { transaction, .. } => {
             assert_eq!(transaction.status, PaymentStatusEnum::Pending);
             transaction
@@ -130,6 +137,9 @@ async fn test_selfserve_double_completion_charges_once(#[future] test_env: TestE
         .expect("second completion is idempotent, not an error");
 
     let tx2 = match second {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::AwaitingPayment { transaction, .. } => transaction,
         CheckoutCompletionResult::Completed { .. } => {
             panic!("re-completion must not activate/complete a still-pending checkout")
@@ -244,7 +254,8 @@ async fn test_activation_double_completion_charges_once(#[future] test_env: Test
 
     // Async provider: the activation charge is accepted but settles later, so
     // the session lands in AwaitingPayment.
-    env.set_mock_charge_behavior("pending").await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Pending)
+        .await;
 
     // An OnCheckout subscription auto-creates a SubscriptionActivation session.
     let sub_id = subscription()
@@ -277,6 +288,9 @@ async fn test_activation_double_completion_charges_once(#[future] test_env: Test
         .expect("first activation completion");
 
     let tx1 = match first {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::AwaitingPayment { transaction, .. } => {
             assert_eq!(transaction.status, PaymentStatusEnum::Pending);
             transaction
@@ -308,6 +322,9 @@ async fn test_activation_double_completion_charges_once(#[future] test_env: Test
         .expect("second activation completion is idempotent, not an error");
 
     let tx2 = match second {
+        CheckoutCompletionResult::TopUpCompleted { .. } => {
+            panic!("subscription checkout returned a top-up")
+        }
         CheckoutCompletionResult::AwaitingPayment { transaction, .. } => transaction,
         CheckoutCompletionResult::Completed { .. } => {
             panic!("re-completion must not activate a still-pending checkout")
@@ -345,7 +362,8 @@ async fn test_reconcile_pending_is_a_safe_noop(#[future] test_env: TestEnv) {
 
     // Async charge: the resulting Pending transaction carries a provider id
     // (backfilled at charge time), making it eligible for the reconcile sweep.
-    env.set_mock_charge_behavior("pending").await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Pending)
+        .await;
 
     let sub_id = subscription()
         .plan_version(PLAN_VERSION_1_LEETCODE_ID)
@@ -393,5 +411,230 @@ async fn test_reconcile_pending_is_a_safe_noop(#[future] test_env: TestEnv) {
         after.status,
         PaymentStatusEnum::Pending,
         "reconcile must leave a still-processing transaction Pending, not cancel it"
+    );
+}
+
+fn self_serve_session(tenant_customer: common_domain::ids::CustomerId) -> CreateCheckoutSession {
+    CreateCheckoutSession {
+        tenant_id: TENANT_ID,
+        customer_id: tenant_customer,
+        plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
+        billing_start_date: Some(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap()),
+        billing_day_anchor: Some(1),
+        net_terms: None,
+        trial_duration_days: None,
+        end_date: None,
+        auto_advance_invoices: true,
+        charge_automatically: true,
+        invoice_memo: None,
+        invoice_threshold: None,
+        purchase_order: None,
+        payment_methods_config: None,
+        components: None,
+        add_ons: None,
+        coupon_code: None,
+        coupon_ids: vec![],
+        expires_in_hours: Some(24),
+        metadata: None,
+        checkout_type: CheckoutType::SelfServe,
+        subscription_id: None,
+        change_date: None,
+        success_url: None,
+        cancel_url: None,
+    }
+}
+
+async fn session_transactions(
+    env: &TestEnv,
+    session_id: CheckoutSessionId,
+) -> Vec<diesel_models::payments::PaymentTransactionRow> {
+    use diesel::prelude::*;
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::payment_transaction::dsl as pt;
+
+    let mut conn = env.conn().await;
+    pt::payment_transaction
+        .filter(pt::checkout_session_id.eq(session_id))
+        .filter(pt::tenant_id.eq(TENANT_ID))
+        .select(diesel_models::payments::PaymentTransactionRow::as_select())
+        .load(&mut conn)
+        .await
+        .expect("load session transactions")
+}
+
+/// The provider settled the charge (webhook) but the session is not fulfilled yet: a re-click
+/// must return the settled charge, not issue a second one.
+#[rstest]
+#[tokio::test]
+async fn test_recompletion_after_settlement_before_fulfillment_charges_once(
+    #[future] test_env: TestEnv,
+) {
+    use diesel::prelude::*;
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::payment_transaction::dsl as pt;
+
+    let env = test_env.await;
+    env.seed_payments().await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Pending)
+        .await;
+
+    let session = env
+        .store()
+        .create_checkout_session(self_serve_session(CUST_UBER_ID))
+        .await
+        .expect("create checkout session");
+
+    let complete = || {
+        env.services().complete_checkout(
+            TENANT_ID,
+            session.id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            3500,
+            "EUR".to_string(),
+            None,
+        )
+    };
+
+    let CheckoutCompletionResult::AwaitingPayment { transaction, .. } =
+        complete().await.expect("first completion")
+    else {
+        panic!("async charge should leave the checkout AwaitingPayment")
+    };
+
+    // Settled at the provider, fulfillment (the outbox resolve) not run yet.
+    let mut conn = env.conn().await;
+    diesel::update(pt::payment_transaction.filter(pt::id.eq(transaction.id)))
+        .set(pt::status.eq(diesel_models::enums::PaymentStatusEnum::Settled))
+        .execute(&mut conn)
+        .await
+        .expect("settle transaction");
+    drop(conn);
+
+    let CheckoutCompletionResult::AwaitingPayment {
+        transaction: again, ..
+    } = complete().await.expect("re-completion is idempotent")
+    else {
+        panic!("re-completion must not charge again while the settled charge awaits fulfillment")
+    };
+    assert_eq!(again.id, transaction.id);
+    assert_eq!(count_txs_for_session(&env, session.id).await, 1);
+}
+
+/// A plan-change charge that settles asynchronously is linked to its checkout session, so a
+/// re-click is fenced instead of creating a second adjustment invoice and charge.
+#[rstest]
+#[tokio::test]
+async fn test_plan_change_pending_recompletion_charges_once(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_TRIAL_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_checkout()
+        .trial_days(7)
+        .auto_charge()
+        .create(env.services())
+        .await;
+
+    let mut conn = env.conn().await;
+    env.services()
+        .complete_subscription_checkout_tx(
+            &mut conn,
+            TENANT_ID,
+            sub_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            9900,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("initial checkout");
+    drop(conn);
+
+    env.set_mock_charge_behavior(MockChargeBehavior::Pending)
+        .await;
+
+    let sub = env.get_subscription(sub_id).await;
+    let session = env
+        .services()
+        .create_plan_change_checkout_session(
+            TENANT_ID,
+            sub_id,
+            PLAN_VERSION_PRO_ID,
+            sub.customer_id,
+            None,
+            NaiveDate::from_ymd_opt(2024, 1, 16).unwrap(),
+        )
+        .await
+        .expect("create plan change session");
+
+    let complete = || {
+        env.services().complete_checkout(
+            TENANT_ID,
+            session.id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            1290,
+            "EUR".to_string(),
+            None,
+        )
+    };
+
+    let CheckoutCompletionResult::AwaitingPayment { transaction, .. } =
+        complete().await.expect("first completion")
+    else {
+        panic!("async charge should leave the plan change AwaitingPayment")
+    };
+    let CheckoutCompletionResult::AwaitingPayment {
+        transaction: again, ..
+    } = complete().await.expect("re-completion is idempotent")
+    else {
+        panic!("re-completion must not complete a pending plan change")
+    };
+
+    assert_eq!(again.id, transaction.id);
+    assert_eq!(count_txs_for_session(&env, session.id).await, 1);
+    // The adjustment invoice is created when the charge settles, not before.
+    env.get_invoices(sub_id).await.assert().has_count(1);
+}
+
+/// A cancelled checkout charge is recorded (as a declined one is), so the attempt is visible
+/// and a retry starts from a clean, released session.
+#[rstest]
+#[tokio::test]
+async fn test_cancelled_checkout_charge_is_recorded(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Cancelled)
+        .await;
+
+    let session = env
+        .store()
+        .create_checkout_session(self_serve_session(CUST_UBER_ID))
+        .await
+        .expect("create checkout session");
+
+    let err = env
+        .services()
+        .complete_checkout(
+            TENANT_ID,
+            session.id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            3500,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect_err("a cancelled charge does not complete the checkout");
+    assert!(matches!(
+        err.current_context(),
+        meteroid_store::errors::StoreError::PaymentError(_)
+    ));
+
+    let txs = session_transactions(&env, session.id).await;
+    assert_eq!(txs.len(), 1);
+    assert_eq!(
+        txs[0].status,
+        diesel_models::enums::PaymentStatusEnum::Cancelled
     );
 }

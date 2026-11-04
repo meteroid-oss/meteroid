@@ -4,6 +4,11 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { InheritedIcon } from '@/features/entitlements/InheritedIcon'
+import {
+  LimitTermsBadges,
+  termsOfSpec,
+  termsOfValue,
+} from '@/features/entitlements/LimitTermsBadges'
 import { entitlementTooltip } from '@/features/entitlements/entitlementTooltips'
 import { useResolvedEntitlementsForEntity } from '@/features/entitlements/resolved/useResolvedEntitlements'
 import { formatResolvedValue } from '@/features/entitlements/utils'
@@ -148,6 +153,9 @@ export function ProductEntitlementsCreationStep({
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="font-medium truncate">{r.feature?.name ?? featureId}</span>
                     {!isPinned && <InheritedIcon tooltip="Inherited from product" />}
+                    <LimitTermsBadges
+                      terms={isPinned ? termsOfSpec(pinnedSpec) : termsOfValue(r.value)}
+                    />
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0 ml-3">
                     <span>{isPinned ? specValueLabel(pinnedSpec) : formatResolvedValue(r.value)}</span>

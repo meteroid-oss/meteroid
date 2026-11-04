@@ -12,8 +12,15 @@ export const editPlanSchema = z.object({
   planName: z.string().nonempty('Name is required').max(256),
   description: z.string().max(2048).optional(),
   netTerms: z.number().int(),
+  taxInclusive: z.boolean(),
   selfServiceRank: z.number().int().positive().optional().or(z.literal(0)),
+  creditRule: z.enum(['INVOICE', 'PAUSE', 'INVOICE_UP_TO']),
+  // Major units by denomination code, with `creditRule` INVOICE_UP_TO.
+  creditCaps: z.record(z.string(), z.string()).default({}),
+  issuesLicense: z.boolean(),
 })
+
+export type EditPlanSchema = z.infer<typeof editPlanSchema>
 
 const isValidNumber = (str: string) => {
   return !isNaN(parseFloat(str)) && isFinite(parseFloat(str))

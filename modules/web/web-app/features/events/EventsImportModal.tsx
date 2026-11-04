@@ -90,9 +90,10 @@ export const EventsImportModal: FunctionComponent<EventsImportModalProps> = ({
       duplicateDetected={duplicateDetected}
       entityName="events"
       dialogTitle="Import Events from CSV"
-      dialogDescription="Import usage events from a CSV file. All imports must include headers."
+      dialogDescription="Import usage events from a CSV file. All imports must include headers; lines starting with # are ignored."
       dialogIcon={<FileSpreadsheetIcon className="h-5 w-5" />}
       rowSchema={eventsRowSchema}
+      commentChar="#"
       requiredColumns={[
         { name: 'event_code' },
         {

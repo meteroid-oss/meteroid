@@ -25,6 +25,20 @@ pub struct PaymentIntentRequest {
     pub payment_method_types: Vec<StripePaymentMethodType>,
 }
 
+/// Confirms an intent created unconfirmed, for payments whose identity must be durable first.
+#[skip_serializing_none]
+#[derive(Debug, Serialize)]
+pub struct ConfirmPaymentIntentRequest {
+    pub off_session: Option<bool>,
+    /// Lets an on-session confirmation hand its authentication step to Stripe.js.
+    pub use_stripe_sdk: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CancelPaymentIntentRequest {
+    pub cancellation_reason: String,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct StripePaymentIntent {
     pub id: String,
@@ -51,6 +65,7 @@ pub struct StripePaymentIntent {
 pub struct StripePaymentError {
     pub code: Option<String>,
     pub decline_code: Option<String>,
+    pub advice_code: Option<String>,
     pub message: Option<String>,
     pub error_type: Option<String>,
 }
@@ -79,6 +94,7 @@ impl<'de> Deserialize<'de> for StripePaymentError {
             Object {
                 code: Option<String>,
                 decline_code: Option<String>,
+                advice_code: Option<String>,
                 message: Option<String>,
                 #[serde(rename = "type")]
                 error_type: Option<String>,
@@ -93,11 +109,13 @@ impl<'de> Deserialize<'de> for StripePaymentError {
             Raw::Object {
                 code,
                 decline_code,
+                advice_code,
                 message,
                 error_type,
             } => StripePaymentError {
                 code,
                 decline_code,
+                advice_code,
                 message,
                 error_type,
             },
@@ -164,6 +182,22 @@ pub trait PaymentIntentApi {
         id: &str,
         secret_key: &SecretString,
     ) -> Result<StripePaymentIntent, StripeError>;
+
+    async fn confirm_payment_intent(
+        &self,
+        id: &str,
+        params: ConfirmPaymentIntentRequest,
+        secret_key: &SecretString,
+        idempotency_key: String,
+    ) -> Result<StripePaymentIntent, StripeError>;
+
+    async fn cancel_payment_intent(
+        &self,
+        id: &str,
+        params: CancelPaymentIntentRequest,
+        secret_key: &SecretString,
+        idempotency_key: String,
+    ) -> Result<StripePaymentIntent, StripeError>;
 }
 
 #[async_trait::async_trait]
@@ -192,6 +226,40 @@ impl PaymentIntentApi for StripeClient {
         self.get(
             &format!("/payment_intents/{id}"),
             secret_key,
+            RetryStrategy::default(),
+        )
+        .await
+    }
+
+    async fn confirm_payment_intent(
+        &self,
+        id: &str,
+        params: ConfirmPaymentIntentRequest,
+        secret_key: &SecretString,
+        idempotency_key: String,
+    ) -> Result<StripePaymentIntent, StripeError> {
+        self.post_form(
+            &format!("/payment_intents/{id}/confirm"),
+            params,
+            secret_key,
+            idempotency_key,
+            RetryStrategy::default(),
+        )
+        .await
+    }
+
+    async fn cancel_payment_intent(
+        &self,
+        id: &str,
+        params: CancelPaymentIntentRequest,
+        secret_key: &SecretString,
+        idempotency_key: String,
+    ) -> Result<StripePaymentIntent, StripeError> {
+        self.post_form(
+            &format!("/payment_intents/{id}/cancel"),
+            params,
+            secret_key,
+            idempotency_key,
             RetryStrategy::default(),
         )
         .await

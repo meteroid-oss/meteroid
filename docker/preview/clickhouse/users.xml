@@ -1,0 +1,9 @@
+<clickhouse>
+  <!-- named_collection_control lets the analytics migration run
+       CREATE NAMED COLLECTION (per-user flag that must live in users.d). -->
+  <users>
+    <default>
+      <named_collection_control>1</named_collection_control>
+    </default>
+  </users>
+</clickhouse>

@@ -1,26 +1,31 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { CheckboxFormField, DialogDescription, DialogTitle, Form, Modal } from '@md/ui'
+import {
+  CheckboxFormField, DialogDescription,
+  DialogTitle, Form,
+  Modal,
+} from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { Edit2Icon } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect } from "react";
 import { useParams } from 'react-router'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import { Loading } from '@/components/Loading'
-import { hubspotIntegrationSchema } from '@/features/settings/integrations/schemas'
+import { Loading } from "@/components/Loading";
+import { hubspotIntegrationSchema } from "@/features/settings/integrations/schemas";
 import { useDismissRouteModal } from '@/hooks/useDismissRouteModal'
-import { useZodForm } from '@/hooks/useZodForm'
-import { useQuery } from '@/lib/connectrpc'
+import { useZodForm } from "@/hooks/useZodForm";
+import { useQuery } from "@/lib/connectrpc";
 import {
   listConnectors,
   updateHubspotConnector,
 } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 
+
 export const EditHubspotIntegrationModal = () => {
   const closeModal = useDismissRouteModal()
 
-  const { connectionId } = useParams()
+  const { connectionId } = useParams();
 
   const connectorsQuery = useQuery(listConnectors, {})
 
@@ -28,7 +33,7 @@ export const EditHubspotIntegrationModal = () => {
     mode: 'onChange',
     schema: hubspotIntegrationSchema,
     defaultValues: {
-      autoSync: false,
+      autoSync: false
     },
   })
 
@@ -48,15 +53,13 @@ export const EditHubspotIntegrationModal = () => {
       queryClient.invalidateQueries({
         queryKey: createConnectQueryKey({
           schema: listConnectors,
-          cardinality: 'finite',
+          cardinality: 'finite'
         }),
       })
       toast.success('Connection updated!')
     },
-    onError: error => {
-      toast.error(
-        `Connection update failure. ${error instanceof Error ? error.message : 'Unknown error'}`
-      )
+    onError: (error) => {
+      toast.error(`Connection update failure. ${error instanceof Error ? error.message : 'Unknown error'}`)
     },
   })
 
@@ -69,7 +72,7 @@ export const EditHubspotIntegrationModal = () => {
   }
 
   if (!connection) {
-    return <Loading />
+    return <Loading/>
   }
 
   return (
@@ -77,10 +80,10 @@ export const EditHubspotIntegrationModal = () => {
       header={
         <>
           <DialogTitle className="flex items-center gap-2 text-md">
-            <Edit2Icon className="w-6 h-6 text-blue" />
+            <Edit2Icon className="w-6 h-6 text-blue"/>
             <span>Edit Hubspot Integration</span>
           </DialogTitle>
-          <DialogDescription />
+          <DialogDescription/>
         </>
       }
       visible={true}
@@ -93,9 +96,9 @@ export const EditHubspotIntegrationModal = () => {
           <form autoComplete="off">
             <div className="space-y-6">
               <CheckboxFormField
-                label="Auto-sync new data between Meteroid and Hubspot"
+                label='Auto-sync new data between Meteroid and Hubspot'
                 control={methods.control}
-                name="autoSync"
+                name='autoSync'
               />
             </div>
           </form>

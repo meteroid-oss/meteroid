@@ -257,6 +257,24 @@ pub enum SubscriptionFee {
         rate: rust_decimal::Decimal,
         quantity: u32,
     },
+    /// A credit pack: charged like an advance fee (`rate` × `quantity`), it funds
+    /// `credit_amount` × `quantity` of invoice credit once paid. See `FeeType::Credit`.
+    Credit {
+        rate: rust_decimal::Decimal,
+        quantity: u32,
+        credit_amount: rust_decimal::Decimal,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expiry: Option<crate::domain::price_components::CreditExpiry>,
+        /// The unit `credit_amount` is in; absent is the subscription currency.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        credit_unit: Option<crate::domain::credit_units::CreditUnitRef>,
+        /// Only on included credit (zero price).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rollover: Option<crate::domain::price_components::CreditRollover>,
+        /// Billed on one invoice only; see `process_fee_records`.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        once: bool,
+    },
     Recurring {
         rate: rust_decimal::Decimal,
         quantity: u32,
@@ -267,6 +285,9 @@ pub enum SubscriptionFee {
         included: u64,
         overage_rate: rust_decimal::Decimal,
         metric_id: BillableMetricId,
+        /// Set when `overage_rate` is in credits.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        credit_unit: Option<crate::domain::credit_units::FeeCreditUnit>,
     },
     Slot {
         unit: String,
@@ -279,12 +300,38 @@ pub enum SubscriptionFee {
     Usage {
         metric_id: BillableMetricId,
         model: UsagePricingModel,
+        /// Set when `model` amounts are in credits.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        credit_unit: Option<crate::domain::credit_units::FeeCreditUnit>,
     },
 }
 
 json_value_serde!(SubscriptionFee);
 
 impl SubscriptionFee {
+    /// Whether the fee sells credit for a price, as opposed to including it at no charge.
+    pub fn sells_credit(&self) -> bool {
+        matches!(self, SubscriptionFee::Credit { rate, .. } if *rate > rust_decimal::Decimal::ZERO)
+    }
+
+    /// Marks the fee's usage amounts as credits of `unit`: all of a usage fee, the overage of a
+    /// capacity fee. Refused on any other fee.
+    pub fn price_in_credit_unit(
+        &mut self,
+        unit: crate::domain::credit_units::FeeCreditUnit,
+    ) -> Result<(), crate::errors::StoreError> {
+        match self {
+            SubscriptionFee::Usage { credit_unit, .. }
+            | SubscriptionFee::Capacity { credit_unit, .. } => {
+                *credit_unit = Some(unit);
+                Ok(())
+            }
+            _ => Err(crate::errors::StoreError::InvalidArgument(
+                "only usage and capacity overage can be priced in a credit unit".to_owned(),
+            )),
+        }
+    }
+
     /// Apply subscription-level parameters to an already-resolved fee.
     /// Used when an override provides the pricing and a parameterization provides
     /// runtime values like initial_slot_count.
@@ -296,11 +343,39 @@ impl SubscriptionFee {
         }
     }
 
+    /// Re-deriving a fee from its price loses the seat count, which only the snapshot recorded.
+    pub fn keep_slots_from(&mut self, snapshot: &SubscriptionFee) {
+        if let (
+            SubscriptionFee::Slot { initial_slots, .. },
+            SubscriptionFee::Slot {
+                initial_slots: recorded,
+                ..
+            },
+        ) = (self, snapshot)
+        {
+            *initial_slots = *recorded;
+        }
+    }
+
     pub fn metric_id(&self) -> Option<BillableMetricId> {
         match self {
             SubscriptionFee::Usage { metric_id, .. } => Some(*metric_id),
             SubscriptionFee::Capacity { metric_id, .. } => Some(*metric_id),
             _ => None,
+        }
+    }
+
+    /// Revenue taxonomy for analytics. Capacity bills a recurring base plus metered
+    /// overage; it carries a metric so it classifies as usage, matching the
+    /// projector's metric-driven usage recognition.
+    pub fn charge_type(&self) -> crate::domain::ChargeType {
+        use crate::domain::ChargeType;
+        match self {
+            SubscriptionFee::Usage { .. } | SubscriptionFee::Capacity { .. } => ChargeType::Usage,
+            SubscriptionFee::OneTime { .. } | SubscriptionFee::Credit { .. } => ChargeType::OneTime,
+            SubscriptionFee::Rate { .. }
+            | SubscriptionFee::Recurring { .. }
+            | SubscriptionFee::Slot { .. } => ChargeType::Recurring,
         }
     }
 
@@ -313,6 +388,7 @@ impl SubscriptionFee {
             | SubscriptionFee::Slot { .. }
             | SubscriptionFee::Capacity { .. } => true,
             SubscriptionFee::OneTime { .. }
+            | SubscriptionFee::Credit { .. }
             | SubscriptionFee::Recurring { .. }
             | SubscriptionFee::Usage { .. } => false,
         }
@@ -326,6 +402,9 @@ impl SubscriptionFee {
         match self {
             SubscriptionFee::Rate { rate } => *rate > Decimal::ZERO,
             SubscriptionFee::OneTime { rate, quantity } => *rate > Decimal::ZERO && *quantity > 0,
+            SubscriptionFee::Credit { rate, quantity, .. } => {
+                *rate > Decimal::ZERO && *quantity > 0
+            }
             SubscriptionFee::Recurring {
                 rate,
                 quantity,

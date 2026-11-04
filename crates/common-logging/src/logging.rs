@@ -20,10 +20,23 @@ where
     )
 }
 
+/// Demotes known-noisy third-party targets, e.g. the per-request
+/// "can not set parent trace_id to span error=SpanDisabled" warning emitted
+/// by axum-tracing-opentelemetry when otel tracing is disabled or sampled out.
+pub(crate) fn quiet_noisy_targets(filter: EnvFilter) -> EnvFilter {
+    filter.add_directive(
+        "axum_tracing_opentelemetry=error"
+            .parse()
+            .expect("invalid log directive"),
+    )
+}
+
 pub fn init_regular_logging() {
-    let filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy();
+    let filter = quiet_noisy_targets(
+        EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .from_env_lossy(),
+    );
 
     tracing_subscriber::registry()
         .with(formatting_layer())

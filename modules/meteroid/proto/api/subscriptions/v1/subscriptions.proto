@@ -5,9 +5,13 @@ package meteroid.api.subscriptions.v1;
 
 import "api/subscriptions/v1/models.proto";
 import "api/invoices/v1/models.proto";
+import "api/plans/v1/models.proto";
 import "api/shared/v1/shared.proto";
 import "api/pricecomponents/v1/models.proto";
 import "common/v1/pagination.proto";
+import "common/v1/filters.proto";
+import "api/billablemetrics/v1/models.proto";
+import "api/wallets/v1/models.proto";
 
 message CreateSubscriptionsRequest {
   repeated CreateSubscription subscriptions = 1;
@@ -33,15 +37,24 @@ message GetSubscriptionDetailsResponse {
   SubscriptionDetails subscription = 1;
 }
 
-// Read-only preview of the first invoice a CreateSubscription request would produce.
-// Reuses the exact CreateSubscription payload so the wizard summary matches what
-// creation will bill.
+// Read-only preview of the first invoice a CreateSubscription request would produce,
+// including the minimum-commitment floor. Reuses the exact CreateSubscription payload
+// so the wizard summary matches what creation will bill.
 message PreviewCreateSubscriptionRequest {
   CreateSubscription subscription = 1;
 }
 
 message PreviewCreateSubscriptionResponse {
   UpcomingInvoice invoice = 1;
+  // The customer's subscriptions that would bill the same events: neither has a usage filter
+  // and they share metrics over overlapping lives.
+  repeated UnfilteredOverlap unfiltered_overlaps = 2;
+}
+
+message UnfilteredOverlap {
+  string subscription_id = 1;
+  string plan_name = 2;
+  repeated string metric_ids = 3;
 }
 
 
@@ -73,6 +86,8 @@ message ListSubscriptionsRequest {
   repeated SubscriptionStatus status = 4;
   optional string search = 5;
   optional string order_by = 6;
+  // Dynamic filters over custom properties (field `cp:<key>`); AND-combined.
+  repeated meteroid.common.v1.Filter filters = 7;
 }
 
 message ListSubscriptionsResponse {
@@ -176,6 +191,14 @@ message UpdateSubscriptionRequest {
   optional string invoice_memo = 5;
   optional string purchase_order = 7;
   optional PaymentMethodsConfig payment_methods_config = 8;
+  // JSON-encoded object of custom property values to merge (send a key with null to remove it).
+  optional string custom_properties = 9;
+  // Present to change the usage filter; an empty change removes it.
+  optional UsageFilterChange usage_filter = 10;
+}
+
+message UsageFilterChange {
+  optional UsageFilter filter = 1;
 }
 
 message UpdateSubscriptionResponse {
@@ -221,6 +244,8 @@ message PreviewPlanChangeResponse {
   string effective_date = 4;
   optional ProrationSummary proration = 5;
   string change_direction = 6;
+  // False when a minimum commitment (held or targeted) keeps the change to the period's end.
+  bool immediate_allowed = 7;
 }
 
 message ProrationSummary {
@@ -238,6 +263,8 @@ message ProrationSummary {
   // on the next renewal invoice); excluded from charges_total_cents and
   // net_amount_cents so those match the immediate adjustment invoice exactly.
   int64 arrears_charge_cents = 8;
+  // Credit packs the change bills, and what it does to the old packs' credit.
+  repeated PlanChangePackLine pack_changes = 9;
 }
 
 message PlanChangeMatchedComponent {
@@ -392,6 +419,53 @@ message UpcomingInvoice {
   optional string plan_name = 15;
   optional string due_date = 16;
   int32 net_terms = 17;
+  // Promotional credit drawn before tax, net like `discount`.
+  int64 promotional_credits = 18;
+  // The credit drawn is shared with other pending invoices, so the amounts after it are estimates.
+  bool credit_estimate_shared = 19;
+  // Pending invoices billed before this one that draw on the same shared credit.
+  repeated UpcomingBilledFirst billed_first = 20;
+  // The credit drawn, by kind of credit, in draw order.
+  repeated UpcomingCreditDeduction credit_deductions = 21;
+  // What the invoice settles besides a renewal.
+  UpcomingInvoiceChange change = 22;
+  // The plan a scheduled plan change moves to, when `change` is a plan change.
+  optional string new_plan_name = 23;
+  // When the invoice is finalized, and charged if charged automatically: after the grace period.
+  string charge_date = 24;
+  // Nothing will be invoiced: a subscription that never activated ends without an invoice.
+  bool not_invoiced = 25;
+}
+
+enum UpcomingInvoiceChange {
+  UPCOMING_INVOICE_CHANGE_NONE = 0;
+  // The subscription is cancelled, paused or reaches its end date: its final invoice.
+  UPCOMING_INVOICE_CHANGE_ENDS = 1;
+  UPCOMING_INVOICE_CHANGE_PLAN_CHANGE = 2;
+  UPCOMING_INVOICE_CHANGE_AMENDMENT = 3;
+  // The subscription is paused: the last invoice before the pause.
+  UPCOMING_INVOICE_CHANGE_PAUSE = 4;
+}
+
+message UpcomingBilledFirst {
+  // Set for an invoice already drafted.
+  optional string invoice_id = 1;
+  optional string subscription_id = 2;
+  optional string plan_name = 3;
+  // YYYY-MM-DD
+  string invoice_date = 4;
+}
+
+message UpcomingCreditDeduction {
+  meteroid.api.wallets.v1.CreditGrantKind kind = 1;
+  // "Included with Scale", "Purchased credit", "Free credit", "Account balance".
+  string label = 2;
+  optional string subscription_id = 3;
+  // The invoice currency, or the credit unit code when credits cover usage.
+  string currency = 4;
+  int64 amount = 5;
+  // Taken off the charges before tax (promotional credit); otherwise paid on the taxed total.
+  bool promotional = 6;
 }
 
 message GetSubscriptionComponentUsageRequest {
@@ -415,6 +489,75 @@ message UsageDataPoint {
 }
 
 // Service definition
+// The current cycle and every limited metered entitlement against it.
+message GetSubscriptionUsageRequest {
+  string subscription_id = 1;
+}
+
+// Half-open: period_end is the first day of the next cycle.
+message SubscriptionCycle {
+  string period_start = 1;
+  optional string period_end = 2;
+  double elapsed_pct = 3;
+  optional uint32 days_left = 4;
+}
+
+message SubscriptionFeatureUsage {
+  string feature_id = 1;
+  string feature_name = 2;
+  // Decimal strings.
+  string consumed = 3;
+  optional string limit = 4;
+  optional double pct = 5;
+  uint32 warning_threshold_pct = 6;
+  // "billing_cycle" | "calendar" | "fixed_window" | "sliding_window" | "never".
+  string reset = 7;
+  optional string period_start = 8;
+  optional string resets_at = 9;
+  // "allow" | "block".
+  string overage_behavior = 10;
+  // At the current pace, to the end of the usage window.
+  optional string projected = 11;
+  // Usage is refused: the limit blocks and its ceiling (limit plus grace) is reached.
+  bool refused = 12;
+  // Block only: usage allowed beyond the limit, in percent of it.
+  optional uint32 grace_pct = 13;
+  // The limit applies to each value of this property; `consumed` is the largest value's.
+  optional string group_by = 14;
+}
+
+message GetSubscriptionUsageResponse {
+  optional SubscriptionCycle cycle = 1;
+  repeated SubscriptionFeatureUsage usage = 2;
+}
+
+// Half-open [from, to): dates, the end exclusive. Defaults to the current calendar month (UTC).
+message ListUnattributedUsageRequest {
+  string customer_id = 1;
+  optional string from = 2;
+  optional string to = 3;
+}
+
+// A metric's usage no subscription bills: it matches none of the usage filters of the
+// subscriptions pricing the metric, and none of them bills without a filter.
+message UnattributedUsage {
+  string metric_id = 1;
+  string metric_name = 2;
+  optional meteroid.api.billablemetrics.v1.MetricUnitLabel unit_label = 3;
+  // RFC 3339, half-open.
+  string from = 4;
+  string until = 5;
+  string quantity = 6;
+  // The subscriptions pricing the metric over the stretch, whose usage filters leave it out.
+  repeated string subscription_ids = 7;
+}
+
+message ListUnattributedUsageResponse {
+  string from = 1;
+  string to = 2;
+  repeated UnattributedUsage usage = 3;
+}
+
 service SubscriptionsService {
   rpc CreateSubscription(CreateSubscriptionRequest) returns (CreateSubscriptionResponse);
   rpc CreateSubscriptions(CreateSubscriptionsRequest) returns (CreateSubscriptionsResponse);
@@ -440,5 +583,88 @@ service SubscriptionsService {
   rpc CancelAmendment(CancelAmendmentRequest) returns (CancelAmendmentResponse);
   rpc GetUpcomingInvoice(GetUpcomingInvoiceRequest) returns (GetUpcomingInvoiceResponse);
   rpc GetSubscriptionComponentUsage(GetSubscriptionComponentUsageRequest) returns (GetSubscriptionComponentUsageResponse);
+  rpc GetSubscriptionUsage(GetSubscriptionUsageRequest) returns (GetSubscriptionUsageResponse);
+  rpc ListUnattributedUsage(ListUnattributedUsageRequest) returns (ListUnattributedUsageResponse);
+  // Where the current period stands against the subscription's minimum commitment.
+  rpc GetSubscriptionMinimumProgress(GetSubscriptionMinimumProgressRequest) returns (GetSubscriptionMinimumProgressResponse);
+  // What the subscription's issued invoices still owe, and the credit unpaid packs add once paid.
+  rpc GetSubscriptionReceivables(GetSubscriptionReceivablesRequest) returns (GetSubscriptionReceivablesResponse);
+}
+
+message GetSubscriptionReceivablesRequest {
+  string subscription_id = 1;
+}
+
+message OverdueInvoice {
+  string invoice_id = 1;
+  string invoice_number = 2;
+  int64 amount_due = 3;
+  string due_at = 4;
+  // This invoice's own latest failed payment and next retry.
+  optional string last_failure_at = 5;
+  optional string last_failure_reason = 6;
+  optional string next_retry_at = 7;
+}
+
+// Credit a pack line of an unpaid invoice funds once the invoice is paid.
+message PendingInvoiceCredit {
+  string invoice_id = 1;
+  string invoice_number = 2;
+  // The funded wallet's currency, or its credit unit's code.
+  string currency = 3;
+  optional string credit_unit_id = 4;
+  // Minor units of the wallet's denomination.
+  int64 amount = 5;
+}
+
+// Open invoices: finalized, an amount still due, no payment in flight; consolidated invoices the
+// subscription was merged into count whole. Amounts in minor units of `currency`; timestamps are
+// naive UTC ISO 8601 datetimes.
+message SubscriptionReceivables {
+  string currency = 1;
+  int64 open_amount = 2;
+  uint32 open_count = 3;
+  int64 overdue_amount = 4;
+  uint32 overdue_count = 5;
+  // The soonest due date among open invoices not yet overdue.
+  optional string next_due_at = 6;
+  optional OverdueInvoice oldest_overdue = 7;
+  optional string last_failure_at = 8;
+  optional string last_failure_reason = 9;
+  optional string last_failure_invoice_id = 10;
+  optional string next_retry_at = 11;
+  repeated PendingInvoiceCredit pending_credit = 12;
+}
+
+message GetSubscriptionReceivablesResponse {
+  // Unset when the caller may not read invoices.
+  optional SubscriptionReceivables receivables = 1;
+}
+
+message GetSubscriptionMinimumProgressRequest {
+  string subscription_id = 1;
+}
+
+// Amounts in minor units of `currency`, for the current period as the next invoice bills it.
+message SubscriptionMinimumProgress {
+  string currency = 1;
+  string period_start = 2;
+  string period_end = 3;
+  // The minimum, prorated to the period's active days.
+  int64 minimum = 4;
+  // In-scope charges so far.
+  int64 counted_to_date = 5;
+  // In-scope charges at the end of the period if usage keeps its pace.
+  int64 projected = 6;
+  int64 projected_shortfall = 7;
+  // Share of the period elapsed, 0 to 1.
+  double elapsed = 8;
+  // Products the minimum covers; empty when it covers every component.
+  repeated string scope_product_names = 9;
+}
+
+message GetSubscriptionMinimumProgressResponse {
+  // Unset when the subscription has no minimum, or none applies to its next invoice.
+  optional SubscriptionMinimumProgress progress = 1;
 }
 

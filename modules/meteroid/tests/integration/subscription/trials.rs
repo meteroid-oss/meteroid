@@ -293,7 +293,7 @@ async fn test_onstart_paid_trial_billing_cycle(#[future] test_env: TestEnv) {
         .with_context("Invoice 1: at creation")
         .is_finalized_unpaid()
         .has_total(9900)
-        .has_invoice_date(start_date) // Jan 1
+        .has_billing_period_start(start_date) // Jan 1
         .has_period(start_date, NaiveDate::from_ymd_opt(2024, 2, 1).unwrap());
 
     // === Phase 2: process_cycles fires both trial end AND billing renewal ===
@@ -316,7 +316,7 @@ async fn test_onstart_paid_trial_billing_cycle(#[future] test_env: TestEnv) {
         .assert()
         .invoice_at(0)
         .with_context("Invoice 1: at creation")
-        .has_invoice_date(start_date);
+        .has_billing_period_start(start_date);
 
     // Invoice 2: at Feb 1 (billing cycle end), NOT at Jan 8 (trial end)
     // This proves trial end doesn't create an invoice - the renewal does
@@ -327,7 +327,7 @@ async fn test_onstart_paid_trial_billing_cycle(#[future] test_env: TestEnv) {
         .with_context("Invoice 2: at billing cycle end, not trial end")
         .is_finalized_unpaid()
         .has_total(9900)
-        .has_invoice_date(expected_renewal_date)
+        .has_billing_period_start(expected_renewal_date)
         .has_period(
             expected_renewal_date,
             NaiveDate::from_ymd_opt(2024, 3, 1).unwrap(),
@@ -337,7 +337,7 @@ async fn test_onstart_paid_trial_billing_cycle(#[future] test_env: TestEnv) {
     let trial_end_date = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap();
     for invoice in invoices.iter() {
         assert_ne!(
-            invoice.invoice_date, trial_end_date,
+            invoice.billing_period_start, trial_end_date,
             "No invoice should be dated at trial end ({})",
             trial_end_date
         );
@@ -677,7 +677,7 @@ async fn test_paid_trial_90_days_generates_all_invoices(#[future] test_env: Test
     assert_eq!(invoices.len(), 5, "After cycle 4: should have 5 invoices");
 
     // Debug: Print invoice dates to see the gap
-    println!("Invoice dates (should be consecutive months starting Jan 1, 2024):");
+    println!("Invoice periods (should be consecutive months starting Jan 1, 2024):");
     for (i, invoice) in invoices.iter().enumerate() {
         println!("  Invoice {}: {}", i, invoice.invoice_date);
     }
@@ -706,9 +706,9 @@ async fn test_paid_trial_90_days_generates_all_invoices(#[future] test_env: Test
             expected_date
         );
         assert_eq!(
-            invoices[i].invoice_date, *expected_date,
-            "Invoice {} has wrong date: expected {}, got {}",
-            i, expected_date, invoices[i].invoice_date
+            invoices[i].billing_period_start, *expected_date,
+            "Invoice {} has wrong period: expected {}, got {}",
+            i, expected_date, invoices[i].billing_period_start
         );
     }
 }
@@ -758,9 +758,9 @@ async fn test_paid_free_trial_90_days_generates_all_invoices(#[future] test_env:
     invoices.assert().has_count(1);
     // First invoice is for the period starting at trial end (90 days from Jan 1 = Mar 31)
     assert_eq!(
-        invoices[0].invoice_date,
+        invoices[0].billing_period_start,
         NaiveDate::from_ymd_opt(2024, 3, 31).unwrap(),
-        "First invoice should be at trial end date"
+        "First invoice should bill the period starting at trial end"
     );
 
     // === Process cycle 2: First renewal ===
@@ -797,9 +797,9 @@ async fn test_paid_free_trial_90_days_generates_all_invoices(#[future] test_env:
 
     for (i, expected_date) in expected_dates.iter().enumerate() {
         assert_eq!(
-            invoices[i].invoice_date, *expected_date,
-            "Invoice {} has wrong date: expected {}, got {}",
-            i, expected_date, invoices[i].invoice_date
+            invoices[i].billing_period_start, *expected_date,
+            "Invoice {} has wrong period: expected {}, got {}",
+            i, expected_date, invoices[i].billing_period_start
         );
     }
 }
@@ -848,4 +848,203 @@ async fn test_free_plan_with_trial_generates_no_invoices(#[future] test_env: Tes
     // Subscription should be active
     let sub = env.get_subscription(sub_id).await;
     sub.assert().is_active();
+}
+
+/// 100.00 a month billed in advance, cancelled on Oct 5 of the period [Oct 1, Nov 1): the 27
+/// unused days come back, 10000 × 27/31 = 8710, during a paid trial as without one. A free trial
+/// billed nothing and gets nothing back.
+#[rstest]
+#[tokio::test]
+async fn a_paid_trial_cancelled_mid_period_is_credited_its_unused_days(
+    #[future] test_env: TestEnv,
+) {
+    use crate::data::plans::{PlanSeed, SeedComp};
+    use common_domain::actor::Actor;
+    use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId};
+    use diesel_models::enums::BillingPeriodEnum;
+    use meteroid_store::repositories::CreditNoteInterface;
+    use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
+
+    let env = test_env.await;
+    let start_date = NaiveDate::from_ymd_opt(2024, 10, 1).unwrap();
+    let cancel_date = NaiveDate::from_ymd_opt(2024, 10, 5).unwrap();
+    let plan = |name: &'static str, is_free: bool| {
+        let version = PlanVersionId::new();
+        let seed = PlanSeed::new(PlanId::new(), name, version)
+            .trial(45, PLAN_ENTERPRISE_ID, is_free)
+            .components(vec![SeedComp::rate(
+                PriceComponentId::new(),
+                "Monthly Rate",
+                PRODUCT_PLATFORM_FEE_ID,
+                PriceId::new(),
+                BillingPeriodEnum::Monthly,
+                rust_decimal::Decimal::new(10_000, 2),
+            )]);
+        (version, seed)
+    };
+    let (paid_trial, seed) = plan("Paid trial at 100", false);
+    seed.seed(&mut env.conn().await)
+        .await
+        .expect("paid trial plan");
+    let (free_trial, seed) = plan("Free trial at 100", true);
+    seed.seed(&mut env.conn().await)
+        .await
+        .expect("free trial plan");
+
+    let credited = |sub_id| {
+        let env = &env;
+        async move {
+            env.services()
+                .cancel_subscription(
+                    Actor::System,
+                    sub_id,
+                    TENANT_ID,
+                    None,
+                    CancellationEffectiveAt::Date(cancel_date),
+                )
+                .await
+                .expect("cancelled");
+            env.process_due_events().await;
+            env.get_subscription(sub_id)
+                .await
+                .assert()
+                .has_status(SubscriptionStatusEnum::Cancelled);
+            let mut totals = Vec::new();
+            for invoice in env.get_invoices(sub_id).await {
+                for note in env
+                    .store()
+                    .list_credit_notes_by_invoice_id(TENANT_ID, invoice.id)
+                    .await
+                    .expect("notes")
+                {
+                    totals.push(note.total);
+                }
+            }
+            totals
+        }
+    };
+
+    let in_paid_trial = subscription()
+        .plan_version(paid_trial)
+        .start_date(start_date)
+        .on_start()
+        .trial_days(45)
+        .no_auto_charge()
+        .create(env.services())
+        .await;
+    env.get_subscription(in_paid_trial)
+        .await
+        .assert()
+        .is_trial_active();
+    let invoices = env.get_invoices(in_paid_trial).await;
+    invoices.assert().has_count(1);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .has_total(10_000)
+        .has_period(start_date, NaiveDate::from_ymd_opt(2024, 11, 1).unwrap());
+    assert_eq!(credited(in_paid_trial).await, vec![-8_710]);
+
+    let without_trial = subscription()
+        .plan_version(paid_trial)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .no_auto_charge()
+        .create(env.services())
+        .await;
+    assert_eq!(credited(without_trial).await, vec![-8_710]);
+
+    let in_free_trial = subscription()
+        .plan_version(free_trial)
+        .start_date(start_date)
+        .on_start()
+        .trial_days(45)
+        .no_auto_charge()
+        .create(env.services())
+        .await;
+    env.get_subscription(in_free_trial)
+        .await
+        .assert()
+        .is_trial_active();
+    assert!(credited(in_free_trial).await.is_empty());
+}
+
+/// A 45-day trial set on the subscription alone, on a plan with no trial of its own: free, as the
+/// plan's version says (the default). Cancelled on Oct 5, it billed nothing and records nothing
+/// to credit later.
+#[rstest]
+#[tokio::test]
+async fn a_free_trial_set_on_the_subscription_cancelled_records_no_credit(
+    #[future] test_env: TestEnv,
+) {
+    use crate::data::plans::{PlanSeed, SeedComp};
+    use common_domain::actor::Actor;
+    use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId};
+    use diesel::{ExpressionMethods, QueryDsl};
+    use diesel_async::RunQueryDsl;
+    use diesel_models::enums::BillingPeriodEnum;
+    use diesel_models::schema::subscription_event::dsl as e;
+    use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
+
+    let env = test_env.await;
+    let start_date = NaiveDate::from_ymd_opt(2024, 10, 1).unwrap();
+    let version = PlanVersionId::new();
+    PlanSeed::new(PlanId::new(), "No trial of its own", version)
+        .components(vec![SeedComp::rate(
+            PriceComponentId::new(),
+            "Monthly Rate",
+            PRODUCT_PLATFORM_FEE_ID,
+            PriceId::new(),
+            BillingPeriodEnum::Monthly,
+            rust_decimal::Decimal::new(10_000, 2),
+        )])
+        .seed(&mut env.conn().await)
+        .await
+        .expect("plan");
+    let sub_id = subscription()
+        .plan_version(version)
+        .start_date(start_date)
+        .on_start()
+        .trial_days(45)
+        .no_auto_charge()
+        .create(env.services())
+        .await;
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .is_trial_active()
+        .has_trial_duration(Some(45));
+    env.get_invoices(sub_id).await.assert().has_count(0);
+
+    env.services()
+        .cancel_subscription(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::Date(NaiveDate::from_ymd_opt(2024, 10, 5).unwrap()),
+        )
+        .await
+        .expect("cancelled");
+    env.process_due_events().await;
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .has_status(SubscriptionStatusEnum::Cancelled);
+    let recorded: Vec<Option<serde_json::Value>> = e::subscription_event
+        .filter(e::subscription_id.eq(sub_id.as_uuid()))
+        .filter(e::event_type.eq(diesel_models::enums::SubscriptionEventType::Cancelled))
+        .select(e::details)
+        .load(&mut env.conn().await)
+        .await
+        .expect("cancellation events");
+    assert!(!recorded.is_empty());
+    assert!(
+        recorded
+            .iter()
+            .all(|details| details.as_ref().is_none_or(|d| d.get("outgoing").is_none())),
+        "nothing recorded to credit: {recorded:?}"
+    );
+    env.get_invoices(sub_id).await.assert().has_count(0);
 }

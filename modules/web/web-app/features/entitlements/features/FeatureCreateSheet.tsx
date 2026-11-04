@@ -7,6 +7,7 @@ import { create, type MessageInitShape } from '@bufbuild/protobuf';
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
+  cn,
   Form,
   FormControl,
   FormField,
@@ -14,9 +15,6 @@ import {
   FormLabel,
   FormMessage,
   Input,
-  Label,
-  RadioGroup,
-  RadioGroupItem,
   Select,
   SelectContent,
   SelectItem,
@@ -34,8 +32,19 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { ValuesTagInput } from '@/components/form'
 import { EntityEntitlementsSection } from '@/features/entitlements/EntityEntitlementsSection'
 import { EntitlementValueFields } from '@/features/entitlements/creation/EntitlementValueFields'
+import {
+  buildConfigValue,
+  buildMeteredPolicy,
+  configFeatureTypeValue,
+  configMapIssues,
+  CONFIG_KINDS,
+  groupBySchema,
+  checkMeteredPolicy,
+  meteredPolicySchemaShape,
+} from '@/features/entitlements/creation/types'
 import {
   FEATURE_CODE_CHARSET_MESSAGE,
   FEATURE_CODE_LENGTH_MESSAGE,
@@ -55,6 +64,16 @@ import {
 import { CalendarUnit, EntitlementValueSchema, ResetPeriodSchema } from '@/rpc/api/entitlements/v1/models_pb';
 import { listProducts } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 
+function isValidJson(s: string | undefined): boolean {
+  if (!s || s.trim() === '') return false
+  try {
+    JSON.parse(s)
+    return true
+  } catch {
+    return false
+  }
+}
+
 const schema = z
   .object({
     name: z.string().min(1, 'Required'),
@@ -65,7 +84,7 @@ const schema = z
       .regex(FEATURE_CODE_REGEX, FEATURE_CODE_CHARSET_MESSAGE),
     description: z.string().optional(),
     productId: z.string().optional(),
-    type: z.enum(['boolean', 'metered']),
+    type: z.enum(['boolean', 'metered', 'config']),
     metricId: z.string().optional(),
     boolEnabled: z.boolean().optional(),
     limit: z.string().optional(),
@@ -75,13 +94,55 @@ const schema = z
     resetUnit: z.nativeEnum(CalendarUnit).optional(),
     resetInterval: z.coerce.number().int().min(1).optional(),
     meteredEnabled: z.boolean().optional(),
+    groupBy: groupBySchema,
+    ...meteredPolicySchemaShape,
+    configKind: z.enum(CONFIG_KINDS).optional(),
+    configNumber: z.string().optional(),
+    configBoolean: z.boolean().optional(),
+    configText: z.string().optional(),
+    configJson: z.string().optional(),
+    configEntries: z
+      .array(
+        z.object({
+          key: z.string(),
+          type: z.enum(['number', 'text', 'boolean']),
+          value: z.string(),
+        })
+      )
+      .optional(),
+    configOptions: z.array(z.string()).optional(),
   })
   .refine(d => d.type !== 'metered' || !!d.metricId, {
     message: 'Metric is required for metered features',
     path: ['metricId'],
   })
+  .superRefine((d, ctx) => {
+    if (d.type === 'metered') checkMeteredPolicy(d, ctx)
+    if (d.type === 'config' && d.configKind === 'map') {
+      const issue = configMapIssues(d.configEntries)
+      if (issue) ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue, path: ['configEntries'] })
+    }
+  })
+  .refine(d => d.type !== 'config' || d.configKind !== 'json' || isValidJson(d.configJson), {
+    message: 'Must be valid JSON',
+    path: ['configJson'],
+  })
+  .refine(d => d.type !== 'config' || d.configKind !== 'select' || (d.configOptions?.length ?? 0) > 0, {
+    message: 'Add at least one option',
+    path: ['configOptions'],
+  })
+  .refine(d => d.type !== 'config' || d.configKind !== 'select' || !!d.configText, {
+    message: 'Choose a value',
+    path: ['configText'],
+  })
 
 type FormData = z.infer<typeof schema>
+
+const FEATURE_TYPE_OPTIONS: { value: FormData['type']; label: string; description: string }[] = [
+  { value: 'boolean', label: 'Boolean', description: 'On/off access flag.' },
+  { value: 'metered', label: 'Metered', description: 'Usage counted against a metric.' },
+  { value: 'config', label: 'Config', description: 'A static value or key/value map.' },
+]
 
 interface Props {
   featureId?: string
@@ -94,7 +155,7 @@ interface Props {
 }
 
 function buildEntitlementValue(
-  isBoolean: boolean,
+  type: FormData['type'],
   data: Pick<
     FormData,
     | 'boolEnabled'
@@ -103,13 +164,31 @@ function buildEntitlementValue(
     | 'resetUnit'
     | 'resetInterval'
     | 'meteredEnabled'
+    | 'groupBy'
+    | 'overageType'
+    | 'gracePct'
+    | 'thresholds'
+    | 'configKind'
+    | 'configNumber'
+    | 'configBoolean'
+    | 'configText'
+    | 'configJson'
+    | 'configEntries'
   >
 ): MessageInitShape<typeof EntitlementValueSchema> {
-  if (isBoolean) {
+  if (type === 'boolean') {
     return {
       value: {
         case: 'booleanValue' as const,
         value: { enabled: data.boolEnabled ?? true },
+      },
+    }
+  }
+  if (type === 'config') {
+    return {
+      value: {
+        case: 'configValue' as const,
+        value: buildConfigValue(data),
       },
     }
   }
@@ -146,6 +225,8 @@ function buildEntitlementValue(
         limit: data.limit || undefined,
         resetPeriod,
         enabled: data.meteredEnabled ?? true,
+        groupBy: data.groupBy?.trim() || undefined,
+        ...buildMeteredPolicy(data),
       },
     },
   }
@@ -164,6 +245,8 @@ export const FeatureCreateSheet = ({
   const handleClose = onClose ?? (() => navigate('..'))
   const queryClient = useQueryClient()
   const isEdit = !!featureId
+  // A "select" config feature carries a fixed option set — editable after creation.
+  const isSelectConfig = initialKind.type === 'config' && !!initialKind.options?.length
 
   const metricsQuery = useQuery(listBillableMetrics, { pagination: { page: 0, perPage: 100 } })
   const metrics = (metricsQuery.data?.billableMetrics ?? []).slice().sort((a, b) => a.name.localeCompare(b.name))
@@ -185,6 +268,12 @@ export const FeatureCreateSheet = ({
       resetUnit: CalendarUnit.MONTH,
       resetInterval: 1,
       meteredEnabled: true,
+      overageType: 'block',
+      gracePct: '',
+      thresholds: '',
+      configKind: 'number',
+      configEntries: [{ key: '', type: 'number', value: '' }],
+      configOptions: initialKind.type === 'config' ? (initialKind.options ?? []) : [],
     },
   })
 
@@ -204,6 +293,10 @@ export const FeatureCreateSheet = ({
   const onSubmit = form.handleSubmit(async data => {
     try {
       if (isEdit) {
+        if (isSelectConfig && (data.configOptions?.length ?? 0) === 0) {
+          form.setError('configOptions', { message: 'Add at least one option' })
+          return
+        }
         const detach = !data.productId && !!initialProductId
         await updateMutation.mutateAsync({
           id: featureId,
@@ -211,6 +304,9 @@ export const FeatureCreateSheet = ({
           description: data.description,
           productId: data.productId || undefined,
           clearProductId: detach,
+          ...(isSelectConfig
+            ? { configOptions: data.configOptions ?? [], updateConfigOptions: true }
+            : {}),
         })
       } else {
         await createMutation.mutateAsync({
@@ -221,10 +317,20 @@ export const FeatureCreateSheet = ({
           featureType:
             data.type === 'boolean'
               ? { Inner: { case: 'boolean', value: {} } }
-              : { Inner: { case: 'metered', value: { metricId: data.metricId! } } },
+              : data.type === 'config'
+                ? {
+                    Inner: {
+                      case: 'config',
+                      value: configFeatureTypeValue(
+                        data.configKind ?? 'number',
+                        data.configOptions ?? []
+                      ),
+                    },
+                  }
+                : { Inner: { case: 'metered', value: { metricId: data.metricId! } } },
           entitlement: create(
             EntitlementValueSchema,
-            buildEntitlementValue(data.type === 'boolean', data)
+            buildEntitlementValue(data.type, data)
           ),
         })
       }
@@ -345,25 +451,31 @@ export const FeatureCreateSheet = ({
                     Type {isEdit && <span className="text-muted-foreground text-xs">(immutable)</span>}
                   </FormLabel>
                   <FormControl>
-                    <RadioGroup
-                      value={field.value}
-                      onValueChange={field.onChange}
-                      disabled={isEdit}
-                      className="flex gap-4"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <RadioGroupItem value="boolean" id="type-boolean" />
-                        <Label htmlFor="type-boolean" className="font-normal cursor-pointer">
-                          Boolean
-                        </Label>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <RadioGroupItem value="metered" id="type-metered" />
-                        <Label htmlFor="type-metered" className="font-normal cursor-pointer">
-                          Metered
-                        </Label>
-                      </div>
-                    </RadioGroup>
+                    <div className="grid grid-cols-3 gap-2">
+                      {FEATURE_TYPE_OPTIONS.map(opt => {
+                        const selected = field.value === opt.value
+                        return (
+                          <button
+                            type="button"
+                            key={opt.value}
+                            disabled={isEdit}
+                            onClick={() => field.onChange(opt.value)}
+                            className={cn(
+                              'flex flex-col gap-1 rounded-md border p-3 text-left transition-colors',
+                              selected
+                                ? 'border-primary ring-1 ring-primary bg-primary/5'
+                                : 'border-border hover:border-muted-foreground/40',
+                              isEdit && 'cursor-not-allowed opacity-60'
+                            )}
+                          >
+                            <span className="text-sm font-medium">{opt.label}</span>
+                            <span className="text-xs text-muted-foreground leading-snug">
+                              {opt.description}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -411,6 +523,37 @@ export const FeatureCreateSheet = ({
                 <EntitlementValueFields
                   featureType={type}
                   idPrefix="fcs"
+                  canEditConfigOptions
+                  canPickConfigType
+                />
+              </>
+            )}
+
+            {isEdit && isSelectConfig && (
+              <>
+                <Separator />
+                <FormField
+                  control={form.control}
+                  name="configOptions"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Options</FormLabel>
+                      <p className="text-xs text-muted-foreground">
+                        Allowed values for this select feature. An option currently in use by an
+                        entitlement can&apos;t be removed.
+                      </p>
+                      <FormControl>
+                        <div className="min-h-9 rounded-md border border-input bg-transparent px-2 py-1.5">
+                          <ValuesTagInput
+                            value={field.value as string[] | undefined}
+                            onChange={field.onChange}
+                            placeholder="Type a value and press Enter"
+                          />
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
               </>
             )}

@@ -1,0 +1,323 @@
+syntax = "proto3";
+
+package meteroid.api.wallets.v1;
+
+import "api/wallets/v1/models.proto";
+import "common/v1/pagination.proto";
+import "google/protobuf/timestamp.proto";
+
+// Customer wallets. Amounts are minor units of the wallet currency.
+service WalletsService {
+  rpc ListCustomerWallets(ListCustomerWalletsRequest) returns (ListCustomerWalletsResponse);
+  rpc ListLedgerEntries(ListLedgerEntriesRequest) returns (ListLedgerEntriesResponse);
+  // A wallet's grants, newest first, each with how it was consumed.
+  rpc ListWalletGrants(ListWalletGrantsRequest) returns (ListWalletGrantsResponse);
+  // Every customer's wallets, by customer name.
+  rpc ListWalletSummaries(ListWalletSummariesRequest) returns (ListWalletSummariesResponse);
+  rpc CreateWallet(CreateWalletRequest) returns (CreateWalletResponse);
+  rpc GrantCredit(GrantCreditRequest) returns (GrantCreditResponse);
+  rpc RemoveCredit(RemoveCreditRequest) returns (RemoveCreditResponse);
+  // Issues an invoice for paid credit; the credit is granted when it is paid.
+  rpc SellCredit(SellCreditRequest) returns (SellCreditResponse);
+  // Charges a saved payment method for credit.
+  rpc TopUpWallet(TopUpWalletRequest) returns (TopUpWalletResponse);
+  // The price of selling credit into a wallet, by invoice or by card; charges nothing.
+  rpc QuoteCreditSale(QuoteCreditSaleRequest) returns (QuoteCreditSaleResponse);
+  rpc ConfigureWallet(ConfigureWalletRequest) returns (ConfigureWalletResponse);
+  // What each of the customer's wallets added, used and lost, and how each grant was consumed.
+  rpc GetCustomerCreditActivity(GetCustomerCreditActivityRequest) returns (GetCustomerCreditActivityResponse);
+  // The statement of the customer's wallets, newest first, labelled by where each grant came from.
+  rpc ListCustomerLedgerEntries(ListCustomerLedgerEntriesRequest) returns (ListCustomerLedgerEntriesResponse);
+  // A short-lived link that downloads the same statement as CSV.
+  rpc ExportCustomerLedger(ExportCustomerLedgerRequest) returns (ExportCustomerLedgerResponse);
+  // The wallet's usage per day, subscription, metric and product: the usage charged in the
+  // wallet's currency, or in its credit unit for usage priced in credits, as the invoices price it.
+  rpc ListWalletDailyUsageCost(ListWalletDailyUsageCostRequest) returns (ListWalletDailyUsageCostResponse);
+}
+
+enum UsageCostPeriod {
+  USAGE_COST_PERIOD_UNSPECIFIED = 0;
+  // What each subscription's next invoice bills.
+  USAGE_COST_PERIOD_CURRENT = 1;
+  // What the invoice opening each subscription's current period billed: its previous period.
+  USAGE_COST_PERIOD_PREVIOUS = 2;
+}
+
+message ListWalletDailyUsageCostRequest {
+  string customer_id = 1;
+  string wallet_id = 2;
+  // Unset counts every subscription of the customer.
+  optional string subscription_id = 3;
+  // Unspecified reads the days `[from, to)` instead.
+  UsageCostPeriod period = 4;
+  // YYYY-MM-DD (UTC), `to` exclusive, at most 93 days apart; only with an unspecified `period`.
+  optional string from = 5;
+  optional string to = 6;
+}
+message ListWalletDailyUsageCostResponse {
+  // The days covered, YYYY-MM-DD, `to` exclusive: the periods' or the range asked for. Unset when
+  // no usage is charged in the wallet's denomination over the periods.
+  optional string from = 1;
+  optional string to = 2;
+  // By date, then subscription, metric and product; days without usage are left out.
+  repeated WalletDailyUsageCost rows = 3;
+}
+
+message ListCustomerWalletsRequest { string customer_id = 1; }
+message ListCustomerWalletsResponse { repeated Wallet wallets = 1; }
+
+message ListLedgerEntriesRequest {
+  string wallet_id = 1;
+  meteroid.common.v1.Pagination pagination = 2;
+}
+message ListLedgerEntriesResponse {
+  repeated LedgerEntry entries = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+message ListWalletGrantsRequest {
+  string customer_id = 1;
+  string wallet_id = 2;
+  // Only the credit this subscription can spend: its own grants and the customer-wide ones.
+  optional string subscription_id = 3;
+  // Only the depleted or expired grants.
+  bool used_up = 4;
+  meteroid.common.v1.Pagination pagination = 5;
+}
+message ListWalletGrantsResponse {
+  repeated CreditGrant grants = 1;
+  // How each of `grants` was consumed.
+  repeated GrantActivity activity = 2;
+  meteroid.common.v1.PaginationResponse pagination_meta = 3;
+}
+
+message ListWalletSummariesRequest {
+  meteroid.common.v1.Pagination pagination = 1;
+  // Matches the customer name or alias.
+  optional string search = 2;
+  optional WalletStatus status = 3;
+  // Only wallets whose automatic top-up failed or was stopped.
+  bool auto_top_up_failing = 4;
+}
+message ListWalletSummariesResponse {
+  repeated WalletSummary wallets = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+// Returns the customer's wallet for the currency when it already exists.
+message CreateWalletRequest {
+  string customer_id = 1;
+  string currency = 2;
+}
+message CreateWalletResponse { Wallet wallet = 1; }
+
+// Adds promotional credit.
+message GrantCreditRequest {
+  string customer_id = 1;
+  string wallet_id = 2;
+  int64 amount = 3;
+  // Lower values are drawn first; defaults to 100.
+  optional int32 priority = 4;
+  optional google.protobuf.Timestamp expires_at = 5;
+  string reason = 6;
+  // Your own reference, e.g. a contract or support ticket.
+  optional string reference = 7;
+  // A UUID naming the grant: a retry with the same key returns it instead of granting again.
+  string idempotency_key = 8;
+  // Restricts the credit to charges of these products; empty pays every product.
+  repeated string applicable_product_ids = 9;
+  // Instead of `expires_at`: months from now (1 to 120), computed in UTC and clamped to the
+  // month's last day.
+  optional uint32 expires_in_months = 10;
+  // The customer's live subscription the credit belongs to; unset pays any of them.
+  optional string subscription_id = 11;
+  // Unspecified reads as ALL.
+  CreditAppliesTo applies_to = 12;
+  // Required. PROMOTIONAL: goodwill, applied before tax. PAID: paid outside Meteroid, applied
+  // after tax at face value; currency wallets only.
+  CreditGrantType grant_type = 13;
+}
+message GrantCreditResponse {
+  Wallet wallet = 1;
+  string credit_grant_id = 2;
+  bool replayed = 3;
+}
+
+// Removes credit added by hand: the amount given, or all it has left.
+message RemoveCreditRequest {
+  string customer_id = 1;
+  string credit_grant_id = 2;
+  optional int64 amount = 3;
+  string reason = 4;
+  // A UUID naming the removal: a retry with the same key never removes twice.
+  string idempotency_key = 5;
+}
+message RemoveCreditResponse {
+  Wallet wallet = 1;
+  int64 removed = 2;
+  bool replayed = 3;
+}
+
+message SellCreditRequest {
+  string customer_id = 1;
+  string wallet_id = 2;
+  int64 amount = 3;
+  // Months the credit stays spendable once the invoice is paid (1 to 120).
+  optional uint32 expires_in_months = 4;
+  optional string note = 5;
+  // A retry with the same key finishes issuing the same invoice.
+  string idempotency_key = 6;
+  // Credit unit wallets: `amount` is in credits, sold at this price per credit (major units of the
+  // customer's currency, as a decimal string) instead of the customer's agreed price or the list
+  // price.
+  optional string unit_price = 7;
+  // Credit unit wallets: the price per credit the operator was shown; a sale at another one is
+  // refused ("the price changed; refresh").
+  optional string expected_unit_price = 8;
+}
+message SellCreditResponse {
+  Wallet wallet = 1;
+  string invoice_id = 2;
+  // Set once the invoice is paid.
+  optional string credit_grant_id = 3;
+}
+
+message TopUpWalletRequest {
+  string customer_id = 1;
+  string wallet_id = 2;
+  int64 amount = 3;
+  string payment_method_id = 4;
+  // A retry with the same key never charges twice.
+  string idempotency_key = 5;
+  // Absolute expiry of the purchased credit; unset never expires.
+  optional google.protobuf.Timestamp expires_at = 6;
+  // Credit unit wallets: `amount` is in credits, sold at this price per credit (major units of the
+  // customer's currency, as a decimal string) instead of the customer's agreed price or the list
+  // price.
+  optional string unit_price = 7;
+  // Instead of `expires_at`: months from now (1 to 120), computed in UTC and clamped to the
+  // month's last day.
+  optional uint32 expires_in_months = 8;
+  // Credit unit wallets: the price per credit the operator was shown; a top-up at another one is
+  // refused before anything is charged.
+  optional string expected_unit_price = 9;
+}
+
+enum TopUpStatus {
+  TOP_UP_STATUS_UNSPECIFIED = 0;
+  // The charge settled and the credit is in the wallet.
+  TOP_UP_STATUS_SUCCEEDED = 1;
+  // The charge is settling; the credit is added when it does.
+  TOP_UP_STATUS_PENDING = 2;
+  // The customer must authenticate the charge.
+  TOP_UP_STATUS_REQUIRES_ACTION = 3;
+}
+
+message TopUpWalletResponse {
+  Wallet wallet = 1;
+  TopUpStatus status = 2;
+  // Money charged, tax included, in minor units of `currency`.
+  int64 charged_amount = 3;
+  string currency = 4;
+  // The invoice documenting the purchase.
+  string invoice_id = 5;
+  string payment_transaction_id = 6;
+}
+
+// Replaces the wallet's low-balance notice, usage at zero and agreed price as given (an unset
+// field clears it). The automatic top-up changes only as `auto_top_up_change` says.
+message ConfigureWalletRequest {
+  string customer_id = 1;
+  string wallet_id = 2;
+  // Unset leaves the automatic top-up exactly as stored, running or turned off by the customer.
+  oneof auto_top_up_change {
+    // Replaces the terms. A credit unit wallet's terms keep the price per credit they were
+    // authorized at, and stay stopped after a price change, unless `auto_top_up_at_current_price`.
+    AutoTopUpConfig auto_top_up = 3;
+    // Turns automatic top-up off and forgets its terms.
+    bool remove_auto_top_up = 7;
+  }
+  // With `auto_top_up`: authorizes today's price per credit and lifts a stop on a price change.
+  // The customer's own confirmation then no longer covers the terms.
+  bool auto_top_up_at_current_price = 8;
+  // Ascending, distinct, at most 5. Replaces the wallet's full list; empty clears it.
+  repeated int64 low_balance_thresholds = 4;
+  reserved 5;
+  // Overrides, for this customer, what the plans do once the credit runs out.
+  UsageAtZero usage_at_zero = 10;
+  // Credit unit wallets: the customer's agreed price per credit, in major units of the customer's
+  // currency, as a decimal string. Unset sells at the list price.
+  optional string unit_price = 6;
+  // With `auto_top_up`: the operator attests that the customer agreed to automatic charges on
+  // these terms. Required when they turn automatic top-up on or change what it charges without
+  // the customer confirming them in their portal.
+  bool customer_consent_attested = 9;
+}
+message ConfigureWalletResponse { Wallet wallet = 1; }
+
+message GetCustomerCreditActivityRequest {
+  string customer_id = 1;
+  // Totals count the movements recorded from this instant on; unset counts them all.
+  optional google.protobuf.Timestamp since = 2;
+  // Totals count the movements of the credit this subscription can spend: its own grants and the
+  // customer-wide ones. Grants are listed whatever it.
+  optional string subscription_id = 3;
+}
+message GetCustomerCreditActivityResponse { repeated WalletActivity wallets = 1; }
+
+message ListCustomerLedgerEntriesRequest {
+  string customer_id = 1;
+  // Unset lists every wallet of the customer.
+  optional string wallet_id = 2;
+  meteroid.common.v1.Pagination pagination = 3;
+  // Only the movements of the credit this subscription can spend: its own grants and the
+  // customer-wide ones. Running balances then count those movements only.
+  optional string subscription_id = 4;
+}
+message ListCustomerLedgerEntriesResponse {
+  repeated CustomerLedgerEntry entries = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+message ExportCustomerLedgerRequest {
+  string customer_id = 1;
+  // Unset exports every wallet of the customer.
+  optional string wallet_id = 2;
+  // As in `ListCustomerLedgerEntriesRequest`.
+  optional string subscription_id = 3;
+}
+message ExportCustomerLedgerResponse {
+  // Valid for a few minutes: GET `/files/v1/credit-ledger/{customer_id}?token=<token>`.
+  string token = 1;
+}
+
+message QuoteCreditSaleRequest {
+  string customer_id = 1;
+  string wallet_id = 2;
+  // Minor units of the wallet: money, or credits for a credit unit wallet.
+  int64 amount = 3;
+  // Credit unit wallets: a price per credit for this sale, instead of the customer's agreed price
+  // or the list price.
+  optional string unit_price = 4;
+}
+message QuoteCreditSaleResponse {
+  // Minor units of `currency`. Money credit is taxed when spent, so its tax is 0.
+  int64 net = 1;
+  int64 tax = 2;
+  int64 total = 3;
+  string currency = 4;
+  // Credit unit wallets: the list price and the price applied, per credit, as decimal strings.
+  optional string list_unit_price = 5;
+  optional string unit_price = 6;
+  // Credit unit wallets: where `unit_price` comes from.
+  optional UnitPriceSource unit_price_source = 7;
+}
+
+enum UnitPriceSource {
+  UNIT_PRICE_SOURCE_UNSPECIFIED = 0;
+  UNIT_PRICE_SOURCE_LIST = 1;
+  // The customer's agreed price.
+  UNIT_PRICE_SOURCE_CUSTOMER = 2;
+  // The price given for this sale.
+  UNIT_PRICE_SOURCE_OVERRIDE = 3;
+}

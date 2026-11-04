@@ -5,9 +5,11 @@ import { ArrowDownIcon, ArrowUpIcon, MinusIcon, PlusIcon, RefreshCwIcon } from '
 import { Link } from 'react-router-dom'
 
 import { ChartNoData } from '@/features/dashboard/charts/ChartNoData'
+import { useBasePath } from '@/hooks/useBasePath'
 import { useCurrency } from '@/hooks/useCurrency'
 import { useQuery } from '@/lib/connectrpc'
 import { mapDateFromGrpc } from '@/lib/mapping'
+import { formatCurrency } from '@/lib/utils/numbers'
 import { MRRMovementType } from '@/rpc/api/stats/v1/models_pb'
 import { mrrLog } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 
@@ -72,11 +74,16 @@ const MovementBadge = ({ type }: { type: MRRMovementType }) => {
 
 export const MrrLogsCard = () => {
   const logs = useQuery(mrrLog, {}).data
-  const { formatAmount } = useCurrency()
+  const { currency: reportingCurrency } = useCurrency()
 
-  const formatMrrChange = (amount: bigint, type: MRRMovementType) => {
+  const basePath = useBasePath()
+
+  // Each movement is in its subscription's currency, which may differ from the tenant's.
+  const formatMrrChange = (amount: bigint, type: MRRMovementType, currency: string) => {
+    const code = currency || reportingCurrency
+    if (!code) return '...'
     const isNegative = type === MRRMovementType.CHURN || type === MRRMovementType.CONTRACTION
-    const formatted = formatAmount(amount < 0n ? -amount : amount)
+    const formatted = formatCurrency(amount < 0n ? -amount : amount, code)
     return isNegative ? `-${formatted}` : `+${formatted}`
   }
 
@@ -99,7 +106,7 @@ export const MrrLogsCard = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 text-xs">
                       <Link
-                        to={`customers/${log.customerId}`}
+                        to={`${basePath}/customers/${log.customerId}`}
                         className="font-medium truncate hover:underline underline-offset-2"
                       >
                         {log.customerName}
@@ -112,7 +119,7 @@ export const MrrLogsCard = () => {
                     </div>
                   </div>
                   <div className={cn('text-xs font-semibold tabular-nums shrink-0', config.color)}>
-                    {formatMrrChange(log.mrrChange, log.mrrType)}
+                    {formatMrrChange(log.mrrChange, log.mrrType, log.currency)}
                   </div>
                 </div>
               )

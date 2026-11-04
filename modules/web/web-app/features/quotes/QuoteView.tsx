@@ -15,6 +15,10 @@ import { Edit2, Trash2 } from 'lucide-react'
 import { FC, useState } from 'react'
 import { toast } from 'sonner'
 
+import {
+  MinimumCommitmentDisplay,
+  productScopeOptions,
+} from '@/features/billing/minimumCommitment'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import {
   PricingComponent,
@@ -23,6 +27,7 @@ import {
 import { env } from '@/lib/env'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
 import { InvoicingEntity, InvoicingEntityPublic } from '@/rpc/api/invoicingentities/v1/models_pb'
+import { MinimumCommitment } from '@/rpc/api/plans/v1/models_pb'
 import { Quote, QuoteAddOn, QuoteComponent, QuoteSignature } from '@/rpc/api/quotes/v1/models_pb'
 import { setQuotePurchaseOrder } from '@/rpc/portal/quotes/v1/quotes-PortalQuoteService_connectquery'
 import { parseAndFormatDate, parseAndFormatDateTime } from '@/utils/date'
@@ -39,13 +44,29 @@ export interface QuoteViewProps {
   mode?: 'preview' | 'detailed' | 'portal'
   className?: string
   subscriptionComponents?: PricingComponent[]
+  /** Effective minimum-commitment term to show on the document (override or plan default). */
+  minimumCommitment?: MinimumCommitment
 }
+
+const LegalIdentifiers = ({
+  vatNumber,
+  legalNumber,
+}: {
+  vatNumber?: string
+  legalNumber?: string
+}) => (
+  <>
+    {vatNumber && <p>VAT number: {vatNumber}</p>}
+    {legalNumber && <p>Registration number: {legalNumber}</p>}
+  </>
+)
 
 export const QuoteView: FC<QuoteViewProps> = ({
   quote,
   mode = 'detailed',
   className = '',
   subscriptionComponents,
+  minimumCommitment,
 }) => {
   const isPurchaseOrderEditable = mode == 'portal'
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -185,6 +206,10 @@ export const QuoteView: FC<QuoteViewProps> = ({
                   }}
                 />
               )}
+              <LegalIdentifiers
+                vatNumber={quote.invoicingEntity.vatNumber}
+                legalNumber={quote.invoicingEntity.legalNumber}
+              />
             </>
           ) : (
             <p className="font-medium text-foreground">Your Company</p>
@@ -201,6 +226,10 @@ export const QuoteView: FC<QuoteViewProps> = ({
               {quote.customer.billingAddress && (
                 <AddressLinesCompact address={quote.customer.billingAddress} />
               )}
+              <LegalIdentifiers
+                vatNumber={quote.customer.vatNumber}
+                legalNumber={quote.customer.legalNumber}
+              />
             </>
           ) : quote.quote?.customerId ? (
             <p className="font-medium text-foreground">Customer ID: {quote.quote.customerId}</p>
@@ -304,13 +333,37 @@ export const QuoteView: FC<QuoteViewProps> = ({
               </div>
             )}
 
-            {quote.quote.netTerms && (
+            {quote.quote.netTerms !== undefined && (
               <div className="flex justify-between">
                 <span className="text-sm text-muted-foreground">Payment Terms:</span>
-                <span className="text-sm">Net {quote.quote.netTerms} days</span>
+                <span className="text-sm">
+                  {quote.quote.netTerms === 0
+                    ? 'Due on receipt'
+                    : `Net ${quote.quote.netTerms} days`}
+                </span>
               </div>
             )}
           </div>
+        </div>
+      </div>
+    )
+  }
+
+  const renderContractTerms = () => {
+    if (!minimumCommitment || !quote.quote?.currency) return null
+
+    // Scope is keyed by product; resolve product names from the quote's components.
+    const componentOptions = productScopeOptions(quote.components || [])
+
+    return (
+      <div className="mb-8">
+        <h3 className="font-semibold text-foreground mb-4">Contract Terms</h3>
+        <div className="bg-muted/50 p-4 rounded-lg">
+          <MinimumCommitmentDisplay
+            commitment={minimumCommitment}
+            currency={quote.quote.currency}
+            components={componentOptions}
+          />
         </div>
       </div>
     )
@@ -399,6 +452,7 @@ export const QuoteView: FC<QuoteViewProps> = ({
           {renderSubscriptionComponents()}
           {renderAddOns()}
           {renderSubscriptionDetails()}
+          {renderContractTerms()}
           {renderAdditionalInfo()}
           {renderSignatureArea()}
         </CardContent>

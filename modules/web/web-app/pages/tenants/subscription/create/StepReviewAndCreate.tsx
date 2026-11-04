@@ -1,6 +1,6 @@
 import { create } from '@bufbuild/protobuf';
 import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query';
-import { Skeleton } from '@md/ui'
+import { Alert, AlertDescription, Skeleton } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '@ui/components'
 import { useAtom } from 'jotai'
@@ -11,6 +11,11 @@ import { useWizard } from 'react-use-wizard'
 import { toast } from 'sonner'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
+import {
+  MinimumCommitmentDisplay,
+  productScopeOptions,
+} from '@/features/billing/minimumCommitment'
+import { serializeCustomProperties } from '@/features/customproperties/CustomPropertiesFields'
 import { resolveEntitlementSpecs } from '@/features/entitlements/creation/resolveEntitlementSpecs'
 import {
   buildExistingProductRef,
@@ -20,10 +25,13 @@ import {
   wrapAsNewPriceEntries,
 } from '@/features/pricing'
 import { InvoicePreviewCard } from '@/features/subscriptions/UpcomingInvoiceCard'
+import { formatUsageFilter } from '@/features/subscriptions/UsageFilterFields'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 import { mapDatev2 } from '@/lib/mapping'
+import { formatDefaultNetTerms, formatNetTerms } from '@/lib/mapping/priceToSubscriptionFee'
+import { useDefaultNetTerms } from '@/pages/tenants/subscription/create/StepSettings'
 import {
   createSubscriptionAtom,
   CreateSubscriptionState,
@@ -36,6 +44,7 @@ import { Coupon } from '@/rpc/api/coupons/v1/models_pb'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { createFeature } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import { getPlanWithVersionByVersionId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 import {
   ActivationCondition,
   BankTransferSchema,
@@ -95,6 +104,7 @@ const buildCreateSubscriptionMessage = (state: CreateSubscriptionState, currency
     invoiceMemo: state.invoiceMemo,
     invoiceThreshold: state.invoiceThreshold,
     purchaseOrder: state.purchaseOrder,
+    usageFilter: state.usageFilter,
     autoAdvanceInvoices: state.autoAdvanceInvoices,
     chargeAutomatically: state.chargeAutomatically,
     paymentMethodsConfig: buildProtoPaymentMethodsConfig(state.paymentMethodsType),
@@ -159,6 +169,9 @@ const buildCreateSubscriptionMessage = (state: CreateSubscriptionState, currency
         couponId: c.couponId,
       })),
     },
+    minimumCommitmentOverride: state.minimumOverride,
+    dropMinimumCommitment: !!state.dropMinimum,
+    customProperties: serializeCustomProperties(state.customProperties),
   }
 }
 
@@ -179,6 +192,12 @@ export const StepReviewAndCreate = () => {
   const planQuery = useQuery(
     getPlanWithVersionByVersionId,
     { localId: state.planVersionId! },
+    { enabled: !!state.planVersionId }
+  )
+
+  const componentsQuery = useQuery(
+    listPriceComponents,
+    { planVersionId: state.planVersionId! },
     { enabled: !!state.planVersionId }
   )
 
@@ -212,7 +231,10 @@ export const StepReviewAndCreate = () => {
   })
 
   const createFeatureMutation = useMutation(createFeature)
+  const netTermsDefault = useDefaultNetTerms(state)
 
+  const allComponents = componentsQuery.data?.components || []
+  const includedComponents = allComponents.filter(c => !state.components.removed.includes(c.id))
   const currency = planQuery.data?.plan?.version?.currency
 
   const selectedAddOns =
@@ -233,7 +255,7 @@ export const StepReviewAndCreate = () => {
   })
 
   // Server-computed first-invoice preview powering the Subscription Summary. It mirrors what
-  // creation will bill, so the totals reflect coupons and taxes.
+  // creation will bill, so the totals reflect coupons, taxes and the minimum-commitment floor.
   const previewInput = useMemo(
     () =>
       currency && state.customerId && state.planVersionId
@@ -370,7 +392,13 @@ export const StepReviewAndCreate = () => {
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground">Net Terms</div>
-                    <div className="font-medium">{state.netTerms} days</div>
+                    <div className="font-medium">
+                      {state.netTerms !== undefined
+                        ? formatNetTerms(state.netTerms)
+                        : netTermsDefault
+                          ? formatDefaultNetTerms(netTermsDefault)
+                          : '-'}
+                    </div>
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground">Activation</div>
@@ -394,8 +422,19 @@ export const StepReviewAndCreate = () => {
                   )}
                 </div>
 
-                {(state.invoiceMemo || state.invoiceThreshold || state.purchaseOrder) && (
+                {(state.invoiceMemo ||
+                  state.invoiceThreshold ||
+                  state.purchaseOrder ||
+                  state.usageFilter) && (
                   <div className="mt-4 pt-4 border-t space-y-2">
+                    {state.usageFilter && (
+                      <div>
+                        <div className="text-xs text-muted-foreground">Usage filter</div>
+                        <div className="text-sm font-mono">
+                          {formatUsageFilter(state.usageFilter)}
+                        </div>
+                      </div>
+                    )}
                     {state.purchaseOrder && (
                       <div>
                         <div className="text-xs text-muted-foreground">Purchase Order</div>
@@ -416,6 +455,17 @@ export const StepReviewAndCreate = () => {
                     )}
                   </div>
                 )}
+                {(previewQuery.data?.unfilteredOverlaps ?? []).length > 0 && (
+                  <Alert variant="warning" className="mt-4">
+                    <AlertDescription className="text-xs">
+                      Without a usage filter, this subscription and{' '}
+                      {previewQuery
+                        .data!.unfilteredOverlaps.map(overlap => overlap.planName)
+                        .join(', ')}{' '}
+                      (also without one) both bill the same events of the metrics they share.
+                    </AlertDescription>
+                  </Alert>
+                )}
               </CardContent>
             </Card>
 
@@ -431,6 +481,7 @@ export const StepReviewAndCreate = () => {
                     <CardContent>
                       <div className="space-y-2">
                         {selectedAddOns.map(addOn => {
+                          // const config = state.addOns.find(a => a.addOnId === addOn.id)
                           return (
                             <div key={addOn.id} className="flex items-center justify-between">
                               <span className="text-sm">{addOn.name}</span>
@@ -496,6 +547,44 @@ export const StepReviewAndCreate = () => {
                 </CardContent>
               </Card>
             )}
+            {/* Contract terms */}
+            {currency &&
+              (() => {
+                const planMinimum = planQuery.data?.plan?.version?.minimumCommitment
+                const effectiveMinimum = state.minimumOverride ?? (state.dropMinimum ? undefined : planMinimum)
+                // Only surface the card when there's something to say.
+                if (!effectiveMinimum && !state.dropMinimum) return null
+                const scopeOptions = productScopeOptions([
+                  ...includedComponents,
+                  ...state.components.extra.map(e => ({ name: e.name, productId: e.productId })),
+                ])
+                return (
+                  <Card>
+                    <CardHeader className="flex flex-row items-center gap-2">
+                      <CardTitle className="text-base">Contract terms</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <MinimumCommitmentDisplay
+                        currency={currency}
+                        components={scopeOptions}
+                        commitment={effectiveMinimum}
+                        badge={
+                          state.minimumOverride ? (
+                            <span className="inline-flex items-center rounded bg-brand/10 px-1.5 py-0.5 text-[11px] font-medium text-brand">
+                              Custom
+                            </span>
+                          ) : !state.dropMinimum && planMinimum ? (
+                            <span className="inline-flex items-center rounded border border-border px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                              From plan
+                            </span>
+                          ) : undefined
+                        }
+                        emptyText="No minimum (plan default removed for this subscription)"
+                      />
+                    </CardContent>
+                  </Card>
+                )
+              })()}
           </div>
 
           {/* Right Column - Server-computed first invoice preview */}

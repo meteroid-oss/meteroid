@@ -32,6 +32,49 @@ message SegmentationFilter {
   }
 }
 
+// A pre-aggregation WHERE-only filter on an event property. Distinct from
+// SegmentationFilter: it restricts which events are aggregated without splitting
+// (grouping) the result. IN keeps matching events; NOT_IN keeps events that carry
+// the property and whose value is none of `values` (presence-required negation).
+message PropertyFilter {
+  string property = 1;
+  FilterOp op = 2;
+  repeated string values = 3;
+
+  enum FilterOp {
+    IN = 0;
+    NOT_IN = 1;
+  }
+}
+
+// Which of a customer's events a subscription is billed for, applied after deduplication so each
+// event version lands in exactly one subscription. An event counts when its timestamp falls in a
+// segment and it passes that segment's conditions. Events lacking a property never match it.
+message UsageAttribution {
+  repeated Segment segments = 1;
+
+  message Segment {
+    // Unbounded when absent; `to` is exclusive.
+    optional google.protobuf.Timestamp from = 1;
+    optional google.protobuf.Timestamp to = 2;
+    optional EventMatch matching = 3;
+    // Events matching any of these, in its window, belong to another subscription.
+    repeated EventClaim excluded = 4;
+  }
+
+  message EventMatch {
+    string property = 1;
+    string value = 2;
+  }
+
+  message EventClaim {
+    string property = 1;
+    string value = 2;
+    google.protobuf.Timestamp from = 3;
+    optional google.protobuf.Timestamp to = 4;
+  }
+}
+
 // TODO this is for Usage meters. Does Cost meters have a different format ? (do we have subjects ?)
 message QueryMeterRequest {
   string tenant_id = 1;
@@ -47,6 +90,22 @@ message QueryMeterRequest {
   string code = 11;  // billable metric code
   optional SegmentationFilter segmentation_filter = 12;
   optional string value_property = 13;  // property to aggregate on (required for non-Count aggregations)
+  repeated PropertyFilter filters = 14;  // pre-aggregation WHERE-only property filters
+  bool keep_last_events = 15;  // the tenant's setting (ADR-0011): the last copy ingested wins
+  OriginFilter origin_filter = 16;
+  // Applies segmentation_filter as a filter only, so its segments aggregate into one row.
+  bool merge_segments = 17;
+  optional UsageAttribution attribution = 18;
+  // Breaks the result down by customer even when `customer_ids` is empty.
+  bool group_by_customer = 19;
+  // Keeps the N largest series of the breakdown: by customer when group_by_customer, else of
+  // the single group-by property. SUM/COUNT fold the rest into one "Other" row per window (no
+  // customer_id under group_by_customer, the property set to "Other" otherwise); other aggregations drop them.
+  optional uint32 top_n = 20;
+
+  enum OriginFilter {
+    ORIGIN_FILTER_ALL = 0;
+  }
 
   enum QueryWindowSize {
     MINUTE = 0;
@@ -58,6 +117,11 @@ message QueryMeterRequest {
 
 message QueryMeterResponse {
   repeated Usage usage = 1;
+  // Set by a server that applies `attribution`; a server predating it ignores the field.
+  bool attribution_applied = 2;
+  // Set by a server that applies `group_by_customer` and `top_n`, and marks `Usage.other`; one
+  // predating them ignores both.
+  bool grouping_applied = 3;
 
   message Usage {
     optional string customer_id = 1;
@@ -65,6 +129,8 @@ message QueryMeterResponse {
     google.protobuf.Timestamp window_start = 3;
     google.protobuf.Timestamp window_end = 4;
     map<string, DimensionValueField> dimensions = 5;
+    // The series beyond `top_n`, folded into one row per window (sum and count only).
+    bool other = 6;
 
     message DimensionValueField {
       optional string value = 1;
@@ -87,6 +153,16 @@ message QueryRawEventsRequest {
   // Sorting
   SortOrder sort_order = 9;
 
+  // Pre-aggregation property filters (WHERE-only) — list only events a metric would count.
+  repeated PropertyFilter filters = 10;
+
+  // The tenant's keep_last_events (ADR-0011).
+  bool keep_last_events = 11;
+
+  // Keyset pagination (timestamp sort orders only): resume strictly after this (timestamp, id).
+  optional int64 after_timestamp_nanos = 12;
+  optional string after_id = 13;
+
   enum SortOrder {
     TIMESTAMP_DESC = 0;
     TIMESTAMP_ASC = 1;
@@ -99,9 +175,214 @@ message QueryRawEventsResponse {
   repeated Event events = 1;
 }
 
+message PurgeTenantsRequest {
+  repeated string tenant_ids = 1;
+}
+
+message PurgeTenantsResponse {}
+
+message ListTenantFirstEventsRequest {
+  reserved 1;
+  reserved "tenant_ids";
+
+  // Empty = all tenants that have at least one event.
+  repeated TenantScan tenants = 2;
+
+  message TenantScan {
+    string tenant_id = 1;
+    // RFC3339. Scan from here; unset = no bound.
+    optional string from = 2;
+  }
+}
+
+message ListTenantFirstEventsResponse {
+  repeated TenantFirstEvent tenants = 1;
+
+  message TenantFirstEvent {
+    string tenant_id = 1;
+    google.protobuf.Timestamp first_ingested_at = 2;
+  }
+}
+
+message ListCustomerFirstEventsRequest {
+  string tenant_id = 1;
+  // The customers to look up. Bounds the scan; an empty list returns nothing.
+  repeated string customer_ids = 2;
+}
+
+message ListCustomerFirstEventsResponse {
+  repeated CustomerFirstEvent customers = 1;
+
+  message CustomerFirstEvent {
+    string customer_id = 1;
+    // RFC3339.
+    string first_ingested_at = 2;
+  }
+}
+
+message PollUsageActivityRequest {
+  // Return customers that received events after this instant.
+  google.protobuf.Timestamp since = 1;
+  // Only tenants whose hash falls in shard_index (of shard_count) are returned.
+  uint32 shard_index = 2;
+  uint32 shard_count = 3;
+  uint32 limit = 4;
+  // Resume strictly after this position, within the same `since`, to page past `limit`.
+  ActivityPosition after = 5;
+
+  message ActivityPosition {
+    google.protobuf.Timestamp last_seen_at = 1;
+    string tenant_id = 2;
+    string customer_id = 3;
+  }
+}
+
+message PollUsageActivityResponse {
+  // Ascending by last_seen_at.
+  repeated CustomerActivity customers = 1;
+
+  message CustomerActivity {
+    string tenant_id = 1;
+    string customer_id = 2;
+    google.protobuf.Timestamp last_seen_at = 3;
+    // The oldest event time among the events behind this activity.
+    google.protobuf.Timestamp min_event_at = 4;
+  }
+}
+
+message DiscoverPropertiesRequest {
+  string tenant_id = 1;
+  // The event code whose raw-event properties to introspect.
+  string event_code = 2;
+  // Trailing window in days (0 => server default) and max keys (0 => default).
+  uint32 lookback_days = 3;
+  uint32 limit = 4;
+}
+
+message DiscoveredProperty {
+  string key = 1;
+  uint64 cardinality = 2;
+  repeated string sample_values = 3;
+  // Fraction of non-empty values parseable as a number, in [0, 1] — best-effort
+  // number vs. text hint for the UI.
+  double numeric_ratio = 4;
+}
+
+message DiscoverPropertiesResponse {
+  repeated DiscoveredProperty properties = 1;
+}
+
+message DiscoverEventCodesRequest {
+  string tenant_id = 1;
+  // Optional case-insensitive substring filter on the code.
+  string search = 2;
+  // Max codes to return (0 => server default).
+  uint32 limit = 3;
+}
+
+// One distinct event code and how many events (of the tenant, in range) carried it.
+message EventCodeCount {
+  string code = 1;
+  uint64 count = 2;
+}
+
+message DiscoverEventCodesResponse {
+  repeated EventCodeCount codes = 1;
+}
+
+message DiscoverPropertyValuesRequest {
+  string tenant_id = 1;
+  string event_code = 2;
+  string property_key = 3;
+  // Optional case-insensitive substring filter on the value.
+  string search = 4;
+  // Max values to return (0 => server default).
+  uint32 limit = 5;
+}
+
+message DiscoverPropertyValuesResponse {
+  repeated PropertyValueCount values = 1;
+}
+
+message ProfileEventPropertiesRequest {
+  string tenant_id = 1;
+  // The event code whose raw-event properties to profile.
+  string event_code = 2;
+  // Inclusive lower / exclusive upper time bounds (epoch seconds). 0 => server
+  // defaults (trailing 30 days ending now).
+  int64 from_ts = 3;
+  int64 to_ts = 4;
+  // Top-N distinct values to return per key (0 => default) and max keys (0 => default).
+  uint32 top_values = 5;
+  uint32 limit = 6;
+}
+
+// One distinct value of a property and how many events carried it, for the
+// top-values distribution.
+message PropertyValueCount {
+  string value = 1;
+  uint64 count = 2;
+}
+
+// Distribution stats for a property whose values are (mostly) numeric.
+message PropertyNumericStats {
+  double min = 1;
+  double max = 2;
+  double avg = 3;
+  double sum = 4;
+  double p50 = 5;
+  double p95 = 6;
+}
+
+message PropertyProfile {
+  string key = 1;
+  // Events in range that carry this key.
+  uint64 event_count = 2;
+  // event_count / total events in range, in [0, 1] — the missing-data signal.
+  double coverage_ratio = 3;
+  // Distinct value count.
+  uint64 cardinality = 4;
+  // Fraction of non-empty values parseable as a number, in [0, 1].
+  double numeric_ratio = 5;
+  // Present only when the property is (mostly) numeric.
+  optional PropertyNumericStats numeric = 6;
+  // Most frequent values, highest count first (empty values excluded).
+  repeated PropertyValueCount top_values = 7;
+}
+
+message ProfileEventPropertiesResponse {
+  // Total events (of this code, in range) — the coverage denominator.
+  uint64 total_events = 1;
+  repeated PropertyProfile properties = 2;
+}
+
+// Metering query plane: raw-event meters and event search. The analytics/explore
+// plane (semantic metrics, segments, momentum, retention) lives in the separate
+// meteroid.analytics.v1.AnalyticsQueryService served by analytics-api.
 service UsageQueryService {
   rpc QueryMeter(QueryMeterRequest) returns (QueryMeterResponse);
-  // TODO add simpler impl for extensions ? (daily only etc) => look at what is required in code, and separate Query & Explore
+  // TODO add simpler impl for extensions ? (daily only etc) => look at what is required in code
 
   rpc QueryRawEvents(QueryRawEventsRequest) returns (QueryRawEventsResponse);
+
+  // Hard-delete all raw events for the given (deleted) tenants, batched.
+  rpc PurgeTenants(PurgeTenantsRequest) returns (PurgeTenantsResponse);
+
+  // First ingested event per tenant. Internal — powers dogfooding activation milestones.
+  rpc ListTenantFirstEvents(ListTenantFirstEventsRequest) returns (ListTenantFirstEventsResponse);
+
+  // First ingested event per customer of one tenant. Internal — powers the
+  // customer activation funnel's first-event milestone.
+  rpc ListCustomerFirstEvents(ListCustomerFirstEventsRequest) returns (ListCustomerFirstEventsResponse);
+
+  // Customers that recently received events. Internal — marks customers whose credit
+  // balance projection needs recomputing.
+  rpc PollUsageActivity(PollUsageActivityRequest) returns (PollUsageActivityResponse);
+
+  // Raw-event introspection for the billable-metric editor: event codes, property keys,
+  // property values and per-property distribution profiles of one tenant.
+  rpc DiscoverEventCodes(DiscoverEventCodesRequest) returns (DiscoverEventCodesResponse);
+  rpc DiscoverProperties(DiscoverPropertiesRequest) returns (DiscoverPropertiesResponse);
+  rpc DiscoverPropertyValues(DiscoverPropertyValuesRequest) returns (DiscoverPropertyValuesResponse);
+  rpc ProfileEventProperties(ProfileEventPropertiesRequest) returns (ProfileEventPropertiesResponse);
 }

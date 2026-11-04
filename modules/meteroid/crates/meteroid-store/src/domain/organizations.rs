@@ -1,16 +1,14 @@
 use crate::domain::{InvoicingEntityNew, Tenant};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use common_domain::country::CountryCode;
-use common_domain::ids::{OrganizationId, OrganizationInviteId};
+use common_domain::ids::{OrganizationId, OrganizationInviteId, RoleId};
 use common_utils::rng::UPPER_ALPHANUMERIC;
 use diesel_models::enums::OrganizationUserRole;
 use diesel_models::organization_invites::OrganizationInviteRow;
 use diesel_models::organizations::OrganizationRow;
 use nanoid::nanoid;
-use o2o::o2o;
 
-#[derive(Clone, Debug, o2o)]
-#[from_owned(OrganizationRow)]
+#[derive(Clone, Debug)]
 pub struct Organization {
     pub id: OrganizationId,
     pub slug: String,
@@ -21,6 +19,22 @@ pub struct Organization {
     pub created_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
     pub is_express: bool,
+    pub mfa_required: bool,
+}
+
+impl From<OrganizationRow> for Organization {
+    fn from(row: OrganizationRow) -> Self {
+        Organization {
+            id: row.id,
+            slug: row.slug,
+            trade_name: row.trade_name,
+            default_country: row.default_country,
+            created_at: row.created_at,
+            archived_at: row.archived_at,
+            is_express: row.is_express,
+            mfa_required: row.mfa_required,
+        }
+    }
 }
 
 pub struct OrganizationWithTenants {
@@ -57,6 +71,7 @@ pub struct OrganizationInvite {
     pub invited_email: String,
     pub invited_by_email: String,
     pub role: OrganizationUserRole,
+    pub custom_role_id: Option<RoleId>,
     pub created_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
     pub is_expired: bool,
@@ -71,6 +86,7 @@ impl OrganizationInvite {
             invited_email: row.invited_email,
             invited_by_email: inviter_email,
             role: row.role,
+            custom_role_id: row.role_id,
             created_at: row.created_at,
             expires_at: row.expires_at,
             is_expired,
@@ -83,4 +99,5 @@ pub struct InviteDetails {
     pub organization_name: String,
     pub role: OrganizationUserRole,
     pub invited_email: String,
+    pub custom_role_name: Option<String>,
 }

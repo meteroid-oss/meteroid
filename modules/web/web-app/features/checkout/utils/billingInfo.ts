@@ -1,19 +1,23 @@
-import { Customer } from '@/rpc/api/customers/v1/models_pb'
+interface BillingInformation {
+  billingEmail?: string
+  billingAddress?: {
+    line1?: string
+    city?: string
+    zipCode?: string
+    country?: string
+  }
+}
 
-const isSet = (value: string | undefined): boolean => !!value && value.trim().length > 0
+const isSet = (value?: string): boolean => !!value?.trim()
 
 // Mirrors the server-side `Customer::has_complete_billing_information`.
-export const hasCompleteBillingInformation = (customer?: Customer): boolean => {
-  if (!customer) return false
-
-  const hasEmail = isSet(customer.billingEmail)
-  const address = customer.billingAddress
-  const hasAddress =
-    !!address &&
-    isSet(address.line1) &&
-    isSet(address.city) &&
-    isSet(address.zipCode) &&
-    isSet(address.country)
-
-  return hasEmail && hasAddress
+export const hasCompleteBillingInformation = (customer?: BillingInformation): boolean => {
+  const address = customer?.billingAddress
+  return (
+    isSet(customer?.billingEmail) &&
+    isSet(address?.line1) &&
+    isSet(address?.city) &&
+    isSet(address?.zipCode) &&
+    isSet(address?.country)
+  )
 }

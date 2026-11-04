@@ -2,8 +2,8 @@ import { useSearchParams } from 'react-router-dom'
 
 import { Loader } from '@/features/auth/components/Loader'
 import { RegistrationForm } from '@/features/auth/components/RegistrationForm'
+import { INVITE_TOKEN_KEY } from '@/features/auth/invite'
 import { useQuery } from '@/lib/connectrpc'
-import { INVITE_TOKEN_KEY } from '@/pages/invite/acceptInvite'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 
 import type { FunctionComponent } from 'react'

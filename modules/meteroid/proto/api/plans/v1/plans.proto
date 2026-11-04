@@ -16,6 +16,7 @@ message CreateDraftPlanRequest {
   PlanType plan_type = 5;
   string currency = 6;
   repeated meteroid.api.entitlements.v1.EntitlementSpec entitlements = 7;
+  bool tax_inclusive = 8;
 }
 
 message CreateDraftPlanResponse {
@@ -84,6 +85,9 @@ message UpdateDraftPlanOverviewRequest {
   optional string description = 4;
   string currency = 5;
   uint32 net_terms = 6;
+  bool tax_inclusive = 7;
+  // Unset leaves the rule unchanged.
+  optional CreditExhaustedRule credit_exhausted_rule = 8;
 }
 
 message UpdateDraftPlanOverviewResponse {
@@ -97,6 +101,7 @@ message UpdatePublishedPlanOverviewRequest {
   string name = 3;
   optional string description = 4;
   optional int32 self_service_rank = 5;
+  optional bool issues_license = 6;
 }
 
 message UpdatePublishedPlanOverviewResponse {
@@ -168,6 +173,19 @@ message UnarchivePlanResponse {
 // Response message for all RPCs returning EmptyResponse
 message EmptyResponse {}
 
+message SetPlanMinimumCommitmentRequest {
+  string plan_version_id = 1;
+  MinimumCommitment minimum_commitment = 2;
+}
+message SetPlanMinimumCommitmentResponse {
+  MinimumCommitment minimum_commitment = 1;
+}
+
+message ClearPlanMinimumCommitmentRequest {
+  string plan_version_id = 1;
+}
+message ClearPlanMinimumCommitmentResponse {}
+
 service PlansService {
   rpc GetPlanOverview(GetPlanOverviewRequest) returns (GetPlanOverviewResponse) {}
   rpc GetPlanWithVersion(GetPlanWithVersionRequest) returns (GetPlanWithVersionResponse) {}
@@ -188,4 +206,7 @@ service PlansService {
   rpc GetPlanParameters(GetPlanParametersRequest) returns (GetPlanParametersResponse) {}
   rpc ArchivePlan(ArchivePlanRequest) returns (ArchivePlanResponse) {}
   rpc UnarchivePlan(UnarchivePlanRequest) returns (UnarchivePlanResponse) {}
+
+  rpc SetPlanMinimumCommitment(SetPlanMinimumCommitmentRequest) returns (SetPlanMinimumCommitmentResponse) {}
+  rpc ClearPlanMinimumCommitment(ClearPlanMinimumCommitmentRequest) returns (ClearPlanMinimumCommitmentResponse) {}
 }

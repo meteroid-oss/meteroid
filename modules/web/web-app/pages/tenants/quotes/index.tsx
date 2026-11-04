@@ -1,3 +1,5 @@
 export { CreateQuote } from './CreateQuote'
+export { EditQuote } from './EditQuote'
+export { NewQuote } from './NewQuote'
 export { Quote } from './Quote'
 export { Quotes } from './Quotes'

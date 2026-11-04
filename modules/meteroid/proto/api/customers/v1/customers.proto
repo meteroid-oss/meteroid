@@ -5,6 +5,7 @@ package meteroid.api.customers.v1;
 import "api/customers/v1/models.proto";
 import "api/invoices/v1/models.proto";
 import "common/v1/pagination.proto";
+import "common/v1/filters.proto";
 
 message CreateCustomerRequest {
   CustomerNew data = 1;
@@ -25,10 +26,22 @@ message ListCustomerRequest {
   optional string order_by = 2;
   meteroid.common.v1.Pagination pagination = 3;
   optional bool archived = 4;
+  // Derived lifecycle states (snake_case, e.g. "active_paying"); empty = no filter.
+  repeated string lifecycle_state = 5;
+  // ISO country codes to filter on (from billing address); empty = no filter.
+  repeated string country = 6;
+  // Dynamic filters over native columns and custom properties (field `cp:<key>`); AND-combined.
+  repeated meteroid.common.v1.Filter filters = 7;
 }
 message ListCustomerResponse {
   repeated CustomerBrief customers = 1;
   meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+message ListCustomerCountriesRequest {}
+message ListCustomerCountriesResponse {
+  // Distinct ISO country codes in use by the tenant's non-archived customers.
+  repeated string countries = 1;
 }
 
 message GetCustomerByIdRequest {
@@ -38,31 +51,18 @@ message GetCustomerByIdResponse {
   Customer customer = 1;
 }
 
+message ListCustomersByIdsRequest {
+  repeated string ids = 1;
+}
+message ListCustomersByIdsResponse {
+  repeated CustomerBrief customers = 1;
+}
+
 message GetCustomerByAliasRequest {
   string alias = 1;
 }
 message GetCustomerByAliasResponse {
   Customer customer = 1;
-}
-
-message TopUpCustomerBalanceRequest {
-  string customer_id = 1;
-  int64 cents = 2;
-  optional string notes = 3;
-}
-
-message TopUpCustomerBalanceResponse {
-  Customer customer = 1;
-}
-
-message BuyCustomerCreditsRequest {
-  string customer_id = 1;
-  int64 cents = 2;
-  optional string notes = 3;
-}
-
-message BuyCustomerCreditsResponse {
-  api.invoices.v1.DetailedInvoice invoice = 1;
 }
 
 message ArchiveCustomerRequest {
@@ -124,14 +124,70 @@ message DeleteCustomerConnectionRequest {
 
 message DeleteCustomerConnectionResponse {}
 
+// Assign (or, with an empty owner, unassign) the account owner for one or more
+// customers (ADR-0002). Bulk shape mirrors the sync RPCs so a worklist can assign
+// a page or a whole filter. Requires `customers:manage`.
+message AssignCustomerOwnerRequest {
+  repeated string customer_ids = 1;
+  // Target owner; omit / empty to unassign.
+  optional string owner_user_id = 2;
+}
+
+message AssignCustomerOwnerResponse {
+  // Number of customers whose owner was updated.
+  uint32 updated = 1;
+}
+
+// What an account is worth, whether it pays, and when its term ends or renews. Each part is left out
+// when the caller lacks its permission (receivables: invoices:read; term: subscriptions:read).
+message GetCustomerSummaryRequest {
+  string customer_id = 1;
+}
+
+message CustomerMoneyTotal {
+  string currency = 1;
+  int64 amount_cents = 2;
+  uint32 invoice_count = 3;
+}
+
+// Finalized invoices with an amount due, per currency.
+message CustomerReceivables {
+  repeated CustomerMoneyTotal open = 1;
+  repeated CustomerMoneyTotal overdue = 2;
+  optional string last_failure_at = 3;
+  optional string last_failure_reason = 4;
+  optional string last_failure_invoice_id = 5;
+  optional string next_retry_at = 6;
+}
+
+// The earliest renewal or scheduled end among the active subscriptions.
+message CustomerTerm {
+  string subscription_id = 1;
+  string plan_name = 2;
+  string date = 3;
+  // "renewing" | "ending".
+  string mode = 4;
+  // The pending cancellation behind an ending, when there is one.
+  optional string cancellation_event_id = 5;
+}
+
+message GetCustomerSummaryResponse {
+  // Billing MRR of the active subscriptions, in reporting_currency.
+  int64 mrr_cents = 1;
+  string reporting_currency = 2;
+  optional CustomerReceivables receivables = 3;
+  optional CustomerTerm term = 4;
+}
+
 service CustomersService {
   rpc CreateCustomer(CreateCustomerRequest) returns (CreateCustomerResponse) {}
   rpc UpdateCustomer(UpdateCustomerRequest) returns (UpdateCustomerResponse) {}
   rpc ListCustomers(ListCustomerRequest) returns (ListCustomerResponse) {}
+  rpc ListCustomerCountries(ListCustomerCountriesRequest) returns (ListCustomerCountriesResponse) {}
   rpc GetCustomerById(GetCustomerByIdRequest) returns (GetCustomerByIdResponse) {}
+  rpc GetCustomerSummary(GetCustomerSummaryRequest) returns (GetCustomerSummaryResponse) {}
+  rpc ListCustomersByIds(ListCustomersByIdsRequest) returns (ListCustomersByIdsResponse) {}
   rpc GetCustomerByAlias(GetCustomerByAliasRequest) returns (GetCustomerByAliasResponse) {}
-  rpc TopUpCustomerBalance(TopUpCustomerBalanceRequest) returns (TopUpCustomerBalanceResponse) {}
-  rpc BuyCustomerCredits(BuyCustomerCreditsRequest) returns (BuyCustomerCreditsResponse) {}
   rpc ArchiveCustomer(ArchiveCustomerRequest) returns (ArchiveCustomerResponse) {}
   rpc UnarchiveCustomer(UnarchiveCustomerRequest) returns (UnarchiveCustomerResponse) {}
   rpc SyncToHubspot(SyncToHubspotRequest) returns (SyncToHubspotResponse) {}
@@ -141,5 +197,7 @@ service CustomersService {
   rpc RefreshVatValidation(RefreshVatValidationRequest) returns (RefreshVatValidationResponse) {}
   rpc UpsertCustomerConnection(UpsertCustomerConnectionRequest) returns (UpsertCustomerConnectionResponse) {}
   rpc DeleteCustomerConnection(DeleteCustomerConnectionRequest) returns (DeleteCustomerConnectionResponse) {}
+  // Assign / unassign the account owner for one or more customers (ADR-0002).
+  rpc AssignCustomerOwner(AssignCustomerOwnerRequest) returns (AssignCustomerOwnerResponse) {}
 }
 

@@ -2,36 +2,24 @@ import { Download } from 'lucide-react'
 import { useState } from 'react'
 
 import { env } from '@/lib/env'
-import { InvoicePaymentStatus, InvoiceStatus } from '@/rpc/api/invoices/v1/models_pb'
 
-import { date, money } from '../format'
+import { date, invoiceBadge, invoiceCharge, money } from '../format'
 import { usePortalToken, useInvoices } from '../hooks'
-import { CenterState, LinkButton, Mono, PanelCard, PButton, Pill, Spinner } from '../primitives'
+import {
+  CenterState,
+  LinkButton,
+  Mono,
+  Pager,
+  PanelCard,
+  Pill,
+  Spinner,
+} from '../primitives'
 
-import type { StatusBadge } from '../format'
+import { UsageFilterTag } from './UsageFilterTag'
+
 import type { InvoiceSummary } from '@/rpc/portal/customer/v1/models_pb'
 
 const PER_PAGE = 8
-
-/** Map an invoice's payment status (or draft state) to a display badge. */
-const invoiceBadge = (invoice: InvoiceSummary): StatusBadge => {
-  if (invoice.status === InvoiceStatus.DRAFT) {
-    return { label: 'Draft', tone: 'neutral' }
-  }
-  switch (invoice.paymentStatus) {
-    case InvoicePaymentStatus.PAID:
-      return { label: 'Paid', tone: 'neutral' }
-    case InvoicePaymentStatus.PARTIALLY_PAID:
-      return { label: 'Partially paid', tone: 'warn' }
-    case InvoicePaymentStatus.ERRORED:
-      return { label: 'Errored', tone: 'danger' }
-    case InvoicePaymentStatus.PROCESSING:
-      return { label: 'Processing', tone: 'warn' }
-    case InvoicePaymentStatus.UNPAID:
-    default:
-      return { label: 'Unpaid', tone: 'warn' }
-  }
-}
 
 const HEAD: React.CSSProperties = {
   fontSize: 11.5,
@@ -47,6 +35,13 @@ const CELL: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   minWidth: 0,
+}
+
+const ELLIPSIS: React.CSSProperties = {
+  maxWidth: '100%',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 }
 
 /* Grid columns: Invoice · Date · Plan · Amount · Status · Actions */
@@ -137,8 +132,9 @@ export const InvoicesScreen = () => {
             <span style={{ ...HEAD, justifySelf: 'end' }}>Actions</span>
           </div>
 
-          {/* Rows */}
-          {invoices.map((invoice, i) => (
+          {invoices.map((invoice, i) => {
+            const { charged, creditLine } = invoiceCharge(invoice)
+            return (
             <div
               key={invoice.id}
               className="mtp-hoverable"
@@ -169,18 +165,23 @@ export const InvoicesScreen = () => {
                 style={{
                   ...CELL,
                   color: 'var(--mtp-text-2)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  display: 'block',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: 2,
                 }}
               >
-                {invoice.planName || '—'}
+                <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+                  <span style={ELLIPSIS}>{invoice.planName || '—'}</span>
+                  <UsageFilterTag subscriptionId={invoice.subscriptionId} />
+                </span>
+                {creditLine && (
+                  <span style={{ ...ELLIPSIS, fontSize: 12, color: 'var(--mtp-text-3)' }}>
+                    {creditLine}
+                  </span>
+                )}
               </div>
               <div style={{ ...CELL, justifyContent: 'flex-end' }}>
-                <Mono style={{ fontWeight: 500 }}>
-                  {money(invoice.totalCents, invoice.currency)}
-                </Mono>
+                <Mono style={{ fontWeight: 500 }}>{money(charged, invoice.currency)}</Mono>
               </div>
               <div style={CELL}>
                 <Pill badge={invoiceBadge(invoice)} />
@@ -204,43 +205,18 @@ export const InvoicesScreen = () => {
                 )}
               </div>
             </div>
-          ))}
+            )
+          })}
 
-          {/* Pagination */}
           {(hasPrev || hasNext) && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-                padding: '14px 20px',
-                borderTop: '1px solid var(--mtp-border)',
-              }}
-            >
-              <span style={{ fontSize: 12, color: 'var(--mtp-text-3)' }}>
-                Page {page}
-                {totalPages > 0 ? ` of ${totalPages}` : ''}
-              </span>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <PButton
-                  variant="secondary"
-                  size="sm"
-                  disabled={!hasPrev}
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                >
-                  Previous
-                </PButton>
-                <PButton
-                  variant="secondary"
-                  size="sm"
-                  disabled={!hasNext}
-                  onClick={() => setPage(p => p + 1)}
-                >
-                  Next
-                </PButton>
-              </div>
-            </div>
+            <Pager
+              page={page}
+              totalPages={totalPages}
+              hasPrev={hasPrev}
+              hasNext={hasNext}
+              onPrev={() => setPage(p => Math.max(1, p - 1))}
+              onNext={() => setPage(p => p + 1)}
+            />
           )}
         </PanelCard>
       )}

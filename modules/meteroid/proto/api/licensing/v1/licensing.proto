@@ -1,0 +1,144 @@
+syntax = "proto3";
+
+package meteroid.api.licensing.v1;
+
+// The instance's license, as resolved now.
+message LicenseInfo {
+  // cloud or self_hosted.
+  string mode = 1;
+  string customer = 2;
+  string license_id = 3;
+  string expires_at = 4;
+  optional string subscription_id = 5;
+  optional string plan = 6;
+}
+
+message GetLicenseStatusRequest {}
+
+enum LicenseCondition {
+  // Never licensed: the free tier.
+  LICENSE_CONDITION_UNLICENSED = 0;
+  LICENSE_CONDITION_LICENSED = 1;
+  LICENSE_CONDITION_EXPIRED = 2;
+  // LICENSE_KEY was issued to another installation.
+  LICENSE_CONDITION_WITHDRAWN = 3;
+  LICENSE_CONDITION_REJECTED = 4;
+  LICENSE_CONDITION_REVOKED = 5;
+}
+
+message GetLicenseStatusResponse {
+  string instance_id = 1;
+  // Public half of the instance key, for registering an air-gapped instance.
+  string instance_public_key = 2;
+  // Set through LICENSE_KEY; online activation is then unavailable.
+  bool offline = 3;
+  bool activated = 4;
+  // Absent on the free tier.
+  optional LicenseInfo license = 5;
+  optional string refreshed_at = 6;
+  optional string last_error = 7;
+  // The current license expires soon: within 2 days for an online license that wasn't refreshed,
+  // within 30 days for an offline or cloud license.
+  bool expiring_soon = 8;
+  // Meteroid Cloud's own license, shown read-only to platform admins.
+  bool cloud = 9;
+  LicenseCondition condition = 10;
+  // Why the instance has no valid license: the rejection, withdrawal or revocation.
+  optional string condition_reason = 11;
+  // When the license that lapsed expired.
+  optional string expired_at = 12;
+  // Another copy of this installation (a clone, or the original of a restored backup) refreshes
+  // the license, so this one isn't renewed.
+  bool held_by_another_copy = 13;
+}
+
+message ActivateLicenseRequest {
+  string activation_code = 1;
+}
+
+message ActivateLicenseResponse {
+  GetLicenseStatusResponse status = 1;
+}
+
+message RefreshLicenseRequest {
+  // Takes the license over from another copy of this installation, which stops being renewed.
+  bool take_over = 1;
+}
+
+message RefreshLicenseResponse {
+  GetLicenseStatusResponse status = 1;
+}
+
+// Revenue of the production tenants as usage events, for an instance that can't report online.
+message ExportUsageRequest {
+  // Finalized from this date (YYYY-MM-DD), inclusive.
+  string from = 1;
+  // Until this date (YYYY-MM-DD), exclusive.
+  string to = 2;
+}
+
+message ExportUsageResponse {
+  // CSV in the events import format, signed by the instance on its last line.
+  string csv = 1;
+  uint32 event_count = 2;
+}
+
+// A way to subscribe to Meteroid from this instance.
+message LicenseOffer {
+  string id = 1;
+  string plan_name = 2;
+  optional string description = 3;
+}
+
+message ListLicenseOffersRequest {}
+
+message ListLicenseOffersResponse {
+  repeated LicenseOffer offers = 1;
+}
+
+message StartLicensePurchaseRequest {
+  string offer_id = 1;
+}
+
+message StartLicensePurchaseResponse {
+  // Meteroid's purchase page, carrying a request signed by this instance so the
+  // resulting license is delivered here. Open it in a new tab.
+  string purchase_url = 1;
+}
+
+// Picks up a license purchased for this instance, if any yet.
+message ClaimLicenseRequest {}
+
+message ClaimLicenseResponse {
+  bool claimed = 1;
+  GetLicenseStatusResponse status = 2;
+}
+
+// Installs an offline license (air-gapped instances) without restarting.
+message InstallLicenseRequest {
+  string license = 1;
+}
+
+message InstallLicenseResponse {
+  GetLicenseStatusResponse status = 1;
+}
+
+// Accepts the free tier once the license lapsed and is no longer renewed.
+message ClearLapsedLicenseRequest {}
+
+message ClearLapsedLicenseResponse {
+  GetLicenseStatusResponse status = 1;
+}
+
+// The instance's own license: activation against Meteroid, status and usage export.
+service LicensingService {
+  rpc GetLicenseStatus(GetLicenseStatusRequest) returns (GetLicenseStatusResponse) {}
+  rpc ActivateLicense(ActivateLicenseRequest) returns (ActivateLicenseResponse) {}
+  rpc RefreshLicense(RefreshLicenseRequest) returns (RefreshLicenseResponse) {}
+  rpc ExportUsage(ExportUsageRequest) returns (ExportUsageResponse) {}
+  rpc ListLicenseOffers(ListLicenseOffersRequest) returns (ListLicenseOffersResponse) {}
+  rpc StartLicensePurchase(StartLicensePurchaseRequest) returns (StartLicensePurchaseResponse) {}
+  rpc ClaimLicense(ClaimLicenseRequest) returns (ClaimLicenseResponse) {}
+  rpc InstallLicense(InstallLicenseRequest) returns (InstallLicenseResponse) {}
+  rpc ClearLapsedLicense(ClearLapsedLicenseRequest) returns (ClearLapsedLicenseResponse) {}
+}

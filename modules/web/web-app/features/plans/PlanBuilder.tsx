@@ -11,28 +11,34 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Loading } from '@/components/Loading'
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { SimpleTable } from '@/components/table/SimpleTable'
+import { Slot, hasSlot } from '@/edition'
 import {
   ResolvedEntitlementsPanel,
   ResolvedEntitlementsPanelHandle,
 } from '@/features/entitlements/resolved/ResolvedEntitlementsPanel'
 import { ListPlanVersionTab } from '@/features/plans/ListPlanVersion'
 import { PlanActions } from '@/features/plans/PlanActions'
+import { PlanStatusBadge } from '@/features/plans/PlanStatusBadge'
 import { AddOnSection } from '@/features/plans/addons/AddOnSection'
-import { PlanOverview } from '@/features/plans/details/PlanDetails'
+import { useCreditPaidLabels } from '@/features/plans/creditPaidMetrics'
+import { PlanOverview, PlanVersionFooter } from '@/features/plans/details/PlanDetails'
 import {
   useIsDraftVersion,
   usePlanOverview,
   usePlanWithVersion,
 } from '@/features/plans/hooks/usePlan'
+import { PlanMinimumCommitmentDisplay } from '@/features/plans/minimum/PlanMinimumCommitment'
 import { PriceComponentSection } from '@/features/plans/pricecomponents/PriceComponentSection'
 import { editedComponentsAtom } from '@/features/plans/pricecomponents/utils'
 import { PlanTrial } from '@/features/plans/trial/PlanTrial'
+import { CreditRateOptionalContext } from '@/features/pricing/CreditUnitPriceFields'
+import { PurchaseLinksSection } from '@/features/purchase-links/PurchaseLinksSection'
 import { SubscriptionsTable } from '@/features/subscriptions'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
-import { PlanType } from '@/rpc/api/plans/v1/models_pb'
+import { CreditExhaustedRule_Kind, PlanStatus, PlanType } from '@/rpc/api/plans/v1/models_pb'
 import { listSubscriptions } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 
 interface Props {
@@ -54,82 +60,94 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
   //    This excludes specific numbered versions like /plans/123/2
   const showDraftAlert = !isDraft && overview?.hasDraftVersion && !planVersion
 
+  // A version that has not chosen its rule pauses by default once it prices usage in credits.
+  const rateOptional =
+    !version?.creditExhaustedRule ||
+    version.creditExhaustedRule.kind === CreditExhaustedRule_Kind.PAUSE
+
   return (
     <ScopeProvider atoms={[editedComponentsAtom]}>
-      <div className="flex h-full w-full flex-col space-y-4">
-        <section className="flex justify-between pb-2 border-b border-border">
-          <div className="flex space-x-2 flex-row items-center">
-            <ChevronLeftIcon
-              className="text-2xl font-semibold cursor-pointer"
-              onClick={() => navigate('..')}
-            />
-            <h2 className="text-2xl font-semibold">{overview?.name}</h2>
-          </div>
-          <div className="flex space-x-6  self-center">
-            <PlanActions/>
-          </div>
-        </section>
+      <CreditRateOptionalContext.Provider value={rateOptional}>
+        <div className="flex h-full w-full flex-col space-y-4">
+          <section className="flex justify-between pb-2 border-b border-border">
+            <div className="flex space-x-2 flex-row items-center">
+              <ChevronLeftIcon
+                className="text-2xl font-semibold cursor-pointer"
+                onClick={() => navigate('..')}
+              />
+              <h2 className="text-2xl font-semibold">{overview?.name}</h2>
+              {version?.isDraft ? (
+                <PlanStatusBadge status={PlanStatus.DRAFT} />
+              ) : (
+                overview && <PlanStatusBadge status={overview.planStatus} />
+              )}
+            </div>
+            <div className="flex space-x-6  self-center">
+              <PlanActions/>
+            </div>
+          </section>
 
-        {isDraft && version && !version.usesProductPricing && (
-          <div className="relative">
-            <div className="opacity-20 pointer-events-none select-none" aria-hidden>
-              <PlanBody/>
-            </div>
-            <div className="absolute inset-0 flex items-start justify-center pt-16">
-              <OutdatedDraftAlert />
-            </div>
-          </div>
-        )}
-        {isDraft && (!version || version.usesProductPricing) && <PlanBody/>}
-        {!isDraft && (
-          <>
-            {showDraftAlert && (
-              <>
-                <Alert variant="brand" className="flex  gap-2 items-center">
-                  <div>
-                    <InfoIcon size={16} className="flex text-brand  "/>
-                  </div>
-                  <span className="text-foreground text-xs grow flex gap-1">
-                    A{' '}
-                    <Link to={`../${overview.localId}/draft`} className="hover:underline">
-                      draft version
-                    </Link>{' '}
-                    has unpublished changes
-                  </span>
-                  <div className="text-xs">
-                    <Button size="sm" variant="link" className="h-fit" hasIcon asChild>
-                      <Link to={`../${overview.localId}/draft`}>
-                        Open draft <ExternalLinkIcon size="12"/>
-                      </Link>
-                    </Button>
-                  </div>
-                </Alert>
-              </>
-            )}
-            <Tabs defaultValue="overview" className="w-full">
-              <TabsList className="w-full justify-start">
-                <TabsTrigger value="overview">Details</TabsTrigger>
-                <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
-                <TabsTrigger value="alerts">Alerts</TabsTrigger>
-                <TabsTrigger value="versions">History</TabsTrigger>
-              </TabsList>
-              <TabsContent value="overview">
+          {isDraft && version && !version.usesProductPricing && (
+            <div className="relative">
+              <div className="opacity-20 pointer-events-none select-none" aria-hidden>
                 <PlanBody/>
-              </TabsContent>
-              <TabsContent value="subscriptions">
-                <SubscriptionsTab/>
-              </TabsContent>
-              <TabsContent value="alerts">
-                <>Alerts are not implemented yet</>
-              </TabsContent>
-              <TabsContent value="versions">
-                <ListPlanVersionTab/>
-              </TabsContent>
-            </Tabs>
-          </>
-        )}
-      </div>
-      {children}
+              </div>
+              <div className="absolute inset-0 flex items-start justify-center pt-16">
+                <OutdatedDraftAlert />
+              </div>
+            </div>
+          )}
+          {isDraft && (!version || version.usesProductPricing) && <PlanBody/>}
+          {!isDraft && (
+            <>
+              {showDraftAlert && (
+                <>
+                  <Alert variant="brand" className="flex  gap-2 items-center">
+                    <div>
+                      <InfoIcon size={16} className="flex text-brand  "/>
+                    </div>
+                    <span className="text-foreground text-xs grow flex gap-1">
+                      A{' '}
+                      <Link to={`../${overview.localId}/draft`} className="hover:underline">
+                        draft version
+                      </Link>{' '}
+                      has unpublished changes
+                    </span>
+                    <div className="text-xs">
+                      <Button size="sm" variant="link" className="h-fit" hasIcon asChild>
+                        <Link to={`../${overview.localId}/draft`}>
+                          Open draft <ExternalLinkIcon size="12"/>
+                        </Link>
+                      </Button>
+                    </div>
+                  </Alert>
+                </>
+              )}
+              <Tabs defaultValue="overview" className="w-full">
+                <TabsList className="w-full justify-start">
+                  <TabsTrigger value="overview">Details</TabsTrigger>
+                  <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
+                  <TabsTrigger value="alerts">Alerts</TabsTrigger>
+                  <TabsTrigger value="versions">History</TabsTrigger>
+                </TabsList>
+                <TabsContent value="overview">
+                  <PlanBody/>
+                </TabsContent>
+                <TabsContent value="subscriptions">
+                  <SubscriptionsTab/>
+                </TabsContent>
+                <TabsContent value="alerts">
+                  <>Alerts are not implemented yet</>
+                </TabsContent>
+                <TabsContent value="versions">
+                  <ListPlanVersionTab/>
+                </TabsContent>
+              </Tabs>
+            </>
+          )}
+        </div>
+        {children}
+      </CreditRateOptionalContext.Provider>
     </ScopeProvider>
   )
 }
@@ -210,6 +228,7 @@ const SubscriptionsTab = () => {
 
 const EntitlementsSectionForPlanVersion = ({ planVersionId }: { planVersionId: string }) => {
   const panelRef = useRef<ResolvedEntitlementsPanelHandle>(null)
+  const creditPaidLabels = useCreditPaidLabels(planVersionId)
   return (
     <PageSection
       header={{
@@ -231,6 +250,8 @@ const EntitlementsSectionForPlanVersion = ({ planVersionId }: { planVersionId: s
         entity={{ type: 'plan-version', id: planVersionId }}
         canPin={true}
         hideAddButton
+        hidePinAll
+        meteredLabels={creditPaidLabels}
       />
     </PageSection>
   )
@@ -261,6 +282,24 @@ const PlanBody = () => {
         <>
           <PriceComponentSection/>
         </>
+      )}
+
+      {plan.planType !== PlanType.FREE &&
+        current &&
+        (hasSlot('planDetail.minimumCommitment') || current.minimumCommitment) && (
+        <PageSection
+          header={{
+            title: 'Contract terms',
+            subtitle:
+              'Commercial terms applied to subscriptions on this plan. A minimum guarantees an invoice amount per billing period',
+          }}
+        >
+          {hasSlot('planDetail.minimumCommitment') ? (
+            <Slot name="planDetail.minimumCommitment" planVersion={current} />
+          ) : (
+            <PlanMinimumCommitmentDisplay planVersion={current} />
+          )}
+        </PageSection>
       )}
 
       <PageSection
@@ -324,9 +363,15 @@ const PlanBody = () => {
 
       <AddOnSection />
 
+      <PurchaseLinksSection />
+
       {env.entitlementsEnabled && (
         <EntitlementsSectionForPlanVersion planVersionId={current.id} />
       )}
+
+      <Slot name="planDetail.sections" planVersionId={current.id} />
+
+      <PlanVersionFooter plan={plan} version={current} />
     </>
   )
 }

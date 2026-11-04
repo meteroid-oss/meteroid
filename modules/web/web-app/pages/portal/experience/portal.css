@@ -121,3 +121,11 @@
 .mtp-pulse {
   animation: mtp-pulse 1.4s ease-in-out infinite;
 }
+
+.mtp-hatch {
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--mtp-fill) 45%, transparent) 0 4px,
+    transparent 4px 8px
+  );
+}

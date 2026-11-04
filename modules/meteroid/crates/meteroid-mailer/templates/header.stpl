@@ -1,14 +1,35 @@
-<div class="header">
-  <div class="logo-container">
-    <% if let Some(logo_url) = logo_url { %>
-      <img src="<%= logo_url %>" alt="<%= company_name %>" class="logo">
-    <% } else { %>
-      <svg class="logo" viewBox="0 0 24 24" fill="none">
-        <title>Checkmark</title>
-        <circle cx="12" cy="12" r="10" fill="black"/>
-        <path d="M8 12L11 15L16 10" stroke="white" stroke-width="2"/>
-      </svg>
-    <% } %>
-    <span class="logo-text"><%= company_name.to_uppercase() %></span>
-  </div>
-</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+<% if let Some(notice) = &test_notice { %>
+  <tr>
+    <td class="test-notice card-pad" align="center" bgcolor="#fef3c7" style="padding:10px 40px;background-color:#fef3c7;border-bottom:1px solid #fde68a;border-radius:11px 11px 0 0;font-size:13px;line-height:18px;font-weight:500;color:#92400e;text-align:center;"><%= notice %></td>
+  </tr>
+<% } %>
+<% if let Some(bar) = &brand_color { %>
+<% let bar_radius = if test_notice.is_some() { "0" } else { "11px 11px 0 0" }; %>
+  <tr>
+    <td class="brand-bar" height="4" bgcolor="<%= bar %>" style="height:4px;font-size:0;line-height:0;background-color:<%= bar %>;border-radius:<%= bar_radius %>;">&nbsp;</td>
+  </tr>
+<% } %>
+  <tr>
+    <td class="card-pad" style="padding:32px 40px 0;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+<% if let Some(logo_url) = &logo_url { %>
+          <td valign="middle">
+<% if let Some((width, height)) = logo_size { %>
+            <img src="<%= logo_url %>" alt="<%= company_name %>" width="<%= width %>" height="<%= height %>" style="display:block;width:<%= width %>px;height:<%= height %>px;border:0;">
+<% } else { %>
+            <img src="<%= logo_url %>" alt="<%= company_name %>" height="32" style="display:block;height:32px;width:auto;max-width:180px;border:0;">
+<% } %>
+          </td>
+<% } else if !company_name.is_empty() { %>
+<% let fill = brand_color.as_deref().unwrap_or("#111318"); %>
+<% let initial: String = company_name.chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_default(); %>
+          <td class="monogram" valign="middle" align="center" width="32" height="32" bgcolor="<%= fill %>" style="width:32px;height:32px;border-radius:8px;background-color:<%= fill %>;font-size:15px;line-height:32px;font-weight:600;color:<%= crate::template::on_color(fill) %>;text-align:center;"><%= initial %></td>
+          <td valign="middle" style="padding-left:12px;font-size:15px;line-height:20px;font-weight:600;color:#111318;"><%= company_name %></td>
+<% } %>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>

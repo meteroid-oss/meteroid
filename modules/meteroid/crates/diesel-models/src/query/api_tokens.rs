@@ -1,8 +1,9 @@
 use crate::api_tokens::{ApiTokenRow, ApiTokenRowNew, ApiTokenValidationRow};
+use crate::enums::TenantStatusEnum;
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 use common_domain::ids::{ApiTokenId, TenantId};
-use diesel::{ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper, debug_query};
+use diesel::{ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
 use error_stack::ResultExt;
 
 impl ApiTokenRowNew {
@@ -12,7 +13,7 @@ impl ApiTokenRowNew {
 
         let query = diesel::insert_into(api_token).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -29,7 +30,7 @@ impl ApiTokenRow {
 
         let query = api_token.filter(id.eq(param_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -67,12 +68,41 @@ impl ApiTokenRow {
 
         let query = api_token.filter(tenant_id.eq(param_tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
             .await
             .attach("Error while fetching api tokens by tenant id")
+            .into_db_result()
+    }
+
+    /// Stamps usage timestamps; debounced by the auth-layer validation caches.
+    pub async fn record_usage(
+        conn: &mut PgConn,
+        param_id: &ApiTokenId,
+        used_at: chrono::NaiveDateTime,
+    ) -> DbResult<usize> {
+        use crate::schema::api_token::dsl::{api_token, first_used_at, id, last_used_at};
+        use diesel::NullableExpressionMethods;
+        use diesel_async::RunQueryDsl;
+
+        diesel::define_sql_function! {
+            #[sql_name = "COALESCE"]
+            fn coalesce_ts(x: diesel::sql_types::Nullable<diesel::sql_types::Timestamp>, y: diesel::sql_types::Timestamp) -> diesel::sql_types::Timestamp;
+        }
+
+        let query = diesel::update(api_token.filter(id.eq(param_id))).set((
+            last_used_at.eq(used_at),
+            first_used_at.eq(coalesce_ts(first_used_at, used_at).nullable()),
+        ));
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while recording api token usage")
             .into_db_result()
     }
 
@@ -90,7 +120,7 @@ impl ApiTokenRow {
                 .filter(tenant_id.eq(param_tenant_id)),
         );
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -112,9 +142,13 @@ impl ApiTokenValidationRow {
         let query = at_dsl::api_token
             .inner_join(t_dsl::tenant.on(t_dsl::id.eq(at_dsl::tenant_id)))
             .filter(at_dsl::id.eq(api_token_id))
+            .filter(t_dsl::status.ne_all([
+                TenantStatusEnum::MarkedForDeletion,
+                TenantStatusEnum::PendingDeletion,
+            ]))
             .select(ApiTokenValidationRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)

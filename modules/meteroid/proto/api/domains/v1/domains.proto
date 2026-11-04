@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package meteroid.api.domains.v1;
+
+// An organization-owned domain and its DNS-TXT ownership proof. A shared
+// primitive consumed by SSO (login routing/enforcement) and, later, white-label
+// custom domains and email.
+message OrganizationDomain {
+  string id = 1;
+  string organization_id = 2;
+  string domain = 3;
+  bool verified = 4;
+  // Publish this at `_meteroid-challenge.<domain>` (TXT) to prove ownership.
+  string verification_token = 5;
+  optional string verified_at = 6;
+  string created_at = 7;
+  // Human-readable result of the last verify attempt (only set in VerifyDomains
+  // responses; empty otherwise).
+  optional string verification_detail = 8;
+}
+
+message ListDomainsRequest {}
+message ListDomainsResponse {
+  repeated OrganizationDomain domains = 1;
+}
+
+message AddDomainRequest {
+  string domain = 1;
+}
+message AddDomainResponse {
+  OrganizationDomain domain = 1;
+}
+
+message RemoveDomainRequest {
+  string domain = 1;
+}
+message RemoveDomainResponse {}
+
+message VerifyDomainsRequest {}
+message VerifyDomainsResponse {
+  repeated OrganizationDomain domains = 1;
+}
+
+// Admin-only org domain ownership. Gated to organizations that have a feature
+// consuming domains (SSO or white-label).
+service DomainsService {
+  rpc ListDomains(ListDomainsRequest) returns (ListDomainsResponse) {}
+  rpc AddDomain(AddDomainRequest) returns (AddDomainResponse) {}
+  rpc RemoveDomain(RemoveDomainRequest) returns (RemoveDomainResponse) {}
+  // Re-check DNS TXT records and promote any that now pass.
+  rpc VerifyDomains(VerifyDomainsRequest) returns (VerifyDomainsResponse) {}
+}

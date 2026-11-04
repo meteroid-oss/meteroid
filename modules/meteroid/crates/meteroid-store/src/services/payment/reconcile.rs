@@ -15,23 +15,29 @@
 //! machine guarantees (skip-if-terminal, etc.) apply uniformly.
 //!
 //! Scheduling. The `reconciliation_worker` sweeps on an interval, listing
-//! `list_pending_with_provider_id` (Pending rows older than an age threshold
-//! that already carry a provider id) and calling
+//! `claim_pending_for_reconcile` (Pending rows older than an age threshold
+//! that already carry a provider id, each backed off by its age) and calling
 //! [`Services::reconcile_pending_transaction`] for each.
+//!
+//! Refunds. A second pass does the same for REFUND rows still Pending at the provider,
+//! through [`Services::reconcile_pending_refund`]. Providers with no refund GET answer
+//! `Unsupported`; those rows are skipped and wait for their webhook.
 
 use crate::StoreResult;
-use crate::adapters::payment::initialize_payment_connector;
-use crate::adapters::payment::model::RemoteTransactionStatus;
+use crate::adapters::payment::error::ConnectorError;
+use crate::adapters::payment::model::{RemoteRefundStatus, RemoteTransactionStatus};
 use crate::domain::PaymentStatusEnum;
-use crate::domain::connectors::Connector;
-use crate::domain::payment_transactions::PaymentIntent;
+use crate::domain::entity_activity::Actor;
+use crate::domain::payment_transactions::{PaymentIntent, PaymentTransaction};
 use crate::errors::StoreError;
-use crate::repositories::payment_transactions::PaymentTransactionInterface;
+use crate::repositories::payment_transactions::{
+    PaymentTransactionInterface, RefundSettlement, RefundSettlementStatus,
+};
 use crate::services::Services;
+use crate::store::PgConn;
 use common_domain::ids::{PaymentTransactionId, TenantId};
-use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
 use diesel_models::payments::PaymentTransactionRow;
-use error_stack::{Report, ResultExt};
+use error_stack::ResultExt;
 use scoped_futures::ScopedFutureExt;
 
 impl Services {
@@ -67,32 +73,19 @@ impl Services {
             return Ok(());
         };
 
-        // Resolve the connector via the payment method → connection chain.
-        let method_id = row.payment_method_id.ok_or_else(|| {
-            Report::new(StoreError::InvalidArgument(
-                "transaction has no payment method".into(),
-            ))
-        })?;
-        let method = CustomerPaymentMethodRow::get_by_id(&mut conn, &tenant_id, &method_id)
-            .await
-            .map_err(|err| StoreError::DatabaseError(err.error))?;
-        let connection =
-            diesel_models::customer_connection::CustomerConnectionDetailsRow::get_by_id(
-                &mut conn,
-                &tenant_id,
-                &method.connection_id,
-            )
-            .await
-            .map_err(|err| StoreError::DatabaseError(err.error))?;
-
-        let connector = Connector::from_row(&self.store.settings.crypt_key, connection.connector)?;
-        let connector_impl = initialize_payment_connector(&connector)
-            .change_context(StoreError::PaymentProviderError)?;
+        let connector_impl = self.resolve_transaction_connector(&mut conn, &row).await?;
 
         let remote_status = connector_impl
-            .fetch_transaction_status(&connector, &external_id)
+            .fetch_transaction_status(&external_id)
             .await
             .change_context(StoreError::PaymentProviderError)?;
+
+        // Processing: the customer finished whatever was asked of them (3DS, a redirect).
+        if matches!(remote_status, RemoteTransactionStatus::Processing) {
+            PaymentTransactionRow::clear_awaited_action(&mut conn, transaction_id, tenant_id)
+                .await
+                .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+        }
 
         if matches!(remote_status, RemoteTransactionStatus::Unknown) {
             // We only reach here for a row that carries a provider id (the worker
@@ -145,6 +138,108 @@ impl Services {
 
         Ok(())
     }
+
+    /// Resolve a REFUND row still Pending at the provider and apply what it says. Idempotent:
+    /// `settle_refund_tx` no-ops on a row that already reached a terminal state. A provider
+    /// with no refund GET answers `Unsupported`; the row is left for its webhook.
+    pub async fn reconcile_pending_refund(
+        &self,
+        refund_id: PaymentTransactionId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        let mut conn = self.store.get_conn().await?;
+
+        let row = PaymentTransactionRow::get_by_id(&mut conn, refund_id, tenant_id)
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+        if row.status != diesel_models::enums::PaymentStatusEnum::Pending {
+            log::debug!(
+                "Refund {} is no longer pending ({:?}); nothing to reconcile",
+                refund_id,
+                row.status
+            );
+            return Ok(());
+        }
+
+        let Some(external_refund_id) = row.provider_transaction_id.clone() else {
+            log::warn!("Refund {refund_id} has no provider refund id; cannot reconcile by id");
+            return Ok(());
+        };
+
+        let connector_impl = self.resolve_transaction_connector(&mut conn, &row).await?;
+
+        let parent_external_id = match row.parent_transaction_id {
+            Some(parent_id) => {
+                PaymentTransactionRow::get_by_id(&mut conn, parent_id, tenant_id)
+                    .await
+                    .map_err(|err| StoreError::DatabaseError(err.error))?
+                    .provider_transaction_id
+            }
+            None => None,
+        };
+        drop(conn);
+
+        let snapshot = match connector_impl
+            .fetch_refund(&external_refund_id, parent_external_id.as_deref())
+            .await
+        {
+            Ok(snapshot) => snapshot,
+            Err(err) if matches!(err.current_context(), ConnectorError::Unsupported { .. }) => {
+                log::debug!(
+                    "Provider cannot resolve refund {external_refund_id}; leaving refund {refund_id} pending"
+                );
+                return Ok(());
+            }
+            Err(err) => return Err(err.change_context(StoreError::PaymentProviderError)),
+        };
+
+        let status = match snapshot.status {
+            // Still in flight at the provider: nothing to record.
+            RemoteRefundStatus::Pending => return Ok(()),
+            RemoteRefundStatus::Succeeded => RefundSettlementStatus::Settled {
+                processed_at: chrono::Utc::now().naive_utc(),
+                external_refund_id,
+            },
+            RemoteRefundStatus::Failed { message, .. } => RefundSettlementStatus::Failed {
+                error: message,
+                external_refund_id: Some(external_refund_id),
+            },
+            RemoteRefundStatus::Canceled => RefundSettlementStatus::Failed {
+                error: "Cancelled by the payment provider".to_string(),
+                external_refund_id: Some(external_refund_id),
+            },
+        };
+
+        let store = self.store.clone();
+        self.store
+            .transaction(|conn| {
+                let store = store.clone();
+                let status = status.clone();
+                // Unlocked: `settle_refund_tx` locks the parent first, then re-reads this row.
+                let refund: PaymentTransaction = row.clone().into();
+                async move {
+                    store
+                        .settle_refund_tx(conn, &Actor::System, refund, RefundSettlement { status })
+                        .await?;
+                    Ok(())
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        Ok(())
+    }
+
+    async fn resolve_transaction_connector(
+        &self,
+        conn: &mut PgConn,
+        row: &PaymentTransactionRow,
+    ) -> StoreResult<Box<dyn crate::adapters::payment::PaymentConnector>> {
+        super::resolve_connector_for_transaction(&self.store, conn, row)
+            .await
+            .map(|(_, connector_impl)| connector_impl)
+    }
 }
 
 /// Translate the reconciliation result into the internal [`PaymentIntent`] shape
@@ -157,7 +252,7 @@ fn payment_intent_from_remote_status(
     row: &PaymentTransactionRow,
 ) -> Option<PaymentIntent> {
     match status {
-        RemoteTransactionStatus::Pending => None,
+        RemoteTransactionStatus::Pending | RemoteTransactionStatus::Processing => None,
         // The provider has no record of an id WE STORED. The worker's query only
         // ever selects rows that already carry a provider id, so this is almost
         // always an account/env mismatch, never a lost outbound POST (a row with
@@ -179,6 +274,7 @@ fn payment_intent_from_remote_status(
             next_action: None,
             status: PaymentStatusEnum::Settled,
             last_payment_error: None,
+            decline_kind: None,
             processed_at: Some(processed_at),
         }),
         RemoteTransactionStatus::Cancelled => Some(PaymentIntent {
@@ -191,9 +287,14 @@ fn payment_intent_from_remote_status(
             next_action: None,
             status: PaymentStatusEnum::Cancelled,
             last_payment_error: None,
+            decline_kind: None,
             processed_at: None,
         }),
-        RemoteTransactionStatus::Failed { message, .. } => Some(PaymentIntent {
+        RemoteTransactionStatus::Failed {
+            message,
+            decline_kind,
+            ..
+        } => Some(PaymentIntent {
             external_id: row.provider_transaction_id.clone().unwrap_or_default(),
             transaction_id,
             tenant_id,
@@ -203,6 +304,7 @@ fn payment_intent_from_remote_status(
             next_action: None,
             status: PaymentStatusEnum::Failed,
             last_payment_error: Some(message),
+            decline_kind: Some(decline_kind),
             processed_at: None,
         }),
     }
@@ -233,12 +335,24 @@ mod tests {
             receipt_pdf_id: None,
             checkout_session_id: None,
             pending_plan_version_id: None,
+            store_committed_at: now.naive_utc(),
             created_at: now,
             next_action: None,
             initiated_by_customer_id: None,
             amount_refunded: 0,
             pending_provider_intent_id: None,
             pending_connection_id: None,
+            amount_reversed: 0,
+            amount_disputed: 0,
+            amount_reversed_excess: 0,
+            refund_excess: 0,
+            reversal_kind: None,
+            reversal_reason: None,
+            parent_transaction_id: None,
+            credit_note_id: None,
+            refund_mode: None,
+            last_reconciled_at: None,
+            decline_kind: None,
         }
     }
 

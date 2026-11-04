@@ -13,6 +13,7 @@ use rstest::rstest;
 use crate::data::ids::*;
 use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
 use diesel_models::enums::CycleActionEnum;
+use meteroid_store::domain::connectors::MockChargeBehavior;
 use meteroid_store::domain::enums::{InvoiceStatusEnum, PaymentStatusEnum};
 
 // =============================================================================
@@ -320,7 +321,7 @@ async fn test_oncheckout_paid_trial_full_flow(#[future] test_env: TestEnv) {
         .invoice_at(0)
         .with_context("Invoice 1: at checkout")
         .has_total(9900)
-        .has_invoice_date(start_date)
+        .has_billing_period_start(start_date)
         .check_prorated(false);
 
     // === Phase 3: process_cycles - trial ends AND renewal fires ===
@@ -342,13 +343,13 @@ async fn test_oncheckout_paid_trial_full_flow(#[future] test_env: TestEnv) {
         .invoice_at(1)
         .with_context("Invoice 2: first renewal, not trial end")
         .has_total(9900)
-        .has_invoice_date(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap());
+        .has_billing_period_start(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap());
 
     // Verify: no invoice on Jan 8 (trial end date)
     let trial_end_date = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap();
     for invoice in invoices.iter() {
         assert_ne!(
-            invoice.invoice_date, trial_end_date,
+            invoice.billing_period_start, trial_end_date,
             "No invoice should be dated at trial end"
         );
     }
@@ -564,7 +565,8 @@ async fn test_checkout_with_accepted_direct_debit_finalizes_and_activates(
     env.seed_uber_sepa_payment_method().await;
 
     // Direct debit never settles inline.
-    env.set_mock_charge_behavior("pending").await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Pending)
+        .await;
 
     let sub_id = subscription()
         .plan_version(PLAN_VERSION_1_LEETCODE_ID) // $35/month
@@ -623,7 +625,8 @@ async fn test_checkout_with_card_requiring_action_stays_draft(#[future] test_env
     let env = test_env.await;
     env.seed_payments().await;
 
-    env.set_mock_charge_behavior("requires_action").await;
+    env.set_mock_charge_behavior(MockChargeBehavior::RequiresAction)
+        .await;
 
     let sub_id = subscription()
         .plan_version(PLAN_VERSION_1_LEETCODE_ID)

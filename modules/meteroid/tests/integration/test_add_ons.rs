@@ -5,7 +5,8 @@ use meteroid_grpc::meteroid::api;
 #[tokio::test]
 async fn test_add_ons_basic() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::MINIMAL).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
@@ -48,6 +49,7 @@ async fn test_add_ons_basic() {
                                 rate: "9.99".into(),
                             },
                         )),
+                        credit_unit: None,
                     },
                 )),
             }),
@@ -156,4 +158,122 @@ async fn test_add_ons_basic() {
         .add_ons;
 
     assert_eq!(add_ons.len(), 0);
+}
+
+#[tokio::test]
+async fn test_add_on_skips_archived_feature_entitlement() {
+    use api::entitlements::v1::{
+        CreateFeatureRequest, EntitlementEntity, EntitlementSpec, EntitlementValue, FeatureStatus,
+        FeatureType, ListEntitlementsByEntityRequest, SetFeatureStatusRequest, entitlement_entity,
+        entitlement_value, feature_type,
+    };
+
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::MINIMAL).await;
+    let setup =
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
+            .await;
+    let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
+    let clients = meteroid_it::clients::AllClients::from_channel(
+        setup.channel.clone(),
+        auth.token.clone().as_str(),
+        "TESTORG",
+        "testslug",
+    );
+
+    let feature = clients
+        .entitlements
+        .clone()
+        .create_feature(CreateFeatureRequest {
+            name: "archived-for-add-on".into(),
+            code: "archived-for-add-on".into(),
+            description: None,
+            product_id: None,
+            feature_type: Some(FeatureType {
+                inner: Some(feature_type::Inner::Boolean(
+                    feature_type::BooleanFeature {},
+                )),
+            }),
+            entitlement: None,
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .feature
+        .unwrap();
+    clients
+        .entitlements
+        .clone()
+        .set_feature_status(SetFeatureStatusRequest {
+            id: feature.id.clone(),
+            status: FeatureStatus::Archived.into(),
+        })
+        .await
+        .unwrap();
+
+    let add_on = clients
+        .add_ons
+        .clone()
+        .create_add_on(api::addons::v1::CreateAddOnRequest {
+            name: "grants-archived".into(),
+            product: Some(api::components::v1::ProductRef {
+                r#ref: Some(api::components::v1::product_ref::Ref::NewProduct(
+                    api::components::v1::NewProduct {
+                        name: "Grants Archived Product".into(),
+                        fee_type: api::prices::v1::FeeType::Rate.into(),
+                        fee_structure: Some(api::prices::v1::FeeStructure {
+                            structure: Some(api::prices::v1::fee_structure::Structure::Rate(
+                                api::prices::v1::fee_structure::RateStructure {},
+                            )),
+                        }),
+                    },
+                )),
+            }),
+            price: Some(api::components::v1::PriceEntry {
+                entry: Some(api::components::v1::price_entry::Entry::NewPrice(
+                    api::components::v1::PriceInput {
+                        credit_unit: None,
+                        cadence: api::shared::v1::BillingPeriod::Monthly.into(),
+                        currency: "USD".into(),
+                        pricing: Some(api::components::v1::price_input::Pricing::RatePricing(
+                            api::prices::v1::RatePricing {
+                                rate: "9.99".into(),
+                            },
+                        )),
+                    },
+                )),
+            }),
+            description: None,
+            self_serviceable: true,
+            max_instances_per_subscription: None,
+            product_family_local_id: None,
+            entitlements: vec![EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: Some(EntitlementValue {
+                    value: Some(entitlement_value::Value::BooleanValue(
+                        entitlement_value::BooleanValue { enabled: true },
+                    )),
+                }),
+            }],
+        })
+        .await
+        .expect("granting an archived feature does not fail the add-on")
+        .into_inner()
+        .add_on
+        .unwrap();
+
+    let grants = clients
+        .entitlements
+        .clone()
+        .list_entitlements_by_entity(ListEntitlementsByEntityRequest {
+            entity: Some(EntitlementEntity {
+                entity_id: Some(entitlement_entity::EntityId::AddOnId(add_on.id)),
+            }),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .entitlements;
+    assert!(grants.is_empty(), "the archived feature's grant is skipped");
 }

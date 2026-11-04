@@ -11,7 +11,7 @@ thiserror.workspace = true
 log = { workspace = true }
 diesel = { workspace = true, optional = true, features = ["postgres"] }
 diesel-async = { workspace = true, optional = true, features = ["postgres"] }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [features]
-default = ["postgres-support"]
 postgres-support = ["dep:diesel", "dep:diesel-async"]

@@ -14,6 +14,7 @@ import { useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { portalCheckoutHref } from '@/features/checkout/utils/checkoutRedirect'
 import { UsageBarChartDisplay } from '@/features/subscriptions/UsageBarChart'
 import { useQuery } from '@/lib/connectrpc'
 import { FeeType } from '@/rpc/api/prices/v1/models_pb'
@@ -39,7 +40,9 @@ import { parseAndFormatDate } from '@/utils/date'
 import { formatCurrency, formatCurrencyNoRounding } from '@/utils/numbers'
 import { useForceTheme } from 'providers/ThemeProvider'
 
-import type { AmendmentSummary } from '@/rpc/api/subscriptions/v1/models_pb'
+import { packLineView } from './experience/format'
+
+import type { AmendmentSummary, PlanChangePackLine } from '@/rpc/api/subscriptions/v1/models_pb'
 import type {
   AvailableAddOn,
   AvailablePlan,
@@ -80,6 +83,8 @@ const feeTypeLabel = (feeType: FeeType): string => {
       return 'Recurring'
     case FeeType.ONE_TIME:
       return 'One-time'
+    case FeeType.CREDIT:
+      return 'Credit'
     default:
       return 'Fee'
   }
@@ -151,7 +156,7 @@ export const PortalSubscription = () => {
     })
 
     if (res.status === PlanChangeStatus.PLAN_CHANGE_CHECKOUT_REQUIRED && res.checkoutToken) {
-      navigate(`/portal/checkout?token=${res.checkoutToken}`)
+      navigate(portalCheckoutHref(res.checkoutToken, window.location.href))
       return
     }
 
@@ -338,7 +343,7 @@ function IdleView({
         res.status === AddOnPurchaseStatus.ADDON_PURCHASE_CHECKOUT_REQUIRED &&
         res.checkoutToken
       ) {
-        window.location.href = '/portal/checkout?token=' + res.checkoutToken
+        window.location.href = portalCheckoutHref(res.checkoutToken, window.location.href)
         return
       }
 
@@ -660,6 +665,14 @@ function PortalUpcomingInvoiceCard({
                 </span>
               </div>
             )}
+            {invoice.promotionalCredits > 0 && (
+              <div className="flex justify-between text-sm text-muted-foreground">
+                <span>Promotional credit</span>
+                <span className="tabular-nums">
+                  -{formatCurrency(Number(invoice.promotionalCredits), currency)}
+                </span>
+              </div>
+            )}
             {invoice.taxAmount > 0 && (
               <div className="flex justify-between text-sm text-gray-500">
                 <span>Tax</span>
@@ -783,9 +796,7 @@ function PortalLineItemRow({
           </button>
           {showUsage && (
             <div className="mt-2">
-              {usageQuery.isLoading && (
-                <div className="h-10 bg-gray-100 animate-pulse rounded" />
-              )}
+              {usageQuery.isLoading && <div className="h-10 bg-gray-100 animate-pulse rounded" />}
               {usageQuery.isError && (
                 <p className="text-[11px] text-gray-400 py-2">Failed to load usage data</p>
               )}
@@ -854,6 +865,7 @@ function PlanChangeView({
             prorationFactor: number
             daysRemaining: number
             daysInPeriod: number
+            packChanges: PlanChangePackLine[]
           }
           componentChanges: {
             componentName: string
@@ -977,6 +989,20 @@ function PlanChangeView({
                           will be billed.
                         </p>
                       )}
+                      {preview.preview.proration?.packChanges.map((line, idx) => {
+                        const view = packLineView(line, currency)
+                        return view ? (
+                          <p
+                            key={`${line.kind}-${line.name}-${idx}`}
+                            className="mt-1 flex justify-between gap-3 text-xs text-gray-500"
+                          >
+                            <span>
+                              {view.label} · {line.name}
+                            </span>
+                            <span className="font-medium tabular-nums shrink-0">{view.value}</span>
+                          </p>
+                        ) : null
+                      })}
                     </div>
                   </>
                 ) : (

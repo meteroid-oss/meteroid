@@ -3,21 +3,12 @@ import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Badge,
   Button,
-  Form,
   GenericFormField,
   Input,
   InputFormField,
   Label,
-  ScrollArea,
   SelectFormField,
   SelectItem,
-  Separator,
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
   TextareaFormField,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
@@ -27,10 +18,23 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { ValuesTagInput } from '@/components/form'
+import { MetricBuilderShell } from '@/features/productCatalog/metrics/MetricBuilderShell'
+import { MetricFiltersSection } from '@/features/productCatalog/metrics/MetricFiltersSection'
+import { MetricPreview } from '@/features/productCatalog/metrics/MetricPreview'
 import { aggregationTypeMapper } from '@/features/productCatalog/metrics/ProductMetricsTable'
-import { ValuesTagInput } from '@/features/productCatalog/metrics/ValuesTagInput'
+import { UnitLabelSection } from '@/features/productCatalog/metrics/UnitLabelSection'
+import {
+  SettingsFieldGrid,
+  SettingsSection,
+} from '@/features/settings/components/SettingsSection'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
+import {
+  metricFilterSchema,
+  refineUnitLabel,
+  unitLabelFields,
+} from '@/lib/schemas/billableMetrics'
 import {
   getBillableMetric,
   listBillableMetrics,
@@ -39,6 +43,8 @@ import {
 import {
   Aggregation_AggregationType,
   Aggregation_UnitConversion_UnitConversionRounding,
+  MetricFilterListSchema,
+  MetricFilter_Operator,
   SegmentationMatrixValuesUpdateSchema,
   SegmentationMatrixValuesUpdate_DoubleDimensionValuesSchema,
   SegmentationMatrixValuesUpdate_LinkedDimensionValuesSchema,
@@ -58,33 +64,37 @@ interface ProductMetricsEditViewProps {
 }
 
 // Schema for editable fields only
-const editMetricSchema = z.object({
-  name: z.string().min(3, 'Name must be at least 3 characters'),
-  description: z.string().optional(),
-  unitConversionFactor: z.coerce.number().positive().optional(),
-  unitConversionRounding: z.enum(['NONE', 'UP', 'DOWN', 'NEAREST']).optional(),
-  // For segmentation, we only allow editing VALUES, not keys or structure
-  singleDimensionValues: z.array(z.string()).optional(),
-  doubleDimension1Values: z.array(z.string()).optional(),
-  doubleDimension2Values: z.array(z.string()).optional(),
-  linkedDimensionValues: z
-    .array(
-      z.object({
-        key: z.string().min(1, 'Key cannot be empty'),
-        values: z.array(z.string()),
-      })
-    )
-    .optional()
-    .refine(
-      val => {
-        if (!val) return true
-        const keys = val.map(v => v.key.trim())
-        // No duplicate keys
-        return new Set(keys).size === keys.length
-      },
-      { message: 'All dimension keys must be unique' }
-    ),
-})
+const editMetricSchema = z
+  .object({
+    name: z.string().min(3, 'Name must be at least 3 characters'),
+    description: z.string().optional(),
+    unitConversionFactor: z.coerce.number().positive().optional(),
+    unitConversionRounding: z.enum(['NONE', 'UP', 'DOWN', 'NEAREST']).optional(),
+    // For segmentation, we only allow editing VALUES, not keys or structure
+    singleDimensionValues: z.array(z.string()).optional(),
+    doubleDimension1Values: z.array(z.string()).optional(),
+    doubleDimension2Values: z.array(z.string()).optional(),
+    linkedDimensionValues: z
+      .array(
+        z.object({
+          key: z.string().min(1, 'Key cannot be empty'),
+          values: z.array(z.string()),
+        })
+      )
+      .optional()
+      .refine(
+        val => {
+          if (!val) return true
+          const keys = val.map(v => v.key.trim())
+          // No duplicate keys
+          return new Set(keys).size === keys.length
+        },
+        { message: 'All dimension keys must be unique' }
+      ),
+    filters: z.array(metricFilterSchema).optional(),
+    ...unitLabelFields,
+  })
+  .superRefine(refineUnitLabel)
 
 type EditMetricFormData = z.infer<typeof editMetricSchema>
 
@@ -140,7 +150,7 @@ function LinkedDimensionsEditor({
         values,
       }))
     )
-     
+
   }, [value])
 
   const notifyChange = (newEntries: Array<{ id: string; key: string; values: string[] }>) => {
@@ -301,8 +311,35 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
       name: '',
       description: '',
       unitConversionRounding: 'NONE',
+      unitSingular: '',
+      unitPlural: '',
     },
   })
+
+  // Feed the LIVE unit-conversion factor into the preview: the aggregation type/key are
+  // immutable (from the saved metric), but the factor is editable, so the preview must
+  // read the form value rather than the persisted aggregation to reflect edits.
+  const watchedFactor = methods.watch('unitConversionFactor')
+  // Live filters drive the preview so edits show immediately (op string → proto enum).
+  const watchedFilters = methods.watch('filters')
+  const previewFilters = (watchedFilters ?? []).map(f => ({
+    property: f.property,
+    op: MetricFilter_Operator[f.op],
+    values: f.values,
+  }))
+  const previewAggregation = metric?.aggregation
+    ? {
+        aggregationType: metric.aggregation.aggregationType,
+        aggregationKey: metric.aggregation.aggregationKey,
+        unitConversion:
+          watchedFactor != null
+            ? {
+                factor: watchedFactor,
+                rounding: Aggregation_UnitConversion_UnitConversionRounding.NONE,
+              }
+            : undefined,
+      }
+    : undefined
 
   // Load metric data
   useEffect(() => {
@@ -371,6 +408,13 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
         doubleDimension1Values: double1Values,
         doubleDimension2Values: double2Values,
         linkedDimensionValues: linkedValues,
+        filters: metric.filters.map(f => ({
+          property: f.property,
+          op: MetricFilter_Operator[f.op] as 'EQUAL' | 'NOT_EQUAL' | 'IN' | 'NOT_IN',
+          values: f.values,
+        })),
+        unitSingular: metric.unitLabel?.singular ?? '',
+        unitPlural: metric.unitLabel?.plural ?? '',
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -447,6 +491,13 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
         })
       }
 
+      // Absent = untouched; present with both blank = remove the label.
+      const unitSingular = data.unitSingular ?? ''
+      const unitPlural = data.unitPlural ?? ''
+      const unitLabelChanged =
+        unitSingular !== (metric?.unitLabel?.singular ?? '') ||
+        unitPlural !== (metric?.unitLabel?.plural ?? '')
+
       await updateBillableMetricMut.mutateAsync({
         id: metricId,
         name: data.name,
@@ -461,6 +512,15 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
             }
           : undefined,
         segmentationMatrixValues,
+        unitLabel: unitLabelChanged ? { singular: unitSingular, plural: unitPlural } : undefined,
+        // Always send the (possibly empty) filter list — present replaces, so live edits persist.
+        filters: create(MetricFilterListSchema, {
+          filters: (data.filters ?? []).map(f => ({
+            property: f.property,
+            op: MetricFilter_Operator[f.op],
+            values: f.values,
+          })),
+        }),
       })
 
       methods.reset()
@@ -475,34 +535,21 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
   const isLoading = metricQuery.isLoading
 
   return (
-    <Sheet open={true} onOpenChange={safeClosePanel}>
-      <SheetContent size="medium">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-full">
-            <p>Loading metric...</p>
+    <MetricBuilderShell
+      title="Edit Metric"
+      description="Only some properties can be edited. Aggregation dimensions and event settings are immutable."
+      onClose={safeClosePanel}
+      onSubmit={methods.handleSubmit(handleSubmit)}
+      methods={methods}
+      formSlot={
+        isLoading ? (
+          <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+            Loading metric…
           </div>
         ) : (
-          <Form {...methods}>
-            <form
-              onSubmit={methods.handleSubmit(handleSubmit)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
-                  e.preventDefault()
-                }
-              }}
-              className="relative h-full flex flex-col"
-            >
-              <SheetHeader className="border-b border-border pb-3 mb-3">
-                <SheetTitle>Edit Metric</SheetTitle>
-                <SheetDescription>
-                  Only some properties can be edited. Aggregation dimensions and event settings are
-                  immutable.
-                </SheetDescription>
-              </SheetHeader>
-              <ScrollArea className="flex grow pr-2 -mr-4">
-                <div className="px-2 relative space-y-6 pb-4">
-                  {/* Immutable Info Section */}
-                  <div className="space-y-3 p-4 bg-muted/30 rounded-lg border border-border">
+          <>
+            {/* Immutable Info Section */}
+            <div className="space-y-3 p-4 bg-muted/30 rounded-lg border border-border">
                     <div className="grid grid-cols-3 gap-3 text-sm">
                       <div>
                         <div className="text-muted-foreground text-xs">Event Code</div>
@@ -511,8 +558,9 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
                       <div>
                         <div className="text-muted-foreground text-xs">Aggregation</div>
                         <div className="font-mono">
-                          {metric?.aggregation?.aggregationType &&
-                            aggregationTypeMapper[metric.aggregation.aggregationType]}
+                          {metric?.aggregation
+                            ? aggregationTypeMapper[metric.aggregation.aggregationType]
+                            : null}
                           {metric?.aggregation?.aggregationKey &&
                             ` (${metric.aggregation.aggregationKey})`}
                         </div>
@@ -527,79 +575,75 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
                   </div>
 
                   {/* Editable Fields */}
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-medium">Details</h3>
+                  <SettingsSection
+                    divided={false}
+                    title="Details"
+                    description="Update the metric name and description."
+                  >
+                    <SettingsFieldGrid>
+                      <InputFormField
+                        name="name"
+                        label="Metric Name"
+                        control={methods.control}
+                        placeholder="Compute (CPU-seconds)"
+                        containerClassName="sm:col-span-2"
+                      />
 
-                    <InputFormField
-                      name="name"
-                      label="Metric Name"
-                      control={methods.control}
-                      placeholder="Compute (CPU-seconds)"
-                    />
-
-                    <TextareaFormField
-                      name="description"
-                      label="Description"
-                      control={methods.control}
-                      placeholder="Serverless compute usage for ..."
-                    />
-                  </div>
+                      <TextareaFormField
+                        name="description"
+                        label="Description"
+                        control={methods.control}
+                        placeholder="Serverless compute usage for ..."
+                        containerClassName="sm:col-span-2"
+                      />
+                    </SettingsFieldGrid>
+                  </SettingsSection>
 
                   {/* Unit Conversion - hidden for COUNT and COUNT_DISTINCT */}
                   {metric?.aggregation?.aggregationType !== Aggregation_AggregationType.COUNT &&
                     metric?.aggregation?.aggregationType !==
                       Aggregation_AggregationType.COUNT_DISTINCT && (
-                      <>
-                        <Separator />
-                        <div className="space-y-4">
-                          <div>
-                            <h3 className="text-sm font-medium">Unit Conversion</h3>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Optional conversion factor and rounding for the aggregated value
-                            </p>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-4">
-                            <InputFormField
-                              name="unitConversionFactor"
-                              label="Factor"
-                              control={methods.control}
-                              type="number"
-                              placeholder="1000"
-                            />
-                            <SelectFormField
-                              name="unitConversionRounding"
-                              label="Rounding"
-                              control={methods.control}
-                              placeholder="Select rounding mode"
-                            >
-                              <SelectItem value="NONE">None</SelectItem>
-                              <SelectItem value="UP">Up</SelectItem>
-                              <SelectItem value="DOWN">Down</SelectItem>
-                              <SelectItem value="NEAREST">Nearest</SelectItem>
-                            </SelectFormField>
-                          </div>
-                        </div>
-                      </>
+                      <SettingsSection
+                        title="Unit Conversion"
+                        description="Optional conversion factor and rounding for the aggregated value"
+                      >
+                        <SettingsFieldGrid>
+                          <InputFormField
+                            name="unitConversionFactor"
+                            label="Factor"
+                            control={methods.control}
+                            type="number"
+                            placeholder="1000"
+                          />
+                          <SelectFormField
+                            name="unitConversionRounding"
+                            label="Rounding"
+                            control={methods.control}
+                            placeholder="Select rounding mode"
+                          >
+                            <SelectItem value="NONE">None</SelectItem>
+                            <SelectItem value="UP">Up</SelectItem>
+                            <SelectItem value="DOWN">Down</SelectItem>
+                            <SelectItem value="NEAREST">Nearest</SelectItem>
+                          </SelectFormField>
+                        </SettingsFieldGrid>
+                      </SettingsSection>
                     )}
+
+                  <UnitLabelSection control={methods.control} />
 
                   {/* Segmentation Matrix Values */}
                   {matrixType !== 'NONE' && (
-                    <>
-                      <Separator />
-                      <div className="space-y-4 ">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-medium">Segmentation Values</h3>
-                            <Badge variant="secondary" className="text-xs">
-                              {matrixType}
-                            </Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Dimension keys are immutable. Only values can be edited.
-                          </p>
-                        </div>
-
+                    <SettingsSection
+                      title="Segmentation Values"
+                      description="Dimension keys are immutable. Only values can be edited."
+                      action={
+                        <Badge variant="secondary" className="text-xs">
+                          {matrixType}
+                        </Badge>
+                      }
+                    >
+                      <div className="space-y-4">
                         {matrixType === 'SINGLE' && (
                           <div className="space-y-3">
                             <div className="text-sm">
@@ -689,28 +733,39 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
                           </div>
                         )}
                       </div>
-                    </>
+                    </SettingsSection>
                   )}
-                </div>
-              </ScrollArea>
-              <Separator />
-              <SheetFooter className="pt-3 space-x-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={safeClosePanel}
-                  disabled={isSubmitting}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={!methods.formState.isValid || isSubmitting}>
-                  {isSubmitting ? 'Saving...' : 'Save Changes'}
-                </Button>
-              </SheetFooter>
-            </form>
-          </Form>
-        )}
-      </SheetContent>
-    </Sheet>
+
+            <MetricFiltersSection control={methods.control} eventCode={metric?.code} />
+          </>
+        )
+      }
+      previewSlot={
+        metric ? (
+          <MetricPreview
+            code={metric.code}
+            aggregation={previewAggregation}
+            segmentationMatrix={metric.segmentationMatrix}
+            filters={previewFilters}
+            usageGroupKey={metric.usageGroupKey}
+          />
+        ) : null
+      }
+      footerSlot={
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={safeClosePanel}
+            disabled={isSubmitting}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" disabled={!methods.formState.isValid || isSubmitting}>
+            {isSubmitting ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </>
+      }
+    />
   )
 }

@@ -5,6 +5,7 @@ use crate::store::Store;
 use common_domain::ids::{BaseId, TaxCategoryId, TenantId};
 use diesel_models::tax_categories::{TaxCategoryRow, TaxCategoryRowNew};
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 
 #[async_trait::async_trait]
 pub trait TaxCategoryInterface {
@@ -120,9 +121,19 @@ impl TaxCategoryInterface for Store {
             validate_parent(&mut conn, parent_id, tenant_id).await?;
         }
 
-        let updated = TaxCategoryRow::update_details(&mut conn, id, tenant_id, name, parent_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        drop(conn);
+
+        let updated = self
+            .transaction_bumping_tenant(tenant_id, |conn| {
+                async move {
+                    Ok(
+                        TaxCategoryRow::update_details(conn, id, tenant_id, name, parent_id)
+                            .await?,
+                    )
+                }
+                .scope_boxed()
+            })
+            .await?;
 
         updated.map(Into::into).ok_or_else(|| {
             Report::new(StoreError::ValueNotFound(
@@ -132,11 +143,12 @@ impl TaxCategoryInterface for Store {
     }
 
     async fn delete_tax_category(&self, tenant_id: TenantId, id: TaxCategoryId) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
-
-        let deleted = TaxCategoryRow::delete(&mut conn, id, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        // The delete sets the category to NULL on products, entities and custom taxes.
+        let deleted = self
+            .transaction_bumping_tenant(tenant_id, |conn| {
+                async move { Ok(TaxCategoryRow::delete(conn, id, tenant_id).await?) }.scope_boxed()
+            })
+            .await?;
 
         if deleted == 0 {
             return Err(Report::new(StoreError::ValueNotFound(

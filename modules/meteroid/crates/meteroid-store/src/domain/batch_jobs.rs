@@ -29,6 +29,7 @@ pub struct BatchJob {
     pub error_message: Option<String>,
     pub error_output_key: Option<String>,
     pub input_file_name: Option<String>,
+    pub output_key: Option<String>,
 }
 
 /// A chunk event entry stored in the JSONB `events` column.

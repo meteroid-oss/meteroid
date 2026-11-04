@@ -1,0 +1,421 @@
+use crate::customers::mapping::customer::ServerCustomerWrapper;
+use crate::portal::customer::PortalCustomerServiceComponents;
+use crate::portal::customer::error::PortalCustomerApiError;
+use crate::portal::pricing::subscription_plan_price;
+use crate::wallets::mapping::timestamp;
+use common_domain::ids::LicenseId;
+use common_grpc::middleware::server::auth::RequestExt;
+use common_utils::integers::ToNonNegativeU64;
+use meteroid_app::conversions::{AsProtoOpt, ProtoConv};
+use meteroid_grpc::meteroid::portal::customer::v1::portal_customer_service_server::PortalCustomerService;
+use meteroid_grpc::meteroid::portal::customer::v1::*;
+use meteroid_grpc_mapping::utils::PaginationExt;
+use meteroid_store::domain::PaginationRequest;
+use meteroid_store::domain::enums::SubscriptionStatusEnum;
+use meteroid_store::domain::portal_credit::{PortalLimitOrigin, PortalPlanInputs};
+use meteroid_store::repositories::CreditNoteInterface;
+use meteroid_store::repositories::CreditUnitsInterface;
+use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
+use meteroid_store::repositories::customers::CustomersInterfaceAuto;
+use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
+use meteroid_store::repositories::{InvoiceInterface, SubscriptionInterface};
+use tonic::{Request, Response, Status};
+
+#[tonic::async_trait]
+impl PortalCustomerService for PortalCustomerServiceComponents {
+    #[tracing::instrument(skip_all)]
+    async fn get_customer_portal_overview(
+        &self,
+        request: Request<GetCustomerPortalOverviewRequest>,
+    ) -> Result<Response<GetCustomerPortalOverviewResponse>, Status> {
+        let tenant = request.tenant()?;
+        let customer_id = request.portal_resource()?.customer()?;
+
+        let customer = self
+            .store
+            .find_customer_by_id(customer_id, tenant)
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+
+        // Get activated subscriptions
+        let subscriptions = self
+            .store
+            .list_subscriptions(
+                tenant,
+                Some(customer_id),
+                None,
+                Some(vec![
+                    SubscriptionStatusEnum::Active,
+                    // SubscriptionStatusEnum::Completed,
+                    // SubscriptionStatusEnum::Cancelled,
+                    SubscriptionStatusEnum::TrialActive,
+                    SubscriptionStatusEnum::Paused,
+                ]),
+                None,
+                vec![],
+                None,
+                PaginationRequest {
+                    page: 0,
+                    per_page: Some(10),
+                },
+            )
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+
+        let subscription_ids: Vec<_> = subscriptions.items.iter().map(|s| s.id).collect();
+        let pending_cancellations = self
+            .store
+            .list_pending_cancellations(tenant, &subscription_ids)
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+
+        let plan_inputs = self
+            .services
+            .portal_plan_inputs(tenant, &subscription_ids)
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+        let credit_unit_ids = plan_inputs
+            .values()
+            .flat_map(crate::portal::pricing::plan_credit_unit_ids)
+            .collect::<Vec<_>>();
+        let credit_units = self
+            .store
+            .get_credit_units_by_ids(tenant, credit_unit_ids)
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+
+        let active_subscriptions: Vec<SubscriptionSummary> = subscriptions
+            .items
+            .into_iter()
+            .filter(|s| {
+                !matches!(
+                    s.status,
+                    SubscriptionStatusEnum::Superseded | SubscriptionStatusEnum::Completed
+                )
+            })
+            .map(|s| {
+                let status =
+                    crate::subscriptions::mapping::subscriptions::map_subscription_status(s.status);
+                let plan_price = subscription_plan_price(
+                    &s.currency,
+                    s.period,
+                    plan_inputs
+                        .get(&s.id)
+                        .unwrap_or(&PortalPlanInputs::default()),
+                    &credit_units,
+                )?;
+                Ok::<_, Status>(SubscriptionSummary {
+                    usage_filter:
+                        crate::subscriptions::mapping::subscriptions::usage_filter_to_proto(
+                            s.usage_filter.clone(),
+                        ),
+                    plan_price: Some(plan_price),
+                    plan_description: s.plan_description.clone(),
+                    id: s.id.as_proto(),
+                    subscription_name: s.customer_name.clone(),
+                    plan_name: s.plan_name,
+                    status: status.into(),
+                    billing_start: s.billing_start_date.as_proto(),
+                    billing_end: s.end_date.as_proto(),
+                    currency: s.currency,
+                    trial_start: None, // TODO drop (status + next date)
+                    trial_end: None,
+                    next_billing_date: s.current_period_end.as_proto(),
+                    pending_cancellation_date: pending_cancellations.get(&s.id).copied().as_proto(),
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Get recent invoices. `list_issued_invoices` excludes non-issued invoices (Draft, and
+        // Closed — a period that settled with nothing to bill) in SQL, so the page of 5 is 5 real
+        // invoices rather than 5-minus-however-many-drafts.
+        let invoices = self
+            .store
+            .list_issued_invoices(
+                tenant,
+                Some(customer_id),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                PaginationRequest {
+                    page: 0,
+                    per_page: Some(5),
+                },
+            )
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+        let settled = self
+            .store
+            .invoices_settled_by_credit_notes(
+                tenant,
+                &invoices
+                    .items
+                    .iter()
+                    .map(|inv| &inv.invoice)
+                    .collect::<Vec<_>>(),
+            )
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+
+        let recent_invoices: Vec<InvoiceSummary> = invoices
+            .items
+            .into_iter()
+            .map(|inv| InvoiceSummary {
+                id: inv.invoice.id.as_proto(),
+                invoice_number: inv.invoice.invoice_number.clone(),
+                status: crate::invoices::mapping::invoices::status_domain_to_server(
+                    &inv.invoice.status,
+                )
+                .into(),
+                invoice_date: inv.invoice.invoice_date.as_proto(),
+                due_date: inv.invoice.due_at.as_proto(),
+                total_cents: inv.invoice.total.to_non_negative_u64(),
+                amount_due_cents: inv.invoice.amount_due.to_non_negative_u64(),
+                currency: inv.invoice.currency.clone(),
+                plan_name: inv.invoice.plan_name.clone(),
+                payment_status:
+                    crate::invoices::mapping::invoices::payment_status_domain_to_server(
+                        inv.invoice.payment_status,
+                    )
+                    .into(),
+                document_sharing_key: None, // TODO
+                applied_credits_cents: inv.invoice.applied_credits.to_non_negative_u64(),
+                settled_by_credit_notes: settled.contains(&inv.invoice.id),
+                subscription_id: inv.invoice.subscription_id.map(|id| id.as_proto()),
+            })
+            .collect();
+
+        // Resolve payment methods based on customer's invoicing entity (None defaults to Online mode)
+        let resolved = self
+            .services
+            .resolve_subscription_payment_methods(tenant, None, &customer)
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+
+        let customer_methods = self
+            .store
+            .list_payment_methods_by_customer(&tenant, &customer.id)
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+
+        let payment_methods = resolved
+            .filter_payment_methods(customer_methods)
+            .into_iter()
+            .map(crate::customers::mapping::customer_payment_method::domain_to_server)
+            .collect();
+
+        let customer_proto = ServerCustomerWrapper::try_from(customer.clone())
+            .map(|v| v.0)
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+
+        let card_connection_id = resolved.card_connection_id;
+        let direct_debit_connection_id = resolved.direct_debit_connection_id;
+
+        let invoicing_entity = self
+            .store
+            .get_invoicing_entity(tenant, Some(customer.invoicing_entity_id))
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+
+        // Portal branding/theme is configured on the invoicing entity. Non-default
+        // entities inherit any unset value from the tenant's default entity.
+        let branding = crate::portal::branding::resolve_portal_branding(
+            &self.store,
+            tenant,
+            &invoicing_entity,
+        )
+        .await
+        .map_err(Into::<PortalCustomerApiError>::into)?;
+        // Keyed on the resolved logo document (own logo, else the tenant default's). The endpoint
+        // resolves tenant/layout from the registry and asserts the id is a logo.
+        let invoicing_entity_logo_url = branding
+            .logo_attachment_id
+            .as_ref()
+            .map(|logo_id| format!("{}/files/v1/logo/{}", self.rest_api_external_url, logo_id));
+
+        let show_powered_by = !meteroid_app::features::is_whitelabel(
+            self.feature_resolver.as_ref(),
+            &self.store,
+            tenant,
+        )
+        .await;
+
+        Ok(Response::new(GetCustomerPortalOverviewResponse {
+            overview: Some(CustomerPortalOverview {
+                customer: Some(customer_proto),
+                active_subscriptions,
+                recent_invoices,
+                payment_methods,
+                card_connection_id: card_connection_id.map(|id| id.to_string()),
+                direct_debit_connection_id: direct_debit_connection_id.map(|id| id.to_string()),
+                invoicing_entity_name: Some(invoicing_entity.legal_name),
+                invoicing_entity_logo_url,
+                invoicing_entity_brand_color: branding.brand_color,
+                invoicing_entity_theme_mode: branding.theme_mode,
+                invoicing_entity_roundness: branding.roundness,
+                show_powered_by,
+            }),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn list_invoices(
+        &self,
+        request: Request<ListInvoicesRequest>,
+    ) -> Result<Response<ListInvoicesResponse>, Status> {
+        let tenant = request.tenant()?;
+        let customer_id = request.portal_resource()?.customer()?;
+        let inner = request.into_inner();
+
+        let pagination_req = inner.pagination.into_domain();
+
+        // `list_issued_invoices` excludes non-issued invoices (Draft, and Closed — a settled-empty
+        // period; never numbered, must not surface to the customer) in SQL, so pagination counts
+        // and page sizes stay correct instead of being thinned after the fact.
+        let invoices = self
+            .store
+            .list_issued_invoices(
+                tenant,
+                Some(customer_id),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                pagination_req,
+            )
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+        let settled = self
+            .store
+            .invoices_settled_by_credit_notes(
+                tenant,
+                &invoices
+                    .items
+                    .iter()
+                    .map(|inv| &inv.invoice)
+                    .collect::<Vec<_>>(),
+            )
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+
+        Ok(Response::new(ListInvoicesResponse {
+            pagination_meta: inner
+                .pagination
+                .into_response(invoices.total_pages, invoices.total_results),
+            invoices: invoices
+                .items
+                .into_iter()
+                .map(|inv| InvoiceSummary {
+                    id: inv.invoice.id.as_proto(),
+                    invoice_number: inv.invoice.invoice_number.clone(),
+                    status: crate::invoices::mapping::invoices::status_domain_to_server(
+                        &inv.invoice.status,
+                    )
+                    .into(),
+                    invoice_date: inv.invoice.invoice_date.as_proto(),
+                    due_date: inv.invoice.due_at.as_proto(),
+                    total_cents: inv.invoice.total.to_non_negative_u64(),
+                    amount_due_cents: inv.invoice.amount_due.to_non_negative_u64(),
+                    currency: inv.invoice.currency.clone(),
+                    plan_name: inv.invoice.plan_name.clone(),
+                    payment_status:
+                        crate::invoices::mapping::invoices::payment_status_domain_to_server(
+                            inv.invoice.payment_status,
+                        )
+                        .into(),
+                    document_sharing_key: None, // TODO
+                    applied_credits_cents: inv.invoice.applied_credits.to_non_negative_u64(),
+                    settled_by_credit_notes: settled.contains(&inv.invoice.id),
+                    subscription_id: inv.invoice.subscription_id.map(|id| id.as_proto()),
+                })
+                .collect::<Vec<InvoiceSummary>>(),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn list_licenses(
+        &self,
+        request: Request<ListLicensesRequest>,
+    ) -> Result<Response<ListLicensesResponse>, Status> {
+        let tenant = request.tenant()?;
+        let customer_id = request.portal_resource()?.customer()?;
+
+        match &self.licenses {
+            Some(licenses) => licenses.list(tenant, customer_id).await.map(Response::new),
+            None => Ok(Response::new(ListLicensesResponse {
+                licenses: vec![],
+                activation_url: None,
+            })),
+        }
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn get_license_activation_code(
+        &self,
+        request: Request<GetLicenseActivationCodeRequest>,
+    ) -> Result<Response<GetLicenseActivationCodeResponse>, Status> {
+        let tenant = request.tenant()?;
+        let customer_id = request.portal_resource()?.customer()?;
+        let id = LicenseId::from_proto(request.into_inner().license_id)?;
+
+        match &self.licenses {
+            Some(licenses) => licenses
+                .activation_code(tenant, customer_id, id)
+                .await
+                .map(Response::new),
+            None => Err(PortalCustomerApiError::NotFound("license".to_string()).into()),
+        }
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn list_usage_limits(
+        &self,
+        request: Request<ListUsageLimitsRequest>,
+    ) -> Result<Response<ListUsageLimitsResponse>, Status> {
+        let tenant = request.tenant()?;
+        let customer_id = request.portal_resource()?.customer()?;
+        let limits = self
+            .services
+            .portal_usage_limits(tenant, customer_id)
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)?;
+        let group =
+            |usage: meteroid_store::domain::portal_credit::PortalLimitGroupUsage| LimitGroupUsage {
+                group: usage.group.into_iter().collect(),
+                used: usage.used.normalize().to_string(),
+            };
+        Ok(Response::new(ListUsageLimitsResponse {
+            limits: limits
+                .into_iter()
+                .map(|limit| UsageLimitStatus {
+                    id: limit.feature_id.as_proto(),
+                    name: limit.name,
+                    origin: match limit.origin {
+                        PortalLimitOrigin::Plan => LimitOrigin::Plan,
+                        PortalLimitOrigin::Account => LimitOrigin::Account,
+                    }
+                    .into(),
+                    group_by: limit.group_by,
+                    limit: limit.limit.normalize().to_string(),
+                    hard: limit.hard,
+                    window_start: limit.window_start.map(timestamp),
+                    resets_at: limit.resets_at.map(timestamp),
+                    groups: limit.groups.into_iter().map(group).collect(),
+                    breakdown: limit.breakdown.into_iter().map(group).collect(),
+                    reached: limit.reached,
+                    reached_at: limit.reached_at.map(timestamp),
+                    warning: limit.warning,
+                    unit_label: crate::billablemetrics::mapping::metric::unit_label_to_server(
+                        limit.unit_singular,
+                        limit.unit_plural,
+                    ),
+                })
+                .collect(),
+        }))
+    }
+}

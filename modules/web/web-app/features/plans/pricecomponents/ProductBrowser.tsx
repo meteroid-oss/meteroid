@@ -4,6 +4,7 @@ import { ChevronDownIcon, ChevronUpIcon, Loader2Icon, SearchIcon } from 'lucide-
 import { ReactNode, createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { feeTypeIcon, priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
+import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
@@ -32,6 +33,8 @@ function feeTypeColor(type: ComponentFeeType): { bg: string; text: string } {
       return { bg: 'bg-rose-500/15', text: 'text-rose-400' }
     case 'extraRecurring':
       return { bg: 'bg-cyan-500/15', text: 'text-cyan-400' }
+    case 'credit':
+      return { bg: 'bg-fuchsia-500/15', text: 'text-fuchsia-400' }
   }
 }
 
@@ -49,6 +52,8 @@ function protoFeeTypeToComponentFeeType(feeType: FeeType): ComponentFeeType {
       return 'extraRecurring'
     case FeeType.ONE_TIME:
       return 'oneTime'
+    case FeeType.CREDIT:
+      return 'credit'
   }
 }
 
@@ -91,7 +96,7 @@ export const ProductBrowser = ({ currency, onAdd, submitLabel, finalSubmitLabel,
     currency,
     query: debouncedSearch || undefined,
     pagination: { perPage: PAGE_SIZE, page },
-    feeTypes: feeTypes ?? [],
+    feeTypes,
   })
 
   const paginationMeta = productsQuery.data?.paginationMeta
@@ -239,9 +244,13 @@ const ProductCard = ({
     [feeType, product.feeStructure]
   )
 
+  const creditUnits = useCreditUnits()
   const badges = useMemo(
-    () => (feeType ? priceSummaryBadges(feeType, item.latestPrice ?? undefined, currency) : []),
-    [feeType, item.latestPrice, currency]
+    () =>
+      feeType
+        ? priceSummaryBadges(feeType, item.latestPrice ?? undefined, currency, creditUnits)
+        : [],
+    [feeType, item.latestPrice, currency, creditUnits]
   )
 
   const Icon = feeType ? feeTypeIcon(feeType) : null
@@ -280,7 +289,7 @@ const ProductCard = ({
                   key={b}
                   variant="outline"
                   size="sm"
-                  className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+                  className="text-[11px] font-medium text-muted-foreground"
                 >
                   {b}
                 </Badge>
@@ -319,14 +328,10 @@ const ProductCard = ({
               existingPrice={item.latestPrice ?? undefined}
               structuralInfo={structural}
               onSubmit={formData => {
-                const enrichedFormData =
-                  feeType === 'usage' && structural.usageModel
-                    ? { ...formData, usageModel: structural.usageModel }
-                    : formData
                 if (renderEntitlements && productHasEntitlements) {
-                  setSavedFormData(enrichedFormData)
+                  setSavedFormData(formData)
                 } else {
-                  onAdd({ productId: product.id, componentName: product.name, formData: enrichedFormData, feeType, entitlements: [] })
+                  onAdd({ productId: product.id, componentName: product.name, formData, feeType, entitlements: [] })
                 }
               }}
               submitLabel={effectiveSubmitLabel}

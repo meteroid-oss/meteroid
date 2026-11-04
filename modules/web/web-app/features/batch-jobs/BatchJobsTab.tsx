@@ -25,6 +25,8 @@ import {
   JOB_TYPE_LABELS,
   getStatusConfig,
 } from '@/features/batch-jobs/statusConfig'
+import { SettingsSection } from '@/features/settings/components/SettingsSection'
+import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { listBatchJobs } from '@/rpc/api/batchjobs/v1/batchjobs-BatchJobsService_connectquery'
 import { BatchJob } from '@/rpc/api/batchjobs/v1/models_pb'
@@ -47,6 +49,7 @@ export const BatchJobsTab: FunctionComponent = () => {
   const [jobTypeFilter, setJobTypeFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const navigate = useNavigate()
+  const basePath = useBasePath()
 
   const jobsQuery = useQuery(
     listBatchJobs,
@@ -69,80 +72,79 @@ export const BatchJobsTab: FunctionComponent = () => {
 
   if (jobsQuery.isLoading) {
     return (
-      <div className="py-4 space-y-4">
+      <div className="flex max-w-3xl flex-col gap-6">
         <Skeleton height={200} />
       </div>
     )
   }
 
   return (
-    <div className="py-4 space-y-4">
-      <div>
-        <h1 className="text-lg pb-2 font-semibold">Batch Jobs</h1>
-        <p className="text-sm text-muted-foreground">
-          Monitor and manage asynchronous batch processing jobs like CSV imports.
-        </p>
-      </div>
+    <div className="flex max-w-3xl flex-col gap-6">
+      <SettingsSection
+        divided={false}
+        title="Batch jobs"
+        description="Monitor and manage asynchronous batch processing jobs like CSV imports."
+      >
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <Select
+              value={jobTypeFilter}
+              onValueChange={v => {
+                setJobTypeFilter(v)
+                setPagination(p => ({ ...p, pageIndex: 0 }))
+              }}
+            >
+              <SelectTrigger className="h-8 w-[200px]">
+                <SelectValue placeholder="Filter by type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                <SelectItem value={String(BatchJobType.EVENT_CSV_IMPORT)}>Event Import</SelectItem>
+                <SelectItem value={String(BatchJobType.CUSTOMER_CSV_IMPORT)}>
+                  Customer Import
+                </SelectItem>
+                <SelectItem value={String(BatchJobType.SUBSCRIPTION_CSV_IMPORT)}>
+                  Subscription Import
+                </SelectItem>
+                <SelectItem value={String(BatchJobType.SUBSCRIPTION_PLAN_MIGRATION)}>
+                  Plan Migration
+                </SelectItem>
+              </SelectContent>
+            </Select>
 
-      <div className="flex items-center gap-4">
-        <Select
-          value={jobTypeFilter}
-          onValueChange={v => {
-            setJobTypeFilter(v)
-            setPagination(p => ({ ...p, pageIndex: 0 }))
-          }}
-        >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Filter by type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All types</SelectItem>
-            <SelectItem value={String(BatchJobType.EVENT_CSV_IMPORT)}>Event Import</SelectItem>
-            <SelectItem value={String(BatchJobType.CUSTOMER_CSV_IMPORT)}>
-              Customer Import
-            </SelectItem>
-            <SelectItem value={String(BatchJobType.SUBSCRIPTION_CSV_IMPORT)}>
-              Subscription Import
-            </SelectItem>
-            <SelectItem value={String(BatchJobType.SUBSCRIPTION_PLAN_MIGRATION)}>
-              Plan Migration
-            </SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={statusFilter}
-          onValueChange={v => {
-            setStatusFilter(v)
-            setPagination(p => ({ ...p, pageIndex: 0 }))
-          }}
-        >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Filter by status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value={String(BatchJobStatus.PENDING)}>Pending</SelectItem>
-            <SelectItem value={String(BatchJobStatus.CHUNKING)}>Chunking</SelectItem>
-            <SelectItem value={String(BatchJobStatus.PROCESSING)}>Processing</SelectItem>
-            <SelectItem value={String(BatchJobStatus.COMPLETED)}>Completed</SelectItem>
-            <SelectItem value={String(BatchJobStatus.COMPLETED_WITH_ERRORS)}>
-              Completed with Errors
-            </SelectItem>
-            <SelectItem value={String(BatchJobStatus.FAILED)}>Failed</SelectItem>
-            <SelectItem value={String(BatchJobStatus.CANCELLED)}>Cancelled</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="max-w-5xl">
-        {jobs.length === 0 ? (
-          <div className="border border-border rounded-lg p-8 text-center">
-            <p className="text-sm text-muted-foreground">No batch jobs found</p>
+            <Select
+              value={statusFilter}
+              onValueChange={v => {
+                setStatusFilter(v)
+                setPagination(p => ({ ...p, pageIndex: 0 }))
+              }}
+            >
+              <SelectTrigger className="h-8 w-[200px]">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value={String(BatchJobStatus.PENDING)}>Pending</SelectItem>
+                <SelectItem value={String(BatchJobStatus.CHUNKING)}>Chunking</SelectItem>
+                <SelectItem value={String(BatchJobStatus.PROCESSING)}>Processing</SelectItem>
+                <SelectItem value={String(BatchJobStatus.COMPLETED)}>Completed</SelectItem>
+                <SelectItem value={String(BatchJobStatus.COMPLETED_WITH_ERRORS)}>
+                  Completed with Errors
+                </SelectItem>
+                <SelectItem value={String(BatchJobStatus.FAILED)}>Failed</SelectItem>
+                <SelectItem value={String(BatchJobStatus.CANCELLED)}>Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-        ) : (
-          <Table containerClassName="border border-border rounded-lg">
-            <TableHeader>
+
+          {jobs.length === 0 ? (
+            <div className="rounded-lg border border-border p-8 text-center">
+              <p className="text-sm text-muted-foreground">No batch jobs found</p>
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-lg border border-border">
+              <Table>
+                <TableHeader>
               <TableRow>
                 <TableHead>Job Type</TableHead>
                 <TableHead>Status</TableHead>
@@ -164,7 +166,7 @@ export const BatchJobsTab: FunctionComponent = () => {
                   <TableRow
                     key={job.id}
                     className="cursor-pointer"
-                    onClick={() => navigate(`batch-jobs/${job.id}`)}
+                    onClick={() => navigate(`${basePath}/developers/batch-jobs/${job.id}`)}
                   >
                     <TableCell className="font-medium">{formatJobType(job.jobType)}</TableCell>
                     <TableCell>
@@ -193,16 +195,18 @@ export const BatchJobsTab: FunctionComponent = () => {
                   </TableRow>
                 )
               })}
-            </TableBody>
-          </Table>
-        )}
-        <Pagination
-          pagination={pagination}
-          setPagination={setPagination}
-          totalCount={totalCount}
-          isLoading={jobsQuery.isLoading}
-        />
-      </div>
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          <Pagination
+            pagination={pagination}
+            setPagination={setPagination}
+            totalCount={totalCount}
+            isLoading={jobsQuery.isLoading}
+          />
+        </div>
+      </SettingsSection>
     </div>
   )
 }

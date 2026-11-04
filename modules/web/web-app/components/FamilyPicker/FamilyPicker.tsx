@@ -55,7 +55,7 @@ const FamilyPicker: FunctionComponent = () => {
               ))}
           </CommandList>
           <CommandItem>
-            <Link to="./settings?tab=products" className="w-full">
+            <Link to="./settings/products" className="w-full">
               <Button size="content" variant="ghost" hasIcon className="text-xs">
                 <PlusIcon size="12" /> Configure
               </Button>

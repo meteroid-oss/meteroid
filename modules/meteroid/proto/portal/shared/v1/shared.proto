@@ -29,6 +29,8 @@ message SetupIntentRequest {
   // Mollie/Stancer: return only a provider descriptor without creating a hosted payment (the pay
   // button does that). Ignored for other providers.
   optional bool descriptor_only = 5;
+  // Set up to pay with right away (payment panel), as AddPaymentMethod's `for_payment`.
+  optional bool for_payment = 6;
 }
 message SetupIntentResponse {
   SetupIntent setup_intent = 1;
@@ -37,6 +39,9 @@ message SetupIntentResponse {
 message AddPaymentMethodRequest {
   string connection_id = 1;
   string external_payment_method_id = 2;
+  // Saved to pay with right away: it becomes the customer's default once that payment, made
+  // on-session, settles. Otherwise (portal settings) it becomes the default at once.
+  bool for_payment = 3;
 }
 message AddPaymentMethodResponse {
   api.customers.v1.CustomerPaymentMethod payment_method = 1;

@@ -4,8 +4,8 @@ use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 use chrono::NaiveDateTime;
 use common_domain::actor::ActorType;
-use common_domain::ids::TenantId;
-use diesel::{BoolExpressionMethods, ExpressionMethods, QueryDsl, SelectableHelper, debug_query};
+use common_domain::ids::{EntityActivityId, OAuthAppId, TenantId};
+use diesel::{BoolExpressionMethods, ExpressionMethods, QueryDsl, SelectableHelper};
 use error_stack::ResultExt;
 use uuid::Uuid;
 
@@ -37,7 +37,7 @@ impl EntityActivityRowNew {
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(entity_activity).values(self);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -55,7 +55,7 @@ impl EntityActivityRowNew {
         }
 
         let query = diesel::insert_into(entity_activity).values(rows);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -167,7 +167,7 @@ impl EntityActivityRow {
             );
         }
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -175,4 +175,67 @@ impl EntityActivityRow {
             .attach("Error while listing entity activities (filtered)")
             .into_db_result()
     }
+
+    /// Row-locked so concurrent operator actions on the same activity serialize.
+    pub async fn find_by_id_for_update(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_id: EntityActivityId,
+    ) -> DbResult<Option<EntityActivityRow>> {
+        use crate::schema::entity_activity::dsl as ea;
+        use diesel::OptionalExtension;
+        use diesel_async::RunQueryDsl;
+
+        ea::entity_activity
+            .filter(ea::tenant_id.eq(param_tenant_id))
+            .filter(ea::id.eq(param_id))
+            .select(EntityActivityRow::as_select())
+            .for_no_key_update()
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while locking entity activity")
+            .into_db_result()
+    }
+
+    pub async fn list_by_entity_and_type(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_entity_type: &str,
+        param_entity_id: Uuid,
+        param_activity_type: &str,
+    ) -> DbResult<Vec<EntityActivityRow>> {
+        use crate::schema::entity_activity::dsl as ea;
+        use diesel_async::RunQueryDsl;
+
+        ea::entity_activity
+            .filter(ea::tenant_id.eq(param_tenant_id))
+            .filter(ea::entity_type.eq(param_entity_type))
+            .filter(ea::entity_id.eq(param_entity_id))
+            .filter(ea::activity_type.eq(param_activity_type))
+            .select(EntityActivityRow::as_select())
+            .load(conn)
+            .await
+            .attach("Error while listing entity activities by type")
+            .into_db_result()
+    }
+}
+
+pub async fn oauth_app_names(
+    conn: &mut PgConn,
+    ids: &[OAuthAppId],
+) -> DbResult<Vec<(OAuthAppId, String)>> {
+    use crate::schema::connect_oauth_app::dsl as coa;
+    use diesel_async::RunQueryDsl;
+
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+    coa::connect_oauth_app
+        .filter(coa::id.eq_any(ids))
+        .select((coa::id, coa::name))
+        .get_results(conn)
+        .await
+        .attach("Error while fetching oauth app names by ids")
+        .into_db_result()
 }

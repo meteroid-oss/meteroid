@@ -23,7 +23,7 @@ export const TopSection = () => {
       />
       <StatCard
         title="Pending invoices"
-        detailPath="invoices"
+        detailPath="invoices?status=FINALIZED&payment_status=UNPAID"
         value={stats.data?.pendingInvoices?.count?.toString() ?? 'No data'}
         loading={!stats}
         // secondaryValue={formatAmount(stats.data?.pendingInvoices?.valueCents)}

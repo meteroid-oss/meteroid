@@ -1,0 +1,15 @@
+[package]
+name = "meteroid-oss-openapi"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "openapi-generate"
+path = "src/main.rs"
+
+[dependencies]
+meteroid = { path = "../../../modules/meteroid" }
+meteroid-edition-oss = { path = "../modules" }
+workspace-hack = { version = "0.1", path = "../../../crates/workspace-hack" }

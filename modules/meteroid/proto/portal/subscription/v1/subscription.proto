@@ -2,9 +2,12 @@ syntax = "proto3";
 
 package meteroid.portal.subscription.v1;
 
+import "api/billablemetrics/v1/models.proto";
+import "api/customers/v1/models.proto";
 import "api/invoices/v1/models.proto";
 import "api/prices/v1/models.proto";
 import "api/subscriptions/v1/models.proto";
+import "portal/wallets/v1/models.proto";
 
 enum PendingEventType {
   PLAN_CHANGE = 0;
@@ -38,6 +41,8 @@ message ProrationSummary {
   uint32 days_in_period = 6;
   // Prorated charge for newly-added arrears components (deferred to next invoice).
   int64 arrears_charge_cents = 7;
+  // Credit packs the change bills, and what it does to the old packs' credit.
+  repeated meteroid.api.subscriptions.v1.PlanChangePackLine pack_changes = 8;
 }
 
 message PendingEvent {
@@ -67,6 +72,82 @@ message SubscriptionDetails {
   // can be self-served via checkout. When false, the portal must direct the
   // customer to contact their account manager instead of purchasing.
   bool online_payment_enabled = 11;
+  optional PlanPrice plan_price = 12;
+}
+
+// The recurring price of a plan, from its price components (never MRR). Usage is billed on top.
+message PlanPrice {
+  string currency = 1;
+  meteroid.api.subscriptions.v1.SubscriptionFeeBillingPeriod cadence = 2;
+  // Minor units of `currency` per `cadence`: fixed fees, seats and credit packs, after `discounts`.
+  int64 amount = 3;
+  // Recurring fees billed on another cadence than `cadence`.
+  repeated RecurringAmount other_cadences = 4;
+  repeated IncludedCredit included_credits = 5;
+  bool usage_based = 6;
+  // Minor units of `currency`: the least billed per period.
+  optional int64 minimum = 7;
+  // `amount` before `discounts`; set when a discount applies.
+  optional int64 list_amount = 8;
+  repeated PlanDiscount discounts = 9;
+  // What usage costs, when the plan bills usage.
+  optional UsageRates usage_rates = 10;
+}
+
+// A coupon on the subscription. Exactly one of `percentage` and `amount` is set.
+message PlanDiscount {
+  string code = 1;
+  // Decimal string, e.g. "20".
+  optional string percentage = 2;
+  // Minor units of the plan currency.
+  optional int64 amount = 3;
+}
+
+// The range of per-unit usage rates, as decimal strings in `currency` or in `credit_unit`.
+message UsageRates {
+  string min_rate = 1;
+  string max_rate = 2;
+  string currency = 3;
+  optional meteroid.portal.wallets.v1.CreditUnitLabel credit_unit = 4;
+  // Unset when the rates span several metrics.
+  optional string metric_name = 5;
+  // Metric units each rate prices, e.g. 1000000 for a rate per million tokens.
+  uint64 unit_size = 6;
+  // The metric's unit, when the rates price one metric that names it.
+  optional meteroid.api.billablemetrics.v1.MetricUnitLabel unit_label = 7;
+}
+
+message RecurringAmount {
+  int64 amount = 1;
+  meteroid.api.subscriptions.v1.SubscriptionFeeBillingPeriod cadence = 2;
+}
+
+// Credit a plan funds every period.
+message IncludedCredit {
+  // Minor units of `currency`, or of `credit_unit` at its precision when set.
+  int64 amount = 1;
+  string currency = 2;
+  optional meteroid.portal.wallets.v1.CreditUnitLabel credit_unit = 3;
+  meteroid.api.subscriptions.v1.SubscriptionFeeBillingPeriod cadence = 4;
+  // Paid for by the plan price, rather than given at no charge.
+  bool purchased = 5;
+  optional CreditTerm expiry = 6;
+  // Set when unused credit rolls over once.
+  optional CreditRolloverTerms rollover = 7;
+}
+
+// Exactly one is set.
+message CreditTerm {
+  optional uint32 days = 1;
+  optional uint32 months = 2;
+  // Expires at the end of the billing period it was funded for.
+  bool period_end = 3;
+}
+
+message CreditRolloverTerms {
+  // Same minor units as the credit; unset rolls over everything left.
+  optional int64 max_amount = 1;
+  CreditTerm expiry = 2;
 }
 
 message AvailablePlan {
@@ -77,6 +158,7 @@ message AvailablePlan {
   int32 self_service_rank = 5;
   bool is_current = 6;
   optional ComponentFee headline_fee = 7;
+  optional PlanPrice price = 8;
 }
 
 message ComponentFee {
@@ -84,6 +166,13 @@ message ComponentFee {
   string amount = 2;
   meteroid.api.subscriptions.v1.SubscriptionFeeBillingPeriod cadence = 3;
   optional string unit = 4;
+  // Set when a usage/capacity overage, or a credit pack's grant, is priced or denominated in a
+  // credit unit instead of money, same as the dashboard shows it.
+  optional meteroid.api.subscriptions.v1.SubscriptionFee.FeeCreditUnit credit_unit = 5;
+  // Credit pack only: the amount of credit it grants, in credit_unit, separate from `amount`'s money price.
+  optional string credit_amount = 6;
+  // How to name `credit_unit` to the customer; its code is internal.
+  optional meteroid.portal.wallets.v1.CreditUnitLabel credit_unit_label = 7;
 }
 
 message ComponentChangePreview {
@@ -168,6 +257,28 @@ message PortalUpcomingInvoice {
   string period_start = 10;
   string period_end = 11;
   optional string plan_name = 12;
+  // YYYY-MM-DD: the invoice date plus the subscription's payment terms.
+  string due_date = 13;
+  // The payment method on file is charged on the invoice date.
+  bool charge_automatically = 14;
+  // Set when charged automatically.
+  optional meteroid.api.customers.v1.CustomerPaymentMethod payment_method = 15;
+  // YYYY-MM-DD: when the invoice is finalized, and charged when charged automatically.
+  string charge_date = 16;
+  string subscription_id = 17;
+  // Promotional credit drawn before tax, net like `discount`.
+  int64 promotional_credits = 18;
+  // The credit drawn is shared with other pending invoices, so the amounts after it are estimates.
+  bool credit_estimate_shared = 19;
+  // Invoices billed before this one that draw on the same shared credit.
+  repeated PortalBilledFirst billed_first = 20;
+}
+
+message PortalBilledFirst {
+  optional string subscription_id = 1;
+  optional string plan_name = 2;
+  // YYYY-MM-DD
+  string invoice_date = 3;
 }
 
 message AvailableAddOn {

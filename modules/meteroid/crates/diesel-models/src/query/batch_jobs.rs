@@ -28,7 +28,7 @@ impl BatchJobRowNew {
         use crate::schema::batch_job::dsl::batch_job;
 
         let query = diesel::insert_into(batch_job).values(self);
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -54,7 +54,7 @@ impl BatchJobRow {
             .filter(id.eq(job_id))
             .filter(tenant_id.eq(tenant_id_param));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -101,10 +101,7 @@ impl BatchJobRow {
 
         let paginated_query = query.select(BatchJobRow::as_select()).paginate(pagination);
 
-        log::debug!(
-            "{}",
-            diesel::debug_query::<diesel::pg::Pg, _>(&paginated_query)
-        );
+        crate::debug_sql(&paginated_query);
 
         paginated_query
             .load_and_count_pages(conn)
@@ -134,7 +131,7 @@ impl BatchJobRow {
             .filter(file_hash.eq(hash))
             .filter(status.eq_any(non_terminal));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -189,7 +186,7 @@ impl BatchJobRow {
         "#;
 
         let query = diesel::sql_query(raw_sql);
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results::<BatchJobRow>(conn)
@@ -220,7 +217,7 @@ impl BatchJobRow {
                 updated_at.eq(now),
             ));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -297,6 +294,28 @@ impl BatchJobRow {
             .into_db_result()
     }
 
+    /// Set the output_key (S3 key of the finished output artifact, e.g. the tax-report
+    /// CSV). Uses CAS on output_key IS NULL to avoid races.
+    pub async fn set_output_key(
+        conn: &mut PgConn,
+        job_id: BatchJobId,
+        key: String,
+    ) -> DbResult<usize> {
+        use crate::schema::batch_job::dsl;
+
+        let now = Utc::now().naive_utc();
+        let query = diesel::update(dsl::batch_job)
+            .filter(dsl::id.eq(job_id))
+            .filter(dsl::output_key.is_null())
+            .set((dsl::output_key.eq(Some(key)), dsl::updated_at.eq(now)));
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while setting output_key")
+            .into_db_result()
+    }
+
     /// Mark a job as failed. Only applies to non-terminal states.
     pub async fn mark_as_failed(
         conn: &mut PgConn,
@@ -324,7 +343,7 @@ impl BatchJobRow {
                 error_message.eq(error),
             ));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -361,7 +380,7 @@ impl BatchJobRow {
                 updated_at.eq(now),
             ));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -397,7 +416,7 @@ impl BatchJobRow {
                 updated_at.eq(now),
             ));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -510,7 +529,7 @@ impl BatchJobRow {
                 updated_at.eq(Utc::now().naive_utc()),
             ));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -532,7 +551,7 @@ impl BatchJobChunkRowNew {
         use crate::schema::batch_job_chunk::dsl::batch_job_chunk;
 
         let query = diesel::insert_into(batch_job_chunk).values(chunks);
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -558,7 +577,7 @@ impl BatchJobChunkRow {
             .filter(id.eq(chunk_id))
             .filter(tenant_id.eq(tenant_id_param));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -581,7 +600,7 @@ impl BatchJobChunkRow {
             .filter(tenant_id.eq(tenant_id_param))
             .order_by(chunk_index.asc());
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -608,7 +627,7 @@ impl BatchJobChunkRow {
         "#;
 
         let query = diesel::sql_query(raw_sql);
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results::<BatchJobChunkRow>(conn)
@@ -813,7 +832,7 @@ impl BatchJobChunkRow {
                 updated_at.eq(now),
             ));
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -976,7 +995,7 @@ impl BatchJobItemFailureRowNew {
         }
 
         let query = diesel::insert_into(batch_job_item_failure).values(failures);
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -1011,7 +1030,7 @@ impl BatchJobItemFailureRow {
             query = query.filter(chunk_id.eq(cid));
         }
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -1040,7 +1059,7 @@ impl BatchJobItemFailureRow {
         }
 
         let count_query = query.count();
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&count_query));
+        crate::debug_sql(&count_query);
 
         count_query
             .get_result(conn)
@@ -1076,7 +1095,7 @@ impl BatchJobItemFailureRow {
                 .filter(chunk_id.eq_any(failed_chunk_ids)),
         );
 
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -1102,7 +1121,7 @@ impl BatchJobEntityRowNew {
         }
 
         let query = diesel::insert_into(batch_job_entity).values(entities);
-        log::debug!("{}", diesel::debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)

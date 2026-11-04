@@ -18,13 +18,16 @@ import {
 } from '@/rpc/portal/shared/v1/shared-PortalSharedService_connectquery'
 
 import { CardBrandLogo } from './components/CardBrandLogo'
+import { MockPaymentFields } from './components/MockPaymentFields'
 import { PaymentForm } from './components/PaymentForm'
 import { buildStripeAppearance } from './stripeAppearance'
 import { getStripePromise } from './stripeClient'
 import { PaymentMethodSelection, PaymentPanelProps, PaymentState } from './types'
-import { hostedRedirectHelperText, useRailTabs } from './useRailTabs'
+import { useMockScenario } from './useMockScenario'
+import { hostedRedirectHelperText, isHostedRedirect, useRailTabs } from './useRailTabs'
 import {
   HostedRail,
+  hostedReturnTarget,
   hostedReturnUrl,
   stashHostedDeparture,
   stashHostedPreAttempt,
@@ -255,22 +258,36 @@ const SavedMandatePanel: React.FC<{
   )
 }
 
+/** Provider-agnostic body of the embedded flow. The provider supplies the fields for a new method
+ *  and the confirm step that turns them into an external payment method id; saved methods, submit
+ *  and error handling are shared. */
 const PaymentPanelInner: React.FC<
   PaymentPanelProps & {
     activeConnectionId: string
     activeConnectionType: 'card' | 'directDebit'
+    newMethodFields: React.ReactNode
+    /** Confirms the new method with the provider; resolves to its external id. */
+    confirmNewMethod: () => Promise<string>
+    /** Provider SDK not ready yet: keep the submit button disabled. */
+    providerNotReady?: boolean
+    /** Identity of the new method being entered, when the provider knows it. A change means a
+     *  different instrument, so a method attached by an earlier attempt must not be reused. */
+    newMethodKey?: string
   }
 > = ({
   customer,
   paymentMethods,
+  submitLabel,
   onPaymentSubmit,
   onPaymentMethodAttached,
   activeConnectionId,
   activeConnectionType,
+  newMethodFields,
+  confirmNewMethod,
+  providerNotReady,
+  newMethodKey,
+  showPoweredBy,
 }) => {
-  const stripe = useStripe()
-  const elements = useElements()
-
   const [paymentState, setPaymentState] = useState<PaymentState>(PaymentState.INITIAL)
   const [paymentError, setPaymentError] = useState<string | null>(null)
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethodSelection | null>(
@@ -280,6 +297,10 @@ const PaymentPanelInner: React.FC<
   // customer dismisses the 3DS challenge), we must not re-run confirmSetup on
   // the now-consumed intent; remember the attached method and reuse it on retry.
   const [attachedPaymentMethodId, setAttachedPaymentMethodId] = useState<string | null>(null)
+
+  useEffect(() => {
+    setAttachedPaymentMethodId(null)
+  }, [newMethodKey])
 
   const addPaymentMethodMutation = useMutation(addPaymentMethod)
 
@@ -327,35 +348,12 @@ const PaymentPanelInner: React.FC<
         let paymentMethodId = attachedPaymentMethodId
 
         if (!paymentMethodId) {
-          if (!stripe || !elements) {
-            throw new Error('Stripe has not been initialized')
-          }
-
-          const { error, setupIntent } = await stripe.confirmSetup({
-            elements,
-            confirmParams: {
-              return_url: window.location.href,
-              payment_method_data: {
-                billing_details: {
-                  name: customer?.name,
-                  email: customer?.billingEmail,
-                },
-              },
-            },
-            redirect: 'if_required',
-          })
-
-          if (error) {
-            throw new Error(error.message)
-          }
-
-          if (!setupIntent || !setupIntent.payment_method) {
-            throw new Error('Payment method creation failed')
-          }
+          const externalPaymentMethodId = await confirmNewMethod()
 
           const res = await addPaymentMethodMutation.mutateAsync({
             connectionId: activeConnectionId,
-            externalPaymentMethodId: setupIntent.payment_method.toString(),
+            externalPaymentMethodId,
+            forPayment: true,
           })
 
           if (!res.paymentMethod?.id) {
@@ -374,9 +372,7 @@ const PaymentPanelInner: React.FC<
       }
     } catch (err) {
       console.error('Payment error:', err)
-      setPaymentError(
-        err instanceof Error ? err.message : 'An error occurred during payment processing'
-      )
+      setPaymentError(errorText(err, 'An error occurred during payment processing'))
       setPaymentState(PaymentState.ERROR)
     }
   }
@@ -460,7 +456,8 @@ const PaymentPanelInner: React.FC<
           )}
 
           {selectedPaymentMethod?.type === 'new' &&
-            selectedPaymentMethod.methodType === activeConnectionType && <PaymentForm />}
+            selectedPaymentMethod.methodType === activeConnectionType &&
+            newMethodFields}
         </div>
       </div>
 
@@ -478,7 +475,7 @@ const PaymentPanelInner: React.FC<
       {/* Submit button */}
       <button
         type="submit"
-        disabled={paymentState === PaymentState.PROCESSING || !stripe}
+        disabled={paymentState === PaymentState.PROCESSING || providerNotReady}
         className="w-full py-3 rounded-lg transition-all font-medium disabled:cursor-not-allowed disabled:opacity-60 hover:opacity-90"
         style={{ background: 'var(--mtp-accent)', color: 'var(--mtp-on-accent)' }}
       >
@@ -488,7 +485,7 @@ const PaymentPanelInner: React.FC<
             Processing...
           </div>
         ) : (
-          `Pay and subscribe`
+          submitLabel
         )}
       </button>
 
@@ -503,7 +500,7 @@ const PaymentPanelInner: React.FC<
         className="mt-8 flex items-center justify-between text-xs"
         style={{ color: 'var(--mtp-text-2)' }}
       >
-        <div>Powered by Meteroid</div>
+        <div>{showPoweredBy && 'Powered by Meteroid'}</div>
         <div className="flex space-x-4">
           <a
             href="https://meteroid.com/terms"
@@ -524,6 +521,73 @@ const PaymentPanelInner: React.FC<
         </div>
       </div>
     </form>
+  )
+}
+
+/** Stripe binding of the embedded flow: Elements collects the card, the SetupIntent confirm yields
+ *  the attached payment method id. */
+const StripePaymentPanel: React.FC<
+  PaymentPanelProps & { activeConnectionId: string; activeConnectionType: 'card' | 'directDebit' }
+> = props => {
+  const stripe = useStripe()
+  const elements = useElements()
+  const { customer } = props
+
+  const confirmNewMethod = async () => {
+    if (!stripe || !elements) {
+      throw new Error('Stripe has not been initialized')
+    }
+    const { error, setupIntent } = await stripe.confirmSetup({
+      elements,
+      confirmParams: {
+        // Stripe stores this URL: never with the page token, which the page restores on return.
+        return_url: hostedReturnTarget(window.location.href),
+        payment_method_data: {
+          billing_details: {
+            name: customer?.name,
+            email: customer?.billingEmail,
+          },
+        },
+      },
+      redirect: 'if_required',
+    })
+    if (error) {
+      throw new Error(error.message)
+    }
+    if (!setupIntent || !setupIntent.payment_method) {
+      throw new Error('Payment method creation failed')
+    }
+    return setupIntent.payment_method.toString()
+  }
+
+  return (
+    <PaymentPanelInner
+      {...props}
+      newMethodFields={<PaymentForm />}
+      confirmNewMethod={confirmNewMethod}
+      providerNotReady={!stripe}
+    />
+  )
+}
+
+/** Mock binding of the embedded flow (dev only): the chosen test scenario becomes the external
+ *  payment method id, no instrument details are collected, and the backend reads the intended
+ *  outcome back out of it. Remounted per tab by the caller. */
+const MockPaymentPanel: React.FC<
+  PaymentPanelProps & { activeConnectionId: string; activeConnectionType: 'card' | 'directDebit' }
+> = props => {
+  const rail = props.activeConnectionType
+  const { scenarioId, setScenarioId, confirmNewMethod } = useMockScenario(rail)
+
+  return (
+    <PaymentPanelInner
+      {...props}
+      newMethodFields={
+        <MockPaymentFields rail={rail} scenarioId={scenarioId} onScenarioChange={setScenarioId} />
+      }
+      confirmNewMethod={confirmNewMethod}
+      newMethodKey={scenarioId}
+    />
   )
 }
 
@@ -581,7 +645,9 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
     activeTab === 'directDebit' &&
     !props.invoiceId &&
     !!props.onHostedCheckout &&
-    savedMethodsForTab.length === 0
+    savedMethodsForTab.length === 0 &&
+    // An embedded provider on this rail (the test gateway) takes the normal intent path.
+    (!props.directDebitCapabilities || isHostedRedirect(props.directDebitCapabilities))
 
   // Before redirecting to a hosted flow, save the rail (the return doesn't include it) and the
   // already-failed txs, so a failure of the new charge can be told apart.
@@ -609,6 +675,8 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
       invoiceId: props.invoiceId,
       // Checkout renders from the provider alone; Mollie/Stancer create the payment on click.
       descriptorOnly: !props.invoiceId && !!props.onHostedCheckout,
+      // Saved to pay now: its webhook must not make it the default before the payment settles.
+      forPayment: true,
     },
     { enabled: !!activeConnectionId && !hostedCheckoutDD }
   )
@@ -742,6 +810,18 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
       )
     }
 
+    // Test gateway: no SDK and no secret to honour, the scenario picker mints the method
+    // id itself. One connection on both rails still gets a tab per rail.
+    if (capabilities.isTestGateway) {
+      return (
+        <MockPaymentPanel
+          {...props}
+          activeConnectionId={connectionId}
+          activeConnectionType={activeTab}
+        />
+      )
+    }
+
     // Stripe Elements is the only embedded SDK in the portal.
     const stripePublishableKey = intent.providerPublicKey
     if (
@@ -769,7 +849,7 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
           appearance: stripeAppearance,
         }}
       >
-        <PaymentPanelInner
+        <StripePaymentPanel
           {...props}
           activeConnectionId={connectionId}
           activeConnectionType={activeTab}

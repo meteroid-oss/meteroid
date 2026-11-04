@@ -45,6 +45,7 @@ export const InvoiceEditBillingInfo = ({
       line1: customerDetails.billingAddress?.line1 || '',
       line2: customerDetails.billingAddress?.line2 || '',
       city: customerDetails.billingAddress?.city || '',
+      state: customerDetails.billingAddress?.state || '',
       zipCode: customerDetails.billingAddress?.zipCode || '',
       country: customerDetails.billingAddress?.country || undefined,
       vatNumber: customerDetails.vatNumber || '',

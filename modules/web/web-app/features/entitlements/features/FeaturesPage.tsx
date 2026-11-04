@@ -1,13 +1,5 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
+import { PlusIcon } from '@md/icons'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -18,26 +10,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@md/ui'
-import { useQueryClient } from '@tanstack/react-query'
-import { PaginationState, SortingState } from '@tanstack/react-table'
+import { SortingState } from '@tanstack/react-table'
 import { Button } from '@ui/components'
 import { ChevronDown } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
-import { FeaturesHeader } from '@/features/entitlements/features/FeaturesHeader'
+import { Gate } from '@/components/Gate'
+import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'
 import { FeaturesTable } from '@/features/entitlements/features/FeaturesTable'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { useQueryState } from '@/hooks/useQueryState'
+import { useListPagination, useResetPageOnChange } from '@/hooks/useTablePreferences'
 import { useQuery } from '@/lib/connectrpc'
-import {
-  listFeatures,
-  setFeatureStatus,
-} from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
-import { Feature, FeatureStatus } from '@/rpc/api/entitlements/v1/models_pb'
+import { listFeatures } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
+import { FeatureStatus } from '@/rpc/api/entitlements/v1/models_pb'
 import { listProducts } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 
-// Archive is hidden from the catalog UI — keep it out of the filter set too.
-const ALL_STATUSES: FeatureStatus[] = [FeatureStatus.ACTIVE, FeatureStatus.DISABLED]
+import { FeatureActionDialog, PendingFeatureAction } from './statusActions'
+
+const ALL_STATUSES: FeatureStatus[] = [FeatureStatus.ACTIVE, FeatureStatus.DISABLED, FeatureStatus.ARCHIVED]
+const DEFAULT_STATUSES: FeatureStatus[] = [FeatureStatus.ACTIVE, FeatureStatus.DISABLED]
 
 function statusLabel(s: FeatureStatus): string {
   switch (s) {
@@ -45,48 +38,33 @@ function statusLabel(s: FeatureStatus): string {
       return 'Active'
     case FeatureStatus.DISABLED:
       return 'Disabled'
+    case FeatureStatus.ARCHIVED:
+      return 'Archived'
     default:
       return String(s)
   }
 }
 
 function selectionLabel(selection: Set<FeatureStatus>): string {
-  if (selection.size === 0 || selection.size === ALL_STATUSES.length) return 'All statuses'
-  return Array.from(selection).map(statusLabel).join(', ')
-}
-
-type StatusAction = { feature: Feature; target: FeatureStatus }
-
-function actionCopy(target: FeatureStatus): { title: string; description: string; cta: string } {
-  if (target === FeatureStatus.ACTIVE)
-    return {
-      title: 'Re-activate feature?',
-      description: 'Customers regain access to this feature. All entitlement settings come back as they were.',
-      cta: 'Re-activate',
-    }
-  return {
-    title: 'Disable feature?',
-    description: "Customers will lose access while it's off. Settings stay saved — turning it back on restores everything.",
-    cta: 'Disable',
-  }
+  if (selection.size === ALL_STATUSES.length) return 'All statuses'
+  const shown = selection.size === 0 ? DEFAULT_STATUSES : Array.from(selection)
+  return shown.map(statusLabel).join(', ')
 }
 
 export const FeaturesPage = () => {
-  const queryClient = useQueryClient()
+  const navigate = useNavigate()
 
-  const [search] = useQueryState<string | undefined>('q', undefined)
+  const [search, setSearch] = useQueryState<string | undefined>('q', undefined)
   const debouncedSearch = useDebounceValue(search, 400)
   const [statusSelection, setStatusSelection] = useState<Set<FeatureStatus>>(
-    () => new Set([FeatureStatus.ACTIVE, FeatureStatus.DISABLED])
+    () => new Set(DEFAULT_STATUSES)
   )
   const [productFilter, setProductFilter] = useQueryState<string | undefined>('product', undefined)
-  const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 20 })
+  const [pagination, setPagination] = useListPagination()
   const [sorting, setSorting] = useState<SortingState>([])
-  const [pendingAction, setPendingAction] = useState<StatusAction | null>(null)
+  const [pendingAction, setPendingAction] = useState<PendingFeatureAction | null>(null)
 
-  useEffect(() => {
-    setPagination(prev => ({ ...prev, pageIndex: 0 }))
-  }, [debouncedSearch, statusSelection, productFilter])
+  useResetPageOnChange(setPagination, [debouncedSearch, statusSelection, productFilter])
 
   const productsQuery = useQuery(listProducts, { pagination: { page: 0, perPage: 200 } })
   const products = productsQuery.data?.products ?? []
@@ -97,18 +75,6 @@ export const FeaturesPage = () => {
     search: debouncedSearch || undefined,
     productId: productFilter || undefined,
   })
-
-  const setStatusMutation = useMutation(setFeatureStatus, {
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: listFeatures.parent,
-        cardinality: undefined
-      }) })
-      setPendingAction(null)
-    },
-  })
-
-  const copy = pendingAction ? actionCopy(pendingAction.target) : null
 
   const toggleStatus = (s: FeatureStatus) => {
     setStatusSelection(prev => {
@@ -123,79 +89,73 @@ export const FeaturesPage = () => {
   }
 
   return (
-    <>
-      <FeaturesHeader
-        count={query.data?.paginationMeta?.totalItems}
-        isLoading={query.isLoading}
-        refetch={() => query.refetch()}
-      >
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8 text-sm gap-1">
-              {selectionLabel(statusSelection)}
-              <ChevronDown className="w-4 h-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            {ALL_STATUSES.map(s => (
-              <DropdownMenuCheckboxItem
-                key={s}
-                checked={statusSelection.has(s)}
-                onCheckedChange={() => toggleStatus(s)}
-              >
-                {statusLabel(s)}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <Select
-          value={productFilter ?? '__all__'}
-          onValueChange={v => setProductFilter(v === '__all__' ? undefined : v)}
-        >
-          <SelectTrigger className="w-40 h-8 text-sm">
-            <SelectValue placeholder="All products" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">All products</SelectItem>
-            {products.map(p => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </FeaturesHeader>
+    <ListPageLayout
+      title="Features"
+      count={query.data?.paginationMeta?.totalItems}
+      actions={
+        <Gate perm="catalog:manage">
+          <Button variant="primary" size="sm" hasIcon onClick={() => navigate('create')}>
+            <PlusIcon className="w-4 h-4" /> New feature
+          </Button>
+        </Gate>
+      }
+      toolbar={
+        <>
+          <ListToolbarSearch
+            value={search ?? ''}
+            onChange={setSearch}
+            placeholder="Search features"
+            className="max-w-[220px]"
+          />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8 text-sm gap-1">
+                {selectionLabel(statusSelection)}
+                <ChevronDown className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {ALL_STATUSES.map(s => (
+                <DropdownMenuCheckboxItem
+                  key={s}
+                  checked={statusSelection.has(s)}
+                  onCheckedChange={() => toggleStatus(s)}
+                >
+                  {statusLabel(s)}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Select
+            value={productFilter ?? '__all__'}
+            onValueChange={v => setProductFilter(v === '__all__' ? undefined : v)}
+          >
+            <SelectTrigger className="w-40 h-8 text-sm">
+              <SelectValue placeholder="All products" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All products</SelectItem>
+              {products.map(p => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </>
+      }
+      toolbarTrailing={<RefreshButton isLoading={query.isLoading} onClick={() => query.refetch()} />}
+    >
       <FeaturesTable
         query={query}
         pagination={pagination}
         setPagination={setPagination}
         sorting={sorting}
         onSortingChange={setSorting}
-        onStatusAction={(feature, target) => setPendingAction({ feature, target })}
+        onAction={(feature, target) => setPendingAction({ feature, target })}
       />
 
-      <AlertDialog open={!!pendingAction} onOpenChange={open => !open && setPendingAction(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{copy?.title}</AlertDialogTitle>
-            <AlertDialogDescription>{copy?.description}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (!pendingAction) return
-                setStatusMutation.mutate({
-                  id: pendingAction.feature.id,
-                  status: pendingAction.target,
-                })
-              }}
-            >
-              {copy?.cta}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+      <FeatureActionDialog pending={pendingAction} onClose={() => setPendingAction(null)} />
+    </ListPageLayout>
   )
 }

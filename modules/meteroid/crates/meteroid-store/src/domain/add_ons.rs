@@ -1,3 +1,4 @@
+use crate::domain::credit_units::CreditUnitsById;
 use crate::domain::entitlements::Entitlement;
 use crate::domain::enums::{FeeTypeEnum, SubscriptionFeeBillingPeriod};
 use crate::domain::price_components::{ComponentParameters, PriceEntry, ResolvedFee};
@@ -62,6 +63,7 @@ impl AddOn {
         &self,
         products: &HashMap<ProductId, Product>,
         prices: &HashMap<PriceId, Price>,
+        units: &CreditUnitsById,
         params: Option<&ComponentParameters>,
     ) -> Result<ResolvedFee, StoreError> {
         let product = products.get(&self.product_id).ok_or_else(|| {
@@ -79,7 +81,13 @@ impl AddOn {
 
         let fee_structure = &product.fee_structure;
 
-        let fee = prices::resolve_subscription_fee(fee_structure, &price.pricing, params)?;
+        let fee = prices::resolve_subscription_fee(
+            fee_structure,
+            &price.pricing,
+            price.credit_unit.as_ref(),
+            units,
+            params,
+        )?;
         let period = if let Some(bp) = params.and_then(|p| p.billing_period) {
             bp.as_subscription_billing_period()
         } else {
@@ -100,11 +108,12 @@ impl AddOn {
         &self,
         products: &HashMap<ProductId, Product>,
         prices: &HashMap<PriceId, Price>,
+        units: &CreditUnitsById,
         customization: &SubscriptionAddOnCustomization,
     ) -> Result<ResolvedAddOn, StoreError> {
         match customization {
             SubscriptionAddOnCustomization::None => {
-                let resolved = self.resolve_subscription_fee(products, prices, None)?;
+                let resolved = self.resolve_subscription_fee(products, prices, units, None)?;
                 Ok(ResolvedAddOn {
                     name: self.name.clone(),
                     period: resolved.period,
@@ -131,8 +140,13 @@ impl AddOn {
                                 price_id, self.id
                             ))
                         })?;
-                        let fee =
-                            prices::resolve_subscription_fee(fee_structure, &price.pricing, None)?;
+                        let fee = prices::resolve_subscription_fee(
+                            fee_structure,
+                            &price.pricing,
+                            price.credit_unit.as_ref(),
+                            units,
+                            None,
+                        )?;
                         let period = prices::fee_type_billing_period(fee_structure)
                             .unwrap_or_else(|| price.cadence.as_subscription_billing_period());
                         Ok(ResolvedAddOn {
@@ -148,6 +162,8 @@ impl AddOn {
                         let fee = prices::resolve_subscription_fee(
                             fee_structure,
                             &price_input.pricing,
+                            price_input.credit_unit.as_ref(),
+                            units,
                             None,
                         )?;
                         let period =
@@ -167,7 +183,8 @@ impl AddOn {
             }
             SubscriptionAddOnCustomization::Parameterization(param) => {
                 let params = Self::params_from_addon_parameterization(param);
-                let resolved = self.resolve_subscription_fee(products, prices, Some(&params))?;
+                let resolved =
+                    self.resolve_subscription_fee(products, prices, units, Some(&params))?;
                 Ok(ResolvedAddOn {
                     name: self.name.clone(),
                     period: resolved.period,

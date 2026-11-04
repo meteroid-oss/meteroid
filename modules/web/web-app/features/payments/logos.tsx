@@ -1,3 +1,4 @@
+import { FlaskConical } from 'lucide-react'
 import { FunctionComponent } from 'react'
 import { siStripe } from 'simple-icons'
 
@@ -103,3 +104,8 @@ export const StripeLogo = ({ className }: { className?: string }) => (
 )
 
 export type ProviderLogo = FunctionComponent<{ className?: string }>
+
+/** Dev-only mock gateway: a lab flask, so it never reads as a real brand. */
+export const MockLogo = ({ className }: { className?: string }) => (
+  <FlaskConical className={className} />
+)

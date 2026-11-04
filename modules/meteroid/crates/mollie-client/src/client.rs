@@ -41,7 +41,7 @@ impl MollieClient {
         timeout: Duration,
     ) -> Self {
         Self {
-            client: Client::builder()
+            client: http_client_tracing::client_builder()
                 .connect_timeout(connect_timeout)
                 .timeout(timeout)
                 .build()
@@ -154,13 +154,10 @@ impl MollieClient {
         let mut tries: u32 = 0;
 
         loop {
-            let response = req_builder
-                .try_clone()
-                .ok_or(MollieError::ClientError(
-                    "streaming request is not supported".to_string(),
-                ))?
-                .send()
-                .await;
+            let request = req_builder.try_clone().ok_or(MollieError::ClientError(
+                "streaming request is not supported".to_string(),
+            ))?;
+            let response = http_client_tracing::send(request).await;
 
             match response {
                 Ok(resp) => {

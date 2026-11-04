@@ -66,6 +66,66 @@ message PlanVersion {
   optional int32 period_start_day = 8;
   int32 net_terms = 9;
   bool uses_product_pricing = 10;
+  optional MinimumCommitment minimum_commitment = 11;
+  // The version's amounts are quoted tax-included: tax is carved out of them at invoice
+  // time instead of being added on top.
+  bool tax_inclusive = 12;
+  string created_at = 13;
+  // What usage does once the credit it draws on runs out. Unset on a draft whose rule was not
+  // chosen yet: publishing sets the default (pause when the version grants credit or prices usage
+  // in a credit unit, invoice otherwise).
+  optional CreditExhaustedRule credit_exhausted_rule = 14;
+}
+
+message CreditExhaustedRule {
+  enum Kind {
+    // Usage beyond the credit is invoiced.
+    INVOICE = 0;
+    // The access check refuses usage once the credit the subscription can spend is used up.
+    PAUSE = 1;
+    // Usage beyond the credit is invoiced up to `caps` per billing period, then refused.
+    INVOICE_UP_TO = 2;
+  }
+  Kind kind = 1;
+  // INVOICE_UP_TO only, one per denomination the plan charges usage in; usage charged in a
+  // denomination without a cap pauses at zero.
+  repeated CreditCap caps = 2;
+}
+
+message CreditCap {
+  // A currency or credit unit code.
+  string denomination = 1;
+  // Minor units of the denomination.
+  int64 amount = 2;
+}
+
+// Plan-level period minimum (true-up floor).
+// `amount_subunit` is in the currency's minor unit (matches LineItem amounts in invoices).
+// At invoice time on a Recurring invoice, the sum of lines (post-discount) for the period
+// whose component is included by `scope` is compared to a prorated `amount_subunit`; if
+// below, a "Minimum commitment" line tops it up.
+message MinimumCommitment {
+  int64 amount_subunit = 1;
+  Scope scope = 2;
+
+  message Scope {
+    oneof kind {
+      AllComponents all_components = 1;
+      Products products = 2;
+    }
+
+    message AllComponents {}
+    // Scoped by product: a product is the identity shared by plan components, overrides and
+    // ad-hoc extras, so a subscription's actual billed set is matched uniformly.
+    message Products {
+      repeated string product_ids = 1;
+      // Create-time only: local names of ad-hoc *new-product* extras in the same create request
+      // whose freshly-minted product ids should be added to the scope. The server resolves these
+      // to product ids inside the create transaction (the extra has no id until then). Empty and
+      // ignored everywhere else (plan editor, read responses).
+      repeated string pending_extra_product_names = 2;
+    }
+  }
 }
 
 message ListPlanVersion {
@@ -93,6 +153,8 @@ message Plan {
   optional string active_version_id = 11;
   optional string draft_version_id = 12;
   optional int32 self_service_rank = 13;
+  // Subscriptions to this plan are issued a software license automatically.
+  bool issues_license = 14;
 }
 
 message PlanOverview {
@@ -110,6 +172,7 @@ message PlanOverview {
   string product_family_local_id = 11;
   string product_family_name = 12;
   optional int32 self_service_rank = 13;
+  bool issues_license = 14;
 
   message ActiveVersionInfo {
     string id = 1;

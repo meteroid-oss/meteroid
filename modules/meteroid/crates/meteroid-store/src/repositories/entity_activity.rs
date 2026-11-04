@@ -4,17 +4,20 @@ use crate::domain::outbox_event::OutboxEvent;
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
 
+use crate::domain::customer_emails::EmailContext;
 use common_domain::actor::ActorType;
 use common_domain::ids::{
-    AliasOr, ApiTokenId, BaseId, CustomerId, EntityActivityId, StoredDocumentId, SubscriptionId,
-    TenantId,
+    ApiTokenId, BaseId, CustomerId, EntityActivityId, InvoicingEntityId, OAuthAppId,
+    StoredDocumentId, SubscriptionId, TenantId, UserId,
 };
 use diesel_models::api_tokens::ApiTokenRow;
 use diesel_models::customers::CustomerRow;
 use diesel_models::entity_activity::EntityActivityRow;
+use diesel_models::query::entity_activity::oauth_app_names;
 pub use diesel_models::query::entity_activity::{ActivityCursor, EntityActivityFilter};
 use diesel_models::sent_email::{SentEmailRow, SentEmailRowNew};
 use diesel_models::users::UserRow;
+use itertools::Itertools;
 use scoped_futures::ScopedFutureExt;
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -54,6 +57,11 @@ pub struct SentEmailNew {
     pub recipients: Vec<String>,
     pub body_html: String,
     pub attachments: Vec<SentEmailAttachment>,
+    pub invoicing_entity_id: Option<InvoicingEntityId>,
+    pub locale: Option<String>,
+    pub context: Option<EmailContext>,
+    pub dedupe_key: Option<String>,
+    pub resent_from: Option<EntityActivityId>,
 }
 
 #[derive(Debug, Clone)]
@@ -234,19 +242,23 @@ impl EntityActivityInterface for Store {
         tenant_id: TenantId,
         actors: &[(ActorType, Uuid)],
     ) -> StoreResult<HashMap<(ActorType, Uuid), String>> {
-        let mut user_ids: HashSet<Uuid> = HashSet::new();
-        let mut token_ids: HashSet<Uuid> = HashSet::new();
+        let mut user_ids: HashSet<UserId> = HashSet::new();
+        let mut token_ids: HashSet<ApiTokenId> = HashSet::new();
         let mut customer_ids: HashSet<CustomerId> = HashSet::new();
+        let mut oauth_app_ids: HashSet<OAuthAppId> = HashSet::new();
         for (actor_type, uuid) in actors {
             match actor_type {
                 ActorType::User => {
-                    user_ids.insert(*uuid);
+                    user_ids.insert(UserId::from(*uuid));
                 }
                 ActorType::ApiToken => {
-                    token_ids.insert(*uuid);
+                    token_ids.insert(ApiTokenId::from(*uuid));
                 }
                 ActorType::Customer => {
                     customer_ids.insert(CustomerId::from(*uuid));
+                }
+                ActorType::OAuthApp => {
+                    oauth_app_ids.insert(OAuthAppId::from(*uuid));
                 }
                 ActorType::System | ActorType::QuoteRecipient => {}
             }
@@ -256,16 +268,16 @@ impl EntityActivityInterface for Store {
         let mut conn = self.get_conn().await?;
 
         if !user_ids.is_empty() {
-            let ids: Vec<Uuid> = user_ids.into_iter().collect();
+            let ids: Vec<UserId> = user_ids.into_iter().collect_vec();
             let rows = UserRow::find_by_ids(&mut conn, &ids)
                 .await
                 .map_err(Into::<error_stack::Report<StoreError>>::into)?;
             for u in &rows {
-                out.insert((ActorType::User, *u.id), user_display(u));
+                out.insert((ActorType::User, u.id.as_uuid()), user_display(u));
             }
         }
         if !token_ids.is_empty() {
-            let ids: Vec<ApiTokenId> = token_ids.into_iter().map(Into::into).collect();
+            let ids: Vec<ApiTokenId> = token_ids.into_iter().collect_vec();
             let rows = ApiTokenRow::find_by_ids(&mut conn, tenant_id, &ids)
                 .await
                 .map_err(Into::<error_stack::Report<StoreError>>::into)?;
@@ -274,13 +286,24 @@ impl EntityActivityInterface for Store {
             }
         }
         if !customer_ids.is_empty() {
-            let aliased: Vec<AliasOr<CustomerId>> =
-                customer_ids.into_iter().map(AliasOr::Id).collect();
-            let rows = CustomerRow::find_by_ids_or_aliases(&mut conn, tenant_id, aliased)
-                .await
-                .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+            let rows = CustomerRow::list_by_ids(
+                &mut conn,
+                &tenant_id,
+                customer_ids.into_iter().collect_vec(),
+            )
+            .await
+            .map_err(Into::<error_stack::Report<StoreError>>::into)?;
             for c in &rows {
                 out.insert((ActorType::Customer, c.id.as_uuid()), c.name.clone());
+            }
+        }
+        if !oauth_app_ids.is_empty() {
+            let ids: Vec<OAuthAppId> = oauth_app_ids.into_iter().collect();
+            let rows = oauth_app_names(&mut conn, &ids)
+                .await
+                .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+            for (id, name) in rows {
+                out.insert((ActorType::OAuthApp, id.as_uuid()), name);
             }
         }
         Ok(out)
@@ -305,6 +328,7 @@ impl EntityActivityInterfaceEmail for Store {
                     "subject": sent.subject,
                     "recipient_count": sent.recipients.len(),
                     "attachment_count": sent.attachments.len(),
+                    "locale": sent.locale,
                 });
                 let activity_row = diesel_models::entity_activity::EntityActivityRowNew {
                     id,
@@ -347,6 +371,19 @@ impl EntityActivityInterfaceEmail for Store {
                                 .collect::<Vec<_>>()
                         ))
                     },
+                    kind: Some(sent.kind.clone()),
+                    locale: sent.locale.clone(),
+                    invoicing_entity_id: sent.invoicing_entity_id,
+                    context: sent
+                        .context
+                        .as_ref()
+                        .map(serde_json::to_value)
+                        .transpose()
+                        .map_err(|e| {
+                            StoreError::SerdeError("Failed to serialize email context".into(), e)
+                        })?,
+                    dedupe_key: sent.dedupe_key.clone(),
+                    resent_from: sent.resent_from,
                 };
                 email_row
                     .insert(conn)
@@ -446,7 +483,10 @@ pub trait EntityActivityInterfaceResolveEntities {
     ) -> StoreResult<HashMap<(crate::domain::entity_activity::EntityType, Uuid), String>>;
 }
 
-fn user_display(u: &UserRow) -> String {
+pub fn user_display(u: &UserRow) -> String {
+    if u.archived_at.is_some() {
+        return "Deleted user".to_string();
+    }
     let candidate = format!(
         "{} {}",
         u.first_name.as_deref().unwrap_or(""),
@@ -498,7 +538,8 @@ impl StoreInternal {
                         .await
                         .map_err(Into::<error_stack::Report<StoreError>>::into)?;
                 }
-                self.insert_outbox_events_tx(conn, vec![event]).await?;
+                self.publish_outbox_events_topic_tx(conn, vec![event])
+                    .await?;
             }
             AuditInput::Activity(activity) => {
                 build_row_new(tenant_id, actor, activity)
@@ -529,6 +570,6 @@ impl StoreInternal {
             .await
             .map_err(Into::<error_stack::Report<StoreError>>::into)?;
 
-        self.insert_outbox_events_tx(conn, events).await
+        self.publish_outbox_events_topic_tx(conn, events).await
     }
 }

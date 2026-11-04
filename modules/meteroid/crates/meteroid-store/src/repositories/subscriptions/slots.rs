@@ -7,8 +7,11 @@ use crate::store::{PgConn, Store};
 use chrono::NaiveTime;
 use common_domain::ids::SlotTransactionId;
 use common_domain::ids::{BaseId, InvoiceId, SubscriptionId, TenantId};
+use diesel_models::lock::CustomerLock;
 use diesel_models::slot_transactions::SlotTransactionRow;
+use diesel_models::subscriptions::SubscriptionRow;
 use meteroid_store_macros::with_conn_delegate;
+use scoped_futures::ScopedFutureExt;
 
 #[with_conn_delegate]
 pub trait SubscriptionSlotsInterface {
@@ -43,7 +46,7 @@ impl Store {
     pub async fn add_slot_transaction_tx(
         &self,
         conn: &mut PgConn,
-        tenant_id: TenantId,
+        lock: &CustomerLock,
         subscription_id: SubscriptionId,
         current_period_end: chrono::NaiveDate,
         delta: i32,
@@ -52,7 +55,7 @@ impl Store {
     ) -> StoreResult<SlotTransactionRow> {
         self.add_slot_transaction_tx_internal(
             conn,
-            tenant_id,
+            lock,
             subscription_id,
             None,
             current_period_end,
@@ -67,7 +70,7 @@ impl Store {
     pub(crate) async fn add_pending_slot_transaction_with_conn(
         &self,
         conn: &mut PgConn,
-        tenant_id: TenantId,
+        lock: &CustomerLock,
         subscription_id: SubscriptionId,
         current_period_end: chrono::NaiveDate,
         delta: i32,
@@ -77,7 +80,7 @@ impl Store {
     ) -> StoreResult<SlotTransactionRow> {
         self.add_slot_transaction_tx_internal(
             conn,
-            tenant_id,
+            lock,
             subscription_id,
             Some(invoice_id),
             current_period_end,
@@ -92,7 +95,7 @@ impl Store {
     async fn add_slot_transaction_tx_internal(
         &self,
         conn: &mut PgConn,
-        tenant_id: TenantId,
+        lock: &CustomerLock,
         subscription_id: SubscriptionId,
         invoice_id: Option<InvoiceId>,
         current_period_end: chrono::NaiveDate,
@@ -115,7 +118,7 @@ impl Store {
 
         let current_slots = SlotTransactionRow::fetch_by_subscription_id_and_unit_locked(
             conn,
-            tenant_id,
+            lock,
             subscription_id,
             slot.unit.clone(),
             Some(effective_at),
@@ -143,13 +146,13 @@ impl Store {
     pub(crate) async fn activate_pending_slot_transactions_for_invoice(
         &self,
         conn: &mut PgConn,
-        tenant_id: TenantId,
+        lock: &CustomerLock,
         invoice_id: common_domain::ids::InvoiceId,
         effective_at: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<Vec<SlotTransactionRow>> {
         let now = effective_at.unwrap_or(chrono::Utc::now().naive_utc());
 
-        SlotTransactionRow::activate_pending_for_invoice(conn, tenant_id, invoice_id, now)
+        SlotTransactionRow::activate_pending_for_invoice(conn, lock, invoice_id, now)
             .await
             .map_err(Into::into)
     }
@@ -165,15 +168,16 @@ impl SubscriptionSlotsInterface for Store {
         unit: String,
         at_ts: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<u32> {
-        SlotTransactionRow::fetch_by_subscription_id_and_unit_locked(
+        // A read: slot changes serialize on the subscription's customer (`add_slot_transaction_tx`).
+        SlotTransactionRow::fetch_active_slots(
             conn,
             tenant_id,
             subscription_id,
             unit,
-            at_ts,
+            at_ts.unwrap_or_else(|| chrono::Utc::now().naive_utc()),
         )
         .await
-        .map(|c| c.current_active_slots as u32)
+        .map(|slots| slots.unwrap_or(0) as u32)
         .map_err(Into::into)
     }
 
@@ -202,9 +206,21 @@ impl SubscriptionSlotsInterface for Store {
         tenant_id: TenantId,
         transaction_id: SlotTransactionId,
     ) -> StoreResult<()> {
-        SlotTransactionRow::delete_transaction(conn, tenant_id, transaction_id)
-            .await
-            .map_err(Into::into)
+        self.transaction_with(conn, |conn| {
+            async move {
+                let Some(subscription_id) =
+                    SlotTransactionRow::subscription_of(conn, tenant_id, transaction_id).await?
+                else {
+                    return Ok(());
+                };
+                let lock = SubscriptionRow::lock_customer_of(conn, subscription_id).await?;
+                SlotTransactionRow::delete_transaction(conn, tenant_id, transaction_id).await?;
+                diesel_models::query::credit_inputs::bump_customer(conn, &lock).await?;
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await
     }
 }
 

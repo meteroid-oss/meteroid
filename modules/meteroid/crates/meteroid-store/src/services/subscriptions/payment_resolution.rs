@@ -143,7 +143,18 @@ impl Services {
         let mut card_unavailable_reason = None;
         let mut direct_debit_unavailable_reason = None;
 
-        if card_enabled && let Some(provider) = invoicing_entity_providers.card_provider.as_ref() {
+        // Only offer what the routed connector can take right now: it must be active and have the
+        // rail enabled on its provider account.
+        let card_provider = invoicing_entity_providers
+            .card_provider
+            .as_ref()
+            .filter(|p| p.is_active() && p.supports_card());
+        let direct_debit_provider = invoicing_entity_providers
+            .direct_debit_provider
+            .as_ref()
+            .filter(|p| p.is_active() && p.supports_direct_debit());
+
+        if card_enabled && let Some(provider) = card_provider {
             // A provider failure here (e.g. GoCardless rejecting `create_customer`)
             // must NEVER crash the checkout / invoice-payment page. Degrade the
             // affected method to "unavailable" and let the other providers render.
@@ -158,14 +169,8 @@ impl Services {
                 .await;
         }
 
-        if direct_debit_enabled
-            && let Some(provider) = invoicing_entity_providers.direct_debit_provider.as_ref()
-        {
-            if card_connection_id.is_some()
-                && invoicing_entity_providers
-                    .card_provider
-                    .as_ref()
-                    .is_some_and(|cp| cp.id == provider.id)
+        if direct_debit_enabled && let Some(provider) = direct_debit_provider {
+            if card_connection_id.is_some() && card_provider.is_some_and(|cp| cp.id == provider.id)
             {
                 direct_debit_connection_id = card_connection_id;
             } else {
@@ -241,7 +246,7 @@ impl Services {
                 log::error!(
                     "Payment method '{method_slot}' unavailable for customer {} via {:?} connector {}: {err:?}",
                     customer.id.as_base62(),
-                    provider.provider,
+                    provider.provider(),
                     provider.id.as_base62(),
                 );
                 (None, Some(customer_facing_reason(&err)))
@@ -281,14 +286,17 @@ impl Services {
 
         let external_ref = tokio::time::timeout(
             PAYMENT_PROVIDER_TIMEOUT,
-            connector_impl.create_customer(provider, customer, request),
+            connector_impl.create_customer(customer, request),
         )
         .await
         .map_err(|_| {
             Report::new(StoreError::PaymentProviderError)
                 .attach("Payment provider request timed out")
-        })?
-        .change_context(StoreError::PaymentProviderError)?;
+        })?;
+        self.store
+            .note_rejected_credentials(provider, &external_ref)
+            .await;
+        let external_ref = external_ref.change_context(StoreError::PaymentProviderError)?;
 
         let external_id = external_ref.external_id;
 

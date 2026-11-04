@@ -76,7 +76,9 @@ export const PortalInvoicePayment = () => {
       staleFailedTxIds =
         (invoiceId ? consumeHostedPreAttempt(invoiceId) : null) ??
         new Set(
-          transactions.filter(t => t.status === Transaction_PaymentStatusEnum.FAILED).map(t => t.id)
+          transactions
+            .filter(t => t.status === Transaction_PaymentStatusEnum.FAILED)
+            .map(t => t.id)
         )
       staleFailedTxIdsRef.current = staleFailedTxIds
     }

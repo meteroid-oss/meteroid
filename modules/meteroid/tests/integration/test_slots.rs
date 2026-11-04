@@ -8,7 +8,6 @@ use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
 use common_domain::ids::{PriceComponentId, SubscriptionId};
-use meteroid_mailer::service::MockMailerService;
 use meteroid_store::clients::usage::MockUsageClient;
 use meteroid_store::domain::enums::BillingPeriodEnum;
 use meteroid_store::domain::price_components::{PriceEntry, PriceInput};
@@ -21,6 +20,7 @@ use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 use meteroid_store::store::PgConn;
 use meteroid_store::{Services, Store};
+use meteroid_testkit::mailer::MockMailerService;
 
 /// The slot unit name comes from the Product's FeeStructure, not the component override name.
 const SLOT_UNIT: &str = "Seats";
@@ -28,7 +28,8 @@ const SLOT_UNIT: &str = "Seats";
 #[tokio::test]
 async fn test_slot_transactions_comprehensive() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
 
     let mock_mailer = Arc::new(MockMailerService::new());
 
@@ -65,7 +66,8 @@ async fn test_slot_transactions_comprehensive() {
 #[tokio::test]
 async fn test_slot_transactions_comprehensive_next() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
 
     let mock_mailer = Arc::new(MockMailerService::new());
 
@@ -145,6 +147,21 @@ async fn test_optimistic_upgrade(services: &Services, store: &Store) {
     let line_item = &invoice.line_items[0];
     assert_eq!(line_item.quantity, Some(Decimal::from(5)));
     assert!(line_item.is_prorated, "Line item should be prorated");
+
+    // Exact prorated amount. The subscription period is 2024-01-01 .. 2024-02-01
+    // (31 days); the +5 seat upgrade lands on 2024-01-15, leaving 17 days. The
+    // correct prorated charge is 5 × €10 × 17/31 = €27.42 (2742 minor units). The
+    // pre-fix code multiplied by `delta` a second time and would have charged
+    // €137.10 (5² × €10 × 17/31) — this assertion catches that regression.
+    assert_eq!(
+        line_item.end_date,
+        NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
+        "test assumes a January monthly billing period"
+    );
+    assert_eq!(
+        line_item.amount_subtotal, 2742,
+        "Prorated seat charge must be delta×rate×factor, not delta²×rate×factor"
+    );
 
     let count = store
         .get_active_slots_value(TENANT_ID, subscription_id, SLOT_UNIT.to_string(), None)
@@ -244,6 +261,7 @@ async fn test_on_checkout_preview(services: &Services, _store: &Store, _conn: &m
             slot_component_id,
             2, // Add 2 slots
             SlotUpgradeBillingMode::OnCheckout,
+            common_domain::actor::Actor::System,
         )
         .await
         .expect("Failed to get checkout preview");
@@ -287,6 +305,7 @@ async fn test_slot_downgrade(services: &Services, store: &Store, _conn: &mut PgC
             slot_component_id,
             -5,                                 // Remove 5 slots
             SlotUpgradeBillingMode::Optimistic, // Mode is ignored for downgrades
+            common_domain::actor::Actor::System,
         )
         .await
         .expect("Failed to downgrade slots");
@@ -329,6 +348,7 @@ async fn test_min_max_limits(services: &Services, _store: &Store, _conn: &mut Pg
             slot_component_id,
             100, // Try to add way too many slots (would result in 110 total)
             SlotUpgradeBillingMode::Optimistic,
+            common_domain::actor::Actor::System,
         )
         .await;
 
@@ -347,6 +367,7 @@ async fn test_min_max_limits(services: &Services, _store: &Store, _conn: &mut Pg
             slot_component_id,
             -10, // Try to remove all slots (would result in 0 total)
             SlotUpgradeBillingMode::Optimistic,
+            common_domain::actor::Actor::System,
         )
         .await;
 
@@ -375,6 +396,7 @@ async fn test_currency_precision(services: &Services, store: &Store, _conn: &mut
             slot_component_id,
             1,
             SlotUpgradeBillingMode::Optimistic,
+            common_domain::actor::Actor::System,
         )
         .await
         .expect("Failed to upgrade slots");
@@ -415,6 +437,7 @@ async fn test_input_validation(services: &Services, _store: &Store, _conn: &mut 
             slot_component_id,
             0, // Invalid: zero delta
             SlotUpgradeBillingMode::Optimistic,
+            common_domain::actor::Actor::System,
         )
         .await;
 
@@ -432,6 +455,7 @@ async fn test_input_validation(services: &Services, _store: &Store, _conn: &mut 
             slot_component_id,
             -20, // Would result in -10 slots
             SlotUpgradeBillingMode::Optimistic,
+            common_domain::actor::Actor::System,
         )
         .await;
 
@@ -919,6 +943,10 @@ async fn get_invoices_for_subscription(
             Some(subscription_id),
             None,
             None,
+            None,
+            false,
+            None,
+            vec![],
             Some("created_at.asc".to_string()),
             PaginationRequest {
                 page: 0,
@@ -973,6 +1001,8 @@ async fn create_subscription_with_slots(
                     backdate_invoices: false,
                     skip_checkout_session: false,
                     skip_past_invoices: false,
+                    usage_filter: None,
+                    custom_properties: serde_json::Value::Null,
                 },
                 price_components: Some(CreateSubscriptionComponents {
                     parameterized_components: vec![ComponentParameterization {
@@ -994,6 +1024,7 @@ async fn create_subscription_with_slots(
                                 min_slots,
                                 max_slots,
                             },
+                            credit_unit: None,
                         }),
                     }],
                     extra_components: vec![],
@@ -1002,6 +1033,8 @@ async fn create_subscription_with_slots(
                 add_ons: None,
                 coupons: None,
                 entitlements: vec![],
+                minimum_override: None,
+                drop_minimum: false,
             },
             TENANT_ID,
         )

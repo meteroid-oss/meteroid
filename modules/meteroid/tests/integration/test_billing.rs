@@ -6,10 +6,12 @@ use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
 use common_domain::ids::SubscriptionId;
-use diesel_models::enums::{CycleActionEnum, SubscriptionEventType, SubscriptionStatusEnum};
+use diesel_models::enums::{
+    CycleActionEnum, ScheduledEventStatus, SubscriptionEventType, SubscriptionStatusEnum,
+    TenantStatusEnum,
+};
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::SubscriptionRow;
-use meteroid_mailer::service::MockMailerService;
 use meteroid_store::clients::usage::MockUsageClient;
 use meteroid_store::domain::enums::InvoiceStatusEnum;
 use meteroid_store::domain::{
@@ -17,14 +19,16 @@ use meteroid_store::domain::{
     SubscriptionActivationCondition, SubscriptionNew,
 };
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
-use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
+use meteroid_store::repositories::{CreditNoteInterface, CustomersInterface, InvoiceInterface};
 use meteroid_store::store::PgConn;
 use meteroid_store::{Services, Store};
+use meteroid_testkit::mailer::MockMailerService;
 
 #[tokio::test]
 async fn test_lifecycle_billing() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
 
     let mock_mailer = Arc::new(MockMailerService::new());
 
@@ -41,28 +45,44 @@ async fn test_lifecycle_billing() {
     let services = setup.services.clone();
     let mut conn = pool.get().await.unwrap();
 
+    // Each scenario below is independent. They share one database and one customer, and the
+    // lifecycle processor claims due subscriptions tenant-wide and processes them concurrently,
+    // so left-over subscriptions from earlier scenarios would otherwise race with the current
+    // one and make assertions flaky under load. Quiesce between scenarios to keep them isolated.
+
     // Monthly subscription with billing day anchor
     test_monthly_subscription_with_billing_anchor(&services, &store, &mut conn).await;
+    isolate_prior_subscriptions(&mut conn).await;
 
     // Quarterly subscription first-cycle proration
     test_quarterly_subscription_first_cycle_proration(&services, &store, &mut conn).await;
+    isolate_prior_subscriptions(&mut conn).await;
 
     // Anniversary billing (no anchor)
     test_anniversary_billing(&services, &store, &mut conn).await;
+    isolate_prior_subscriptions(&mut conn).await;
 
     // Subscription with end date
     test_subscription_with_end_date(&services, &store, &mut conn).await;
+    isolate_prior_subscriptions(&mut conn).await;
 
     // Subscription cancellation
     test_subscription_cancellation(&services, &store, &mut conn).await;
+    isolate_prior_subscriptions(&mut conn).await;
 
     // Race condition / locking
     test_subscription_cancellation_race_condition(&services, &store, &mut conn).await;
+    isolate_prior_subscriptions(&mut conn).await;
 
     test_issuing(&services, &store, mock_mailer.clone(), &mut conn).await;
+    isolate_prior_subscriptions(&mut conn).await;
+
+    test_paused_tenant_is_not_claimed(&services, &mut conn).await;
+    isolate_prior_subscriptions(&mut conn).await;
 
     // MRR overflow regression tests
     test_mrr_cancellation_after_multiple_cycles(&services, &store, &mut conn).await;
+    isolate_prior_subscriptions(&mut conn).await;
     test_mrr_cancellation_at_period_boundary(&services, &store, &mut conn).await;
 
     // TODO next tests :
@@ -83,12 +103,14 @@ async fn test_issuing(
         .insert_customer(
             common_domain::actor::Actor::System,
             CustomerNew {
-                name: "".to_string(),
+                name: "Issuing Test Co".to_string(),
+                customer_type: meteroid_store::domain::enums::CustomerType::Company,
+                first_name: None,
+                last_name: None,
                 alias: None,
                 billing_email: None,
                 invoicing_emails: vec!["mock@meteroid.com".to_string()],
                 phone: None,
-                balance_value_cents: 0,
                 currency: "EUR".to_string(),
                 billing_address: None,
                 shipping_address: None,
@@ -97,8 +119,12 @@ async fn test_issuing(
                 tax_status: meteroid_store::domain::CustomerTaxStatus::Taxable,
                 exemption_reason: None,
                 vat_number: None,
+                legal_number: None,
+                buyer_reference: None,
                 custom_taxes: vec![],
                 connected_account_id: None,
+                custom_properties: serde_json::Value::Null,
+                preferred_locales: vec![],
             },
             TENANT_ID,
         )
@@ -142,6 +168,51 @@ async fn test_issuing(
     services.get_and_process_due_events().await.unwrap();
 
     // we expect the second invoice to be issued
+}
+
+async fn test_paused_tenant_is_not_claimed(services: &Services, conn: &mut PgConn) {
+    log::info!(">>> Testing lifecycle skips subscriptions of non-active tenants");
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 31).unwrap();
+    let next_period = NaiveDate::from_ymd_opt(2024, 2, 29).unwrap();
+
+    let subscription_id = create_subscription(
+        services,
+        SubscriptionParams {
+            start_date,
+            ..Default::default()
+        },
+    )
+    .await;
+    assert_eq!(
+        get_subscription_row(conn, subscription_id)
+            .await
+            .current_period_end,
+        Some(next_period)
+    );
+
+    set_tenant_status(conn, TenantStatusEnum::Paused).await;
+    services.get_and_process_cycle_transitions().await.unwrap();
+    let subscription = get_subscription_row(conn, subscription_id).await;
+    assert_eq!(subscription.current_period_start, start_date);
+    assert!(subscription.processing_started_at.is_none());
+
+    set_tenant_status(conn, TenantStatusEnum::Active).await;
+    services.get_and_process_cycle_transitions().await.unwrap();
+    let subscription = get_subscription_row(conn, subscription_id).await;
+    assert_eq!(subscription.current_period_start, next_period);
+}
+
+async fn set_tenant_status(conn: &mut PgConn, status: TenantStatusEnum) {
+    use diesel::{ExpressionMethods, QueryDsl};
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::tenant;
+
+    diesel::update(tenant::table.filter(tenant::id.eq(TENANT_ID)))
+        .set(tenant::status.eq(status))
+        .execute(conn)
+        .await
+        .unwrap();
 }
 
 async fn test_monthly_subscription_with_billing_anchor(
@@ -371,10 +442,42 @@ async fn test_subscription_with_end_date(services: &Services, store: &Store, con
     let subscription = get_subscription_row(conn, subscription_id).await;
     assert_eq!(subscription.status, SubscriptionStatusEnum::Completed);
     assert!(subscription.next_cycle_action.is_none());
-    assert_eq!(subscription.mrr_cents, expected_total);
+    // A fixed-term subscription churns its MRR when it completes: the recurring revenue
+    // stops, so mrr_cents drops to exactly 0 (never negative, which would overflow u64).
+    assert_eq!(
+        subscription.mrr_cents, 0,
+        "MRR must churn to 0 when a fixed-term subscription completes, got {}",
+        subscription.mrr_cents
+    );
+    assert!(subscription.mrr_cents >= 0, "MRR must never be negative");
+
+    // Completion emits an Ended event linked to a churn BI MRR movement log (the link is
+    // also the idempotency marker that stops a re-run from double-churning).
+    let ended_event = SubscriptionEventRow::fetch_by_subscription_id_and_event_type(
+        conn,
+        subscription_id,
+        SubscriptionEventType::Ended,
+        end_date,
+    )
+    .await
+    .unwrap();
+    let ended_event = ended_event.expect("completion should emit an Ended subscription event");
+    assert!(
+        ended_event.bi_mrr_movement_log_id.is_some(),
+        "Ended event should be linked to a churn BI MRR movement log"
+    );
 
     let invoices = get_invoices(store, subscription_id).await;
     assert_eq!(invoices.len(), 2); // No new invoice after completion
+
+    // Idempotency: re-processing the lifecycle must not double-churn.
+    services.get_and_process_cycle_transitions().await.unwrap();
+    services.get_and_process_due_events().await.unwrap();
+    let subscription = get_subscription_row(conn, subscription_id).await;
+    assert_eq!(
+        subscription.mrr_cents, 0,
+        "MRR must remain 0 after repeated lifecycle processing"
+    );
 }
 
 async fn test_subscription_cancellation(services: &Services, store: &Store, conn: &mut PgConn) {
@@ -459,7 +562,18 @@ async fn test_subscription_cancellation(services: &Services, store: &Store, conn
             .iter()
             .all(|i| i.status == InvoiceStatusEnum::Finalized)
     );
-    assert_full_invoice(&invoices[1], invoice_dates[1], expected_total);
+    // Billed whole for its period, then the 21 of 31 days from the cancellation are credited on a
+    // note cancelling that debt (3500 × 21/31 = 2371), whichever of the two ran first.
+    let renewal = &invoices[1];
+    assert_eq!(renewal.billing_period_start, invoice_dates[1]);
+    assert_eq!(renewal.total, expected_total);
+    let notes = store
+        .list_credit_notes_by_invoice_id(TENANT_ID, renewal.id)
+        .await
+        .unwrap();
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0].total, -2_371);
+    assert_eq!(renewal.amount_due, expected_total - 2_371);
 
     // Ensure no further changes after cancellation
     services.get_and_process_cycle_transitions().await.unwrap();
@@ -794,6 +908,48 @@ async fn test_mrr_cancellation_at_period_boundary(
     assert_eq!(subscription.mrr_cents, 0);
 }
 
+/// Quiesce every still-active subscription (and its pending scheduled events) so the
+/// lifecycle processor stops claiming them.
+///
+/// `test_lifecycle_billing` runs many independent scenarios against the same shared customer
+/// in one database. `get_and_process_cycle_transitions` claims *all* due subscriptions
+/// tenant-wide and processes them concurrently, and every scenario's subscription stays
+/// permanently "due" (its synthetic 2024/2025 periods are in the past relative to wall-clock
+/// now). Left-over subscriptions from earlier scenarios therefore keep being re-billed and
+/// finalized concurrently with the current one, racing on the shared customer balance and the
+/// connection pool. Under heavy CI parallelism this makes assertions flaky (a balance credit
+/// lands on the wrong invoice, or a transition is skipped because a concurrent transaction
+/// timed out). Running this between scenarios keeps each one deterministic; it only touches
+/// test data and leaves all production billing code untouched.
+async fn isolate_prior_subscriptions(conn: &mut PgConn) {
+    use diesel::{ExpressionMethods, QueryDsl};
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::{scheduled_event, subscription};
+
+    diesel::update(
+        scheduled_event::table.filter(scheduled_event::status.eq(ScheduledEventStatus::Pending)),
+    )
+    .set(scheduled_event::status.eq(ScheduledEventStatus::Canceled))
+    .execute(conn)
+    .await
+    .unwrap();
+
+    diesel::update(
+        subscription::table
+            .filter(subscription::status.eq_any(SubscriptionStatusEnum::not_terminal())),
+    )
+    .set((
+        subscription::status.eq(SubscriptionStatusEnum::Cancelled),
+        subscription::next_cycle_action.eq(None::<CycleActionEnum>),
+        subscription::current_period_end.eq(None::<NaiveDate>),
+        subscription::processing_started_at.eq(None::<chrono::NaiveDateTime>),
+        subscription::next_retry.eq(None::<chrono::NaiveDateTime>),
+    ))
+    .execute(conn)
+    .await
+    .unwrap();
+}
+
 // Helper functions
 fn assert_subscription_state(
     subscription: &SubscriptionRow,
@@ -822,7 +978,7 @@ fn assert_period(subscription: &SubscriptionRow, start: NaiveDate, end: NaiveDat
 fn assert_prorated_invoice(invoice: &Invoice, invoice_date: NaiveDate, expected_total: i64) {
     assert_eq!(invoice.status, InvoiceStatusEnum::Finalized);
     assert_eq!(invoice.amount_due, invoice.total);
-    assert_eq!(invoice.invoice_date, invoice_date);
+    assert_eq!(invoice.billing_period_start, invoice_date);
 
     let is_prorated = invoice.line_items.iter().any(|line| line.is_prorated);
     assert!(is_prorated);
@@ -832,7 +988,7 @@ fn assert_prorated_invoice(invoice: &Invoice, invoice_date: NaiveDate, expected_
 fn assert_full_invoice(invoice: &Invoice, invoice_date: NaiveDate, expected_total: i64) {
     assert_eq!(invoice.status, InvoiceStatusEnum::Finalized);
     assert_eq!(invoice.amount_due, invoice.total);
-    assert_eq!(invoice.invoice_date, invoice_date);
+    assert_eq!(invoice.billing_period_start, invoice_date);
     assert_eq!(invoice.total, expected_total);
 
     let is_prorated = invoice.line_items.iter().any(|line| line.is_prorated);
@@ -857,6 +1013,10 @@ async fn get_invoices(store: &Store, subscription_id: SubscriptionId) -> Vec<Inv
             Some(subscription_id),
             None,
             None,
+            None,
+            false,
+            None,
+            vec![],
             Some("created_at.asc".to_string()),
             PaginationRequest {
                 page: 0,
@@ -895,11 +1055,15 @@ async fn create_subscription(services: &Services, params: SubscriptionParams) ->
                     backdate_invoices: false,
                     skip_checkout_session: false,
                     skip_past_invoices: false,
+                    usage_filter: None,
+                    custom_properties: serde_json::Value::Null,
                 },
                 price_components: None,
                 add_ons: None,
                 coupons: None,
                 entitlements: vec![],
+                minimum_override: None,
+                drop_minimum: false,
             },
             TENANT_ID,
         )

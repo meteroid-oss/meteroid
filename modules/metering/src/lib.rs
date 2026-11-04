@@ -3,10 +3,9 @@ pub mod cache;
 pub mod config;
 pub mod connectors;
 pub mod domain;
-mod error;
+pub mod error;
 pub mod ingest;
-mod migrate;
 pub mod migrations;
-pub mod query;
-pub mod server;
-pub mod utils;
+
+pub(crate) use metric_core::migrate;
+pub use metric_core::utils;

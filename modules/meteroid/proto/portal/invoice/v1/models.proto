@@ -33,4 +33,6 @@ message InvoiceForPayment {
   // it silently disappearing. Recomputed each load, so it clears once fixed.
   optional string card_unavailable_reason = 17;
   optional string direct_debit_unavailable_reason = 18;
+  // False when the merchant's plan includes white-label.
+  bool show_powered_by = 19;
 }

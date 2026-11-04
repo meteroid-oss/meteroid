@@ -2,6 +2,7 @@ use crate::StoreResult;
 use crate::adapters::payment::initialize_payment_connector;
 use crate::adapters::payment::model::{
     CreateCustomerRequest, IdempotencyKey, MandateSetupInstruction, MandateSetupRequest,
+    SetupPurpose,
 };
 use crate::domain::connectors::Connector;
 use crate::domain::{CustomerConnection, PaymentMethodTypeEnum, SetupIntent};
@@ -146,18 +147,18 @@ impl Services {
 
                 let external_ref = tokio::time::timeout(
                     PAYMENT_PROVIDER_TIMEOUT,
-                    connector_impl.create_customer(
-                        provider,
-                        &customer,
-                        customer_idempotency(customer.id, provider.id),
-                    ),
+                    connector_impl
+                        .create_customer(&customer, customer_idempotency(customer.id, provider.id)),
                 )
                 .await
                 .map_err(|_| {
                     Report::new(StoreError::PaymentProviderError)
                         .attach("Payment provider request timed out")
-                })?
-                .change_context(StoreError::PaymentProviderError)?;
+                })?;
+                self.store
+                    .note_rejected_credentials(provider, &external_ref)
+                    .await;
+                let external_ref = external_ref.change_context(StoreError::PaymentProviderError)?;
 
                 let external_id = external_ref.external_id;
 
@@ -203,7 +204,6 @@ impl Services {
                     let external_ref = tokio::time::timeout(
                         PAYMENT_PROVIDER_TIMEOUT,
                         connector_impl.create_customer(
-                            card_provider,
                             &customer,
                             customer_idempotency(customer.id, card_provider.id),
                         ),
@@ -212,8 +212,12 @@ impl Services {
                     .map_err(|_| {
                         Report::new(StoreError::PaymentProviderError)
                             .attach("Payment provider request timed out")
-                    })?
-                    .change_context(StoreError::PaymentProviderError)?;
+                    })?;
+                    self.store
+                        .note_rejected_credentials(card_provider, &external_ref)
+                        .await;
+                    let external_ref =
+                        external_ref.change_context(StoreError::PaymentProviderError)?;
 
                     let external_id = external_ref.external_id;
 
@@ -252,7 +256,6 @@ impl Services {
                     let external_ref = tokio::time::timeout(
                         PAYMENT_PROVIDER_TIMEOUT,
                         connector_impl.create_customer(
-                            direct_debit_provider,
                             &customer,
                             customer_idempotency(customer.id, direct_debit_provider.id),
                         ),
@@ -261,8 +264,12 @@ impl Services {
                     .map_err(|_| {
                         Report::new(StoreError::PaymentProviderError)
                             .attach("Payment provider request timed out")
-                    })?
-                    .change_context(StoreError::PaymentProviderError)?;
+                    })?;
+                    self.store
+                        .note_rejected_credentials(direct_debit_provider, &external_ref)
+                        .await;
+                    let external_ref =
+                        external_ref.change_context(StoreError::PaymentProviderError)?;
 
                     let external_id = external_ref.external_id;
 
@@ -308,6 +315,7 @@ impl Services {
             None,
             None,
             return_url,
+            false,
         )
         .await
     }
@@ -336,6 +344,7 @@ impl Services {
             Some(checkout),
             None,
             return_url,
+            false,
         )
         .await
     }
@@ -361,7 +370,7 @@ impl Services {
 
         let result = tokio::time::timeout(
             PAYMENT_PROVIDER_TIMEOUT,
-            connector_impl.cancel_mandate_setup(&connector, intent_id),
+            connector_impl.cancel_mandate_setup(intent_id),
         )
         .await
         .map_err(|_| {
@@ -397,6 +406,7 @@ impl Services {
         preferred_type: Option<crate::domain::ConnectionTypeEnum>,
         return_url: Option<String>,
         descriptor_only: bool,
+        for_payment: bool,
     ) -> StoreResult<SetupIntent> {
         if invoice_id.is_some() || descriptor_only {
             let mut conn = self.store.get_conn().await?;
@@ -433,6 +443,7 @@ impl Services {
             None,
             None,
             return_url,
+            for_payment,
         )
         .await
     }
@@ -458,7 +469,18 @@ impl Services {
         // hosted page captures `amount_due` together with the card save.
         invoice_payment: Option<crate::adapters::payment::model::HostedInvoicePaymentContext>,
         return_url: Option<String>,
+        // The customer saves it to pay right away (portal payment panel).
+        for_payment: bool,
     ) -> StoreResult<SetupIntent> {
+        let purpose = if for_payment
+            || invoice_id.is_some()
+            || checkout.is_some()
+            || invoice_payment.is_some()
+        {
+            SetupPurpose::Payment
+        } else {
+            SetupPurpose::Settings
+        };
         let connection =
             CustomerConnectionDetailsRow::get_by_id(conn, tenant_id, customer_connection_id)
                 .await
@@ -476,8 +498,9 @@ impl Services {
         };
 
         let connector = Connector::from_row(&self.store.settings.crypt_key, connection.connector)?;
+        connector.ensure_active_locked(conn).await?;
 
-        let capabilities = crate::adapters::payment::provider_capabilities(&connector.provider);
+        let capabilities = crate::adapters::payment::payment_capabilities(&connector.provider());
 
         // Other providers would silently ignore the ctx and return a non-URL secret.
         if checkout.is_some() && !capabilities.is_some_and(|caps| caps.supports_hosted_checkout) {
@@ -489,7 +512,7 @@ impl Services {
         // Only where completion records the capture; otherwise the mandate webhook would charge the
         // invoice again off-session.
         if invoice_payment.is_some()
-            && !capabilities.is_some_and(|caps| caps.supports_hosted_invoice_payment)
+            && !capabilities.is_some_and(|caps| caps.supports_hosted_invoice_payment())
         {
             return Err(error_stack::Report::new(StoreError::InvalidArgument(
                 "In-flow hosted invoice payment is not supported by this provider".to_string(),
@@ -556,8 +579,22 @@ impl Services {
         if let Some(requested_type) = requested_connection_type {
             payment_methods.retain(|pm| rail_matches(requested_type, pm));
         }
+
+        // Never start a setup the provider account would refuse. An empty list after routing is
+        // left to the adapter, as before; only the account filter emptying it is ours to report.
+        if !payment_methods.is_empty() {
+            payment_methods.retain(|pm| connector.is_method_enabled(pm));
+            if payment_methods.is_empty() {
+                return Err(error_stack::Report::new(StoreError::FailedPrecondition(
+                    format!(
+                        "The payment methods routed to '{}' aren't enabled on its provider account",
+                        connector.alias
+                    ),
+                )));
+            }
+        }
         apply_rail_preference(
-            &connector.provider,
+            &connector.provider(),
             &mut payment_methods,
             preferred_connection_type,
         );
@@ -577,11 +614,16 @@ impl Services {
                 handler_path,
                 customer_connection.id.as_base62(),
             );
-            match return_url.as_deref() {
-                Some(target) if same_origin(&self.store.settings.public_url, target) => Some(
-                    format!("{handler_url}&dest={}", urlencoding::encode(target)),
-                ),
-                _ => Some(handler_url),
+            match return_url
+                .as_deref()
+                .filter(|target| same_origin(&self.store.settings.public_url, target))
+                .and_then(hosted_dest)
+            {
+                Some(target) => Some(format!(
+                    "{handler_url}&dest={}",
+                    urlencoding::encode(&target)
+                )),
+                None => Some(handler_url),
             }
         } else {
             return_url
@@ -614,11 +656,10 @@ impl Services {
         };
 
         let mandate_request = MandateSetupRequest {
-            webhook_url: Some(crate::adapters::payment::model::connector_webhook_url(
+            webhook_url: crate::adapters::payment::model::connector_webhook_url(
                 self.store.settings.webhook_base_url(),
-                connector.tenant_id,
-                &connector.alias,
-            )),
+                &connector,
+            ),
             descriptor: Some(crate::adapters::payment::model::PaymentDescriptor {
                 merchant_name,
                 invoice_number,
@@ -638,22 +679,22 @@ impl Services {
             checkout,
             invoice_payment,
             currency: Some(customer_currency),
+            purpose,
         };
 
         let instruction = tokio::time::timeout(
             PAYMENT_PROVIDER_TIMEOUT,
-            connector_impl.initiate_mandate_setup(
-                &connector,
-                &customer_connection,
-                mandate_request,
-            ),
+            connector_impl.initiate_mandate_setup(&customer_connection, mandate_request),
         )
         .await
         .map_err(|_| {
             Report::new(StoreError::PaymentProviderError)
                 .attach("Payment provider request timed out")
-        })?
-        .change_context_lazy(|| StoreError::PaymentProviderError)?;
+        })?;
+        self.store
+            .note_rejected_credentials(&connector, &instruction)
+            .await;
+        let instruction = instruction.change_context_lazy(|| StoreError::PaymentProviderError)?;
 
         let setup_intent = match instruction {
             MandateSetupInstruction::EmbeddedClientSecret {
@@ -664,7 +705,7 @@ impl Services {
                 intent_id,
                 client_secret,
                 public_key: publishable_key,
-                provider: connector.provider.clone(),
+                provider: connector.provider().clone(),
                 connector_id: connector.id,
                 connection_id: customer_connection.id,
             },
@@ -680,7 +721,7 @@ impl Services {
                 intent_id,
                 client_secret: authorisation_url,
                 public_key: SecretString::from(String::new()),
-                provider: connector.provider.clone(),
+                provider: connector.provider().clone(),
                 connector_id: connector.id,
                 connection_id: customer_connection.id,
             },
@@ -692,7 +733,7 @@ impl Services {
                 intent_id,
                 client_secret: session_data,
                 public_key: SecretString::from(String::new()),
-                provider: connector.provider.clone(),
+                provider: connector.provider().clone(),
                 connector_id: connector.id,
                 connection_id: customer_connection.id,
             },
@@ -713,8 +754,8 @@ fn setup_intent_is_descriptor_only(
 }
 
 fn supports_hosted_invoice_payment(provider: &crate::domain::enums::ConnectorProviderEnum) -> bool {
-    crate::adapters::payment::provider_capabilities(provider)
-        .is_some_and(|caps| caps.supports_hosted_invoice_payment)
+    crate::adapters::payment::payment_capabilities(provider)
+        .is_some_and(|caps| caps.supports_hosted_invoice_payment())
 }
 
 /// Each rail is its own hosted flow (Mollie card vs SEPA); Stripe's Payment Element shows all
@@ -725,8 +766,8 @@ fn apply_rail_preference(
     preferred: Option<crate::domain::ConnectionTypeEnum>,
 ) {
     use crate::adapters::payment::MandateSetupMode;
-    let hosted_redirect = crate::adapters::payment::provider_capabilities(provider)
-        .is_some_and(|caps| caps.mandate_setup_mode == MandateSetupMode::HostedRedirect);
+    let hosted_redirect = crate::adapters::payment::payment_capabilities(provider)
+        .is_some_and(|caps| caps.mandate_setup_mode() == MandateSetupMode::HostedRedirect);
     if let Some(preferred) = preferred
         && hosted_redirect
         && payment_methods.iter().any(|pm| rail_matches(preferred, pm))
@@ -752,6 +793,14 @@ fn rail_matches(rail: crate::domain::ConnectionTypeEnum, method: &PaymentMethodT
 /// match the configured public URL exactly; anything unparseable, cross-origin,
 /// or protocol-relative fails closed so we never hand GoCardless (or, later,
 /// our own 302) an attacker-chosen origin.
+/// The customer's page as the provider will store it: never with the page token (the page
+/// restores it from its session on return).
+fn hosted_dest(target: &str) -> Option<String> {
+    let mut url = url::Url::parse(target).ok()?;
+    crate::services::credit::top_up_checkout::strip_credentials(&mut url).ok()?;
+    Some(url.into())
+}
+
 fn same_origin(configured: &str, candidate: &str) -> bool {
     match (url_origin(configured), url_origin(candidate)) {
         (Some(a), Some(b)) => a == b,
@@ -782,7 +831,16 @@ fn url_origin(raw: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::same_origin;
+    use super::{hosted_dest, same_origin};
+
+    #[test]
+    fn a_hosted_dest_never_carries_the_page_token() {
+        assert_eq!(
+            hosted_dest("https://billing.acme.test/portal/customer?token=abc&page=settings&hosted_return=1#x")
+                .as_deref(),
+            Some("https://billing.acme.test/portal/customer?page=settings&hosted_return=1")
+        );
+    }
 
     const PUBLIC: &str = "https://billing.example.com";
 

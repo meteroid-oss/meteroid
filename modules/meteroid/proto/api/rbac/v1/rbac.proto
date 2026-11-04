@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package meteroid.api.rbac.v1;
+
+import "api/users/v1/models.proto";
+
+// A single capability in the RBAC vocabulary. `group` is the prefix before ':'
+// (e.g. "customers") for UI grouping.
+message Permission {
+  string code = 1;
+  string group = 2;
+}
+
+// An organization-scoped custom role: a named set of permission codes.
+message CustomRole {
+  string id = 1;
+  string name = 2;
+  repeated string permission_codes = 3;
+  bool is_system = 4;
+}
+
+message ListPermissionsRequest {}
+message ListPermissionsResponse {
+  repeated Permission permissions = 1;
+}
+
+message ListRolesRequest {}
+message ListRolesResponse {
+  repeated CustomRole roles = 1;
+}
+
+message CreateCustomRoleRequest {
+  string name = 1;
+  repeated string permission_codes = 2;
+}
+message CreateCustomRoleResponse {
+  CustomRole role = 1;
+}
+
+message UpdateCustomRoleRequest {
+  string id = 1;
+  string name = 2;
+  repeated string permission_codes = 3;
+}
+message UpdateCustomRoleResponse {
+  CustomRole role = 1;
+}
+
+message DeleteCustomRoleRequest {
+  string id = 1;
+}
+message DeleteCustomRoleResponse {}
+
+message AssignRoleRequest {
+  string user_id = 1;
+  // Built-in tier (ADMIN/MEMBER). Custom roles sit on top of MEMBER.
+  meteroid.api.users.v1.OrganizationUserRole role = 2;
+  // When set, the member is given this custom role (implies MEMBER tier).
+  optional string custom_role_id = 3;
+}
+message AssignRoleResponse {}
+
+service RbacService {
+  rpc ListPermissions(ListPermissionsRequest) returns (ListPermissionsResponse) {}
+  rpc ListRoles(ListRolesRequest) returns (ListRolesResponse) {}
+  rpc AssignRole(AssignRoleRequest) returns (AssignRoleResponse) {}
+}
+
+// Custom role management, served by the Enterprise `security` module.
+service CustomRolesService {
+  rpc CreateCustomRole(CreateCustomRoleRequest) returns (CreateCustomRoleResponse) {}
+  rpc UpdateCustomRole(UpdateCustomRoleRequest) returns (UpdateCustomRoleResponse) {}
+  rpc DeleteCustomRole(DeleteCustomRoleRequest) returns (DeleteCustomRoleResponse) {}
+}

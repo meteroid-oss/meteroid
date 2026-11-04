@@ -39,6 +39,8 @@ interface LineItemModalProps {
   initialData?: LineModalValue
   isUsageBased?: boolean
   hasSublines?: boolean
+  /** Prices on this invoice are entered tax-included. */
+  taxInclusive?: boolean
 }
 
 export const LineItemModal = ({
@@ -49,6 +51,7 @@ export const LineItemModal = ({
   initialData,
   isUsageBased = false,
   hasSublines = false,
+  taxInclusive = false,
 }: LineItemModalProps) => {
   const lineItemMethods = useZodForm({
     schema: hasSublines
@@ -423,7 +426,9 @@ export const LineItemModal = ({
 
               {isUsageBased || hasSublines || !watchUnitPrice ? null : (
                 <div className="pt-2 flex justify-between">
-                  <div className="text-xs font-medium mb-2">Total (excl. tax)</div>
+                  <div className="text-xs font-medium mb-2">
+                    Total ({taxInclusive ? 'incl. tax' : 'excl. tax'})
+                  </div>
                   <div className="text-right font-medium">
                     {formatCurrency(
                       Number(watchQuantity) * Number(majorToMinorUnit(watchUnitPrice, currency)),

@@ -39,6 +39,7 @@ import {
   priceSummaryBadges,
   useCurrency,
 } from '@/features/plans/pricecomponents/utils'
+import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
 import {
   buildExistingProductRef,
   buildNewProductRef,
@@ -314,6 +315,7 @@ const CatalogBrowser = ({
   onAttach,
   isAttaching,
 }: CatalogBrowserProps) => {
+  const creditUnits = useCreditUnits()
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   return (
@@ -340,7 +342,7 @@ const CatalogBrowser = ({
             const Icon = feeTypeIcon(componentFeeType)
             const feeLabel = feeTypeToHuman(componentFeeType)
             const addOnCurrency = addOn.price?.currency ?? currency
-            const priceBadges = priceSummaryBadges(componentFeeType, addOn.price, addOnCurrency)
+            const priceBadges = priceSummaryBadges(componentFeeType, addOn.price, addOnCurrency, creditUnits)
             const cadence = addOn.price ? formatCadence(addOn.price.cadence) : '-'
 
             return (

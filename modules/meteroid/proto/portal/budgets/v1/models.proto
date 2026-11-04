@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package meteroid.portal.budgets.v1;
+
+import "google/protobuf/timestamp.proto";
+import "portal/wallets/v1/models.proto";
+
+enum BudgetBehavior {
+  BUDGET_BEHAVIOR_UNSPECIFIED = 0;
+  BUDGET_BEHAVIOR_SOFT = 1;
+  BUDGET_BEHAVIOR_HARD = 2;
+}
+
+message BudgetPeriod {
+  // Dates, as YYYY-MM-DD.
+  string start = 1;
+  // Unset when the period never ends.
+  optional string end = 2;
+}
+
+message Budget {
+  string id = 1;
+  string currency = 2;
+  // Minor units of the currency.
+  int64 amount = 3;
+  repeated uint32 thresholds = 4;
+  int32 version = 5;
+  // Minor units; unset until measured.
+  optional int64 estimated_spend = 6;
+  optional BudgetPeriod period = 7;
+  optional google.protobuf.Timestamp as_of = 8;
+  // Whether the customer, rather than the merchant, set it.
+  bool set_by_customer = 9;
+  BudgetBehavior behavior = 10;
+  // Set when `currency` is a credit unit code rather than a money currency; its precision for
+  // parsing and displaying `amount` and `estimated_spend` (never 2 by default, unlike money).
+  optional uint32 credit_unit_precision = 11;
+  // Set with `credit_unit_precision`: how to name the unit to the customer.
+  optional meteroid.portal.wallets.v1.CreditUnitLabel credit_unit = 12;
+  // Set when the budget counts only this subscription's usage, else the whole account's.
+  optional string subscription_id = 13;
+}
+
+// A denomination a budget can be set in: a money currency, or a credit unit (then
+// `credit_unit_precision` is set) the customer has a wallet in or an active subscription priced in.
+message BudgetCurrency {
+  string code = 1;
+  optional uint32 credit_unit_precision = 2;
+  // Set for a credit unit: how to name it to the customer.
+  optional meteroid.portal.wallets.v1.CreditUnitLabel credit_unit = 3;
+}

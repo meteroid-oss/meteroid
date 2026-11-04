@@ -5,6 +5,3 @@ pub mod meteroid {
         }
     }
 }
-
-#[cfg(not(any(feature = "server", feature = "client")))]
-compile_error!("Either `server` or `client` feature must be enabled.");

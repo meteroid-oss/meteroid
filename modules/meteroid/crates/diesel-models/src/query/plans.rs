@@ -16,7 +16,7 @@ use common_domain::ids::{PlanId, PlanVersionId, PriceId, ProductFamilyId, Tenant
 use diesel::NullableExpressionMethods;
 use diesel::{
     BelongingToDsl, BoolExpressionMethods, ExpressionMethods, JoinOnDsl, PgTextExpressionMethods,
-    QueryDsl, SelectableHelper, alias, debug_query,
+    QueryDsl, SelectableHelper, alias,
 };
 use error_stack::ResultExt;
 
@@ -27,7 +27,7 @@ impl PlanRowNew {
 
         let query = diesel::insert_into(plan).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -56,7 +56,7 @@ impl PlanRow {
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .select(PlanRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -78,7 +78,7 @@ impl PlanRow {
             ))
             .returning(PlanRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -102,7 +102,7 @@ impl PlanRow {
                     .select(diesel::dsl::sql::<diesel::sql_types::Integer>("1")),
             )));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -126,7 +126,7 @@ impl PlanRow {
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .select(PlanWithVersionRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -144,12 +144,26 @@ impl PlanRow {
         use crate::schema::plan_version;
         use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::product_family::dsl as pf_dsl;
+        use crate::schema::subscription::dsl as s_dsl;
+        use diesel::dsl::today;
         use diesel_async::RunQueryDsl;
 
         let (active_version_alias, draft_version_alias) = alias!(
             plan_version as active_version_alias,
             plan_version as draft_version_alias
         );
+
+        let active_subscriptions_count_subselect = s_dsl::subscription
+            .inner_join(pv_dsl::plan_version.on(s_dsl::plan_version_id.eq(pv_dsl::id)))
+            .filter(pv_dsl::plan_id.eq(p_dsl::id))
+            .filter(s_dsl::start_date.le(today))
+            .filter(
+                s_dsl::end_date
+                    .is_null()
+                    .or(s_dsl::end_date.nullable().ge(today)),
+            )
+            .count()
+            .single_value();
 
         let query = p_dsl::plan
             .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
@@ -180,11 +194,12 @@ impl PlanRow {
                     .fields((pv_dsl::id, pv_dsl::version, pv_dsl::trial_duration_days))
                     .nullable(),
                 draft_version_alias.field(pv_dsl::id).nullable(),
-                diesel::dsl::sql::<diesel::sql_types::Nullable<diesel::sql_types::BigInt>>("null"),
+                active_subscriptions_count_subselect,
                 p_dsl::self_service_rank,
+                p_dsl::issues_license,
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -230,7 +245,7 @@ impl PlanRow {
             .order(pv_dsl::version.desc())
             .select(PlanWithVersionRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -254,7 +269,7 @@ impl PlanRow {
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .select(PlanWithVersionRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -281,7 +296,7 @@ impl PlanRow {
                 updated_at.eq(diesel::dsl::now),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -309,7 +324,7 @@ impl PlanRow {
                 updated_at.eq(diesel::dsl::now),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -345,7 +360,7 @@ impl PlanRow {
             .distinct()
             .order((p_dsl::name.asc(), pv_dsl::version.asc()));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load::<(String, i32)>(conn)
@@ -428,7 +443,7 @@ impl FullPlanRow {
 
         let paginated_query = query.paginate(pagination);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated_query));
+        crate::debug_sql(&paginated_query);
 
         let paginated_rows: PaginatedVec<_FullPlanRowEmbed> = paginated_query
             .load_and_count_pages(conn)
@@ -508,7 +523,7 @@ impl FullPlanRow {
             }
         }
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         let base: _FullPlanRowEmbed = query
             .select(_FullPlanRowEmbed::as_select())
@@ -597,6 +612,7 @@ impl PlanRowOverview {
                 draft_version_alias.field(pv_dsl::id).nullable(),
                 active_subscriptions_count_subselect,
                 p_dsl::self_service_rank,
+                p_dsl::issues_license,
             ))
             .into_boxed();
 
@@ -656,7 +672,7 @@ impl PlanRowOverview {
 
         let paginated_query = query.paginate(pagination);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated_query));
+        crate::debug_sql(&paginated_query);
 
         paginated_query
             .load_and_count_pages(conn)
@@ -676,7 +692,7 @@ impl PlanRowPatch {
             .filter(p_dsl::tenant_id.eq(self.tenant_id))
             .set(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -707,9 +723,10 @@ impl PlanRowForSubscription {
                 pv_dsl::trial_duration_days,
                 pv_dsl::trial_is_free,
                 p_dsl::product_family_id,
+                pv_dsl::tax_inclusive,
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -726,6 +743,7 @@ impl PlanRowForSubscription {
                     Option<i32>,
                     bool,
                     ProductFamilyId,
+                    bool,
                 )>| {
                     rows.into_iter()
                         .map(
@@ -738,6 +756,7 @@ impl PlanRowForSubscription {
                                 trial_duration_days,
                                 trial_is_free,
                                 product_family_id,
+                                tax_inclusive,
                             )| {
                                 PlanRowForSubscription {
                                     version_id,
@@ -748,6 +767,7 @@ impl PlanRowForSubscription {
                                     trial_duration_days,
                                     trial_is_free,
                                     product_family_id,
+                                    tax_inclusive,
                                 }
                             },
                         )
@@ -787,7 +807,7 @@ impl SelfServicePlanRow {
                 p_dsl::self_service_rank.assume_not_null(),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)

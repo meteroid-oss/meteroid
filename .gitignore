@@ -2,6 +2,7 @@
 debug/
 target/
 
+
 .cargo/*
 !.cargo/audit.toml
 
@@ -63,6 +64,9 @@ yarn-error.log*
 # misc
 .DS_Store
 *.pem
+!*-dev.pem
+!ee/crates/enterprise-license/keys/public.pem
+ee/crates/license-generator/*/*.key
 # Ignore local Claude config but track shared team agents and skills
 .claude/*
 !.claude/agents/
@@ -77,4 +81,6 @@ k8s/*/values.*.yaml
 
 ## Temporary
 sdk
-docs
+/docs
+
+__pycache__/

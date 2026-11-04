@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useMemo } from 'react'
 import {
   Control,
   FieldPath,
@@ -28,15 +29,20 @@ export function useZodForm<TSchema extends z.ZodType<any, any, any>>(
     resolver: zodResolver(props.schema) as unknown as Resolver<Values<TSchema>>,
   })
 
-  const withControl = (name: FieldPath<Values<TSchema>>) => ({
-    control: form.control,
-    name,
-  })
-  const withError = (name: FieldPath<Values<TSchema>>) => ({
-    error: form.formState.errors[name]?.message as string | undefined,
-  })
-
-  return { ...form, withControl, withError }
+  // useForm returns one mutable object whose formState is replaced on each state change, so the
+  // result is rebuilt exactly then: renders of the caller alone no longer give a new identity.
+  const { formState } = form
+  return useMemo(
+    () => ({
+      ...form,
+      withControl: (name: FieldPath<Values<TSchema>>) => ({ control: form.control, name }),
+      withError: (name: FieldPath<Values<TSchema>>) => ({
+        error: form.formState.errors[name]?.message as string | undefined,
+      }),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [form, formState]
+  )
 }
 
 export interface Methods<TSchema extends z.ZodType<any, any, any>>

@@ -1,4 +1,4 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
+import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,17 +20,19 @@ import { Info, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { EntityEntitlementDialog } from '@/features/entitlements/EntityEntitlementDialog'
+import { FeatureStatusBadge } from '@/features/entitlements/features/FeatureStatusBadge'
 import { entitlementValueLabel } from '@/features/entitlements/utils'
 import { useQuery } from '@/lib/connectrpc'
 import {
   deleteEntitlement,
+  getFeature,
   listEntitlementsByEntity,
-  listFeatures,
 } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import {
   Entitlement,
   EntitlementEntity,
   EntitlementEntitySchema,
+  FeatureStatus,
 } from '@/rpc/api/entitlements/v1/models_pb'
 
 import type { MessageInitShape } from '@bufbuild/protobuf'
@@ -42,9 +44,13 @@ interface Props {
   canEdit?: boolean
   addOpen?: boolean
   onAddOpenChange?: (open: boolean) => void
+  /** Override the section heading. Defaults to "Default entitlement" for a feature entity, else "Entitlements". */
+  title?: string
+  /** Shown when the entity has none. */
+  emptyText?: string
 }
 
-export const EntityEntitlementsSection = ({ entity, hint, hideHeader, canEdit = true, addOpen, onAddOpenChange }: Props) => {
+export const EntityEntitlementsSection = ({ entity, hint, hideHeader, canEdit = true, addOpen, onAddOpenChange, title, emptyText = 'No entitlements configured.' }: Props) => {
   const queryClient = useQueryClient()
   const [sheet, setSheet] = useState<{ open: false } | { open: true; existing?: Entitlement }>({
     open: false,
@@ -63,10 +69,14 @@ export const EntityEntitlementsSection = ({ entity, hint, hideHeader, canEdit = 
   const entitlementsQuery = useQuery(listEntitlementsByEntity, { entity: entity as EntitlementEntity })
   const entitlements = entitlementsQuery.data?.entitlements ?? []
 
-  const featuresQuery = useQuery(listFeatures, { pagination: { page: 0, perPage: 100 }, statuses: [] })
+  const isFeatureEntity = entity.EntityId?.case === 'featureId'
+  const featureEntityId = isFeatureEntity ? (entity.EntityId?.value as string) : undefined
+
   const featureMap = Object.fromEntries(
-    (featuresQuery.data?.features ?? []).map(f => [f.id, f])
+    (entitlementsQuery.data?.features ?? []).map(f => [f.id, f])
   )
+  // A feature without a default entitlement is not in that list, but adding one needs its type.
+  const featureEntityQuery = useQuery(getFeature, featureEntityId ? { id: featureEntityId } : skipToken)
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
@@ -81,11 +91,9 @@ export const EntityEntitlementsSection = ({ entity, hint, hideHeader, canEdit = 
     },
   })
 
-  const isFeatureEntity = entity.EntityId?.case === 'featureId'
-  const featureEntityId = isFeatureEntity ? (entity.EntityId?.value as string) : undefined
-  const featureForEntity = featureEntityId ? featureMap[featureEntityId] : undefined
+  const featureForEntity = featureEntityQuery.data?.feature
   const featureEntityIsMetered = featureForEntity?.featureType?.Inner?.case === 'metered'
-  const canAdd = !isFeatureEntity || entitlements.length === 0
+  const canAdd = canEdit && (!isFeatureEntity || entitlements.length === 0)
 
   const existingFeatureIds = new Set(entitlements.map(e => e.featureId))
 
@@ -94,7 +102,7 @@ export const EntityEntitlementsSection = ({ entity, hint, hideHeader, canEdit = 
       {!hideHeader && (
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-1.5">
-            <h3 className="text-sm font-medium">{isFeatureEntity ? 'Default entitlement' : 'Entitlements'}</h3>
+            <h3 className="text-sm font-medium">{title ?? (isFeatureEntity ? 'Default entitlement' : 'Entitlements')}</h3>
             {hint && (
               <TooltipProvider>
                 <Tooltip>
@@ -128,43 +136,49 @@ export const EntityEntitlementsSection = ({ entity, hint, hideHeader, canEdit = 
           <Skeleton className="h-8 w-full" />
         </div>
       ) : entitlements.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No entitlements configured.</p>
+        <p className="text-sm text-muted-foreground">{emptyText}</p>
       ) : (
         <div className="border rounded-md divide-y">
-          {entitlements.map(e => (
-            <div key={e.id} className="flex items-center justify-between px-3 py-2 text-sm">
-              <div>
-                <span className="font-medium">
-                  {featureMap[e.featureId]?.name ?? e.featureId}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>{entitlementValueLabel(e.value?.value)}</span>
-                {canEdit && (
-                  <>
-                    <button
-                      type="button"
-                      className="p-1 hover:bg-muted rounded"
-                      onClick={() => setSheet({ open: true, existing: e })}
-                      title="Edit"
-                    >
-                      <Pencil size={12} />
-                    </button>
-                    {!isFeatureEntity && (
+          {entitlements.map(e => {
+            const feature = featureMap[e.featureId]
+            return (
+              <div key={e.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">
+                    {featureMap[e.featureId]?.name ?? e.featureId}
+                  </span>
+                  {feature?.status === FeatureStatus.DISABLED && (
+                    <FeatureStatusBadge status={feature.status} />
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>{entitlementValueLabel(e.value?.value)}</span>
+                  {canEdit && (
+                    <>
                       <button
                         type="button"
-                        className="p-1 hover:bg-muted rounded text-destructive"
-                        onClick={() => setPendingDelete(e)}
-                        title="Delete"
+                        className="p-1 hover:bg-muted rounded"
+                        onClick={() => setSheet({ open: true, existing: e })}
+                        title="Edit"
                       >
-                        <Trash2 size={12} />
+                        <Pencil size={12} />
                       </button>
-                    )}
-                  </>
-                )}
+                      {!isFeatureEntity && (
+                        <button
+                          type="button"
+                          className="p-1 hover:bg-muted rounded text-destructive"
+                          onClick={() => setPendingDelete(e)}
+                          title="Delete"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 

@@ -1,0 +1,81 @@
+# Functions allowed to take a Postgres lock: <path>::<impl type>::<fn> (or <path>::<CONST>) | class | reason.
+# Classes and the order they follow: see check-lock-sites.sh and diesel_models::lock.
+# Keep it short and current: an entry whose function no longer locks fails the check.
+
+# The customer: first lock of every transaction that touches a customer's rows.
+modules/meteroid/crates/diesel-models/src/query/customers.rs::CustomerRow::lock | customer | the customer row, NO KEY UPDATE (inserts referencing it take KEY SHARE)
+modules/meteroid/crates/diesel-models/src/query/customers.rs::CustomerRow::select_for_update | customer | lock, returning the customer row
+modules/meteroid/crates/diesel-models/src/query/customers.rs::CustomerRow::lock_many | customer | several customers of a tenant in id order: the first lock of their transaction, or customers a batch upsert already locked (in conflict-key order) whose inputs it bumps
+modules/meteroid/crates/diesel-models/src/query/customers.rs::CustomerRow::lock_many_skip_locked | customer | signals reconcile: the first lock of its transaction, SKIP LOCKED, a busy customer waits for the next run
+modules/meteroid/crates/diesel-models/src/query/subscriptions_lifecycle.rs::SubscriptionRow::try_lock_customer_of | customer | lifecycle worker: SKIP LOCKED, a busy customer defers the renewal instead of waiting
+
+# Rows read unlocked to find their customer, then locked behind it.
+modules/meteroid/crates/diesel-models/src/query/checkout_sessions.rs::CheckoutSessionRow::get_by_id_for_update | derive | the session's customer, then the session (NO KEY UPDATE: payments recorded against it take KEY SHARE)
+
+# A customer's rows: locked only under its CustomerLock, in any order among themselves.
+modules/meteroid/crates/diesel-models/src/query/subscriptions_lifecycle.rs::SubscriptionRow::lock_subscription | dependent | subscription, NO KEY UPDATE (events, invoices and seats reference it)
+modules/meteroid/crates/diesel-models/src/query/subscriptions_lifecycle.rs::SubscriptionRow::get_and_lock_for_processing | dependent | lifecycle worker: the due subscription, SKIP LOCKED, after try_lock_customer_of
+modules/meteroid/crates/diesel-models/src/query/subscriptions_lifecycle.rs::SubscriptionRow::lock_due_by | dependent | replayed renewal of a due subscription
+modules/meteroid/crates/diesel-models/src/query/slot_transactions.rs::SlotTransactionRow::fetch_by_subscription_id_and_unit_locked | dependent | the seat checkpoint of a slot change; reads take no lock
+modules/meteroid/crates/diesel-models/src/query/invoices.rs::InvoiceRow::lock_by_id | dependent | invoice, FOR UPDATE (drafts are deleted)
+modules/meteroid/crates/diesel-models/src/query/invoices.rs::InvoiceRow::find_consolidation_candidates | dependent | the customer's mergeable drafts, in id order
+modules/meteroid/crates/diesel-models/src/query/applied_coupons.rs::AppliedCouponDetailedRow::list_by_ids_for_update | dependent | the customer's applied coupons with their coupons (tenant rows), in coupon id order
+modules/meteroid/crates/diesel-models/src/query/credit_notes.rs::CreditNoteRow::find_by_id_for_update | dependent | credit note being finalized, voided or deleted
+modules/meteroid/crates/diesel-models/src/query/credit_notes.rs::CreditNoteRow::select_for_update_by_id | dependent | refund credit note drawn by a refund
+modules/meteroid/crates/diesel-models/src/query/customer_credit.rs::CustomerCreditAccountRow::lock_by_id | dependent | credit wallet (account), NO KEY UPDATE
+modules/meteroid/crates/diesel-models/src/query/customer_credit.rs::CustomerCreditGrantRow::lock_by_invoice | dependent | grants an invoice funded, in id order
+modules/meteroid/crates/diesel-models/src/query/customer_credit.rs::CustomerCreditGrantRow::lock_by_ids | dependent | the customer's grants among the ids, in id order
+modules/meteroid/crates/diesel-models/src/query/customer_credit.rs::CustomerCreditGrantRow::drawable | dependent | drawable grants of a wallet, in id order (unlocked when no lock is given)
+modules/meteroid/crates/diesel-models/src/query/customer_credit.rs::CustomerCreditGrantRow::lock_all | dependent | every grant of a wallet, in id order
+modules/meteroid/crates/diesel-models/src/query/customer_credit.rs::CreditUnrecoveredRow::find_for_update | dependent | the wallet's reported loss on one money flow
+modules/meteroid/crates/diesel-models/src/query/customer_credit_operation.rs::CustomerCreditOperationRow::lock_by_id | dependent | top-up operation
+modules/meteroid/crates/diesel-models/src/query/customer_credit_operation.rs::CustomerCreditOperationRow::find_idempotent_for_update | dependent | top-up idempotency anchor
+modules/meteroid/crates/diesel-models/src/query/customer_credit_operation.rs::CustomerCreditOperationRow::find_by_payment_transaction_for_update | dependent | top-up a payment funds
+modules/meteroid/crates/diesel-models/src/query/customer_credit_operation.rs::CustomerCreditOperationRow::find_settled_by_invoice_for_update | dependent | settled top-up a refund credit note takes credit back from
+modules/meteroid/crates/diesel-models/src/query/payment_transactions.rs::PaymentTransactionRow::get_by_id_for_update | dependent | payment, after its customer (lock_with_customer derives it)
+modules/meteroid/crates/diesel-models/src/query/payment_transactions.rs::PaymentTransactionRow::find_refund_by_provider_id | dependent | refund row patched under its parent payment
+modules/meteroid/crates/diesel-models/src/query/payment_reminders.rs::InvoicePaymentReminderRow::find_by_invoice_id_for_update | dependent | an invoice's reminder row, after the invoice
+modules/meteroid/crates/diesel-models/src/query/purchase_links.rs::PurchaseLinkSessionRow::lock_abandoned | dependent | abandoned purchase cleanup: the session, before cancelling its checkout and archiving its customer
+
+# Tenant rows.
+modules/meteroid/crates/diesel-models/src/query/invoicing_entities.rs::InvoicingEntityRow::select_for_update_by_id_and_tenant | tenant | document numbering after the customer and invoice; connector deletion takes it before the connector, as a checkout does
+modules/meteroid/crates/diesel-models/src/query/coupons.rs::CouponRow::list_by_ids_for_update | tenant | redemption limits, after the customers (checkout, credit codes, subscription creation lock them first), in id order
+modules/meteroid/crates/diesel-models/src/query/connectors.rs::ConnectorRow::lock_key_shared_by_id | tenant | KEY SHARE by paths starting a payment, after the customer and invoicing entity
+modules/meteroid/crates/diesel-models/src/query/prices.rs::PriceRow::lock_by_product_id | tenant | a matrix product's prices in id order, in a transaction that locks no customer and ends with the tenant's input bump
+modules/meteroid/crates/diesel-models/src/query/connectors.rs::ConnectorRow::lock_by_id | tenant | connector administration (activate, rename, credentials, status), locking no other row
+modules/meteroid/crates/diesel-models/src/query/connectors.rs::ConnectorRow::try_lock_by_id | tenant | deletion, after the routed invoicing entities: SKIP LOCKED, a payment in progress through it (KEY SHARE) makes the deletion refuse instead of waiting
+modules/meteroid/crates/diesel-models/src/query/payment_reminders.rs::PaymentReminderSequenceRow::find_by_id_for_update | tenant | reminder sequence, BEFORE any customer: archive and override then update the customers using it
+modules/meteroid/crates/diesel-models/src/query/payment_reminders.rs::PaymentReminderSequenceRow::find_live_for_share | tenant | enrolment's share of the sequence, taken before the invoice and its customer
+modules/meteroid/crates/diesel-models/src/query/payment_reminders.rs::PaymentReminderSequenceRow::find_default_for_update | tenant | an entity's default sequence, by sequence edits that lock no customer
+
+# Claims and queues: SKIP LOCKED never waits; each is committed before any customer lock.
+modules/meteroid/crates/diesel-models/src/query/subscriptions_lifecycle.rs::SubscriptionRow::claim_due_subscriptions | claim | renewal claim, committed in its own short transaction
+modules/meteroid/crates/diesel-models/src/query/subscriptions_lifecycle.rs::SubscriptionRow::defer_claim_unless_locked | claim | gives a claim back after a failed customer try-lock, the last statement of its transaction
+modules/meteroid/crates/diesel-models/src/query/scheduled_events.rs::ScheduledEventRow::find_and_claim_due_events | claim | autocommitted claim of due events; each runs in a transaction that locks its customer first
+modules/meteroid/crates/diesel-models/src/query/scheduled_events.rs::ScheduledEventRow::get_event_by_types_and_date_for_update | claim | a subscription's due terminal event, during its renewal under the customer
+modules/meteroid/crates/diesel-models/src/query/payment_reminders.rs::END_UNPAYABLE_SCHEDULED_SQL | claim | invoices skipped when locked, one autocommitted statement
+modules/meteroid/crates/diesel-models/src/query/batch_jobs.rs::BatchJobRow::claim_pending_job | claim | batch job claim
+modules/meteroid/crates/diesel-models/src/query/batch_jobs.rs::BatchJobChunkRow::claim_pending_chunk | claim | batch chunk claim
+modules/meteroid/crates/diesel-models/src/query/webhooks_out.rs::WebhookOutDeliveryRow::claim_due | claim | outgoing webhook delivery lease
+
+# Rows locked in transactions that lock no customer.
+modules/meteroid/crates/diesel-models/src/query/tenants.rs::TenantRow::find_by_id_for_update | standalone | tenant settings update
+modules/meteroid/crates/diesel-models/src/query/organization_members.rs::OrganizationMemberRow::lock_membership | standalone | organization membership
+modules/meteroid/crates/diesel-models/src/query/organization_members.rs::OrganizationMemberRow::list_by_user_for_update | standalone | a user's memberships, on user deletion
+modules/meteroid/crates/diesel-models/src/query/plan_versions.rs::PlanVersionRow::select_for_update_by_id_and_tenant | standalone | plan minimum edits and price component changes serialize with publishing
+modules/meteroid/crates/diesel-models/src/query/credit_units.rs::CreditUnitRow::lock_by_id | standalone | credit unit price edits
+modules/meteroid/crates/diesel-models/src/query/quotes.rs::QuoteRow::find_by_id_for_update | standalone | draft quote edit
+modules/meteroid/crates/diesel-models/src/query/entity_activity.rs::EntityActivityRow::find_by_id_for_update | standalone | activity entry of an email sent again
+modules/meteroid/crates/diesel-models/src/query/entity_list_views.rs::EntityListViewRow::get_visible_for_update | standalone | a user's saved list view
+
+# Advisory locks.
+modules/meteroid/crates/diesel-models/src/query/advisory_lock.rs::try_advisory_lock | advisory | session leader election of a worker, never waits, held outside any customer transaction
+modules/meteroid/crates/meteroid-app/src/migrations.rs::TRY_LOCK | advisory | startup migrations and the OSS bridge: one process migrates at a time, polled (never waits inside a statement), on a connection detached from the pool, before any customer transaction
+modules/meteroid/crates/diesel-models/src/query/invoices.rs::InvoiceRow::advisory_xact_lock | advisory | consolidation leader per merge partition, after the customer lock
+modules/meteroid/crates/diesel-models/src/query/coupons.rs::CouponRow::lock_redemption_funding | advisory | coupon credit funding, in coupon id order, after the customer
+modules/meteroid/crates/diesel-models/src/query/promo_code_attempts.rs::lock_customer_attempts | advisory | one customer's promo-code try count, in a transaction that locks no customer
+modules/meteroid/crates/diesel-models/src/query/payment_reminders.rs::PaymentReminderSequenceRowNew::lock_entity_seed | advisory | default sequence seeding per entity, locking no customer
+modules/meteroid/crates/diesel-models/src/query/webhooks_out.rs::WebhookOutEndpointRow::lock_tenant_endpoints | advisory | a tenant's webhook endpoint writes, locking no customer
+modules/meteroid/crates/meteroid-testkit/src/meteroid_it/container.rs::get_shared_postgres | advisory | integration tests: one process builds the template database, on the test server only
+modules/meteroid/crates/meteroid-testkit/src/meteroid_it/container.rs::reap_orphan_databases | advisory | integration tests: one process drops orphaned test databases, never waits
+modules/meteroid/crates/meteroid-testkit/src/meteroid_it/container.rs::ensure_seeded_template | advisory | integration tests: one process per seed level builds its seeded template database, on the test server only

@@ -5,6 +5,8 @@ import { useState } from 'react'
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
 import { PricingDetailsView } from '@/features/plans/pricecomponents/components/PricingDetailsView'
 import { feeTypeToHuman, priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
+import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
+import { couponDiscountLabel } from '@/features/productCatalog/coupons/discountLabel'
 
 import type { AddOn } from '@/rpc/api/addons/v1/models_pb'
 import type { Coupon } from '@/rpc/api/coupons/v1/models_pb'
@@ -36,6 +38,7 @@ export const AddOnCouponSelector = ({
   isCouponAvailable,
   currency,
 }: AddOnCouponSelectorProps) => {
+  const creditUnits = useCreditUnits()
   const [addOnSearch, setAddOnSearch] = useState('')
   const [couponSearch, setCouponSearch] = useState('')
   const [expandedAddOnId, setExpandedAddOnId] = useState<string | null>(null)
@@ -87,7 +90,7 @@ export const AddOnCouponSelector = ({
                 const isExpanded = expandedAddOnId === addOn.id
                 const feeType = feeTypeEnumToComponentFeeType(addOn.feeType)
                 const feeLabel = feeTypeToHuman(feeType)
-                const priceBadge = priceSummaryBadges(feeType, addOn.price, currency).join(' / ')
+                const priceBadge = priceSummaryBadges(feeType, addOn.price, currency, creditUnits).join(' / ')
                 const addOnCurrency = currency ?? addOn.price?.currency ?? 'USD'
                 // Show quantity controls when the add-on allows multiple instances
                 // (unlimited = null, or max > 1) and quantity changes are supported.
@@ -219,12 +222,7 @@ export const AddOnCouponSelector = ({
               {filteredCoupons.map(coupon => {
                 const isSelected = selectedCoupons.some(c => c.couponId === coupon.id)
                 const isAvailable = isCouponAvailable ? isCouponAvailable(coupon) : true
-                const discountLabel =
-                  coupon.discount?.discountType?.case === 'percentage'
-                    ? `${coupon.discount.discountType.value.percentage}% off`
-                    : coupon.discount?.discountType?.case === 'fixed'
-                      ? `${coupon.discount.discountType.value.amount} ${coupon.discount.discountType.value.currency} off`
-                      : 'Discount'
+                const discountLabel = couponDiscountLabel(coupon.discount)
 
                 const disabled = !isAvailable && !isSelected
 

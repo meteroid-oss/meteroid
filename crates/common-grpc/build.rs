@@ -18,6 +18,7 @@ fn main() {
                 "proto/common/v1/date.proto",
                 "proto/common/v1/decimal.proto",
                 "proto/common/v1/pagination.proto",
+                "proto/common/v1/filters.proto",
             ],
             &["."],
         )

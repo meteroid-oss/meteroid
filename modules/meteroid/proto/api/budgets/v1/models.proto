@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package meteroid.api.budgets.v1;
+
+import "google/protobuf/timestamp.proto";
+
+enum BudgetAuthor {
+  BUDGET_AUTHOR_UNSPECIFIED = 0;
+  BUDGET_AUTHOR_TENANT = 1;
+  BUDGET_AUTHOR_CUSTOMER = 2;
+}
+
+enum BudgetBehavior {
+  BUDGET_BEHAVIOR_UNSPECIFIED = 0;
+  // Alerts only.
+  BUDGET_BEHAVIOR_SOFT = 1;
+  // Also refuses access to the features whose usage counts in the spend once it is reached. On one
+  // subscription: the checks naming it, and those naming none once every subscription charging the
+  // feature's metric is refused by its own budget.
+  BUDGET_BEHAVIOR_HARD = 2;
+}
+
+message BudgetPeriod {
+  // Dates, as YYYY-MM-DD.
+  string start = 1;
+  // Unset when the period never ends.
+  optional string end = 2;
+}
+
+// A spend estimate with alerts at percentages of it. A hard budget also refuses access once
+// reached; none moves money.
+message Budget {
+  string id = 1;
+  string customer_id = 2;
+  string currency = 3;
+  // Minor units of the currency.
+  int64 amount = 4;
+  repeated uint32 thresholds = 5;
+  BudgetAuthor created_by = 6;
+  int32 version = 7;
+  // Minor units; unset until measured.
+  optional int64 estimated_spend = 8;
+  // Unset for an archived budget, or without an active subscription to measure it on.
+  optional BudgetPeriod period = 9;
+  optional google.protobuf.Timestamp as_of = 10;
+  // Always false: the estimate prices usage that is not yet invoiced.
+  bool exact = 11;
+  optional google.protobuf.Timestamp archived_at = 12;
+  google.protobuf.Timestamp created_at = 13;
+  google.protobuf.Timestamp updated_at = 14;
+  BudgetBehavior behavior = 15;
+  // Set when the budget counts only this subscription's usage, else the whole customer's.
+  optional string subscription_id = 16;
+}

@@ -33,6 +33,7 @@ import {
   Activity,
   Calendar,
   Check,
+  Coins,
   Edit2,
   Package,
   Plus,
@@ -52,6 +53,8 @@ import {
 } from '@/features/plans/pricecomponents/ProductBrowser'
 import { ProductPricingForm } from '@/features/plans/pricecomponents/ProductPricingForm'
 import { type ComponentFeeType, feeTypeFromPrice, formDataToPrice } from '@/features/pricing'
+import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
+import { formatSubscriptionFee } from '@/features/subscriptions/utils/fees'
 import { useQuery } from '@/lib/connectrpc'
 import {
   formatUsagePriceSummary,
@@ -59,7 +62,10 @@ import {
   getPrice,
   getPriceBillingLabel,
   getPriceUnitPrice,
+  isPaidCreditPack,
+  priceToSubscriptionFee,
 } from '@/lib/mapping/priceToSubscriptionFee'
+import { formatUsage } from '@/lib/utils/numbers'
 import {
   ComponentOverride,
   ComponentParameterization,
@@ -68,6 +74,7 @@ import {
 import { PlanVersion } from '@/rpc/api/plans/v1/models_pb'
 import { PriceComponent as ProtoPriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
+import { Price } from '@/rpc/api/prices/v1/models_pb'
 import { getProduct } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 
 // --- State types ---
@@ -109,6 +116,8 @@ function feeTypeIcon(feeType: ComponentFeeType) {
       return <Users className="h-4 w-4" />
     case 'capacity':
       return <Zap className="h-4 w-4" />
+    case 'credit':
+      return <Coins className="h-4 w-4" />
     default:
       return <Package className="h-4 w-4" />
   }
@@ -128,6 +137,8 @@ function feeTypeLabel(feeType: ComponentFeeType): string {
       return 'One-time'
     case 'extraRecurring':
       return 'Recurring'
+    case 'credit':
+      return 'Credit pack'
   }
 }
 
@@ -177,6 +188,76 @@ function getDisplayUnitPrice(
 
   const price = component.prices[0]
   return price ? getPriceUnitPrice(price) : 0
+}
+
+/** A credit pack: its price (included when free) and the credit it grants, in its unit. */
+const CreditPackPrice = ({
+  price,
+  currency,
+  billingLabel,
+}: {
+  price: Price
+  currency: string
+  billingLabel: string
+}) => {
+  const creditUnits = useCreditUnits()
+  const granted = formatSubscriptionFee(
+    priceToSubscriptionFee(price, { creditUnits }),
+    currency,
+    creditUnits
+  ).details
+  return (
+    <div className="text-right">
+      <div className="flex items-center justify-end gap-1">
+        <span>
+          {isPaidCreditPack(price) ? formatCurrency(getPriceUnitPrice(price), currency) : 'Included'}
+        </span>
+        <Badge variant="secondary" size="sm">
+          {billingLabel}
+        </Badge>
+      </div>
+      {granted && <div className="text-xs text-muted-foreground">{granted}</div>}
+    </div>
+  )
+}
+
+/** A capacity fee: its price, what it includes, and its overage (in credits, with their money rate). */
+const CapacityPrice = ({
+  price,
+  currency,
+  billingLabel,
+}: {
+  price: Price
+  currency: string
+  billingLabel: string
+}) => {
+  const creditUnits = useCreditUnits()
+  const formatted = formatSubscriptionFee(
+    priceToSubscriptionFee(price, { creditUnits }),
+    currency,
+    creditUnits
+  )
+  return (
+    <div className="text-right">
+      <div className="flex items-center justify-end gap-1">
+        <span>{formatted.amount}</span>
+        <Badge variant="secondary" size="sm">
+          {billingLabel}
+        </Badge>
+      </div>
+      {formatted.breakdown && (
+        <div className="whitespace-pre-line text-xs text-muted-foreground">
+          {formatted.breakdown}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Usage pricing summarized, in credits when priced in a credit unit. */
+const useUsageSummary = (price: Price | undefined, currency: string) => {
+  const creditUnits = useCreditUnits()
+  return price ? formatUsagePriceSummary(price, currency, creditUnits) : undefined
 }
 
 // --- Main component ---
@@ -531,6 +612,10 @@ const CompactPriceComponentCard = ({
   const feeType = deriveFeeType(component)
   const unitPrice = getDisplayUnitPrice(component, configuration, override, currency)
   const billingLabel = getComponentBillingLabel(component, configuration)
+  const displayPrice = override
+    ? formDataToPrice(override.feeType, override.formData, currency)
+    : getPrice(component)
+  const usage = useUsageSummary(feeType === 'usage' ? displayPrice : undefined, currency)
 
   // Matrix usage can't be estimated from a single quantity, so no example input.
   const isMatrixUsage =
@@ -569,7 +654,8 @@ const CompactPriceComponentCard = ({
         <div className="text-right">
           <div className="flex items-center justify-end gap-1">
             <span>
-              {formatCurrency(unitPrice, currency)} × {configuration.initialSlotCount} slots
+              {formatCurrency(unitPrice, currency)} ×{' '}
+              {formatUsage(configuration.initialSlotCount)} slots
             </span>
             <Badge variant="secondary" size="sm">
               {billingLabel}
@@ -582,10 +668,6 @@ const CompactPriceComponentCard = ({
 
     // Usage-based: show model + rate summary instead of €0.00
     if (feeType === 'usage') {
-      const displayPrice = override
-        ? formDataToPrice(override.feeType, override.formData, currency)
-        : getPrice(component)
-      const usage = displayPrice ? formatUsagePriceSummary(displayPrice, currency) : undefined
       return (
         <div className="text-right">
           <div className="flex items-center justify-end gap-1">
@@ -605,8 +687,31 @@ const CompactPriceComponentCard = ({
               {billingLabel}
             </Badge>
           </div>
+          {usage?.note && <div className="text-xs text-muted-foreground">{usage.note}</div>}
         </div>
       )
+    }
+
+    if (feeType === 'capacity' && displayPrice) {
+      const threshold =
+        !override && configuration?.committedCapacity !== undefined
+          ? component.prices.find(
+              p =>
+                p.pricing.case === 'capacityPricing' &&
+                p.pricing.value.included === configuration.committedCapacity
+            )
+          : undefined
+      return (
+        <CapacityPrice
+          price={threshold ?? displayPrice}
+          currency={currency}
+          billingLabel={billingLabel}
+        />
+      )
+    }
+
+    if (feeType === 'credit' && displayPrice) {
+      return <CreditPackPrice price={displayPrice} currency={currency} billingLabel={billingLabel} />
     }
 
     return (
@@ -661,7 +766,7 @@ const CompactPriceComponentCard = ({
                   return (
                     <SelectItem key={cap.included.toString()} value={cap.included.toString()}>
                       <div className="flex justify-between items-center w-full">
-                        <span>{cap.included.toString()} included</span>
+                        <span>{formatUsage(Number(cap.included))} included</span>
                         <span className="text-muted-foreground ml-2">
                           {formatCurrency(cap.rate, currency)}
                         </span>
@@ -875,6 +980,7 @@ const ExtraComponentCard = ({
   const unitPrice = getPriceUnitPrice(displayPrice)
   const billingLabel = getPriceBillingLabel(displayPrice)
   const isUsage = displayPrice.pricing.case === 'usagePricing'
+  const usage = useUsageSummary(isUsage ? displayPrice : undefined, currency)
   const isMatrixUsage =
     displayPrice.pricing.case === 'usagePricing' &&
     displayPrice.pricing.value.model.case === 'matrix'
@@ -896,28 +1002,38 @@ const ExtraComponentCard = ({
               </div>
             </div>
             <div className="text-sm font-medium text-right">
-              <div className="flex items-center justify-end gap-1">
-                {isUsage ? (
-                  (() => {
-                    const usage = formatUsagePriceSummary(displayPrice, currency)
-                    return (
-                      <span>
-                        {usage.model && (
-                          <>
-                            <span className="text-muted-foreground">{usage.model}</span>{' '}
-                          </>
-                        )}
-                        {usage.amount}
-                      </span>
-                    )
-                  })()
-                ) : (
-                  <span>{formatCurrency(unitPrice, currency)}</span>
-                )}
-                <Badge variant="secondary" size="sm">
-                  {billingLabel}
-                </Badge>
-              </div>
+              {displayPrice.pricing.case === 'creditPricing' ? (
+                <CreditPackPrice
+                  price={displayPrice}
+                  currency={currency}
+                  billingLabel={billingLabel}
+                />
+              ) : displayPrice.pricing.case === 'capacityPricing' ? (
+                <CapacityPrice
+                  price={displayPrice}
+                  currency={currency}
+                  billingLabel={billingLabel}
+                />
+              ) : (
+                <div className="flex items-center justify-end gap-1">
+                  {usage ? (
+                    <span>
+                      {usage.model && (
+                        <>
+                          <span className="text-muted-foreground">{usage.model}</span>{' '}
+                        </>
+                      )}
+                      {usage.amount}
+                    </span>
+                  ) : (
+                    <span>{formatCurrency(unitPrice, currency)}</span>
+                  )}
+                  <Badge variant="secondary" size="sm">
+                    {billingLabel}
+                  </Badge>
+                </div>
+              )}
+              {usage?.note && <div className="text-xs text-muted-foreground">{usage.note}</div>}
             </div>
           </div>
           <div className="flex gap-1 ml-4">

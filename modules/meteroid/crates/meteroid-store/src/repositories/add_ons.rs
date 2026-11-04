@@ -8,6 +8,7 @@ use crate::domain::{PaginatedVec, PaginationRequest, Price};
 use crate::errors::StoreError;
 use crate::repositories::entitlements::insert_entitlement_specs;
 use crate::repositories::price_components::resolve_component_internal;
+use crate::store::PgConn;
 use crate::{Store, StoreResult};
 use common_domain::ids::{
     AddOnId, BaseId, EntitlementEntityId, PlanVersionId, ProductFamilyId, TenantId,
@@ -17,11 +18,12 @@ use diesel_models::entitlements::EntitlementRow;
 use diesel_models::prices::PriceRow;
 use diesel_models::products::ProductRow;
 use error_stack::Report;
+use meteroid_store_macros::with_conn_delegate;
 use scoped_futures::ScopedFutureExt;
 
+#[with_conn_delegate]
 #[async_trait::async_trait]
 pub trait AddOnInterface {
-    #[allow(clippy::too_many_arguments)]
     async fn list_add_ons(
         &self,
         tenant_id: TenantId,
@@ -33,6 +35,7 @@ pub trait AddOnInterface {
         order_by: Option<String>,
     ) -> StoreResult<PaginatedVec<AddOn>>;
 
+    #[delegated]
     async fn list_add_ons_by_ids(
         &self,
         tenant_id: TenantId,
@@ -176,18 +179,17 @@ impl AddOnInterface for Store {
         })
     }
 
-    async fn list_add_ons_by_ids(
+    async fn list_add_ons_by_ids_with_conn(
         &self,
+        conn: &mut PgConn,
         tenant_id: TenantId,
         ids: Vec<AddOnId>,
     ) -> StoreResult<Vec<AddOn>> {
-        let mut conn = self.get_conn().await?;
-
-        let rows = AddOnRow::list_by_ids(&mut conn, &ids, &tenant_id)
+        let rows = AddOnRow::list_by_ids(conn, &ids, &tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        enrich_add_ons(&mut conn, rows, tenant_id).await
+        enrich_add_ons(conn, rows, tenant_id).await
     }
 
     async fn get_add_on_by_id(&self, tenant_id: TenantId, id: AddOnId) -> StoreResult<AddOn> {
@@ -359,7 +361,7 @@ impl AddOnInterface for Store {
         let tenant_id = patch.tenant_id;
         let add_on_id = patch.id;
 
-        self.transaction(|conn| {
+        self.transaction_bumping_tenant(tenant_id, |conn| {
             let actor = &actor;
             async move {
                 let existing = AddOnRow::get_by_id(conn, tenant_id, add_on_id)
@@ -400,6 +402,27 @@ impl AddOnInterface for Store {
                                 ))));
                             }
 
+                            crate::domain::prices::validate_pricing(
+                                &input.pricing,
+                                &input.currency,
+                            )?;
+                            crate::domain::prices::validate_price_credit_unit(
+                                &input.pricing,
+                                input.credit_unit.as_ref(),
+                            )?;
+                            crate::repositories::price_components::ensure_credit_units_usable(
+                                conn,
+                                tenant_id,
+                                input.credit_unit.iter().map(|unit| unit.unit_id),
+                            )
+                            .await?;
+                            crate::services::credit::unit_wallets::ensure_credit_packs_usable(
+                                conn,
+                                tenant_id,
+                                &input.currency,
+                                [&input.pricing],
+                            )
+                            .await?;
                             let pricing_json =
                                 serde_json::to_value(&input.pricing).map_err(|e| {
                                     Report::new(StoreError::SerdeError(
@@ -416,6 +439,8 @@ impl AddOnInterface for Store {
                                 pricing: pricing_json,
                                 tenant_id,
                                 catalog: true,
+                                credit_unit_id: input.credit_unit.as_ref().map(|unit| unit.unit_id),
+                                credit_unit_rate: input.credit_unit.as_ref().map(|unit| unit.rate),
                             }
                             .insert(conn)
                             .await

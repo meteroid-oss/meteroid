@@ -7,9 +7,9 @@ use crate::plan_versions::{
 use crate::{DbResult, PgConn};
 
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId, TenantId};
+use common_domain::ids::{BaseId, PlanId, PlanVersionId, ProductFamilyId, TenantId};
 use diesel::prelude::{ExpressionMethods, QueryDsl};
-use diesel::{JoinOnDsl, OptionalExtension, SelectableHelper, debug_query};
+use diesel::{JoinOnDsl, OptionalExtension, SelectableHelper};
 use error_stack::ResultExt;
 
 impl PlanVersionRowNew {
@@ -19,7 +19,7 @@ impl PlanVersionRowNew {
 
         let query = diesel::insert_into(plan_version).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -61,12 +61,37 @@ impl PlanVersionRow {
         let query = pv_dsl::plan_version
             .filter(pv_dsl::id.eq(id))
             .filter(pv_dsl::tenant_id.eq(tenant_id));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
             .await
             .attach("Error while finding plan version by id")
+            .into_db_result()
+    }
+
+    /// Locks the plan_version row with FOR NO KEY UPDATE so callers can safely check and mutate
+    /// related state (e.g. minimum commitment) without racing a concurrent `publish`.
+    pub async fn select_for_update_by_id_and_tenant(
+        conn: &mut PgConn,
+        id: PlanVersionId,
+        tenant_id: TenantId,
+    ) -> DbResult<PlanVersionRow> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel::SelectableHelper;
+        use diesel_async::RunQueryDsl;
+
+        let query = pv_dsl::plan_version
+            .for_no_key_update()
+            .filter(pv_dsl::id.eq(id))
+            .filter(pv_dsl::tenant_id.eq(tenant_id))
+            .select(PlanVersionRow::as_select());
+        crate::debug_sql(&query);
+
+        query
+            .first(conn)
+            .await
+            .attach("Error while locking plan version by id")
             .into_db_result()
     }
 
@@ -111,7 +136,7 @@ impl PlanVersionRow {
 
         query = query.order_by(pv_dsl::version.desc());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query = query.limit(1);
 
@@ -142,7 +167,7 @@ impl PlanVersionRow {
 
         query = query.order_by(pv_dsl::version.desc());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query = query.limit(1);
 
@@ -169,7 +194,7 @@ impl PlanVersionRow {
 
         query = query.order_by(pv_dsl::version.desc());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -193,7 +218,7 @@ impl PlanVersionRow {
             .into_boxed()
             .paginate(pagination);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated_query));
+        crate::debug_sql(&paginated_query);
 
         paginated_query
             .load_and_count_pages(conn)
@@ -219,7 +244,7 @@ impl PlanVersionRow {
                 .filter(pv_dsl::id.ne(excl_plan_version_id)),
         );
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -242,7 +267,7 @@ impl PlanVersionRow {
             .set(pv_dsl::is_draft_version.eq(false))
             .returning(PlanVersionRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -264,7 +289,7 @@ impl PlanVersionRow {
             .filter(pv_dsl::tenant_id.eq(tenant_id))
             .filter(pv_dsl::is_draft_version.eq(true));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -295,7 +320,7 @@ impl PlanVersionRow {
 
         query = query.order_by(pv_dsl::version.desc());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first::<PlanVersionId>(conn)
@@ -321,7 +346,7 @@ impl PlanVersionRow {
             .filter(pv_dsl::tenant_id.eq(tenant_id))
             .select(PlanVersionRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -348,7 +373,7 @@ impl PlanVersionRow {
             .filter(pv_dsl::is_draft_version.eq(false))
             .select(PlanVersionRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -373,7 +398,7 @@ impl PlanVersionRow {
             .filter(pv_dsl::id.eq_any(plan_version_ids))
             .select((pv_dsl::id, pv_dsl::plan_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         let rows: Vec<(PlanVersionId, PlanId)> = query
             .load(conn)
@@ -408,13 +433,77 @@ impl PlanVersionRowOverview {
             .distinct_on(pv_dsl::plan_id)
             .select(PlanVersionRowOverview::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
             .await
             .attach("Error while listing plans")
             .into_db_result()
+    }
+}
+
+impl PlanVersionRow {
+    /// Sets the default rule of a version whose rule was not chosen: with `pause_by_default`, usage
+    /// pauses once the credit runs out when the version grants credit or prices usage in a credit
+    /// unit; otherwise it is invoiced.
+    pub async fn settle_credit_exhausted_rule(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: PlanVersionId,
+        pause_by_default: bool,
+    ) -> DbResult<()> {
+        use diesel::sql_types::{Bool, Uuid as SqlUuid};
+        use diesel_async::RunQueryDsl;
+
+        diesel::sql_query(
+            "UPDATE plan_version pv
+             SET credit_exhausted_rule = CASE
+                 WHEN $3 AND EXISTS (
+                     SELECT 1
+                     FROM price_component pc
+                     JOIN plan_component_price pcp ON pcp.plan_component_id = pc.id
+                     JOIN price p ON p.id = pcp.price_id
+                     WHERE pc.plan_version_id = pv.id
+                       AND (p.credit_unit_id IS NOT NULL OR p.pricing ->> 'type' = 'Credit'))
+                 THEN 'PAUSE'::\"CreditExhaustedRuleEnum\"
+                 ELSE 'INVOICE'::\"CreditExhaustedRuleEnum\"
+             END
+             WHERE pv.id = $1 AND pv.tenant_id = $2 AND pv.credit_exhausted_rule IS NULL",
+        )
+        .bind::<SqlUuid, _>(id.as_uuid())
+        .bind::<SqlUuid, _>(tenant_id.as_uuid())
+        .bind::<Bool, _>(pause_by_default)
+        .execute(conn)
+        .await
+        .attach("Error while setting the default credit rule of a plan version")
+        .into_db_result()?;
+        Ok(())
+    }
+
+    /// Whether a price of the version is in a credit unit without a rate for the credits beyond
+    /// the balance.
+    pub async fn has_unrated_credit_price(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: PlanVersionId,
+    ) -> DbResult<bool> {
+        use crate::schema::{plan_component_price as pcp, price, price_component as pc};
+        use diesel_async::RunQueryDsl;
+
+        diesel::select(diesel::dsl::exists(
+            pc::table
+                .inner_join(pcp::table.on(pcp::plan_component_id.eq(pc::id)))
+                .inner_join(price::table.on(price::id.eq(pcp::price_id)))
+                .filter(pc::plan_version_id.eq(id))
+                .filter(price::tenant_id.eq(tenant_id))
+                .filter(price::credit_unit_id.is_not_null())
+                .filter(price::credit_unit_rate.eq(rust_decimal::Decimal::ZERO)),
+        ))
+        .get_result(conn)
+        .await
+        .attach("Error while checking the credit rates of a plan version")
+        .into_db_result()
     }
 }
 
@@ -429,7 +518,7 @@ impl PlanVersionRowPatch {
             .filter(pv_dsl::is_draft_version.eq(true))
             .set(self);
 
-        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -449,7 +538,7 @@ impl PlanVersionTrialRowPatch {
             .filter(pv_dsl::tenant_id.eq(self.tenant_id))
             .set(self);
 
-        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)

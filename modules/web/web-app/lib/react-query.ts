@@ -1,30 +1,24 @@
 import { Code, ConnectError } from '@connectrpc/connect'
 import { QueryClient } from '@tanstack/react-query'
 
-// Connect codes that reflect a terminal/logical outcome rather than a transient
-// failure — retrying them only delays the UI (a completed checkout session
-// returns FailedPrecondition; the default 3 retries left the page blank for
-// seconds before it could redirect).
-const NON_RETRYABLE_CODES = new Set<Code>([
-  Code.InvalidArgument,
-  Code.NotFound,
-  Code.AlreadyExists,
+// Codes that a retry can never fix. Retrying them just adds latency: a 403 from
+// RBAC would otherwise stall a page through 3 exponentially-backed-off retries.
+const NON_RETRYABLE = new Set<Code>([
   Code.PermissionDenied,
   Code.Unauthenticated,
-  Code.FailedPrecondition,
+  Code.InvalidArgument,
+  Code.NotFound,
   Code.Unimplemented,
+  Code.AlreadyExists,
+  Code.FailedPrecondition,
 ])
 
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60 * 5, // 5 minutes
-      retry: (failureCount, error) => {
-        if (error instanceof ConnectError && NON_RETRYABLE_CODES.has(error.code)) {
-          return false
-        }
-        return failureCount < 3
-      },
+      retry: (failureCount, error) =>
+        !NON_RETRYABLE.has(ConnectError.from(error).code) && failureCount < 3,
     },
   },
 })

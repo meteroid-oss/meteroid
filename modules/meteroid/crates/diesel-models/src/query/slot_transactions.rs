@@ -1,12 +1,13 @@
 use crate::errors::IntoDbResult;
 
+use crate::lock::CustomerLock;
 use crate::slot_transactions::SlotTransactionRow;
 use crate::{DbResult, PgConn};
 use chrono::NaiveDateTime;
 
-use common_domain::ids::{InvoiceId, SubscriptionId};
+use common_domain::ids::{InvoiceId, SubscriptionId, TenantId};
+use diesel::QueryableByName;
 use diesel::{OptionalExtension, sql_types};
-use diesel::{QueryableByName, debug_query};
 use error_stack::ResultExt;
 
 impl SlotTransactionRow {
@@ -37,7 +38,7 @@ impl SlotTransactionRow {
         )
         .set(slot_transaction::invoice_id.eq(Some(to_invoice_id)));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -52,7 +53,7 @@ impl SlotTransactionRow {
 
         let query = diesel::insert_into(slot_transaction).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -71,7 +72,7 @@ impl SlotTransactionRow {
 
         let query = diesel::insert_into(slot_transaction).values(items);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -81,15 +82,78 @@ impl SlotTransactionRow {
             .map(|_| ())
     }
 
-    pub async fn fetch_by_subscription_id_and_unit_locked(
+    /// Active slots of `unit` at `at_ts` without locking the ledger (read paths, previews);
+    /// `None` when the subscription never had a slot transaction for that unit.
+    pub async fn fetch_active_slots(
         conn: &mut PgConn,
         tenant_id: common_domain::ids::TenantId,
+        subscription_uid: SubscriptionId,
+        unit: String,
+        at_ts: NaiveDateTime,
+    ) -> DbResult<Option<i32>> {
+        use diesel_async::RunQueryDsl;
+
+        let raw_sql = r"
+WITH LatestCheckpoint AS (
+    SELECT st.prev_active_slots, st.transaction_at
+    FROM slot_transaction st
+    INNER JOIN subscription s ON st.subscription_id = s.id
+    WHERE s.tenant_id = $1
+      AND st.subscription_id = $2
+      AND st.unit = $3
+      AND st.transaction_at <= $4
+      AND st.status = 'ACTIVE'
+    ORDER BY transaction_at DESC
+    LIMIT 1
+)
+SELECT
+    (COALESCE(lc.prev_active_slots, 0) + COALESCE(SUM(st.delta), 0))::integer AS current_active_slots
+FROM LatestCheckpoint lc
+LEFT JOIN slot_transaction st ON
+    st.subscription_id = $2
+    AND st.unit = $3
+    AND st.effective_at >= lc.transaction_at
+    AND st.effective_at <= $4
+    AND st.status = 'ACTIVE'
+GROUP BY lc.prev_active_slots;
+";
+
+        diesel::sql_query(raw_sql)
+            .bind::<sql_types::Uuid, _>(tenant_id)
+            .bind::<sql_types::Uuid, _>(subscription_uid)
+            .bind::<sql_types::VarChar, _>(unit)
+            .bind::<sql_types::Timestamp, _>(at_ts)
+            .get_result::<FetchTransactionResult>(conn)
+            .await
+            .optional()
+            .map(|r| r.map(|r| r.current_active_slots))
+            .attach("Error while reading active slots")
+            .into_db_result()
+    }
+
+    pub async fn fetch_by_subscription_id_and_unit_locked(
+        conn: &mut PgConn,
+        lock: &CustomerLock,
         subscription_uid: SubscriptionId,
         unit: String,
         at_ts: Option<NaiveDateTime>,
     ) -> DbResult<FetchTransactionResult> {
         use diesel_async::RunQueryDsl;
 
+        {
+            use crate::schema::subscription::dsl as s_dsl;
+            use diesel::{ExpressionMethods, QueryDsl};
+            let (tenant, customer): (TenantId, common_domain::ids::CustomerId) =
+                s_dsl::subscription
+                    .filter(s_dsl::id.eq(subscription_uid))
+                    .select((s_dsl::tenant_id, s_dsl::customer_id))
+                    .first(conn)
+                    .await
+                    .attach("Error while reading the customer of a subscription")
+                    .into_db_result()?;
+            lock.covers(conn, tenant, customer)?;
+        }
+        let tenant_id = lock.tenant_id();
         let at_ts = at_ts.unwrap_or_else(|| chrono::Utc::now().naive_utc());
 
         let raw_sql = r"
@@ -124,7 +188,7 @@ GROUP BY lc.prev_active_slots;
             .bind::<sql_types::VarChar, _>(unit)
             .bind::<sql_types::Timestamp, _>(at_ts);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         let result = query
             .get_result::<FetchTransactionResult>(conn)
@@ -151,7 +215,7 @@ pub struct FetchTransactionResult {
 impl SlotTransactionRow {
     pub async fn activate_pending_for_invoice(
         conn: &mut PgConn,
-        tenant_id: common_domain::ids::TenantId,
+        lock: &CustomerLock,
         invoice_id: common_domain::ids::InvoiceId,
         effective_at: NaiveDateTime,
     ) -> DbResult<Vec<SlotTransactionRow>> {
@@ -160,6 +224,7 @@ impl SlotTransactionRow {
         use diesel::prelude::*;
         use diesel_async::RunQueryDsl;
 
+        lock.on(conn);
         let query = diesel::update(
             slot_transaction::table
                 .filter(slot_transaction::invoice_id.eq(invoice_id))
@@ -167,7 +232,8 @@ impl SlotTransactionRow {
                 .filter(diesel::dsl::exists(
                     invoice::table
                         .filter(invoice::id.eq(invoice_id))
-                        .filter(invoice::tenant_id.eq(tenant_id)),
+                        .filter(invoice::tenant_id.eq(lock.tenant_id()))
+                        .filter(invoice::customer_id.eq(lock.customer_id())),
                 )),
         )
         .set((
@@ -175,7 +241,7 @@ impl SlotTransactionRow {
             slot_transaction::effective_at.eq(effective_at),
         ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -213,12 +279,33 @@ impl SlotTransactionRow {
             query = query.filter(slot_transaction::status.eq(status));
         }
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
             .await
             .attach("Error while listing slot transactions")
+            .into_db_result()
+    }
+
+    pub async fn subscription_of(
+        conn: &mut PgConn,
+        tenant_id: common_domain::ids::TenantId,
+        transaction_id: common_domain::ids::SlotTransactionId,
+    ) -> DbResult<Option<common_domain::ids::SubscriptionId>> {
+        use crate::schema::{slot_transaction, subscription};
+        use diesel::prelude::*;
+        use diesel_async::RunQueryDsl;
+
+        slot_transaction::table
+            .inner_join(subscription::table)
+            .filter(slot_transaction::id.eq(transaction_id))
+            .filter(subscription::tenant_id.eq(tenant_id))
+            .select(slot_transaction::subscription_id)
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while reading the subscription of a slot transaction")
             .into_db_result()
     }
 
@@ -246,7 +333,7 @@ impl SlotTransactionRow {
                 )),
         );
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)

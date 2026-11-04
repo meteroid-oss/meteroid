@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package meteroid.api.connect.v1;
+
+// OAuth Application registered by a platform
+message OAuthApp {
+  string id = 1;
+  string organization_id = 2;
+  string name = 3;
+  string client_id = 4;
+  string client_secret_hint = 5;
+  repeated string redirect_uris = 6;
+  repeated string scopes = 7;
+  bool is_active = 8;
+  string created_at = 9;
+  optional string updated_at = 10;
+}
+
+// OAuth App with full client secret (only returned on create/rotate)
+message OAuthAppWithSecret {
+  OAuthApp app = 1;
+  string client_secret = 2;
+}
+
+// Connection type for connected accounts
+enum ConnectionType {
+  CONNECTION_TYPE_UNSPECIFIED = 0;
+  CONNECTION_TYPE_STANDARD = 1;
+  CONNECTION_TYPE_EXPRESS = 2;
+}
+
+// Connection status
+enum ConnectionStatus {
+  CONNECTION_STATUS_UNSPECIFIED = 0;
+  CONNECTION_STATUS_PENDING = 1;
+  CONNECTION_STATUS_ACTIVE = 2;
+  CONNECTION_STATUS_REVOKED = 3;
+  CONNECTION_STATUS_SUSPENDED = 4;
+}
+
+// Onboarding mode for connected accounts
+enum OnboardingMode {
+  ONBOARDING_MODE_UNSPECIFIED = 0;
+  // Express mode: no user account required, access via OAuth tokens only
+  ONBOARDING_MODE_EXPRESS = 1;
+  // Full mode: user account created, can login directly or via OAuth tokens
+  ONBOARDING_MODE_FULL = 2;
+}
+
+// Connected Account - relationship between platform and connected org
+message ConnectedAccount {
+  string id = 1;
+  string platform_organization_id = 2;
+  // For express accounts in pending status, this may be empty until onboarding completes
+  optional string connected_organization_id = 3;
+  optional string connected_organization_name = 4;
+  ConnectionType connection_type = 5;
+  ConnectionStatus status = 6;
+  OnboardingMode onboarding_mode = 7;
+  optional string onboarding_completed_at = 8;
+  map<string, string> metadata = 9;
+  string created_at = 10;
+  optional string revoked_at = 11;
+  // Express flow fields (only set for pending accounts)
+  optional string pending_email = 12;
+  optional string pending_organization_name = 13;
+  optional string pending_country = 14;
+  optional string platform_customer_id = 15;
+}
+
+// Platform settings for an organization
+message PlatformSettings {
+  string organization_id = 1;
+  bool is_platform_enabled = 2;
+  repeated string default_scopes = 3;
+  optional string branding_invoicing_entity_id = 4;
+  string created_at = 5;
+}
+
+// Platform branding configuration
+message PlatformBranding {
+  optional string logo_url = 1;
+  optional string primary_color = 2;
+  optional string company_name = 3;
+}
+
+// Onboarding link for express accounts
+message OnboardingLink {
+  string url = 1;
+  string expires_at = 2;
+}
+
+// OAuth authorization request info (for consent screen)
+message AuthorizationRequest {
+  string client_id = 1;
+  string app_name = 2;
+  string platform_organization_name = 3;
+  repeated string requested_scopes = 4;
+  string redirect_uri = 5;
+  string state = 6;
+  optional string code_challenge = 7;
+  optional string code_challenge_method = 8;
+}

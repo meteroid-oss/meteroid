@@ -3,6 +3,9 @@ import { ColumnDef, Row, flexRender, getCoreRowModel, useReactTable } from '@tan
 import { AlertCircleIcon } from 'lucide-react'
 import { ReactNode, useMemo } from 'react'
 
+import { DataTableViewOptions } from '@/components/table/DataTableViewOptions'
+import { useTableDensity, useTablePreferences } from '@/hooks/useTablePreferences'
+
 interface SimpleTableProps<A> {
   columns: ColumnDef<A>[]
   data: A[] | undefined
@@ -11,6 +14,10 @@ interface SimpleTableProps<A> {
   containerClassName?: string
   headTrClasses?: string
   bodyClassName?: string
+  // When set, enables the persisted column-visibility view-options menu. Row
+  // height is a separate global preference and applies regardless of this key.
+  tableKey?: string
+  defaultHidden?: string[]
 }
 
 export const SimpleTable = <A extends object>({
@@ -21,13 +28,22 @@ export const SimpleTable = <A extends object>({
   containerClassName,
   headTrClasses,
   bodyClassName,
+  tableKey,
+  defaultHidden,
 }: SimpleTableProps<A>) => {
   const defaultData = useMemo(() => [], [])
+  const enabled = !!tableKey
+  const { columnVisibility, setColumnVisibility, reset } = useTablePreferences(tableKey ?? '', {
+    defaultHidden,
+  })
+  const { density, setDensity } = useTableDensity()
 
   const table = useReactTable({
     data: data ?? defaultData,
     columns,
     getCoreRowModel: getCoreRowModel(),
+    state: { columnVisibility: enabled ? columnVisibility : undefined },
+    onColumnVisibilityChange: enabled ? setColumnVisibility : undefined,
   })
 
   const rows = table.getRowModel().rows
@@ -77,16 +93,40 @@ export const SimpleTable = <A extends object>({
     return rows.map(standardRowRenderer)
   }, [isLoading, data, rows, columns, emptyMessage])
 
+  const flatHeaders = table.getFlatHeaders()
+  const lastHeaderIndex = flatHeaders.length - 1
+
   return (
-    <div className="flex flex-col gap-8">
+    <div className="relative">
+      {enabled && (
+        <div className="absolute right-1 top-1 z-20">
+          <DataTableViewOptions
+            table={table}
+            density={density}
+            onDensityChange={setDensity}
+            onReset={reset}
+          />
+        </div>
+      )}
       <Table
-        className={cn(containerClassName, columns.length == 0 ? 'border-t border-border' : '')}
+        className={cn(
+          containerClassName,
+          columns.length == 0 ? 'border-t border-border' : '',
+          density === 'compact' && '[&_td]:!py-1 [&_th]:!h-8 [&_td]:!text-xs [&_th]:!text-xs'
+        )}
       >
         <TableHeader className={headTrClasses}>
           <TableRow>
-            {table.getFlatHeaders().map(header => {
+            {flatHeaders.map((header, headerIndex) => {
               const columnName = flexRender(header.column.columnDef.header, header.getContext())
-              return <TableHead key={header.id}>{columnName}</TableHead>
+              return (
+                <TableHead
+                  key={header.id}
+                  className={cn(enabled && headerIndex === lastHeaderIndex && 'pr-9')}
+                >
+                  {columnName}
+                </TableHead>
+              )
             })}
           </TableRow>
         </TableHeader>

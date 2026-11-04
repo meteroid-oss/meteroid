@@ -7,7 +7,6 @@ use crate::{DbResult, PgConn};
 use common_domain::ids::{PlanVersionId, PriceComponentId, ProductId, TenantId};
 use diesel::{
     ExpressionMethods, Insertable, IntoSql, OptionalExtension, QueryDsl, SelectableHelper,
-    debug_query,
 };
 use error_stack::ResultExt;
 use itertools::Itertools;
@@ -31,7 +30,7 @@ pub async fn list_product_ids_for_plan_version(
         .filter(not(pc_dsl::product_id.is_null()))
         .select(pc_dsl::product_id);
 
-    log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+    crate::debug_sql(&query);
 
     let rows: Vec<Option<ProductId>> = query
         .get_results(conn)
@@ -50,7 +49,7 @@ impl PriceComponentRowNew {
 
         let query = diesel::insert_into(price_component).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -77,7 +76,7 @@ impl PriceComponentRow {
             .filter(pc_dsl::id.eq(param_id))
             .select(PriceComponentRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -95,7 +94,7 @@ impl PriceComponentRow {
 
         let query = diesel::insert_into(price_component).values(&price_component_param);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -114,7 +113,7 @@ impl PriceComponentRow {
 
         let query = diesel::insert_into(price_component).values(&price_components);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -139,7 +138,7 @@ impl PriceComponentRow {
             .filter(plan_version_dsl::tenant_id.eq(tenant_id_param))
             .select(PriceComponentRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -164,7 +163,7 @@ impl PriceComponentRow {
             .filter(pv_dsl::tenant_id.eq(param_tenant_id))
             .select(PriceComponentRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         let res: Vec<PriceComponentRow> = query
             .get_results(conn)
@@ -197,7 +196,7 @@ impl PriceComponentRow {
             .filter(plan_version_id.eq_any(plan_version_with_id_in_tenant))
             .set(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -227,7 +226,7 @@ impl PriceComponentRow {
             .filter(id.eq(component_id))
             .filter(plan_version_id.eq_any(plan_version_with_id_in_tenant));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
@@ -252,7 +251,7 @@ impl PriceComponentRow {
             .filter(pv_dsl::tenant_id.eq(tenant_id))
             .select(PriceComponentRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -293,7 +292,7 @@ impl PriceComponentRow {
                 pc_dsl::billable_metric_id,
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)

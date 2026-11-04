@@ -11,33 +11,41 @@ common-domain = { workspace = true, optional = true }
 meteroid-store = { workspace = true, optional = true }
 
 cached = { workspace = true, features = ["async", "tokio"], optional = true }
+tokio = { workspace = true, features = ["rt"], optional = true }
 http = { workspace = true }
 tonic = { workspace = true, optional = true }
 tower = { workspace = true, optional = true }
 tower-layer = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
 tracing = { workspace = true }
-futures = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
 
 uuid = { workspace = true, features = ["serde"], optional = true }
-jsonwebtoken = { workspace = true, optional = true, features = ["aws_lc_rs"] }
+jsonwebtoken = { workspace = true, optional = true }
 chrono = { workspace = true }
-tap = { workspace = true }
 async-trait = { workspace = true }
 secrecy = { workspace = true }
 
 governor = { workspace = true, optional = true }
-reqwest = { workspace = true, features = ["default"], optional = true }
+reqwest = { workspace = true, optional = true }
 reqwest-middleware = { workspace = true, features = ["json"], optional = true }
+futures = { workspace = true, optional = true }
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
 
+
+[dev-dependencies]
+# used by the RBAC route-classification exhaustiveness test (server feature)
+meteroid-grpc = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
 
 [features]
 server = [
   "dep:common-grpc",
   "dep:common-domain",
   "dep:meteroid-store",
-  "dep:cached",
+    "dep:cached",
+  "dep:tokio",
   "dep:tonic",
   "dep:tower",
   "dep:tower-layer",
@@ -56,4 +64,7 @@ default = []
 
 [package.metadata.cargo-machete]
 # futures is gated behind the `server` feature via dep: syntax — machete doesn't evaluate feature flags
+ignored = ["futures"]
+
+[package.metadata.cargo-shear]
 ignored = ["futures"]

@@ -1,3 +1,4 @@
+import { PaymentProviderCapabilities } from '@/rpc/api/connectors/v1/models_pb'
 import { Customer, CustomerPaymentMethod } from '@/rpc/api/customers/v1/models_pb'
 import {
   AddOnPurchaseCheckoutContext,
@@ -41,9 +42,13 @@ export interface PaymentPanelProps {
   customer?: Customer
   paymentMethods: CustomerPaymentMethod[]
   totalAmount: string
+  /** The submit button: what paying does here ("Pay invoice", "Buy credit"). */
+  submitLabel: string
   currency: string
   cardConnectionId?: string
   directDebitConnectionId?: string
+  /** Capabilities of the direct-debit rail's provider, when the page knows them before any intent. */
+  directDebitCapabilities?: PaymentProviderCapabilities
   onPaymentSubmit: (paymentMethodId: string) => Promise<void>
   /**
    * Invoice being paid, when this panel is used from the invoice-payment page.
@@ -60,6 +65,8 @@ export interface PaymentPanelProps {
   preAttemptFailedTxIds?: string[]
   /** Resolved theme of the surrounding checkout pane, so Stripe Elements match. */
   themeConfig: PortalThemeConfig
+  /** Off when the merchant's plan includes white-label. */
+  showPoweredBy: boolean
   /**
    * Called after a new payment method is confirmed and attached (Stripe setup),
    * so the parent can refetch its payment-method list. Optional.
@@ -88,4 +95,7 @@ export interface CheckoutFlowProps {
   checkoutType?: CheckoutType
   planChangeContext?: PlanChangeCheckoutContext
   addonPurchaseContext?: AddOnPurchaseCheckoutContext
+  /** Merchant-set redirect targets from the session (see utils/checkoutRedirect). */
+  successUrl?: string
+  cancelUrl?: string
 }

@@ -26,6 +26,7 @@ message CouponDiscount {
   oneof discount_type {
     PercentageDiscount percentage = 1;
     FixedDiscount fixed = 2;
+    CreditDiscount credit = 3;
   }
 
   message PercentageDiscount {
@@ -34,6 +35,23 @@ message CouponDiscount {
   message FixedDiscount {
     string amount = 1;
     string currency = 2;
+  }
+  // Promotional credit added to the customer's wallet when the subscription it is redeemed on
+  // starts. It never discounts an invoice; a customer redeems it at most once.
+  message CreditDiscount {
+    string amount = 1;
+    string currency = 2;
+    // Unset: the credit never expires.
+    optional uint32 expires_in_days = 3;
+    CreditScope scope = 4;
+  }
+  enum CreditScope {
+    // Read as CUSTOMER.
+    CREDIT_SCOPE_UNSPECIFIED = 0;
+    // Pays any of the customer's subscriptions.
+    CREDIT_SCOPE_CUSTOMER = 1;
+    // Pays only the subscription the coupon is redeemed on, and ends with it.
+    CREDIT_SCOPE_SUBSCRIPTION = 2;
   }
 }
 

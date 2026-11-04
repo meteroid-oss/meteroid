@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package meteroid.api.listviews.v1;
+
+import "api/listviews/v1/models.proto";
+
+// Saved views on the entity list pages. Views are private to their creator unless shared with
+// the tenant. Requires a signed-in user (API keys are rejected).
+
+message ListViewsRequest {
+  EntityListType entity_type = 1;
+}
+
+message ListViewsResponse {
+  // Shared views plus the caller's private ones, oldest first.
+  repeated EntityListView views = 1;
+  // The caller's default view for this list, if any.
+  optional string default_view_id = 2;
+}
+
+message CreateViewRequest {
+  EntityListType entity_type = 1;
+  string name = 2;
+  string config = 3;
+  bool shared = 4;
+}
+
+message CreateViewResponse {
+  EntityListView view = 1;
+}
+
+message UpdateViewRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string config = 3;
+  // Only the view's creator may change this.
+  optional bool shared = 4;
+}
+
+message UpdateViewResponse {
+  EntityListView view = 1;
+}
+
+message DeleteViewRequest {
+  string id = 1;
+}
+
+message DeleteViewResponse {}
+
+// Copies a view into a new private view owned by the caller.
+message DuplicateViewRequest {
+  string id = 1;
+  // Defaults to "<name> (copy)".
+  optional string name = 2;
+}
+
+message DuplicateViewResponse {
+  EntityListView view = 1;
+}
+
+// Sets the caller's default view for a list; omit `view_id` to clear it.
+message SetDefaultViewRequest {
+  EntityListType entity_type = 1;
+  optional string view_id = 2;
+}
+
+message SetDefaultViewResponse {
+  optional string default_view_id = 1;
+}
+
+service ListViewsService {
+  rpc ListViews(ListViewsRequest) returns (ListViewsResponse) {}
+  rpc CreateView(CreateViewRequest) returns (CreateViewResponse) {}
+  rpc UpdateView(UpdateViewRequest) returns (UpdateViewResponse) {}
+  rpc DeleteView(DeleteViewRequest) returns (DeleteViewResponse) {}
+  rpc DuplicateView(DuplicateViewRequest) returns (DuplicateViewResponse) {}
+  rpc SetDefaultView(SetDefaultViewRequest) returns (SetDefaultViewResponse) {}
+}

@@ -8,6 +8,7 @@ import { LocalId } from '@/components/LocalId'
 import { StandardTable } from '@/components/table/StandardTable'
 import { feeTypeEnumToComponentFeeType } from '@/features/plans/addons/AddOnCard'
 import { feeTypeToHuman, priceSummaryBadges } from '@/features/plans/pricecomponents/utils'
+import { useCreditUnits } from '@/features/pricing/CreditUnitPriceFields'
 import { ListAddOnResponse } from '@/rpc/api/addons/v1/addons_pb'
 import { AddOn } from '@/rpc/api/addons/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
@@ -29,6 +30,7 @@ export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
   onSortingChange,
 }) => {
   const navigate = useNavigate()
+  const creditUnits = useCreditUnits()
 
   const columns = useMemo<ColumnDef<AddOn>[]>(
     () => [
@@ -51,7 +53,7 @@ export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
       {
         header: 'Fee Type',
         cell: ({ row }) => (
-          <span className="text-sm">
+          <span  >
             {feeTypeToHuman(feeTypeEnumToComponentFeeType(row.original.feeType))}
           </span>
         ),
@@ -62,9 +64,14 @@ export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
         header: 'Price',
         cell: ({ row }) => {
           const feeType = feeTypeEnumToComponentFeeType(row.original.feeType)
-          const badges = priceSummaryBadges(feeType, row.original.price, row.original.price?.currency)
+          const badges = priceSummaryBadges(
+            feeType,
+            row.original.price,
+            row.original.price?.currency,
+            creditUnits
+          )
           return (
-            <span className="text-sm text-muted-foreground">
+            <span className="  text-muted-foreground">
               {badges.join(' / ')}
             </span>
           )
@@ -75,7 +82,7 @@ export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
       {
         header: 'Self-service',
         cell: ({ row }) => (
-          <span className="text-sm text-muted-foreground">
+          <span className="  text-muted-foreground">
             {row.original.selfServiceable ? 'Yes' : 'No'}
           </span>
         ),
@@ -86,7 +93,7 @@ export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
         id: 'created_at',
         header: 'Created',
         cell: ({ row }) => (
-          <span className="text-sm text-muted-foreground">
+          <span className="  text-muted-foreground">
             {parseAndFormatDate(row.original.createdAt)}
           </span>
         ),
@@ -99,11 +106,12 @@ export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
         enableSorting: false,
       },
     ],
-    [navigate]
+    [navigate, creditUnits]
   )
 
   return (
     <StandardTable
+      tableKey="addons"
       columns={columns}
       data={addonsQuery.data?.addOns ?? []}
       sortable={true}

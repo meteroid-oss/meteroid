@@ -5,9 +5,10 @@
 //! provider-specific type leaks. The trait splits into ops sub-traits;
 //! unsupported methods return [`ConnectorError::Unsupported`] rather than panic.
 
+pub mod account;
 pub mod bridge;
 pub mod connector;
-#[cfg(any(test, feature = "test-utils"))]
+#[doc(hidden)]
 pub mod contract;
 pub mod error;
 pub mod events;
@@ -19,29 +20,33 @@ pub mod mollie;
 pub mod stancer;
 pub mod stripe;
 
-pub use factory::{initialize_payment_connector, provider_capabilities};
+pub use account::{ValidatedCredentials, is_direct_debit, mask_secret, requires_webhook_secret};
+pub use factory::{initialize_payment_connector, payment_capabilities, provider_capabilities};
 pub use gocardless::GoCardlessConnector;
-pub use mock::MockConnector;
+pub use mock::{MockConnector, MockProviderInvocation, MockProviderOperation};
+pub use mock::{mock_provider_invocations, reset_mock_provider_invocations};
 pub use mollie::MollieConnector;
 pub use stancer::StancerConnector;
 pub use stripe::StripeConnector;
 
 pub use connector::{
-    ConnectorCapabilities, ConnectorIdentity, CredentialOps, CustomerOps, HOSTED_RETURN_PATH,
-    HostedSetupCompletion, MandateOps, MandateSetupMode, PaymentConnector, PaymentOps,
-    ReconcileOps, RefundOps, WebhookOps,
+    ConnectorIdentity, ConnectorRef, CredentialOps, CustomerOps, HOSTED_RETURN_PATH,
+    HostedSetupCompletion, MandateOps, MandateSetupMode, PaymentCapabilities, PaymentConnector,
+    PaymentOps, ReconcileOps, RefundOps, WalletOps, WebhookOps,
 };
-pub use error::{ConnectorError, HostedSetupPending};
+pub use error::{ConnectorError, CredentialsRejected, HostedSetupPending, credentials_rejected};
 pub use events::{
     DisputeEvent, NormalizedEventKind, NormalizedEventSubscription, NormalizedWebhookEvent,
-    PaymentFailedEvent, PaymentMethodAttachedEvent, PaymentMethodDetachedEvent,
-    PaymentMethodExpiringEvent, PaymentMethodUpdatedEvent, PaymentPendingEvent,
-    PaymentRefundedEvent, PaymentRequiresActionEvent, PaymentSucceededEvent,
+    ObservedRefundOnWire, PaymentFailedEvent, PaymentMethodAttachedEvent,
+    PaymentMethodDetachedEvent, PaymentMethodExpiringEvent, PaymentMethodUpdatedEvent,
+    PaymentPendingEvent, PaymentRefundedEvent, PaymentRequiresActionEvent, PaymentReversedEvent,
+    PaymentSucceededEvent, RefundStatusChangedEvent,
 };
 pub use model::{
     ChargeAcknowledged, ChargeFailure, ChargeOutcome, ChargeReceipt, ChargeRequest,
     CreateCustomerRequest, DeclineKind, ExternalCustomerRef, IdempotencyKey,
-    MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot, RefundAcknowledged,
-    RefundFailure, RefundOutcome, RefundReason, RefundReceipt, RefundRequest, RegisteredWebhook,
+    MandateSetupInstruction, MandateSetupRequest, PaymentMethodSnapshot,
+    PrepareWalletChargeRequest, RefundAcknowledged, RefundFailure, RefundOutcome, RefundReason,
+    RefundReceipt, RefundRequest, RefundSnapshot, RegisteredWebhook, RemoteRefundStatus,
     RemoteTransactionStatus, RequiresActionInstruction, WebhookDeliveryUnit,
 };

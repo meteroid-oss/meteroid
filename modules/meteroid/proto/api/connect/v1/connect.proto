@@ -1,0 +1,286 @@
+syntax = "proto3";
+
+package meteroid.api.connect.v1;
+
+import "api/connect/v1/models.proto";
+import "common/v1/pagination.proto";
+
+// ============================================
+// Platform Settings
+// ============================================
+
+message GetPlatformSettingsRequest {}
+
+message GetPlatformSettingsResponse {
+  PlatformSettings settings = 1;
+}
+
+message EnablePlatformRequest {}
+
+message EnablePlatformResponse {
+  PlatformSettings settings = 1;
+}
+
+message DisablePlatformRequest {}
+
+message DisablePlatformResponse {}
+
+message UpdatePlatformSettingsRequest {
+  repeated string default_scopes = 1;
+  optional string branding_invoicing_entity_id = 2;
+}
+
+message UpdatePlatformSettingsResponse {
+  PlatformSettings settings = 1;
+}
+
+// ============================================
+// OAuth Apps Management
+// ============================================
+
+message ListOAuthAppsRequest {}
+
+message ListOAuthAppsResponse {
+  repeated OAuthApp apps = 1;
+}
+
+message CreateOAuthAppRequest {
+  string name = 1;
+  repeated string redirect_uris = 2;
+  repeated string scopes = 3;
+}
+
+message CreateOAuthAppResponse {
+  OAuthAppWithSecret app = 1;
+}
+
+message GetOAuthAppRequest {
+  string id = 1;
+}
+
+message GetOAuthAppResponse {
+  OAuthApp app = 1;
+}
+
+message UpdateOAuthAppRequest {
+  string id = 1;
+  optional string name = 2;
+  repeated string redirect_uris = 3;
+  repeated string scopes = 4;
+  optional bool is_active = 5;
+}
+
+message UpdateOAuthAppResponse {
+  OAuthApp app = 1;
+}
+
+message DeleteOAuthAppRequest {
+  string id = 1;
+}
+
+message DeleteOAuthAppResponse {}
+
+message RotateClientSecretRequest {
+  string id = 1;
+}
+
+message RotateClientSecretResponse {
+  OAuthAppWithSecret app = 1;
+}
+
+// ============================================
+// Connected Accounts Management
+// ============================================
+
+message ListConnectedAccountsRequest {
+  optional ConnectionStatus status_filter = 1;
+  meteroid.common.v1.Pagination pagination = 2;
+}
+
+message ListConnectedAccountsResponse {
+  repeated ConnectedAccount accounts = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+message GetConnectedAccountRequest {
+  string id = 1;
+}
+
+message GetConnectedAccountResponse {
+  ConnectedAccount account = 1;
+}
+
+message CreateConnectedAccountRequest {
+  string email = 1;
+  string organization_name = 2;
+  map<string, string> metadata = 3;
+  // URL to redirect user to after onboarding completes
+  optional string redirect_url = 4;
+  // ISO 3166-1 alpha-2 country code for the organization to be created
+  optional string country = 5;
+  // Onboarding mode: express (no user account) or full (creates user account)
+  OnboardingMode mode = 6;
+}
+
+// Keep for backwards compatibility
+message CreateExpressAccountRequest {
+  string email = 1;
+  string organization_name = 2;
+  map<string, string> metadata = 3;
+  // URL to redirect user to after onboarding completes
+  optional string redirect_url = 4;
+  // ISO 3166-1 alpha-2 country code for the organization to be created
+  optional string country = 5;
+}
+
+message CreateConnectedAccountResponse {
+  ConnectedAccount account = 1;
+  // Onboarding link for the user to complete account setup
+  OnboardingLink onboarding_link = 2;
+}
+
+// Keep for backwards compatibility
+message CreateExpressAccountResponse {
+  ConnectedAccount account = 1;
+  // Onboarding link for the user to complete account setup
+  OnboardingLink onboarding_link = 2;
+}
+
+message DisconnectAccountRequest {
+  string id = 1;
+}
+
+message DisconnectAccountResponse {}
+
+message CreateOnboardingLinkRequest {
+  string connected_account_id = 1;
+  string redirect_url = 2;
+}
+
+message CreateOnboardingLinkResponse {
+  OnboardingLink link = 1;
+}
+
+// ============================================
+// OAuth Authorization (Client-facing)
+// ============================================
+
+message GetAuthorizationRequestRequest {
+  string client_id = 1;
+  string redirect_uri = 2;
+  string state = 3;
+  repeated string scopes = 4;
+  optional string code_challenge = 5;
+  optional string code_challenge_method = 6;
+}
+
+message GetAuthorizationRequestResponse {
+  AuthorizationRequest request = 1;
+}
+
+message ApproveAuthorizationRequest {
+  string client_id = 1;
+  string redirect_uri = 2;
+  string state = 3;
+  repeated string scopes = 4;
+  optional string code_challenge = 5;
+  optional string code_challenge_method = 6;
+  // User selects which organization to connect
+  string selected_organization_id = 7;
+}
+
+message ApproveAuthorizationResponse {
+  string redirect_url = 1;
+}
+
+message DenyAuthorizationRequest {
+  string client_id = 1;
+  string redirect_uri = 2;
+  string state = 3;
+}
+
+message DenyAuthorizationResponse {
+  string redirect_url = 1;
+}
+
+// ============================================
+// Express Onboarding (for users completing onboarding)
+// ============================================
+
+message GetOnboardingInfoRequest {
+  string token = 1;
+}
+
+message GetOnboardingInfoResponse {
+  string connected_account_id = 1;
+  string platform_organization_id = 2;
+  optional string pending_email = 3;
+  optional string pending_organization_name = 4;
+  string redirect_url = 5;
+  // ISO 3166-1 alpha-2 country code for the organization to be created
+  optional string pending_country = 6;
+  // Onboarding mode for this connected account
+  OnboardingMode onboarding_mode = 7;
+  // Platform branding for the onboarding wizard
+  optional PlatformBranding platform_branding = 8;
+}
+
+message CompleteOnboardingRequest {
+  string token = 1;
+  string organization_name = 2;
+  string country = 3;
+  // Billing details for the invoicing entity (optional, populated during onboarding)
+  optional string legal_name = 4;
+  optional string address_line1 = 5;
+  optional string address_line2 = 6;
+  optional string zip_code = 7;
+  optional string state = 8;
+  optional string city = 9;
+  optional string vat_number = 10;
+}
+
+message CompleteOnboardingResponse {
+  string redirect_url = 1;
+}
+
+// ============================================
+// Services
+// ============================================
+
+// Admin service for platform management (requires user auth)
+service ConnectAdminService {
+  // Platform Settings
+  rpc GetPlatformSettings(GetPlatformSettingsRequest) returns (GetPlatformSettingsResponse) {}
+  rpc EnablePlatform(EnablePlatformRequest) returns (EnablePlatformResponse) {}
+  rpc DisablePlatform(DisablePlatformRequest) returns (DisablePlatformResponse) {}
+  rpc UpdatePlatformSettings(UpdatePlatformSettingsRequest) returns (UpdatePlatformSettingsResponse) {}
+
+  // OAuth Apps
+  rpc ListOAuthApps(ListOAuthAppsRequest) returns (ListOAuthAppsResponse) {}
+  rpc CreateOAuthApp(CreateOAuthAppRequest) returns (CreateOAuthAppResponse) {}
+  rpc GetOAuthApp(GetOAuthAppRequest) returns (GetOAuthAppResponse) {}
+  rpc UpdateOAuthApp(UpdateOAuthAppRequest) returns (UpdateOAuthAppResponse) {}
+  rpc DeleteOAuthApp(DeleteOAuthAppRequest) returns (DeleteOAuthAppResponse) {}
+  rpc RotateClientSecret(RotateClientSecretRequest) returns (RotateClientSecretResponse) {}
+
+  // Connected Accounts
+  rpc ListConnectedAccounts(ListConnectedAccountsRequest) returns (ListConnectedAccountsResponse) {}
+  rpc GetConnectedAccount(GetConnectedAccountRequest) returns (GetConnectedAccountResponse) {}
+  rpc CreateConnectedAccount(CreateConnectedAccountRequest) returns (CreateConnectedAccountResponse) {}
+  // Deprecated: use CreateConnectedAccount instead
+  rpc CreateExpressAccount(CreateExpressAccountRequest) returns (CreateExpressAccountResponse) {}
+  rpc DisconnectAccount(DisconnectAccountRequest) returns (DisconnectAccountResponse) {}
+  rpc CreateOnboardingLink(CreateOnboardingLinkRequest) returns (CreateOnboardingLinkResponse) {}
+}
+
+// Client service for OAuth authorization flow and onboarding
+service ConnectClientService {
+  rpc GetAuthorizationRequest(GetAuthorizationRequestRequest) returns (GetAuthorizationRequestResponse) {}
+  rpc ApproveAuthorization(ApproveAuthorizationRequest) returns (ApproveAuthorizationResponse) {}
+  rpc DenyAuthorization(DenyAuthorizationRequest) returns (DenyAuthorizationResponse) {}
+
+  // Express onboarding - GetOnboardingInfo validates via token (no user auth needed)
+  rpc GetOnboardingInfo(GetOnboardingInfoRequest) returns (GetOnboardingInfoResponse) {}
+  // CompleteOnboarding requires user to be logged in
+  rpc CompleteOnboarding(CompleteOnboardingRequest) returns (CompleteOnboardingResponse) {}
+}

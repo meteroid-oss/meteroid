@@ -7,6 +7,7 @@ use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::services::Services;
 use crate::services::checkout_completion::DirectChargeResult;
+use crate::services::invoices::PeriodBilling;
 use crate::store::PgConn;
 use chrono::NaiveTime;
 use common_domain::ids::{
@@ -30,6 +31,9 @@ pub enum InvoiceBillingMode {
     },
     /// Subscription renewal or terminated. If grace period, we schedule finalization. Else, we immediately finalize
     AwaitGracePeriodIfApplicable,
+    /// A renewal or termination replayed at a past moment: the period settles inline, issued at
+    /// that moment, instead of after the grace period.
+    SettleAt(chrono::DateTime<chrono::Utc>),
     /// Subscription created without checkout (ex: upgrade/downgrade). We immediately finalize
     Immediate,
     /// Payment was already collected before subscription creation
@@ -61,7 +65,16 @@ pub enum InvoiceBillingMode {
 /// Best-effort, not a guarantee: same-day merging is reliable as long as the billing worker creates
 /// all of a customer's due drafts within this window; a sibling drafted later still finalizes
 /// standalone. The durable fix is a single per-(customer, date) finalization trigger.
-const CONSOLIDATION_MIN_GRACE_HOURS: i32 = 1;
+pub(crate) const CONSOLIDATION_MIN_GRACE_HOURS: i32 = 1;
+
+/// Hours after its period closes that a recurring invoice of the entity is issued.
+pub(crate) fn recurring_grace_hours(grace_period_hours: i32, consolidate: bool) -> i32 {
+    if consolidate {
+        grace_period_hours.max(CONSOLIDATION_MIN_GRACE_HOURS)
+    } else {
+        grace_period_hours.max(0)
+    }
+}
 
 /// A `Pending` charge with no next action that settles later: direct debit on every provider, and
 /// every rail of providers with `pending_charge_accepted`.
@@ -71,7 +84,7 @@ fn is_accepted_async_debit(
     provider: &ConnectorProviderEnum,
 ) -> bool {
     let provider_accepts_pending =
-        crate::adapters::payment::provider_capabilities(&provider.clone().into())
+        crate::adapters::payment::payment_capabilities(&provider.clone().into())
             .is_some_and(|caps| caps.pending_charge_accepted);
     transaction.status == PaymentStatusEnum::Pending
         && transaction.next_action.is_none()
@@ -82,6 +95,9 @@ fn is_accepted_async_debit(
                 | PaymentMethodTypeEnum::DirectDebitBacs
         ) || provider_accepts_pending)
 }
+
+/// Before any charge: the period's invoice was voided, and only an operator bills it again.
+pub(crate) const VOIDED_PERIOD_CHECKOUT: &str = "The invoice for this billing period was voided. It must be regenerated before this checkout can be completed.";
 
 impl Services {
     /// [`is_accepted_async_debit`] for a saved method: resolves the connector behind
@@ -108,44 +124,128 @@ impl Services {
         ))
     }
 
+    /// Money in flight (a Stancer batch capture, a debit): the invoice goes `Processing`.
+    pub(in crate::services) async fn mark_processing_if_async_debit(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        payment_method_id: CustomerPaymentMethodId,
+        transaction: &PaymentTransaction,
+    ) -> StoreResult<()> {
+        if transaction.status != PaymentStatusEnum::Pending {
+            return Ok(());
+        }
+        let method = CustomerPaymentMethodRow::get_by_id(conn, &tenant_id, &payment_method_id)
+            .await
+            .map_err(|e| StoreError::DatabaseError(e.error))?;
+        if self
+            .accepted_async_debit(conn, tenant_id, transaction, &method)
+            .await?
+        {
+            InvoiceRow::apply_payment_status(
+                conn,
+                invoice_id,
+                tenant_id,
+                diesel_models::enums::InvoicePaymentStatus::Processing,
+                None,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
     pub(in crate::services) async fn bill_subscription_tx(
         &self,
         conn: &mut PgConn,
+        actor: &Actor,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
         mode: InvoiceBillingMode,
     ) -> StoreResult<Option<DetailedInvoice>> {
-        // TODO also check isFree for faster path
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            // TODO also check isFree for faster path
 
-        let subscription = self
-            .store
-            .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
-            .await?;
+            let subscription = self
+                .store
+                .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
+                .await?;
 
-        let customer =
-            CustomerRow::find_by_id(conn, &subscription.subscription.customer_id, &tenant_id)
-                .await
-                .map_err(Into::into)
-                .and_then(TryInto::try_into)?;
+            let customer =
+                CustomerRow::find_by_id(conn, &subscription.subscription.customer_id, &tenant_id)
+                    .await
+                    .map_err(Into::into)
+                    .and_then(TryInto::try_into)?;
 
-        self.bill_subscription_with_data_tx(conn, tenant_id, subscription, customer, mode)
+            self.bill_subscription_with_data_tx(
+                conn,
+                actor,
+                tenant_id,
+                subscription,
+                customer,
+                mode,
+                PeriodBilling::Bill,
+            )
             .await
+        })
+        .await
     }
 
+    /// Bills on the subscription's final invoice what it consumed after its period's own invoice,
+    /// until an immediate cancellation: issued as a period's invoice is, never consolidated.
+    pub(in crate::services) async fn bill_final_invoice_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> StoreResult<Option<DetailedInvoice>> {
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            let subscription = self
+                .store
+                .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
+                .await?;
+            let customer =
+                CustomerRow::find_by_id(conn, &subscription.subscription.customer_id, &tenant_id)
+                    .await
+                    .map_err(Into::into)
+                    .and_then(TryInto::try_into)?;
+            self.bill_subscription_with_data_tx(
+                conn,
+                actor,
+                tenant_id,
+                subscription,
+                customer,
+                InvoiceBillingMode::AwaitGracePeriodIfApplicable,
+                PeriodBilling::Final,
+            )
+            .await
+        })
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub(in crate::services) async fn bill_subscription_with_data_tx(
         &self,
         conn: &mut PgConn,
+        actor: &Actor,
         tenant_id: TenantId,
         subscription: SubscriptionDetails,
         customer: Customer,
         mode: InvoiceBillingMode,
+        period_billing: PeriodBilling,
     ) -> StoreResult<Option<DetailedInvoice>> {
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
         let draft_invoice = self
             .create_subscription_draft_invoice(
                 conn,
                 tenant_id,
                 &subscription,
                 customer.clone(), /* TODO */
+                period_billing,
             )
             .await?;
 
@@ -171,8 +271,16 @@ impl Services {
         if !draft_invoice.can_edit() {
             return match &mode {
                 InvoiceBillingMode::AwaitGracePeriodIfApplicable
+                | InvoiceBillingMode::SettleAt(_)
                 | InvoiceBillingMode::Immediate => {
                     self.as_detailed_invoice(draft_invoice, customer).map(Some)
+                }
+                InvoiceBillingMode::FinalizeAfterPayment { .. }
+                    if draft_invoice.status == crate::domain::InvoiceStatusEnum::Void =>
+                {
+                    Err(Report::new(StoreError::InvalidArgument(
+                        VOIDED_PERIOD_CHECKOUT.to_string(),
+                    )))
                 }
                 InvoiceBillingMode::FinalizeAfterPayment { .. } => {
                     Err(Report::new(StoreError::CheckoutError).attach(format!(
@@ -234,24 +342,23 @@ impl Services {
                 // Handle zero amount case (e.g., 100% coupon discount)
                 // No payment needed, just finalize
                 if draft_invoice.amount_due == 0 {
-                    // Finalize the invoice
-                    self.finalize_invoice_tx(
-                        conn,
-                        &Actor::System,
-                        draft_invoice.id,
-                        tenant_id,
-                        false,
-                        &Some(subscription),
-                    )
-                    .await?;
+                    let finalized = self
+                        .finalize_invoice_tx(
+                            conn,
+                            actor,
+                            draft_invoice.id,
+                            tenant_id,
+                            false,
+                            &Some(subscription),
+                        )
+                        .await?;
 
-                    // Mark as paid since amount is 0
-                    InvoiceRow::apply_payment_status(
+                    // Nothing to pay: paid the moment it is issued.
+                    self.apply_invoice_paid_tx(
                         conn,
-                        draft_invoice.id,
                         tenant_id,
-                        diesel_models::enums::InvoicePaymentStatus::Paid,
-                        None,
+                        draft_invoice.id,
+                        finalized.invoice.finalized_at,
                     )
                     .await?;
 
@@ -268,7 +375,7 @@ impl Services {
                         .record_outbox_batch_tx(
                             conn,
                             tenant_id,
-                            &Actor::System,
+                            actor,
                             vec![crate::domain::outbox_event::OutboxEvent::invoice_paid(
                                 (&detailed.invoice).into(),
                             )],
@@ -303,7 +410,7 @@ impl Services {
                     // Finalize the invoice directly
                     self.finalize_invoice_tx(
                         conn,
-                        &Actor::System,
+                        actor,
                         draft_invoice.id,
                         tenant_id,
                         false, // no need to refresh lines, we just paid
@@ -321,7 +428,7 @@ impl Services {
                     // orchestration nor dunning touches this invoice.
                     self.finalize_invoice_tx(
                         conn,
-                        &Actor::System,
+                        actor,
                         draft_invoice.id,
                         tenant_id,
                         false, // amounts are fixed under the in-flight charge
@@ -361,32 +468,62 @@ impl Services {
 
                 // Schedule finalization after the grace period. Consolidation also requires the
                 // scheduled path (the inline finalize below bypasses merging), so take it whenever
-                // the entity consolidates, even with a negative grace.
-                if invoicing_entity.grace_period_hours >= 0
-                    || invoicing_entity.consolidate_recurring_invoices
-                {
+                // the entity consolidates, even with a negative grace. A final invoice never merges.
+                let consolidates = invoicing_entity.consolidate_recurring_invoices
+                    && draft_invoice.invoice_type == crate::domain::InvoiceType::Recurring;
+                if invoicing_entity.grace_period_hours >= 0 || consolidates {
                     self.schedule_invoice_finalization(
                         conn,
                         tenant_id,
                         &subscription,
                         draft_invoice.id,
-                        draft_invoice.invoice_date,
+                        draft_invoice.billing_period_start,
                         invoicing_entity.grace_period_hours,
-                        invoicing_entity.consolidate_recurring_invoices,
+                        consolidates,
                     )
                     .await?;
 
                     return self.as_detailed_invoice(draft_invoice, customer).map(Some);
                 }
 
-                // else we finalize immediately and trigger payment
-                self.finalize_invoice_tx(
+                // Negative grace: settle now. Recompute against current usage so an arrears period
+                // that genuinely has nothing to bill is Closed, while any late usage is finalized.
+                self.settle_recurring_invoice_tx(
                     conn,
-                    &Actor::System,
+                    actor,
                     draft_invoice.id,
                     tenant_id,
-                    false,
+                    true,
                     &Some(subscription.clone()),
+                )
+                .await?;
+            }
+            InvoiceBillingMode::SettleAt(issued_at) => {
+                if !subscription.subscription.auto_advance_invoices {
+                    return self.as_detailed_invoice(draft_invoice, customer).map(Some);
+                }
+                let invoicing_entity = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
+                    conn,
+                    subscription.subscription.invoicing_entity_id,
+                    tenant_id,
+                )
+                .await?;
+                // Merging happens on the scheduled finalization this settles past.
+                if invoicing_entity.consolidate_recurring_invoices {
+                    return Err(Report::new(StoreError::InvalidArgument(
+                        "a period of an entity that consolidates recurring invoices cannot be \
+                         billed at a past moment"
+                            .to_owned(),
+                    )));
+                }
+                self.settle_recurring_invoice_at_tx(
+                    conn,
+                    actor,
+                    draft_invoice.id,
+                    tenant_id,
+                    true,
+                    &Some(subscription.clone()),
+                    crate::services::invoices::IssueAt::At(issued_at),
                 )
                 .await?;
             }
@@ -397,24 +534,24 @@ impl Services {
                 }
 
                 // Finalize and process payment immediately
-                self.finalize_invoice_tx(
-                    conn,
-                    &Actor::System,
-                    draft_invoice.id,
-                    tenant_id,
-                    false,
-                    &Some(subscription.clone()),
-                )
-                .await?;
-
-                // Handle zero amount case (e.g., 100% coupon discount)
-                if draft_invoice.amount_due == 0 {
-                    InvoiceRow::apply_payment_status(
+                let finalized = self
+                    .finalize_invoice_tx(
                         conn,
+                        actor,
                         draft_invoice.id,
                         tenant_id,
-                        diesel_models::enums::InvoicePaymentStatus::Paid,
-                        None,
+                        false,
+                        &Some(subscription.clone()),
+                    )
+                    .await?;
+
+                // Handle zero amount case (e.g., 100% coupon discount): paid when issued.
+                if draft_invoice.amount_due == 0 {
+                    self.apply_invoice_paid_tx(
+                        conn,
+                        tenant_id,
+                        draft_invoice.id,
+                        finalized.invoice.finalized_at,
                     )
                     .await?;
                 }
@@ -428,9 +565,14 @@ impl Services {
                         .attach("Currency mismatch between invoice and payment"));
                 }
 
-                // Allow 1 subunit tolerance for rounding
-                let amount_diff = (draft_invoice.amount_due - charge_result.amount).abs();
-                if amount_diff > 1 {
+                // Charged in this transaction, the invoice must ask what was charged (1 subunit of
+                // rounding). Settled later, credit may have moved since: the finalization draws
+                // what the charge leaves, so only a charge above the invoice is refused.
+                let mismatch = match existing_transaction_id {
+                    None => (draft_invoice.amount_due - charge_result.amount).abs() > 1,
+                    Some(_) => charge_result.amount - draft_invoice.total > 1,
+                };
+                if mismatch {
                     return Err(Report::new(StoreError::CheckoutError).attach(format!(
                         "Amount mismatch: invoice {} vs payment {}",
                         draft_invoice.amount_due, charge_result.amount
@@ -441,11 +583,14 @@ impl Services {
                     self.link_transaction_to_invoice(conn, tenant_id, tx_id, draft_invoice.id)
                         .await?
                 } else {
+                    // A subscription checkout: its renewals bill the card it was completed with.
                     self.create_transaction_for_direct_charge(
                         conn,
                         tenant_id,
                         draft_invoice.id,
                         &charge_result,
+                        None,
+                        crate::services::DefaultMethodAdoption::Replace,
                         None,
                     )
                     .await?
@@ -456,7 +601,7 @@ impl Services {
                 // Payment succeeded - payment method is already saved on the customer
                 self.finalize_invoice_tx(
                     conn,
-                    &Actor::System,
+                    actor,
                     draft_invoice.id,
                     tenant_id,
                     false,
@@ -473,15 +618,19 @@ impl Services {
                 )
                 .await?;
 
-                if updated_invoice_row.amount_due == 0 {
+                if updated_invoice_row.amount_due > 0 {
                     InvoiceRow::apply_payment_status(
                         conn,
                         draft_invoice.id,
                         tenant_id,
-                        diesel_models::enums::InvoicePaymentStatus::Paid,
-                        transaction.processed_at,
+                        diesel_models::enums::InvoicePaymentStatus::PartiallyPaid,
+                        None,
                     )
                     .await?;
+                } else {
+                    self
+                        .apply_invoice_paid_tx(conn, tenant_id, draft_invoice.id, transaction.processed_at)
+                        .await?;
 
                     let invoice: Invoice = updated_invoice_row.try_into()?;
                     self.store
@@ -489,7 +638,7 @@ impl Services {
                         .record_outbox_batch_tx(
                             conn,
                             tenant_id,
-                            &Actor::System,
+                            actor,
                             vec![crate::domain::outbox_event::OutboxEvent::invoice_paid(
                                 (&invoice).into(),
                             )],
@@ -507,8 +656,9 @@ impl Services {
                         .attach("Currency mismatch between invoice and in-flight payment"));
                 }
 
-                // Allow 1 subunit tolerance for rounding.
-                if (draft_invoice.amount_due - amount).abs() > 1 {
+                // Credit may have moved since the debit was priced: the finalization draws what
+                // the payment leaves, so only a payment above the invoice is refused.
+                if amount - draft_invoice.total > 1 {
                     return Err(Report::new(StoreError::CheckoutError).attach(format!(
                         "Amount mismatch: invoice {} vs in-flight payment {}",
                         draft_invoice.amount_due, amount
@@ -532,7 +682,7 @@ impl Services {
                 // document state must not encode payment state.
                 self.finalize_invoice_tx(
                     conn,
-                    &Actor::System,
+                    actor,
                     draft_invoice.id,
                     tenant_id,
                     false,
@@ -561,6 +711,7 @@ impl Services {
         Ok(Some(
             DetailedInvoice::try_from(updated_invoice)?.with_transactions(transactions),
         ))
+    }).await
     }
 
     fn as_detailed_invoice(
@@ -584,7 +735,9 @@ impl Services {
     /// which would let one finalize alone and skip the merge. The deadline stays anchored to
     /// `invoice_date` (like grace), and usage is bounded by the closed billing period, so this never
     /// changes what is billed.
-    #[allow(clippy::too_many_arguments)]
+    ///
+    /// The last window of an immediate termination runs to its instant, not to midnight: its grace
+    /// starts there, so usage dated before the cancellation and ingested late is still billed.
     async fn schedule_invoice_finalization(
         &self,
         conn: &mut PgConn,
@@ -600,8 +753,13 @@ impl Services {
         } else {
             grace_period_hours
         };
-        let scheduled_time = invoice_date.and_time(NaiveTime::MIN)
-            + chrono::Duration::hours(i64::from(effective_hours));
+        let opens = invoice_date.and_time(NaiveTime::MIN);
+        let window_end = subscription
+            .subscription
+            .terminated_at
+            .filter(|at| at.date() == invoice_date)
+            .map_or(opens, |at| at.max(opens));
+        let scheduled_time = window_end + chrono::Duration::hours(i64::from(effective_hours));
 
         self.store
             .schedule_events(
@@ -612,7 +770,7 @@ impl Services {
                     scheduled_time,
                     event_data: ScheduledEventData::FinalizeInvoice { invoice_id },
                     source: String::new(),
-                    created_by_customer: false,
+                    created_by: Actor::System,
                 }],
             )
             .await?;

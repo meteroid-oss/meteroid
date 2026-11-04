@@ -25,6 +25,9 @@ pub struct BillableMetricRow {
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
     pub product_id: Option<ProductId>,
+    pub filters: Option<serde_json::Value>,
+    pub unit_singular: Option<String>,
+    pub unit_plural: Option<String>,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -40,7 +43,10 @@ pub struct BillableMetricRowNew {
     pub unit_conversion_factor: Option<i32>,
     pub unit_conversion_rounding: Option<UnitConversionRoundingEnum>,
     pub segmentation_matrix: Option<serde_json::Value>,
+    pub filters: Option<serde_json::Value>,
     pub usage_group_key: Option<String>,
+    pub unit_singular: Option<String>,
+    pub unit_plural: Option<String>,
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
     pub product_id: Option<ProductId>,
@@ -56,6 +62,11 @@ pub struct BillableMetricMetaRow {
     pub description: Option<String>,
     pub aggregation_type: BillingMetricAggregateEnum,
     pub aggregation_key: Option<String>,
+    pub unit_conversion_factor: Option<i32>,
+    pub segmentation_matrix: Option<serde_json::Value>,
+    pub filters: Option<serde_json::Value>,
+    pub unit_singular: Option<String>,
+    pub unit_plural: Option<String>,
     pub created_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
 }
@@ -69,5 +80,8 @@ pub struct BillableMetricRowPatch {
     pub unit_conversion_factor: Option<Option<i32>>,
     pub unit_conversion_rounding: Option<Option<UnitConversionRoundingEnum>>,
     pub segmentation_matrix: Option<Option<serde_json::Value>>,
+    pub filters: Option<Option<serde_json::Value>>,
+    pub unit_singular: Option<Option<String>>,
+    pub unit_plural: Option<Option<String>>,
     pub updated_at: Option<NaiveDateTime>,
 }

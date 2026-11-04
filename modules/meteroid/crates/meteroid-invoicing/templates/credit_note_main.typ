@@ -1,6 +1,18 @@
 #import sys: inputs
 #import "credit_note.typ": credit_note
 
+// The structured credit note travels inside the PDF, as on an invoice.
+#let einvoice = inputs.at("einvoice", default: none)
+#if einvoice != none {
+  pdf.attach(
+    einvoice.filename,
+    einvoice.data,
+    relationship: einvoice.relationship,
+    mime-type: "application/xml",
+    description: einvoice.description,
+  )
+}
+
 #credit_note(
   inputs.lang,
   inputs.organization,
@@ -25,5 +37,9 @@
   show_tax_info: inputs.at("show_tax_info", default: true),
   show_legal_info: inputs.at("show_legal_info", default: true),
   show_footer_custom_info: inputs.at("show_footer_custom_info", default: true),
-  whitelabel: inputs.at("whitelabel", default: false)
+  whitelabel: inputs.at("whitelabel", default: false),
+  debt_cancelled_amount: inputs.at("debt_cancelled_amount", default: 0),
+  promotional_credit_restored: inputs.at("promotional_credit_restored", default: 0),
+  discount: inputs.at("discount", default: 0),
+  promotional_credit: inputs.at("promotional_credit", default: 0),
 )

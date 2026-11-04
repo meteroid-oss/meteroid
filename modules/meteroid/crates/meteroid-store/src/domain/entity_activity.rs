@@ -21,8 +21,10 @@ pub enum EntityType {
     Connector,
     CreditNote,
     Customer,
+    Feature,
     Invoice,
     InvoicingEntity,
+    PaymentReminderSequence,
     PaymentTransaction,
     Plan,
     Product,
@@ -43,8 +45,10 @@ impl EntityType {
             Self::Coupon => CouponId::from(raw).as_base62(),
             Self::CreditNote => CreditNoteId::from(raw).as_base62(),
             Self::Customer => CustomerId::from(raw).as_base62(),
+            Self::Feature => FeatureId::from(raw).as_base62(),
             Self::Invoice => InvoiceId::from(raw).as_base62(),
             Self::InvoicingEntity => InvoicingEntityId::from(raw).as_base62(),
+            Self::PaymentReminderSequence => PaymentReminderSequenceId::from(raw).as_base62(),
             Self::PaymentTransaction => PaymentTransactionId::from(raw).as_base62(),
             Self::Plan => PlanId::from(raw).as_base62(),
             Self::Product => ProductId::from(raw).as_base62(),
@@ -55,6 +59,24 @@ impl EntityType {
             Self::User => common_domain::ids::UserId::from(raw).as_base62(),
             Self::WebhookEndpoint => raw.to_string(),
         }
+    }
+
+    /// Whether `resolve_entity_names` can look this type up. Types outside this set
+    /// have no name to resolve, so a missing name says nothing about their existence.
+    pub fn resolves_display_name(&self) -> bool {
+        matches!(
+            self,
+            Self::AddOn
+                | Self::BillableMetric
+                | Self::Coupon
+                | Self::CreditNote
+                | Self::Customer
+                | Self::Invoice
+                | Self::Plan
+                | Self::Product
+                | Self::Quote
+                | Self::Subscription
+        )
     }
 
     pub fn parse_id_proto(&self, raw: &str) -> Result<uuid::Uuid, String> {
@@ -85,10 +107,16 @@ impl EntityType {
             Self::InvoicingEntity => InvoicingEntityId::from_str(raw)
                 .map(|i| i.as_uuid())
                 .map_err(|e| e.to_string()),
+            Self::PaymentReminderSequence => PaymentReminderSequenceId::from_str(raw)
+                .map(|i| i.as_uuid())
+                .map_err(|e| e.to_string()),
             Self::PaymentTransaction => PaymentTransactionId::from_str(raw)
                 .map(|i| i.as_uuid())
                 .map_err(|e| e.to_string()),
             Self::Plan => PlanId::from_str(raw)
+                .map(|i| i.as_uuid())
+                .map_err(|e| e.to_string()),
+            Self::Feature => FeatureId::from_str(raw)
                 .map(|i| i.as_uuid())
                 .map_err(|e| e.to_string()),
             Self::Product => ProductId::from_str(raw)
@@ -127,6 +155,7 @@ pub fn actor_id_as_proto(
         ActorType::User => actor_uuid.map(|u| UserId::from(u).as_base62()),
         ActorType::ApiToken => actor_uuid.map(|u| ApiTokenId::from(u).as_base62()),
         ActorType::Customer => actor_uuid.map(|u| CustomerId::from(u).as_base62()),
+        ActorType::OAuthApp => actor_uuid.map(|u| OAuthAppId::from(u).as_base62()),
         ActorType::QuoteRecipient => actor_alias.map(|s| s.to_string()),
         ActorType::System => None,
     }
@@ -170,9 +199,15 @@ pub enum ActivityType {
     #[strum(serialize = "invoice.voided")]
     #[serde(rename = "invoice.voided")]
     InvoiceVoided,
+    #[strum(serialize = "invoice.closed")]
+    #[serde(rename = "invoice.closed")]
+    InvoiceClosed,
     #[strum(serialize = "invoice.consolidated")]
     #[serde(rename = "invoice.consolidated")]
     InvoiceConsolidated,
+    #[strum(serialize = "invoice.deleted")]
+    #[serde(rename = "invoice.deleted")]
+    InvoiceDeleted,
 
     #[strum(serialize = "credit_note.created")]
     #[serde(rename = "credit_note.created")]
@@ -220,6 +255,22 @@ pub enum ActivityType {
     #[strum(serialize = "product.archived")]
     #[serde(rename = "product.archived")]
     ProductArchived,
+
+    #[strum(serialize = "feature.created")]
+    #[serde(rename = "feature.created")]
+    FeatureCreated,
+    #[strum(serialize = "feature.enabled")]
+    #[serde(rename = "feature.enabled")]
+    FeatureEnabled,
+    #[strum(serialize = "feature.disabled")]
+    #[serde(rename = "feature.disabled")]
+    FeatureDisabled,
+    #[strum(serialize = "feature.archived")]
+    #[serde(rename = "feature.archived")]
+    FeatureArchived,
+    #[strum(serialize = "feature.unarchived")]
+    #[serde(rename = "feature.unarchived")]
+    FeatureUnarchived,
 
     #[strum(serialize = "coupon.created")]
     #[serde(rename = "coupon.created")]
@@ -294,6 +345,9 @@ pub enum ActivityType {
     #[strum(serialize = "subscription.amended")]
     #[serde(rename = "subscription.amended")]
     SubscriptionAmended,
+    #[strum(serialize = "subscription.slots_changed")]
+    #[serde(rename = "subscription.slots_changed")]
+    SubscriptionSlotsChanged,
 
     #[strum(serialize = "plan.draft_discarded")]
     #[serde(rename = "plan.draft_discarded")]
@@ -309,9 +363,23 @@ pub enum ActivityType {
     #[strum(serialize = "connector.connected")]
     #[serde(rename = "connector.connected")]
     ConnectorConnected,
+    /// Hard delete, before soft deletion existed. Kept for old audit rows.
     #[strum(serialize = "connector.disconnected")]
     #[serde(rename = "connector.disconnected")]
     ConnectorDisconnected,
+    #[strum(serialize = "connector.disabled")]
+    #[serde(rename = "connector.disabled")]
+    ConnectorDisabled,
+    #[strum(serialize = "connector.enabled")]
+    #[serde(rename = "connector.enabled")]
+    ConnectorEnabled,
+    #[strum(serialize = "connector.deleted")]
+    #[serde(rename = "connector.deleted")]
+    ConnectorDeleted,
+    /// `metadata`: `{ "provider", "alias", "from_key_hint", "to_key_hint" }`.
+    #[strum(serialize = "connector.credentials_updated")]
+    #[serde(rename = "connector.credentials_updated")]
+    ConnectorCredentialsUpdated,
 
     /// `metadata`: `{ "field", "from", "to" }`.
     #[strum(serialize = "entity.field_changed")]
@@ -327,6 +395,55 @@ pub enum ActivityType {
     #[strum(serialize = "entity.email_sent")]
     #[serde(rename = "entity.email_sent")]
     EmailSent,
+    #[strum(serialize = "entity.email_resent")]
+    #[serde(rename = "entity.email_resent")]
+    EmailResent,
+    #[strum(serialize = "entity.email_delivery_unknown")]
+    #[serde(rename = "entity.email_delivery_unknown")]
+    EmailDeliveryUnknown,
+    /// `metadata`: `{ "kind", "reason" }`.
+    #[strum(serialize = "entity.email_skipped")]
+    #[serde(rename = "entity.email_skipped")]
+    EmailSkipped,
+
+    #[strum(serialize = "reminder_sequence.created")]
+    #[serde(rename = "reminder_sequence.created")]
+    ReminderSequenceCreated,
+    #[strum(serialize = "reminder_sequence.updated")]
+    #[serde(rename = "reminder_sequence.updated")]
+    ReminderSequenceUpdated,
+    #[strum(serialize = "reminder_sequence.archived")]
+    #[serde(rename = "reminder_sequence.archived")]
+    ReminderSequenceArchived,
+
+    #[strum(serialize = "payment_reminder.enrolled")]
+    #[serde(rename = "payment_reminder.enrolled")]
+    PaymentReminderEnrolled,
+    #[strum(serialize = "payment_reminder.not_enrolled")]
+    #[serde(rename = "payment_reminder.not_enrolled")]
+    PaymentReminderNotEnrolled,
+    #[strum(serialize = "payment_reminder.step_executed")]
+    #[serde(rename = "payment_reminder.step_executed")]
+    PaymentReminderStepExecuted,
+    /// `metadata`: `{ "reason" }`.
+    #[strum(serialize = "payment_reminder.skipped")]
+    #[serde(rename = "payment_reminder.skipped")]
+    PaymentReminderSkipped,
+    #[strum(serialize = "payment_reminder.completed")]
+    #[serde(rename = "payment_reminder.completed")]
+    PaymentReminderCompleted,
+    #[strum(serialize = "payment_reminder.paused")]
+    #[serde(rename = "payment_reminder.paused")]
+    PaymentReminderPaused,
+    #[strum(serialize = "payment_reminder.resumed")]
+    #[serde(rename = "payment_reminder.resumed")]
+    PaymentReminderResumed,
+    #[strum(serialize = "payment_reminder.stopped")]
+    #[serde(rename = "payment_reminder.stopped")]
+    PaymentReminderStopped,
+    #[strum(serialize = "payment_reminder.restarted")]
+    #[serde(rename = "payment_reminder.restarted")]
+    PaymentReminderRestarted,
 }
 
 #[derive(Debug, Clone)]
@@ -458,6 +575,18 @@ impl From<&OutboxEvent> for Option<Activity> {
             OutboxEvent::InvoiceVoided(e) => {
                 let mut a = Activity::new(
                     ActivityType::InvoiceVoided,
+                    EntityType::Invoice,
+                    e.invoice_id.as_uuid(),
+                )
+                .agg_customer(e.customer_id);
+                if let Some(sub) = e.subscription_id {
+                    a = a.agg_subscription(sub);
+                }
+                a
+            }
+            OutboxEvent::InvoiceClosed(e) => {
+                let mut a = Activity::new(
+                    ActivityType::InvoiceClosed,
                     EntityType::Invoice,
                     e.invoice_id.as_uuid(),
                 )
@@ -600,8 +729,53 @@ impl From<&OutboxEvent> for Option<Activity> {
                 }
                 a
             }
-            OutboxEvent::InvoiceAccountingPdfGenerated(_)
-            | OutboxEvent::PaymentTransactionSaved(_) => return None,
+            OutboxEvent::InvoiceDeleted(e) => {
+                let mut a = Activity::new(
+                    ActivityType::InvoiceDeleted,
+                    EntityType::Invoice,
+                    e.invoice_id.as_uuid(),
+                )
+                .agg_customer(e.customer_id)
+                // The row is gone, so nothing about it can be resolved back later.
+                .with_metadata(serde_json::json!({
+                    "total": e.total,
+                    "currency": e.currency,
+                }));
+                if let Some(sub) = e.subscription_id {
+                    a = a.agg_subscription(sub);
+                }
+                a
+            }
+            // Webhook-only events: the mutation sites already write their own audit
+            // activities, so promoting these to the outbox must not duplicate them.
+            OutboxEvent::SubscriptionUpdated(_)
+            | OutboxEvent::SubscriptionCancelled(_)
+            | OutboxEvent::SubscriptionEnded(_)
+            | OutboxEvent::InvoiceAccountingPdfGenerated(_)
+            | OutboxEvent::PaymentTransactionSaved(_)
+            | OutboxEvent::RefundIssued(_)
+            | OutboxEvent::RefundSettled(_)
+            | OutboxEvent::RefundFailed(_)
+            | OutboxEvent::PaymentReversed(_)
+            | OutboxEvent::PaymentReinstated(_)
+            // Published straight to their topics; the wallet statement is their audit trail.
+            | OutboxEvent::WalletFunded(_)
+            | OutboxEvent::WalletDebited(_)
+            | OutboxEvent::CreditGrantExpired(_)
+            | OutboxEvent::WalletBalanceLow(_)
+            | OutboxEvent::WalletCreditUnrecovered(_)
+            | OutboxEvent::WalletCreditRecovered(_)
+            | OutboxEvent::WalletAutoTopUpFailed(_)
+            | OutboxEvent::WalletAutoTopUpSuspended(_)
+            | OutboxEvent::WalletAutoTopUpConsentChanged(_)
+            | OutboxEvent::WalletDepleted(_)
+            | OutboxEvent::WalletRecovered(_)
+            | OutboxEvent::WalletAutoTopUpCapReached(_)
+            | OutboxEvent::EntitlementUsageThresholdReached(_)
+            | OutboxEvent::EntitlementLimitReached(_)
+            | OutboxEvent::BudgetThresholdReached(_)
+            | OutboxEvent::BudgetExceeded(_)
+            | OutboxEvent::EntitlementTooManyGroups(_) => return None,
         };
         Some(activity)
     }

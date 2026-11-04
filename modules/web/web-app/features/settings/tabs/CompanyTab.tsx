@@ -1,10 +1,7 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   Button,
-  Card,
-  cn,
   Form,
-  Input,
   InputFormField,
   Label,
   Select,
@@ -14,8 +11,7 @@ import {
   SelectValue,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { RefreshCwIcon, UploadIcon, XIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useWatch } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -23,21 +19,24 @@ import { z } from 'zod'
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import { Loading } from '@/components/Loading'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
+import {
+  SettingsFieldGrid,
+  SettingsRow,
+  SettingsRowGroup,
+  SettingsSection,
+} from '@/features/settings/components/SettingsSection'
 import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
 import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
 import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
-import { env } from '@/lib/env'
 import { getCountries } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import {
   getInvoicingEntity,
   listInvoicingEntities,
   updateInvoicingEntity,
-  uploadInvoicingEntityLogo,
 } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
-import { InvoicingEntity } from '@/rpc/api/invoicingentities/v1/models_pb'
 
-const invoicingEntitySchema = z.object({
+const merchantSchema = z.object({
   legalName: z.string().optional(),
   addressLine1: z.string().optional(),
   addressLine2: z.string().optional(),
@@ -45,7 +44,11 @@ const invoicingEntitySchema = z.object({
   state: z.string().optional(),
   city: z.string().optional(),
   vatNumber: z.string().optional(),
+  legalNumber: z.string().optional(),
   country: z.string().optional(),
+  contactName: z.string().optional(),
+  contactPhone: z.string().optional(),
+  contactEmail: z.string().email().optional().or(z.literal('')),
 })
 
 export const CompanyTab = () => {
@@ -62,14 +65,14 @@ export const CompanyTab = () => {
         queryClient.invalidateQueries({
           queryKey: createConnectQueryKey({
             schema: listInvoicingEntities,
-            cardinality: undefined
-          })
+            cardinality: undefined,
+          }),
         })
         queryClient.invalidateQueries({
           queryKey: createConnectQueryKey({
             schema: getInvoicingEntity,
             input: { id: res.entity?.id },
-            cardinality: 'finite'
+            cardinality: 'finite',
           }),
         })
         toast.success('Invoicing entity updated')
@@ -77,9 +80,7 @@ export const CompanyTab = () => {
     },
   })
 
-  const methods = useZodForm({
-    schema: invoicingEntitySchema,
-  })
+  const methods = useZodForm({ schema: merchantSchema })
 
   useEffect(() => {
     if (currentInvoicingEntity) {
@@ -92,6 +93,10 @@ export const CompanyTab = () => {
         country: currentInvoicingEntity.country || '',
         city: currentInvoicingEntity.city || '',
         vatNumber: currentInvoicingEntity.vatNumber || '',
+        legalNumber: currentInvoicingEntity.legalNumber || '',
+        contactName: currentInvoicingEntity.contactName || '',
+        contactPhone: currentInvoicingEntity.contactPhone || '',
+        contactEmail: currentInvoicingEntity.contactEmail || '',
       })
     } else {
       methods.reset()
@@ -99,11 +104,10 @@ export const CompanyTab = () => {
   }, [currentInvoicingEntity])
 
   if (isLoading) {
-    return <Loading/>
+    return <Loading />
   }
 
-  const onSubmit = async (values: z.infer<typeof invoicingEntitySchema>) => {
-    // TODO filter out if it hasn't changed
+  const onSubmit = async (values: z.infer<typeof merchantSchema>) => {
     await updateInvoicingEntityMut.mutateAsync({
       id: invoiceEntityId,
       data: {
@@ -114,262 +118,160 @@ export const CompanyTab = () => {
         legalName: values.legalName,
         state: values.state,
         vatNumber: values.vatNumber,
+        legalNumber: values.legalNumber,
         zipCode: values.zipCode,
+        contactName: values.contactName,
+        contactPhone: values.contactPhone,
+        contactEmail: values.contactEmail,
       },
     })
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <Form {...methods}>
-        <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-4">
-          <Card className="px-8 py-6 max-w-[950px]  space-y-4">
-            <div className="grid grid-cols-6 gap-4  ">
-              <div className="col-span-2">
-                <h3 className="font-medium text-lg">Billing details</h3>
-              </div>
-              <div className="col-span-4 content-center  flex flex-row">
-                <div className="grow"></div>
-                <InvoicingEntitySelect/>
-              </div>
+    <Form {...methods}>
+      <form
+        onSubmit={methods.handleSubmit(onSubmit)}
+        autoComplete="off"
+        className="flex max-w-3xl flex-col gap-6"
+      >
+        <SettingsSection
+          divided={false}
+          title="Billing details"
+          description="Legal entity shown on invoices and used for tax."
+          action={
+            <div className="flex items-center gap-2">
+              <InvoicingEntitySelect />
+              <Button
+                size="sm"
+                disabled={!methods.formState.isDirty || updateInvoicingEntityMut.isPending}
+              >
+                Save
+              </Button>
             </div>
-            <div className="grid grid-cols-6 gap-4 pt-1 ">
-              <InputFormField
-                name="legalName"
-                label="Legal name"
-                control={methods.control}
-                placeholder="ACME Inc."
-                containerClassName="col-span-3"
-              />
-
-              <div className="col-span-3 space-y-1">
-                <Label>Invoice Entity ID</Label>
-                <div>
-                  <CopyToClipboardButton
-                    text={invoiceEntityId || ''}
-                    buttonClassName="w-full justify-start"
-                    buttonVariant="outline"
-                  />
-                </div>
-              </div>
-
-              <InputFormField
-                name="addressLine1"
-                control={methods.control}
-                label="Address line 1"
-                placeholder="Line 1"
-                containerClassName="col-span-3"
-              />
-              <InputFormField
-                name="addressLine2"
-                control={methods.control}
-                label="Address line 2"
-                placeholder="Line 2"
-                containerClassName="col-span-3"
-              />
-              <CountrySelect className="col-span-2" methods={methods}/>
-              <InputFormField
-                name="zipCode"
-                control={methods.control}
-                label="Zipcode"
-                placeholder="ZIP"
-                containerClassName="col-span-1"
-              />
-              <InputFormField
-                name="state"
-                control={methods.control}
-                label="State"
-                placeholder="State"
-                containerClassName="col-span-1"
-              />
-              <InputFormField
-                name="city"
-                control={methods.control}
-                label="City"
-                placeholder="City"
-                containerClassName="col-span-2"
-              />
-
-              <InputFormField
-                name="vatNumber"
-                label="VAT number / Tax ID"
-                control={methods.control}
-                placeholder="FRXXXXXXXXXXXXX"
-                containerClassName="col-span-6"
-              />
-            </div>
-            <div className="pt-4">
-              <h3 className="font-medium text-lg">Brand</h3>
-            </div>
-            <div className="grid grid-cols-6 gap-4 pt-1 ">
-              <div className="col-span-4">
-                <Label>Logo</Label>
-                <p className="text-xs text-muted-foreground">
-                  Used in invoices, emails and portals. Max size 1MB, PNG or JPEG.
-                </p>
-              </div>
-              <div className="col-span-1 "></div>
-              <div className="col-span-1 content-end">
-                {currentInvoicingEntity && <FileUpload entity={currentInvoicingEntity}/>}
-              </div>
-            </div>
-            <div className="pt-4">
-              <h3 className="font-medium text-lg">Accounting</h3>
-            </div>
-            <div className="grid grid-cols-6 gap-4 pt-1 ">
-              <div className="col-span-4">
-                <Label>Accounting currency</Label>
-                <p className="text-xs text-muted-foreground">
-                  The currency in which you will be accounting for your transactions. This is
-                  derived from your billing country and cannot be modified once set, to be
-                  compliant.
-                </p>
-              </div>
-              <div className="col-span-1 "></div>
-              <div className="col-span-1 content-center">
-                <AccountingCurrencySelect methods={methods}/>
-              </div>
-            </div>
-            <div className="pt-10 flex justify-end items-center ">
-              <div>
-                <Button
-                  size="sm"
-                  disabled={
-                    !methods.formState.isValid ||
-                    !methods.formState.isDirty ||
-                    updateInvoicingEntityMut.isPending
-                  }
-                >
-                  Save changes
-                </Button>
-              </div>
-            </div>
-          </Card>
-        </form>
-      </Form>
-    </div>
-  )
-}
-
-const FileUpload = ({ entity }: { entity: InvoicingEntity }) => {
-  const [isUploading, setIsUploading] = useState(false)
-  const queryClient = useQueryClient()
-
-  const updateInvoicingEntityMut = useMutation(uploadInvoicingEntityLogo, {
-    onSuccess: async () => {
-      queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey({
-          schema: getInvoicingEntity,
-          cardinality: undefined
-        })
-      })
-      toast.success('Invoicing entity updated')
-    },
-  })
-
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-
-    setIsUploading(true)
-
-    const reader = new FileReader()
-    reader.onload = async () => {
-      const arrayBuffer = reader.result as ArrayBuffer
-      const uint8Array = new Uint8Array(arrayBuffer)
-
-      try {
-        await updateInvoicingEntityMut.mutateAsync({
-          id: entity.id,
-          file: {
-            data: uint8Array,
-          },
-        })
-      } catch (error) {
-        console.error('Error uploading file:', error)
-        toast.error('Failed to upload file. Please try again.')
-      } finally {
-        setIsUploading(false)
-      }
-    }
-
-    reader.readAsArrayBuffer(file)
-  }
-
-  const clearFile = async () => {
-    setIsUploading(true)
-    try {
-      await updateInvoicingEntityMut.mutateAsync({
-        id: entity.id,
-        file: undefined,
-      })
-    } catch (error) {
-      toast.error('Failed to update logo.')
-    } finally {
-      setIsUploading(false)
-    }
-  }
-
-  return (
-    <div className="flex flex-row space-y-2 space-x-2 w-full">
-      <div className="flex-1 ">
-        {entity.logoAttachmentId && (
-          <div className="relative h-12 rounded overflow-hidden group float-end">
-            <img
-              src={env.meteroidRestApiUri + '/files/v1/logo/' + entity.logoAttachmentId}
-              alt="Uploaded file"
-              className="w-full h-full object-cover"
+          }
+        >
+          <SettingsFieldGrid>
+            <InputFormField
+              name="legalName"
+              label="Legal name"
+              control={methods.control}
+              placeholder="ACME Inc."
+              autoComplete="off"
             />
-            <Button
-              size="icon"
-              variant="destructive"
-              type="button"
-              className="absolute top-0 right-0 w-6 h-6 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-              onClick={clearFile}
+            <div className="space-y-1">
+              <Label>Invoice entity ID</Label>
+              <CopyToClipboardButton
+                text={invoiceEntityId || ''}
+                buttonClassName="w-full justify-start"
+                buttonVariant="outline"
+              />
+            </div>
+            <InputFormField
+              name="addressLine1"
+              control={methods.control}
+              label="Address line 1"
+              placeholder="Line 1"
+              autoComplete="off"
+            />
+            <InputFormField
+              name="addressLine2"
+              control={methods.control}
+              label="Address line 2"
+              placeholder="Line 2"
+              autoComplete="off"
+            />
+            <CountrySelect methods={methods} />
+            <InputFormField
+              name="zipCode"
+              control={methods.control}
+              label="Zip code"
+              placeholder="ZIP"
+              autoComplete="off"
+            />
+            <InputFormField
+              name="state"
+              control={methods.control}
+              label="State"
+              placeholder="State"
+              autoComplete="off"
+            />
+            <InputFormField
+              name="city"
+              control={methods.control}
+              label="City"
+              placeholder="City"
+              autoComplete="off"
+            />
+            <InputFormField
+              name="vatNumber"
+              label="VAT number / Tax ID"
+              control={methods.control}
+              placeholder="FRXXXXXXXXXXXXX"
+              autoComplete="off"
+            />
+            <InputFormField
+              name="legalNumber"
+              label="National company registration number"
+              control={methods.control}
+              placeholder="SIREN / SIRET, HRB, ..."
+              autoComplete="off"
+            />
+          </SettingsFieldGrid>
+        </SettingsSection>
+
+        <SettingsSection
+          title="Invoice contact"
+          description="Who your customers reach about an invoice. The email is printed on invoices."
+        >
+          <SettingsFieldGrid>
+            <InputFormField
+              name="contactName"
+              label="Contact name"
+              control={methods.control}
+              placeholder="Accounts receivable"
+              autoComplete="off"
+            />
+            <InputFormField
+              name="contactPhone"
+              label="Phone"
+              control={methods.control}
+              placeholder="+49 30 1234567"
+              autoComplete="off"
+            />
+            <InputFormField
+              name="contactEmail"
+              label="Email"
+              control={methods.control}
+              placeholder="billing@example.com"
+              autoComplete="off"
+            />
+          </SettingsFieldGrid>
+        </SettingsSection>
+
+        <SettingsSection title="Accounting">
+          <SettingsRowGroup>
+            <SettingsRow
+              title="Accounting currency"
+              description="Derived from your billing country. Fixed once set, to stay compliant."
             >
-              <XIcon size="16"/>
-            </Button>
-          </div>
-        )}
-      </div>
-      <Input
-        type="file"
-        id="file-upload"
-        className="hidden"
-        accept="image/*"
-        onChange={handleFileUpload}
-      />
-      <Button size="icon" variant="ghost" type="button" className="self-end">
-        <Label htmlFor="file-upload" className="cursor-pointer w-full h-full flex">
-          {isUploading ? (
-            <RefreshCwIcon size="16" className="animate-spin m-auto"/>
-          ) : (
-            <UploadIcon size="16" className="m-auto"/>
-          )}
-        </Label>
-      </Button>
-    </div>
+              <AccountingCurrencySelect methods={methods} />
+            </SettingsRow>
+          </SettingsRowGroup>
+        </SettingsSection>
+      </form>
+    </Form>
   )
 }
 
-const AccountingCurrencySelect = ({
-  methods,
-}: {
-  methods: Methods<typeof invoicingEntitySchema>
-}) => {
-  const country = useWatch({
-    name: 'country',
-    control: methods.control,
-  })
-
+const AccountingCurrencySelect = ({ methods }: { methods: Methods<typeof merchantSchema> }) => {
+  const country = useWatch({ name: 'country', control: methods.control })
   const getCountriesQuery = useQuery(getCountries)
-
   const countryData = getCountriesQuery.data?.countries.find(c => c.code === country)
 
   return (
     <Select value={countryData?.currency}>
-      <SelectTrigger disabled={true}>
-        <SelectValue placeholder="Select a country"/>
+      <SelectTrigger disabled className="w-[160px]">
+        <SelectValue placeholder="—" />
       </SelectTrigger>
       <SelectContent hideWhenDetached>
         {countryData?.currency && (
@@ -380,28 +282,17 @@ const AccountingCurrencySelect = ({
   )
 }
 
-const CountrySelect = ({
-  methods,
-  className,
-}: {
-  methods: Methods<typeof invoicingEntitySchema>
-  className: string
-}) => {
-  const country = useWatch({
-    name: 'country',
-    control: methods.control,
-  })
-
+const CountrySelect = ({ methods }: { methods: Methods<typeof merchantSchema> }) => {
+  const country = useWatch({ name: 'country', control: methods.control })
   const getCountriesQuery = useQuery(getCountries)
-
   const countryData = getCountriesQuery.data?.countries.find(c => c.code === country)
 
   return (
-    <div className={cn('space-y-1', className)}>
+    <div className="space-y-1">
       <Label>Country</Label>
       <Select value={country}>
-        <SelectTrigger disabled={true}>
-          <SelectValue placeholder="Select a country"/>
+        <SelectTrigger disabled>
+          <SelectValue placeholder="Select a country" />
         </SelectTrigger>
         <SelectContent hideWhenDetached>
           {countryData?.currency && (

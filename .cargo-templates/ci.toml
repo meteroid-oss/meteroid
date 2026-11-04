@@ -7,3 +7,9 @@ rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 [target.aarch64-unknown-linux-gnu]
 linker = "clang"
 rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+[env]
+# Test threads default to 2MB. Debug builds give every awaited future and every `?`
+# temporary its own stack slot, so the lifecycle → bill → finalize chain already spans
+# ~2MB in `test_lifecycle_billing`. Release frames are a fraction of that.
+RUST_MIN_STACK = "8388608"

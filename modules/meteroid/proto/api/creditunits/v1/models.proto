@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package meteroid.api.creditunits.v1;
+
+// A tenant-defined denomination usage can be priced or granted in, instead of money (the
+// "custom credit unit" of Orb/Lago-style catalogs). `code` and `precision` are immutable once
+// created.
+message CreditUnit {
+  string id = 1;
+  string code = 2;
+  string name = 3;
+  string plural_name = 4;
+  optional string symbol = 5;
+  // Minor-unit exponent: amounts of this unit are integers of 10^-precision credit.
+  int32 precision = 6;
+  bool archived = 7;
+  // RFC 3339.
+  optional string created_at = 8;
+  // The product sales of this unit are booked under: their tax category and accounting code.
+  // The unit can be sold only once it is set.
+  optional string product_id = 9;
+  // The active selling prices, one per currency.
+  repeated CreditUnitPrice prices = 10;
+}
+
+// What one credit sells for in a currency. A price is never edited: setting a new one archives it.
+message CreditUnitPrice {
+  string id = 1;
+  string currency = 2;
+  // Major units of `currency` per credit, as a decimal string (e.g. "0.001").
+  string unit_price = 3;
+  // RFC 3339.
+  string created_at = 4;
+  optional string archived_at = 5;
+}

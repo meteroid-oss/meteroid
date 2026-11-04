@@ -2,6 +2,10 @@ use diesel::result::Error;
 use diesel_models::errors::DatabaseError;
 use error_stack::IntoReport;
 
+/// Attached to a refusal caused by a rate limit, so an API can answer "too many requests".
+#[derive(Debug, Clone)]
+pub struct RateLimited(pub String);
+
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     #[error("Initialization Error: {0}")]
@@ -15,6 +19,9 @@ pub enum StoreError {
         entity: &'static str,
         key: Option<String>,
     },
+    /// The request conflicts with one already recorded under the same identity.
+    #[error("Conflict: {0}")]
+    Conflict(String),
     #[error("Invalid Argument: {0}")]
     InvalidArgument(String),
     #[error("Forbidden: {0}")]
@@ -41,10 +48,12 @@ pub enum StoreError {
     LoginError(String),
     #[error("Registration closed")]
     UserRegistrationClosed(String),
-    #[error("Negative customer balance: {0:?}")]
-    NegativeCustomerBalanceError(error_stack::Report<DatabaseError>),
     #[error("Error in metering client")]
     MeteringServiceError,
+    #[error("The metering service does not support usage filters yet; retry shortly")]
+    MeteringNotReady,
+    #[error("Usage could not be read in time; retry shortly")]
+    UsageUnavailable,
     #[error("Webhook Service error: {0}")]
     WebhookServiceError(String),
     #[error("Failed to send email")]
@@ -65,8 +74,20 @@ pub enum StoreError {
     InvalidDate,
     #[error("Failed to compute taxes")]
     TaxError,
-    #[error("Precondition failed")]
-    FailedPrecondition,
+    /// A third-party API answered with an error or could not be reached; names the service.
+    #[error("Error received from {0}")]
+    ExternalServiceError(String),
+    /// The current state doesn't allow the action. The message is fit for the end user.
+    #[error("{0}")]
+    FailedPrecondition(String),
+    /// The connector is a draft, disabled or deleted, so it can't start a payment.
+    #[error("{0}")]
+    ConnectorNotActive(String),
+    /// Credentials were sent to a connector that belongs to another provider: a client bug, or a
+    /// page left open while the connection was replaced. Its own variant so the caller can tell
+    /// it apart from a typo in a key.
+    #[error("These credentials are for {sent:?}, but this connection is a {stored:?} one")]
+    ProviderMismatch { sent: String, stored: String },
 }
 
 impl StoreError {

@@ -1,11 +1,33 @@
-import { Button, Separator, Textarea, cn } from '@md/ui'
-import { ExternalLink, Heart, MessageCircle, MessageSquareIcon, SendHorizonalIcon } from 'lucide-react'
-import { FunctionComponent, useEffect, useRef, useState } from 'react'
+import {
+  Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  Separator,
+  Textarea,
+  cn,
+} from '@md/ui'
+import {
+  ChevronDown,
+  ExternalLink,
+  Heart,
+  MessageCircle,
+  MessageSquareIcon,
+  SendHorizonalIcon,
+} from 'lucide-react'
+import { FunctionComponent, useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { LocalId } from '@/components/LocalId'
+import { slotItems } from '@/edition'
+import { IdConverter } from '@/features/help/IdConverter'
+import { useIsCloud } from '@/hooks/useIsCloud'
+import { useTenant } from '@/hooks/useTenant'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 import { copyToClipboard } from '@/lib/helpers'
+import { getCurrentOrganizations } from '@/rpc/api/organizations/v1/organizations-OrganizationsService_connectquery'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
 const copyEmail = () => {
@@ -27,7 +49,7 @@ const sendFeedback = async (
   try {
     const res = await fetch('https://metero.id/ossapi/feedback', {
       method: 'POST',
-      body: JSON.stringify({ feedback, user, context }),
+      body: JSON.stringify({ feedback, user: user && { email: user.email }, context }),
     })
 
     if (res.status === 200) {
@@ -46,6 +68,20 @@ export const HelpPage: FunctionComponent = () => {
   const [messageVisible, setMessageVisible] = useState(false)
   const hideTimerRef = useRef<NodeJS.Timeout | number | null>(null)
   const user = useQuery(me)
+  const isCloud = useIsCloud()
+
+  const { tenant } = useTenant()
+  const organization = useQuery(getCurrentOrganizations).data?.organization
+  const [searchParams] = useSearchParams()
+  const topicId = searchParams.get('topic')
+  const topic = slotItems('help.topics').find(item => item.id === topicId)
+  const prefill = useCallback((text: string) => setFeedback(current => current || text), [])
+
+  const isLocalhost = ['localhost', '127.0.0.1'].includes(window.location.hostname)
+  const isMeteroidUser = user.data?.user?.email?.endsWith('@meteroid.com') ?? false
+  const showIdConverter = isLocalhost || isMeteroidUser
+  // The IDs are for Meteroid's support, which only Cloud organizations reach.
+  const showTechnicalContext = isCloud === true || isMeteroidUser
 
   const showMessage = () => {
     if (hideTimerRef.current) {
@@ -85,6 +121,8 @@ export const HelpPage: FunctionComponent = () => {
         </p>
       </div>
 
+      {topic && <topic.Notice key={topic.id} prefill={prefill} />}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Feedback Section */}
         <div className="space-y-4">
@@ -102,12 +140,12 @@ export const HelpPage: FunctionComponent = () => {
                   messageVisible ? 'max-w-[230px]' : ''
                 )}
               >
-                <span className="flex items-center gap-1 ml-2 text-sm text-muted-foreground">
+                <span className="flex items-center gap-1 ml-2 text-xs text-muted-foreground">
                   We would <Heart size="12" fill="red" strokeWidth={0} className="" /> your feedback !
                 </span>
               </div>
             </div>
-            <p className="text-sm text-muted-foreground mb-4">
+            <p className="text-xs text-muted-foreground mb-4">
               <span>Meteroid is built with the community.</span>
               <br />
               <span>Let us know what you need!</span>
@@ -146,7 +184,54 @@ export const HelpPage: FunctionComponent = () => {
                 email us
               </a>
             </div>
+            <p className="pt-2 text-[11px] leading-snug text-muted-foreground">
+              Sending shares your message, your email address and the current URL path with Meteroid,
+              so we can get back to you.
+            </p>
           </div>
+
+          {showTechnicalContext && (
+            <Collapsible className="border border-border rounded-lg group">
+              <CollapsibleTrigger className="flex items-center justify-between w-full p-6 text-left">
+                <h2 className="text-sm font-semibold">Technical context</h2>
+                <ChevronDown
+                  size={16}
+                  className="text-muted-foreground transition-transform group-data-[state=open]:rotate-180"
+                />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="px-6 pb-6">
+                <p className="text-xs text-muted-foreground mb-4">
+                  Share these details when reaching out so we can help you faster.
+                </p>
+
+                <div className="space-y-2 text-xs">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-muted-foreground">Organization ID</span>
+                    {organization ? (
+                      <LocalId localId={organization.id} className="max-w-[200px]" />
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-muted-foreground">Tenant ID</span>
+                    {tenant ? (
+                      <LocalId localId={tenant.id} className="max-w-[200px]" />
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </div>
+                </div>
+
+                {showIdConverter && (
+                  <div className="mt-4 pt-4 border-t border-border">
+                    <h3 className="text-xs font-semibold mb-2">ID converter</h3>
+                    <IdConverter />
+                  </div>
+                )}
+              </CollapsibleContent>
+            </Collapsible>
+          )}
         </div>
 
         {/* Resources Section */}

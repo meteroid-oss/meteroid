@@ -1,0 +1,124 @@
+use crate::billablemetrics::mapping::metric::ServerBillableMetricWrapper;
+use crate::internal::InternalServiceComponents;
+use crate::internal::error::InternalApiError;
+use common_domain::ids::{ApiTokenId, TenantId};
+use error_stack::Report;
+use meteroid_grpc::meteroid::api::billablemetrics::v1::BillableMetric;
+use meteroid_grpc::meteroid::internal::v1::internal_service_server::InternalService;
+use meteroid_grpc::meteroid::internal::v1::{
+    ListBillableMetricsRequest, ListBillableMetricsResponse, ReportApiKeyUsageRequest,
+    ReportApiKeyUsageResponse, ResolveApiKeyRequest, ResolveApiKeyResponse,
+    ResolveCustomerAliasesRequest, ResolveCustomerAliasesResponse, ResolvedId,
+};
+use meteroid_store::errors::StoreError;
+use meteroid_store::repositories::api_tokens::ApiTokensInterface;
+use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
+use meteroid_store::repositories::customers::CustomersInterface;
+use std::collections::HashSet;
+use tonic::{Request, Response, Status};
+
+#[tonic::async_trait]
+impl InternalService for InternalServiceComponents {
+    #[tracing::instrument(skip_all)]
+    async fn resolve_customer_aliases(
+        &self,
+        request: Request<ResolveCustomerAliasesRequest>,
+    ) -> Result<Response<ResolveCustomerAliasesResponse>, Status> {
+        let inner = request.into_inner();
+
+        let tenant_id = TenantId::from_proto(inner.tenant_id)?;
+
+        let res = self
+            .store
+            .find_customer_ids_by_aliases(tenant_id, inner.aliases.clone())
+            .await
+            .map_err(Into::<InternalApiError>::into)?;
+
+        let mut customers: Vec<ResolvedId> = vec![];
+
+        for record in &res {
+            customers.push(ResolvedId {
+                alias: record.alias.clone().unwrap(),
+                local_id: record.id.to_string(),
+            });
+        }
+
+        let resolved_aliases: HashSet<String> = res.into_iter().map(|x| x.alias.unwrap()).collect();
+
+        let unresolved_aliases: Vec<String> = inner
+            .aliases
+            .into_iter()
+            .filter(|id| !resolved_aliases.contains(id))
+            .collect();
+
+        Ok(Response::new(ResolveCustomerAliasesResponse {
+            customers,
+            unresolved_aliases,
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn resolve_api_key(
+        &self,
+        request: Request<ResolveApiKeyRequest>,
+    ) -> Result<Response<ResolveApiKeyResponse>, Status> {
+        let inner = request.into_inner();
+
+        let api_token_id = ApiTokenId::from_proto(inner.api_key_id)?;
+
+        let res = self
+            .store
+            .get_api_token_by_id_for_validation(&api_token_id)
+            .await
+            .map_err(Into::<InternalApiError>::into)?;
+
+        Ok(Response::new(ResolveApiKeyResponse {
+            tenant_id: res.tenant_id.to_string(),
+            organization_id: res.organization_id.to_string(),
+            hash: res.hash,
+            environment: crate::tenants::mapping::tenants::environment_to_grpc(res.environment)
+                as i32,
+            keep_last_events: res.keep_last_events,
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn report_api_key_usage(
+        &self,
+        request: Request<ReportApiKeyUsageRequest>,
+    ) -> Result<Response<ReportApiKeyUsageResponse>, Status> {
+        let inner = request.into_inner();
+
+        let api_token_id = ApiTokenId::from_proto(inner.api_key_id)?;
+
+        self.store
+            .report_api_token_usage(&api_token_id)
+            .await
+            .map_err(Into::<InternalApiError>::into)?;
+
+        Ok(Response::new(ReportApiKeyUsageResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn list_billable_metrics(
+        &self,
+        request: Request<ListBillableMetricsRequest>,
+    ) -> Result<Response<ListBillableMetricsResponse>, Status> {
+        let inner = request.into_inner();
+        let tenant_id = TenantId::from_proto(inner.tenant_id)?;
+
+        let items = self
+            .store
+            .list_billable_metrics_by_code(tenant_id, inner.code)
+            .await
+            .map_err(Into::<InternalApiError>::into)?
+            .into_iter()
+            .map(|bm| ServerBillableMetricWrapper::try_from(bm).map(|v| v.0))
+            .collect::<Vec<Result<BillableMetric, Report<StoreError>>>>()
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Into::<InternalApiError>::into)?;
+
+        Ok(Response::new(ListBillableMetricsResponse { items }))
+    }
+}

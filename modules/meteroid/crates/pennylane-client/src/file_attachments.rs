@@ -49,7 +49,9 @@ impl FileAttachmentsApi for PennylaneClient {
             .bearer_auth(access_token.expose_secret())
             .multipart(form);
 
-        let response = request.send().await.map_err(PennylaneError::from)?;
+        let response = http_client_tracing::send(request)
+            .await
+            .map_err(PennylaneError::from)?;
         let status_code = &response.status();
 
         if !status_code.is_success() {

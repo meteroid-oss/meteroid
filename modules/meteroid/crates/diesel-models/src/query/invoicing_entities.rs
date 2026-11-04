@@ -8,10 +8,9 @@ use crate::{DbResult, PgConn};
 
 use crate::bank_accounts::BankAccountRow;
 use crate::connectors::ConnectorRow;
-use common_domain::ids::{InvoiceId, InvoicingEntityId, TenantId};
+use common_domain::ids::{ConnectorId, CustomerId, InvoiceId, InvoicingEntityId, TenantId};
 use diesel::{
-    ExpressionMethods, JoinOnDsl, NullableExpressionMethods, QueryDsl, Selectable,
-    SelectableHelper, debug_query,
+    ExpressionMethods, JoinOnDsl, NullableExpressionMethods, QueryDsl, Selectable, SelectableHelper,
 };
 use error_stack::ResultExt;
 
@@ -27,7 +26,7 @@ impl InvoicingEntityRow {
             .filter(dsl::id.eq_any(ids))
             .select(InvoicingEntityRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -40,9 +39,11 @@ impl InvoicingEntityRow {
         use crate::schema::invoicing_entity::dsl::invoicing_entity;
         use diesel_async::RunQueryDsl;
 
-        let query = diesel::insert_into(invoicing_entity).values(self);
+        let query = diesel::insert_into(invoicing_entity)
+            .values(self)
+            .returning(InvoicingEntityRow::as_returning());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -61,7 +62,7 @@ impl InvoicingEntityRow {
             .filter(dsl::tenant_id.eq(tenant_id))
             .select(InvoicingEntityRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -78,7 +79,7 @@ impl InvoicingEntityRow {
             dsl::invoicing_entity.filter(dsl::tenant_id.eq(tenant_id)),
         ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -103,7 +104,7 @@ impl InvoicingEntityRow {
                 .filter(c_dsl::invoicing_entity_id.eq(invoicing_entity_id)),
         ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -124,12 +125,54 @@ impl InvoicingEntityRow {
             .filter(dsl::is_default.eq(true))
             .select(InvoicingEntityRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
             .await
             .attach("Error while fetching default invoicing entity by tenant")
+            .into_db_result()
+    }
+
+    /// The grace period and consolidation of the customer's invoicing entity: when its recurring
+    /// invoices are issued after their period closes.
+    pub async fn recurring_grace_of_customer(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+    ) -> DbResult<(i32, bool)> {
+        use crate::schema::customer::dsl as c;
+        use crate::schema::invoicing_entity::dsl;
+        use diesel_async::RunQueryDsl;
+
+        c::customer
+            .inner_join(dsl::invoicing_entity.on(dsl::id.eq(c::invoicing_entity_id)))
+            .filter(c::id.eq(customer_id))
+            .filter(c::tenant_id.eq(tenant_id))
+            .select((dsl::grace_period_hours, dsl::consolidate_recurring_invoices))
+            .get_result(conn)
+            .await
+            .attach("Error while reading the invoicing grace of a customer")
+            .into_db_result()
+    }
+
+    pub async fn require_billing_information_of_customer(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+    ) -> DbResult<bool> {
+        use crate::schema::customer::dsl as c;
+        use crate::schema::invoicing_entity::dsl;
+        use diesel_async::RunQueryDsl;
+
+        c::customer
+            .inner_join(dsl::invoicing_entity.on(dsl::id.eq(c::invoicing_entity_id)))
+            .filter(c::id.eq(customer_id))
+            .filter(c::tenant_id.eq(tenant_id))
+            .select(dsl::require_billing_information)
+            .get_result(conn)
+            .await
+            .attach("Error while reading the billing information requirement of a customer")
             .into_db_result()
     }
 
@@ -146,7 +189,7 @@ impl InvoicingEntityRow {
             .filter(dsl::tenant_id.eq(tenant_id))
             .select(InvoicingEntityRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -169,7 +212,7 @@ impl InvoicingEntityRow {
             .filter(dsl::tenant_id.eq(tenant_id))
             .select(InvoicingEntityRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -190,9 +233,10 @@ impl InvoicingEntityRow {
         let query = diesel::update(dsl::invoicing_entity)
             .filter(dsl::id.eq(id))
             .filter(dsl::tenant_id.eq(tenant_id))
-            .set(dsl::next_invoice_number.eq(new_invoice_number + 1));
+            .set(dsl::next_invoice_number.eq(new_invoice_number + 1))
+            .returning(InvoicingEntityRow::as_returning());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -213,15 +257,86 @@ impl InvoicingEntityRow {
         let query = diesel::update(dsl::invoicing_entity)
             .filter(dsl::id.eq(id))
             .filter(dsl::tenant_id.eq(tenant_id))
-            .set(dsl::next_credit_note_number.eq(new_credit_note_number + 1));
+            .set(dsl::next_credit_note_number.eq(new_credit_note_number + 1))
+            .returning(InvoicingEntityRow::as_returning());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
             .await
             .attach("Error while updating credit note number")
             .into_db_result()
+    }
+}
+
+impl InvoicingEntityRow {
+    /// Entities routing card or direct debit to the connector.
+    pub async fn list_routing_to_connector(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        connector_id: ConnectorId,
+    ) -> DbResult<Vec<InvoicingEntityRow>> {
+        use crate::schema::invoicing_entity::dsl;
+        use diesel::BoolExpressionMethods;
+        use diesel_async::RunQueryDsl;
+
+        let query = dsl::invoicing_entity
+            .filter(dsl::tenant_id.eq(tenant_id))
+            .filter(
+                dsl::card_provider_id
+                    .eq(connector_id)
+                    .or(dsl::direct_debit_provider_id.eq(connector_id)),
+            )
+            .order(dsl::legal_name.asc())
+            .select(InvoicingEntityRow::as_select());
+
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing invoicing entities routing to connector")
+            .into_db_result()
+    }
+
+    /// Unroutes the connector from every rail (and the tax provider slot) of every entity.
+    pub async fn clear_connector_routing(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        connector_id: ConnectorId,
+    ) -> DbResult<()> {
+        use crate::schema::invoicing_entity::dsl;
+        use diesel_async::RunQueryDsl;
+
+        diesel::update(dsl::invoicing_entity)
+            .filter(dsl::tenant_id.eq(tenant_id))
+            .filter(dsl::card_provider_id.eq(connector_id))
+            .set(dsl::card_provider_id.eq(None::<ConnectorId>))
+            .execute(conn)
+            .await
+            .attach("Error while clearing card routing")
+            .into_db_result()?;
+
+        diesel::update(dsl::invoicing_entity)
+            .filter(dsl::tenant_id.eq(tenant_id))
+            .filter(dsl::direct_debit_provider_id.eq(connector_id))
+            .set(dsl::direct_debit_provider_id.eq(None::<ConnectorId>))
+            .execute(conn)
+            .await
+            .attach("Error while clearing direct debit routing")
+            .into_db_result()?;
+
+        diesel::update(dsl::invoicing_entity)
+            .filter(dsl::tenant_id.eq(tenant_id))
+            .filter(dsl::tax_provider_id.eq(connector_id))
+            .set(dsl::tax_provider_id.eq(None::<ConnectorId>))
+            .execute(conn)
+            .await
+            .attach("Error while clearing tax provider")
+            .into_db_result()?;
+
+        Ok(())
     }
 }
 
@@ -266,7 +381,7 @@ impl InvoicingEntityProvidersRow {
                 Option::<BankAccountRow>::as_select(),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -313,7 +428,7 @@ impl InvoicingEntityProvidersRow {
                 Option::<BankAccountRow>::as_select(),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -335,9 +450,10 @@ impl InvoicingEntityRowPatch {
         let query = diesel::update(dsl::invoicing_entity)
             .filter(dsl::id.eq(self.id))
             .filter(dsl::tenant_id.eq(tenant_id))
-            .set(self);
+            .set(self)
+            .returning(InvoicingEntityRow::as_returning());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -359,9 +475,10 @@ impl InvoicingEntityRowProvidersPatch {
         let query = diesel::update(dsl::invoicing_entity)
             .filter(dsl::id.eq(self.id))
             .filter(dsl::tenant_id.eq(tenant_id))
-            .set(self);
+            .set(self)
+            .returning(InvoicingEntityRow::as_returning());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -386,7 +503,7 @@ pub async fn get_invoicing_entity_id_by_invoice_id(
         .filter(i_dsl::id.eq(invoice_id))
         .select(c_dsl::invoicing_entity_id);
 
-    log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+    crate::debug_sql(&query);
 
     query
         .get_result(conn)

@@ -12,6 +12,10 @@ anyhow = { workspace = true, optional = true }
 pin-project = { workspace = true }
 chrono = { workspace = true }
 rust_decimal = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [features]
 error-stack-conv = ["dep:error-stack", "dep:anyhow", "dep:thiserror"]
+
+[dev-dependencies]
+rust_decimal_macros = { workspace = true }

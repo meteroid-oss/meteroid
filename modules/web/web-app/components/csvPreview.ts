@@ -122,7 +122,8 @@ export async function parseCSVPreview(
   delimiter: string,
   requiredColumns: ColumnDefinition[],
   optionalColumns: ColumnDefinition[],
-  rowSchema?: z.ZodObject<z.ZodRawShape>
+  rowSchema?: z.ZodObject<z.ZodRawShape>,
+  commentChar?: string
 ): Promise<CSVPreview> {
   const isSliced = file.size > PREVIEW_BYTE_LIMIT
   const slice = isSliced ? file.slice(0, PREVIEW_BYTE_LIMIT) : file
@@ -132,6 +133,7 @@ export async function parseCSVPreview(
     delimiter,
     header: false,
     skipEmptyLines: true,
+    comments: commentChar ?? false,
   })
 
   let allRows = parsed.data

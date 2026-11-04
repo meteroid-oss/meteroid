@@ -1,0 +1,193 @@
+syntax = "proto3";
+
+package meteroid.api.customeremails.v1;
+
+import "api/customeremails/v1/models.proto";
+
+message GetEmailSettingsRequest {
+  // Absent = the tenant's default invoicing entity.
+  optional string invoicing_entity_id = 1;
+}
+
+message GetEmailSettingsResponse {
+  EmailSettings settings = 1;
+}
+
+message UpdateEmailSettingsRequest {
+  string invoicing_entity_id = 1;
+  EmailSettingsData data = 2;
+}
+
+message UpdateEmailSettingsResponse {
+  EmailSettings settings = 1;
+}
+
+message SetEmailKindEnabledRequest {
+  string invoicing_entity_id = 1;
+  EmailKind kind = 2;
+  bool enabled = 3;
+}
+
+message SetEmailKindEnabledResponse {
+  EmailSettings settings = 1;
+}
+
+message SetEmailKindAudienceRequest {
+  string invoicing_entity_id = 1;
+  // Any kind but PAYMENT_REMINDER.
+  EmailKind kind = 2;
+  EmailAudienceMode mode = 3;
+  string audience = 4;
+}
+
+message SetEmailKindAudienceResponse {
+  EmailSettings settings = 1;
+}
+
+// Back to everyone.
+message ClearEmailKindAudienceRequest {
+  string invoicing_entity_id = 1;
+  EmailKind kind = 2;
+}
+
+message ClearEmailKindAudienceResponse {
+  EmailSettings settings = 1;
+}
+
+message PreviewEmailKindAudienceRequest {
+  string invoicing_entity_id = 1;
+  EmailKind kind = 2;
+  EmailAudienceMode mode = 3;
+  string audience = 4;
+}
+
+message PreviewEmailKindAudienceResponse {
+  EmailKindAudiencePreview preview = 1;
+}
+
+message ListEmailVariablesRequest {}
+
+message ListEmailVariablesResponse {
+  repeated EmailVariable variables = 1;
+}
+
+// Renders a kind with synthetic data. Never sends and never reads an invoice.
+message PreviewEmailRequest {
+  string invoicing_entity_id = 1;
+  EmailKind kind = 2;
+  // Template locale; absent = the entity's effective locale.
+  optional string locale = 3;
+  // Operator copy to render instead of the stored one (PAYMENT_REMINDER only).
+  optional EmailCopy draft = 4;
+  // Reminder step to preview (PAYMENT_REMINDER only).
+  optional int32 offset_days = 5;
+}
+
+message PreviewEmailResponse {
+  RenderedEmail email = 1;
+}
+
+// Renders a kind against a real invoice. `kind` must be an invoice-entity kind. Never sends.
+message PreviewInvoiceEmailRequest {
+  string invoice_id = 1;
+  EmailKind kind = 2;
+  optional string locale = 3;
+  // PAYMENT_REMINDER only: which step of the invoice's frozen sequence to render.
+  optional int32 offset_days = 4;
+}
+
+message PreviewInvoiceEmailResponse {
+  RenderedEmail email = 1;
+  // The entity's "Send to" rule would keep this email from being sent (always false for PAYMENT_REMINDER).
+  bool suppressed_by_audience = 2;
+}
+
+// Same inputs as PreviewEmail; delivered to the calling user's own address with a "[Test] " subject.
+message SendTestEmailRequest {
+  string invoicing_entity_id = 1;
+  EmailKind kind = 2;
+  optional string locale = 3;
+  optional EmailCopy draft = 4;
+  optional int32 offset_days = 5;
+}
+
+message SendTestEmailResponse {
+  // false when the mailer is disabled for this instance.
+  bool delivered = 1;
+  string to = 2;
+}
+
+message ListSentEmailsRequest {
+  optional string invoicing_entity_id = 1;
+  optional EmailKind kind = 2;
+  // Both or neither.
+  optional string entity_type = 3;
+  optional string entity_id = 4;
+  optional string customer_id = 5;
+  // Opaque keyset cursor from a previous response.
+  optional string cursor = 6;
+  uint32 limit = 7;
+}
+
+message ListSentEmailsResponse {
+  repeated SentEmailSummary emails = 1;
+  optional string next_cursor = 2;
+}
+
+// Customer emails that were not sent (their `entity.email_skipped` / `payment_reminder.skipped`
+// activity entries: delivery mode, "Send to" rules, ...), newest first.
+message ListSkippedEmailsRequest {
+  optional string invoicing_entity_id = 1;
+  optional EmailKind kind = 2;
+  // Opaque keyset cursor from a previous response.
+  optional string cursor = 3;
+  uint32 limit = 4;
+}
+
+message ListSkippedEmailsResponse {
+  repeated SkippedEmailSummary emails = 1;
+  optional string next_cursor = 2;
+}
+
+message GetSentEmailRequest {
+  string id = 1;
+}
+
+message GetSentEmailResponse {
+  SentEmail email = 1;
+}
+
+// Re-renders the email from live data and enqueues it; idempotent per (sent_email_id, request_id).
+message ResendEmailRequest {
+  string sent_email_id = 1;
+  string request_id = 2;
+}
+
+message ResendEmailResponse {}
+
+// Sends again an email whose delivery is unknown, from its `entity.email_delivery_unknown` activity
+// entry; idempotent per (activity_id, request_id). FAILED_PRECONDITION once the same email went out since.
+message ResendUnknownEmailRequest {
+  string activity_id = 1;
+  string request_id = 2;
+}
+
+message ResendUnknownEmailResponse {}
+
+service CustomerEmailsService {
+  rpc GetEmailSettings(GetEmailSettingsRequest) returns (GetEmailSettingsResponse) {}
+  rpc UpdateEmailSettings(UpdateEmailSettingsRequest) returns (UpdateEmailSettingsResponse) {}
+  rpc SetEmailKindEnabled(SetEmailKindEnabledRequest) returns (SetEmailKindEnabledResponse) {}
+  rpc SetEmailKindAudience(SetEmailKindAudienceRequest) returns (SetEmailKindAudienceResponse) {}
+  rpc ClearEmailKindAudience(ClearEmailKindAudienceRequest) returns (ClearEmailKindAudienceResponse) {}
+  rpc PreviewEmailKindAudience(PreviewEmailKindAudienceRequest) returns (PreviewEmailKindAudienceResponse) {}
+  rpc ListEmailVariables(ListEmailVariablesRequest) returns (ListEmailVariablesResponse) {}
+  rpc PreviewEmail(PreviewEmailRequest) returns (PreviewEmailResponse) {}
+  rpc PreviewInvoiceEmail(PreviewInvoiceEmailRequest) returns (PreviewInvoiceEmailResponse) {}
+  rpc SendTestEmail(SendTestEmailRequest) returns (SendTestEmailResponse) {}
+  rpc ListSentEmails(ListSentEmailsRequest) returns (ListSentEmailsResponse) {}
+  rpc ListSkippedEmails(ListSkippedEmailsRequest) returns (ListSkippedEmailsResponse) {}
+  rpc GetSentEmail(GetSentEmailRequest) returns (GetSentEmailResponse) {}
+  rpc ResendEmail(ResendEmailRequest) returns (ResendEmailResponse) {}
+  rpc ResendUnknownEmail(ResendUnknownEmailRequest) returns (ResendUnknownEmailResponse) {}
+}

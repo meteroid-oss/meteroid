@@ -1,0 +1,21 @@
+[package]
+name = "meteroid-oss-standalone"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "standalone"
+path = "src/main.rs"
+
+[dependencies]
+meteroid = { path = "../../../modules/meteroid" }
+meteroid-edition-oss = { path = "../modules" }
+common-build-info.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+workspace-hack = { version = "0.1", path = "../../../crates/workspace-hack" }
+
+[features]
+# Embeds the metering server (ingest + meter queries) in-process.
+metering-server = ["meteroid/metering-server"]

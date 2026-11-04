@@ -1,0 +1,7 @@
+{
+  "Stripe": {
+    "api_secret_key": "sk_test_x",
+    "webhook_secret": "whsec_x",
+    "webhook_endpoint_id": "we_x"
+  }
+}

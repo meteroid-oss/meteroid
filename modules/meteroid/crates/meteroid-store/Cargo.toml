@@ -10,45 +10,52 @@ repository.workspace = true
 
 [dependencies]
 common-eventbus.workspace = true
+common-logging.workspace = true
+opentelemetry.workspace = true
 
 argon2 = { workspace = true, features = ["rand"] }
 base62.workspace = true
 cached = { workspace = true, features = ["async", "tokio"] }
 chrono = { workspace = true, features = ["clock", "serde"] }
+chrono-tz = { workspace = true }
 deadpool-runtime = { workspace = true, features = ["tokio_1"] }
 diesel.workspace = true
 diesel-async.workspace = true
+egress-http = { workspace = true }
 scoped-futures.workspace = true
-uuid = { workspace = true, features = ["serde"] }
+uuid = { workspace = true, features = ["serde", "v5"] }
 nanoid.workspace = true
 tracing.workspace = true
 tracing-log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-serde_plain.workspace = true
 serde_with = { workspace = true }
 o2o.workspace = true
 error-stack.workspace = true
 thiserror.workspace = true
 diesel-models.workspace = true
+distributed-lock = { workspace = true, default-features = false, features = ["postgres-support"] }
 async-trait.workspace = true
 rand.workspace = true
 rust_decimal.workspace = true
 rust_decimal_macros.workspace = true
-rusty-money = { workspace = true }
+meteroid-money = { workspace = true }
 common-utils = { workspace = true }
 itertools.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
-nonzero_ext = { workspace = true }
 chacha20poly1305 = { workspace = true }
+base64 = { workspace = true }
 hex = { workspace = true }
+hmac = { workspace = true }
 sha2 = { workspace = true }
-jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
+signature = { workspace = true }
+jsonwebtoken = { workspace = true }
+totp-rs = { workspace = true }
 futures = { workspace = true }
 rustls = { workspace = true, features = ["ring"] }
 rust_iso3166 = { workspace = true }
 tokio-postgres-rustls = { workspace = true }
-tokio = { workspace = true, default-features = false, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, default-features = false, features = ["macros", "rt-multi-thread", "sync", "time"] }
 tokio-postgres = { workspace = true }
 strum = { workspace = true, features = ["derive", "std"] }
 meteroid-mailer = { workspace = true }
@@ -62,25 +69,24 @@ metering-grpc = { workspace = true }
 prost-types = { workspace = true }
 log.workspace = true
 golden.workspace = true
-paste.workspace = true
 meteroid-store-macros = { workspace = true }
 meteroid-tax = { workspace = true }
+ordermap = { workspace = true }
 world-tax = { workspace = true }
-ctor = { workspace = true }
 envconfig = { workspace = true }
 urlencoding = { workspace = true }
-distributed-lock = { workspace = true }
 url = { workspace = true }
 validator = { workspace = true }
 http = { workspace = true }
+paste.workspace = true
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
 
 [dev-dependencies]
 rstest = { workspace = true }
-hmac = { workspace = true }
-
-[features]
-test-utils = []
 
 [package.metadata.cargo-machete]
 # paste used via paste::paste! macro which machete cannot detect
+ignored = ["paste"]
+
+[package.metadata.cargo-shear]
 ignored = ["paste"]

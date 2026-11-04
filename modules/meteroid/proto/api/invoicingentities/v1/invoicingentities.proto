@@ -73,10 +73,15 @@ message GetInvoicingEntityProvidersResponse {
 service InvoicingEntitiesService {
   rpc GetInvoicingEntity(GetInvoicingEntityRequest) returns (GetInvoicingEntityResponse) {}
   rpc ListInvoicingEntities(ListInvoicingEntitiesRequest) returns (ListInvoicingEntitiesResponse) {}
-  rpc CreateInvoicingEntity(CreateInvoicingEntityRequest) returns (CreateInvoicingEntityResponse) {}
   rpc UpdateInvoicingEntity(UpdateInvoicingEntityRequest) returns (UpdateInvoicingEntityResponse) {}
   rpc UploadInvoicingEntityLogo(UploadInvoicingEntityLogoRequest) returns (UploadInvoicingEntityLogoResponse) {}
 
   rpc GetInvoicingEntityProviders(GetInvoicingEntityProvidersRequest) returns (GetInvoicingEntityProvidersResponse) {}
   rpc UpdateInvoicingEntityProviders(UpdateInvoicingEntityProvidersRequest) returns (UpdateInvoicingEntityProvidersResponse) {}
+}
+
+// Additional invoicing entities, served by the Enterprise `multi-entity` module. A tenant's first entity is
+// created with the tenant.
+service MultiEntityService {
+  rpc CreateInvoicingEntity(CreateInvoicingEntityRequest) returns (CreateInvoicingEntityResponse) {}
 }

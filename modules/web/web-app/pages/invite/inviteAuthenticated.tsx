@@ -5,9 +5,8 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { Loader } from '@/features/auth/components/Loader'
+import { INVITE_TOKEN_KEY } from '@/features/auth/invite'
 import { acceptInvite, me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
-
-import { INVITE_TOKEN_KEY } from './acceptInvite'
 
 export const InviteAuthenticated = () => {
   const navigate = useNavigate()

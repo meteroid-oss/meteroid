@@ -1,3 +1,6 @@
+//! Large async fns here wrap their body in `Box::pin(async move { .. }).await`. A caller then
+//! embeds a pointer instead of the whole state machine, and its debug-build poll frame stops
+//! carrying one stack slot per awaited future; the lifecycle chain otherwise nears 2MB in tests.
 use crate::domain::entitlements::EffectiveEntitlement;
 use crate::domain::entity_activity::Actor;
 use crate::domain::{CheckoutSession, Coupon};
@@ -9,38 +12,65 @@ use chrono::NaiveDateTime;
 use common_domain::ids::{CouponId, CustomerId, InvoiceId, SubscriptionId, TenantId};
 use diesel_models::applied_coupons::AppliedCouponRow;
 use diesel_models::coupons::CouponRow;
+use diesel_models::query::coupons::CodeMatch;
 use error_stack::Report;
 use rust_decimal::Decimal;
 use std::sync::Arc;
 
 // mod billing_worker;
+pub mod payment_reminders;
 pub mod utils;
 
+mod annexes;
 mod checkout_completion;
+pub use checkout_completion::MAX_DECLINED_CHECKOUT_ATTEMPTS;
 mod checkout_preview;
 pub mod clients;
-mod credits;
+pub(crate) mod credit;
+mod credit_paid_features;
+pub mod customer_emails;
+pub mod customer_locale;
+mod customer_summary;
 mod edge;
-mod entitlements;
+pub(crate) mod entitlements;
+pub mod fx;
+pub(crate) mod intelligence_support;
 pub mod invoice_lines;
-mod invoices;
+pub(crate) mod invoices;
 mod lifecycle;
-mod orchestration;
+pub mod minimum_progress;
+pub(crate) mod orchestration;
 mod payment;
+pub(crate) mod portal_credit;
 mod prices;
+pub mod promo_code_attempts;
 mod quotes;
+pub mod sandbox_replay;
+pub(crate) mod served_usage;
+pub mod subscription_receivables;
 mod subscriptions;
-mod webhooks;
+mod unattributed_usage;
+pub(crate) mod usage_controls_support;
+pub mod usage_costs;
+pub(crate) mod usage_grouping;
+pub mod webhooks;
 
 use crate::domain::{PaymentTransaction, Subscription};
 pub use crate::domain::{SlotUpgradeBillingMode, UpdateSlotsResult};
 use crate::store::PgConn;
+pub use credit::purchase::{SellCustomerCredit, SoldCustomerCredit};
+pub use credit::top_up_support::customer_safe_decline_reason;
+pub use credit::unit_wallets::{CreditSaleQuote, UnitPriceSource, UnitSale};
+pub use credit::wallet_purchase::{ReplayedTopUp, TopUpWalletReceipt};
+pub use credit_paid_features::{CreditPaidFeature, CreditPayer};
 pub use edge::CheckoutPaymentOutcome;
-pub use invoices::{CustomerDetailsUpdate, InvoiceBillingMode};
+pub use invoices::{CustomerDetailsUpdate, InvoiceBillingMode, InvoiceDelivery, IssueAt};
 pub use lifecycle::CycleTransitionResult;
 pub use payment::hosted_payment_sweep::{HostedPaymentSweepOutcome, PendingHostedPaymentRef};
 pub use payment::hosted_return::HostedReturnOutcome;
+pub use payment::hosted_setup::DefaultMethodAdoption;
 pub use payment::hosted_setup::HostedSetupOutcome;
+pub use payment::refund::{OfflineRefundCommand, RefundCommand, ReverseManualPaymentCommand};
 pub use payment::webhook_backed_setup::WebhookBackedSetupOutcome;
 pub use quotes::QuoteConversionResult;
 pub use subscriptions::insert::payment_method::PaymentSetupResult;
@@ -54,6 +84,17 @@ pub use subscriptions::utils::validate_charge_automatically_with_provider_ids;
 struct Services {
     store: Arc<Store>,
     usage_client: Arc<dyn UsageClient>,
+    /// Set while work runs on metering read before its row locks (`served_usage`).
+    served: Option<Arc<served_usage::ServedUsage>>,
+    /// Per-entity keyset where the last reminder enrolment scan hit its cap (sweep.rs).
+    reminder_scan_resume: Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<
+                common_domain::ids::InvoicingEntityId,
+                diesel_models::query::payment_reminders::ScanCursor,
+            >,
+        >,
+    >,
 }
 
 // EXTERNAL. Flat api, to be used in apis and workers.
@@ -69,6 +110,8 @@ impl ServicesEdge {
             services: Services {
                 store: store.clone(),
                 usage_client,
+                served: None,
+                reminder_scan_resume: Arc::default(),
             },
             store,
         }
@@ -113,6 +156,16 @@ impl ServicesEdge {
             .await
     }
 
+    pub async fn list_credit_paid_features(
+        &self,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+    ) -> StoreResult<Vec<CreditPaidFeature>> {
+        self.services
+            .list_credit_paid_features(tenant_id, customer_id)
+            .await
+    }
+
     pub async fn update_subscription_slots(
         &self,
         tenant_id: common_domain::ids::TenantId,
@@ -120,6 +173,7 @@ impl ServicesEdge {
         price_component_id: common_domain::ids::PriceComponentId,
         delta: i32,
         billing_mode: SlotUpgradeBillingMode,
+        actor: Actor,
     ) -> StoreResult<UpdateSlotsResult> {
         self.services
             .update_subscription_slots(
@@ -128,6 +182,7 @@ impl ServicesEdge {
                 price_component_id,
                 delta,
                 billing_mode,
+                actor,
                 None,
             )
             .await
@@ -187,7 +242,7 @@ impl ServicesEdge {
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         total_amount: Decimal,
-        payment_date: NaiveDateTime,
+        payment_date: chrono::DateTime<chrono::FixedOffset>,
         reference: Option<String>,
     ) -> StoreResult<crate::domain::DetailedInvoice> {
         self.services
@@ -208,7 +263,7 @@ impl ServicesEdge {
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         amount: Decimal,
-        payment_date: NaiveDateTime,
+        payment_date: chrono::DateTime<chrono::FixedOffset>,
         reference: Option<String>,
     ) -> StoreResult<PaymentTransaction> {
         self.services
@@ -223,6 +278,43 @@ impl ServicesEdge {
             .await
     }
 
+    /// Refund a settled online payment through its provider. The invoice keeps its balance;
+    /// the linked Refund credit note is what reduces it.
+    pub async fn refund_transaction(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        command: RefundCommand,
+    ) -> StoreResult<PaymentTransaction> {
+        self.services
+            .refund_transaction(actor, tenant_id, command)
+            .await
+    }
+
+    /// Record a refund that moved outside Meteroid (wire, cheque, cash).
+    pub async fn record_offline_refund(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        command: OfflineRefundCommand,
+    ) -> StoreResult<PaymentTransaction> {
+        self.services
+            .record_offline_refund(actor, tenant_id, command)
+            .await
+    }
+
+    /// Claw back a manually recorded payment in full; the invoice reopens.
+    pub async fn reverse_manual_payment(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        command: ReverseManualPaymentCommand,
+    ) -> StoreResult<PaymentTransaction> {
+        self.services
+            .reverse_manual_payment(actor, tenant_id, command)
+            .await
+    }
+
     pub async fn activate_subscription_manual(
         &self,
         tenant_id: TenantId,
@@ -230,6 +322,32 @@ impl ServicesEdge {
     ) -> StoreResult<Subscription> {
         self.services
             .activate_subscription_manual(tenant_id, subscription_id)
+            .await
+    }
+
+    /// Set or replace a subscription-level minimum commitment as an operator override
+    /// (`is_override = true`, kept across plan changes), restating the MRR it floors.
+    pub async fn set_subscription_minimum(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        amount_subunit: i64,
+        scope: crate::domain::plan_minimums::MinimumScope,
+    ) -> StoreResult<crate::domain::SubscriptionMinimum> {
+        self.services
+            .set_subscription_minimum(tenant_id, subscription_id, amount_subunit, scope)
+            .await
+    }
+
+    /// Remove the subscription-level minimum (no floor until the next plan change re-snapshots
+    /// the plan's), restating the MRR.
+    pub async fn clear_subscription_minimum(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> StoreResult<()> {
+        self.services
+            .clear_subscription_minimum(tenant_id, subscription_id)
             .await
     }
 
@@ -269,7 +387,7 @@ impl ServicesEdge {
 }
 
 impl ServicesEdge {
-    #[cfg(feature = "test-utils")]
+    #[doc(hidden)]
     pub async fn update_subscription_slots_for_test(
         &self,
         tenant_id: common_domain::ids::TenantId,
@@ -286,6 +404,7 @@ impl ServicesEdge {
                 price_component_id,
                 delta,
                 billing_mode,
+                Actor::System,
                 at_ts,
             )
             .await
@@ -293,11 +412,9 @@ impl ServicesEdge {
 }
 
 impl Services {
-    /// Resolves coupon IDs for a checkout session.
-    ///
-    /// If the session already has `coupon_ids`, returns those.
-    /// Otherwise, if a `coupon_code_override` is provided or the session has a `coupon_code`,
-    /// looks up the coupon by code and returns its ID.
+    /// The coupons a checkout is about to charge with: the session's `coupon_ids`, else the coupon
+    /// its code names (`coupon_code_override`, else the session's), resolved as `CodeMatch` does.
+    /// A code naming no live coupon, or several, is refused before any charge.
     pub(crate) async fn resolve_coupon_ids_for_checkout_tx(
         &self,
         conn: &mut PgConn,
@@ -305,24 +422,72 @@ impl Services {
         session: &CheckoutSession,
         coupon_code_override: Option<String>,
     ) -> StoreResult<Vec<CouponId>> {
-        let mut coupon_ids = session.coupon_ids.clone();
-
-        if coupon_ids.is_empty() {
-            // Use override if provided, otherwise fall back to session's coupon_code
-            let effective_code = coupon_code_override.or_else(|| session.coupon_code.clone());
-
-            if let Some(code) = effective_code {
-                let coupons = self
-                    .store
-                    .list_coupons_by_codes_tx(conn, tenant_id, &[code])
-                    .await?;
-                if let Some(coupon) = coupons.into_iter().next() {
-                    coupon_ids.push(coupon.id);
-                }
-            }
+        if !session.coupon_ids.is_empty() {
+            return Ok(session.coupon_ids.clone());
         }
+        match checkout_coupon_code(session, coupon_code_override) {
+            Some(code) => Ok(vec![
+                self.checkout_coupon_by_code_tx(conn, tenant_id, &code)
+                    .await?
+                    .id,
+            ]),
+            None => Ok(vec![]),
+        }
+    }
 
-        Ok(coupon_ids)
+    /// The live coupon a code typed or set on a checkout names, as `CodeMatch` resolves it.
+    pub(crate) async fn checkout_coupon_by_code_tx(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        code: &str,
+    ) -> StoreResult<Coupon> {
+        let rows = CouponRow::candidates_by_codes(conn, tenant_id, &[code.to_owned()]).await?;
+        let found = match CodeMatch::of(code, &rows) {
+            CodeMatch::Found(row) => row.id,
+            CodeMatch::Unknown => {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "Coupon code '{}' is not valid",
+                    code.trim()
+                ))));
+            }
+            CodeMatch::Ambiguous => {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "Coupon code '{}' matches several coupons, enter it exactly as you were given it",
+                    code.trim()
+                ))));
+            }
+        };
+        rows.into_iter()
+            .find(|row| row.id == found)
+            .ok_or_else(|| {
+                Report::new(StoreError::ValueNotFound(format!("coupon {}", code.trim())))
+            })?
+            .try_into()
+    }
+
+    /// The coupons of a checkout whose payment already moved. Its coupons were persisted on the
+    /// session when it was charged; a session charged by an older version without them keeps
+    /// its earlier outcome (an unresolved code applies no coupon) rather than failing a payment.
+    pub(crate) async fn paid_checkout_coupon_ids_tx(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        session: &CheckoutSession,
+    ) -> StoreResult<Vec<CouponId>> {
+        if !session.coupon_ids.is_empty() {
+            return Ok(session.coupon_ids.clone());
+        }
+        let Some(code) = checkout_coupon_code(session, None) else {
+            return Ok(vec![]);
+        };
+        Ok(self
+            .store
+            .list_coupons_by_codes_tx(conn, tenant_id, &[code])
+            .await?
+            .into_iter()
+            .map(|coupon| coupon.id)
+            .collect())
     }
 
     /// Locks coupons with FOR UPDATE and validates they can be used.
@@ -330,7 +495,9 @@ impl Services {
     /// - Coupon is not expired, archived, or disabled
     /// - Coupon has not reached its redemption limit
     /// - Coupon currency matches subscription currency (if applicable)
-    /// - Non-reusable coupons haven't been used by this customer before
+    /// - Non-reusable and promotional credit coupons haven't been used by this customer before
+    /// - Plan restrictions, and not already applied to the subscription
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn lock_and_validate_coupons_for_checkout(
         &self,
         conn: &mut PgConn,
@@ -338,6 +505,8 @@ impl Services {
         customer_id: CustomerId,
         coupon_ids: &[CouponId],
         subscription_currency: &str,
+        plan_version_id: Option<common_domain::ids::PlanVersionId>,
+        subscription_id: Option<SubscriptionId>,
     ) -> StoreResult<Vec<Coupon>> {
         if coupon_ids.is_empty() {
             return Ok(vec![]);
@@ -359,15 +528,62 @@ impl Services {
             coupons.push(coupon);
         }
 
-        // Check non-reusable coupons haven't been used by this customer
-        let non_reusable_ids: Vec<CouponId> = coupons
+        let restricted =
+            diesel_models::coupon_plans::CouponPlanRow::list_by_coupon_ids(conn, coupon_ids)
+                .await?;
+        if restricted.values().any(|plans| !plans.is_empty()) {
+            let plan_id = match plan_version_id {
+                Some(version_id) => {
+                    diesel_models::plan_versions::PlanVersionRow::get_plan_ids_by_version_ids(
+                        conn,
+                        &[version_id],
+                    )
+                    .await?
+                    .remove(&version_id)
+                }
+                None => None,
+            };
+            for coupon in &coupons {
+                if let Some(plans) = restricted.get(&coupon.id)
+                    && !plans.is_empty()
+                    && !plan_id.is_some_and(|plan_id| plans.contains(&plan_id))
+                {
+                    return Err(Report::new(StoreError::InvalidArgument(format!(
+                        "Coupon {} cannot be applied to this plan",
+                        coupon.code
+                    ))));
+                }
+            }
+        }
+
+        if let Some(subscription_id) = subscription_id {
+            let applied =
+                diesel_models::applied_coupons::AppliedCouponDetailedRow::list_by_subscription_id(
+                    conn,
+                    &subscription_id,
+                )
+                .await?;
+            if let Some(coupon) = coupons.iter().find(|coupon| {
+                applied
+                    .iter()
+                    .any(|row| row.applied_coupon.coupon_id == coupon.id)
+            }) {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "Coupon {} is already applied to this subscription",
+                    coupon.code
+                ))));
+            }
+        }
+
+        // Promotional credit is redeemed once per customer, whatever `reusable` says.
+        let once_per_customer: Vec<CouponId> = coupons
             .iter()
-            .filter(|c| !c.reusable)
+            .filter(|c| !c.reusable || c.discount.is_credit())
             .map(|c| c.id)
             .collect();
 
-        if !non_reusable_ids.is_empty() {
-            let pairs: Vec<(CouponId, CustomerId)> = non_reusable_ids
+        if !once_per_customer.is_empty() {
+            let pairs: Vec<(CouponId, CustomerId)> = once_per_customer
                 .iter()
                 .map(|&id| (id, customer_id))
                 .collect();
@@ -375,16 +591,59 @@ impl Services {
             let existing =
                 AppliedCouponRow::find_existing_customer_coupon_pairs(conn, &pairs).await?;
 
-            for coupon in coupons.iter().filter(|c| !c.reusable) {
+            for coupon in coupons.iter().filter(|c| once_per_customer.contains(&c.id)) {
                 if existing.contains(&(coupon.id, customer_id)) {
                     return Err(Report::new(StoreError::InvalidArgument(format!(
-                        "Coupon {} is not reusable and has already been used by this customer",
+                        "Coupon {} has already been used by this customer",
                         coupon.code
                     ))));
                 }
             }
         }
 
+        // A checkout whose payment still settles applies its coupons only then: it holds the
+        // redemption already. The coupon rows locked above serialize concurrent checkouts.
+        use diesel_models::checkout_sessions::CheckoutSessionRow;
+        for coupon in &coupons {
+            if once_per_customer.contains(&coupon.id)
+                && CheckoutSessionRow::count_awaiting_payment_with_coupon(
+                    conn,
+                    tenant_id,
+                    coupon.id,
+                    Some(customer_id),
+                )
+                .await?
+                    > 0
+            {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "Coupon {} has already been used by this customer",
+                    coupon.code
+                ))));
+            }
+            if let Some(limit) = coupon.redemption_limit
+                && i64::from(coupon.redemption_count)
+                    + CheckoutSessionRow::count_awaiting_payment_with_coupon(
+                        conn, tenant_id, coupon.id, None,
+                    )
+                    .await?
+                    >= i64::from(limit)
+            {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "Coupon '{}' has reached its redemption limit",
+                    coupon.code
+                ))));
+            }
+        }
+
         Ok(coupons)
     }
+}
+
+pub(crate) fn checkout_coupon_code(
+    session: &CheckoutSession,
+    coupon_code_override: Option<String>,
+) -> Option<String> {
+    coupon_code_override
+        .or_else(|| session.coupon_code.clone())
+        .filter(|code| !code.trim().is_empty())
 }

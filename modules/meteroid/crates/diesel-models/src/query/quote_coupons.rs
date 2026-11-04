@@ -2,7 +2,7 @@ use crate::errors::IntoDbResult;
 use crate::quote_coupons::{QuoteCouponRow, QuoteCouponRowNew};
 use crate::{DbResult, PgConn};
 use common_domain::ids::QuoteId;
-use diesel::{ExpressionMethods, QueryDsl, debug_query};
+use diesel::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
 
 impl QuoteCouponRowNew {
@@ -12,7 +12,7 @@ impl QuoteCouponRowNew {
 
         let query = diesel::insert_into(quote_coupon).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -30,7 +30,7 @@ impl QuoteCouponRowNew {
 
         let query = diesel::insert_into(quote_coupon).values(rows);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -52,7 +52,7 @@ impl QuoteCouponRow {
             .filter(quote_id.eq(param_quote_id))
             .order(id.asc());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .load(conn)
@@ -67,7 +67,7 @@ impl QuoteCouponRow {
 
         let query = diesel::delete(quote_coupon.filter(quote_id.eq(param_quote_id)));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)

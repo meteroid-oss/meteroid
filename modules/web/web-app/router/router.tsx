@@ -1,10 +1,16 @@
 import { createBrowserRouter } from 'react-router-dom'
 
 import { OnboardingLayout } from '@/components/layouts/OnboardingLayout'
+import { editionOrgRoutes, editionProtectedRoutes, editionRootRoutes } from '@/edition'
 import { ProtectedRoutes } from '@/features/auth/sessionRoutes'
 import { Logout } from '@/pages/auth'
 import { AcceptInvite, InviteAuthenticated } from '@/pages/invite'
-import { InviteOnboarding, OrganizationOnboarding, UserOnboarding } from '@/pages/onboarding'
+import {
+  DemoDataOnboarding,
+  InviteOnboarding,
+  OrganizationOnboarding,
+  UserOnboarding,
+} from '@/pages/onboarding'
 import { OrganizationRoot } from '@/pages/organizationRoot'
 import { Root } from '@/pages/root'
 import { TenantNew } from '@/pages/tenants/new'
@@ -31,6 +37,7 @@ const router = createBrowserRouter(
               element: <InviteAuthenticated />,
               handle: { title: 'Accept invite' },
             },
+            ...editionProtectedRoutes(),
             {
               path: '/onboarding',
               element: <OnboardingLayout />,
@@ -48,6 +55,10 @@ const router = createBrowserRouter(
                   path: 'invite',
                   element: <InviteOnboarding />,
                 },
+                {
+                  path: 'demo/:organizationSlug',
+                  element: <DemoDataOnboarding />,
+                },
               ],
             },
             {
@@ -63,7 +74,7 @@ const router = createBrowserRouter(
                   element: <TenantNew />,
                   handle: { title: 'New tenant' },
                 },
-
+                ...editionOrgRoutes(),
               ],
             },
           ],
@@ -80,7 +91,7 @@ const router = createBrowserRouter(
           element: <AcceptInvite />,
           handle: { title: 'Accept invite' },
         },
-
+        ...editionRootRoutes(),
       ],
     },
   ],

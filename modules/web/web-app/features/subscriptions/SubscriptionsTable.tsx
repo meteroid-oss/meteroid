@@ -1,18 +1,25 @@
 import { ColumnDef, OnChangeFn, PaginationState, Row, SortingState } from '@tanstack/react-table'
 import { format } from 'date-fns'
-import { useMemo } from 'react'
+import { ReactNode, useMemo } from 'react'
 
-import { StandardTable } from '@/components/table/StandardTable'
+import { ColumnState, StandardTable } from '@/components/table/StandardTable'
+import {
+  useCustomPropertyColumns,
+  withCustomPropertyColumns,
+} from '@/features/customproperties/useCustomPropertyColumns'
 import { SubscriptionStatusBadge } from '@/features/subscriptions/SubscriptionStatusBadge'
+import { formatUsageFilter } from '@/features/subscriptions/UsageFilterFields'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useCurrency } from '@/hooks/useCurrency'
 import { mapDateFromGrpcv2 } from '@/lib/mapping'
+import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 import { Subscription } from '@/rpc/api/subscriptions/v1/models_pb'
 
 import type { FunctionComponent } from 'react'
 
 interface SubscriptionsTableProps {
   data: Subscription[]
+  tableKey?: string
   pagination: PaginationState
   setPagination: OnChangeFn<PaginationState>
   totalCount: number
@@ -21,10 +28,14 @@ interface SubscriptionsTableProps {
   hidePlan?: boolean
   sorting?: SortingState
   onSortingChange?: OnChangeFn<SortingState>
+  chart?: ReactNode
+  /** Column visibility controlled by an active saved view. */
+  columnState?: ColumnState
 }
 
 export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
   data,
+  tableKey,
   pagination,
   setPagination,
   totalCount,
@@ -33,11 +44,16 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
   hidePlan = false,
   sorting,
   onSortingChange,
+  chart,
+  columnState,
 }) => {
   const { formatAmount } = useCurrency()
   const basePath = useBasePath()
 
-  const columns = useMemo<ColumnDef<Subscription>[]>(
+  const { columns: customPropertyColumns, hiddenIds: customPropertyHiddenIds } =
+    useCustomPropertyColumns<Subscription>(CustomPropertyEntityType.SUBSCRIPTION)
+
+  const baseColumns = useMemo<ColumnDef<Subscription>[]>(
     () =>
       [
         {
@@ -49,6 +65,16 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
           id: 'plan_name',
           header: 'Plan',
           accessorKey: 'planName',
+          cell: ({ row }: { row: Row<Subscription> }) => (
+            <span>
+              {row.original.planName}
+              {row.original.usageFilter && (
+                <span className="ml-2 text-xs text-muted-foreground">
+                  {formatUsageFilter(row.original.usageFilter)}
+                </span>
+              )}
+            </span>
+          ),
         },
 
         {
@@ -84,7 +110,9 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
           id: 'status',
           header: 'Status',
           enableSorting: true,
-          cell: ({ row }: { row: Row<Subscription> }) => <SubscriptionStatusBadge status={row.original.status} />,
+          cell: ({ row }: { row: Row<Subscription> }) => (
+            <SubscriptionStatusBadge status={row.original.status} />
+          ),
         },
         {
           header: 'Currency',
@@ -98,8 +126,17 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
     [hideCustomer, hidePlan, formatAmount]
   )
 
+  // Custom-property columns are opt-in via the view menu, which only exists when the table
+  // has a `tableKey` (persisted visibility). Skip them on embedded, keyless lists.
+  const columns = useMemo(
+    () => (tableKey ? withCustomPropertyColumns(baseColumns, customPropertyColumns) : baseColumns),
+    [baseColumns, customPropertyColumns, tableKey]
+  )
+
   return (
     <StandardTable
+      tableKey={tableKey}
+      columnState={columnState}
       columns={columns}
       data={data}
       sortable={true}
@@ -109,8 +146,9 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
       setPagination={setPagination}
       totalCount={totalCount}
       isLoading={isLoading}
+      defaultHidden={tableKey ? customPropertyHiddenIds : undefined}
       rowLink={row => `${basePath}/subscriptions/${row.original.id}`}
+      chart={chart}
     />
   )
 }
-

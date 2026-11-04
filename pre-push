@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# Pre-push hook to prevent pushing directly to main branch
+# Bypass with: ALLOW_MAIN=1 git push
+
+protected_branch="main"
+
+# Allow bypass
+if [[ "$ALLOW_MAIN" == "1" ]]; then
+    exit 0
+fi
+
+# Check if we're pushing to the protected branch
+while read local_ref local_sha remote_ref remote_sha
+do
+    if [[ "$remote_ref" == "refs/heads/$protected_branch" ]]; then
+        echo "🚫 Direct push to '$protected_branch' is not allowed."
+        echo "   Please create a pull request instead."
+        echo "   Bypass with: ALLOW_MAIN=1 git push"
+        exit 1
+    fi
+done
+
+exit 0

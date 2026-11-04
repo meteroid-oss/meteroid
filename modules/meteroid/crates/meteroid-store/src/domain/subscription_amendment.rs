@@ -115,6 +115,10 @@ pub struct AmendmentPreviewExtended {
     pub credit_note: Option<ComputedInvoiceContent>,
     /// The next renewal invoice under the amended subscription.
     pub next_invoice: Option<ComputedInvoiceContent>,
+    /// Dated on the change, up to where its last prorated stub ends.
+    pub adjustment_period: Option<crate::domain::Period>,
+    /// The subscription as the amendment leaves it, the next invoice billing its period's end.
+    pub subscription_after: crate::domain::Subscription,
 }
 
 #[derive(Debug, Clone)]

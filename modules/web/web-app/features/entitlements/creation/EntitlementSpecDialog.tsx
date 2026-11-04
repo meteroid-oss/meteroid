@@ -4,8 +4,6 @@
  * to the caller via onAdd. No API calls — specs are resolved later in batch by resolveEntitlementSpecs.
  */
 import { EntitlementDialog, EntitlementFormValues } from '@/features/entitlements/EntitlementDialog'
-import { useQuery } from '@/lib/connectrpc'
-import { listFeatures } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 
 import type { PendingEntitlementSpec } from './types'
 
@@ -18,9 +16,6 @@ interface Props {
 }
 
 export function EntitlementSpecDialog({ open, onOpenChange, onAdd, initialSpec, existingEntitlements }: Props) {
-  const featuresQuery = useQuery(listFeatures, { pagination: { page: 0, perPage: 100 }, statuses: [] })
-  const features = featuresQuery.data?.features ?? []
-
   const isEdit = initialSpec !== undefined
 
   const existingFeatureIds = new Set(
@@ -32,7 +27,7 @@ export function EntitlementSpecDialog({ open, onOpenChange, onAdd, initialSpec, 
       ? {
           id: initialSpec.featureId,
           name: initialSpec.featureDisplayName,
-          isMetered: initialSpec.featureType === 'metered',
+          featureType: initialSpec.featureType,
         }
       : undefined
 
@@ -49,13 +44,27 @@ export function EntitlementSpecDialog({ open, onOpenChange, onAdd, initialSpec, 
         resetUnit: initialSpec.resetUnit,
         resetInterval: initialSpec.resetInterval,
         meteredEnabled: initialSpec.meteredEnabled,
+        groupBy: initialSpec.groupBy,
+        overageType: initialSpec.overageType,
+        gracePct: initialSpec.gracePct,
+        thresholds: initialSpec.thresholds,
+        configKind: initialSpec.configKind,
+        configNumber: initialSpec.configNumber,
+        configBoolean: initialSpec.configBoolean,
+        configText: initialSpec.configText,
+        configJson: initialSpec.configJson,
+        configEntries: initialSpec.configEntries,
+        configOptions: initialSpec.configOptions,
       }
     : undefined
 
   const handleSubmit = (data: EntitlementFormValues) => {
-    const selectedFeature = features.find(f => f.id === data.featureId)
     const featureDisplayName =
-      data.featureName ?? selectedFeature?.name ?? data.featureId ?? ''
+      data.featureName ??
+      data.selectedFeature?.name ??
+      (isEdit ? initialSpec.featureDisplayName : undefined) ??
+      data.featureId ??
+      ''
 
     onAdd({
       featureId: data.featureId,
@@ -70,8 +79,19 @@ export function EntitlementSpecDialog({ open, onOpenChange, onAdd, initialSpec, 
       resetUnit: data.resetUnit,
       resetInterval: data.resetInterval,
       meteredEnabled: data.meteredEnabled,
-      productId: selectedFeature?.product?.id,
-      productName: selectedFeature?.product?.name,
+      groupBy: data.groupBy?.trim() || undefined,
+      overageType: data.overageType,
+      gracePct: data.gracePct,
+      thresholds: data.thresholds,
+      configKind: data.configKind,
+      configNumber: data.configNumber,
+      configBoolean: data.configBoolean,
+      configText: data.configText,
+      configJson: data.configJson,
+      configEntries: data.configEntries,
+      configOptions: data.configOptions,
+      productId: data.selectedFeature?.product?.id ?? (isEdit ? initialSpec.productId : undefined),
+      productName: data.selectedFeature?.product?.name ?? (isEdit ? initialSpec.productName : undefined),
     })
   }
 

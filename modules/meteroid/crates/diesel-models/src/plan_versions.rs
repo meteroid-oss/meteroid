@@ -3,6 +3,8 @@ use chrono::NaiveDateTime;
 use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
+use crate::enums::CreditExhaustedRuleEnum;
+
 #[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::plan_version)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
@@ -21,6 +23,11 @@ pub struct PlanVersionRow {
     pub trialing_plan_id: Option<PlanId>,
     pub trial_is_free: bool,
     pub uses_product_pricing: bool,
+    pub tax_inclusive: bool,
+    /// Unset on a draft whose rule was not chosen yet; publishing sets the default.
+    pub credit_exhausted_rule: Option<CreditExhaustedRuleEnum>,
+    /// With `InvoiceUpTo`: denomination code to minor units invoiced beyond credit per period.
+    pub credit_exhausted_caps: serde_json::Value,
 }
 
 #[derive(Debug, Insertable, Default)]
@@ -40,6 +47,11 @@ pub struct PlanVersionRowNew {
     pub trialing_plan_id: Option<PlanId>,
     pub trial_is_free: bool,
     pub uses_product_pricing: bool,
+    pub tax_inclusive: bool,
+    /// Unset on a draft whose rule was not chosen yet; publishing sets the default.
+    pub credit_exhausted_rule: Option<CreditExhaustedRuleEnum>,
+    /// With `InvoiceUpTo`: denomination code to minor units invoiced beyond credit per period.
+    pub credit_exhausted_caps: serde_json::Value,
 }
 
 #[derive(Debug, Queryable, Identifiable, Selectable)]
@@ -75,6 +87,9 @@ pub struct PlanVersionRowPatch {
     pub tenant_id: TenantId,
     pub currency: Option<String>,
     pub net_terms: Option<i32>,
+    pub tax_inclusive: Option<bool>,
+    pub credit_exhausted_rule: Option<CreditExhaustedRuleEnum>,
+    pub credit_exhausted_caps: Option<serde_json::Value>,
 }
 
 #[derive(Debug, AsChangeset)]

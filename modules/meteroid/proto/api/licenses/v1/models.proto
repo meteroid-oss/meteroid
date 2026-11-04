@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package meteroid.api.licenses.v1;
+
+enum LicenseStatus {
+  LICENSE_STATUS_PENDING = 0;
+  LICENSE_STATUS_ACTIVE = 1;
+  LICENSE_STATUS_REVOKED = 2;
+}
+
+message License {
+  string id = 1;
+  string customer_id = 2;
+  string customer_name = 3;
+  optional string subscription_id = 4;
+  optional string plan_name = 5;
+  // PENDING: not activated yet. ACTIVE: bound to an instance and refreshing, or issued offline.
+  LicenseStatus status = 6;
+  // Issued automatically for a subscription to a plan that issues licenses.
+  bool auto_issued = 7;
+  optional string instance_id = 8;
+  uint32 validity_days = 9;
+  optional string last_refreshed_at = 10;
+  string created_at = 11;
+  optional string revoked_at = 12;
+  // The installation's key, which signs its requests and usage files.
+  optional string instance_public_key = 13;
+  // Issued as a signed offline license: never activated nor refreshed.
+  bool offline = 14;
+  // Another copy of the installation, refused in the last day while this one kept refreshing:
+  // a clone, or a staging copy of production.
+  optional OtherCopy other_copy = 15;
+}
+
+message OtherCopy {
+  // When it started asking for the license.
+  string since = 1;
+  string last_seen_at = 2;
+  // The public URL it reported.
+  optional string public_url = 3;
+}
+
+message SigningKey {
+  string kid = 1;
+  string public_key_pem = 2;
+  string created_at = 3;
+  // Retired keys still verify the licenses they signed.
+  optional string retired_at = 4;
+}
+
+message LicensingEndpoints {
+  string jwks_url = 1;
+  string activate_url = 2;
+  string refresh_url = 3;
+  string events_url = 4;
+}

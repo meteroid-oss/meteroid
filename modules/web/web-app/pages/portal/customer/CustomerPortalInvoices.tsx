@@ -94,7 +94,10 @@ export const CustomerPortalInvoices = () => {
                   variant={getInvoicePaymentStatusVariant(invoice.paymentStatus)}
                   className="text-xs"
                 >
-                  {getInvoicePaymentStatusLabel(invoice.paymentStatus)}
+                  {invoice.paymentStatus === InvoicePaymentStatus.PAID &&
+                  invoice.settledByCreditNotes
+                    ? 'Credited'
+                    : getInvoicePaymentStatusLabel(invoice.paymentStatus)}
                 </Badge>
               </div>
               {invoice.planName && <div className="text-gray-500 text-xs">{invoice.planName}</div>}

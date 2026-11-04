@@ -7,10 +7,14 @@ import "api/customers/v1/models.proto";
 import "api/invoices/v1/models.proto";
 import "api/connectors/v1/models.proto";
 import "api/bankaccounts/v1/models.proto";
+import "portal/wallets/v1/models.proto";
 
 
 
 message Checkout {
+  optional string top_up_currency = 27;
+  // A top-up of a credit unit wallet: the credits it buys.
+  optional TopUpCredits top_up_credits = 31;
   api.subscriptions.v1.SubscriptionDetails subscription = 1;
   api.customers.v1.Customer customer = 2;
   repeated api.customers.v1.CustomerPaymentMethod payment_methods = 3;
@@ -19,6 +23,9 @@ message Checkout {
   uint64 tax_amount = 12;
   uint64 discount_amount = 13;
   uint64 coupon_amount = 16;     // Total from applied coupons
+  // Promotional credit drawn before tax, in the figures the lines are quoted in (tax included
+  // on a tax-inclusive subscription).
+  uint64 promotional_credits = 28;
   uint64 total_amount = 8;
   uint64 applied_credits = 20;   // Credits from customer balance applied to this invoice
   uint64 amount_due = 21;        // Actual amount to charge (total - applied_credits)
@@ -28,6 +35,10 @@ message Checkout {
   string trade_name = 11;
   optional string card_connection_id = 17;
   optional string direct_debit_connection_id = 18;
+  // Capabilities of the provider behind each rail, so the page knows before minting anything
+  // whether a rail is a hosted redirect or an embedded form.
+  optional api.connectors.v1.PaymentProviderCapabilities card_capabilities = 25;
+  optional api.connectors.v1.PaymentProviderCapabilities direct_debit_capabilities = 26;
   optional api.bankaccounts.v1.BankAccount bank_account = 19;
   // Portal theme/branding from the invoicing entity (inheriting unset values
   // from the tenant default entity), so checkout themes like the portal.
@@ -36,7 +47,32 @@ message Checkout {
   optional string theme_mode = 23;
   // "Sharp" | "Modern" | "Rounded".
   optional string roundness = 24;
-  bool require_billing_information = 25;
+  // The minimum commitment the next invoice will bill at least, net of the coupons that will
+  // still apply to it. Unset when the subscription has no minimum.
+  optional uint64 next_invoice_minimum = 29;
+  // Promo codes that add credit instead of discounting: funded once the subscription starts.
+  repeated PromotionalCreditCoupon credit_coupons = 30;
+  // False when the merchant's plan includes white-label.
+  bool show_powered_by = 32;
+  // The invoicing entity requires a billing email and a complete billing address (line 1,
+  // city, postal code, country) before the checkout completes.
+  bool require_billing_information = 33;
+}
+
+message TopUpCredits {
+  // Minor units of `credit_unit.precision`.
+  int64 amount = 1;
+  meteroid.portal.wallets.v1.CreditUnitLabel credit_unit = 2;
+}
+
+message PromotionalCreditCoupon {
+  string coupon_code = 1;
+  string coupon_name = 2;
+  // Minor units of `currency`.
+  uint64 amount = 3;
+  string currency = 4;
+  // The credit expires this many days after it is added; unset when it never expires.
+  optional uint32 expires_in_days = 5;
 }
 
 message TaxBreakdownItem {

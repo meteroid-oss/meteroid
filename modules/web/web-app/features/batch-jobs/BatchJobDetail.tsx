@@ -140,7 +140,7 @@ export const BatchJobDetail: FunctionComponent<BatchJobDetailProps> = ({ jobId, 
         queryKey: createConnectQueryKey({
           schema: getBatchJob,
           input: { jobId: jobId },
-          cardinality: 'finite',
+          cardinality: 'finite'
         }),
       })
       toast.success('Job cancelled')
@@ -155,12 +155,10 @@ export const BatchJobDetail: FunctionComponent<BatchJobDetailProps> = ({ jobId, 
     onSuccess: async res => {
       await new Promise(resolve => setTimeout(resolve, 1000))
 
-      await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey({
-          schema: getBatchJob.parent,
-          cardinality: undefined,
-        }),
-      })
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
+        schema: getBatchJob.parent,
+        cardinality: undefined
+      }) })
       hasRetried.current = true
       toast.success(`Retrying ${res.retriedChunks} batch(es)`)
     },
@@ -553,7 +551,7 @@ export const BatchJobDetail: FunctionComponent<BatchJobDetailProps> = ({ jobId, 
             <AlertDialogCancel>Keep Running</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => cancelMut.mutate({ jobId })}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
             >
               Cancel Job
             </AlertDialogAction>

@@ -226,6 +226,7 @@ export const MrrChart = ({
           serie={serie}
           interval="All"
           containerRef={containerRef}
+          marginLeft={50}
           tooltip={{
             format: 'currency',
             labels: seriesLabels,

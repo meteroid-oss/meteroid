@@ -12,34 +12,63 @@ fn main() -> Result<(), Report<BuildError>> {
 
 fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
     let services = vec![
+        "activation",
         "activity",
         "addons",
+        "alerts",
+        "analytics",
         "apitokens",
+        "customproperties",
         "bankaccounts",
         "batchjobs",
         "billablemetrics",
+        "budgets",
+        "connect",
         "connectors",
+        "consolidation",
+        "creditunits",
         "entitlements",
         "customers",
         "coupons",
         "creditnotes",
+        "customeremails",
+        "domains",
         "events",
+        "eventinsights",
+        "features",
         "instance",
         "invoices",
+        "invoiceannextemplates",
+        "licenses",
+        "licensing",
+        "listviews",
         "invoicingentities",
         "organizations",
+        "paymentreminders",
         "plans",
         "pricecomponents",
         "prices",
+        "notifications",
         "productfamilies",
         "products",
+        "purchaselinks",
         "quotes",
+        "rbac",
+        "savedviews",
         "schedules",
+        "security",
+        "segments",
+        "signals",
+        "sso",
         "stats",
         "subscriptions",
+        "targets",
         "taxes",
+        "taxreports",
         "tenants",
         "users",
+        "walletcontrols",
+        "wallets",
         "webhooksout",
     ];
 
@@ -53,20 +82,28 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
             println!("cargo:rerun-if-changed={}", models_path.display());
         }
     }
-    // Admin protos (platform admin, separate from tenant-scoped API)
-    proto_files.push(root.join("proto/admin/deadletter/v1/deadletter.proto"));
-
     // Internal service-to-service protos
     proto_files.push(root.join("proto/internal/v1/internal.proto"));
     proto_files.push(root.join("proto/portal/checkout/v1/checkout.proto"));
+    proto_files.push(root.join("proto/portal/purchase/v1/purchase.proto"));
     proto_files.push(root.join("proto/portal/invoice/v1/invoice.proto"));
     proto_files.push(root.join("proto/portal/shared/v1/shared.proto"));
     proto_files.push(root.join("proto/portal/customer/v1/customer.proto"));
     proto_files.push(root.join("proto/portal/quotes/v1/quotes.proto"));
     proto_files.push(root.join("proto/portal/subscription/v1/subscription.proto"));
+    proto_files.push(root.join("proto/portal/dashboard/v1/dashboard.proto"));
+    proto_files.push(root.join("proto/portal/wallets/v1/wallets.proto"));
+    proto_files.push(root.join("proto/portal/walletcontrols/v1/walletcontrols.proto"));
+    proto_files.push(root.join("proto/portal/budgets/v1/budgets.proto"));
 
     for proto_file in &proto_files {
         println!("cargo:rerun-if-changed={}", proto_file.display());
+        // Watch the sibling models.proto imported by each service proto, so edits
+        // to message definitions (not just the service file) retrigger codegen.
+        let models_path = proto_file.with_file_name("models.proto");
+        if models_path != *proto_file && models_path.exists() {
+            println!("cargo:rerun-if-changed={}", models_path.display());
+        }
     }
 
     let out_dir = PathBuf::from(
@@ -88,7 +125,6 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         .compile_protos(
             &proto_files,
             &[
-                root.to_path_buf(),
                 root.join("proto"),
                 root.join("../../crates/common-grpc/proto"),
             ],

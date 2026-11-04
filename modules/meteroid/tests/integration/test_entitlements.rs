@@ -1,13 +1,14 @@
 use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
-use meteroid::api::shared::conversions::ProtoConv;
+use meteroid_app::conversions::ProtoConv;
 use meteroid_grpc::meteroid::api::entitlements::v1::{
     CreateEntitlementRequest, CreateFeatureRequest, DeleteEntitlementRequest, EntitlementEntity,
     EntitlementValue, FeatureStatus, FeatureType, GetEffectiveEntitlementsRequest,
-    GetEntitlementRequest, GetFeatureRequest, ListEntitlementsByFeatureRequest,
-    ListFeaturesRequest, ResolvedOrigin, SetFeatureStatusRequest, UpdateEntitlementRequest,
-    UpdateFeatureRequest, entitlement_entity, entitlement_value, feature_type,
+    GetEntitlementRequest, GetFeatureCodeHolderRequest, GetFeatureRequest,
+    ListEntitlementsByEntityRequest, ListEntitlementsByFeatureRequest, ListFeaturesRequest,
+    OverageBehavior, ResolvedOrigin, SetFeatureStatusRequest, UpdateEntitlementRequest,
+    UpdateFeatureRequest, entitlement_entity, entitlement_value, feature_type, overage_behavior,
 };
 use meteroid_grpc::meteroid::api::subscriptions::v1 as sub_api;
 
@@ -16,7 +17,8 @@ use crate::data::ids;
 #[tokio::test]
 async fn test_features_crud() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::MINIMAL).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
@@ -84,6 +86,8 @@ async fn test_features_crud() {
             description: None,
             product_id: None,
             clear_product_id: false,
+            config_options: vec![],
+            update_config_options: false,
         })
         .await
         .unwrap()
@@ -110,57 +114,96 @@ async fn test_features_crud() {
     assert_eq!(listed.features.len(), 1);
     assert_eq!(listed.features[0].id, created.id);
 
-    // disable (kill-switch — feature stays visible but is filtered out by Active filter)
+    // an entity's entitlements come with their features, each once
     clients
         .entitlements
         .clone()
-        .set_feature_status(SetFeatureStatusRequest {
-            id: created.id.clone(),
-            status: FeatureStatus::Disabled.into(),
+        .create_entitlement(CreateEntitlementRequest {
+            feature_id: created.id.clone(),
+            entity: Some(EntitlementEntity {
+                entity_id: Some(entitlement_entity::EntityId::FeatureId(created.id.clone())),
+            }),
+            value: Some(EntitlementValue {
+                value: Some(entitlement_value::Value::BooleanValue(
+                    entitlement_value::BooleanValue { enabled: true },
+                )),
+            }),
         })
         .await
         .unwrap();
-
-    let listed_active_after_disable = clients
-        .entitlements
-        .clone()
-        .list_features(ListFeaturesRequest {
-            pagination: None,
-            statuses: vec![FeatureStatus::Active as i32],
-            search: None,
-            product_id: None,
-        })
-        .await
-        .unwrap()
-        .into_inner();
-    assert!(listed_active_after_disable.features.is_empty());
-
-    let listed_disabled = clients
-        .entitlements
-        .clone()
-        .list_features(ListFeaturesRequest {
-            pagination: None,
-            statuses: vec![FeatureStatus::Disabled as i32],
-            search: None,
-            product_id: None,
-        })
-        .await
-        .unwrap()
-        .into_inner();
-    assert_eq!(listed_disabled.features.len(), 1);
+    let features_listed_with_entitlements = || {
+        let mut client = clients.entitlements.clone();
+        let id = created.id.clone();
+        async move {
+            client
+                .list_entitlements_by_entity(ListEntitlementsByEntityRequest {
+                    entity: Some(EntitlementEntity {
+                        entity_id: Some(entitlement_entity::EntityId::FeatureId(id)),
+                    }),
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .features
+                .into_iter()
+                .map(|f| (f.id, f.status))
+                .collect::<Vec<_>>()
+        }
+    };
     assert_eq!(
-        listed_disabled.features[0].status,
-        FeatureStatus::Disabled as i32
+        features_listed_with_entitlements().await,
+        vec![(created.id.clone(), FeatureStatus::Active as i32)]
     );
 
-    // re-activate — Disabled → Active round-trip
-    clients
-        .entitlements
-        .clone()
-        .set_feature_status(SetFeatureStatusRequest {
-            id: created.id.clone(),
-            status: FeatureStatus::Active.into(),
-        })
+    let set_status = |id: String, status: FeatureStatus| {
+        let mut client = clients.entitlements.clone();
+        async move {
+            client
+                .set_feature_status(SetFeatureStatusRequest {
+                    id,
+                    status: status.into(),
+                })
+                .await
+        }
+    };
+    let listed_ids = |statuses: Vec<FeatureStatus>| {
+        let mut client = clients.entitlements.clone();
+        async move {
+            client
+                .list_features(ListFeaturesRequest {
+                    pagination: None,
+                    statuses: statuses.into_iter().map(Into::into).collect(),
+                    search: None,
+                    product_id: None,
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .features
+                .into_iter()
+                .map(|f| f.id)
+                .collect::<Vec<_>>()
+        }
+    };
+
+    // disable (kill-switch — the feature stays listed by default)
+    set_status(created.id.clone(), FeatureStatus::Disabled)
+        .await
+        .unwrap();
+    assert_eq!(listed_ids(vec![]).await, vec![created.id.clone()]);
+    assert_eq!(
+        listed_ids(vec![FeatureStatus::Disabled]).await,
+        vec![created.id.clone()]
+    );
+    assert!(listed_ids(vec![FeatureStatus::Active]).await.is_empty());
+    assert_eq!(
+        features_listed_with_entitlements().await,
+        vec![(created.id.clone(), FeatureStatus::Disabled as i32)],
+        "a disabled feature still comes with its entitlements"
+    );
+
+    // re-enable
+    set_status(created.id.clone(), FeatureStatus::Active)
         .await
         .unwrap();
     let reactivated = clients
@@ -176,58 +219,103 @@ async fn test_features_crud() {
         .unwrap();
     assert_eq!(reactivated.status, FeatureStatus::Active as i32);
 
-    // archive
-    clients
-        .entitlements
-        .clone()
-        .set_feature_status(SetFeatureStatusRequest {
-            id: created.id.clone(),
-            status: FeatureStatus::Archived.into(),
-        })
+    // archive: excluded from the default listing, visible when requested
+    set_status(created.id.clone(), FeatureStatus::Archived)
         .await
         .unwrap();
-
-    // archived features excluded from Active filter
-    let listed_after_archive = clients
-        .entitlements
-        .clone()
-        .list_features(ListFeaturesRequest {
-            pagination: None,
-            statuses: vec![FeatureStatus::Active as i32],
-            search: None,
-            product_id: None,
-        })
-        .await
-        .unwrap()
-        .into_inner();
-
-    assert!(listed_after_archive.features.is_empty());
-
-    // archived features visible when requested
-    let listed_archived = clients
-        .entitlements
-        .clone()
-        .list_features(ListFeaturesRequest {
-            pagination: None,
-            statuses: vec![FeatureStatus::Archived as i32],
-            search: None,
-            product_id: None,
-        })
-        .await
-        .unwrap()
-        .into_inner();
-
-    assert_eq!(listed_archived.features.len(), 1);
+    assert!(listed_ids(vec![]).await.is_empty());
+    assert!(listed_ids(vec![FeatureStatus::Active]).await.is_empty());
     assert_eq!(
-        listed_archived.features[0].status,
-        FeatureStatus::Archived as i32
+        listed_ids(vec![FeatureStatus::Archived]).await,
+        vec![created.id.clone()]
+    );
+    let archived = clients
+        .entitlements
+        .clone()
+        .get_feature(GetFeatureRequest {
+            id: created.id.clone(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .feature
+        .unwrap();
+    assert!(
+        archived.entitlement.is_some(),
+        "an archived feature still reads with its default, as in the list"
+    );
+
+    let code_holder = |id: String| {
+        let mut client = clients.entitlements.clone();
+        async move {
+            client
+                .get_feature_code_holder(GetFeatureCodeHolderRequest { id })
+                .await
+                .unwrap()
+                .into_inner()
+                .holder
+                .map(|f| f.id)
+        }
+    };
+    assert_eq!(code_holder(created.id.clone()).await, None);
+
+    // archiving releases the code
+    let reused = clients
+        .entitlements
+        .clone()
+        .create_feature(CreateFeatureRequest {
+            name: "api-access-v3".into(),
+            code: created.code.clone(),
+            description: None,
+            product_id: None,
+            feature_type: Some(FeatureType {
+                inner: Some(feature_type::Inner::Boolean(
+                    feature_type::BooleanFeature {},
+                )),
+            }),
+            entitlement: None,
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .feature
+        .unwrap();
+    assert_ne!(reused.id, created.id);
+    assert_eq!(
+        code_holder(created.id.clone()).await,
+        Some(reused.id.clone()),
+        "the new feature holds the archived feature's code"
+    );
+
+    // restoring fails while another feature holds the code
+    let blocked = set_status(created.id.clone(), FeatureStatus::Active)
+        .await
+        .unwrap_err();
+    assert_eq!(blocked.code(), tonic::Code::FailedPrecondition);
+    assert!(
+        blocked.message().contains("api-access-v3"),
+        "names the feature holding the code: {blocked:?}"
+    );
+
+    set_status(reused.id.clone(), FeatureStatus::Archived)
+        .await
+        .unwrap();
+    set_status(created.id.clone(), FeatureStatus::Active)
+        .await
+        .expect("restores once the code is free");
+    assert_eq!(listed_ids(vec![]).await, vec![created.id.clone()]);
+    assert_eq!(
+        code_holder(created.id.clone()).await,
+        None,
+        "an active feature has no holder"
     );
 }
 
 #[tokio::test]
 async fn test_entitlements_crud() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
@@ -279,6 +367,8 @@ async fn test_entitlements_crud() {
                         limit: Some("100".into()),
                         reset_period: None,
                         enabled: true,
+                        group_by: None,
+                        ..Default::default()
                     },
                 )),
             }),
@@ -337,6 +427,8 @@ async fn test_entitlements_crud() {
                         limit: Some("500".into()),
                         reset_period: None,
                         enabled: true,
+                        group_by: None,
+                        ..Default::default()
                     },
                 )),
             }),
@@ -379,7 +471,8 @@ async fn test_entitlements_crud() {
 #[tokio::test]
 async fn test_get_effective_entitlements() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
@@ -392,7 +485,7 @@ async fn test_get_effective_entitlements() {
     );
 
     // create a subscription for Spotify on the Notion plan
-    let now = chrono::offset::Local::now().date_naive();
+    let now = chrono::Utc::now().date_naive();
     clients
         .subscriptions
         .clone()
@@ -461,6 +554,8 @@ async fn test_get_effective_entitlements() {
                         limit: Some("1000".into()),
                         reset_period: None,
                         enabled: true,
+                        group_by: None,
+                        ..Default::default()
                     },
                 )),
             }),
@@ -485,6 +580,8 @@ async fn test_get_effective_entitlements() {
                         limit: Some("5000".into()),
                         reset_period: None,
                         enabled: true,
+                        group_by: None,
+                        ..Default::default()
                     },
                 )),
             }),
@@ -521,7 +618,8 @@ async fn test_get_effective_entitlements() {
 #[tokio::test]
 async fn test_create_feature_with_entitlement() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
@@ -594,6 +692,355 @@ async fn test_create_feature_with_entitlement() {
     assert_eq!(listed[0].id, entitlement.id);
 }
 
+fn metered_grouped(limit: &str, group_by: Option<&str>) -> Option<EntitlementValue> {
+    Some(EntitlementValue {
+        value: Some(entitlement_value::Value::MeteredValue(
+            entitlement_value::MeteredValue {
+                limit: Some(limit.into()),
+                reset_period: None,
+                enabled: true,
+                group_by: group_by.map(str::to_owned),
+                ..Default::default()
+            },
+        )),
+    })
+}
+
+fn grouped_by(
+    entitlement: &meteroid_grpc::meteroid::api::entitlements::v1::Entitlement,
+) -> Option<String> {
+    match entitlement.value.clone().and_then(|v| v.value) {
+        Some(entitlement_value::Value::MeteredValue(m)) => m.group_by,
+        other => panic!("expected a metered value, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_entitlement_group_by_is_written_and_read_through_grpc() {
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup =
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
+    let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
+    let clients = meteroid_it::clients::AllClients::from_channel(
+        setup.channel.clone(),
+        auth.token.clone().as_str(),
+        "TESTORG",
+        "testslug",
+    );
+
+    let feature = clients
+        .entitlements
+        .clone()
+        .create_feature(CreateFeatureRequest {
+            name: "api calls per key".into(),
+            code: "api_calls_per_key".into(),
+            description: None,
+            product_id: None,
+            feature_type: Some(FeatureType {
+                inner: Some(feature_type::Inner::Metered(feature_type::MeteredFeature {
+                    metric_id: ids::METRIC_BANDWIDTH.as_proto(),
+                })),
+            }),
+            entitlement: None,
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .feature
+        .unwrap();
+
+    let created = clients
+        .entitlements
+        .clone()
+        .create_entitlement(CreateEntitlementRequest {
+            feature_id: feature.id.clone(),
+            entity: entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto()),
+            value: metered_grouped("100", Some("api_key")),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .entitlement
+        .unwrap();
+    assert_eq!(grouped_by(&created).as_deref(), Some("api_key"));
+
+    let fetched = clients
+        .entitlements
+        .clone()
+        .get_entitlement(GetEntitlementRequest {
+            id: created.id.clone(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .entitlement
+        .unwrap();
+    assert_eq!(grouped_by(&fetched).as_deref(), Some("api_key"));
+
+    let listed = clients
+        .entitlements
+        .clone()
+        .list_entitlements_by_feature(ListEntitlementsByFeatureRequest {
+            feature_id: feature.id.clone(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .entitlements;
+    assert_eq!(grouped_by(&listed[0]).as_deref(), Some("api_key"));
+
+    let update = |value| {
+        let mut client = clients.entitlements.clone();
+        let id = created.id.clone();
+        async move {
+            client
+                .update_entitlement(UpdateEntitlementRequest { id, value })
+                .await
+        }
+    };
+
+    let raised = update(metered_grouped("500", Some("api_key")))
+        .await
+        .unwrap()
+        .into_inner()
+        .entitlement
+        .unwrap();
+    assert_eq!(
+        grouped_by(&raised).as_deref(),
+        Some("api_key"),
+        "an edit that keeps the property does not clear it"
+    );
+
+    let regrouped = update(metered_grouped("500", Some("tenant")))
+        .await
+        .unwrap()
+        .into_inner()
+        .entitlement
+        .unwrap();
+    assert_eq!(grouped_by(&regrouped).as_deref(), Some("tenant"));
+
+    let ungrouped = update(metered_grouped("500", None))
+        .await
+        .unwrap()
+        .into_inner()
+        .entitlement
+        .unwrap();
+    assert_eq!(grouped_by(&ungrouped), None);
+
+    let invalid = update(metered_grouped("500", Some("a,b")))
+        .await
+        .unwrap_err();
+    assert_eq!(invalid.code(), tonic::Code::InvalidArgument);
+    let blank = update(metered_grouped("500", Some(" "))).await.unwrap_err();
+    assert_eq!(blank.code(), tonic::Code::InvalidArgument);
+}
+
+fn metered_policy(
+    limit: &str,
+    overage: Option<overage_behavior::Inner>,
+    warning_threshold_pct: Option<u32>,
+) -> Option<EntitlementValue> {
+    Some(EntitlementValue {
+        value: Some(entitlement_value::Value::MeteredValue(
+            entitlement_value::MeteredValue {
+                limit: Some(limit.into()),
+                enabled: true,
+                overage_behavior: overage.map(|inner| OverageBehavior { inner: Some(inner) }),
+                warning_threshold_pct,
+                ..Default::default()
+            },
+        )),
+    })
+}
+
+fn block(grace_period_pct: Option<u32>) -> Option<overage_behavior::Inner> {
+    Some(overage_behavior::Inner::Block(overage_behavior::Block {
+        grace_period_pct,
+    }))
+}
+
+fn policy_of(
+    entitlement: &meteroid_grpc::meteroid::api::entitlements::v1::Entitlement,
+) -> (Option<overage_behavior::Inner>, Option<u32>) {
+    match entitlement.value.clone().and_then(|v| v.value) {
+        Some(entitlement_value::Value::MeteredValue(m)) => (
+            m.overage_behavior.and_then(|o| o.inner),
+            m.warning_threshold_pct,
+        ),
+        other => panic!("expected a metered value, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_entitlement_overage_policy_round_trips_through_grpc() {
+    use meteroid_grpc::meteroid::api::entitlements::v1::{
+        GetResolvedForPlanVersionRequest, resolved_entitlement,
+    };
+
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup =
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
+    let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
+    let clients = meteroid_it::clients::AllClients::from_channel(
+        setup.channel.clone(),
+        auth.token.clone().as_str(),
+        "TESTORG",
+        "testslug",
+    );
+
+    let feature = clients
+        .entitlements
+        .clone()
+        .create_feature(CreateFeatureRequest {
+            name: "seats".into(),
+            code: "seats".into(),
+            description: None,
+            product_id: None,
+            feature_type: Some(FeatureType {
+                inner: Some(feature_type::Inner::Metered(feature_type::MeteredFeature {
+                    metric_id: ids::METRIC_BANDWIDTH.as_proto(),
+                })),
+            }),
+            entitlement: None,
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .feature
+        .unwrap();
+
+    let created = clients
+        .entitlements
+        .clone()
+        .create_entitlement(CreateEntitlementRequest {
+            feature_id: feature.id.clone(),
+            entity: entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto()),
+            value: metered_policy("100", block(Some(25)), Some(80)),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .entitlement
+        .unwrap();
+    assert_eq!(policy_of(&created), (block(Some(25)), Some(80)));
+
+    let fetched = clients
+        .entitlements
+        .clone()
+        .get_entitlement(GetEntitlementRequest {
+            id: created.id.clone(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .entitlement
+        .unwrap();
+    assert_eq!(policy_of(&fetched), (block(Some(25)), Some(80)));
+
+    let resolved = clients
+        .entitlements
+        .clone()
+        .get_resolved_entitlements_for_plan_version(GetResolvedForPlanVersionRequest {
+            plan_version_id: ids::PLAN_VERSION_NOTION_ID.as_proto(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .entitlements;
+    let Some(resolved_entitlement::Value::Metered(metered)) = resolved
+        .iter()
+        .find(|r| r.feature.as_ref().map(|f| f.id.as_str()) == Some(feature.id.as_str()))
+        .and_then(|r| r.value.clone())
+    else {
+        panic!("expected the seats entitlement to resolve as metered");
+    };
+    assert_eq!(
+        metered.overage_behavior.and_then(|o| o.inner),
+        block(Some(25))
+    );
+    assert_eq!(metered.warning_threshold_pct, Some(80));
+
+    let update = |value| {
+        let mut client = clients.entitlements.clone();
+        let id = created.id.clone();
+        async move {
+            client
+                .update_entitlement(UpdateEntitlementRequest { id, value })
+                .await
+        }
+    };
+
+    let raised = update(metered_policy("500", block(Some(25)), Some(80)))
+        .await
+        .unwrap()
+        .into_inner()
+        .entitlement
+        .unwrap();
+    assert_eq!(
+        policy_of(&raised),
+        (block(Some(25)), Some(80)),
+        "an edit that resends the policy does not reset it"
+    );
+
+    let allowed = update(metered_policy(
+        "500",
+        Some(overage_behavior::Inner::Allow(overage_behavior::Allow {})),
+        None,
+    ))
+    .await
+    .unwrap()
+    .into_inner()
+    .entitlement
+    .unwrap();
+    assert_eq!(
+        policy_of(&allowed),
+        (
+            Some(overage_behavior::Inner::Allow(overage_behavior::Allow {})),
+            None
+        )
+    );
+
+    let defaulted = update(metered_policy("500", None, None))
+        .await
+        .unwrap()
+        .into_inner()
+        .entitlement
+        .unwrap();
+    assert_eq!(policy_of(&defaulted), (block(None), None));
+
+    for invalid in [
+        metered_policy("500", block(Some(0)), None),
+        metered_policy("500", block(Some(1001)), None),
+        metered_policy("500", None, Some(0)),
+        metered_policy("500", None, Some(101)),
+        metered_policy(
+            "500",
+            Some(overage_behavior::Inner::Allow(overage_behavior::Allow {})),
+            Some(101),
+        ),
+    ] {
+        let status = update(invalid).await.unwrap_err();
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    }
+    let missing_variant = update(Some(EntitlementValue {
+        value: Some(entitlement_value::Value::MeteredValue(
+            entitlement_value::MeteredValue {
+                limit: Some("500".into()),
+                enabled: true,
+                overage_behavior: Some(OverageBehavior { inner: None }),
+                ..Default::default()
+            },
+        )),
+    }))
+    .await
+    .unwrap_err();
+    assert_eq!(missing_variant.code(), tonic::Code::InvalidArgument);
+}
+
 // ── Helpers for the integration tests below ────────────────────────────────────
 
 /// Build a metered entitlement value with just a hard limit; all other knobs unset.
@@ -604,6 +1051,8 @@ fn metered_value(limit: &str) -> Option<EntitlementValue> {
                 limit: Some(limit.into()),
                 reset_period: None,
                 enabled: true,
+                group_by: None,
+                ..Default::default()
             },
         )),
     })
@@ -641,10 +1090,17 @@ fn entity_feature(id_proto: String) -> Option<EntitlementEntity> {
     })
 }
 
+fn entity_customer(id_proto: String) -> Option<EntitlementEntity> {
+    Some(EntitlementEntity {
+        entity_id: Some(entitlement_entity::EntityId::CustomerId(id_proto)),
+    })
+}
+
 #[tokio::test]
 async fn test_kill_switch_suppresses_feature_resolution() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
@@ -656,7 +1112,7 @@ async fn test_kill_switch_suppresses_feature_resolution() {
         "testslug",
     );
 
-    let now = chrono::offset::Local::now().date_naive();
+    let now = chrono::Utc::now().date_naive();
     clients
         .subscriptions
         .clone()
@@ -761,9 +1217,12 @@ async fn test_kill_switch_suppresses_feature_resolution() {
 }
 
 #[tokio::test]
-async fn test_archived_feature_excluded_from_resolution() {
+async fn test_feature_archive_and_restore_lifecycle() {
+    use meteroid_grpc::meteroid::api::entitlements::v1::GetResolvedForSubscriptionRequest;
+
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
@@ -775,7 +1234,7 @@ async fn test_archived_feature_excluded_from_resolution() {
         "testslug",
     );
 
-    let now = chrono::offset::Local::now().date_naive();
+    let now = chrono::Utc::now().date_naive();
     clients
         .subscriptions
         .clone()
@@ -809,111 +1268,283 @@ async fn test_archived_feature_excluded_from_resolution() {
     let feature = clients
         .entitlements
         .clone()
-        .create_feature(CreateFeatureRequest {
-            name: "dormant-feat".into(),
-            code: "dormant-feat".into(),
-            description: None,
-            product_id: None,
-            feature_type: Some(FeatureType {
-                inner: Some(feature_type::Inner::Boolean(
-                    feature_type::BooleanFeature {},
-                )),
-            }),
-            entitlement: None,
-        })
+        .create_feature(boolean_feature_request("dormant-feat"))
+        .await
+        .unwrap()
+        .into_inner()
+        .feature
+        .unwrap();
+    // A second feature whose only grant is its own default, staged while disabled.
+    let defaulted = clients
+        .entitlements
+        .clone()
+        .create_feature(boolean_feature_request("defaulted-feat"))
         .await
         .unwrap()
         .into_inner()
         .feature
         .unwrap();
 
-    clients
-        .entitlements
-        .clone()
-        .create_entitlement(CreateEntitlementRequest {
-            feature_id: feature.id.clone(),
-            entity: entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto()),
-            value: boolean_value(true),
-        })
+    let resolves = |feature_id: String| {
+        let mut client = clients.entitlements.clone();
+        async move {
+            client
+                .get_effective_entitlements(GetEffectiveEntitlementsRequest {
+                    customer_id: ids::CUST_SPOTIFY_ID.as_proto(),
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .entitlements
+                .iter()
+                .any(|e| e.feature.as_ref().is_some_and(|f| f.id == feature_id))
+        }
+    };
+    let resolves_on_subscription = |subscription_id: String, feature_id: String| {
+        let mut client = clients.entitlements.clone();
+        async move {
+            client
+                .get_resolved_entitlements_for_subscription(GetResolvedForSubscriptionRequest {
+                    subscription_id,
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .entitlements
+                .iter()
+                .any(|e| e.feature.as_ref().is_some_and(|f| f.id == feature_id))
+        }
+    };
+    let grants_on = |entity: Option<EntitlementEntity>| {
+        let mut client = clients.entitlements.clone();
+        let feature_id = feature.id.clone();
+        async move {
+            client
+                .list_entitlements_by_entity(ListEntitlementsByEntityRequest { entity })
+                .await
+                .unwrap()
+                .into_inner()
+                .entitlements
+                .into_iter()
+                .filter(|e| e.feature_id == feature_id)
+                .map(|e| (e.id, e.value))
+                .collect::<Vec<_>>()
+        }
+    };
+    let grant = |feature_id: String, entity: Option<EntitlementEntity>| {
+        let mut client = clients.entitlements.clone();
+        async move {
+            client
+                .create_entitlement(CreateEntitlementRequest {
+                    feature_id,
+                    entity,
+                    value: boolean_value(true),
+                })
+                .await
+                .map(|r| r.into_inner().entitlement.unwrap())
+        }
+    };
+    let subscribe_with_grant = |feature_id: String| {
+        let mut client = clients.subscriptions.clone();
+        let now = chrono::Utc::now().date_naive();
+        async move {
+            client
+                .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
+                    subscription: Some(sub_api::CreateSubscription {
+                        plan_version_id: (*ids::PLAN_VERSION_NOTION_ID).to_string(),
+                        start_date: now.as_proto(),
+                        billing_day_anchor: Some(1),
+                        customer_id: ids::CUST_SPOTIFY_ID.as_proto(),
+                        charge_automatically: Some(false),
+                        components: Some(sub_api::CreateSubscriptionComponents {
+                            parameterized_components: vec![
+                                sub_api::create_subscription_components::ComponentParameterization {
+                                    component_id: (*ids::COMP_NOTION_SEATS_ID).to_string(),
+                                    billing_period: Some(
+                                        meteroid_grpc::meteroid::api::shared::v1::BillingPeriod::Monthly
+                                            .into(),
+                                    ),
+                                    initial_slot_count: Some(1),
+                                    ..Default::default()
+                                },
+                            ],
+                            ..Default::default()
+                        }),
+                        entitlements: vec![
+                            meteroid_grpc::meteroid::api::entitlements::v1::EntitlementSpec {
+                                feature_id,
+                                value: boolean_value(true),
+                            },
+                        ],
+                        ..Default::default()
+                    }),
+                }))
+                .await
+        }
+    };
+    fn assert_archived_rejection<T: std::fmt::Debug>(r: Result<T, tonic::Status>, why: &str) {
+        let status = r.expect_err(why);
+        assert_eq!(
+            status.code(),
+            tonic::Code::InvalidArgument,
+            "{why}: {status:?}"
+        );
+        assert!(status.message().contains("archived"), "{why}: {status:?}");
+    }
+
+    // Disabled: takes new grants (staging) but resolves nowhere.
+    set_feature_status(&clients, &defaulted.id, FeatureStatus::Disabled)
         .await
         .unwrap();
-
-    // Sanity: visible before archive.
-    let before = clients
-        .entitlements
-        .clone()
-        .get_effective_entitlements(GetEffectiveEntitlementsRequest {
-            customer_id: ids::CUST_SPOTIFY_ID.as_proto(),
-        })
+    grant(defaulted.id.clone(), entity_feature(defaulted.id.clone()))
         .await
-        .unwrap()
-        .into_inner();
-    assert!(
-        before
-            .entitlements
-            .iter()
-            .any(|e| e.feature.as_ref().is_some_and(|f| f.id == feature.id))
-    );
+        .expect("a disabled feature accepts new grants");
+    assert!(!resolves(defaulted.id.clone()).await);
+    set_feature_status(&clients, &defaulted.id, FeatureStatus::Active)
+        .await
+        .unwrap();
+    assert!(resolves(defaulted.id.clone()).await);
 
-    clients
+    let plan_version = entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto());
+    let customer = entity_customer(ids::CUST_SPOTIFY_ID.as_proto());
+    let plan_grant = grant(feature.id.clone(), plan_version.clone())
+        .await
+        .unwrap();
+    grant(feature.id.clone(), customer.clone()).await.unwrap();
+    let held_on_plan = grants_on(plan_version.clone()).await;
+    let held_by_customer = grants_on(customer.clone()).await;
+    assert!(resolves(feature.id.clone()).await);
+
+    // ── Archived: every grant is hidden and kept ──
+    set_feature_status(&clients, &feature.id, FeatureStatus::Archived)
+        .await
+        .unwrap();
+    assert!(
+        !resolves(feature.id.clone()).await,
+        "an archived feature resolves nowhere"
+    );
+    assert!(grants_on(plan_version.clone()).await.is_empty());
+    assert!(grants_on(customer.clone()).await.is_empty());
+    let hidden_grant = clients
         .entitlements
         .clone()
-        .set_feature_status(SetFeatureStatusRequest {
+        .get_entitlement(GetEntitlementRequest {
+            id: plan_grant.id.clone(),
+        })
+        .await;
+    assert_eq!(
+        hidden_grant.unwrap_err().code(),
+        tonic::Code::NotFound,
+        "a hidden grant is not found"
+    );
+    let edit_hidden = clients
+        .entitlements
+        .clone()
+        .update_entitlement(UpdateEntitlementRequest {
+            id: plan_grant.id.clone(),
+            value: boolean_value(false),
+        })
+        .await;
+    assert_eq!(edit_hidden.unwrap_err().code(), tonic::Code::NotFound);
+    let read = clients
+        .entitlements
+        .clone()
+        .get_feature(GetFeatureRequest {
             id: feature.id.clone(),
-            status: FeatureStatus::Archived.into(),
         })
         .await
+        .expect("an archived feature is readable by id")
+        .into_inner()
+        .feature
         .unwrap();
+    assert_eq!(read.status, FeatureStatus::Archived as i32);
 
-    let after = clients
-        .entitlements
-        .clone()
-        .get_effective_entitlements(GetEffectiveEntitlementsRequest {
-            customer_id: ids::CUST_SPOTIFY_ID.as_proto(),
-        })
-        .await
-        .unwrap()
-        .into_inner();
-    assert!(
-        !after
+    assert_archived_rejection(
+        grant(
+            feature.id.clone(),
+            entity_plan_version(ids::PLAN_VERSION_PRO_ID.as_proto()),
+        )
+        .await,
+        "no new grant",
+    );
+    assert_archived_rejection(
+        clients
             .entitlements
-            .iter()
-            .any(|e| e.feature.as_ref().is_some_and(|f| f.id == feature.id)),
-        "archived feature must drop out of resolution"
+            .clone()
+            .update_feature(UpdateFeatureRequest {
+                id: feature.id.clone(),
+                name: Some("renamed".into()),
+                description: None,
+                product_id: None,
+                clear_product_id: false,
+                config_options: vec![],
+                update_config_options: false,
+            })
+            .await,
+        "the feature is read-only",
+    );
+    let new_sub = subscribe_with_grant(feature.id.clone())
+        .await
+        .expect("an inline grant of an archived feature does not fail the subscription")
+        .into_inner()
+        .subscription
+        .unwrap();
+    assert!(
+        !resolves_on_subscription(new_sub.id.clone(), feature.id.clone()).await,
+        "a new subscription does not get an archived feature"
     );
 
-    // Restore brings it back.
-    clients
-        .entitlements
+    let draft = clients
+        .plans
         .clone()
-        .set_feature_status(SetFeatureStatusRequest {
-            id: feature.id.clone(),
-            status: FeatureStatus::Active.into(),
-        })
+        .copy_version_to_draft(
+            meteroid_grpc::meteroid::api::plans::v1::CopyVersionToDraftRequest {
+                plan_id: ids::PLAN_NOTION_ID.as_proto(),
+                plan_version_id: ids::PLAN_VERSION_NOTION_ID.as_proto(),
+            },
+        )
+        .await
+        .expect("copying a plan version that grants an archived feature still works")
+        .into_inner()
+        .plan_version
+        .unwrap();
+    let draft_entity = entity_plan_version(draft.id.clone());
+    assert!(grants_on(draft_entity.clone()).await.is_empty());
+
+    // ── Restored: every grant comes back as it was ──
+    set_feature_status(&clients, &feature.id, FeatureStatus::Active)
         .await
         .unwrap();
-
-    let restored = clients
-        .entitlements
-        .clone()
-        .get_effective_entitlements(GetEffectiveEntitlementsRequest {
-            customer_id: ids::CUST_SPOTIFY_ID.as_proto(),
-        })
-        .await
-        .unwrap()
-        .into_inner();
+    assert!(resolves(feature.id.clone()).await);
+    assert_eq!(grants_on(plan_version.clone()).await, held_on_plan);
+    assert_eq!(grants_on(customer.clone()).await, held_by_customer);
     assert!(
-        restored
-            .entitlements
-            .iter()
-            .any(|e| e.feature.as_ref().is_some_and(|f| f.id == feature.id))
+        grants_on(draft_entity).await.is_empty(),
+        "a copy made while archived leaves out the hidden grant"
     );
+    assert!(
+        grants_on(entity_subscription_proto(new_sub.id.clone()))
+            .await
+            .is_empty(),
+        "an inline grant skipped while archived stays skipped"
+    );
+    assert!(
+        resolves_on_subscription(new_sub.id.clone(), feature.id.clone()).await,
+        "that subscription gets the feature through its plan version again"
+    );
+    grant(
+        feature.id.clone(),
+        entity_plan_version(ids::PLAN_VERSION_PRO_ID.as_proto()),
+    )
+    .await
+    .expect("a restored feature accepts new grants");
 }
 
 #[tokio::test]
 async fn test_subscription_override_beats_plan_grant() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
@@ -925,7 +1556,7 @@ async fn test_subscription_override_beats_plan_grant() {
         "testslug",
     );
 
-    let now = chrono::offset::Local::now().date_naive();
+    let now = chrono::Utc::now().date_naive();
     let sub = clients
         .subscriptions
         .clone()
@@ -1030,7 +1661,8 @@ async fn test_subscription_override_beats_plan_grant() {
 #[tokio::test]
 async fn test_feature_baseline_entitlement_lowest_priority() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
@@ -1042,7 +1674,7 @@ async fn test_feature_baseline_entitlement_lowest_priority() {
         "testslug",
     );
 
-    let now = chrono::offset::Local::now().date_naive();
+    let now = chrono::Utc::now().date_naive();
     clients
         .subscriptions
         .clone()
@@ -1131,7 +1763,8 @@ async fn test_feature_baseline_entitlement_lowest_priority() {
 #[tokio::test]
 async fn test_unique_feature_entity_collision_rejected() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
@@ -1196,7 +1829,8 @@ async fn test_unique_feature_entity_collision_rejected() {
 #[tokio::test]
 async fn test_value_variant_must_match_feature_type() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
@@ -1287,7 +1921,8 @@ async fn test_inline_subscription_entitlement_creation() {
     };
 
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
@@ -1321,8 +1956,8 @@ async fn test_inline_subscription_entitlement_creation() {
         .feature
         .unwrap();
 
-    let now = chrono::offset::Local::now().date_naive();
-    use meteroid::api::shared::conversions::ProtoConv;
+    let now = chrono::Utc::now().date_naive();
+    use meteroid_app::conversions::ProtoConv;
 
     // Create a subscription with one inline boolean entitlement spec.
     let sub = clients
@@ -1401,7 +2036,8 @@ async fn test_disabled_entitlement_resolved_and_overrideable() {
     use meteroid_grpc::meteroid::api::entitlements::v1::effective_entitlement;
 
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
@@ -1414,7 +2050,7 @@ async fn test_disabled_entitlement_resolved_and_overrideable() {
     );
 
     // Create a subscription for Spotify on the Notion plan.
-    let now = chrono::offset::Local::now().date_naive();
+    let now = chrono::Utc::now().date_naive();
     let sub = clients
         .subscriptions
         .clone()
@@ -1483,6 +2119,8 @@ async fn test_disabled_entitlement_resolved_and_overrideable() {
                         limit: Some("100".into()),
                         reset_period: None,
                         enabled: false,
+                        group_by: None,
+                        ..Default::default()
                     },
                 )),
             }),
@@ -1528,6 +2166,8 @@ async fn test_disabled_entitlement_resolved_and_overrideable() {
                         limit: Some("100".into()),
                         reset_period: None,
                         enabled: true,
+                        group_by: None,
+                        ..Default::default()
                     },
                 )),
             }),
@@ -1561,6 +2201,88 @@ async fn test_disabled_entitlement_resolved_and_overrideable() {
     );
 }
 
+/// Regression: a customer with **no active subscription** must still receive tenant-global
+/// feature-level defaults. The resolver used to short-circuit to an empty result whenever the
+/// customer had no subscription, so features that are enabled by default (e.g. the dogfooding
+/// gates) surfaced as absent/false even though a feature-level entitlement granted them.
+#[tokio::test]
+async fn test_feature_level_defaults_resolve_without_subscription() {
+    use meteroid_grpc::meteroid::api::entitlements::v1::effective_entitlement;
+
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup =
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
+
+    let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
+    let clients = meteroid_it::clients::AllClients::from_channel(
+        setup.channel.clone(),
+        auth.token.clone().as_str(),
+        "TESTORG",
+        "testslug",
+    );
+
+    // Tenant-global boolean feature (product_id: None) with a feature-level entitlement
+    // enabled=true — the "on by default for every customer" baseline.
+    let feature = clients
+        .entitlements
+        .clone()
+        .create_feature(CreateFeatureRequest {
+            name: "default-on-feat".into(),
+            code: "default-on-feat".into(),
+            description: None,
+            product_id: None,
+            feature_type: Some(FeatureType {
+                inner: Some(feature_type::Inner::Boolean(
+                    feature_type::BooleanFeature {},
+                )),
+            }),
+            entitlement: None,
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .feature
+        .unwrap();
+
+    clients
+        .entitlements
+        .clone()
+        .create_entitlement(CreateEntitlementRequest {
+            feature_id: feature.id.clone(),
+            entity: entity_feature(feature.id.clone()),
+            value: boolean_value(true),
+        })
+        .await
+        .unwrap();
+
+    // CUST_SPOTIFY_ID exists at SeedLevel::PLANS but has no subscription.
+    let resolved = clients
+        .entitlements
+        .clone()
+        .get_effective_entitlements(GetEffectiveEntitlementsRequest {
+            customer_id: ids::CUST_SPOTIFY_ID.as_proto(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+
+    let ent = resolved
+        .entitlements
+        .iter()
+        .find(|e| e.feature.as_ref().is_some_and(|f| f.id == feature.id))
+        .expect("feature-level default must resolve for a customer with no subscription");
+
+    assert!(
+        matches!(
+            &ent.value,
+            Some(effective_entitlement::Value::Boolean(b)) if b.enabled
+        ),
+        "feature-level default (enabled=true) must surface as enabled for an unsubscribed customer"
+    );
+}
+
 /// Verify that `GetResolvedEntitlementsForSubscription` reflects the full priority chain:
 /// feature-level baseline → plan-level grant → subscription-level override.
 #[tokio::test]
@@ -1571,7 +2293,8 @@ async fn test_resolved_entitlements_for_subscription_includes_chain() {
     };
 
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
@@ -1638,7 +2361,7 @@ async fn test_resolved_entitlements_for_subscription_includes_chain() {
         .unwrap();
 
     // Step 3: Create a subscription for Spotify on the Notion plan.
-    let now = chrono::offset::Local::now().date_naive();
+    let now = chrono::Utc::now().date_naive();
     let sub = clients
         .subscriptions
         .clone()
@@ -1742,7 +2465,8 @@ async fn test_resolved_entitlements_for_addon_includes_product_features() {
     };
 
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     // SeedLevel::PLANS is required because METRIC_BANDWIDTH is seeded as part of the METERS seed.
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
@@ -1795,6 +2519,7 @@ async fn test_resolved_entitlements_for_addon_includes_product_features() {
                                     },
                                 ),
                             ),
+                            credit_unit: None,
                         },
                     ),
                 ),
@@ -1970,7 +2695,8 @@ async fn test_batch_create_entitlements_skips_existing() {
     };
 
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
@@ -2009,7 +2735,7 @@ async fn test_batch_create_entitlements_skips_existing() {
     }
 
     // Step 2: Create a subscription.
-    let now = chrono::offset::Local::now().date_naive();
+    let now = chrono::Utc::now().date_naive();
     let sub = clients
         .subscriptions
         .clone()
@@ -2126,7 +2852,8 @@ async fn test_batch_create_entitlements_skips_existing() {
 #[tokio::test]
 async fn test_product_grouping_in_effective_entitlements() {
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
@@ -2141,7 +2868,7 @@ async fn test_product_grouping_in_effective_entitlements() {
     // Create a subscription for Spotify on the Starter plan — this plan has components from
     // BOTH PRODUCT_PLATFORM_FEE_ID (rate) AND PRODUCT_SEATS_ID (slot), so features tied to
     // either product will be in scope for resolution.
-    let now = chrono::offset::Local::now().date_naive();
+    let now = chrono::Utc::now().date_naive();
     clients
         .subscriptions
         .clone()
@@ -2369,6 +3096,7 @@ async fn make_single_instance_add_on(
                                     },
                                 ),
                             ),
+                            credit_unit: None,
                         },
                     ),
                 ),
@@ -2395,7 +3123,8 @@ async fn test_plan_version_overrides_addon_entitlement() {
     };
 
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
@@ -2458,7 +3187,7 @@ async fn test_plan_version_overrides_addon_entitlement() {
         .unwrap();
 
     // Subscription pulling that plan + the add-on.
-    let now = chrono::offset::Local::now().date_naive();
+    let now = chrono::Utc::now().date_naive();
     clients
         .subscriptions
         .clone()
@@ -2544,7 +3273,8 @@ async fn test_same_priority_addons_take_permissive_max() {
     };
 
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
@@ -2611,7 +3341,7 @@ async fn test_same_priority_addons_take_permissive_max() {
         .await
         .unwrap();
 
-    let now = chrono::offset::Local::now().date_naive();
+    let now = chrono::Utc::now().date_naive();
     clients
         .subscriptions
         .clone()
@@ -2695,7 +3425,8 @@ async fn test_plan_version_target_excludes_linked_add_on_entitlements() {
     };
 
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
@@ -2784,4 +3515,957 @@ async fn test_plan_version_target_excludes_linked_add_on_entitlements() {
             .filter_map(|e| e.feature.as_ref().map(|f| f.name.clone()))
             .collect::<Vec<_>>()
     );
+}
+
+/// A customer-level entitlement resolves for a customer with **no subscription** (the primary
+/// use case for customer-level grants): it sits just above the tenant-global feature default
+/// and surfaces via the customer-wide effective lookup, with origin = the customer.
+#[tokio::test]
+async fn test_customer_entitlement_resolves_without_subscription() {
+    use meteroid_grpc::meteroid::api::entitlements::v1::effective_entitlement;
+
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup =
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
+
+    let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
+    let clients = meteroid_it::clients::AllClients::from_channel(
+        setup.channel.clone(),
+        auth.token.clone().as_str(),
+        "TESTORG",
+        "testslug",
+    );
+
+    // Tenant-global boolean feature, no feature-level default.
+    let feature = clients
+        .entitlements
+        .clone()
+        .create_feature(CreateFeatureRequest {
+            name: "customer-grant-feat".into(),
+            code: "customer-grant-feat".into(),
+            description: None,
+            product_id: None,
+            feature_type: Some(FeatureType {
+                inner: Some(feature_type::Inner::Boolean(
+                    feature_type::BooleanFeature {},
+                )),
+            }),
+            entitlement: None,
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .feature
+        .unwrap();
+
+    // Customer-level grant for CUST_SPOTIFY_ID, which has no subscription at SeedLevel::PLANS.
+    clients
+        .entitlements
+        .clone()
+        .create_entitlement(CreateEntitlementRequest {
+            feature_id: feature.id.clone(),
+            entity: entity_customer(ids::CUST_SPOTIFY_ID.as_proto()),
+            value: boolean_value(true),
+        })
+        .await
+        .unwrap();
+
+    let resolved = clients
+        .entitlements
+        .clone()
+        .get_effective_entitlements(GetEffectiveEntitlementsRequest {
+            customer_id: ids::CUST_SPOTIFY_ID.as_proto(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+
+    let ent = resolved
+        .entitlements
+        .iter()
+        .find(|e| e.feature.as_ref().is_some_and(|f| f.id == feature.id))
+        .expect("customer-level grant must resolve for a customer with no subscription");
+
+    assert!(
+        matches!(
+            &ent.value,
+            Some(effective_entitlement::Value::Boolean(b)) if b.enabled
+        ),
+        "customer-level grant (enabled=true) must surface as enabled; got: {:?}",
+        ent.value
+    );
+    assert!(
+        matches!(
+            &ent.origin,
+            Some(ResolvedOrigin { entity: Some(EntitlementEntity { entity_id: Some(entitlement_entity::EntityId::CustomerId(id)) }), .. })
+            if id == &ids::CUST_SPOTIFY_ID.as_proto()
+        ),
+        "origin must be the customer entity; got: {:?}",
+        ent.origin
+    );
+}
+
+/// A feature enabled at the **customer** level but disabled on the customer's **subscription**.
+/// The customer level is a top-priority force, so it wins over the subscription entry: both the
+/// per-subscription resolution and the customer-wide view report enabled, with the customer as
+/// the origin. (Cross-subscription OR for features with *no* customer force is covered by the
+/// `aggregate_ors_enabled_across_scopes` unit test.)
+#[tokio::test]
+async fn test_customer_force_overrides_subscription() {
+    use meteroid_grpc::meteroid::api::entitlements::v1::{
+        GetResolvedForSubscriptionRequest, effective_entitlement, resolved_entitlement,
+    };
+
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup =
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
+
+    let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
+    let clients = meteroid_it::clients::AllClients::from_channel(
+        setup.channel.clone(),
+        auth.token.clone().as_str(),
+        "TESTORG",
+        "testslug",
+    );
+
+    let feature = clients
+        .entitlements
+        .clone()
+        .create_feature(CreateFeatureRequest {
+            name: "site-toggle-feat".into(),
+            code: "site-toggle-feat".into(),
+            description: None,
+            product_id: None,
+            feature_type: Some(FeatureType {
+                inner: Some(feature_type::Inner::Boolean(
+                    feature_type::BooleanFeature {},
+                )),
+            }),
+            entitlement: None,
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .feature
+        .unwrap();
+
+    // Customer-level grant: enabled=true across the account.
+    clients
+        .entitlements
+        .clone()
+        .create_entitlement(CreateEntitlementRequest {
+            feature_id: feature.id.clone(),
+            entity: entity_customer(ids::CUST_SPOTIFY_ID.as_proto()),
+            value: boolean_value(true),
+        })
+        .await
+        .unwrap();
+
+    // A subscription for that customer.
+    let now = chrono::Utc::now().date_naive();
+    let sub = clients
+        .subscriptions
+        .clone()
+        .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
+            subscription: Some(sub_api::CreateSubscription {
+                plan_version_id: (*ids::PLAN_VERSION_NOTION_ID).to_string(),
+                start_date: now.as_proto(),
+                billing_day_anchor: Some(1),
+                customer_id: ids::CUST_SPOTIFY_ID.as_proto(),
+                charge_automatically: Some(false),
+                components: Some(sub_api::CreateSubscriptionComponents {
+                    parameterized_components: vec![
+                        sub_api::create_subscription_components::ComponentParameterization {
+                            component_id: (*ids::COMP_NOTION_SEATS_ID).to_string(),
+                            billing_period: Some(
+                                meteroid_grpc::meteroid::api::shared::v1::BillingPeriod::Monthly
+                                    .into(),
+                            ),
+                            initial_slot_count: Some(1),
+                            ..Default::default()
+                        },
+                    ],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .subscription
+        .unwrap();
+
+    // Subscription-level entry that disagrees with the customer force: disabled for this site.
+    clients
+        .entitlements
+        .clone()
+        .create_entitlement(CreateEntitlementRequest {
+            feature_id: feature.id.clone(),
+            entity: entity_subscription_proto(sub.id.clone()),
+            value: boolean_value(false),
+        })
+        .await
+        .unwrap();
+
+    // Per-subscription resolution: the customer force wins over the subscription → enabled,
+    // with the customer as the origin.
+    let per_sub = clients
+        .entitlements
+        .clone()
+        .get_resolved_entitlements_for_subscription(GetResolvedForSubscriptionRequest {
+            subscription_id: sub.id.clone(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let sub_ent = per_sub
+        .entitlements
+        .iter()
+        .find(|e| e.feature.as_ref().is_some_and(|f| f.id == feature.id))
+        .expect("feature must resolve for the subscription");
+    assert!(
+        matches!(
+            &sub_ent.value,
+            Some(resolved_entitlement::Value::Boolean(b)) if b.enabled
+        ),
+        "customer force must win over the subscription (enabled); got: {:?}",
+        sub_ent.value
+    );
+    assert!(
+        matches!(
+            &sub_ent.origin,
+            Some(ResolvedOrigin { entity: Some(EntitlementEntity { entity_id: Some(entitlement_entity::EntityId::CustomerId(id)) }), .. })
+            if id == &ids::CUST_SPOTIFY_ID.as_proto()
+        ),
+        "origin must be the customer force; got: {:?}",
+        sub_ent.origin
+    );
+
+    // Customer-wide effective view: the customer force applies account-wide → enabled.
+    let customer_wide = clients
+        .entitlements
+        .clone()
+        .get_effective_entitlements(GetEffectiveEntitlementsRequest {
+            customer_id: ids::CUST_SPOTIFY_ID.as_proto(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let cust_ent = customer_wide
+        .entitlements
+        .iter()
+        .find(|e| e.feature.as_ref().is_some_and(|f| f.id == feature.id))
+        .expect("feature must resolve customer-wide");
+    assert!(
+        matches!(
+            &cust_ent.value,
+            Some(effective_entitlement::Value::Boolean(b)) if b.enabled
+        ),
+        "customer-wide view must reflect the customer force (enabled); got: {:?}",
+        cust_ent.value
+    );
+}
+
+/// What each feature status promises, checked against a fresh feature holding one customer grant
+/// made while it was active.
+struct StatusContract {
+    status: FeatureStatus,
+    grant_resolves: bool,
+    grant_listed_on_entity: bool,
+    grant_readable_by_id: bool,
+    listed_by_default: bool,
+    listed_by_status_filter: bool,
+    feature_readable_by_id: bool,
+    accepts_writes: bool,
+    code_reserved: bool,
+    /// A subscription created now on a plan version that already grants the feature gets it.
+    new_subscription_gets_plan_grant: bool,
+    /// A grant inside a new subscription, quote, add-on or plan body is stored; otherwise it is
+    /// skipped and the entity is still created.
+    body_grant_kept: bool,
+}
+
+const STATUS_CONTRACTS: [StatusContract; 3] = [
+    StatusContract {
+        status: FeatureStatus::Active,
+        grant_resolves: true,
+        grant_listed_on_entity: true,
+        grant_readable_by_id: true,
+        listed_by_default: true,
+        listed_by_status_filter: true,
+        feature_readable_by_id: true,
+        accepts_writes: true,
+        code_reserved: true,
+        new_subscription_gets_plan_grant: true,
+        body_grant_kept: true,
+    },
+    StatusContract {
+        status: FeatureStatus::Disabled,
+        grant_resolves: false,
+        grant_listed_on_entity: true,
+        grant_readable_by_id: true,
+        listed_by_default: true,
+        listed_by_status_filter: true,
+        feature_readable_by_id: true,
+        accepts_writes: true,
+        code_reserved: true,
+        new_subscription_gets_plan_grant: false,
+        body_grant_kept: true,
+    },
+    StatusContract {
+        status: FeatureStatus::Archived,
+        grant_resolves: false,
+        grant_listed_on_entity: false,
+        grant_readable_by_id: false,
+        listed_by_default: false,
+        listed_by_status_filter: true,
+        feature_readable_by_id: true,
+        accepts_writes: false,
+        code_reserved: false,
+        new_subscription_gets_plan_grant: false,
+        body_grant_kept: false,
+    },
+];
+
+async fn status_test_clients() -> (
+    meteroid_it::container::MeteroidSetup,
+    meteroid_it::clients::AllClients,
+) {
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup =
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
+    let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
+    let clients = meteroid_it::clients::AllClients::from_channel(
+        setup.channel.clone(),
+        auth.token.clone().as_str(),
+        "TESTORG",
+        "testslug",
+    );
+    (setup, clients)
+}
+
+fn boolean_feature_request(code: &str) -> CreateFeatureRequest {
+    CreateFeatureRequest {
+        name: code.into(),
+        code: code.into(),
+        description: None,
+        product_id: None,
+        feature_type: Some(FeatureType {
+            inner: Some(feature_type::Inner::Boolean(
+                feature_type::BooleanFeature {},
+            )),
+        }),
+        entitlement: None,
+    }
+}
+
+async fn set_feature_status(
+    clients: &meteroid_it::clients::AllClients,
+    id: &str,
+    status: FeatureStatus,
+) -> Result<(), tonic::Status> {
+    clients
+        .entitlements
+        .clone()
+        .set_feature_status(SetFeatureStatusRequest {
+            id: id.to_string(),
+            status: status.into(),
+        })
+        .await
+        .map(|_| ())
+}
+
+fn state_label(status: FeatureStatus) -> String {
+    status.as_str_name().to_lowercase()
+}
+
+async fn listed_with_statuses(
+    clients: &meteroid_it::clients::AllClients,
+    statuses: Vec<i32>,
+    id: &str,
+) -> bool {
+    clients
+        .entitlements
+        .clone()
+        .list_features(ListFeaturesRequest {
+            pagination: None,
+            statuses,
+            search: None,
+            product_id: None,
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .features
+        .iter()
+        .any(|f| f.id == id)
+}
+
+#[tokio::test]
+async fn test_feature_status_contract() {
+    let (_setup, clients) = status_test_clients().await;
+    let customer = ids::CUST_SPOTIFY_ID.as_proto();
+
+    for contract in STATUS_CONTRACTS {
+        let label = state_label(contract.status);
+        let code = format!("contract-{label}");
+        let feature = clients
+            .entitlements
+            .clone()
+            .create_feature(boolean_feature_request(&code))
+            .await
+            .unwrap()
+            .into_inner()
+            .feature
+            .unwrap();
+        let grant = clients
+            .entitlements
+            .clone()
+            .create_entitlement(CreateEntitlementRequest {
+                feature_id: feature.id.clone(),
+                entity: entity_customer(customer.clone()),
+                value: boolean_value(true),
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .entitlement
+            .unwrap();
+        set_feature_status(&clients, &feature.id, contract.status)
+            .await
+            .unwrap();
+
+        let resolves = clients
+            .entitlements
+            .clone()
+            .get_effective_entitlements(GetEffectiveEntitlementsRequest {
+                customer_id: customer.clone(),
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .entitlements
+            .iter()
+            .any(|e| e.feature.as_ref().is_some_and(|f| f.id == feature.id));
+        assert_eq!(resolves, contract.grant_resolves, "{label}: grant resolves");
+
+        let listed_on_entity = clients
+            .entitlements
+            .clone()
+            .list_entitlements_by_entity(ListEntitlementsByEntityRequest {
+                entity: entity_customer(customer.clone()),
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .entitlements
+            .iter()
+            .any(|e| e.feature_id == feature.id);
+        assert_eq!(
+            listed_on_entity, contract.grant_listed_on_entity,
+            "{label}: grant listed on its entity"
+        );
+
+        assert_eq!(
+            listed_with_statuses(&clients, vec![], &feature.id).await,
+            contract.listed_by_default,
+            "{label}: in the default feature listing"
+        );
+        assert_eq!(
+            listed_with_statuses(&clients, vec![contract.status as i32], &feature.id).await,
+            contract.listed_by_status_filter,
+            "{label}: in a listing filtered by its own status"
+        );
+
+        let read = clients
+            .entitlements
+            .clone()
+            .get_feature(GetFeatureRequest {
+                id: feature.id.clone(),
+            })
+            .await;
+        assert_eq!(
+            read.is_ok(),
+            contract.feature_readable_by_id,
+            "{label}: readable by id"
+        );
+        let grant_by_id = clients
+            .entitlements
+            .clone()
+            .get_entitlement(GetEntitlementRequest {
+                id: grant.id.clone(),
+            })
+            .await;
+        assert_eq!(
+            grant_by_id.is_ok(),
+            contract.grant_readable_by_id,
+            "{label}: grant readable by id"
+        );
+        if !contract.grant_readable_by_id {
+            assert_eq!(
+                grant_by_id.unwrap_err().code(),
+                tonic::Code::NotFound,
+                "{label}: grant by id"
+            );
+        }
+
+        let same_code = clients
+            .entitlements
+            .clone()
+            .create_feature(boolean_feature_request(&code))
+            .await;
+        assert_eq!(
+            same_code.is_err(),
+            contract.code_reserved,
+            "{label}: code reserved"
+        );
+
+        let writes: [(&str, Result<(), tonic::Status>); 3] = [
+            (
+                "new grant",
+                clients
+                    .entitlements
+                    .clone()
+                    .create_entitlement(CreateEntitlementRequest {
+                        feature_id: feature.id.clone(),
+                        entity: entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto()),
+                        value: boolean_value(true),
+                    })
+                    .await
+                    .map(|_| ()),
+            ),
+            (
+                "edit existing grant",
+                clients
+                    .entitlements
+                    .clone()
+                    .update_entitlement(UpdateEntitlementRequest {
+                        id: grant.id.clone(),
+                        value: boolean_value(false),
+                    })
+                    .await
+                    .map(|_| ()),
+            ),
+            (
+                "edit feature",
+                clients
+                    .entitlements
+                    .clone()
+                    .update_feature(UpdateFeatureRequest {
+                        id: feature.id.clone(),
+                        name: Some(format!("{code}-renamed")),
+                        description: None,
+                        product_id: None,
+                        clear_product_id: false,
+                        config_options: vec![],
+                        update_config_options: false,
+                    })
+                    .await
+                    .map(|_| ()),
+            ),
+        ];
+        for (write, result) in writes {
+            match result {
+                Ok(()) => assert!(contract.accepts_writes, "{label}: {write} must be rejected"),
+                Err(status) => {
+                    assert!(!contract.accepts_writes, "{label}: {write}: {status:?}");
+                    // A hidden grant is not found, so editing one is a miss.
+                    if !contract.grant_readable_by_id && write == "edit existing grant" {
+                        assert_eq!(status.code(), tonic::Code::NotFound, "{label}: {write}");
+                        continue;
+                    }
+                    assert_eq!(
+                        status.code(),
+                        tonic::Code::InvalidArgument,
+                        "{label}: {write}: {status:?}"
+                    );
+                    assert!(
+                        status.message().contains(&label),
+                        "{label}: {write} rejected for its status: {status:?}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Creating entities against a feature in each state: a plan version that already grants it
+/// reaches a new subscription only while the grant resolves, and grants inside a new entity's
+/// body are kept or skipped by status, never failing the create.
+#[tokio::test]
+async fn test_feature_status_contract_for_new_entities() {
+    use meteroid_grpc::meteroid::api;
+    use meteroid_grpc::meteroid::api::entitlements::v1::{
+        EntitlementSpec, GetResolvedForSubscriptionRequest,
+    };
+
+    let (_setup, clients) = status_test_clients().await;
+
+    let subscribe = |entitlements: Vec<EntitlementSpec>| {
+        let mut client = clients.subscriptions.clone();
+        async move {
+            client
+                .create_subscription(tonic::Request::new(sub_api::CreateSubscriptionRequest {
+                    subscription: Some(sub_api::CreateSubscription {
+                        plan_version_id: ids::PLAN_VERSION_NOTION_ID.as_proto(),
+                        start_date: chrono::Utc::now().date_naive().as_proto(),
+                        billing_day_anchor: Some(1),
+                        customer_id: ids::CUST_SPOTIFY_ID.as_proto(),
+                        charge_automatically: Some(false),
+                        components: Some(sub_api::CreateSubscriptionComponents {
+                            parameterized_components: vec![
+                                sub_api::create_subscription_components::ComponentParameterization {
+                                    component_id: ids::COMP_NOTION_SEATS_ID.as_proto(),
+                                    billing_period: Some(
+                                        api::shared::v1::BillingPeriod::Monthly.into(),
+                                    ),
+                                    initial_slot_count: Some(1),
+                                    ..Default::default()
+                                },
+                            ],
+                            ..Default::default()
+                        }),
+                        entitlements,
+                        ..Default::default()
+                    }),
+                }))
+                .await
+                .map(|r| r.into_inner().subscription.unwrap().id)
+        }
+    };
+    let grants_on = |entity: Option<EntitlementEntity>| {
+        let mut client = clients.entitlements.clone();
+        async move {
+            client
+                .list_entitlements_by_entity(ListEntitlementsByEntityRequest { entity })
+                .await
+                .unwrap()
+                .into_inner()
+                .entitlements
+                .into_iter()
+                .map(|e| e.feature_id)
+                .collect::<Vec<_>>()
+        }
+    };
+
+    for contract in STATUS_CONTRACTS {
+        let label = state_label(contract.status);
+        let feature = clients
+            .entitlements
+            .clone()
+            .create_feature(boolean_feature_request(&format!("new-entities-{label}")))
+            .await
+            .unwrap()
+            .into_inner()
+            .feature
+            .unwrap();
+        clients
+            .entitlements
+            .clone()
+            .create_entitlement(CreateEntitlementRequest {
+                feature_id: feature.id.clone(),
+                entity: entity_plan_version(ids::PLAN_VERSION_NOTION_ID.as_proto()),
+                value: boolean_value(true),
+            })
+            .await
+            .unwrap();
+        set_feature_status(&clients, &feature.id, contract.status)
+            .await
+            .unwrap();
+
+        let spec = || {
+            vec![EntitlementSpec {
+                feature_id: feature.id.clone(),
+                value: boolean_value(true),
+            }]
+        };
+        let check_body = |entity: &str, grants: Vec<String>| {
+            assert_eq!(
+                grants.contains(&feature.id),
+                contract.body_grant_kept,
+                "{label}: grant in a new {entity} body"
+            );
+        };
+
+        let plain_sub = subscribe(vec![])
+            .await
+            .unwrap_or_else(|e| panic!("{label}: new subscription: {e:?}"));
+        let gets_it = clients
+            .entitlements
+            .clone()
+            .get_resolved_entitlements_for_subscription(GetResolvedForSubscriptionRequest {
+                subscription_id: plain_sub,
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .entitlements
+            .iter()
+            .any(|e| e.feature.as_ref().is_some_and(|f| f.id == feature.id));
+        assert_eq!(
+            gets_it, contract.new_subscription_gets_plan_grant,
+            "{label}: new subscription gets the plan version's grant"
+        );
+
+        let sub = subscribe(spec())
+            .await
+            .unwrap_or_else(|e| panic!("{label}: subscription with a body grant: {e:?}"));
+        check_body(
+            "subscription",
+            grants_on(entity_subscription_proto(sub)).await,
+        );
+
+        let quote = clients
+            .quotes
+            .clone()
+            .create_quote(tonic::Request::new(crate::test_quote::quote_granting(
+                &feature.id,
+            )))
+            .await
+            .unwrap_or_else(|e| panic!("{label}: quote with a body grant: {e:?}"))
+            .into_inner()
+            .quote
+            .unwrap()
+            .quote
+            .unwrap()
+            .id;
+        check_body(
+            "quote",
+            grants_on(Some(EntitlementEntity {
+                entity_id: Some(entitlement_entity::EntityId::QuoteId(quote)),
+            }))
+            .await,
+        );
+
+        let add_on = clients
+            .add_ons
+            .clone()
+            .create_add_on(api::addons::v1::CreateAddOnRequest {
+                name: format!("add-on-{label}"),
+                product: Some(api::components::v1::ProductRef {
+                    r#ref: Some(api::components::v1::product_ref::Ref::NewProduct(
+                        api::components::v1::NewProduct {
+                            name: format!("add-on-product-{label}"),
+                            fee_type: api::prices::v1::FeeType::Rate.into(),
+                            fee_structure: Some(api::prices::v1::FeeStructure {
+                                structure: Some(api::prices::v1::fee_structure::Structure::Rate(
+                                    api::prices::v1::fee_structure::RateStructure {},
+                                )),
+                            }),
+                        },
+                    )),
+                }),
+                price: Some(api::components::v1::PriceEntry {
+                    entry: Some(api::components::v1::price_entry::Entry::NewPrice(
+                        api::components::v1::PriceInput {
+                            credit_unit: None,
+                            cadence: api::shared::v1::BillingPeriod::Monthly.into(),
+                            currency: "EUR".into(),
+                            pricing: Some(api::components::v1::price_input::Pricing::RatePricing(
+                                api::prices::v1::RatePricing {
+                                    rate: "9.99".into(),
+                                },
+                            )),
+                        },
+                    )),
+                }),
+                description: None,
+                self_serviceable: true,
+                max_instances_per_subscription: None,
+                product_family_local_id: None,
+                entitlements: spec(),
+            })
+            .await
+            .unwrap_or_else(|e| panic!("{label}: add-on with a body grant: {e:?}"))
+            .into_inner()
+            .add_on
+            .unwrap()
+            .id;
+        check_body(
+            "add-on",
+            grants_on(Some(EntitlementEntity {
+                entity_id: Some(entitlement_entity::EntityId::AddOnId(add_on)),
+            }))
+            .await,
+        );
+
+        let plan_version = clients
+            .plans
+            .clone()
+            .create_draft_plan(api::plans::v1::CreateDraftPlanRequest {
+                name: format!("plan-{label}"),
+                description: None,
+                product_family_local_id: "default".into(),
+                plan_type: api::plans::v1::PlanType::Standard.into(),
+                currency: "EUR".into(),
+                entitlements: spec(),
+                tax_inclusive: false,
+            })
+            .await
+            .unwrap_or_else(|e| panic!("{label}: plan with a body grant: {e:?}"))
+            .into_inner()
+            .plan
+            .unwrap()
+            .version
+            .unwrap()
+            .id;
+        check_body("plan", grants_on(entity_plan_version(plan_version)).await);
+    }
+}
+
+/// The status a change leads to and the activity it records, or `Err` when it is rejected. An
+/// archived feature can only be restored to active.
+fn apply_status_change(
+    from: FeatureStatus,
+    to: FeatureStatus,
+) -> Result<(FeatureStatus, Option<&'static str>), ()> {
+    use FeatureStatus::*;
+    match (from, to) {
+        _ if from == to => Ok((from, None)),
+        (Archived, Disabled) => Err(()),
+        (_, Archived) => Ok((Archived, Some("feature.archived"))),
+        (Archived, Active) => Ok((Active, Some("feature.unarchived"))),
+        (_, Active) => Ok((Active, Some("feature.enabled"))),
+        (_, Disabled) => Ok((Disabled, Some("feature.disabled"))),
+    }
+}
+
+/// Every status change from every status, allowed or not. Whatever the path, a grant made while
+/// active resolves only while the feature is active, is hidden only while it is archived, keeps
+/// its value throughout, and each change is recorded once.
+#[tokio::test]
+async fn test_feature_status_transitions() {
+    use common_domain::ids::BaseId;
+    use diesel_models::entity_activity::EntityActivityRow;
+
+    let (setup, clients) = status_test_clients().await;
+    let customer = ids::CUST_SPOTIFY_ID.as_proto();
+    let statuses = STATUS_CONTRACTS.map(|c| c.status);
+
+    let activities = |feature_id: &str| {
+        let store = setup.store.clone();
+        let uuid = common_domain::ids::FeatureId::from_proto(feature_id)
+            .unwrap()
+            .as_uuid();
+        async move {
+            let mut conn = store.get_conn().await.unwrap();
+            EntityActivityRow::list_by_entity(&mut conn, ids::TENANT_ID, "feature", uuid, None, 50)
+                .await
+                .unwrap()
+        }
+    };
+
+    for from in statuses {
+        for to in statuses {
+            let label = format!("{} -> {}", state_label(from), state_label(to));
+            let code = format!("transition-{}-{}", state_label(from), state_label(to));
+            let feature = clients
+                .entitlements
+                .clone()
+                .create_feature(boolean_feature_request(&code))
+                .await
+                .unwrap()
+                .into_inner()
+                .feature
+                .unwrap();
+            let grant = clients
+                .entitlements
+                .clone()
+                .create_entitlement(CreateEntitlementRequest {
+                    feature_id: feature.id.clone(),
+                    entity: entity_customer(customer.clone()),
+                    value: boolean_value(true),
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .entitlement
+                .unwrap();
+            set_feature_status(&clients, &feature.id, from)
+                .await
+                .unwrap();
+            let before: Vec<_> = activities(&feature.id)
+                .await
+                .into_iter()
+                .map(|a| a.id)
+                .collect();
+
+            let result = set_feature_status(&clients, &feature.id, to).await;
+            let expected = apply_status_change(from, to);
+            assert_eq!(result.is_ok(), expected.is_ok(), "{label}: {result:?}");
+            let (status, activity) = expected.unwrap_or((from, None));
+
+            let stored = clients
+                .entitlements
+                .clone()
+                .get_feature(GetFeatureRequest {
+                    id: feature.id.clone(),
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .feature
+                .unwrap();
+            assert_eq!(stored.status, status as i32, "{label}: status");
+
+            let resolves = clients
+                .entitlements
+                .clone()
+                .get_effective_entitlements(GetEffectiveEntitlementsRequest {
+                    customer_id: customer.clone(),
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .entitlements
+                .iter()
+                .any(|e| e.feature.as_ref().is_some_and(|f| f.id == feature.id));
+            assert_eq!(
+                resolves,
+                status == FeatureStatus::Active,
+                "{label}: the grant resolves only while active"
+            );
+
+            let kept = clients
+                .entitlements
+                .clone()
+                .list_entitlements_by_entity(ListEntitlementsByEntityRequest {
+                    entity: entity_customer(customer.clone()),
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .entitlements
+                .into_iter()
+                .find(|e| e.id == grant.id);
+            if status == FeatureStatus::Archived {
+                assert!(
+                    kept.is_none(),
+                    "{label}: an archived feature's grant is hidden"
+                );
+            } else {
+                let kept = kept.unwrap_or_else(|| panic!("{label}: the grant is kept"));
+                assert_eq!(
+                    kept.value, grant.value,
+                    "{label}: the grant keeps its value"
+                );
+            }
+
+            let recorded: Vec<String> = activities(&feature.id)
+                .await
+                .into_iter()
+                .filter(|a| !before.contains(&a.id))
+                .map(|a| a.activity_type)
+                .collect();
+            let expected: Vec<String> = activity.map(String::from).into_iter().collect();
+            assert_eq!(recorded, expected, "{label}: recorded activity");
+        }
+    }
 }

@@ -202,6 +202,16 @@ pub enum SubscriptionAddOnCustomization {
     None,
 }
 
+impl SubscriptionAddOnCustomization {
+    /// The credit units of an override's new price; existing prices bring theirs.
+    pub fn new_credit_unit_ids(&self) -> Vec<common_domain::ids::CreditUnitId> {
+        match self {
+            Self::PriceOverride { price_entry, .. } => price_entry.new_credit_unit_ids(),
+            Self::Parameterization(_) | Self::None => Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSubscriptionAddOn {
     pub add_on_id: AddOnId,

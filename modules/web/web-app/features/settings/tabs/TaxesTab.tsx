@@ -2,7 +2,6 @@ import { create } from '@bufbuild/protobuf';
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
-  Card,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -16,7 +15,6 @@ import {
   PopoverTrigger,
   SelectFormField,
   SelectItem,
-  Separator,
   SwitchFormField,
   Table,
   TableBody,
@@ -37,6 +35,9 @@ import { CountrySelect } from '@/components/CountrySelect'
 import { Loading } from '@/components/Loading'
 import { SubdivisionSelect } from '@/components/SubdivisionSelect'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
+import {
+  SettingsSection,
+} from '@/features/settings/components/SettingsSection'
 import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
@@ -580,22 +581,30 @@ export const TaxesTab = () => {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <Card className="px-8 py-6 max-w-[950px] space-y-5">
-        {/* Card header — the entity selector scopes every sub-section below */}
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h3 className="font-medium text-sm">Tax calculation</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              How tax is calculated for this invoicing entity&apos;s invoices.
-            </p>
-          </div>
-          <InvoicingEntitySelect />
-        </div>
-
-        {/* Sub-section: method + defaults */}
-        <Form {...methods}>
-          <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-3">
+    <div className="flex max-w-3xl flex-col gap-6">
+      {/* Tax calculation — the entity selector scopes every section below */}
+      <Form {...methods}>
+        <form onSubmit={methods.handleSubmit(onSubmit)}>
+          <SettingsSection
+            divided={false}
+            title="Tax calculation"
+            description="How tax is calculated for this invoicing entity's invoices."
+            action={
+              <div className="flex items-center gap-2">
+                <InvoicingEntitySelect />
+                <Button
+                  size="sm"
+                  disabled={
+                    !methods.formState.isValid ||
+                    !methods.formState.isDirty ||
+                    updateInvoicingEntityMut.isPending
+                  }
+                >
+                  Save changes
+                </Button>
+              </div>
+            }
+          >
             <div className="grid grid-cols-6 gap-4">
               <SelectFormField
                 name="taxResolver"
@@ -650,48 +659,35 @@ export const TaxesTab = () => {
                 </>
               )}
             </div>
+          </SettingsSection>
+        </form>
+      </Form>
 
-            <div className="pt-2 flex justify-end items-center">
-              <Button
-                size="sm"
-                disabled={
-                  !methods.formState.isValid ||
-                  !methods.formState.isDirty ||
-                  updateInvoicingEntityMut.isPending
-                }
-              >
-                Save changes
+      {invoiceEntityId && !isNoneResolver && (
+        <>
+          {/* Custom rates / overrides */}
+          <SettingsSection
+            title={
+              <span className="flex items-center gap-1.5">
+                {customRatesTitle}
+                <InfoHint label={`About ${customRatesTitle.toLowerCase()}`}>
+                  {customRatesDescription}
+                </InfoHint>
+              </span>
+            }
+            description={customRatesOneLiner}
+            action={
+              <Button size="sm" variant="outline" onClick={openCreateRate}>
+                <PlusIcon className="h-4 w-4 mr-2" />
+                Add {rateDialogNoun}
               </Button>
-            </div>
-          </form>
-        </Form>
-
-        {invoiceEntityId && !isNoneResolver && (
-          <>
-            <Separator />
-
-            {/* Sub-section: custom rates / overrides */}
-            <div className="space-y-3">
-              <div className="flex justify-between items-start gap-4">
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <h4 className="font-medium text-sm">{customRatesTitle}</h4>
-                    <InfoHint label={`About ${customRatesTitle.toLowerCase()}`}>
-                      {customRatesDescription}
-                    </InfoHint>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">{customRatesOneLiner}</p>
-                </div>
-                <Button size="sm" className="shrink-0" variant="outline" onClick={openCreateRate}>
-                  <PlusIcon className="h-4 w-4 mr-2" />
-                  Add {rateDialogNoun}
-                </Button>
-              </div>
-
+            }
+          >
               {listTaxRatesQuery.isLoading ? (
                 <Loading />
               ) : listTaxRatesQuery.data?.taxRates && listTaxRatesQuery.data.taxRates.length > 0 ? (
-                <Table>
+                <div className="overflow-hidden rounded-lg border border-border">
+                  <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Name</TableHead>
@@ -745,46 +741,39 @@ export const TaxesTab = () => {
                     ))}
                   </TableBody>
                 </Table>
+                </div>
               ) : (
                 <div className="text-center py-6 text-sm text-muted-foreground">
                   No custom rates yet.
                 </div>
               )}
-            </div>
+          </SettingsSection>
 
-            <Separator />
-
-            {/* Sub-section: product tax categories */}
-            <div className="space-y-3">
-              <div className="flex justify-between items-start gap-4">
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <h4 className="font-medium text-sm">Product tax categories</h4>
-                    <InfoHint label="About product tax categories">
-                      Categories are standard-rated by default; a custom rate above (or an external
-                      provider) can target a category, and Non-taxable is special-cased. Products
-                      without a category use the default set above.
-                    </InfoHint>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Classify what your products are for tax purposes.
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  className="shrink-0"
-                  variant="outline"
-                  onClick={openCreateCategory}
-                >
-                  <PlusIcon className="h-4 w-4 mr-2" />
-                  Add category
-                </Button>
-              </div>
-
+          {/* Product tax categories */}
+          <SettingsSection
+            title={
+              <span className="flex items-center gap-1.5">
+                Product tax categories
+                <InfoHint label="About product tax categories">
+                  Categories are standard-rated by default; a custom rate above (or an external
+                  provider) can target a category, and Non-taxable is special-cased. Products
+                  without a category use the default set above.
+                </InfoHint>
+              </span>
+            }
+            description="Classify what your products are for tax purposes."
+            action={
+              <Button size="sm" variant="outline" onClick={openCreateCategory}>
+                <PlusIcon className="h-4 w-4 mr-2" />
+                Add category
+              </Button>
+            }
+          >
               {listTaxCategoriesQuery.isLoading ? (
                 <Loading />
               ) : categories.length ? (
-                <Table>
+                <div className="overflow-hidden rounded-lg border border-border">
+                  <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Name</TableHead>
@@ -836,15 +825,15 @@ export const TaxesTab = () => {
                     ))}
                   </TableBody>
                 </Table>
+                </div>
               ) : (
                 <div className="text-center py-6 text-sm text-muted-foreground">
                   No tax categories available.
                 </div>
               )}
-            </div>
-          </>
-        )}
-      </Card>
+          </SettingsSection>
+        </>
+      )}
 
       {/* Custom rate dialog */}
       <Dialog open={rateDialogOpen} onOpenChange={setRateDialogOpen}>

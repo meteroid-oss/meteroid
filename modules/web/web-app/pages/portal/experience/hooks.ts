@@ -1,11 +1,16 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useContext, useMemo } from 'react'
 
+import { slotItems } from '@/edition'
+import { pagePortalToken } from '@/features/auth/portalToken'
+import { portalCheckoutHref } from '@/features/checkout/utils/checkoutRedirect'
 import { useQuery } from '@/lib/connectrpc'
 import {
   getCustomerPortalOverview,
   listInvoices,
+  listLicenses,
+  listUsageLimits,
 } from '@/rpc/portal/customer/v1/customer-PortalCustomerService_connectquery'
 import {
   cancelScheduledEvent,
@@ -26,7 +31,13 @@ import {
   AdjustmentStatus,
   PlanChangeStatus,
 } from '@/rpc/portal/subscription/v1/subscription_pb'
+import {
+  getBalances,
+  getCreditOverview,
+  listLedger,
+} from '@/rpc/portal/wallets/v1/wallets-PortalWalletsService_connectquery'
 
+import { PortalNavContext } from './context'
 import { PortalBranding, PortalRoundness, PortalThemeMode } from './theme'
 
 import type { CustomerPortalOverview } from '@/rpc/portal/customer/v1/models_pb'
@@ -37,9 +48,9 @@ const asThemeMode = (v?: string): PortalThemeMode | undefined =>
 const asRoundness = (v?: string): PortalRoundness | undefined =>
   v === 'Sharp' || v === 'Modern' || v === 'Rounded' ? v : undefined
 
-/** Read the portal token from the current URL (used to build cross-page links). */
+/** The page's portal token (used to build cross-page links): from its URL, else the tab's. */
 export const usePortalToken = (): string => {
-  return useMemo(() => new URLSearchParams(window.location.search).get('token') ?? '', [])
+  return useMemo(() => pagePortalToken(window.location) ?? '', [])
 }
 
 /** Map the invoicing-entity fields on the overview to portal branding. */
@@ -49,6 +60,7 @@ export const brandingFromOverview = (overview?: CustomerPortalOverview): PortalB
   accent: overview?.invoicingEntityBrandColor,
   theme: asThemeMode(overview?.invoicingEntityThemeMode),
   roundness: asRoundness(overview?.invoicingEntityRoundness),
+  showPoweredBy: overview?.showPoweredBy,
 })
 
 /**
@@ -59,21 +71,26 @@ export const brandingFromOverview = (overview?: CustomerPortalOverview): PortalB
 const PORTAL_QUERY_SCHEMAS: DescMethodUnary[] = [
   getCustomerPortalOverview,
   listInvoices,
+  listLicenses,
   getSubscriptionDetails,
   listAvailablePlans,
   previewPlanChange,
   listAvailableAddOns,
   listAdjustableComponents,
   getUpcomingInvoice,
+  getBalances,
+  getCreditOverview,
+  listLedger,
+  listUsageLimits,
 ]
 
-/** Invalidate all portal caches. Call after any mutating portal action. */
+/** Invalidate all portal caches, the modules' included. Call after any mutating portal action. */
 export const useInvalidatePortal = () => {
   const queryClient = useQueryClient()
   return useCallback(
     () =>
       Promise.all(
-        PORTAL_QUERY_SCHEMAS.map(schema =>
+        [...PORTAL_QUERY_SCHEMAS, ...slotItems('portal.queries')].map(schema =>
           queryClient.invalidateQueries({
             queryKey: createConnectQueryKey({ schema, cardinality: undefined }),
           })
@@ -92,6 +109,25 @@ export const usePortalOverview = () => {
 export const useInvoices = (page: number, perPage = 8) =>
   useQuery(listInvoices, { pagination: { page, perPage } })
 
+export const useLicenses = () => useQuery(listLicenses, {}, { retry: false })
+
+// Outside the portal shell (embedded widgets) no credit surface renders, so nothing is fetched.
+export const useInPortalShell = () => !!useContext(PortalNavContext)
+
+export const useCreditOverview = () =>
+  useQuery(getCreditOverview, {}, { enabled: useInPortalShell() })
+
+export const useUsageLimits = () => useQuery(listUsageLimits, {}, { enabled: useInPortalShell() })
+
+export const useWalletLedger = (walletId: string | undefined, page: number, perPage = 10) => {
+  const inPortalShell = useInPortalShell()
+  return useQuery(
+    listLedger,
+    { walletId: walletId ?? '', pagination: { page, perPage } },
+    { enabled: inPortalShell && !!walletId }
+  )
+}
+
 /**
  * Everything the subscription-detail screen and change-plan modal need:
  * details, available plans, a live proration preview, add-ons, the upcoming
@@ -104,11 +140,7 @@ export const useSubscription = (
   const token = usePortalToken()
 
   const details = useQuery(getSubscriptionDetails, { subscriptionId })
-  const plans = useQuery(
-    listAvailablePlans,
-    { subscriptionId },
-    { enabled: !!opts.loadPlans }
-  )
+  const plans = useQuery(listAvailablePlans, { subscriptionId }, { enabled: !!opts.loadPlans })
   const preview = useQuery(
     previewPlanChange,
     { subscriptionId, newPlanVersionId: opts.selectedPlanVersionId ?? '' },
@@ -131,18 +163,9 @@ export const useSubscription = (
 
   const invalidatePortal = useInvalidatePortal()
 
-  const goToCheckout = useCallback(
-    (checkoutToken: string) => {
-      // Carry the current portal URL (which holds the portal `token`) so the
-      // success page can send the customer straight back here after paying.
-      const params = new URLSearchParams({
-        token: checkoutToken,
-        return_url: window.location.href,
-      })
-      window.location.href = `/portal/checkout?${params.toString()}`
-    },
-    []
-  )
+  const goToCheckout = useCallback((checkoutToken: string) => {
+    window.location.href = portalCheckoutHref(checkoutToken, window.location.href)
+  }, [])
 
   /** Confirm a plan change. Redirects to checkout when payment is required. */
   const confirmPlan = useCallback(
@@ -162,7 +185,10 @@ export const useSubscription = (
   const purchase = useCallback(
     async (addOnId: string) => {
       const res = await purchaseMutation.mutateAsync({ subscriptionId, addOnId })
-      if (res.status === AddOnPurchaseStatus.ADDON_PURCHASE_CHECKOUT_REQUIRED && res.checkoutToken) {
+      if (
+        res.status === AddOnPurchaseStatus.ADDON_PURCHASE_CHECKOUT_REQUIRED &&
+        res.checkoutToken
+      ) {
         goToCheckout(res.checkoutToken)
         return { redirected: true as const, res }
       }
@@ -240,6 +266,7 @@ export const useSubscription = (
     allowDowngrade: adjustable.data?.allowDowngrade ?? true,
     upcomingInvoice: upcoming.data?.invoice,
     isUpcomingLoading: upcoming.isLoading,
+    isUpcomingError: upcoming.isError,
     invalidatePortal,
     setAddOnQuantity,
     addOnQtyPending: addOnQtyMutation.isPending,

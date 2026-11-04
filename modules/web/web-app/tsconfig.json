@@ -19,6 +19,10 @@
       "@/services/*": ["./services/*"],
       "@/types/*": ["./types/*"],
       "@/rpc/*": ["./generated/*"],
+      "@/edition": ["./edition"],
+      "@/edition/*": ["./edition/*"],
+      // EE builds alias this to an edition outside web-app (see vite.config.ts)
+      "virtual:edition": ["./editions/oss.ts"],
 
       // required to resolve trpc types in dev
       "@ui/*": ["../packages/ui/src/*"],

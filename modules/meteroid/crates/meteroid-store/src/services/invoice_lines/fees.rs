@@ -212,23 +212,14 @@ pub fn compute_tier_price(
     })
 }
 
-/// Prices a usage quantity under a pricing model, reusing the invoicing math so
-/// the result matches what would be billed. Returns `None` for Matrix, which
-/// needs per-dimension quantities. Display/estimation only.
-pub fn compute_usage_price(
-    model: &UsagePricingModel,
-    usage_units: Decimal,
-    currency: &str,
-) -> StoreResult<Option<Decimal>> {
-    let precision = rusty_money::iso::find(currency)
-        .map(|c| c.exponent as u8)
-        .unwrap_or(2);
-
-    let amount = match model {
+/// The unrounded amount `usage_units` of usage costs under a pricing model. `None` for Matrix,
+/// which needs per-dimension quantities.
+pub fn compute_usage_amount(model: &UsagePricingModel, usage_units: Decimal) -> Option<Decimal> {
+    Some(match model {
         UsagePricingModel::PerUnit { rate } => rate * usage_units,
         UsagePricingModel::Package { block_size, rate } => {
             if *block_size == 0 {
-                return Ok(Some(Decimal::ZERO));
+                return Some(Decimal::ZERO);
             }
             (usage_units / Decimal::from(*block_size)).ceil() * rate
         }
@@ -239,7 +230,24 @@ pub fn compute_usage_price(
         UsagePricingModel::Volume { tiers, .. } => {
             volume_charge(usage_units, tiers).map_or(Decimal::ZERO, |c| c.amount)
         }
-        UsagePricingModel::Matrix { .. } => return Ok(None),
+        UsagePricingModel::Matrix { .. } => return None,
+    })
+}
+
+/// Prices a usage quantity under a pricing model, reusing the invoicing math so
+/// the result matches what would be billed. Returns `None` for Matrix, which
+/// needs per-dimension quantities. Display/estimation only.
+pub fn compute_usage_price(
+    model: &UsagePricingModel,
+    usage_units: Decimal,
+    currency: &str,
+) -> StoreResult<Option<Decimal>> {
+    let precision = meteroid_money::iso::find(currency)
+        .map(|c| c.exponent as u8)
+        .unwrap_or(2);
+
+    let Some(amount) = compute_usage_amount(model, usage_units) else {
+        return Ok(None);
     };
 
     // Round to the currency minor unit exactly as the invoice line total does.

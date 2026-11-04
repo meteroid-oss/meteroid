@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 
 use crate::enums::OrganizationUserRole;
-use common_domain::ids::UserId;
+use common_domain::ids::{RoleId, UserId};
 use diesel::{AsChangeset, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Selectable)]
@@ -17,6 +17,11 @@ pub struct UserRow {
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     pub department: Option<String>,
+    pub totp_secret: Option<String>,
+    pub totp_enabled: bool,
+    pub totp_recovery_codes: Vec<Option<String>>,
+    pub totp_enrolled_at: Option<NaiveDateTime>,
+    pub preferences: serde_json::Value,
 }
 
 #[derive(Queryable, Debug, Selectable)]
@@ -31,10 +36,14 @@ pub struct UserWithRoleRow {
     #[diesel(select_expression = crate::schema::organization_member::role)]
     #[diesel(select_expression_type = crate::schema::organization_member::role)]
     pub role: OrganizationUserRole,
+    #[diesel(select_expression = crate::schema::organization_member::role_id)]
+    #[diesel(select_expression_type = crate::schema::organization_member::role_id)]
+    pub role_id: Option<RoleId>,
     pub onboarded: bool,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     pub department: Option<String>,
+    pub totp_enabled: bool,
 }
 
 #[derive(Debug, Insertable)]

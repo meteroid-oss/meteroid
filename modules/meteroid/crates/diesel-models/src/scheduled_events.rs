@@ -1,8 +1,9 @@
 use chrono::NaiveDateTime;
 
-use crate::enums::{ScheduledEventStatus, ScheduledEventTypeEnum};
+use crate::enums::{ActorTypeEnum, ScheduledEventStatus, ScheduledEventTypeEnum};
 use common_domain::ids::{ScheduledEventId, SubscriptionId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable, QueryableByName, Selectable};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Queryable, QueryableByName, Selectable, Identifiable)]
 #[diesel(table_name = crate::schema::scheduled_event)]
@@ -24,6 +25,11 @@ pub struct ScheduledEventRow {
     pub processed_at: Option<NaiveDateTime>,
     pub source: String, // API, System, etc.
     pub created_by_customer: bool,
+    pub actor_type: ActorTypeEnum,
+    pub actor_uuid: Option<Uuid>,
+    pub actor_alias: Option<String>,
+    /// When a failed event is tried again; `scheduled_time` stays the date it takes effect on.
+    pub next_attempt_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -41,4 +47,7 @@ pub struct ScheduledEventRowNew {
     pub retries: i32,
     pub source: String,
     pub created_by_customer: bool,
+    pub actor_type: ActorTypeEnum,
+    pub actor_uuid: Option<Uuid>,
+    pub actor_alias: Option<String>,
 }

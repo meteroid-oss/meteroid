@@ -1,0 +1,48 @@
+[package]
+name = "metering-server"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+metering = { workspace = true }
+metric-core = { workspace = true }
+metering-grpc = { workspace = true }
+meteroid-grpc = { workspace = true, features = ["client"] }
+common-grpc = { workspace = true, features = ["server", "client"] }
+common-domain = { workspace = true, features = ["tonic"] }
+common-build-info = { workspace = true, optional = true }
+common-logging.workspace = true
+dotenvy.workspace = true
+envconfig.workspace = true
+log.workspace = true
+rust_decimal = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tonic.workspace = true
+tonic-health.workspace = true
+tonic-reflection.workspace = true
+tonic-tracing-opentelemetry.workspace = true
+tracing = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
+
+[features]
+default = ["bin"]
+# Only the binaries read the build info, which is rebuilt on every git commit; the
+# libraries embedding the server turn default features off to keep it out of their graph.
+bin = ["dep:common-build-info"]
+
+[[bin]]
+name = "metering-api"
+required-features = ["bin"]
+path = "src/bin/server.rs"
+
+[[bin]]
+name = "metering-ingest"
+required-features = ["bin"]
+path = "src/bin/ingest.rs"
+
+[[bin]]
+name = "metering-query"
+required-features = ["bin"]
+path = "src/bin/query.rs"

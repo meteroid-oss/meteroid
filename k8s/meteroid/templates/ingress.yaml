@@ -76,7 +76,7 @@ spec:
             pathType: {{ .pathType }}
             backend:
               service:
-                name: {{ $.Release.Name }}-{{ .service }}
+                name: {{ include "meteroid.fullname" $ }}-{{ .service }}
                 port:
                   number: {{ .port }}
           {{- end }}

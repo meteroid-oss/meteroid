@@ -1,19 +1,10 @@
 import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query';
 import {
   Button,
-  Form,
   FormDescription,
   InputFormField,
-  ScrollArea,
   SelectFormField,
   SelectItem,
-  Separator,
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
   TextareaFormField,
 } from '@md/ui'
 import { D, pipe } from '@mobily/ts-belt'
@@ -23,9 +14,18 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { AggregationSection } from '@/features/productCatalog/metrics/AggregationSection'
+import { EventCodeFormField } from '@/features/productCatalog/metrics/EventCodeFormField'
+import { MetricBuilderShell } from '@/features/productCatalog/metrics/MetricBuilderShell'
+import { MetricFiltersSection } from '@/features/productCatalog/metrics/MetricFiltersSection'
+import { MetricPreview } from '@/features/productCatalog/metrics/MetricPreview'
 import { SegmentationMatrixSection } from '@/features/productCatalog/metrics/SegmentationMatrixSection'
 import { UnitConversionSection } from '@/features/productCatalog/metrics/UnitConversionSection'
+import { UnitLabelSection } from '@/features/productCatalog/metrics/UnitLabelSection'
 import { UsageGroupKeySection } from '@/features/productCatalog/metrics/UsageGroupKeySection'
+import {
+  SettingsFieldGrid,
+  SettingsSection,
+} from '@/features/settings/components/SettingsSection'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { schemas } from '@/lib/schemas'
@@ -42,9 +42,52 @@ import {
 import {
   Aggregation_AggregationType,
   Aggregation_UnitConversion_UnitConversionRounding,
+  MetricFilter_Operator,
 } from '@/rpc/api/billablemetrics/v1/models_pb'
 import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
 import { useConfirmationModal } from 'providers/ConfirmationProvider'
+
+// Shared init-shape builders so the live preview and the create request derive
+// the aggregation / segmentation payloads identically from the same form values.
+const toAggregationInit = (aggregation: CreateBillableMetricFormData['aggregation']) => ({
+  aggregationType: Aggregation_AggregationType[aggregation.aggregationType],
+  aggregationKey: aggregation.aggregationKey,
+  unitConversion: aggregation.unitConversion && {
+    factor: aggregation.unitConversion.factor,
+    rounding:
+      Aggregation_UnitConversion_UnitConversionRounding[aggregation.unitConversion.rounding],
+  },
+})
+
+// Form filters → the proto/preview shape (op string → enum). Shared by submit and preview
+// so the metered value and the previewed series come from the exact same filter set.
+const toFilterInit = (filters?: CreateBillableMetricFormData['filters']) =>
+  (filters ?? []).map(f => ({
+    property: f.property,
+    op: MetricFilter_Operator[f.op],
+    values: f.values,
+  }))
+
+const toSegmentationMatrixInit = (segmentationMatrix?: SimpleSegmentationMatrixFormData) =>
+  segmentationMatrix &&
+  (segmentationMatrix.single
+    ? { matrix: { case: 'single' as const, value: { dimension: segmentationMatrix.single } } }
+    : segmentationMatrix.double
+      ? { matrix: { case: 'double' as const, value: segmentationMatrix.double } }
+      : segmentationMatrix.linked
+        ? {
+            matrix: {
+              case: 'linked' as const,
+              value: {
+                ...segmentationMatrix.linked,
+                values: pipe(
+                  segmentationMatrix.linked.values,
+                  D.map(values => ({ values }))
+                ),
+              },
+            },
+          }
+        : undefined)
 
 interface ProductMetricsCreatePanelProps {
   metricId?: string
@@ -97,6 +140,9 @@ export const ProductMetricsCreatePanel = ({
       segmentationMatrix: {
         matrixType: 'NONE' as const,
       },
+      filters: [],
+      unitSingular: '',
+      unitPlural: '',
     },
     mode: 'all',
   })
@@ -170,7 +216,14 @@ export const ProductMetricsCreatePanel = ({
             : undefined,
         },
         segmentationMatrix,
+        filters: metric.filters.map(f => ({
+          property: f.property,
+          op: MetricFilter_Operator[f.op] as 'EQUAL' | 'NOT_EQUAL' | 'IN' | 'NOT_IN',
+          values: f.values,
+        })),
         usageGroupKey: metric.usageGroupKey || undefined,
+        unitSingular: metric.unitLabel?.singular ?? '',
+        unitPlural: metric.unitLabel?.plural ?? '',
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -212,47 +265,15 @@ export const ProductMetricsCreatePanel = ({
           name: input.metricName,
           code: input.eventCode,
           description: input.metricDescription,
-          aggregation: {
-            aggregationType: Aggregation_AggregationType[input.aggregation.aggregationType],
-            aggregationKey: input.aggregation.aggregationKey,
-            unitConversion: input.aggregation.unitConversion && {
-              factor: input.aggregation.unitConversion.factor,
-              rounding:
-                Aggregation_UnitConversion_UnitConversionRounding[
-                  input.aggregation.unitConversion.rounding
-                ],
-            },
-          },
-          segmentationMatrix: {
-            matrix:
-              input.segmentationMatrix &&
-              (input.segmentationMatrix.single
-                ? {
-                    case: 'single',
-                    value: {
-                      dimension: input.segmentationMatrix.single,
-                    },
-                  }
-                : input.segmentationMatrix.double
-                  ? {
-                      case: 'double',
-                      value: input.segmentationMatrix.double,
-                    }
-                  : input.segmentationMatrix.linked
-                    ? {
-                        case: 'linked',
-                        value: {
-                          ...input.segmentationMatrix.linked,
-                          values: pipe(
-                            input.segmentationMatrix.linked.values,
-                            D.map(values => ({ values }))
-                          ),
-                        },
-                      }
-                    : undefined),
-          },
+          aggregation: toAggregationInit(input.aggregation),
+          segmentationMatrix: toSegmentationMatrixInit(input.segmentationMatrix),
+          filters: toFilterInit(input.filters),
           usageGroupKey: input.usageGroupKey ?? undefined,
           familyLocalId: input.productFamilyId,
+          unitLabel:
+            input.unitSingular && input.unitPlural
+              ? { singular: input.unitSingular, plural: input.unitPlural }
+              : undefined,
         })
 
         methods.reset()
@@ -265,6 +286,16 @@ export const ProductMetricsCreatePanel = ({
     },
     [metricId, createBillableMetricMut, methods, navigate]
   )
+
+  // Live form values driving the inline preview (same helpers as submit).
+  const [previewCode, previewAggregation, previewSegmentation, previewGroupKey, previewFilters] =
+    methods.watch([
+      'eventCode',
+      'aggregation',
+      'segmentationMatrix',
+      'usageGroupKey',
+      'filters',
+    ])
 
   const isDuplicating = !!sourceMetricId
 
@@ -281,130 +312,117 @@ export const ProductMetricsCreatePanel = ({
   const isLoading = isDuplicating && sourceMetricQuery.isLoading
 
   return (
-    <>
-      <Sheet open={true} onOpenChange={safeClosePanel}>
-        <SheetContent size="medium">
-          {isLoading ? (
-            <div className="flex items-center justify-center h-full">
-              <p>Loading metric...</p>
-            </div>
-          ) : (
-            <Form {...methods}>
-              <form
-                onSubmit={methods.handleSubmit(submit)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
-                    e.preventDefault()
-                  }
-                }}
-                className="relative h-full flex flex-col"
-              >
-                <SheetHeader className="border-b border-border pb-3 mb-3">
-                  <SheetTitle>{titles}</SheetTitle>
-                  <SheetDescription>
-                    {isDuplicating
-                      ? 'Create a copy of this metric.'
-                      : 'Metrics let you aggregate customer usage events into billable units'}
-                  </SheetDescription>
-                </SheetHeader>
-                <ScrollArea className="flex grow pr-2 -mr-4">
-                  <div className="px-2 relative space-y-6">
-                    <>
-                      {/* Create/Duplicate Mode - Full Form */}
-                      <div className="space-y-4">
-                        <div className="space-y-1">
-                          <h3 className="text-sm font-medium">Basic Information</h3>
-                          <p className="text-xs text-muted-foreground">
-                            Define the core properties of your billable metric
-                          </p>
-                        </div>
+    <MetricBuilderShell
+      title={titles}
+      description={
+        isDuplicating
+          ? 'Create a copy of this metric.'
+          : 'Metrics let you aggregate customer usage events into billable units'
+      }
+      onClose={safeClosePanel}
+      onSubmit={methods.handleSubmit(submit)}
+      methods={methods}
+      formSlot={
+        isLoading ? (
+          <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+            Loading metric…
+          </div>
+        ) : (
+          <>
+            <SettingsSection
+              divided={false}
+              title="Basic Information"
+              description="Define the core properties of your billable metric"
+            >
+              <SettingsFieldGrid>
+                <InputFormField
+                  name="metricName"
+                  label="Metric name"
+                  control={methods.control}
+                  placeholder="Compute (CPU-seconds)"
+                />
 
-                        <div className="space-y-4 pl-4 border-l-2 border-muted">
-                          <InputFormField
-                            name="metricName"
-                            label="Metric name"
-                            control={methods.control}
-                            placeholder="Compute (CPU-seconds)"
-                            className="max-w-sm"
-                          />
-
-                          {families.length > 1 ? (
-                            <SelectFormField
-                              name="productFamilyId"
-                              label="Product line"
-                              layout="vertical"
-                              placeholder="Select a product line"
-                              className="max-w-sm"
-                              empty={families.length === 0}
-                              control={methods.control}
-                            >
-                              {families.map(f => (
-                                <SelectItem value={f.localId} key={f.localId}>
-                                  {f.name}
-                                </SelectItem>
-                              ))}
-                            </SelectFormField>
-                          ) : (
-                            <InputFormField
-                              hidden
-                              className="hidden"
-                              value={families[0]?.localId}
-                              control={methods.control}
-                              name="productFamilyId"
-                            />
-                          )}
-
-                          <div className="space-y-2">
-                            <InputFormField
-                              name="eventCode"
-                              label="Event Code"
-                              control={methods.control}
-                              placeholder="compute_usage"
-                              className="max-w-sm"
-                            />
-                            <FormDescription>
-                              Qualifies an event stream, ex: page_views.
-                              <br />A single usage event can be processed by multiple metrics !
-                            </FormDescription>
-                          </div>
-                          <TextareaFormField
-                            name="metricDescription"
-                            label="Description"
-                            className="max-w-sm"
-                            control={methods.control}
-                            placeholder="Serverless compute usage for ..."
-                          />
-                        </div>
-                      </div>
-
-                      {/* Configuration Sections */}
-                      <AggregationSection methods={methods} />
-                      <UnitConversionSection methods={methods} />
-                      <Separator />
-                      <UsageGroupKeySection methods={methods} />
-                      <SegmentationMatrixSection methods={methods} />
-                    </>
-                  </div>
-                </ScrollArea>
-                <Separator />
-                <SheetFooter className="pt-3 space-x-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={safeClosePanel}
-                    disabled={isSubmitting}
+                {families.length > 1 ? (
+                  <SelectFormField
+                    name="productFamilyId"
+                    label="Product line"
+                    layout="vertical"
+                    placeholder="Select a product line"
+                    empty={families.length === 0}
+                    control={methods.control}
                   >
-                    Cancel
-                  </Button>
-                  <Button type="submit" disabled={!methods.formState.isValid || isSubmitting}>
-                    {buttonTexts}
-                  </Button>
-                </SheetFooter>
-              </form>
-            </Form>
-          )}
-        </SheetContent>
-      </Sheet>
-    </>
+                    {families.map(f => (
+                      <SelectItem value={f.localId} key={f.localId}>
+                        {f.name}
+                      </SelectItem>
+                    ))}
+                  </SelectFormField>
+                ) : (
+                  <InputFormField
+                    hidden
+                    className="hidden"
+                    value={families[0]?.localId}
+                    control={methods.control}
+                    name="productFamilyId"
+                  />
+                )}
+
+                <div className="space-y-2 sm:col-span-2">
+                  <EventCodeFormField
+                    name="eventCode"
+                    label="Event Code"
+                    control={methods.control}
+                    placeholder="compute_usage"
+                  />
+                  <FormDescription>
+                    Qualifies an event stream, ex: page_views.
+                    <br />A single usage event can be processed by multiple metrics.
+                  </FormDescription>
+                </div>
+                <TextareaFormField
+                  name="metricDescription"
+                  label="Description"
+                  containerClassName="sm:col-span-2"
+                  control={methods.control}
+                  placeholder="Serverless compute usage for ..."
+                />
+              </SettingsFieldGrid>
+            </SettingsSection>
+
+            <AggregationSection methods={methods} />
+            <UnitConversionSection methods={methods} />
+            <UnitLabelSection control={methods.control} />
+            <UsageGroupKeySection methods={methods} />
+            <SegmentationMatrixSection methods={methods} />
+            <MetricFiltersSection control={methods.control} />
+          </>
+        )
+      }
+      previewSlot={
+        isLoading ? null : (
+          <MetricPreview
+            code={previewCode ?? ''}
+            aggregation={
+              previewAggregation?.aggregationType
+                ? toAggregationInit(previewAggregation)
+                : undefined
+            }
+            segmentationMatrix={toSegmentationMatrixInit(previewSegmentation)}
+            filters={toFilterInit(previewFilters)}
+            usageGroupKey={previewGroupKey || undefined}
+          />
+        )
+      }
+      footerSlot={
+        <>
+          <Button type="button" variant="outline" onClick={safeClosePanel} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={!methods.formState.isValid || isSubmitting}>
+            {buttonTexts}
+          </Button>
+        </>
+      }
+    />
   )
 }

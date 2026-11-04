@@ -13,23 +13,44 @@ import {
   TooltipTrigger,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { BanIcon, CheckCircleIcon, ChevronDown, Download, Trash2Icon } from 'lucide-react'
+import {
+  BanIcon,
+  CheckCircleIcon,
+  ChevronDown,
+  Download,
+  FileCode,
+  FolderSyncIcon,
+  Trash2Icon,
+} from 'lucide-react'
 import { Fragment, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { CreditNoteStatusBadge } from '@/features/creditNotes/CreditNoteStatusBadge'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
+import { CustomPropertyValue } from '@/features/customproperties/CustomPropertyValue'
+import { useCustomPropertyRows } from '@/features/customproperties/useCustomPropertyRows'
+import { NamedCreditUnitUsageNote } from '@/features/invoices/CreditUnitUsageNote'
+import { RefundDialog } from '@/features/invoices/RefundDialog'
+import { TransactionList } from '@/features/invoices/TransactionList'
+import { packCreditText } from '@/features/invoices/packCredit'
+import { creditNoteRefundLabel, latestSettledPayment } from '@/features/invoices/refunds'
+import { useCreditUnitNames } from '@/features/invoices/useCreditUnitNames'
+import { SyncCreditNoteModal } from '@/features/settings/integrations/SyncCreditNoteModal'
+import { IntegrationType } from '@/features/settings/integrations/SyncInvoiceModal'
 import { getCountryName } from '@/features/settings/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 import { formatCurrency, rateToPercent } from '@/lib/utils/numbers'
 import { InvoiceConfirmationDialog } from '@/pages/tenants/invoice/InvoiceConfirmationDialog'
+import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
+import { ConnectorProviderEnum, ConnectorStatusEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
   deleteDraftCreditNote,
   finalizeCreditNote,
   getCreditNote,
+  listCreditNoteRefunds,
   listCreditNotes,
   previewCreditNoteSvg,
   voidCreditNote,
@@ -39,6 +60,8 @@ import {
   CreditType,
   DetailedCreditNote,
 } from '@/rpc/api/creditnotes/v1/models_pb'
+import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
+import { getInvoice } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
 import { LineItem, TaxBreakdownItem } from '@/rpc/api/invoices/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
 import { useTypedParams } from '@/utils/params'
@@ -79,16 +102,31 @@ const CreditNotePreviewFrame: React.FC<{
   creditNoteId: string
   creditNote: DetailedCreditNote
 }> = ({ creditNoteId, creditNote }) => {
-  const previewQuery = useQuery(
-    previewCreditNoteSvg,
-    { id: creditNoteId },
-    { refetchOnMount: 'always' }
-  )
-
   const pdfUrl =
     creditNote.pdfDocumentId && creditNote.documentSharingKey
       ? `${env.meteroidRestApiUri}/files/v1/credit-note/pdf/${creditNote.id}?token=${creditNote.documentSharingKey}`
       : null
+  // An issued credit note is a legal document: once its PDF is stored, that file is what is
+  // shown, never a re-render with today's code and settings.
+  const issuedPdf = creditNote.status !== CreditNoteStatus.DRAFT ? pdfUrl : null
+
+  const previewQuery = useQuery(
+    previewCreditNoteSvg,
+    { id: creditNoteId },
+    { refetchOnMount: 'always', enabled: issuedPdf === null }
+  )
+
+  if (issuedPdf) {
+    return (
+      <div className="w-full h-full flex flex-col bg-muted">
+        <iframe
+          src={issuedPdf}
+          title={`Credit note ${creditNote.creditNoteNumber}`}
+          className="w-full flex-1 min-h-[80vh] border-0"
+        />
+      </div>
+    )
+  }
 
   if (previewQuery.isLoading) {
     return (
@@ -118,12 +156,12 @@ const CreditNotePreviewFrame: React.FC<{
   return (
     <div className="w-full h-full flex flex-col">
       <div
-        className="flex flex-col items-center justify-center gap-5 bg-gray-100 py-10 relative"
+        className="flex flex-col items-center justify-center gap-5 bg-gray-100 py-10 px-4 relative"
         style={{ minHeight: 'fit-content' }}
       >
         {svgContents.map((svgContent, i) => (
           <div
-            className="bg-white"
+            className="bg-white max-w-full [&>svg]:h-auto [&>svg]:max-w-full"
             key={`svg-${i}`}
             style={{
               width: 'fit-content',
@@ -135,7 +173,7 @@ const CreditNotePreviewFrame: React.FC<{
 
         {/* Floating Download Button */}
         {pdfUrl && (
-          <div className="absolute top-16 right-16">
+          <div className="absolute top-4 right-4 sm:top-16 sm:right-16">
             <Button asChild variant="flat" size="icon" className="shadow-lg">
               <a
                 href={pdfUrl}
@@ -164,9 +202,20 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
 
+  const customPropertyRows = useCustomPropertyRows(
+    CustomPropertyEntityType.CREDIT_NOTE,
+    creditNote.customProperties
+  )
+
   const [showFinalizeConfirmation, setShowFinalizeConfirmation] = useState(false)
   const [showVoidConfirmation, setShowVoidConfirmation] = useState(false)
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false)
+  const [showSyncPennylaneModal, setShowSyncPennylaneModal] = useState(false)
+
+  const connectorsQuery = useQuery(listConnectors, {})
+  const isPennylaneConnected = (connectorsQuery.data?.connectors ?? []).some(
+    connector => connector.provider === ConnectorProviderEnum.PENNYLANE
+  )
 
   const finalizeMutation = useMutation(finalizeCreditNote, {
     onSuccess: async () => {
@@ -241,6 +290,7 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
 
   const isDraft = creditNote.status === CreditNoteStatus.DRAFT
   const isFinalized = creditNote.status === CreditNoteStatus.FINALIZED
+  const isRefundable = isFinalized && creditNote.creditType === CreditType.REFUND
   const canFinalize = isDraft
   const canVoid = isDraft || isFinalized
   const canDelete = isDraft
@@ -249,9 +299,23 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
     creditNote.pdfDocumentId && creditNote.documentSharingKey
       ? `${env.meteroidRestApiUri}/files/v1/credit-note/pdf/${creditNote.id}?token=${creditNote.documentSharingKey}`
       : null
+  // Only there when the credit note was issued as an e-invoice.
+  const xmlUrl =
+    creditNote.xmlDocumentId && creditNote.documentSharingKey
+      ? `${env.meteroidRestApiUri}/files/v1/credit-note/xml/${creditNote.id}?token=${creditNote.documentSharingKey}`
+      : null
 
   return (
-    <Flex className="h-full">
+    <Flex className="flex-col lg:flex-row lg:h-full">
+      {showSyncPennylaneModal && (
+        <SyncCreditNoteModal
+          creditNoteNumber={creditNote.creditNoteNumber}
+          id={creditNote.id}
+          integrationType={IntegrationType.Pennylane}
+          onClose={() => setShowSyncPennylaneModal(false)}
+        />
+      )}
+
       <InvoiceConfirmationDialog
         open={showFinalizeConfirmation}
         onOpenChange={setShowFinalizeConfirmation}
@@ -283,17 +347,20 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
       />
 
       {/* Left Panel - Credit Note Details */}
-      <Flex direction="column" className="w-1/3 border-r border-border">
+      <Flex
+        direction="column"
+        className="w-full lg:w-1/3 border-b lg:border-b-0 lg:border-r border-border"
+      >
         {/* Fixed Header */}
         <Flex direction="column" className="gap-2 p-6 border-b border-border">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
+          <div className="flex justify-between items-start gap-2">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
               <CreditNoteStatusBadge status={creditNote.status} />
               <div className="text-lg font-medium">Credit Note {creditNote.creditNoteNumber}</div>
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="secondary" size="sm" hasIcon>
+                <Button variant="secondary" size="sm" hasIcon className="shrink-0">
                   Actions
                   <ChevronDown className="w-4 h-4" />
                 </Button>
@@ -318,6 +385,18 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
                   </TooltipTrigger>
                   {!pdfUrl && <TooltipContent>PDF not yet generated</TooltipContent>}
                 </Tooltip>
+                {xmlUrl && (
+                  <DropdownMenuItem asChild>
+                    <a
+                      href={xmlUrl}
+                      download={`credit_note_${creditNote.creditNoteNumber}.xml`}
+                      className="flex items-center"
+                    >
+                      <FileCode size="16" className="mr-2" />
+                      Download e-invoice XML
+                    </a>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   disabled={!canFinalize}
                   onClick={() => setShowFinalizeConfirmation(true)}
@@ -325,6 +404,22 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
                   <CheckCircleIcon size="16" className="mr-2" />
                   Finalize
                 </DropdownMenuItem>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div>
+                      <DropdownMenuItem
+                        disabled={!isPennylaneConnected}
+                        onClick={() => setShowSyncPennylaneModal(true)}
+                      >
+                        <FolderSyncIcon size="16" className="mr-2" />
+                        Sync to Pennylane
+                      </DropdownMenuItem>
+                    </div>
+                  </TooltipTrigger>
+                  {!isPennylaneConnected && (
+                    <TooltipContent>Pennylane integration not connected</TooltipContent>
+                  )}
+                </Tooltip>
                 <DropdownMenuItem
                   disabled={!canVoid}
                   onClick={() => setShowVoidConfirmation(true)}
@@ -415,6 +510,13 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
             </div>
           </Flex>
 
+          {isRefundable && (
+            <>
+              <Separator className="-my-3" />
+              <CreditNoteRefunds creditNote={creditNote} />
+            </>
+          )}
+
           {(creditNote.reason || creditNote.memo) && (
             <>
               <Separator className="-my-3" />
@@ -435,6 +537,22 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
                     </div>
                   </>
                 )}
+              </Flex>
+            </>
+          )}
+
+          {customPropertyRows.length > 0 && (
+            <>
+              <Separator className="-my-3" />
+              <Flex direction="column" className="gap-2 p-6">
+                <div className="text-[15px] font-medium">Custom properties</div>
+                {customPropertyRows.map(row => (
+                  <FlexDetails
+                    key={row.key}
+                    title={row.label}
+                    value={<CustomPropertyValue def={row.def} value={row.raw} />}
+                  />
+                ))}
               </Flex>
             </>
           )}
@@ -481,7 +599,7 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
       </Flex>
 
       {/* Right Panel - Credit Note Preview */}
-      <div className="w-2/3 flex flex-col">
+      <div className="w-full lg:w-2/3 flex flex-col">
         <div className="flex-1 overflow-auto p-6">
           <CreditNotePreviewFrame creditNoteId={creditNoteId} creditNote={creditNote} />
         </div>
@@ -490,6 +608,90 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
   )
 }
 
+
+const CreditNoteRefunds: React.FC<{ creditNote: DetailedCreditNote }> = ({ creditNote }) => {
+  const [showRefundDialog, setShowRefundDialog] = useState(false)
+
+  const refundsQuery = useQuery(listCreditNoteRefunds, { creditNoteId: creditNote.id })
+  const invoiceQuery = useQuery(getInvoice, { id: creditNote.invoiceId })
+  const connectorsQuery = useQuery(listConnectors, {})
+
+  const refunds = refundsQuery.data?.refunds ?? []
+  const transactions = invoiceQuery.data?.invoice?.transactions ?? []
+  // LIFO: the money goes back on the most recent settled payment.
+  const parent = latestSettledPayment(transactions)
+
+  const capabilities = (connectorsQuery.data?.connectors ?? [])
+    .filter(connector => connector.status === ConnectorStatusEnum.ACTIVE)
+    .map(connector => connector.paymentCapabilities)
+
+  const canRefund = Boolean(parent) && creditNote.refundableAmountCents > 0n
+
+  return (
+    <Flex direction="column" className="gap-2 p-6">
+      <div className="flex items-center justify-between">
+        <div className="text-[15px] font-medium">Refunds</div>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!canRefund}
+          onClick={() => setShowRefundDialog(true)}
+        >
+          Refund
+        </Button>
+      </div>
+
+      <FlexDetails
+        title="Refundable"
+        value={formatCurrency(creditNote.refundableAmountCents, creditNote.currency)}
+      />
+      <FlexDetails
+        title="Refunded"
+        value={formatCurrency(creditNote.refundedSettledCents, creditNote.currency)}
+      />
+      <FlexDetails
+        title="In flight"
+        value={formatCurrency(creditNote.refundedPendingCents, creditNote.currency)}
+      />
+
+      {refunds.length > 0 && (
+        <div className="mt-2">
+          <TransactionList
+            transactions={refunds}
+            currency={creditNote.currency}
+            isLoading={refundsQuery.isLoading}
+          />
+        </div>
+      )}
+
+      {!canRefund && !parent && (
+        <div className="text-[11px] text-muted-foreground">
+          No settled payment on the invoice to refund.
+        </div>
+      )}
+
+      {showRefundDialog && parent && (
+        <RefundDialog
+          open
+          onOpenChange={() => setShowRefundDialog(false)}
+          transaction={parent}
+          transactions={transactions}
+          currency={creditNote.currency}
+          creditNoteOptions={[
+            {
+              id: creditNote.id,
+              creditNoteNumber: creditNote.creditNoteNumber,
+              refundableCents: creditNote.refundableAmountCents,
+            },
+          ]}
+          lockedCreditNoteId={creditNote.id}
+          supportsOnlineRefunds={capabilities.some(caps => caps?.supportsRefunds)}
+          supportsPartialRefunds={capabilities.some(caps => caps?.supportsPartialRefunds)}
+        />
+      )}
+    </Flex>
+  )
+}
 
 const CreditTypeLabel: React.FC<{ type: CreditType }> = ({ type }) => {
   switch (type) {
@@ -519,10 +721,44 @@ const CreditNoteSummaryLines: React.FC<{ creditNote: DetailedCreditNote }> = ({ 
   const subtotal = Math.abs(Number(creditNote.subtotal)) || 0
   const taxAmount = Math.abs(Number(creditNote.taxAmount)) || 0
   const total = Math.abs(Number(creditNote.total)) || 0
+  // Where the credited total went, as the PDF states it next to the totals.
+  const effects = [
+    {
+      label: creditNoteRefundLabel(creditNote),
+      amount:
+        creditNote.status === CreditNoteStatus.VOIDED
+          ? creditNote.refundedSettledCents
+          : creditNote.refundedAmountCents,
+    },
+    { label: 'Credited to balance', amount: creditNote.creditedAmountCents },
+    {
+      label:
+        creditNote.status === CreditNoteStatus.DRAFT
+          ? 'Free credit to be restored'
+          : 'Free credit restored',
+      amount: creditNote.promotionalCreditRestoredCents,
+    },
+    { label: 'Debt cancelled', amount: creditNote.debtCancelledAmountCents },
+  ].filter((effect): effect is { label: string; amount: bigint } =>
+    Boolean(effect.label && effect.amount > 0n)
+  )
 
   return (
     <div className="space-y-1">
       <FlexDetails title="Subtotal" value={formatCurrency(subtotal, creditNote.currency)} />
+
+      {creditNote.discountCents > 0n && (
+        <FlexDetails
+          title="Discount"
+          value={`-${formatCurrency(creditNote.discountCents, creditNote.currency)}`}
+        />
+      )}
+      {creditNote.promotionalCreditCents > 0n && (
+        <FlexDetails
+          title="Free credit"
+          value={`-${formatCurrency(creditNote.promotionalCreditCents, creditNote.currency)}`}
+        />
+      )}
 
       {creditNote.taxBreakdown && creditNote.taxBreakdown.length > 0
         ? creditNote.taxBreakdown.map((tax: TaxBreakdownItem) => {
@@ -553,6 +789,18 @@ const CreditNoteSummaryLines: React.FC<{ creditNote: DetailedCreditNote }> = ({ 
           }
         />
       </div>
+
+      {effects.length > 0 && (
+        <div className="pt-2 space-y-1">
+          {effects.map(effect => (
+            <FlexDetails
+              key={effect.label}
+              title={effect.label}
+              value={formatCurrency(effect.amount, creditNote.currency)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -561,6 +809,7 @@ const CreditNoteLineItems: React.FC<{ items: LineItem[]; currency: string }> = (
   items,
   currency,
 }) => {
+  const units = useCreditUnitNames(items.some(item => item.creditGrantUnit !== undefined))
   return (
     <div className="space-y-2">
       {items
@@ -575,6 +824,12 @@ const CreditNoteLineItems: React.FC<{ items: LineItem[]; currency: string }> = (
                     {parseAndFormatDate(item.startDate)} → {parseAndFormatDate(item.endDate)}
                   </div>
                 )}
+                {packCreditText(item, currency, units, 'Reverses') && (
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    {packCreditText(item, currency, units, 'Reverses')}
+                  </div>
+                )}
+                {item.creditUnit && <NamedCreditUnitUsageNote credit={item.creditUnit} className="mt-1" />}
               </div>
               <div className="text-right">
                 <div className="text-[13px] font-medium">

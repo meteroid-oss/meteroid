@@ -9,8 +9,8 @@ use meteroid_invoicing::{
     },
     pdf::TypstPdfGenerator,
 };
+use meteroid_money::{Money, iso};
 use rust_decimal::Decimal;
-use rusty_money::{Money, iso};
 use std::collections::HashMap;
 use std::path::Path;
 use std::str::FromStr;
@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let start = Instant::now();
 
-        let _pdf_data = generator.generate_pdf(&invoice).await?;
+        let _pdf_data = generator.generate_pdf(&invoice, None).await?;
 
         let elapsed = start.elapsed();
         generation_times.push(elapsed);
@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  Minimum generation time: {:.2?}", *min_time);
         println!("  Maximum generation time: {:.2?}", *max_time);
 
-        let pdf_data = generator.generate_pdf(&invoice).await?;
+        let pdf_data = generator.generate_pdf(&invoice, None).await?;
         let output_path = Path::new("benchmark_invoice.pdf");
         std::fs::write(output_path, pdf_data)?;
         println!(
@@ -114,6 +114,8 @@ fn create_test_invoice() -> Invoice {
                 zip_code: Some("75001".to_string()),
             },
             email: Some("contact@acme.com".to_string()),
+            contact_name: None,
+            contact_phone: None,
             tax_id: Some("FR123456789".to_string()),
             footer_info: Some("Payment to be made within 14 days".to_string()),
             footer_legal: Some("Acme Inc. is registered in France. All prices are in EUR and exclude VAT unless specified.".to_string()),
@@ -123,6 +125,7 @@ fn create_test_invoice() -> Invoice {
         customer: Customer {
             name: "Client Corp".to_string(),
             legal_number: Some("987654321".to_string()),
+            buyer_reference: None,
             address: Address {
                 line1: Some("456 Client Avenue".to_string()),
                 line2: None,
@@ -155,6 +158,9 @@ fn create_test_invoice() -> Invoice {
                 whitelabel: None
             },
             discount: Money::from_major(0, eur),
+            promotional_credit: Money::from_major(0, eur),
+            quoted_promotional_credit: None,
+            prepaid_amount: Money::from_major(0, eur),
             purchase_order: Some("Order #210".to_string()),
             parent_invoice_number: None,
             parent_invoice_date: None,
@@ -164,6 +170,7 @@ fn create_test_invoice() -> Invoice {
                 name: "Consulting Services".to_string(),
                 description: Some("Technical consulting for Q1 2025".to_string()),
                 subtotal: Money::from_major(750, eur),
+                taxable_amount: Money::from_major(750, eur),
                 quantity: Some(Decimal::from_str("15.0").unwrap()),
                 unit_price: Some(Money::from_major(50, eur)),
                 tax_rate: Decimal::from_str("20.0").unwrap(),
@@ -185,11 +192,16 @@ fn create_test_invoice() -> Invoice {
                     },
                 ],
                 group_label: None,
+                quoted: None,
+                credit: None,
+                promotional_credit: None,
+                prepaid_credit: false,
             },
             InvoiceLine {
                 name: "Software License".to_string(),
                 description: Some("Annual license renewal".to_string()),
                 subtotal: Money::from_major(250, eur),
+                taxable_amount: Money::from_major(250, eur),
                 quantity: Some(Decimal::from_str("1.0").unwrap()),
                 unit_price: Some(Money::from_major(250, eur)),
                 tax_rate: Decimal::from_str("20.0").unwrap(),
@@ -198,24 +210,132 @@ fn create_test_invoice() -> Invoice {
                 is_prorated: false,
                 sub_lines: vec![],
                 group_label: None,
+                quoted: None,
+                credit: None,
+                promotional_credit: None,
+                prepaid_credit: false,
             },
         ],
         coupons: vec![
             Coupon {
                 name: "Spring promotion 10% off".to_string(),
                 total: Money::from_major(25, eur),
+                quoted_total: None,
             }
         ],
         payment_status: Some(PaymentStatus::Paid),
         transactions,
+        payment_means: None,
         bank_details: Some(payment_info),
         tax_breakdown: vec![
             TaxBreakdownItem {
                 name: "VAT 20%".to_string(),
+                tax_kind: None,
                 rate: Decimal::from_str("0.2").unwrap(),
                 amount: Money::from_major(200, eur),
-                exemption_type: Some(TaxExemptionType::ReverseCharge)
+                taxable_amount: Money::from_major(200, eur),
+                exemption_reason: None,
+                exemption_type: Some(TaxExemptionType::ReverseCharge),
+                supply_basis: None,
+                prepaid_credit: false,
             },
         ],
+        annexes: vec![sample_event_annex()],
+        tax_inclusive: false,
+        prepaid_credit_purchase: false,
+    }
+}
+
+/// Aggregated event annex mirroring the customer appendix: one row per mission with a unit
+/// count, a billing-period range and a billed amount, grouped by client with per-client
+/// subtotals and a grand total (emphasized rows).
+fn sample_event_annex() -> meteroid_invoicing::model::Annex {
+    use meteroid_invoicing::model::{Annex, AnnexCell, AnnexGroup, AnnexRow, AnnexTable};
+
+    let data = |cells: &[&str]| AnnexRow {
+        cells: cells
+            .iter()
+            .map(|s| AnnexCell::Text(s.to_string()))
+            .collect(),
+        emphasis: false,
+    };
+    let total = |cells: &[&str]| AnnexRow {
+        cells: cells
+            .iter()
+            .map(|s| AnnexCell::Text(s.to_string()))
+            .collect(),
+        emphasis: true,
+    };
+
+    Annex {
+        title: "Invoice appendix".to_string(),
+        description: Some("One unit corresponds to one mission active for one month.".to_string()),
+        table: AnnexTable {
+            columns: [
+                "Mission ID",
+                "Client Name",
+                "Mission Name",
+                "Country",
+                "Billing Period",
+                "Number of units",
+                "Amount excl. Taxes",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+            groups: vec![AnnexGroup {
+                heading: None,
+                rows: vec![
+                    data(&[
+                        "PO-234704-1",
+                        "TDF",
+                        "Coordinateur accès sites (EMO)",
+                        "France",
+                        "Oct - Déc 2025",
+                        "3",
+                        "66.00",
+                    ]),
+                    data(&[
+                        "PO-234705-1",
+                        "TDF",
+                        "Coordinateur accès sites (JDO)",
+                        "France",
+                        "Oct - Nov 2025",
+                        "2",
+                        "44.00",
+                    ]),
+                    data(&[
+                        "PO-234576-1",
+                        "TDF",
+                        "Chef de projet BIM (BBE)",
+                        "France",
+                        "Oct 2025",
+                        "1",
+                        "22.00",
+                    ]),
+                    total(&["", "", "", "", "Total TDF", "6", "132.00"]),
+                    data(&[
+                        "PO-234704-1",
+                        "Boulanger",
+                        "Coordinateur accès sites (EMO)",
+                        "France",
+                        "Oct - Déc 2025",
+                        "3",
+                        "66.00",
+                    ]),
+                    data(&[
+                        "PO-234576-1",
+                        "Boulanger",
+                        "Chef de projet BIM (BBE)",
+                        "France",
+                        "Oct 2025",
+                        "1",
+                        "22.00",
+                    ]),
+                    total(&["", "", "", "", "Total Boulanger", "4", "88.00"]),
+                    total(&["", "", "", "", "TOTAL", "10", "220.00"]),
+                ],
+            }],
+        },
     }
 }

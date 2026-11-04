@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package meteroid.api.segments.v1;
+
+import "api/segments/v1/models.proto";
+
+message ListSegmentsRequest {
+  // Resolve each segment's matching-customer count (populates Segment.member_count).
+  // Off by default: only the segment-management view needs it, and resolution runs
+  // one cohort query per segment. Requires the analytics entitlement.
+  bool with_counts = 1;
+}
+
+message ListSegmentsResponse {
+  repeated Segment segments = 1;
+}
+
+message GetSegmentRequest {
+  string id = 1;
+}
+
+message GetSegmentResponse {
+  Segment segment = 1;
+}
+
+message CreateSegmentRequest {
+  string name = 1;
+  string definition = 2;
+}
+
+message CreateSegmentResponse {
+  Segment segment = 1;
+}
+
+message UpdateSegmentRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string definition = 3;
+}
+
+message UpdateSegmentResponse {
+  Segment segment = 1;
+}
+
+message DeleteSegmentRequest {
+  string id = 1;
+}
+
+message DeleteSegmentResponse {}
+
+service SegmentsService {
+  rpc ListSegments(ListSegmentsRequest) returns (ListSegmentsResponse) {}
+  rpc GetSegment(GetSegmentRequest) returns (GetSegmentResponse) {}
+  rpc CreateSegment(CreateSegmentRequest) returns (CreateSegmentResponse) {}
+  rpc UpdateSegment(UpdateSegmentRequest) returns (UpdateSegmentResponse) {}
+  rpc DeleteSegment(DeleteSegmentRequest) returns (DeleteSegmentResponse) {}
+}

@@ -1,5 +1,5 @@
 use crate::enums::OrganizationUserRole;
-use common_domain::ids::{OrganizationId, UserId};
+use common_domain::ids::{OrganizationId, RoleId, UserId};
 use diesel::{Identifiable, Insertable, Queryable};
 
 #[derive(Queryable, Debug, Identifiable, Insertable)]
@@ -10,4 +10,5 @@ pub struct OrganizationMemberRow {
     pub user_id: UserId,
     pub organization_id: OrganizationId,
     pub role: OrganizationUserRole,
+    pub role_id: Option<RoleId>,
 }

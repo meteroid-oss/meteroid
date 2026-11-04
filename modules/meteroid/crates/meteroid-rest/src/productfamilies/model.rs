@@ -1,0 +1,41 @@
+use common_domain::ids::{ProductFamilyId, string_serde};
+use meteroid_rest_common::model::{PaginatedRequest, PaginationResponse};
+use utoipa::{IntoParams, ToSchema};
+use validator::Validate;
+
+#[derive(ToSchema, IntoParams, serde::Serialize, serde::Deserialize, Validate)]
+#[into_params(parameter_in = Query)]
+pub struct ProductFamilyFilters {
+    pub search: Option<String>,
+}
+
+#[derive(ToSchema, IntoParams, serde::Serialize, serde::Deserialize, Validate)]
+#[into_params(parameter_in = Query)]
+pub struct ProductFamilyListRequest {
+    #[serde(flatten)]
+    #[validate(nested)]
+    pub pagination: PaginatedRequest,
+    #[serde(flatten)]
+    #[validate(nested)]
+    pub filters: ProductFamilyFilters,
+    /// Sort order. Format: `column.direction`. Allowed columns: `name`, `created_at`. Direction: `asc` or `desc`. Default: `created_at.desc`.
+    pub order_by: Option<String>,
+}
+
+#[derive(ToSchema, serde::Serialize, serde::Deserialize)]
+pub struct ProductFamilyListResponse {
+    pub data: Vec<ProductFamily>,
+    pub pagination_meta: PaginationResponse,
+}
+
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]
+pub struct ProductFamily {
+    #[serde(with = "string_serde")]
+    pub id: ProductFamilyId,
+    pub name: String,
+}
+
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
+pub struct ProductFamilyCreateRequest {
+    pub name: String,
+}

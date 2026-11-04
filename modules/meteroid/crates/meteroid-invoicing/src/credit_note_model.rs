@@ -1,8 +1,7 @@
 use chrono::NaiveDate;
-use common_domain::country::CountryCode;
+use meteroid_money::iso;
+use meteroid_money::iso::Currency;
 use rust_decimal::Decimal;
-use rusty_money::iso;
-use rusty_money::iso::Currency;
 
 #[derive(Debug, Clone, Copy)]
 pub enum CreditType {
@@ -44,6 +43,12 @@ pub struct CreditNoteMetadata {
     pub credit_type: CreditType,
     pub refunded_amount: Price,
     pub credited_amount: Price,
+    pub debt_cancelled_amount: Price,
+    /// Promotional credit the note gives back to the customer's grants, positive. On a
+    /// tax-inclusive invoice it is the tax-included value drawn, above the lines' net share.
+    pub promotional_credit_restored: Price,
+    /// A draft's restored figure is the lines' estimate; an issued note's is the ledger's.
+    pub promotional_credit_restored_estimated: bool,
     pub flags: Flags,
 }
 
@@ -55,44 +60,21 @@ pub struct Flags {
     pub whitelabel: Option<bool>,
 }
 
-type Price = rusty_money::Money<'static, Currency>;
+type Price = meteroid_money::Money<'static, Currency>;
 
-#[derive(Default, Clone)]
-pub struct Address {
-    pub line1: Option<String>,
-    pub line2: Option<String>,
-    pub city: Option<String>,
-    pub country: Option<CountryCode>,
-    pub state: Option<String>,
-    pub zip_code: Option<String>,
-}
-
-#[derive(Clone)]
-pub struct Organization {
-    pub logo_src: Option<Vec<u8>>,
-    pub name: String,
-    pub legal_number: Option<String>,
-    pub address: Address,
-    pub email: Option<String>,
-    pub tax_id: Option<String>,
-    pub footer_info: Option<String>,
-    pub footer_legal: Option<String>,
-    pub accounting_currency: iso::Currency,
-    pub exchange_rate: Option<Decimal>,
-}
-
-pub struct Customer {
-    pub name: String,
-    pub legal_number: Option<String>,
-    pub address: Address,
-    pub email: Option<String>,
-    pub tax_id: Option<String>,
-}
+/// The parties, their addresses and the VAT breakdown are the same things on a
+/// credit note as on an invoice — and EN 16931 gives them the same business
+/// terms. Shared rather than duplicated, so one mapping serves both.
+pub use crate::model::{
+    Address, Customer, Organization, SupplyBasis, TaxBreakdownItem, TaxExemptionType, TaxKind,
+};
 
 pub struct CreditNoteLine {
     pub name: String,
     pub description: Option<String>,
     pub subtotal: Price,
+    /// The base tax applied to; equals `subtotal` when nothing was allocated.
+    pub taxable_amount: Price,
     pub quantity: Option<Decimal>,
     pub unit_price: Option<Price>,
     pub tax_rate: Decimal,
@@ -100,6 +82,9 @@ pub struct CreditNoteLine {
     pub end_date: NaiveDate,
     pub is_prorated: bool,
     pub sub_lines: Vec<CreditNoteSubLine>,
+    /// Of `subtotal - taxable_amount`, the promotional credit the note gives back (stored
+    /// negative, like the line); the rest is discount.
+    pub promotional_credit: Option<Price>,
 }
 
 pub struct CreditNoteSubLine {
@@ -107,17 +92,4 @@ pub struct CreditNoteSubLine {
     pub total: Price,
     pub quantity: Decimal,
     pub unit_price: Price,
-}
-
-pub enum TaxExemptionType {
-    ReverseCharge,
-    TaxExempt,
-    NotRegistered,
-}
-
-pub struct TaxBreakdownItem {
-    pub name: String,
-    pub rate: Decimal,
-    pub amount: Price,
-    pub exemption_type: Option<TaxExemptionType>,
 }

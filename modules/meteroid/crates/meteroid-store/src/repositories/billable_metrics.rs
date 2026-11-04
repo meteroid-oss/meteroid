@@ -1,7 +1,8 @@
 use crate::domain::entity_activity::Actor;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
-    BillableMetric, BillableMetricMeta, BillableMetricNew, PaginatedVec, PaginationRequest,
+    BillableMetric, BillableMetricMeta, BillableMetricNew, MetricUnitLabel, PaginatedVec,
+    PaginationRequest,
 };
 use crate::errors::StoreError;
 use crate::{Store, StoreResult, domain};
@@ -142,6 +143,10 @@ impl BillableMetricInterface for Store {
 
         // TODO create product if None ?
 
+        let (unit_singular, unit_plural) = billable_metric
+            .unit_label
+            .map(MetricUnitLabel::into_parts)
+            .unzip();
         let insertable_entity = BillableMetricRowNew {
             id: BillableMetricId::new(),
             name: billable_metric.name,
@@ -162,7 +167,17 @@ impl BillableMetricInterface for Store {
                     })
                 })
                 .transpose()?,
+            filters: billable_metric
+                .filters
+                .map(|x| {
+                    serde_json::to_value(&x).map_err(|e| {
+                        StoreError::SerdeError("Failed to serialize filters".to_string(), e)
+                    })
+                })
+                .transpose()?,
             usage_group_key: billable_metric.usage_group_key,
+            unit_singular,
+            unit_plural,
             tenant_id: billable_metric.tenant_id,
             product_family_id: family.id,
             product_id: billable_metric.product_id,
@@ -237,9 +252,7 @@ impl BillableMetricInterface for Store {
         id: BillableMetricId,
         tenant_id: TenantId,
     ) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
-
-        self.transaction_with(&mut conn, |conn| {
+        self.transaction_bumping_tenant(tenant_id, |conn| {
             let actor = &actor;
             async move {
                 BillableMetricRow::archive(conn, id, tenant_id)
@@ -272,11 +285,11 @@ impl BillableMetricInterface for Store {
         id: BillableMetricId,
         tenant_id: TenantId,
     ) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
-
-        BillableMetricRow::unarchive(&mut conn, id, tenant_id)
-            .await
-            .map_err(Into::into)
+        self.transaction_bumping_tenant(tenant_id, |conn| {
+            async move { Ok(BillableMetricRow::unarchive(conn, id, tenant_id).await?) }
+                .scope_boxed()
+        })
+        .await
     }
 
     async fn update_billable_metric(
@@ -287,8 +300,15 @@ impl BillableMetricInterface for Store {
         update: domain::BillableMetricUpdate,
     ) -> StoreResult<domain::BillableMetric> {
         use diesel_models::billable_metrics::BillableMetricRowPatch;
-        let mut conn = self.get_conn().await?;
 
+        let (unit_singular, unit_plural) = match update.unit_label {
+            None => (None, None),
+            Some(None) => (Some(None), Some(None)),
+            Some(Some(label)) => {
+                let (singular, plural) = label.into_parts();
+                (Some(Some(singular)), Some(Some(plural)))
+            }
+        };
         let patch = BillableMetricRowPatch {
             name: update.name,
             description: update.description,
@@ -308,10 +328,23 @@ impl BillableMetricInterface for Store {
                     .transpose()
                 })
                 .transpose()?,
+            filters: update
+                .filters
+                .map(|opt| {
+                    opt.map(|x| {
+                        serde_json::to_value(&x).map_err(|e| {
+                            StoreError::SerdeError("Failed to serialize filters".to_string(), e)
+                        })
+                    })
+                    .transpose()
+                })
+                .transpose()?,
+            unit_singular,
+            unit_plural,
             updated_at: Some(chrono::Utc::now().naive_utc()),
         };
 
-        self.transaction_with(&mut conn, |conn| {
+        self.transaction_bumping_tenant(tenant_id, |conn| {
             let actor = &actor;
             async move {
                 let metric: BillableMetric = BillableMetricRow::update(conn, id, tenant_id, patch)

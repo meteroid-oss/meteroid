@@ -1,3 +1,4 @@
+import { formatUsage } from '@/lib/utils/numbers'
 import { FeeType, Price } from '@/rpc/api/prices/v1/models_pb'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 
@@ -15,6 +16,8 @@ export function feeTypeLabel(feeType: FeeType): string {
       return 'Recurring'
     case FeeType.ONE_TIME:
       return 'One-time'
+    case FeeType.CREDIT:
+      return 'Credit'
     default:
       return 'Unknown'
   }
@@ -42,7 +45,7 @@ export function formatPricingSummary(price: Price): string {
     case 'slotPricing':
       return `${price.pricing.value.unitRate}/unit/${formatCadence(price.cadence).toLowerCase()}`
     case 'capacityPricing':
-      return `${price.pricing.value.rate} (${price.pricing.value.included} included)`
+      return `${price.pricing.value.rate} (${formatUsage(Number(price.pricing.value.included))} included)`
     case 'usagePricing': {
       const model = price.pricing.value.model
       switch (model.case) {
@@ -64,6 +67,8 @@ export function formatPricingSummary(price: Price): string {
       return `${price.pricing.value.unitPrice} × ${price.pricing.value.quantity}`
     case 'oneTimePricing':
       return `${price.pricing.value.unitPrice} × ${price.pricing.value.quantity}`
+    case 'creditPricing':
+      return `${price.pricing.value.unitPrice} × ${price.pricing.value.quantity} (+${price.pricing.value.creditAmount} credit each${price.pricing.value.once ? ', once at start' : ''})`
     default:
       return '-'
   }

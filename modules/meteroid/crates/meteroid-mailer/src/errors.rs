@@ -11,6 +11,12 @@ pub enum MailerServiceError {
 
     #[error("Failed to send email")]
     Transport(#[source] Box<dyn Error + Send + Sync>),
+
+    #[error("Invalid email address: {0}")]
+    InvalidAddress(String),
+
+    #[error("Invalid email content: {0}")]
+    InvalidContent(String),
 }
 
 impl From<lettre::transport::smtp::Error> for MailerServiceError {

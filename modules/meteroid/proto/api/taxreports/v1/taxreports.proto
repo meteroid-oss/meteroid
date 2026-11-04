@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package meteroid.api.taxreports.v1;
+
+service TaxReportsService {
+  rpc GenerateTaxReport(GenerateTaxReportRequest) returns (GenerateTaxReportResponse) {}
+  // Enqueue a background job that streams the full report to a downloadable CSV.
+  rpc ExportTaxReport(ExportTaxReportRequest) returns (ExportTaxReportResponse) {}
+  // A cursor-paginated page of the report's transaction trail, for the on-screen table.
+  rpc ListTaxReportTransactions(ListTaxReportTransactionsRequest) returns (ListTaxReportTransactionsResponse) {}
+}
+
+// All amounts are minor units (cents) in each row's own currency; rows never sum
+// across currencies. Dates are ISO `YYYY-MM-DD`.
+message GenerateTaxReportRequest {
+  string period_start = 1;
+  string period_end = 2;
+  optional string invoicing_entity_id = 3;
+}
+
+message GenerateTaxReportResponse {
+  string period_start = 1;
+  string period_end = 2;
+  repeated VatReturnRow vat_return = 3;
+  repeated EcSalesRow ec_sales_list = 4;
+  repeated SalesByRateRow sales_by_rate = 5;
+  repeated TaxTransactionRow transactions = 6;
+}
+
+message VatReturnRow {
+  optional string country = 1;
+  string tax_name = 2;
+  string tax_rate = 3;
+  string currency = 4;
+  int64 net_amount = 5;
+  int64 tax_amount = 6;
+  uint32 invoice_count = 7;
+}
+
+message EcSalesRow {
+  string customer_name = 1;
+  optional string vat_number = 2;
+  optional string country = 3;
+  string currency = 4;
+  int64 net_amount = 5;
+  uint32 invoice_count = 6;
+}
+
+message SalesByRateRow {
+  string tax_name = 1;
+  string tax_rate = 2;
+  string currency = 3;
+  int64 net_amount = 4;
+  int64 tax_amount = 5;
+  int64 gross_amount = 6;
+}
+
+message TaxTransactionRow {
+  string invoice_number = 1;
+  string invoice_date = 2;
+  string customer_name = 3;
+  optional string vat_number = 4;
+  optional string country = 5;
+  string currency = 6;
+  int64 net_amount = 7;
+  int64 tax_amount = 8;
+  int64 gross_amount = 9;
+  string status = 10;
+  optional string exemption = 11;
+}
+
+message ExportTaxReportRequest {
+  string period_start = 1;
+  string period_end = 2;
+  optional string invoicing_entity_id = 3;
+}
+
+message ExportTaxReportResponse {
+  // The enqueued batch job; poll GetBatchJob until it completes, then download.
+  string batch_job_id = 1;
+}
+
+message ListTaxReportTransactionsRequest {
+  string period_start = 1;
+  string period_end = 2;
+  optional string invoicing_entity_id = 3;
+  // Opaque keyset cursor from a previous page's `next_cursor`; omit for the first page.
+  optional string cursor = 4;
+  uint32 limit = 5;
+}
+
+message ListTaxReportTransactionsResponse {
+  repeated TaxTransactionRow transactions = 1;
+  // Absent when the last page has been reached.
+  optional string next_cursor = 2;
+}

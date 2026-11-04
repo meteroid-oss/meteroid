@@ -1,21 +1,45 @@
 <html lang="<%= lang %>">
 <head>
-    <meta charset="utf-8">
-    <meta content="width=device-width, initial-scale=1, shrink-to-fit=no" name="viewport">
-    <style><% include!("styles.css"); %></style>
-    <title><%= title %></title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="format-detection" content="telephone=no, date=no, address=no, email=no, url=no">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<title><%= title %></title>
+<style><% include!("styles.css"); %></style>
+<!--[if mso]><style>table,td,h1,p,a,span,li{font-family:'Segoe UI',Arial,sans-serif !important;}</style><![endif]-->
 </head>
-<body>
-  <div class="email-wrapper">
-    <div class="email-container">
-      <%+ header %>
-
-      <div class="email-content">
-        <%+ content %>
-      </div>
-
-      <%+ footer %>
-    </div>
-  </div>
+<body id="body" style="margin:0;padding:0;width:100%;background-color:#f2f3f5;">
+<% if let Some(preheader) = preheader { %>
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px;color:#f2f3f5;"><%= preheader %>&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;</div>
+<% } %>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f2f3f5" style="width:100%;background-color:#f2f3f5;">
+  <tr>
+    <td align="center" class="shell" style="padding:40px 16px 48px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#414651;">
+      <!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;margin:0 auto;">
+        <tr>
+          <td bgcolor="#ffffff" style="background-color:#ffffff;border:1px solid #e4e6ea;border-radius:12px;">
+            <%+ header %>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td class="card-pad" style="padding:28px 40px 40px;text-align:left;">
+                  <%+ content %>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td class="footer-pad" style="padding:28px 40px 0;">
+            <%+ footer %>
+          </td>
+        </tr>
+      </table>
+      <!--[if mso]></td></tr></table><![endif]-->
+    </td>
+  </tr>
+</table>
 </body>
 </html>

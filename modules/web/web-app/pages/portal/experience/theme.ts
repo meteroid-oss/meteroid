@@ -331,15 +331,6 @@ const readColorOverrides = (p: URLSearchParams): PortalColorOverrides | undefine
   return Object.keys(out).length ? out : undefined
 }
 
-/**
- * Resolve whether the "Powered by Meteroid" footer shows. On by default; the
- * tenant can turn it off in branding, and the embed SDK can force it off per
- * iframe via `?branding=false` (the SDK's `branding: false` option).
- */
-export const resolvePoweredBy = (
-  branding?: PortalBranding,
-  search: string = typeof window !== 'undefined' ? window.location.search : ''
-): boolean => {
-  if (new URLSearchParams(search).get('branding') === 'false') return false
-  return branding?.showPoweredBy !== false
-}
+/** The server hides "Powered by Meteroid" for white-label merchants; nothing on the page can. */
+export const resolvePoweredBy = (branding?: PortalBranding): boolean =>
+  branding?.showPoweredBy === true

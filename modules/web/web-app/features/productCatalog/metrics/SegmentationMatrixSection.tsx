@@ -3,7 +3,6 @@ import {
   FormDescription,
   GenericFormField,
   Input,
-  InputFormField,
   Label,
   SelectFormField,
   SelectItem,
@@ -12,8 +11,13 @@ import {
 import { forwardRef, useEffect, useState } from 'react'
 import { useWatch } from 'react-hook-form'
 
-import { AccordionPanel } from '@/components/AccordionPanel'
-import { ValuesTagInput } from '@/features/productCatalog/metrics/ValuesTagInput'
+import { ValuesTagInput } from '@/components/form'
+import { PropertyKeyFormField } from '@/features/productCatalog/metrics/PropertyKeyFormField'
+import { PropertyValueTags } from '@/features/productCatalog/metrics/PropertyValueField'
+import {
+  SettingsFieldGrid,
+  SettingsSection,
+} from '@/features/settings/components/SettingsSection'
 import { Methods } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
 
@@ -23,197 +27,200 @@ interface BillingMatrixProps {
 
 export const SegmentationMatrixSection = ({ methods }: BillingMatrixProps) => {
   const mode = useWatch({ name: 'segmentationMatrix.matrixType', control: methods.control })
+  const eventCode = useWatch({ name: 'eventCode', control: methods.control }) ?? ''
+  // Each dimension's values autocomplete against that dimension's own property key.
+  const singleKey = useWatch({ name: 'segmentationMatrix.single.key', control: methods.control }) ?? ''
+  const dim1Key =
+    useWatch({ name: 'segmentationMatrix.double.dimension1.key', control: methods.control }) ?? ''
+  const dim2Key =
+    useWatch({ name: 'segmentationMatrix.double.dimension2.key', control: methods.control }) ?? ''
 
+  const { resetField } = methods
   useEffect(() => {
-    mode !== 'LINKED' && methods.resetField('segmentationMatrix.linked')
-    mode !== 'SINGLE' && methods.resetField('segmentationMatrix.single')
-    mode !== 'DOUBLE' && methods.resetField('segmentationMatrix.double')
-  }, [mode, methods])
+    mode !== 'LINKED' && resetField('segmentationMatrix.linked')
+    mode !== 'SINGLE' && resetField('segmentationMatrix.single')
+    mode !== 'DOUBLE' && resetField('segmentationMatrix.double')
+  }, [mode, resetField])
 
   return (
-    <>
-      <AccordionPanel
-        title={
-          <div className="space-x-4 items-center flex pr-4">
-            <h3>Segmentation</h3>
-            <span className="text-xs text-muted-foreground">optional</span>
-          </div>
-        }
-        defaultOpen={false}
-      >
-        <div className="space-y-6">
-          <FormDescription>
-            <p>
-              Apply different pricing based on predefined categories with fixed values.
-              <br />
-              For example, different pricing for a Compute metric per cloud provider (AWS, GCP,
-              Azure) and region (us-east-1, eu-west-1).
-            </p>
-          </FormDescription>
-
-          <div className="max-w-md">
-            <SelectFormField
-              name="segmentationMatrix.matrixType"
-              control={methods.control}
-              label="Segmentation Type"
-            >
-              <SelectItem value="NONE">
-                <div>
-                  <div className="font-medium">No Segmentation</div>
-                  <div className="text-xs text-muted-foreground">
-                    Single flat pricing for all usage
-                  </div>
+    <SettingsSection
+      title="Segmentation"
+      description="Optional. Apply different pricing based on predefined categories (e.g. cloud provider or region)."
+    >
+      <div className="space-y-4">
+        <SettingsFieldGrid>
+          <SelectFormField
+            name="segmentationMatrix.matrixType"
+            control={methods.control}
+            label="Segmentation Type"
+          >
+            <SelectItem value="NONE">
+              <div>
+                <div className="font-medium">No Segmentation</div>
+                <div className="text-xs text-muted-foreground">
+                  Single flat pricing for all usage
                 </div>
-              </SelectItem>
-              <SelectItem value="SINGLE">
-                <div>
-                  <div className="font-medium">Single Dimension</div>
-                  <div className="text-xs text-muted-foreground">
-                    Different pricing per category (e.g. AWS, GCP, Azure)
-                  </div>
-                </div>
-              </SelectItem>
-              <SelectItem value="DOUBLE">
-                <div>
-                  <div className="font-medium">Two Dimensions</div>
-                  <div className="text-xs text-muted-foreground">
-                    Pricing matrix with two categories (e.g. provider × region)
-                  </div>
-                </div>
-              </SelectItem>
-              <SelectItem value="LINKED">
-                <div>
-                  <div className="font-medium">Dependent Dimensions</div>
-                  <div className="text-xs text-muted-foreground">
-                    Linked categories with dependencies (e.g. AWS has specific regions)
-                  </div>
-                </div>
-              </SelectItem>
-            </SelectFormField>
-          </div>
-
-          {mode === 'SINGLE' && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <InputFormField
-                  name="segmentationMatrix.single.key"
-                  label="Dimension Name"
-                  control={methods.control}
-                  placeholder="provider"
-                />
-                <GenericFormField
-                  name="segmentationMatrix.single.values"
-                  label="Values"
-                  control={methods.control}
-                  render={({ field }) => (
-                    <ValuesTagInput
-                      value={field.value}
-                      onChange={field.onChange}
-                      placeholder="AWS, Azure, GCP"
-                    />
-                  )}
-                />
               </div>
+            </SelectItem>
+            <SelectItem value="SINGLE">
+              <div>
+                <div className="font-medium">Single Dimension</div>
+                <div className="text-xs text-muted-foreground">
+                  Different pricing per category (e.g. AWS, GCP, Azure)
+                </div>
+              </div>
+            </SelectItem>
+            <SelectItem value="DOUBLE">
+              <div>
+                <div className="font-medium">Two Dimensions</div>
+                <div className="text-xs text-muted-foreground">
+                  Pricing matrix with two categories (e.g. provider × region)
+                </div>
+              </div>
+            </SelectItem>
+            <SelectItem value="LINKED">
+              <div>
+                <div className="font-medium">Dependent Dimensions</div>
+                <div className="text-xs text-muted-foreground">
+                  Linked categories with dependencies (e.g. AWS has specific regions)
+                </div>
+              </div>
+            </SelectItem>
+          </SelectFormField>
+        </SettingsFieldGrid>
+
+        {mode === 'SINGLE' && (
+          <div className="space-y-4">
+            <SettingsFieldGrid>
+              <PropertyKeyFormField
+                name="segmentationMatrix.single.key"
+                label="Dimension Name"
+                control={methods.control}
+                eventCode={eventCode}
+                placeholder="provider"
+              />
+              <GenericFormField
+                name="segmentationMatrix.single.values"
+                label="Values"
+                control={methods.control}
+                render={({ field }) => (
+                  <PropertyValueTags
+                    eventCode={eventCode}
+                    propertyKey={singleKey}
+                    value={field.value}
+                    onChange={field.onChange}
+                    placeholder="AWS, Azure, GCP"
+                  />
+                )}
+              />
+            </SettingsFieldGrid>
+            <FormDescription>
+              Each value will create a separate pricing tier. Press Enter or comma to add values.
+            </FormDescription>
+          </div>
+        )}
+
+        {mode === 'DOUBLE' && (
+          <div className="space-y-4">
+            <div className="space-y-4">
+              <div className="space-y-3">
+                <p className="text-xs font-medium text-muted-foreground">First Dimension</p>
+                <SettingsFieldGrid>
+                  <PropertyKeyFormField
+                    control={methods.control}
+                    name="segmentationMatrix.double.dimension1.key"
+                    label="Name"
+                    eventCode={eventCode}
+                    placeholder="provider"
+                  />
+                  <GenericFormField
+                    control={methods.control}
+                    name="segmentationMatrix.double.dimension1.values"
+                    label="Values"
+                    render={({ field }) => (
+                      <PropertyValueTags
+                        eventCode={eventCode}
+                        propertyKey={dim1Key}
+                        value={field.value}
+                        onChange={field.onChange}
+                        placeholder="AWS, Azure, GCP"
+                      />
+                    )}
+                  />
+                </SettingsFieldGrid>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-3">
+                <p className="text-xs font-medium text-muted-foreground">Second Dimension</p>
+                <SettingsFieldGrid>
+                  <PropertyKeyFormField
+                    control={methods.control}
+                    name="segmentationMatrix.double.dimension2.key"
+                    label="Name"
+                    eventCode={eventCode}
+                    placeholder="instance_size"
+                  />
+                  <GenericFormField
+                    control={methods.control}
+                    name="segmentationMatrix.double.dimension2.values"
+                    label="Values"
+                    render={({ field }) => (
+                      <PropertyValueTags
+                        eventCode={eventCode}
+                        propertyKey={dim2Key}
+                        value={field.value}
+                        onChange={field.onChange}
+                        placeholder="XS, S, M, L, XL"
+                      />
+                    )}
+                  />
+                </SettingsFieldGrid>
+              </div>
+            </div>
+            <FormDescription>
+              This creates a pricing matrix. Each combination will have its own pricing tier.
+            </FormDescription>
+          </div>
+        )}
+
+        {mode === 'LINKED' && (
+          <div className="space-y-4">
+            <SettingsFieldGrid>
+              <PropertyKeyFormField
+                control={methods.control}
+                name="segmentationMatrix.linked.dimensionKey"
+                label="Primary Dimension"
+                eventCode={eventCode}
+                placeholder="provider"
+              />
+              <PropertyKeyFormField
+                control={methods.control}
+                name="segmentationMatrix.linked.linkedDimensionKey"
+                label="Dependent Dimension"
+                eventCode={eventCode}
+                placeholder="region"
+              />
+            </SettingsFieldGrid>
+
+            <div className="space-y-2">
+              <GenericFormField
+                control={methods.control}
+                name="segmentationMatrix.linked.values"
+                label="Dimension Mapping"
+                render={({ field }) => {
+                  return <LinkedDimensionsEditor {...field} />
+                }}
+              />
               <FormDescription>
-                Each value will create a separate pricing tier. Press Enter or comma to add values.
+                Define which dependent values are available for each primary value.
               </FormDescription>
             </div>
-          )}
-
-          {mode === 'DOUBLE' && (
-            <div className="space-y-6">
-              <div className="space-y-4">
-                <div className="space-y-3">
-                  <p className="text-sm font-medium text-muted-foreground">First Dimension</p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <InputFormField
-                      control={methods.control}
-                      name="segmentationMatrix.double.dimension1.key"
-                      label="Name"
-                      placeholder="provider"
-                    />
-                    <GenericFormField
-                      control={methods.control}
-                      name="segmentationMatrix.double.dimension1.values"
-                      label="Values"
-                      render={({ field }) => (
-                        <ValuesTagInput
-                          value={field.value}
-                          onChange={field.onChange}
-                          placeholder="AWS, Azure, GCP"
-                        />
-                      )}
-                    />
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="space-y-3">
-                  <p className="text-sm font-medium text-muted-foreground">Second Dimension</p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <InputFormField
-                      control={methods.control}
-                      name="segmentationMatrix.double.dimension2.key"
-                      label="Name"
-                      placeholder="instance_size"
-                    />
-                    <GenericFormField
-                      control={methods.control}
-                      name="segmentationMatrix.double.dimension2.values"
-                      label="Values"
-                      render={({ field }) => (
-                        <ValuesTagInput
-                          value={field.value}
-                          onChange={field.onChange}
-                          placeholder="XS, S, M, L, XL"
-                        />
-                      )}
-                    />
-                  </div>
-                </div>
-              </div>
-              <FormDescription>
-                This creates a pricing matrix. Each combination will have its own pricing tier.
-              </FormDescription>
-            </div>
-          )}
-
-          {mode === 'LINKED' && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <InputFormField
-                  control={methods.control}
-                  name="segmentationMatrix.linked.dimensionKey"
-                  label="Primary Dimension"
-                  placeholder="provider"
-                />
-                <InputFormField
-                  control={methods.control}
-                  name="segmentationMatrix.linked.linkedDimensionKey"
-                  label="Dependent Dimension"
-                  placeholder="region"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <GenericFormField
-                  control={methods.control}
-                  name="segmentationMatrix.linked.values"
-                  label="Dimension Mapping"
-                  render={({ field }) => {
-                    return <LinkedDimensionsEditor {...field} />
-                  }}
-                />
-                <FormDescription>
-                  Define which dependent values are available for each primary value.
-                </FormDescription>
-              </div>
-            </div>
-          )}
-        </div>
-      </AccordionPanel>
-    </>
+          </div>
+        )}
+      </div>
+    </SettingsSection>
   )
 }
 

@@ -1,108 +1,130 @@
-use super::connector::{ConnectorCapabilities, PaymentConnector};
+use super::connector::{ConnectorRef, PaymentCapabilities, PaymentConnector};
 use super::error::ConnectorError;
 use super::gocardless::GoCardlessConnector;
 use super::mock::MockConnector;
 use super::mollie::MollieConnector;
 use super::stancer::StancerConnector;
 use super::stripe::StripeConnector;
-use crate::domain::connectors::Connector;
-use crate::domain::enums::ConnectorProviderEnum;
+use crate::domain::connectors::{Connector, PaymentProviderConfig};
+use crate::domain::enums::{ConnectorProviderEnum, PaymentProvider};
 use error_stack::Report;
 
 /// Static capability matrix for a payment provider, without needing a
-/// configured [`Connector`]. `None` for non-payment providers.
-pub fn provider_capabilities(
-    provider: &ConnectorProviderEnum,
-) -> Option<&'static ConnectorCapabilities> {
+/// configured [`Connector`].
+pub fn provider_capabilities(provider: PaymentProvider) -> &'static PaymentCapabilities {
     match provider {
-        ConnectorProviderEnum::Stripe => Some(&super::stripe::STRIPE_CAPABILITIES),
-        ConnectorProviderEnum::Gocardless => Some(&super::gocardless::GOCARDLESS_CAPABILITIES),
-        ConnectorProviderEnum::Stancer => Some(&super::stancer::STANCER_CAPABILITIES),
-        ConnectorProviderEnum::Mollie => Some(&super::mollie::MOLLIE_CAPABILITIES),
-        ConnectorProviderEnum::Mock => Some(&super::mock::MOCK_CAPABILITIES),
-        ConnectorProviderEnum::Hubspot | ConnectorProviderEnum::Pennylane => None,
+        PaymentProvider::Stripe => &super::stripe::STRIPE_CAPABILITIES,
+        PaymentProvider::Gocardless => &super::gocardless::GOCARDLESS_CAPABILITIES,
+        PaymentProvider::Stancer => &super::stancer::STANCER_CAPABILITIES,
+        PaymentProvider::Mollie => &super::mollie::MOLLIE_CAPABILITIES,
+        PaymentProvider::Mock => &super::mock::MOCK_CAPABILITIES,
     }
 }
 
-/// Each call returns a freshly-boxed adapter, but the underlying HTTP client is
-/// a process-wide singleton, so connection pooling is preserved.
+/// Like [`provider_capabilities`], for a provider that may take no payments at all.
+pub fn payment_capabilities(
+    provider: &ConnectorProviderEnum,
+) -> Option<&'static PaymentCapabilities> {
+    provider.as_payment().map(provider_capabilities)
+}
+
+/// Binds an adapter to one connector: its identity and its typed credentials are read once, here,
+/// so no later call can be handed the wrong provider's data. Each call returns a freshly-boxed
+/// adapter, but the underlying HTTP client is a process-wide singleton, so connection pooling is
+/// preserved.
 pub fn initialize_payment_connector(
-    config: &Connector,
+    connector: &Connector,
 ) -> Result<Box<dyn PaymentConnector>, Report<ConnectorError>> {
-    match config.provider {
-        ConnectorProviderEnum::Stripe => Ok(Box::new(StripeConnector::new())),
-        ConnectorProviderEnum::Gocardless => Ok(Box::new(GoCardlessConnector::new())),
-        ConnectorProviderEnum::Stancer => Ok(Box::new(StancerConnector::new())),
-        ConnectorProviderEnum::Mollie => Ok(Box::new(MollieConnector::new())),
-        ConnectorProviderEnum::Mock => Ok(Box::new(MockConnector::from_connector(config))),
-        ConnectorProviderEnum::Hubspot | ConnectorProviderEnum::Pennylane => {
-            Err(Report::new(ConnectorError::Unsupported {
-                provider: config.provider.clone(),
-                capability: "payment operations",
-            }))
+    let Some(payment) = connector.config.payment() else {
+        return Err(Report::new(ConnectorError::Unsupported {
+            provider: connector.provider(),
+            capability: "payment operations",
+        }));
+    };
+    let reference = ConnectorRef::from(connector);
+    let config = payment.credentials().cloned().ok_or_else(|| {
+        ConnectorError::Configuration(format!("connector {} has no credentials", connector.id))
+    })?;
+    Ok(match config {
+        PaymentProviderConfig::Stripe(public, sensitive) => {
+            Box::new(StripeConnector::new(reference, public, sensitive))
         }
-    }
+        PaymentProviderConfig::Gocardless(public, sensitive) => {
+            Box::new(GoCardlessConnector::new(reference, public, sensitive))
+        }
+        PaymentProviderConfig::Stancer(sensitive) => {
+            Box::new(StancerConnector::new(reference, sensitive))
+        }
+        PaymentProviderConfig::Mollie(sensitive) => {
+            Box::new(MollieConnector::new(reference, sensitive))
+        }
+        PaymentProviderConfig::Mock(public, _) => Box::new(MockConnector::new(reference, public)),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::provider_capabilities;
     use crate::adapters::payment::contract::assert_capabilities_consistent;
-    use crate::domain::enums::ConnectorProviderEnum;
-
-    /// Exhaustive: a new variant won't compile until it is classified here.
-    fn every_provider() -> Vec<ConnectorProviderEnum> {
-        use ConnectorProviderEnum::*;
-        [
-            Stripe, Hubspot, Pennylane, Gocardless, Stancer, Mollie, Mock,
-        ]
-        .into_iter()
-        .filter(|p| match p {
-            Stripe | Gocardless | Stancer | Mollie | Mock => true,
-            Hubspot | Pennylane => false,
-        })
-        .collect()
-    }
+    use crate::domain::enums::PaymentProvider;
+    use strum::IntoEnumIterator;
 
     /// Pins the per-provider capability matrix so a mistake in one adapter fails here.
     #[test]
     fn provider_capability_matrix_is_pinned() {
         use crate::adapters::payment::HostedSetupCompletion::*;
-        use ConnectorProviderEnum::*;
-        let row = |provider: ConnectorProviderEnum| {
-            let c = provider_capabilities(&provider).unwrap();
+        use PaymentProvider::*;
+        let row = |provider: PaymentProvider| {
+            let c = provider_capabilities(provider);
             (
                 c.pending_charge_accepted,
                 c.supports_hosted_checkout,
-                c.supports_hosted_invoice_payment,
+                c.supports_hosted_invoice_payment(),
                 c.is_hosted_redirect(),
-                c.hosted_setup_completion,
+                c.hosted_setup_completion(),
                 c.completes_pending_hosted_intents(),
             )
         };
-        assert_eq!(
-            row(Stripe),
-            (false, false, false, false, WebhookBacked, false)
-        );
+        // Stripe finishes setup client-side: no hosted redirect, so no hosted completion.
+        assert_eq!(row(Stripe), (false, false, false, false, None, false));
         assert_eq!(
             row(Gocardless),
-            (true, true, false, true, WebhookBacked, false)
+            (true, true, false, true, Some(WebhookBacked), false)
         );
         assert_eq!(
             row(Stancer),
-            (true, true, true, true, PollingRequired, true)
+            (true, true, true, true, Some(PollingRequired), true)
         );
-        assert_eq!(row(Mollie), (true, true, true, true, WebhookBacked, true));
-        assert_eq!(row(Mock), (false, true, false, false, WebhookBacked, false));
+        assert_eq!(
+            row(Mollie),
+            (true, true, true, true, Some(WebhookBacked), true)
+        );
+        assert_eq!(row(Mock), (false, true, false, false, None, false));
+        assert_eq!(
+            PaymentProvider::iter().count(),
+            5,
+            "a new payment provider needs its own row here"
+        );
+    }
+
+    #[test]
+    fn only_signed_webhook_providers_require_a_secret() {
+        use PaymentProvider::*;
+        let requires = |p| provider_capabilities(p).requires_webhook_secret();
+        assert!(requires(Stripe));
+        assert!(requires(Gocardless));
+        assert!(
+            !requires(Mollie),
+            "Mollie authenticates with a generated URL token"
+        );
+        assert!(!requires(Stancer), "Stancer sends no webhooks");
+        assert!(!requires(Mock));
     }
 
     #[test]
     fn every_payment_provider_declares_consistent_capabilities() {
-        for provider in every_provider() {
-            let caps = provider_capabilities(&provider).unwrap_or_else(|| {
-                panic!("{provider:?} is a payment provider without capabilities")
-            });
-            assert_capabilities_consistent(caps);
+        for provider in PaymentProvider::iter() {
+            assert_capabilities_consistent(provider_capabilities(provider));
         }
     }
 }

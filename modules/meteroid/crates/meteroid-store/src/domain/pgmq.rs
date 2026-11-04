@@ -1,20 +1,21 @@
+use crate::domain::customer_emails::{EmailContext, EmailKind};
 use crate::domain::outbox_event::{CustomerEvent, QuoteAcceptedEvent, SubscriptionEvent};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
-    CreditNoteId, CustomerId, CustomerPaymentMethodId, InvoiceId, InvoicingEntityId, PlanVersionId,
-    QuoteId, StoredDocumentId, SubscriptionId, TenantId,
+    AlertId, CreditNoteId, CustomerId, CustomerPaymentMethodId, EntityActivityId, InvoiceId,
+    InvoicingEntityId, QuoteId, StoredDocumentId, SubscriptionId, TenantId,
 };
 use common_domain::pgmq::{Headers, Message, MessageId, ReadCt};
 use diesel_models::pgmq::{PgmqMessageRow, PgmqMessageRowNew};
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use strum::Display;
+use strum::{Display, EnumIter};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, EnumIter)]
 pub enum PgmqQueue {
     OutboxEvent,
     InvoicePdfRequest,
@@ -26,12 +27,43 @@ pub enum PgmqQueue {
     PaymentRequest,
     SendEmailRequest,
     QuoteConversion,
-    BiAggregation,
+    DogfoodingSync,
     WebhookIn,
     VatValidation,
+    CreditRecompute,
+}
+
+/// Who reads a queue. Messages bound to a queue nobody reads pile up for good, so the workers
+/// drain the queues of an absent integration or module, and refuse to start when a core queue
+/// has no consumer: draining it would drop work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueueConsumer {
+    Core,
+    /// Read only when its integration is configured.
+    Integration,
+    /// Read by a module, in the editions that include it.
+    Module,
 }
 
 impl PgmqQueue {
+    /// `None` for a queue the migrations dropped.
+    pub fn consumer(self) -> Option<QueueConsumer> {
+        match self {
+            PgmqQueue::OutboxEvent => None,
+            PgmqQueue::InvoicePdfRequest
+            | PgmqQueue::CreditNotePdfRequest
+            | PgmqQueue::WebhookOut
+            | PgmqQueue::InvoiceOrchestration
+            | PgmqQueue::PaymentRequest
+            | PgmqQueue::SendEmailRequest
+            | PgmqQueue::QuoteConversion
+            | PgmqQueue::WebhookIn
+            | PgmqQueue::VatValidation => Some(QueueConsumer::Core),
+            PgmqQueue::HubspotSync | PgmqQueue::PennylaneSync => Some(QueueConsumer::Integration),
+            PgmqQueue::DogfoodingSync | PgmqQueue::CreditRecompute => Some(QueueConsumer::Module),
+        }
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             PgmqQueue::OutboxEvent => "outbox_event",
@@ -44,9 +76,10 @@ impl PgmqQueue {
             PgmqQueue::PaymentRequest => "payment_request",
             PgmqQueue::SendEmailRequest => "send_email_request",
             PgmqQueue::QuoteConversion => "quote_conversion",
-            PgmqQueue::BiAggregation => "bi_aggregation",
+            PgmqQueue::DogfoodingSync => "dogfooding_sync",
             PgmqQueue::WebhookIn => "webhook_in",
             PgmqQueue::VatValidation => "vat_validation",
+            PgmqQueue::CreditRecompute => "credit_recompute",
         }
     }
 }
@@ -66,9 +99,10 @@ impl std::str::FromStr for PgmqQueue {
             "payment_request" => Ok(PgmqQueue::PaymentRequest),
             "send_email_request" => Ok(PgmqQueue::SendEmailRequest),
             "quote_conversion" => Ok(PgmqQueue::QuoteConversion),
-            "bi_aggregation" => Ok(PgmqQueue::BiAggregation),
+            "dogfooding_sync" => Ok(PgmqQueue::DogfoodingSync),
             "webhook_in" => Ok(PgmqQueue::WebhookIn),
             "vat_validation" => Ok(PgmqQueue::VatValidation),
+            "credit_recompute" => Ok(PgmqQueue::CreditRecompute),
             _ => Err(format!("Unknown queue: {s}")),
         }
     }
@@ -300,6 +334,17 @@ impl VatValidationRequestEvent {
 json_value_serde!(VatValidationRequestEvent);
 derive_pgmq_message!(VatValidationRequestEvent, tenant_id);
 
+/// Retries of one `CustomerEmail` job, one budget per reason so a long wait for one
+/// (a pending payment) never eats into another (the transport).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EmailSendAttempts {
+    pub transport: u32,
+    pub in_flight: u32,
+    pub payment_pending: u32,
+    pub pdf_missing: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SendEmailRequest {
     InvoiceReady {
@@ -348,17 +393,22 @@ pub enum SendEmailRequest {
         // lines : Vec<InvoiceLine>, TODO
     },
 
-    /// check once a day, then
-    PaymentReminder {
+    /// Slim on purpose: the worker reloads invoice/customer/entity/settings and re-checks
+    /// state at send time. Replaces the fat per-kind variants, which stay one release.
+    CustomerEmail {
         tenant_id: TenantId,
-        invoice_id: InvoiceId,
-    },
-
-    PaymentRejected {
-        tenant_id: TenantId,
-        invoice_id: InvoiceId,
-        invoice_pdf_url: String,
-        receipt_pdf_url: Option<String>, // or tx details ?
+        kind: EmailKind,
+        context: EmailContext,
+        dedupe_key: String,
+        #[serde(default)]
+        resent_from: Option<EntityActivityId>,
+        /// Operator-initiated without a `resent_from` row (a delivery-unknown resend).
+        #[serde(default)]
+        manual: bool,
+        /// Replaces the shared `attempt` counter, which older messages still carry and serde
+        /// ignores: those restart every budget from zero.
+        #[serde(default)]
+        attempts: EmailSendAttempts,
     },
 
     /// Quote sent to recipient for signature
@@ -379,15 +429,33 @@ pub enum SendEmailRequest {
         /// Currency of the quote
         currency: String,
     },
+
+    /// Analytics alert fired — a concise notification mirroring the Slack/Discord
+    /// summary that deep-links back to the in-app alerts feed. The full detail
+    /// lives in `alert_event`; this carries only what the email needs so the
+    /// worker never has to re-query.
+    AlertTriggered {
+        tenant_id: TenantId,
+        alert_definition_id: AlertId,
+        alert_name: String,
+        metric_key: String,
+        /// Display severity label: "INFO" / "WARNING" / "CRITICAL".
+        severity: String,
+        /// One-line human summary (same text the webhook channels post).
+        summary: String,
+        window_date: NaiveDate,
+        /// Destination mailbox configured on the alert's email channel.
+        recipient: String,
+    },
 }
 impl SendEmailRequest {
     pub fn tenant_id(&self) -> TenantId {
         match self {
             SendEmailRequest::InvoiceReady { tenant_id, .. }
             | SendEmailRequest::InvoicePaid { tenant_id, .. }
-            | SendEmailRequest::PaymentReminder { tenant_id, .. }
-            | SendEmailRequest::PaymentRejected { tenant_id, .. }
-            | SendEmailRequest::QuoteReady { tenant_id, .. } => *tenant_id,
+            | SendEmailRequest::CustomerEmail { tenant_id, .. }
+            | SendEmailRequest::QuoteReady { tenant_id, .. }
+            | SendEmailRequest::AlertTriggered { tenant_id, .. } => *tenant_id,
         }
     }
 }
@@ -486,6 +554,8 @@ pub enum PennylaneSyncRequestEvent {
     Customer(Box<PennylaneSyncCustomer>),
     /// sync invoice
     Invoice(Box<PennylaneSyncInvoice>),
+    /// sync credit note
+    CreditNote(Box<PennylaneSyncCreditNote>),
     /// sync event generated by an outbox event
     CustomerOutbox(Box<CustomerEvent>),
 }
@@ -496,6 +566,7 @@ impl PennylaneSyncRequestEvent {
             PennylaneSyncRequestEvent::CustomerOutbox(event) => event.tenant_id,
             PennylaneSyncRequestEvent::Customer(event) => event.tenant_id,
             PennylaneSyncRequestEvent::Invoice(event) => event.tenant_id,
+            PennylaneSyncRequestEvent::CreditNote(event) => event.tenant_id,
         }
     }
 }
@@ -515,6 +586,12 @@ pub struct PennylaneSyncInvoice {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PennylaneSyncCreditNote {
+    pub id: CreditNoteId,
+    pub tenant_id: TenantId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum QuoteConversionRequestEvent {
     QuoteAccepted(Box<QuoteAcceptedEvent>),
 }
@@ -528,44 +605,6 @@ impl QuoteConversionRequestEvent {
 }
 json_value_serde!(QuoteConversionRequestEvent);
 derive_pgmq_message!(QuoteConversionRequestEvent, tenant_id);
-
-/// BI aggregation events for revenue and customer YTD tracking
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum BiAggregationEvent {
-    InvoiceFinalized(Box<BiInvoiceFinalizedEvent>),
-    CreditNoteFinalized(Box<BiCreditNoteFinalizedEvent>),
-}
-
-impl BiAggregationEvent {
-    pub fn tenant_id(&self) -> TenantId {
-        match self {
-            BiAggregationEvent::InvoiceFinalized(event) => event.tenant_id,
-            BiAggregationEvent::CreditNoteFinalized(event) => event.tenant_id,
-        }
-    }
-}
-json_value_serde!(BiAggregationEvent);
-derive_pgmq_message!(BiAggregationEvent, tenant_id);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BiInvoiceFinalizedEvent {
-    pub tenant_id: TenantId,
-    pub customer_id: CustomerId,
-    pub plan_version_id: Option<PlanVersionId>,
-    pub currency: String,
-    pub amount_due: i64,
-    pub finalized_at: NaiveDateTime,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BiCreditNoteFinalizedEvent {
-    pub tenant_id: TenantId,
-    pub customer_id: CustomerId,
-    pub plan_version_id: Option<PlanVersionId>,
-    pub currency: String,
-    pub refunded_amount_cents: i64,
-    pub finalized_at: NaiveDateTime,
-}
 
 #[cfg(test)]
 mod tests {
@@ -672,5 +711,35 @@ mod tests {
 
         let decoded: PaymentRequestEvent = (&value).try_into().expect("decode legacy payload");
         assert_eq!(decoded.idempotency_key, None);
+    }
+
+    /// A `CustomerEmail` enqueued with the old shared `attempt` counter still decodes.
+    #[test]
+    fn customer_email_decodes_legacy_attempt_counter() {
+        use common_domain::ids::BaseId;
+        let event = SendEmailRequest::CustomerEmail {
+            tenant_id: TenantId::new(),
+            kind: EmailKind::InvoiceReady,
+            context: EmailContext::Invoice {
+                invoice_id: InvoiceId::new(),
+            },
+            dedupe_key: "invoice_ready:x".to_string(),
+            resent_from: None,
+            manual: false,
+            attempts: EmailSendAttempts {
+                transport: 2,
+                ..Default::default()
+            },
+        };
+        let mut value: serde_json::Value = (&event).try_into().expect("serialize");
+        let fields = value["CustomerEmail"].as_object_mut().unwrap();
+        fields.remove("attempts").expect("attempts serialized");
+        fields.insert("attempt".to_string(), serde_json::json!(7));
+
+        let decoded: SendEmailRequest = (&value).try_into().expect("decode legacy payload");
+        let SendEmailRequest::CustomerEmail { attempts, .. } = decoded else {
+            panic!("wrong variant");
+        };
+        assert_eq!(attempts, EmailSendAttempts::default());
     }
 }

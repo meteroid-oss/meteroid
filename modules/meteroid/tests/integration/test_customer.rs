@@ -6,19 +6,20 @@ use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::clients::AllClients;
 use crate::meteroid_it::container::{MeteroidSetup, SeedLevel};
-use common_domain::ids::{BaseId, ConnectorId, CustomerId, TenantId};
+use common_domain::ids::{BaseId, ConnectorId, CustomerId, InvoiceId, TenantId};
 use diesel_models::connectors::ConnectorRowNew;
 use diesel_models::enums::{ConnectorProviderEnum as DbConnectorProviderEnum, ConnectorTypeEnum};
-use meteroid_store::domain::ConnectorProviderEnum;
+use meteroid_store::domain::{ConnectorProviderEnum, LineItemKind};
 use meteroid_store::repositories::CustomersInterface;
+use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
-use tonic::Code;
 
 #[tokio::test]
 async fn test_customers_basic() {
     // Generic setup
     helpers::init::logging();
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::MINIMAL).await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
@@ -43,6 +44,9 @@ async fn test_customers_basic() {
         .create_customer(api::customers::v1::CreateCustomerRequest {
             data: Some(api::customers::v1::CustomerNew {
                 name: customer_name.to_string(),
+                customer_type: api::customers::v1::CustomerType::Company as i32,
+                first_name: None,
+                last_name: None,
                 alias: Some(customer_alias.to_string()),
                 billing_email: Some(customer_email.to_string()),
                 invoicing_emails: Vec::new(),
@@ -52,10 +56,14 @@ async fn test_customers_basic() {
                 shipping_address: None,
                 invoicing_entity_id: None,
                 vat_number: None,
+                legal_number: None,
+                buyer_reference: None,
                 custom_taxes: vec![],
                 tax_status: None,
                 exemption_reason: None,
                 connected_account_id: None,
+                custom_properties: None,
+                preferred_locales: vec![],
             }),
         })
         .await
@@ -70,6 +78,9 @@ async fn test_customers_basic() {
         .create_customer(api::customers::v1::CreateCustomerRequest {
             data: Some(api::customers::v1::CustomerNew {
                 name: "created_manual".to_string(),
+                customer_type: api::customers::v1::CustomerType::Company as i32,
+                first_name: None,
+                last_name: None,
                 alias: Some("created_manual".to_string()),
                 billing_email: Some("created_manual@meteroid.com".to_string()),
                 invoicing_emails: Vec::new(),
@@ -79,10 +90,14 @@ async fn test_customers_basic() {
                 shipping_address: None,
                 invoicing_entity_id: None,
                 vat_number: None,
+                legal_number: None,
+                buyer_reference: None,
                 custom_taxes: vec![],
                 tax_status: None,
                 exemption_reason: None,
                 connected_account_id: None,
+                custom_properties: None,
+                preferred_locales: vec![],
             }),
         })
         .await
@@ -103,6 +118,9 @@ async fn test_customers_basic() {
             provider: DbConnectorProviderEnum::Hubspot,
             data: None,
             sensitive: None,
+            status: diesel_models::enums::ConnectorStatusEnum::Active,
+            account: None,
+            webhook_route: Some(diesel_models::enums::ConnectorWebhookRouteEnum::ConnectorId),
         }
         .insert(&mut conn)
         .await
@@ -149,6 +167,9 @@ async fn test_customers_basic() {
                 per_page: Some(10),
                 page: 0,
             }),
+            lifecycle_state: vec![],
+            country: vec![],
+            filters: vec![],
         })
         .await
         .unwrap()
@@ -169,6 +190,9 @@ async fn test_customers_basic() {
                 per_page: Some(10),
                 page: 0,
             }),
+            lifecycle_state: vec![],
+            country: vec![],
+            filters: vec![],
         })
         .await
         .unwrap()
@@ -221,19 +245,25 @@ async fn test_customers_basic() {
             customer: Some(api::customers::v1::UpdateCustomer {
                 id: created.id.clone(),
                 name: Some("new name".to_string()),
+                customer_type: None,
+                first_name: None,
+                last_name: None,
                 billing_email: None,
                 alias: None,
                 invoicing_emails: None,
                 phone: None,
-                balance_value_cents: None,
                 currency: None,
                 billing_address: None,
                 shipping_address: None,
                 invoicing_entity_id: None,
                 vat_number: None,
+                legal_number: None,
+                buyer_reference: None,
                 custom_taxes: None,
                 tax_status: None,
                 exemption_reason: None,
+                custom_properties: None,
+                preferred_locales: vec![],
             }),
         })
         .await
@@ -257,76 +287,52 @@ async fn test_customers_basic() {
     assert_eq!(get_by_id_patched.alias, Some(customer_alias.clone()));
     assert_eq!(get_by_id_patched.currency, "EUR");
 
-    // top up start
-    let topped_up = clients
-        .customers
+    // sell credits start
+    let wallet = clients
+        .wallets
         .clone()
-        .top_up_customer_balance(api::customers::v1::TopUpCustomerBalanceRequest {
-            customer_id: created.id.to_string(),
-            cents: 1024,
-            notes: Some("test".into()),
-        })
-        .await
-        .unwrap()
-        .into_inner()
-        .customer
-        .unwrap();
-
-    assert_eq!(topped_up.balance_value_cents, 1024);
-
-    let topped_up = clients
-        .customers
-        .clone()
-        .top_up_customer_balance(api::customers::v1::TopUpCustomerBalanceRequest {
-            customer_id: created.id.to_string(),
-            cents: -1000,
-            notes: Some("test".into()),
-        })
-        .await
-        .unwrap()
-        .into_inner()
-        .customer
-        .unwrap();
-
-    assert_eq!(topped_up.balance_value_cents, 24);
-
-    let topped_up_fail = clients
-        .customers
-        .clone()
-        .top_up_customer_balance(api::customers::v1::TopUpCustomerBalanceRequest {
-            customer_id: created.id.to_string(),
-            cents: -25,
-            notes: Some("test".into()),
-        })
-        .await
-        .err()
-        .unwrap();
-
-    assert_eq!(topped_up_fail.message(), "negative customer balance");
-    assert_eq!(topped_up_fail.code(), Code::FailedPrecondition);
-
-    // top up end
-
-    // bue credits start
-    let credits_invoice = clients
-        .customers
-        .clone()
-        .buy_customer_credits(api::customers::v1::BuyCustomerCreditsRequest {
+        .create_wallet(api::wallets::v1::CreateWalletRequest {
             customer_id: created_manual.id.clone(),
-            cents: 1024,
-            notes: Some("test".into()),
+            currency: "EUR".to_string(),
         })
         .await
         .unwrap()
         .into_inner()
-        .invoice
+        .wallet
         .unwrap();
+    let sold = clients
+        .wallets
+        .clone()
+        .sell_credit(api::wallets::v1::SellCreditRequest {
+            customer_id: created_manual.id.clone(),
+            wallet_id: wallet.id,
+            amount: 1024,
+            expires_in_months: None,
+            note: Some("test".into()),
+            idempotency_key: uuid::Uuid::now_v7().to_string(),
+            unit_price: None,
+            expected_unit_price: None,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let credits_invoice = setup
+        .store
+        .get_detailed_invoice_by_id(TENANT_ID, InvoiceId::from_proto(&sold.invoice_id).unwrap())
+        .await
+        .unwrap()
+        .invoice;
 
     assert_eq!(credits_invoice.total, 1024);
+    assert_eq!(
+        credits_invoice.line_items[0].kind,
+        LineItemKind::Credit,
+        "a credit sale issues a Credit line, funded when paid"
+    );
     assert_eq!(credits_invoice.subtotal, 1024);
     assert_eq!(credits_invoice.applied_credits, 0);
-    assert_eq!(credits_invoice.customer_id, created_manual.id);
-    // bue credits end
+    assert_eq!(credits_invoice.customer_id.to_string(), created_manual.id);
+    // sell credits end
 
     rest_api_test(&setup, &clients).await;
 }
@@ -345,7 +351,7 @@ async fn rest_api_test(setup: &MeteroidSetup, clients: &AllClients) {
         .into_inner()
         .api_key;
 
-    let client = reqwest::Client::new();
+    let client = http_client_tracing::client();
 
     // CREATE CUSTOMER
     let mut created = client

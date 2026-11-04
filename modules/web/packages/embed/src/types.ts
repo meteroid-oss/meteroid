@@ -49,9 +49,8 @@ export interface BillingPortalOptions {
   /** Subscription id for the single-subscription view (`view: 'subscription'`). */
   subscriptionId?: string
   /**
-   * Show the "Powered by Meteroid" attribution under the widget. Defaults to
-   * `true`; set `false` to hide it (maps to `?branding=false`). The tenant's
-   * portal branding settings can also disable it.
+   * @deprecated Ignored: the "Powered by Meteroid" attribution follows the merchant's plan, and is
+   * hidden for White-label plans.
    */
   branding?: boolean
   /**

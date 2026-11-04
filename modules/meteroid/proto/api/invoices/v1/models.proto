@@ -11,6 +11,8 @@ enum InvoiceStatus {
   // PAID/ISSUED ?
   UNCOLLECTIBLE = 2;
   VOID = 3;
+  // Draft settled with nothing to bill (e.g. usage-only period with no usage). Never numbered.
+  CLOSED = 4;
 }
 
 enum InvoicePaymentStatus {
@@ -39,6 +41,22 @@ message Invoice {
   optional string consolidated_into_invoice_id = 13;
   // The consolidated parent's invoice number, resolved for display (e.g. "Merged into INV-42").
   optional string consolidated_into_invoice_number = 14;
+  // JSON-encoded object of user-defined custom property values, keyed by definition key.
+  optional string custom_properties = 15;
+  // The period/moment this invoice is about (subscription period start, or the invoice's own
+  // date for manual/one-off) — the stable, always-present date shown as "Invoice date". Distinct
+  // from invoice_date, which is the emission date.
+  optional string billing_period_start = 16;
+  // Absent unless the invoicing entity had opted in when the document was issued.
+  EInvoicingStatus einvoicing_status = 17;
+  // Left to pay once credit is applied, and the credit applied.
+  int64 amount_due = 18;
+  int64 applied_credits = 19;
+  int64 tax_amount = 20;
+  // The minimum-commitment shortfall lines bill.
+  int64 minimum_shortfall = 21;
+  // PAID with nothing collected: credit notes cancelled the whole total.
+  bool settled_by_credit_notes = 22;
 }
 
 //message Account {
@@ -109,6 +127,129 @@ message DetailedInvoice {
   repeated ConsolidatedChild consolidated_children = 52;
   // The consolidated parent's invoice number, resolved for display (e.g. "Merged into INV-42").
   optional string consolidated_into_invoice_number = 53;
+  // JSON-encoded object of user-defined custom property values, keyed by definition key.
+  optional string custom_properties = 54;
+  // The period/moment this invoice is about — the subscription period start, the invoice's own
+  // date for manual/one-off, or the run date for a consolidated parent. Always present; distinct
+  // from invoice_date (the emission date). Shown as "Invoice date".
+  optional string billing_period_start = 55;
+  // True when invoice_date/due_at are *projected* (a draft that will be stamped at finalization),
+  // false when they are the stored values (finalized, manual, backdated, or merged child). Lets
+  // the UI label the emission date honestly instead of guessing from status.
+  bool dates_projected = 56;
+  // Frozen appendices rendered after the line items.
+  repeated InvoiceAnnex annexes = 57;
+  // Whether the structured e-invoice was produced for this invoice. UNSPECIFIED
+  // means the invoicing entity had not opted in when it was issued — distinct
+  // from FAILED, which carries the reasons in `einvoicing_findings`.
+  EInvoicingStatus einvoicing_status = 58;
+  // The rules the invoice did not satisfy, in the standard's own vocabulary.
+  // Empty unless the status is FAILED.
+  repeated EInvoicingFinding einvoicing_findings = 59;
+  // The profile it was checked against, e.g. "EN 16931" or "XRechnung 3.0".
+  optional string einvoicing_profile = 60;
+  // Set when generation failed for a reason that is not a business rule.
+  optional string einvoicing_error = 61;
+  // Whether the PDF itself is the e-invoice: a hybrid format (Factur-X, XRechnung)
+  // was issued and its XML is embedded in the PDF. False for Peppol, which travels
+  // as the XML alone, and whenever no e-invoice was issued.
+  bool einvoicing_embedded_in_pdf = 62;
+  // The prices billed were quoted tax-included. Amounts are net regardless: the tax was
+  // carved out of the quoted price, so `total` is that price to the unit.
+  bool tax_inclusive = 63;
+  // On a tax-inclusive invoice, `discount` in the figures it was quoted in: what was taken
+  // off the tax-included prices. This is what the draft editor shows and sends back.
+  optional int64 quoted_discount = 64;
+  // Promotional credit drawn before tax, net like `discount`:
+  // subtotal - discount - promotional_credits + tax_amount = total.
+  int64 promotional_credits = 65;
+  // On a tax-inclusive invoice, `promotional_credits` in the tax-included figures it was quoted in.
+  optional int64 quoted_promotional_credits = 66;
+  // When a dispute or chargeback first took money still lost on its payments. The invoice stays
+  // paid; unset when nothing is disputed.
+  optional string payment_disputed_at = 67;
+  // PAID with nothing collected: credit notes cancelled the whole total.
+  bool settled_by_credit_notes = 68;
+  // A voided recurring invoice of the period its subscription is in, which no live invoice bills
+  // yet: RegenerateInvoice can bill that period again. Set by GetInvoice only.
+  bool regenerable = 69;
+}
+
+enum EInvoicingStatus {
+  EINVOICING_STATUS_UNSPECIFIED = 0;
+  EINVOICING_GENERATED = 1;
+  EINVOICING_FAILED = 2;
+}
+
+// One rule a document did not satisfy. The vocabulary is the authority's, so a
+// finding can be looked up in CEN's or KoSIT's index.
+message EInvoicingFinding {
+  // The rule identifier — "BR-11", "PEPPOL-EN16931-R003".
+  string rule = 1;
+  // The business term path it is about — "BG-8/BT-55".
+  string term = 2;
+  // The rule's own wording.
+  string message = 3;
+  // Advice the rule text does not carry. Rare.
+  optional string hint = 4;
+}
+
+// A dry run of the e-invoicing gate: the report finalization would record if it
+// ran now. Worth asking about a *draft*, which still tracks the live customer
+// and entity records — a finding here names a field that can still be fixed on
+// this invoice, where the same finding after finalization is only advice for
+// the next one.
+message EInvoicingReadiness {
+  // The profile the invoice was checked against, e.g. "EN 16931" or "XRechnung 3.0".
+  string profile = 1;
+  // Empty when the invoice would be issued as an e-invoice. Every entry blocks it.
+  repeated EInvoicingFinding findings = 2;
+  // Set when the check failed for a reason that is not a business rule.
+  optional string error = 3;
+}
+
+// An appendix rendered after the invoice lines. Normally a projection of the raw event stream,
+// re-derived on every refresh; on a correction invoice it is a hand-editable snapshot.
+message InvoiceAnnex {
+  string title = 1;
+  optional string description = 2;
+  repeated string columns = 3;
+  repeated InvoiceAnnexGroup groups = 4;
+}
+
+message InvoiceAnnexGroup {
+  optional string heading = 1;
+  repeated InvoiceAnnexRow rows = 2;
+}
+
+message InvoiceAnnexRow {
+  repeated InvoiceAnnexCell cells = 1;
+  // Subtotal / grand-total rows, rendered bold with a fill.
+  bool emphasis = 2;
+}
+
+// An unset value is an empty cell. Decimals and timestamps are carried as strings, formatted by
+// the renderer with the document's currency and language.
+message InvoiceAnnexCell {
+  message DateValue {
+    string ts = 1;
+    string fmt = 2;
+  }
+
+  message DateRangeValue {
+    string min = 1;
+    string max = 2;
+    string fmt = 3;
+  }
+
+  oneof value {
+    string text = 1;
+    string number = 2;
+    // Minor currency units.
+    string money = 3;
+    DateValue date = 4;
+    DateRangeValue date_range = 5;
+  }
 }
 
 // A per-subscription draft that was merged into a consolidated parent invoice, shown on the
@@ -132,6 +273,17 @@ message CouponLineItem {
   string coupon_id = 1;
   string name = 2;
   int64 total = 3;
+  // What the coupon took off the quoted, tax-included prices, when `total` is only the net
+  // share of it (tax-inclusive invoices).
+  optional int64 quoted_total = 4;
+}
+
+enum LineItemKind {
+  REGULAR = 0;
+  // Synthesized top-up line bringing the invoice up to the minimum-commitment floor.
+  MINIMUM_SHORTFALL = 1;
+  // A credit purchase: paying the invoice funds the customer's invoice credit.
+  CREDIT = 2;
 }
 
 message LineItem {
@@ -157,6 +309,51 @@ message LineItem {
   optional string metric_id = 15; // TODO same as product id ?
   optional string description = 16;
   map<string, string> group_by_dimensions = 17;
+  LineItemKind kind = 18;
+
+  // Set on a line billed from tax-inclusive prices that bore tax. `subtotal`, `unit_price`
+  // and `sub_line_items` above are net; these are the tax-included figures the customer was
+  // quoted, which is what a tax-inclusive document shows and what the draft editor edits.
+  optional TaxInclusiveQuote tax_inclusive_quote = 19;
+
+  // Usage priced in a credit unit. `subtotal` is then only the money billed for the credits the
+  // unit's wallet did not cover, at `rate`.
+  optional CreditUnitUsage credit_unit = 20;
+  // After discounts, before tax: for a credit pack, what its credit was paid.
+  int64 taxable_amount = 21;
+  // Credit a credit pack line funds, in minor units of its wallet.
+  optional int64 credit_grant_amount = 22;
+  // The credit unit that wallet holds; absent when it holds the invoice currency.
+  optional CreditGrantUnit credit_grant_unit = 23;
+  // Tax on `taxable_amount`.
+  int64 tax_amount = 24;
+
+  message CreditGrantUnit {
+    string credit_unit_id = 1;
+    string code = 2;
+    uint32 precision = 3;
+  }
+
+  message TaxInclusiveQuote {
+    int64 subtotal = 1;
+    optional string unit_price = 2;
+    repeated SubLineItem sub_line_items = 3;
+  }
+
+  message CreditUnitUsage {
+    string credit_unit_id = 1;
+    string code = 2;
+    uint32 precision = 3;
+    // Price-currency major units per credit.
+    string rate = 4;
+    // Credits per usage unit.
+    optional string unit_price = 5;
+    // Tier or matrix breakdown, totals in credit minor units.
+    repeated SubLineItem sub_line_items = 6;
+    // Credit minor units the usage priced, and of which the wallet covered.
+    int64 consumed = 7;
+    int64 covered = 8;
+  }
 }
 
 message SubLineItem {
@@ -197,6 +394,7 @@ enum InvoiceType {
   ONE_OFF = 1;
   ADJUSTMENT = 2;
   USAGE_THRESHOLD = 3;
+  FINAL = 4;
 }
 
 
@@ -216,6 +414,30 @@ message Transaction {
   // attempt: InitiateHostedInvoicePayment on this connection resumes the SAME
   // intent/redirect instead of minting a second capturable intent.
   optional string resumable_hosted_connection_id = 12;
+  // This PENDING transaction waits on the customer's authentication (3DS / SCA), not on the
+  // provider: the portal resumes it with ResumeInvoicePaymentAuthentication.
+  bool awaiting_authentication = 13;
+  // On a PAYMENT row: how much was voluntarily given back (the sum of its settled REFUND
+  // children). The invoice stays paid — the Refund credit note is what reduces it.
+  int64 amount_refunded = 14;
+  // On a PAYMENT row: how much was involuntarily clawed back (chargeback, bank recall, lost
+  // dispute, failed collection), at most what the payment still held.
+  int64 amount_reversed = 15;
+  // Why the payment was clawed back. Set with `amount_reversed`.
+  optional ReversalKind reversal_kind = 16;
+  // The provider's raw cause, or what the operator typed when reversing by hand.
+  optional string reversal_reason = 17;
+  // Set on a REFUND row: the settled payment the money is given back from.
+  optional string parent_transaction_id = 18;
+  // Set on a REFUND row drawn against a finalized Refund credit note.
+  optional string credit_note_id = 19;
+  optional RefundMode refund_mode = 20;
+  // On a PAYMENT row: the part of `amount_reversed` lost to disputes. The invoice stays paid;
+  // the rest (a failed collection) reopens it.
+  int64 amount_disputed = 21;
+  // On a PAYMENT row: what the provider withdrew above what the payment still held (refunded
+  // before). Never applied to the invoice: contest it with the provider.
+  int64 amount_reversed_excess = 22;
 
   enum PaymentStatusEnum {
     READY = 0;
@@ -229,6 +451,26 @@ message Transaction {
   enum PaymentTypeEnum {
     PAYMENT = 0;
     REFUND = 1;
+  }
+
+  // Why a payment was involuntarily clawed back. Prefixed because enum value names are scoped
+  // to the enclosing message, where PaymentTypeEnum already holds REFUND.
+  enum ReversalKind {
+    REVERSAL_REFUND = 0;
+    REVERSAL_CHARGEBACK = 1;
+    REVERSAL_DEBTOR_RECALL = 2;
+    REVERSAL_INSUFFICIENT_FUNDS = 3;
+    REVERSAL_MANDATE_INVALID = 4;
+    REVERSAL_RETURNED = 5;
+    REVERSAL_DISPUTE = 6;
+    REVERSAL_OTHER = 7;
+  }
+
+  // How a voluntary refund was issued: through the provider, or recorded after a wire or cash
+  // movement made outside Meteroid.
+  enum RefundMode {
+    ONLINE = 0;
+    OFFLINE = 1;
   }
 }
 
@@ -286,6 +528,13 @@ message NewInvoice {
   optional InlineCustomerOverride customer_details = 8;
   optional string memo = 9;
   optional string reference = 10;
+  // JSON-encoded object of custom property values, validated against the tenant's invoice definitions.
+  optional string custom_properties = 11;
+  // Appendices to render after the lines. Used by the preview to draw a correction's edited ones.
+  repeated InvoiceAnnex annexes = 12;
+  // Line prices and the discount are entered tax-included: the tax is carved out of them
+  // instead of being added on top.
+  bool tax_inclusive = 13;
 }
 
 message InlineCustomerOverride {
@@ -332,8 +581,16 @@ message UpdateInvoiceRequest {
   optional string discount = 7;
   optional UpdateInlineCustomer customer_details = 8;
   optional string invoicing_entity_id = 9;
+  // JSON-encoded object of custom property values to merge (send a key with null to remove it).
+  optional string custom_properties = 10;
+  // Replacement appendices. Correction invoices only — every other draft re-derives them.
+  optional UpdatedAnnexes annexes = 11;
 
   message UpdatedLineItems {
     repeated UpdateInvoiceLineItem items = 1;
+  }
+
+  message UpdatedAnnexes {
+    repeated InvoiceAnnex items = 1;
   }
 }

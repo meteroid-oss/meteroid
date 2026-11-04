@@ -2,7 +2,7 @@ use crate::error::HubspotError;
 use crate::model::{BatchUpsertRequest, BatchUpsertResponse};
 use meteroid_middleware::client::rate_limit::RateLimitMiddleware;
 use nonzero_ext::nonzero;
-use reqwest::{Client, Method, Url};
+use reqwest::{Method, Url};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::RetryTransientMiddleware;
 use reqwest_retry::policies::ExponentialBackoff;
@@ -53,7 +53,7 @@ impl HubspotClient {
     ) -> Self {
         let retry_policy = ExponentialBackoff::builder().build_with_max_retries(max_retries);
 
-        let client = Client::builder()
+        let client = http_client_tracing::client_builder()
             .connect_timeout(connect_timeout)
             .timeout(timeout)
             .build()
@@ -62,6 +62,7 @@ impl HubspotClient {
         let client = ClientBuilder::new(client)
             .with(RateLimitMiddleware::new(rps))
             .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+            .with(http_client_tracing::ClientSpanMiddleware)
             .build();
 
         Self {

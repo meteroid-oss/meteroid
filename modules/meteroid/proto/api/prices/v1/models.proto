@@ -11,6 +11,8 @@ enum FeeType {
   USAGE = 3;
   EXTRA_RECURRING = 4;
   ONE_TIME = 5;
+  // A credit pack: a fixed charge that funds the customer's invoice credit when it is paid.
+  CREDIT = 6;
 }
 
 message Price {
@@ -25,9 +27,18 @@ message Price {
     UsagePricing usage_pricing = 8;
     ExtraRecurringPricing extra_recurring_pricing = 9;
     OneTimePricing one_time_pricing = 10;
+    CreditPricing credit_pricing = 13;
   }
   optional string created_at = 11;
   optional string archived_at = 12;
+  // Usage (or capacity overage) priced in a credit unit: `pricing` amounts are credits.
+  optional PriceCreditUnit credit_unit = 14;
+}
+
+message PriceCreditUnit {
+  string credit_unit_id = 1;
+  // Price-currency major units per credit (decimal), billed on usage the wallet does not cover.
+  string rate = 2;
 }
 
 message RatePricing {
@@ -98,6 +109,41 @@ message OneTimePricing {
   uint32 quantity = 2;
 }
 
+// A credit pack priced like a fixed fee: the charge is unit_price × quantity and the invoice credit
+// granted is credit_amount × quantity, in the price currency.
+message CreditPricing {
+  string unit_price = 1;
+  uint32 quantity = 2;
+  string credit_amount = 3;
+  optional CreditPackExpiry expiry = 4;
+  // Included packs only (unit_price 0) that expire: unspent credit carried once into a new grant.
+  optional CreditPackRollover rollover = 5;
+  // The credit unit `credit_amount` is granted in; unset grants the price currency. The pack is
+  // always paid in the price currency, and taxed when sold if it grants a unit.
+  optional string credit_unit_id = 6;
+  // Granted once, on the subscription's first invoice, instead of every period. Never rolls over.
+  bool once = 7;
+}
+
+message CreditPackRollover {
+  // Cap per pack, in the pack's credit (decimal, major units); unset carries all that is left.
+  optional string max_amount = 1;
+  // Term of the rolled credit from the original expiry: DAY or MONTH only.
+  CreditPackExpiry expiry = 2;
+}
+
+message CreditPackExpiry {
+  enum Unit {
+    UNIT_UNSPECIFIED = 0;
+    UNIT_DAY = 1;
+    UNIT_MONTH = 2;
+    UNIT_BILLING_PERIOD = 3;
+  }
+  Unit unit = 1;
+  // Positive duration for DAY and MONTH; ignored for BILLING_PERIOD.
+  uint32 value = 2;
+}
+
 message FeeStructure {
   oneof structure {
     RateStructure rate = 1;
@@ -106,6 +152,7 @@ message FeeStructure {
     UsageStructure usage = 4;
     ExtraRecurringStructure extra_recurring = 5;
     OneTimeStructure one_time = 6;
+    CreditStructure credit = 7;
   }
 
   message RateStructure {}
@@ -152,4 +199,6 @@ message FeeStructure {
   }
 
   message OneTimeStructure {}
+
+  message CreditStructure {}
 }

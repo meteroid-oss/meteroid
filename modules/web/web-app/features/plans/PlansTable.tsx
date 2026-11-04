@@ -12,6 +12,7 @@ import { ArchiveIcon, ArchiveRestoreIcon, MoreVerticalIcon } from 'lucide-react'
 import { useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
 
+import { Gate } from '@/components/Gate'
 import { LocalId } from '@/components/LocalId'
 import { StandardTable } from '@/components/table/StandardTable'
 import { PlanStatusBadge } from '@/features/plans/PlanStatusBadge'
@@ -115,7 +116,7 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
         header: 'Created',
         enableSorting: true,
         cell: ({ row }) => (
-          <span className="text-sm text-muted-foreground">
+          <span className="text-muted-foreground">
             {parseAndFormatDate(row.original.createdAt)}
           </span>
         ),
@@ -149,26 +150,28 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
               cell: ({ row }: { row: { original: PlanOverview } }) => {
                 const isArchived = row.original.planStatus === PlanStatus.ARCHIVED
                 return (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm">
-                        <MoreVerticalIcon size={16} />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      {isArchived ? (
-                        <DropdownMenuItem onClick={() => handleUnarchive(row.original.id)}>
-                          <ArchiveRestoreIcon size={16} className="mr-2" />
-                          Unarchive
-                        </DropdownMenuItem>
-                      ) : (
-                        <DropdownMenuItem onClick={() => handleArchive(row.original.id)}>
-                          <ArchiveIcon size={16} className="mr-2" />
-                          Archive
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <Gate perm="catalog:manage">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm">
+                          <MoreVerticalIcon size={16} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {isArchived ? (
+                          <DropdownMenuItem onClick={() => handleUnarchive(row.original.id)}>
+                            <ArchiveRestoreIcon size={16} className="mr-2" />
+                            Unarchive
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem onClick={() => handleArchive(row.original.id)}>
+                            <ArchiveIcon size={16} className="mr-2" />
+                            Archive
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </Gate>
                 )
               },
             },
@@ -180,6 +183,7 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
 
   return (
     <StandardTable
+      tableKey="plans"
       columns={columns}
       data={plansQuery.data?.plans ?? []}
       sortable={true}

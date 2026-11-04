@@ -2,7 +2,6 @@ use crate::errors::IntoDbResult;
 use crate::webhooks::{WebhookInEventRow, WebhookInEventRowNew};
 use crate::{DbResult, PgConn};
 use chrono::NaiveDateTime;
-use diesel::debug_query;
 use diesel::prelude::{ExpressionMethods, OptionalExtension, QueryDsl, SelectableHelper};
 use error_stack::ResultExt;
 use uuid::Uuid;
@@ -13,7 +12,7 @@ impl WebhookInEventRowNew {
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(wi_dsl::webhook_in_event).values(self);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -33,7 +32,7 @@ impl WebhookInEventRowNew {
             .values(self)
             .on_conflict((wi_dsl::provider_config_id, wi_dsl::event_id))
             .do_nothing();
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)

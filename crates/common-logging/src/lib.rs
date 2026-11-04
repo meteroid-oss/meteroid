@@ -4,6 +4,7 @@ use opentelemetry::metrics::Meter;
 pub use tracing;
 pub use tracing_subscriber;
 
+pub mod context;
 pub mod logging;
 pub mod otel;
 pub mod telemetry;

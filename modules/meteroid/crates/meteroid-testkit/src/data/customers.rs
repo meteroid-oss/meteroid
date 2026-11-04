@@ -1,0 +1,117 @@
+use super::ids;
+use chrono::NaiveDateTime;
+use diesel_async::AsyncConnection;
+use diesel_models::customers::CustomerRowNew;
+use diesel_models::errors::DatabaseErrorContainer;
+use meteroid_store::store::PgPool;
+use serde_json::json;
+use std::str::FromStr;
+
+pub async fn run_customers_seed(pool: &PgPool) {
+    let mut conn = pool
+        .get()
+        .await
+        .expect("couldn't get db connection from pool");
+
+    conn.transaction(async |tx| {
+        CustomerRowNew {
+            id: ids::CUST_SPOTIFY_ID,
+            name: "Spotify".to_string(),
+            created_at: NaiveDateTime::from_str("2023-12-04T10:28:39").ok(),
+            tenant_id: ids::TENANT_ID,
+            alias: Some("spotify".to_string()),
+            currency: "EUR".to_string(),
+            invoicing_entity_id: ids::INVOICING_ENTITY_ID,
+            billing_address: None,
+            shipping_address: None,
+            billing_email: None,
+            current_payment_method_id: None,
+            vat_number: None,
+            legal_number: None,
+            buyer_reference: None,
+            custom_taxes: json!([]),
+            invoicing_emails: vec![],
+            phone: None,
+            tax_status: diesel_models::enums::CustomerTaxStatusEnum::Taxable,
+            exemption_reason: None,
+            vat_number_format_valid: false,
+            connected_account_id: None,
+            vat_number_validation_status: None,
+            custom_properties: serde_json::Value::Null,
+            preferred_locales: vec![],
+            customer_type: diesel_models::enums::CustomerTypeEnum::Company,
+            first_name: None,
+            last_name: None,
+        }
+        .insert(tx)
+        .await?;
+
+        CustomerRowNew {
+            id: ids::CUST_UBER_ID,
+            name: "Uber".to_string(),
+            created_at: NaiveDateTime::from_str("2023-12-04T10:29:07").ok(),
+            tenant_id: ids::TENANT_ID,
+            alias: Some("uber".to_string()),
+            currency: "EUR".to_string(),
+            invoicing_entity_id: ids::INVOICING_ENTITY_ID,
+            billing_address: None,
+            shipping_address: None,
+            billing_email: None,
+            current_payment_method_id: None,
+            vat_number: None,
+            legal_number: None,
+            buyer_reference: None,
+            custom_taxes: json!([]),
+            invoicing_emails: vec![],
+            phone: None,
+            tax_status: diesel_models::enums::CustomerTaxStatusEnum::Taxable,
+            exemption_reason: None,
+            vat_number_format_valid: false,
+            connected_account_id: None,
+            vat_number_validation_status: None,
+            custom_properties: serde_json::Value::Null,
+            preferred_locales: vec![],
+            customer_type: diesel_models::enums::CustomerTypeEnum::Company,
+            first_name: None,
+            last_name: None,
+        }
+        .insert(tx)
+        .await?;
+
+        CustomerRowNew {
+            id: ids::CUST_COMODO_ID,
+            name: "Comodo".to_string(),
+            created_at: NaiveDateTime::from_str("2023-12-04T10:32:34").ok(),
+            tenant_id: ids::TENANT_ID,
+            alias: Some("comodo".to_string()),
+            currency: "EUR".to_string(),
+            invoicing_entity_id: ids::INVOICING_ENTITY_ID,
+            billing_address: None,
+            shipping_address: None,
+            billing_email: None,
+            current_payment_method_id: None,
+            vat_number: None,
+            legal_number: None,
+            buyer_reference: None,
+            custom_taxes: json!([]),
+            invoicing_emails: vec![],
+            phone: None,
+            tax_status: diesel_models::enums::CustomerTaxStatusEnum::Taxable,
+            exemption_reason: None,
+            vat_number_format_valid: false,
+            connected_account_id: None,
+            vat_number_validation_status: None,
+            custom_properties: serde_json::Value::Null,
+            preferred_locales: vec![],
+            customer_type: diesel_models::enums::CustomerTypeEnum::Company,
+            first_name: None,
+            last_name: None,
+        }
+        .insert(tx)
+        .await?;
+
+        Ok::<(), DatabaseErrorContainer>(())
+    })
+    .await
+    .unwrap();
+}

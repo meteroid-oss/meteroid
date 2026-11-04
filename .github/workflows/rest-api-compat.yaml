@@ -1,0 +1,37 @@
+name: REST API compatibility
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+    paths:
+      - ".github/workflows/rest-api-compat.yaml"
+      - "spec/api/**"
+      - "ee/spec/api/**"
+
+jobs:
+  breaking-changes:
+    name: Breaking changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - name: Compare the REST spec with the base branch
+        env:
+          # A deliberate break (e.g. an endpoint not released yet) passes with the `breaking-api-ok` label.
+          FAIL_ON: ${{ !contains(github.event.pull_request.labels.*.name, 'breaking-api-ok') && '--fail-on ERR' || '' }}
+        # Each edition's published spec: OSS, and Enterprise where ee/ exists.
+        run: |
+          oasdiff() { docker run --rm -v "$RUNNER_TEMP/specs:/specs:ro" tufin/oasdiff:v1.33.0 "$@"; }
+          for spec in spec/api/v1/openapi.json ee/spec/api/v1/openapi.json; do
+            [ -f "$spec" ] || continue
+            base="$spec"
+            # Before the editions split, the single spec was the Enterprise one.
+            git cat-file -e "HEAD^1:$base" 2>/dev/null || base=spec/api/v1/openapi.json
+            rm -rf "$RUNNER_TEMP/specs" && mkdir -p "$RUNNER_TEMP/specs"
+            git show "HEAD^1:$base" > "$RUNNER_TEMP/specs/base.json"
+            cp "$spec" "$RUNNER_TEMP/specs/pr.json"
+            echo "### $spec" >> "$GITHUB_STEP_SUMMARY"
+            oasdiff breaking /specs/base.json /specs/pr.json --format markdown >> "$GITHUB_STEP_SUMMARY"
+            oasdiff breaking /specs/base.json /specs/pr.json $FAIL_ON
+          done

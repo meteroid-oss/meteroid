@@ -30,11 +30,19 @@ import {
   Textarea,
 } from '@md/ui'
 import { PlusIcon } from 'lucide-react'
-import { type FormEvent, useEffect, useRef, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { z } from 'zod'
 
 import { EntitlementValueFields } from '@/features/entitlements/creation/EntitlementValueFields'
 import {
+  type ConfigEntry,
+  configMapIssues,
+  CONFIG_KINDS,
+  type ConfigKind,
+  groupBySchema,
+  checkMeteredPolicy,
+  meteredPolicySchemaShape,
+  type OverageType,
   RESET_PERIOD_TYPES,
   type ResetPeriodType,
 } from '@/features/entitlements/creation/types'
@@ -43,6 +51,7 @@ import {
   FEATURE_CODE_LENGTH_MESSAGE,
   FEATURE_CODE_MAX_LENGTH,
   FEATURE_CODE_REGEX,
+  featureKindFromProto,
   slugifyCode,
 } from '@/features/entitlements/utils'
 import { useDebounceValue } from '@/hooks/useDebounce'
@@ -50,16 +59,18 @@ import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { listFeatures } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
-import { CalendarUnit, FeatureStatus } from '@/rpc/api/entitlements/v1/models_pb'
+import { CalendarUnit, Feature, FeatureStatus } from '@/rpc/api/entitlements/v1/models_pb'
 
 // ── Shared form value type ─────────────────────────────────────────────────────
 
 export type EntitlementFormValues = {
   featureId?: string
+  /** The picked existing feature, set on submit. */
+  selectedFeature?: Feature
   featureName?: string
   featureCode?: string
   featureDescription?: string
-  featureType: 'boolean' | 'metered'
+  featureType: 'boolean' | 'metered' | 'config'
   metricId?: string
   boolEnabled?: boolean
   limit?: string
@@ -67,6 +78,27 @@ export type EntitlementFormValues = {
   resetUnit?: CalendarUnit
   resetInterval?: number
   meteredEnabled?: boolean
+  groupBy?: string
+  overageType?: OverageType
+  gracePct?: string
+  thresholds?: string
+  configKind?: ConfigKind
+  configNumber?: string
+  configBoolean?: boolean
+  configText?: string
+  configJson?: string
+  configEntries?: ConfigEntry[]
+  configOptions?: string[]
+}
+
+function isValidJson(s: string | undefined): boolean {
+  if (!s || s.trim() === '') return false
+  try {
+    JSON.parse(s)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export interface EntitlementDialogProps {
@@ -77,7 +109,7 @@ export interface EntitlementDialogProps {
   /** Pre-fill values (for edit mode) */
   initialValues?: Partial<EntitlementFormValues>
   /** Lock the feature — shows name as display, skips selector */
-  lockedFeature?: { id: string; name: string; isMetered: boolean }
+  lockedFeature?: { id: string; name: string; featureType: 'boolean' | 'metered' | 'config' }
   existingFeatureIds?: Set<string>
   title?: string
   submitLabel?: string
@@ -92,7 +124,7 @@ const schema = z
     featureName: z.string().optional(),
     featureCode: z.string().optional(),
     featureDescription: z.string().optional(),
-    featureType: z.enum(['boolean', 'metered']),
+    featureType: z.enum(['boolean', 'metered', 'config']),
     metricId: z.string().optional(),
     boolEnabled: z.boolean().optional(),
     limit: z.string().optional(),
@@ -100,11 +132,56 @@ const schema = z
     resetUnit: z.nativeEnum(CalendarUnit).optional(),
     resetInterval: z.coerce.number().int().min(1).optional(),
     meteredEnabled: z.boolean().optional(),
+    groupBy: groupBySchema,
+    ...meteredPolicySchemaShape,
+    configKind: z.enum(CONFIG_KINDS).optional(),
+    configNumber: z.string().optional(),
+    configBoolean: z.boolean().optional(),
+    configText: z.string().optional(),
+    configJson: z.string().optional(),
+    configEntries: z
+      .array(
+        z.object({
+          key: z.string(),
+          type: z.enum(['number', 'text', 'boolean']),
+          value: z.string(),
+        })
+      )
+      .optional(),
+    configOptions: z.array(z.string()).optional(),
+  })
+  .superRefine((d, ctx) => {
+    if (d.featureType === 'metered') checkMeteredPolicy(d, ctx)
+    if (d.featureType === 'config' && d.configKind === 'map') {
+      const issue = configMapIssues(d.configEntries)
+      if (issue) ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue, path: ['configEntries'] })
+    }
   })
   .refine(d => !d.featureName || d.featureType !== 'metered' || !!d.metricId, {
     message: 'Metric is required for metered features',
     path: ['metricId'],
   })
+  .refine(
+    d => d.featureType !== 'config' || d.configKind !== 'number' || (d.configNumber ?? '').trim() !== '',
+    { message: 'A number value is required', path: ['configNumber'] }
+  )
+  .refine(d => d.featureType !== 'config' || d.configKind !== 'json' || isValidJson(d.configJson), {
+    message: 'Must be valid JSON',
+    path: ['configJson'],
+  })
+  // A new select feature must declare at least one option.
+  .refine(
+    d =>
+      d.featureType !== 'config' ||
+      d.configKind !== 'select' ||
+      !d.featureName ||
+      (d.configOptions?.length ?? 0) > 0,
+    { message: 'Add at least one option', path: ['configOptions'] }
+  )
+  .refine(
+    d => d.featureType !== 'config' || d.configKind !== 'select' || !!d.configText,
+    { message: 'Choose a value', path: ['configText'] }
+  )
   // Code is only collected when creating a new feature (featureName set). Mirror the
   // feature catalog's charset and length rules so the backend never rejects it.
   .refine(d => !d.featureName || (d.featureCode ?? '').length <= FEATURE_CODE_MAX_LENGTH, {
@@ -116,6 +193,8 @@ const schema = z
     path: ['featureCode'],
   })
 
+const MAX_METRIC_SHORTCUTS = 3
+
 const defaultValues: Partial<EntitlementFormValues> = {
   featureType: 'boolean',
   boolEnabled: true,
@@ -123,6 +202,11 @@ const defaultValues: Partial<EntitlementFormValues> = {
   resetUnit: CalendarUnit.MONTH,
   resetInterval: 1,
   meteredEnabled: true,
+  overageType: 'block',
+  gracePct: '',
+  thresholds: '',
+  configKind: 'number',
+  configEntries: [{ key: '', type: 'number', value: '' }],
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -147,13 +231,42 @@ export function EntitlementDialog({
   // Only Active features are pickable for live entitlement attachment.
   const featuresQuery = useQuery(listFeatures, {
     pagination: { page: 0, perPage: 100 },
-    statuses: [FeatureStatus.ACTIVE],
+    statuses: [FeatureStatus.ACTIVE, FeatureStatus.DISABLED],
     search: debouncedFeatureSearch || undefined,
   })
-  const features = (featuresQuery.data?.features ?? []).slice().sort((a, b) => a.name.localeCompare(b.name))
+  const features = useMemo(
+    () => (featuresQuery.data?.features ?? []).slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [featuresQuery.data]
+  )
+  const moreFeatures = (featuresQuery.data?.paginationMeta?.totalItems ?? 0) > features.length
+  // Every feature the picker has shown, so a pick survives a later search.
+  const seenFeatures = useRef(new Map<string, Feature>())
+  features.forEach(f => seenFeatures.current.set(f.id, f))
 
   const metricsQuery = useQuery(listBillableMetrics, { pagination: { page: 0, perPage: 500 } })
   const metrics = (metricsQuery.data?.billableMetrics ?? []).slice().sort((a, b) => a.name.localeCompare(b.name))
+
+  // Metrics no feature measures yet, whatever its status: offered as a new metered feature.
+  const allFeaturesQuery = useQuery(
+    listFeatures,
+    {
+      pagination: { page: 0, perPage: 500 },
+      statuses: [FeatureStatus.ACTIVE, FeatureStatus.DISABLED, FeatureStatus.ARCHIVED],
+    },
+    { enabled: open && !lockedFeature }
+  )
+  const uncoveredMetrics = useMemo(() => {
+    if (!allFeaturesQuery.data) return []
+    const measured = new Set(
+      allFeaturesQuery.data.features.flatMap(f =>
+        f.featureType?.Inner?.case === 'metered' ? [f.featureType.Inner.value.metricId] : []
+      )
+    )
+    const search = featureSearch.trim().toLowerCase()
+    return metrics.filter(
+      m => !m.archivedAt && !measured.has(m.id) && (!search || m.name.toLowerCase().includes(search))
+    )
+  }, [allFeaturesQuery.data, metrics, featureSearch])
 
   const form = useZodForm({
     schema,
@@ -175,24 +288,42 @@ export function EntitlementDialog({
       form.reset({ ...defaultValues, ...iv })
       setIsCreatingNew(!lf && !!iv?.featureName)
     }
-    // form excluded: useZodForm spreads useForm into a new object each render,
-    // so including it would reset user edits on every re-render. form.reset is stable.
+    // form excluded: its identity changes with every form state change, so including it
+    // would reset user edits as they type. form.reset is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
+  const { setValue } = form
   useEffect(() => {
     if (selectedFeatureId && !lockedFeature) {
       const feature = features.find(f => f.id === selectedFeatureId)
       if (!feature) return
-      form.setValue('featureType', feature.featureType?.Inner?.case === 'metered' ? 'metered' : 'boolean')
+      const kind = featureKindFromProto(feature.featureType)
+      setValue('featureType', kind.type)
+      // The config value type is fixed by the feature — seed it so the right value editor shows.
+      if (kind.type === 'config') {
+        setValue('configKind', kind.valueType)
+        if (kind.options) {
+          setValue('configOptions', kind.options)
+        }
+      }
     }
-  }, [selectedFeatureId, lockedFeature, features, form])
+  }, [selectedFeatureId, lockedFeature, features, setValue])
 
-  const effectiveFeatureType: 'boolean' | 'metered' = lockedFeature
-    ? (lockedFeature.isMetered ? 'metered' : 'boolean')
+  const effectiveFeatureType: 'boolean' | 'metered' | 'config' = lockedFeature
+    ? lockedFeature.featureType
     : featureType
 
   const showValueFields = !!lockedFeature || !!selectedFeatureId || isCreatingNew
+
+  const startFeatureForMetric = (metric: { id: string; name: string }) => {
+    form.setValue('featureId', undefined)
+    form.setValue('featureName', metric.name)
+    form.setValue('featureCode', slugifyCode(metric.name))
+    form.setValue('featureType', 'metered')
+    form.setValue('metricId', metric.id)
+    setIsCreatingNew(true)
+  }
 
   const featureOptions = features
     .filter(f => !existingFeatureIds?.has(f.id))
@@ -204,6 +335,7 @@ export function EntitlementDialog({
       await onSubmit({
         ...data,
         featureId: lockedFeature?.id ?? data.featureId,
+        selectedFeature: data.featureId ? seenFeatures.current.get(data.featureId) : undefined,
         featureType: effectiveFeatureType,
       })
     })(e)
@@ -225,7 +357,11 @@ export function EntitlementDialog({
               <div className="text-sm">
                 <span className="font-medium">{lockedFeature.name}</span>
                 <span className="ml-2 text-xs text-muted-foreground">
-                  {lockedFeature.isMetered ? 'Metered' : 'Boolean'}
+                  {lockedFeature.featureType === 'metered'
+                    ? 'Metered'
+                    : lockedFeature.featureType === 'config'
+                      ? 'Config'
+                      : 'Boolean'}
                 </span>
               </div>
             ) : !isCreatingNew ? (
@@ -240,6 +376,7 @@ export function EntitlementDialog({
                   shouldFilter={false}
                   onSearchChange={setFeatureSearch}
                   unit="feature"
+                  description={moreFeatures ? `Showing the first ${features.length} features. Type to search the rest.` : undefined}
                   options={featureOptions}
                   action={
                     <button
@@ -255,6 +392,24 @@ export function EntitlementDialog({
                   }
                 />
                 <FormMessage>{form.formState.errors.featureId?.message}</FormMessage>
+                {uncoveredMetrics.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-xs text-muted-foreground">
+                    <span>No feature measures:</span>
+                    {uncoveredMetrics.slice(0, MAX_METRIC_SHORTCUTS).map(m => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        className="text-brand hover:underline"
+                        onClick={() => startFeatureForMetric(m)}
+                      >
+                        Create a feature for {m.name}
+                      </button>
+                    ))}
+                    {uncoveredMetrics.length > MAX_METRIC_SHORTCUTS && (
+                      <span>and {uncoveredMetrics.length - MAX_METRIC_SHORTCUTS} more: search above</span>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <>
@@ -343,6 +498,10 @@ export function EntitlementDialog({
                             <RadioGroupItem value="metered" id="dlg-type-metered"/>
                             <Label htmlFor="dlg-type-metered" className="font-normal cursor-pointer">Metered</Label>
                           </div>
+                          <div className="flex items-center gap-1.5">
+                            <RadioGroupItem value="config" id="dlg-type-config"/>
+                            <Label htmlFor="dlg-type-config" className="font-normal cursor-pointer">Config</Label>
+                          </div>
                         </RadioGroup>
                       </FormControl>
                       <FormMessage/>
@@ -381,6 +540,8 @@ export function EntitlementDialog({
                 <EntitlementValueFields
                   featureType={effectiveFeatureType}
                   idPrefix="dlg"
+                  canEditConfigOptions={isCreatingNew}
+                  canPickConfigType={isCreatingNew}
                 />
               </>
             )}

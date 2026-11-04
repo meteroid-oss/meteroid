@@ -1,33 +1,25 @@
-<div class="footer">
-  <div class="footer-header">
-    <!-- <div class="footer-logo">
-      <img src="https://static.meteroid.com/assets/mail-images/meteroid-logo-small.png" alt="Meteroid Logo">
-      <span class="footer-logo-text">Meteroid</span>
-    </div> -->
-
-    <div class="social-links">
-      <a href="https://github.com/meteroid-oss/meteroid" class="social-link">
-        <img src="https://static.meteroid.com/assets/mail-images/github.png" alt="GitHub">
-      </a>
-      <a href="https://bsky.app/profile/meteroid.bsky.social" class="social-link">
-        <img src="https://static.meteroid.com/assets/mail-images/bluesky.png" alt="Bluesky">
-      </a>
-      <a href="https://linkedin.com/company/meteroid" class="social-link">
-        <img src="https://static.meteroid.com/assets/mail-images/linkedin.png" alt="Linkedin">
-      </a>
-      <a href="https://go.meteroid.com/discord" class="social-link">
-        <img src="https://static.meteroid.com/assets/mail-images/discord.png" alt="Discord">
-      </a>
-    </div>
-  </div>
-
-  <div class="footer-address">
-    Meteroid SAS, 165 avenue de Bretagne, 59000 LILLE<br>
-    © <%= current_year %> Meteroid. All rights reserved.<br>
-    979116688 RCS Lille Métropole<br>
-  </div>
-
-  <div class="footer-links">
-      <a href="https://meteroid.com">Learn more about Meteroid</a>
-  </div>
-</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr>
+    <td class="footer" align="center" style="font-size:12px;line-height:18px;color:#6b7079;text-align:center;">
+      <a href="https://github.com/meteroid-oss/meteroid" target="_blank" style="color:#414651;text-decoration:none;font-weight:500;">GitHub</a>
+      &nbsp;&middot;&nbsp;
+      <a href="https://bsky.app/profile/meteroid.bsky.social" target="_blank" style="color:#414651;text-decoration:none;font-weight:500;">Bluesky</a>
+      &nbsp;&middot;&nbsp;
+      <a href="https://linkedin.com/company/meteroid" target="_blank" style="color:#414651;text-decoration:none;font-weight:500;">LinkedIn</a>
+      &nbsp;&middot;&nbsp;
+      <a href="https://go.meteroid.com/discord" target="_blank" style="color:#414651;text-decoration:none;font-weight:500;">Discord</a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" style="padding-top:16px;font-size:12px;line-height:18px;color:#8b9098;text-align:center;">
+      Meteroid SAS, 165 avenue de Bretagne, 59000 LILLE<br>
+      © <%= current_year %> Meteroid. All rights reserved.<br>
+      979116688 RCS Lille Métropole
+    </td>
+  </tr>
+  <tr>
+    <td align="center" style="padding-top:12px;font-size:12px;line-height:18px;text-align:center;">
+      <a href="https://meteroid.com" target="_blank" style="color:#6b7079;text-decoration:underline;">Learn more about Meteroid</a>
+    </td>
+  </tr>
+</table>

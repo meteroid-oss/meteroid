@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package meteroid.api.analytics.v1;
+
+message AtRiskCustomer {
+  string customer_id = 1;
+  string customer_name = 2;
+  // Latest snapshot MRR (USD minor units / cents).
+  int64 current_mrr = 3;
+  // MRR change vs ~30 days prior, as a percent (e.g. -18.0 for an 18% drop).
+  float mrr_change_pct = 4;
+  // Revenue-weighted decline score; higher = more revenue at risk. Rank desc.
+  double risk_score = 5;
+  // Short human-readable explanation, e.g. "MRR down 18% over 30d".
+  string reason = 6;
+}
+
+// One point on a cohort's logo-retention curve.
+message RetentionPoint {
+  // Months since acquisition (0 = the cohort month).
+  uint32 age = 1;
+  int64 active_customers = 2;
+  // Share of the cohort's age-0 size still active, as a percent (0–100+).
+  double retention_pct = 3;
+}
+
+// One acquisition cohort's retention curve.
+message RetentionCohort {
+  // Cohort month as YYYY-MM-01.
+  string cohort = 1;
+  int64 cohort_size = 2;
+  repeated RetentionPoint points = 3;
+}
+
+// The expansion mirror of AtRiskCustomer: a customer whose MRR is growing.
+message OpportunityCustomer {
+  string customer_id = 1;
+  string customer_name = 2;
+  // Latest snapshot MRR (USD minor units / cents).
+  int64 current_mrr = 3;
+  // MRR change vs ~30 days prior, as a percent (e.g. 24.0 for a 24% rise).
+  float mrr_change_pct = 4;
+  // Revenue-weighted growth score; higher = more expansion revenue. Rank desc.
+  double opportunity_score = 5;
+  // Short human-readable explanation, e.g. "MRR up 24% over 30d".
+  string reason = 6;
+}

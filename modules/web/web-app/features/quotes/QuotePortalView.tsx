@@ -203,6 +203,7 @@ const QuotePortalView: FC<QuotePortalViewProps> = ({ quoteData }) => {
                     invoicingEntity: quoteData.entity,
                   }}
                   mode="portal"
+                  minimumCommitment={quoteData.minimumCommitment}
                 />
               )}
             </CardContent>

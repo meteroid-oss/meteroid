@@ -3,6 +3,8 @@ syntax = "proto3";
 package meteroid.api.creditnotes.v1;
 
 import "api/creditnotes/v1/models.proto";
+import "api/invoices/v1/models.proto";
+import "common/v1/filters.proto";
 import "common/v1/pagination.proto";
 
 message ListCreditNotesRequest {
@@ -12,6 +14,8 @@ message ListCreditNotesRequest {
   optional CreditNoteStatus status = 4;
   optional string customer_id = 5;
   optional string invoice_id = 6;
+  // Dynamic filters over custom properties (field `cp:<key>`); AND-combined.
+  repeated meteroid.common.v1.Filter filters = 7;
 }
 
 message ListCreditNotesResponse {
@@ -97,6 +101,20 @@ message DeleteDraftCreditNoteRequest {
 
 message DeleteDraftCreditNoteResponse {}
 
+message ListCreditNoteRefundsRequest {
+  string credit_note_id = 1;
+}
+
+message ListCreditNoteRefundsResponse {
+  repeated api.invoices.v1.Transaction refunds = 1;
+}
+
+message SyncCreditNoteToPennylaneRequest {
+  repeated string credit_note_ids = 1;
+}
+
+message SyncCreditNoteToPennylaneResponse {}
+
 service CreditNotesService {
   rpc ListCreditNotes(ListCreditNotesRequest) returns (ListCreditNotesResponse) {}
   rpc GetCreditNote(GetCreditNoteRequest) returns (GetCreditNoteResponse) {}
@@ -108,4 +126,6 @@ service CreditNotesService {
   rpc DeleteDraftCreditNote(DeleteDraftCreditNoteRequest) returns (DeleteDraftCreditNoteResponse) {}
   rpc PreviewCreditNoteSvg(PreviewCreditNoteSvgRequest) returns (PreviewCreditNoteSvgResponse) {}
   rpc RequestCreditNotePdfGeneration(RequestCreditNotePdfGenerationRequest) returns (RequestCreditNotePdfGenerationResponse) {}
+  rpc ListCreditNoteRefunds(ListCreditNoteRefundsRequest) returns (ListCreditNoteRefundsResponse) {}
+  rpc SyncCreditNoteToPennylane(SyncCreditNoteToPennylaneRequest) returns (SyncCreditNoteToPennylaneResponse) {}
 }

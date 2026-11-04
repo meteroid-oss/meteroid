@@ -1,16 +1,29 @@
-<div class="content-section">
-  <h1>👋 Hi <%= user %></h1>
-</div>
-
-<div class="content-section">
-  <p>To begin, please confirm your email below</p>
-
-  <div class="button-container">
-    <a href="<%= validation_url %>" class="button">CONFIRM MY EMAIL</a>
-  </div>
-
-  <p class="expiry">This link will expire in <%= url_expires_in %>.</p>
-
-  <p class="small">Or copy and paste the following link in your browser :  <a href="<%= validation_url %>" class="small"><%= validation_url %></a></p>
-
-</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr>
+    <td>
+      <h1 class="h1" style="margin:0;font-size:24px;line-height:32px;font-weight:600;letter-spacing:-0.3px;color:#111318;">👋 Hi <%= user %></h1>
+      <p style="margin:12px 0 0;font-size:15px;line-height:24px;color:#414651;">To begin, please confirm your email below</p>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding-top:28px;">
+      <table role="presentation" class="btn" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td class="button" align="center" bgcolor="#111318" style="border-radius:8px;background-color:#111318;mso-padding-alt:12px 24px;">
+            <a href="<%= validation_url %>" target="_blank" style="display:inline-block;padding:12px 24px;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:20px;font-weight:600;color:#ffffff;text-decoration:none;">Confirm my email</a>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding-top:20px;">
+      <p style="margin:0;font-size:13px;line-height:20px;color:#6b7079;">This link will expire in <%= url_expires_in %>.</p>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding-top:8px;">
+      <p style="margin:0;font-size:13px;line-height:20px;color:#6b7079;">Or copy and paste the following link in your browser: <a href="<%= validation_url %>" target="_blank" style="color:#414651;text-decoration:underline;word-break:break-all;"><%= validation_url %></a></p>
+    </td>
+  </tr>
+</table>

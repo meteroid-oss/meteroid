@@ -1,3 +1,4 @@
+use crate::customer_credit::CreditRecomputeMarkRow;
 use crate::entitlements::{
     EntitlementRow, EntitlementRowNew, EntitlementRowPatch, FeatureProductMeta, FeatureRow,
     FeatureRowNew, FeatureRowPatch, FeatureWithProductRow,
@@ -12,18 +13,39 @@ use common_domain::ids::{
 };
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, Insertable, IntoSql, NullableExpressionMethods,
-    QueryDsl, SelectableHelper, debug_query,
+    QueryDsl, SelectableHelper,
 };
 use error_stack::ResultExt;
 use uuid::Uuid;
+
+/// Marks the customers each distinct owner of the entitlements reaches, so their usage monitors
+/// follow the change.
+async fn mark_owners(conn: &mut PgConn, rows: &[EntitlementRow]) -> DbResult<()> {
+    let owners = rows
+        .iter()
+        .map(|row| (row.tenant_id, row.entity_type, row.entity_id))
+        .collect::<std::collections::HashSet<_>>();
+    for (tenant_id, entity_type, entity_id) in owners {
+        CreditRecomputeMarkRow::mark_for_entitlement_owner(
+            conn,
+            tenant_id,
+            &entity_type,
+            entity_id,
+        )
+        .await?;
+    }
+    Ok(())
+}
 
 impl FeatureRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<FeatureRow> {
         use crate::schema::feature::dsl::feature;
         use diesel_async::RunQueryDsl;
 
-        let query = diesel::insert_into(feature).values(self);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        let query = diesel::insert_into(feature)
+            .values(self)
+            .returning(FeatureRow::as_returning());
+        crate::debug_sql(&query);
 
         query
             .get_result(conn)
@@ -51,7 +73,7 @@ impl FeatureRow {
                 FeatureRow::as_select(),
                 (product::id, product::name).nullable(),
             ));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         let (feature, product_opt): (FeatureRow, Option<(ProductId, String)>) = query
             .first(conn)
@@ -82,11 +104,16 @@ impl FeatureRow {
             ))
             .into_boxed();
 
+        // Archived features release their code, so a code names the one non-archived feature.
         match id_or_code {
             AliasOr::Id(id) => query = query.filter(f_dsl::id.eq(id)),
-            AliasOr::Alias(code) => query = query.filter(f_dsl::code.eq(code)),
+            AliasOr::Alias(code) => {
+                query = query
+                    .filter(f_dsl::code.eq(code))
+                    .filter(f_dsl::status.ne(FeatureStatusEnum::Archived))
+            }
         }
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         let (feature, product_opt): (FeatureRow, Option<(ProductId, String)>) = query
             .first(conn)
@@ -134,9 +161,11 @@ impl FeatureRow {
             query = query.filter(f_dsl::name.ilike(pattern));
         }
 
-        let query = query.order((f_dsl::name.asc(), f_dsl::id.asc()));
+        let query = query
+            .order((f_dsl::name.asc(), f_dsl::id.asc()))
+            .select(FeatureRow::as_select());
         let paginated = query.paginate(pagination);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated));
+        crate::debug_sql(&paginated);
 
         let raw: PaginatedVec<FeatureRow> = paginated
             .load_and_count_pages(conn)
@@ -189,17 +218,46 @@ impl FeatureRow {
         use crate::schema::feature::dsl::{feature, id, tenant_id};
         use diesel_async::RunQueryDsl;
 
+        let previous_product = if patch.product_id.is_some() {
+            use crate::schema::feature::dsl::product_id;
+            Some(
+                feature
+                    .filter(id.eq(param_id))
+                    .filter(tenant_id.eq(param_tenant_id))
+                    .select(product_id)
+                    .first::<Option<ProductId>>(conn)
+                    .await
+                    .attach("Error while reading the product of a feature")
+                    .into_db_result()?,
+            )
+        } else {
+            None
+        };
         let query = diesel::update(feature)
             .filter(id.eq(param_id))
             .filter(tenant_id.eq(param_tenant_id))
-            .set(&patch);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+            .set(&patch)
+            .returning(FeatureRow::as_returning());
+        crate::debug_sql(&query);
 
         let updated_row: FeatureRow = query
             .get_result(conn)
             .await
             .attach("Error while updating feature")
             .into_db_result()?;
+        if let Some(previous) =
+            previous_product.filter(|previous| *previous != updated_row.product_id)
+        {
+            CreditRecomputeMarkRow::mark_for_feature_product(conn, updated_row.tenant_id, previous)
+                .await?;
+        }
+        CreditRecomputeMarkRow::mark_for_entitlement_owner(
+            conn,
+            updated_row.tenant_id,
+            &EntitlementEntityTypeEnum::Feature,
+            updated_row.id.as_uuid(),
+        )
+        .await?;
 
         // Re-fetch with the product join so we get the product name in one extra trip.
         // (The UPDATE ... RETURNING clause doesn't support JOINs in PostgreSQL.)
@@ -220,13 +278,20 @@ impl FeatureRow {
             .filter(id.eq(param_id))
             .filter(tenant_id.eq(param_tenant_id))
             .set((status.eq(new_status), updated_at.eq(Utc::now())));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)
             .await
             .attach("Error while updating feature status")
             .into_db_result()?;
+        CreditRecomputeMarkRow::mark_for_entitlement_owner(
+            conn,
+            param_tenant_id,
+            &EntitlementEntityTypeEnum::Feature,
+            param_id.as_uuid(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -251,7 +316,7 @@ impl FeatureRow {
                 FeatureRow::as_select(),
                 (product::id, product::name).nullable(),
             ));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         let rows: Vec<(FeatureRow, Option<(ProductId, String)>)> = query
             .get_results(conn)
@@ -266,6 +331,74 @@ impl FeatureRow {
                 product: product_opt.map(|(id, name)| FeatureProductMeta { id, name }),
             })
             .collect())
+    }
+
+    /// The subset of `ids` that are archived features of this tenant.
+    pub async fn find_archived_ids(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        ids: &[FeatureId],
+    ) -> DbResult<Vec<FeatureId>> {
+        use crate::schema::feature::dsl as f_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = archived_feature_ids(param_tenant_id).filter(f_dsl::id.eq_any(ids));
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while finding archived features by ids")
+            .into_db_result()
+    }
+
+    /// Every feature of this tenant with `code`, archived ones included.
+    pub async fn list_by_code(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_code: &str,
+    ) -> DbResult<Vec<FeatureRow>> {
+        use crate::schema::feature::dsl as f_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = f_dsl::feature
+            .filter(f_dsl::tenant_id.eq(param_tenant_id))
+            .filter(f_dsl::code.eq(param_code))
+            .select(FeatureRow::as_select());
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing features by code")
+            .into_db_result()
+    }
+
+    /// The feature other than `exclude` that holds `code`, archived ones aside.
+    pub async fn find_unarchived_by_code(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_code: &str,
+        exclude: FeatureId,
+    ) -> DbResult<Option<FeatureRow>> {
+        use crate::schema::feature::dsl as f_dsl;
+        use diesel::OptionalExtension;
+        use diesel_async::RunQueryDsl;
+
+        let query = f_dsl::feature
+            .filter(f_dsl::tenant_id.eq(param_tenant_id))
+            .filter(f_dsl::code.eq(param_code))
+            .filter(f_dsl::id.ne(exclude))
+            .filter(f_dsl::status.ne(FeatureStatusEnum::Archived))
+            .select(FeatureRow::as_select());
+        crate::debug_sql(&query);
+
+        query
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while finding feature by code")
+            .into_db_result()
     }
 
     /// Find non-archived features for a tenant, scoped to the given product_ids
@@ -323,31 +456,45 @@ impl FeatureRow {
     }
 }
 
+/// Entitlements of an archived feature are kept but hidden until it is restored.
+#[diesel::dsl::auto_type(no_type_alias)]
+fn archived_feature_ids(param_tenant_id: TenantId) -> _ {
+    let archived: FeatureStatusEnum = FeatureStatusEnum::Archived;
+    crate::schema::feature::table
+        .filter(crate::schema::feature::tenant_id.eq(param_tenant_id))
+        .filter(crate::schema::feature::status.eq(archived))
+        .select(crate::schema::feature::id)
+}
+
 impl EntitlementRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<EntitlementRow> {
         use crate::schema::entitlement::dsl::entitlement;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(entitlement).values(self);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
-        query
+        let row: EntitlementRow = query
             .get_result(conn)
             .await
             .attach("Error while inserting entitlement")
-            .into_db_result()
+            .into_db_result()?;
+        mark_owners(conn, std::slice::from_ref(&row)).await?;
+        Ok(row)
     }
 
     pub async fn insert_batch(rows: &[Self], conn: &mut PgConn) -> DbResult<Vec<EntitlementRow>> {
         use crate::schema::entitlement::dsl::entitlement;
         use diesel_async::RunQueryDsl;
 
-        diesel::insert_into(entitlement)
+        let inserted: Vec<EntitlementRow> = diesel::insert_into(entitlement)
             .values(rows)
             .get_results(conn)
             .await
             .attach("Error while batch inserting entitlements")
-            .into_db_result()
+            .into_db_result()?;
+        mark_owners(conn, &inserted).await?;
+        Ok(inserted)
     }
 
     /// Like `insert_batch`, but skips rows whose (feature_id, entity_id, entity_type)
@@ -363,14 +510,16 @@ impl EntitlementRowNew {
         if rows.is_empty() {
             return Ok(vec![]);
         }
-        diesel::insert_into(e_dsl::entitlement)
+        let inserted: Vec<EntitlementRow> = diesel::insert_into(e_dsl::entitlement)
             .values(rows)
             .on_conflict((e_dsl::feature_id, e_dsl::entity_id, e_dsl::entity_type))
             .do_nothing()
             .get_results(conn)
             .await
             .attach("Error while batch inserting entitlements (skip conflicts)")
-            .into_db_result()
+            .into_db_result()?;
+        mark_owners(conn, &inserted).await?;
+        Ok(inserted)
     }
 }
 
@@ -380,13 +529,14 @@ impl EntitlementRow {
         param_id: EntitlementId,
         param_tenant_id: TenantId,
     ) -> DbResult<EntitlementRow> {
-        use crate::schema::entitlement::dsl::{entitlement, id, tenant_id};
+        use crate::schema::entitlement::dsl::{entitlement, feature_id, id, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = entitlement
             .filter(id.eq(param_id))
-            .filter(tenant_id.eq(param_tenant_id));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+            .filter(tenant_id.eq(param_tenant_id))
+            .filter(feature_id.ne_all(archived_feature_ids(param_tenant_id)));
+        crate::debug_sql(&query);
 
         query
             .first(conn)
@@ -466,13 +616,14 @@ impl EntitlementRow {
         let mut query = entitlement
             .filter(tenant_id.eq(param_tenant_id))
             .filter(predicate)
+            .filter(feature_id.ne_all(archived_feature_ids(param_tenant_id)))
             .into_boxed();
 
         if let Some(fid) = filter_feature_id {
             query = query.filter(feature_id.eq(fid));
         }
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .get_results(conn)
@@ -516,7 +667,9 @@ impl EntitlementRow {
         param_tenant_id: TenantId,
         param_entity_id: EntitlementEntityId,
     ) -> DbResult<Vec<EntitlementRow>> {
-        use crate::schema::entitlement::dsl::{entitlement, entity_id, entity_type, tenant_id};
+        use crate::schema::entitlement::dsl::{
+            entitlement, entity_id, entity_type, feature_id, tenant_id,
+        };
         use diesel_async::RunQueryDsl;
 
         let entity_type_param: EntitlementEntityTypeEnum = (&param_entity_id).into();
@@ -525,6 +678,7 @@ impl EntitlementRow {
             .filter(tenant_id.eq(param_tenant_id))
             .filter(entity_id.eq(param_entity_id.as_uuid()))
             .filter(entity_type.eq(entity_type_param))
+            .filter(feature_id.ne_all(archived_feature_ids(param_tenant_id)))
             .get_results(conn)
             .await
             .attach("Error while listing entitlements by entity")
@@ -544,13 +698,15 @@ impl EntitlementRow {
             .filter(id.eq(param_id))
             .filter(tenant_id.eq(param_tenant_id))
             .set(&patch);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
-        query
+        let row: EntitlementRow = query
             .get_result(conn)
             .await
             .attach("Error while updating entitlement")
-            .into_db_result()
+            .into_db_result()?;
+        mark_owners(conn, std::slice::from_ref(&row)).await?;
+        Ok(row)
     }
 
     pub async fn delete(
@@ -558,23 +714,28 @@ impl EntitlementRow {
         param_id: EntitlementId,
         param_tenant_id: TenantId,
     ) -> DbResult<()> {
-        use crate::schema::entitlement::dsl::{entitlement, id, tenant_id};
+        use crate::schema::entitlement::dsl::{entitlement, feature_id, id, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = diesel::delete(entitlement)
             .filter(id.eq(param_id))
-            .filter(tenant_id.eq(param_tenant_id));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+            .filter(tenant_id.eq(param_tenant_id))
+            .filter(feature_id.ne_all(archived_feature_ids(param_tenant_id)))
+            .returning(EntitlementRow::as_returning());
+        crate::debug_sql(&query);
 
-        query
-            .execute(conn)
+        let deleted: Vec<EntitlementRow> = query
+            .get_results(conn)
             .await
             .attach("Error while deleting entitlement")
             .into_db_result()?;
+        mark_owners(conn, &deleted).await?;
 
         Ok(())
     }
 
+    /// A version is a snapshot of what its author could see, so archived features' hidden
+    /// entitlements stay on the source and do not come back on the copy.
     pub async fn clone_all_for_plan_version(
         conn: &mut PgConn,
         src_plan_version_id: PlanVersionId,
@@ -596,6 +757,7 @@ impl EntitlementRow {
             .filter(e_dsl::entity_id.eq(src_uuid))
             .filter(e_dsl::entity_type.eq(EntitlementEntityTypeEnum::PlanVersion))
             .filter(e_dsl::tenant_id.eq(param_tenant_id))
+            .filter(e_dsl::feature_id.ne_all(archived_feature_ids(param_tenant_id)))
             .select((
                 gen_random_uuid(),
                 e_dsl::tenant_id,
@@ -617,7 +779,7 @@ impl EntitlementRow {
                 e_dsl::value,
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+        crate::debug_sql(&query);
 
         query
             .execute(conn)

@@ -1,0 +1,176 @@
+syntax = "proto3";
+
+package meteroid.api.paymentreminders.v1;
+
+import "api/customeremails/v1/models.proto";
+
+// RETRY and RETRY_AND_NOTIFY are reserved for the dunning slice.
+enum PaymentReminderStepAction {
+  PAYMENT_REMINDER_STEP_ACTION_UNSPECIFIED = 0;
+  NOTIFY = 1;
+}
+
+message PaymentReminderStep {
+  string id = 1;
+  // Days relative to the invoice due date in [-30, 365]; the step's identity within its sequence.
+  int32 offset_days = 2;
+  PaymentReminderStepAction action = 3;
+  meteroid.api.customeremails.v1.EmailCopyByLocale content = 4;
+}
+
+message PaymentReminderStepInput {
+  int32 offset_days = 1;
+  meteroid.api.customeremails.v1.EmailCopyByLocale content = 2;
+}
+
+// Wholesale replacement of a sequence's steps (0..=20, offsets strictly increasing).
+message PaymentReminderStepList {
+  repeated PaymentReminderStepInput steps = 1;
+}
+
+// Audience JSON (`audience`): `{ "predicates": [...] }`, root = implicit AND, closed leaf set:
+//   attribute{key: plan_type | invoice_kind | payment_method_type | currency | country, values[]}
+//   plan{plan_ids[]}, customer{customer_ids[]}, amount{op, threshold (minor units), currency}
+//   property{key, op: in|any|eq|gt|gte|lt|lte|set|not_set, values[] | value}, and/or{children[]}, not{child}
+//   segment{} is reserved and rejected at save.
+// Semantics: no subscription => plan leaves are FALSE (not(plan) is TRUE); a consolidated parent
+// matches when ANY member matches and has invoice_kind = consolidated; consolidated children are
+// never candidates; invoice_kind subscription = any invoice with a subscription_id, one_off = no
+// subscription_id and not a consolidated parent; amount in another currency => FALSE; missing
+// country => FALSE. Evaluated once at enrolment on live customer + invoice data, then frozen.
+message PaymentReminderSequence {
+  string id = 1;
+  string invoicing_entity_id = 2;
+  string name = 3;
+  // Evaluation order; the default always has the highest live position.
+  int32 position = 4;
+  // Disabled = skipped at resolution; invoices already frozen on it are held, never moved.
+  bool enabled = 5;
+  // Absent = the entity's default sequence, which matches every invoice.
+  optional string audience = 6;
+  bool is_default = 7;
+  repeated PaymentReminderStep steps = 8;
+  string created_at = 9;
+  optional string updated_at = 10;
+  optional string archived_at = 11;
+  int32 in_flight_invoices = 12;
+}
+
+message SequenceRef {
+  string id = 1;
+  string name = 2;
+  bool enabled = 3;
+  bool archived = 4;
+}
+
+enum ReminderEnrolledVia {
+  REMINDER_ENROLLED_VIA_UNSPECIFIED = 0;
+  CUSTOMER_OVERRIDE = 1;
+  AUDIENCE = 2;
+  DEFAULT = 3;
+}
+
+enum ReminderStopReason {
+  REMINDER_STOP_REASON_UNSPECIFIED = 0;
+  OPERATOR = 1;
+  CUSTOMER_OPT_OUT = 2;
+  SEQUENCE_ARCHIVED = 3;
+  PAYMENT_DISPUTED = 4;
+}
+
+enum InvoiceReminderStepStatus {
+  INVOICE_REMINDER_STEP_STATUS_UNSPECIFIED = 0;
+  SENT = 1;
+  // Elapsed while the invoice was held or enrolled late; only the last elapsed step is sent.
+  SKIPPED_CATCH_UP = 2;
+  SCHEDULED = 3;
+  DUE = 4;
+  // Fire time precedes finalization or is already past for a non-enrolled invoice.
+  NOT_SCHEDULABLE = 5;
+}
+
+message InvoiceReminderStepView {
+  int32 offset_days = 1;
+  string fire_at = 2;
+  InvoiceReminderStepStatus status = 3;
+  optional string sent_email_id = 4;
+}
+
+// When several reasons apply, the first one in enum order is reported, so the badge text is stable.
+enum NotEligibleReason {
+  NOT_ELIGIBLE_REASON_UNSPECIFIED = 0;
+  NOT_PAYABLE = 1;
+  NO_DUE_DATE = 2;
+  NO_PDF = 3;
+  CONSOLIDATED_CHILD = 4;
+  // Auto-charged and not errored; becomes eligible once the charge fails.
+  AUTO_CHARGED = 5;
+  CUSTOMER_OPTED_OUT = 6;
+  STOPPED = 7;
+  TENANT_INACTIVE = 8;
+  EMAILS_DISABLED = 9;
+  KIND_DISABLED = 10;
+  // No enabled sequence matches this invoice; disabled ones are skipped.
+  NO_ENABLED_SEQUENCE = 11;
+  // Every step was already in the past when the invoice first qualified; permanent.
+  LADDER_STALE = 12;
+}
+
+// `steps` for a non-enrolled invoice lists the steps of `would_resolve_to` (empty when absent):
+// SCHEDULED when fire_at > now, otherwise NOT_SCHEDULABLE, never SENT/DUE. Enrolled or ended
+// invoices list the frozen sequence's steps with SENT / SKIPPED_CATCH_UP up to the cursor.
+message InvoiceReminderState {
+  optional SequenceRef sequence = 1;
+  optional string enrolled_at = 2;
+  ReminderEnrolledVia enrolled_via = 3;
+  // Cursor: the last executed offset.
+  optional int32 last_offset_days = 4;
+  optional string next_reminder_at = 5;
+  optional string paused_until = 6;
+  optional string stopped_at = 7;
+  ReminderStopReason stop_reason = 8;
+  optional string completed_at = 9;
+  // Paid / voided / uncollectible while enrolled.
+  optional string ended_at = 10;
+  int32 generation = 11;
+  repeated InvoiceReminderStepView steps = 12;
+  // false iff at least one NotEligibleReason applies; UNSPECIFIED reason <=> eligible.
+  bool eligible = 13;
+  NotEligibleReason not_eligible_reason = 14;
+  optional SequenceRef would_resolve_to = 15;
+  ReminderEnrolledVia would_resolve_via = 16;
+  // "09:00 Europe/Paris"
+  string send_window = 17;
+}
+
+message AudiencePreviewRow {
+  string invoice_id = 1;
+  string invoice_number = 2;
+  string customer_id = 3;
+  string customer_name = 4;
+  int64 amount_due = 5;
+  string currency = 6;
+}
+
+// Counts over the entity's open finalized invoices; `claimed_by_earlier` = matched but won by a
+// sequence with a lower position.
+message AudiencePreview {
+  int32 invoice_count = 1;
+  int32 customer_count = 2;
+  int32 claimed_by_earlier = 3;
+  repeated AudiencePreviewRow sample = 4;
+}
+
+message SequenceResolutionRow {
+  SequenceRef sequence = 1;
+  bool is_default = 2;
+  bool matched = 3;
+  bool would_enrol = 4;
+}
+
+message CustomerReminderPreference {
+  bool opt_out = 1;
+  // Override sequence; must belong to the customer's invoicing entity and not be archived.
+  optional string sequence_id = 2;
+  repeated SequenceRef available_sequences = 3;
+}

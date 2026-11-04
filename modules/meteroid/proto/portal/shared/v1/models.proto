@@ -28,6 +28,10 @@ message UpdateCustomer {
   optional api.customers.v1.Address billing_address = 8;
   optional api.customers.v1.ShippingAddress shipping_address = 9;
   optional string vat_number = 15;
+  // BT-47 — the buyer's own national register identifier (SIREN/SIRET, HRB).
+  optional string legal_number = 16;
+  optional string first_name = 17;
+  optional string last_name = 18;
 }
 
 enum ConnectionTypeEnum {

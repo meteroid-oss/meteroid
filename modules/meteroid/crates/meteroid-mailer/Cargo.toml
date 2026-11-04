@@ -17,10 +17,13 @@ itertools = { workspace = true }
 chrono = { workspace = true, features = ["std", "clock"] }
 sailfish = { workspace = true }
 log = { workspace = true }
-rusty-money = { workspace = true }
+meteroid-money = { workspace = true }
+common-domain = { workspace = true }
+fluent-static.workspace = true
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+html-escape = "0.2"
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
 
-mockall = { workspace = true, optional = true }
-
-[features]
-test-utils = ["mockall"]
+[dev-dependencies]
+fluent-syntax = { workspace = true }
 

@@ -28,7 +28,7 @@ export const PriceComponentSection = () => {
     <PageSection
       header={{
         title: 'Pricing',
-        subtitle: 'The price components for your plan in your main currency',
+        subtitle: 'What subscribers on this plan pay.',
         actions: isDraft ? (
           <Button
             variant="outline"
@@ -49,7 +49,7 @@ export const PriceComponentSection = () => {
           )
         )}
         {priceComponents?.length === 0 && (
-          <span>No price components</span>
+          <span className="text-sm text-muted-foreground">No price components</span>
         )}
       </div>
     </PageSection>

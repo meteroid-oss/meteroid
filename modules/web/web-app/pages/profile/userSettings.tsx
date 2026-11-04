@@ -2,6 +2,7 @@ import { MfaSettings } from '@/features/profile/MfaSettings'
 
 import type { FunctionComponent } from 'react'
 
+
 export const UserSettings: FunctionComponent = () => {
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">

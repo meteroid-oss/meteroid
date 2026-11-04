@@ -20,6 +20,7 @@ const defaultOptions: FeeTypeOption[] = [
   { type: 'slot', label: 'Slot-based', description: 'Seats, licenses or purchasable units' },
   { type: 'capacity', label: 'Capacity', description: 'Committed capacity with overage' },
   { type: 'usage', label: 'Usage-based', description: 'Charge based on metered usage' },
+  { type: 'credit', label: 'Credit pack', description: 'Sell or include prepaid credit' },
   { type: 'oneTime', label: 'One-time', description: 'Single charge at subscription start' },
   { type: 'extraRecurring', label: 'Recurring charge', description: 'Additional recurring fee' },
 ]
@@ -29,6 +30,7 @@ export const ADDON_PROTO_FEE_TYPES: FeeType[] = [
   // FeeType.SLOT,
   FeeType.USAGE,
   FeeType.ONE_TIME,
+  FeeType.CREDIT,
 ]
 
 export const ADDON_FEE_TYPE_OPTIONS: FeeTypeOption[] = [
@@ -39,6 +41,7 @@ export const ADDON_FEE_TYPE_OPTIONS: FeeTypeOption[] = [
   },
   // { type: 'slot', label: 'Slot-based', description: 'Seats, licenses or purchasable units' },
   { type: 'usage', label: 'Usage-based', description: 'Charge based on metered usage' },
+  { type: 'credit', label: 'Credit pack', description: 'Sell invoice credit with the add-on' },
   { type: 'oneTime', label: 'One-time', description: 'Single charge when the add-on is attached' },
 ]
 

@@ -57,18 +57,28 @@ export const ActiveSerieLayer: React.FC<ActiveSerieLayerProps> = ({
     const layerBounds = rect.current!.getBoundingClientRect()
     const xOffset = event.clientX - layerBounds.x - DEFAULT_PADDING
 
-    return series.map(serie => {
-      const nearestDatum = serie.data.reduce((prev, curr) => {
-        const offsetCurr = curr.position.x - xOffset
-        const offsetPrev = prev.position.x - xOffset
-        return Math.abs(offsetCurr) < Math.abs(offsetPrev) ? curr : prev
-      }, serie.data?.[0] as ComputedDatum)
+    return series
+      .map(serie => {
+        const nearestDatum = serie.data.reduce((prev, curr) => {
+          const offsetCurr = curr.position.x - xOffset
+          const offsetPrev = prev.position.x - xOffset
+          return Math.abs(offsetCurr) < Math.abs(offsetPrev) ? curr : prev
+        }, serie.data?.[0] as ComputedDatum)
 
-      return {
-        ...serie,
-        data: [nearestDatum],
-      }
-    })
+        return {
+          ...serie,
+          data: [nearestDatum],
+        }
+      })
+      // Put the series whose nearest point sits closest to the pointer first, so a
+      // consumer anchoring off serie[0] (crosshair line + label) follows the pointer
+      // across series with different x-domains — e.g. an actuals + forecast pair, where
+      // the actuals otherwise clamp to their last point over the forecast tail. Series
+      // sharing one x-domain tie here, so the stable sort leaves their order untouched.
+      .sort(
+        (a, b) =>
+          Math.abs(a.data[0].position.x - xOffset) - Math.abs(b.data[0].position.x - xOffset)
+      )
   }
 
   return (

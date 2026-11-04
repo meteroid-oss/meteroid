@@ -2,7 +2,6 @@ import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/conne
 import {
   Badge,
   Button,
-  Card,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -11,7 +10,6 @@ import {
   InputFormField,
   Label,
   Modal,
-  Separator,
   Select,
   SelectContent,
   SelectItem,
@@ -25,17 +23,32 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import { ColumnDef } from '@tanstack/react-table'
 import { formatDistanceToNow } from 'date-fns'
-import { CopyIcon, MoreVerticalIcon, RefreshCwIcon, UserMinusIcon, XIcon } from 'lucide-react'
+import {
+  CopyIcon,
+  MoreVerticalIcon,
+  RefreshCwIcon,
+  UserCogIcon,
+  UserMinusIcon,
+  XIcon,
+} from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import { SimpleTable } from '@/components/table/SimpleTable'
+import { DangerZone } from '@/features/settings/components/DangerZone'
+import { SettingsSection } from '@/features/settings/components/SettingsSection'
+import { entitlementCodes, useEntitlement } from '@/hooks/useEntitlement'
+import { usePermissions } from '@/hooks/usePermissions'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { copyToClipboard } from '@/lib/helpers'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
+import {
+  assignRole,
+  listRoles,
+} from '@/rpc/api/rbac/v1/rbac-RbacService_connectquery'
 import { OrganizationUserRole, UserWithRole } from '@/rpc/api/users/v1/models_pb'
 import {
   inviteMember,
@@ -60,12 +73,35 @@ const userRoleMapping: Record<OrganizationUserRole, string> = {
   [OrganizationUserRole.MEMBER]: 'Member',
 }
 
+// A member's role choice is a single select value: the built-in tiers, or
+// `custom:<roleId>` for a custom role (which implies the MEMBER tier).
+const OWNER_VALUE = 'owner'
+const MEMBER_VALUE = 'member'
+const CUSTOM_PREFIX = 'custom:'
+const customValue = (roleId: string) => `${CUSTOM_PREFIX}${roleId}`
+
+const currentRoleValue = (user: UserWithRole): string =>
+  user.role === OrganizationUserRole.ADMIN
+    ? OWNER_VALUE
+    : user.customRoleId
+      ? customValue(user.customRoleId)
+      : MEMBER_VALUE
+
+// Turn a role-select value into the {role, customRoleId} an invite/assign expects.
+const roleValueToAssignment = (
+  value: string
+): { role: OrganizationUserRole; customRoleId?: string } =>
+  value === OWNER_VALUE
+    ? { role: OrganizationUserRole.ADMIN }
+    : value === MEMBER_VALUE
+      ? { role: OrganizationUserRole.MEMBER }
+      : { role: OrganizationUserRole.MEMBER, customRoleId: value.slice(CUSTOM_PREFIX.length) }
+
 export const UsersTab = () => {
   const [inviteVisible, setInviteVisible] = useState(false)
-  const [inviteRole, setInviteRole] = useState<OrganizationUserRole>(OrganizationUserRole.MEMBER)
+  const [inviteRoleValue, setInviteRoleValue] = useState<string>(MEMBER_VALUE)
   const [inviteUrl, setInviteUrl] = useState<string | null>(null)
   const inviteForm = useZodForm({ schema: inviteSchema })
-  const [leaveVisible, setLeaveVisible] = useState(false)
   const [memberToRemove, setMemberToRemove] = useState<UserWithRole | null>(null)
   const [inviteToRevoke, setInviteToRevoke] = useState<OrganizationInvite | null>(null)
   const queryClient = useQueryClient()
@@ -77,12 +113,57 @@ export const UsersTab = () => {
   const { data: usersQueryData, refetch: refetchUsers, isFetching: isFetchingUsers } = useQuery(listUsers)
   const usersData = usersQueryData?.users
   const isAdmin = usersData?.find(u => u.id === currentUserId)?.role === OrganizationUserRole.ADMIN
-  const { data: pendingInvitesQueryData, refetch: refetchInvites, isFetching: isFetchingInvites } = useQuery(listPendingInvites, isAdmin ? undefined : skipToken)
+  // Owner implies members:manage; custom governance roles can hold it without being Owner.
+  const canManageMembers = usePermissions().has('members:manage')
+  const { data: pendingInvitesQueryData, refetch: refetchInvites, isFetching: isFetchingInvites } = useQuery(listPendingInvites, canManageMembers ? undefined : skipToken)
   const pendingInvitesData = pendingInvitesQueryData?.invites
   const isRefreshing = isFetchingUsers || isFetchingInvites
-  const handleRefresh = () => { refetchUsers(); if (isAdmin) refetchInvites() }
+  const handleRefresh = () => { refetchUsers(); if (canManageMembers) refetchInvites() }
   const adminCount = usersData?.filter(u => u.role === OrganizationUserRole.ADMIN).length ?? 0
   const disableLeaveOrg = isAdmin && adminCount <= 1
+
+  const rbacEnabled = useEntitlement(entitlementCodes.RBAC)
+  const { data: rolesData } = useQuery(listRoles, canManageMembers ? undefined : skipToken)
+  const customRoles = rolesData?.roles.filter(r => !r.isSystem) ?? []
+  const roleNameById = new Map(customRoles.map(r => [r.id, r.name]))
+
+  // A custom role fully replaces the MEMBER tier's permissions, so show its name
+  // instead of the tier. Owner/plain Member fall back to the built-in label.
+  const renderRoleCell = (role: OrganizationUserRole, customRoleId?: string) => {
+    const customName =
+      role !== OrganizationUserRole.ADMIN && customRoleId
+        ? roleNameById.get(customRoleId)
+        : undefined
+    return customName
+      ? <Badge variant="secondary" size="sm">{customName}</Badge>
+      : <span>{userRoleMapping[role]}</span>
+  }
+
+  const [memberToAssign, setMemberToAssign] = useState<UserWithRole | null>(null)
+  const [assignValue, setAssignValue] = useState<string>(MEMBER_VALUE)
+  const isAssignLastOwner =
+    memberToAssign?.role === OrganizationUserRole.ADMIN && adminCount <= 1
+
+  const openAssign = (user: UserWithRole) => {
+    setAssignValue(currentRoleValue(user))
+    setMemberToAssign(user)
+  }
+
+  const assignRoleMut = useMutation(assignRole, {
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey({ schema: listUsers, cardinality: 'finite' }),
+      })
+      setMemberToAssign(null)
+      toast.success('Role updated')
+    },
+    onError: (err: Error) => toast.error(err.message ?? 'Failed to update role'),
+  })
+
+  const submitAssign = () => {
+    if (!memberToAssign) return
+    assignRoleMut.mutate({ userId: memberToAssign.id, ...roleValueToAssignment(assignValue) })
+  }
 
   const inviteMemberMut = useMutation(inviteMember, {
     onSuccess: data => {
@@ -95,7 +176,7 @@ export const UsersTab = () => {
         cardinality: 'finite'
       }) })
       inviteForm.reset()
-      setInviteRole(OrganizationUserRole.MEMBER)
+      setInviteRoleValue(MEMBER_VALUE)
       if (!mailerEnabled) {
         setInviteUrl(buildInviteUrl(data.inviteId))
       } else {
@@ -163,8 +244,11 @@ export const UsersTab = () => {
         </div>
       ),
     },
-    { header: 'Role', accessorFn: user => userRoleMapping[user.role] },
-    ...(isAdmin
+    {
+      header: 'Role',
+      cell: ({ row }) => renderRoleCell(row.original.role, row.original.customRoleId),
+    },
+    ...(canManageMembers
       ? [{
         id: 'actions',
         cell: ({ row }: { row: { original: UserWithRole } }) => {
@@ -176,6 +260,9 @@ export const UsersTab = () => {
                   <Button variant="ghost" size="sm"><MoreVerticalIcon size={16}/></Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => openAssign(row.original)}>
+                    <UserCogIcon size={16} className="mr-2"/>Change role
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setMemberToRemove(row.original)}>
                     <UserMinusIcon size={16} className="mr-2"/>Remove
                   </DropdownMenuItem>
@@ -190,7 +277,7 @@ export const UsersTab = () => {
 
   const inviteColumns: ColumnDef<OrganizationInvite>[] = [
     { header: 'Email', accessorKey: 'invitedEmail' },
-    { header: 'Role', accessorFn: inv => userRoleMapping[inv.role] },
+    { header: 'Role', cell: ({ row }) => renderRoleCell(row.original.role, row.original.customRoleId) },
     { header: 'Invited by', accessorKey: 'invitedByEmail' },
     {
       header: 'Expires',
@@ -202,7 +289,7 @@ export const UsersTab = () => {
           : <span className="text-sm text-muted-foreground">{label}</span>
       },
     },
-    ...(isAdmin
+    ...(canManageMembers
       ? [{
         id: 'actions',
         cell: ({ row }: { row: { original: OrganizationInvite } }) => (
@@ -235,55 +322,79 @@ export const UsersTab = () => {
   ]
 
   return (
-    <Card className="px-8 py-6 space-y-6">
-      <div className="flex justify-end items-center gap-2">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span>
-              <Button variant="destructive" onClick={() => setLeaveVisible(true)} disabled={disableLeaveOrg}>
-                Leave organization
+    <div className="flex max-w-3xl flex-col gap-6">
+      <SettingsSection
+        divided={false}
+        title={
+          <span className="flex items-center gap-2">
+            Members
+            <Badge variant="outline" size="sm">
+              {usersData?.length ?? 0}
+            </Badge>
+          </span>
+        }
+        description="People with access to this organization."
+        action={
+          <div className="flex items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isRefreshing}
+                  onClick={handleRefresh}
+                >
+                  <RefreshCwIcon size={14} className={isRefreshing ? 'animate-spin' : ''} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Refresh</TooltipContent>
+            </Tooltip>
+            {canManageMembers && (
+              <Button size="sm" onClick={() => setInviteVisible(true)}>
+                Invite member
               </Button>
-            </span>
-          </TooltipTrigger>
-          {disableLeaveOrg && (
-            <TooltipContent>You cannot leave as the only admin.</TooltipContent>
-          )}
-        </Tooltip>
-        {isAdmin && (
-          <Button variant="secondary" onClick={() => setInviteVisible(true)}>
-            Invite member
-          </Button>
-        )}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="outline" size="sm" disabled={isRefreshing} onClick={handleRefresh}>
-              <RefreshCwIcon size={14} className={isRefreshing ? 'animate-spin' : ''} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Refresh</TooltipContent>
-        </Tooltip>
-      </div>
-
-      <div className="space-y-2">
-        <Label className="text-sm font-medium">Members</Label>
-        <SimpleTable columns={memberColumns} data={usersData ?? []}/>
-      </div>
-
-      {isAdmin && (
-        <>
-          <Separator/>
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">Pending invites</Label>
-            {pendingInvitesData === undefined ? (
-              <Skeleton height="4rem" width="100%"/>
-            ) : pendingInvitesData.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No pending invites.</p>
-            ) : (
-              <SimpleTable columns={inviteColumns} data={pendingInvitesData}/>
             )}
           </div>
-        </>
+        }
+      >
+        <div className="overflow-hidden rounded-lg border border-border">
+          <SimpleTable columns={memberColumns} data={usersData ?? []} />
+        </div>
+      </SettingsSection>
+
+      {canManageMembers && (
+        <SettingsSection title="Pending invites" description="Invitations waiting to be accepted.">
+          {pendingInvitesData === undefined ? (
+            <Skeleton height="4rem" width="100%" />
+          ) : pendingInvitesData.length === 0 ? (
+            <div className="rounded-lg border border-border bg-card px-4 py-6 text-center text-sm text-muted-foreground">
+              No pending invites.
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-lg border border-border">
+              <SimpleTable columns={inviteColumns} data={pendingInvitesData} />
+            </div>
+          )}
+        </SettingsSection>
       )}
+
+      <DangerZone
+        actions={[
+          {
+            title: 'Leave organization',
+            description: 'You lose access to this organization immediately. This can’t be undone.',
+            buttonLabel: 'Leave organization',
+            disabledReason: disableLeaveOrg ? 'You cannot leave as the only admin.' : null,
+            onConfirm: () => leaveOrganizationMut.mutate({}),
+            confirmation: {
+              header: 'Leave organization',
+              message:
+                'Are you sure you want to leave this organization? You will lose access immediately.',
+              confirmLabel: 'Leave',
+            },
+          },
+        ]}
+      />
 
       {/* Invite modal */}
       <Modal
@@ -292,7 +403,7 @@ export const UsersTab = () => {
           setInviteVisible(false)
           setInviteUrl(null)
           inviteForm.reset()
-          setInviteRole(OrganizationUserRole.MEMBER)
+          setInviteRoleValue(MEMBER_VALUE)
         }}
         header={<>Invite member</>}
         onConfirm={() => {
@@ -301,7 +412,7 @@ export const UsersTab = () => {
             setInviteUrl(null)
           } else {
             inviteForm.handleSubmit(({ email }) =>
-              inviteMemberMut.mutate({ email, role: inviteRole })
+              inviteMemberMut.mutate({ email, ...roleValueToAssignment(inviteRoleValue) })
             )()
           }
         }}
@@ -326,14 +437,16 @@ export const UsersTab = () => {
               />
               <div className="space-y-1">
                 <Label>Role</Label>
-                <Select
-                  value={String(inviteRole)}
-                  onValueChange={v => setInviteRole(Number(v) as OrganizationUserRole)}
-                >
+                <Select value={inviteRoleValue} onValueChange={setInviteRoleValue}>
                   <SelectTrigger><SelectValue/></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={String(OrganizationUserRole.MEMBER)}>Member</SelectItem>
-                    <SelectItem value={String(OrganizationUserRole.ADMIN)}>Owner</SelectItem>
+                    <SelectItem value={MEMBER_VALUE}>Member</SelectItem>
+                    <SelectItem value={OWNER_VALUE}>Owner</SelectItem>
+                    {rbacEnabled && customRoles.map(role => (
+                      <SelectItem key={role.id} value={customValue(role.id)}>
+                        {role.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -361,22 +474,6 @@ export const UsersTab = () => {
         </div>
       </Modal>
 
-      {/* Leave org modal */}
-      <Modal
-        visible={leaveVisible}
-        onCancel={() => setLeaveVisible(false)}
-        header={<>Leave organization</>}
-        onConfirm={() => {
-          setLeaveVisible(false);
-          leaveOrganizationMut.mutate({})
-        }}
-        confirmText="Leave"
-      >
-        <div className="p-6">
-          <p className="text-sm">Are you sure you want to leave this organization? You will lose access immediately.</p>
-        </div>
-      </Modal>
-
       {/* Remove member modal */}
       <Modal
         visible={!!memberToRemove}
@@ -395,6 +492,43 @@ export const UsersTab = () => {
           </p>
         </div>
       </Modal>
-    </Card>
+
+      {/* Change role modal */}
+      <Modal
+        visible={!!memberToAssign}
+        onCancel={() => setMemberToAssign(null)}
+        header={<>Change role</>}
+        onConfirm={submitAssign}
+        confirmText="Save"
+        confirmDisabled={assignRoleMut.isPending}
+        loading={assignRoleMut.isPending}
+      >
+        <div className="p-6 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Set the role for <strong className="text-foreground">{memberToAssign?.email}</strong>.
+          </p>
+          <div className="space-y-1">
+            <Label>Role</Label>
+            <Select value={assignValue} onValueChange={setAssignValue}>
+              <SelectTrigger><SelectValue/></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={OWNER_VALUE}>Owner</SelectItem>
+                <SelectItem value={MEMBER_VALUE} disabled={isAssignLastOwner}>Member</SelectItem>
+                {rbacEnabled && customRoles.map(role => (
+                  <SelectItem key={role.id} value={customValue(role.id)} disabled={isAssignLastOwner}>
+                    {role.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {isAssignLastOwner && (
+            <p className="text-xs text-muted-foreground">
+              This is the last owner. Assign another owner before changing this member&apos;s role.
+            </p>
+          )}
+        </div>
+      </Modal>
+    </div>
   )
 }

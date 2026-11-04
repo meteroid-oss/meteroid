@@ -1,15 +1,22 @@
 import { type MessageInitShape } from '@bufbuild/protobuf'
+import Decimal from 'decimal.js'
 
+import { type MetricUnit, unitNoun } from '@/features/billing/metrics/units'
 import {
   CalendarUnit,
+  ConfigValue,
+  ConfigValueType,
   EffectiveEntitlement,
   EntitlementValue,
   EntitlementValueSchema,
   FeatureType,
+  OverageBehavior,
   ResetPeriod,
   ResolvedEntitlement,
   ResolvedOrigin,
 } from '@/rpc/api/entitlements/v1/models_pb'
+
+import type { ConfigKind } from '@/features/entitlements/creation/types'
 
 // Product grouping helper shared across entitlement views
 
@@ -54,17 +61,70 @@ export const slugifyCode = (name: string): string =>
 
 export type BooleanFeatureKind = { type: 'boolean' }
 export type MeteredFeatureKind = { type: 'metered'; metricId: string }
-export type FeatureKind = BooleanFeatureKind | MeteredFeatureKind
+export type ConfigFeatureKind = { type: 'config'; valueType: ConfigKind; options?: string[] }
+export type FeatureKind = BooleanFeatureKind | MeteredFeatureKind | ConfigFeatureKind
+
+export function configValueTypeToKind(vt: ConfigValueType): ConfigKind {
+  switch (vt) {
+    case ConfigValueType.NUMBER:
+      return 'number'
+    case ConfigValueType.BOOLEAN:
+      return 'boolean'
+    case ConfigValueType.MAP:
+      return 'map'
+    case ConfigValueType.JSON:
+      return 'json'
+    case ConfigValueType.SELECT:
+      return 'select'
+    case ConfigValueType.TEXT:
+    case ConfigValueType.UNSPECIFIED:
+    default:
+      return 'text'
+  }
+}
 
 export function featureKindFromProto(ft: FeatureType | undefined): FeatureKind {
   if (ft?.Inner?.case === 'metered') {
     return { type: 'metered', metricId: ft.Inner.value.metricId }
   }
+  if (ft?.Inner?.case === 'config') {
+    const options = ft.Inner.value.options
+    return {
+      type: 'config',
+      valueType: configValueTypeToKind(ft.Inner.value.valueType),
+      options: options.length > 0 ? options : undefined,
+    }
+  }
   return { type: 'boolean' }
 }
 
 export function featureTypeLabel(kind: FeatureKind): string {
-  return kind.type === 'metered' ? 'Metered' : 'Boolean'
+  switch (kind.type) {
+    case 'metered':
+      return 'Metered'
+    case 'config':
+      return 'Config'
+    default:
+      return 'Boolean'
+  }
+}
+
+export function configKindLabel(kind: ConfigKind): string {
+  switch (kind) {
+    case 'number':
+      return 'Number'
+    case 'boolean':
+      return 'Boolean'
+    case 'map':
+      return 'Map (key/value)'
+    case 'json':
+      return 'JSON'
+    case 'select':
+      return 'Select (list)'
+    case 'text':
+    default:
+      return 'Text'
+  }
 }
 
 export function calendarUnitLabel(unit: CalendarUnit): string {
@@ -100,17 +160,70 @@ export function resetPeriodLabel(rp: ResetPeriod | undefined): string {
   }
 }
 
+/** Compact one-line preview of a `json` config value — renders a flat object as `{ k: v, … }`. */
+function formatConfigJson(raw: string): string {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return raw
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return raw
+  const entries = Object.entries(parsed)
+  if (entries.length === 0) return '{ }'
+  const shown = entries.slice(0, 3).map(([k, val]) => `${k}: ${val}`).join(', ')
+  return entries.length > 3 ? `{ ${shown}, +${entries.length - 3} }` : `{ ${shown} }`
+}
+
+export function configValueLabel(cv: ConfigValue | undefined): string {
+  const v = cv?.value
+  switch (v?.case) {
+    case 'number':
+    case 'text':
+      return v.value
+    case 'json':
+      return formatConfigJson(v.value)
+    case 'boolean':
+      return v.value ? 'true' : 'false'
+    default:
+      return '—'
+  }
+}
+
 export function entitlementValueLabel(value: EntitlementValue['value'] | undefined): string {
   if (value?.case === 'booleanValue') {
     return value.value.enabled ? '✓ Enabled' : '✗ Disabled'
   }
   if (value?.case === 'meteredValue') {
     const m = value.value
-    const limitPart = m.limit ? m.limit : '∞ Unlimited'
-    const periodPart = m.resetPeriod ? ` / ${resetPeriodLabel(m.resetPeriod)}` : ''
-    return `${limitPart}${periodPart}`
+    const limitPart = m.limit ? Number(m.limit).toLocaleString() : 'Unlimited'
+    const periodPart =
+      m.resetPeriod?.Inner?.case === 'billingCycle'
+        ? ' per billing period'
+        : m.resetPeriod
+          ? ` · ${resetPeriodLabel(m.resetPeriod)}`
+          : ''
+    const groupPart = m.groupBy ? ` per ${m.groupBy}` : ''
+    const terms = limitTermsOf(m)
+    return [`${limitPart}${groupPart}${periodPart}`, limitBehaviorLabel(terms), limitAlertsLabel(terms)]
+      .filter(Boolean)
+      .join(' · ')
+  }
+  if (value?.case === 'configValue') {
+    return configValueLabel(value.value)
   }
   return '—'
+}
+
+/** "5,150,000 / 20,000,000", the limit alone, or "Enabled": an effective entitlement's value. */
+export function effectiveValueLabel(value: EffectiveEntitlement['value']): string {
+  if (value.case === 'boolean') return value.value.enabled ? 'Enabled' : 'Disabled'
+  if (value.case !== 'metered') return '—'
+  const consumed = value.value.consumed ? Number(value.value.consumed) : undefined
+  const limit = value.value.limit ? Number(value.value.limit) : undefined
+  if (consumed !== undefined)
+    return `${consumed.toLocaleString()} / ${limit !== undefined ? limit.toLocaleString() : '∞'}`
+  return limit !== undefined ? limit.toLocaleString() : 'Unlimited'
 }
 
 // ── Resolved-entitlements helpers ─────────────────────────────────────────────
@@ -122,9 +235,7 @@ export function entitlementValueLabel(value: EntitlementValue['value'] | undefin
 export function isEntitlementDisabled(
   value: ResolvedEntitlement['value'] | EffectiveEntitlement['value']
 ): boolean {
-  if (value.case === 'boolean') return !value.value.enabled
-  if (value.case === 'metered') return !value.value.enabled
-  return false
+  return !configuredEnabled(value)
 }
 
 /**
@@ -139,6 +250,9 @@ export function buildInheritanceTooltip(
   featureProduct: { name: string } | undefined
 ): string {
   if (!origin) return 'Inherited.'
+  if (origin.entity?.EntityId?.case === 'customerId') {
+    return 'Forced at the customer level — overrides plan and subscription entitlements.'
+  }
   const originIsFeature = origin.entity?.EntityId?.case === 'featureId'
   if (originIsFeature && featureProduct) {
     return `Inherited from product ${featureProduct.name}.`
@@ -170,6 +284,8 @@ export function originLabel(origin: ResolvedOrigin): string {
       return 'Subscription'
     case 'quoteId':
       return 'Quote'
+    case 'customerId':
+      return 'Customer'
     default:
       return 'Unknown'
   }
@@ -190,52 +306,203 @@ export function originTypeWord(origin: ResolvedOrigin): string {
       return 'subscription'
     case 'quoteId':
       return 'quote'
+    case 'customerId':
+      return 'customer'
     default:
       return ''
   }
 }
 
-/**
- * Compact display string for a resolved entitlement value — used in table rows.
- */
-export function formatResolvedValue(value: ResolvedEntitlement['value']): string {
+/** Groups a decimal string ("5000000" → "5,000,000"); returns it unchanged when it is not a number. */
+export function formatDecimalGrouped(raw: string): string {
+  let amount: Decimal
+  try {
+    amount = new Decimal(raw)
+  } catch {
+    return raw
+  }
+  if (amount.isInteger()) return new Intl.NumberFormat().format(BigInt(amount.toFixed(0)))
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: amount.decimalPlaces(),
+  }).format(amount.toNumber())
+}
+
+function periodSpan(interval: number, unit: CalendarUnit): string {
+  const label = calendarUnitLabel(unit)
+  return interval === 1 ? label : `${interval} ${label}s`
+}
+
+/** The "per period" suffix of a metered limit: " / month", " / billing period", " / rolling 7 days". */
+export function resetPeriodSuffix(rp: ResetPeriod | undefined): string {
+  const inner = rp?.Inner
+  switch (inner?.case) {
+    case 'billingCycle':
+      return ' / billing period'
+    case 'calendar':
+      return ` / ${periodSpan(inner.value.interval, inner.value.unit)}`
+    case 'fixedWindow':
+      return ` / ${periodSpan(inner.value.interval, inner.value.unit)} from activation`
+    case 'slidingWindow':
+      return ` / rolling ${periodSpan(inner.value.interval, inner.value.unit)}`
+    default:
+      return ''
+  }
+}
+
+/** A metered limit, in raw metric units: "5,000,000 tokens", or the bare amount without a unit. */
+export function formatMeteredAmount(raw: string, unit?: MetricUnit): string {
+  const amount = formatDecimalGrouped(raw)
+  return unit ? `${amount} ${unitNoun(Number(raw), unit)}` : amount
+}
+
+/** Compact display string for a resolved entitlement value, e.g. "5,000,000 tokens / month". */
+export function formatResolvedValue(value: ResolvedEntitlement['value'], unit?: MetricUnit): string {
   if (value.case === 'boolean') {
     return value.value.enabled ? 'Enabled' : 'Disabled'
   }
   if (value.case === 'metered') {
     const m = value.value
-    return m.limit ?? '∞'
+    if (!m.limit) return 'Unlimited'
+    return `${formatMeteredAmount(m.limit, unit)}${resetPeriodSuffix(m.resetPeriod)}`
+  }
+  if (value.case === 'config') {
+    const config = value.value.value
+    const inner = config?.value
+    if (inner?.case === 'number') return formatDecimalGrouped(inner.value)
+    return configValueLabel(config)
   }
   return '—'
 }
 
+/** How a metered limit behaves, from a stored value or a form. */
+export type LimitTerms = {
+  limit?: string
+  groupBy?: string
+  overage: 'block' | 'allow'
+  gracePct?: number
+  thresholds?: number[]
+}
+
+export const limitTermsOf = (m: {
+  limit?: string
+  groupBy?: string
+  overageBehavior?: OverageBehavior
+  thresholds?: number[]
+}): LimitTerms => {
+  const inner = m.overageBehavior?.Inner
+  return {
+    limit: m.limit,
+    groupBy: m.groupBy,
+    overage: inner?.case === 'allow' ? 'allow' : 'block',
+    gracePct: inner?.case === 'block' ? inner.value.gracePeriodPct : undefined,
+    thresholds: m.thresholds,
+  }
+}
+
+/** What a limit does once reached, e.g. "Hard limit (+10% grace)"; none without a limit. */
+export function limitBehaviorLabel(t: LimitTerms): string | undefined {
+  if (!t.limit) return undefined
+  if (t.overage === 'allow') return 'Soft limit'
+  return t.gracePct ? `Hard limit (+${t.gracePct}% grace)` : 'Hard limit'
+}
+
+export const limitBehaviorHelp = (t: LimitTerms): string | undefined => {
+  if (!t.limit) return undefined
+  return t.overage === 'allow'
+    ? 'Usage continues past the limit; the overage is billed by a price on the same metric.'
+    : 'Access checks return denied once the limit, plus the grace if set, is reached.'
+}
+
+/** "Alerts at 50%, 80%" for the thresholds set below 100%, which always alerts. */
+export const limitAlertsLabel = (t: LimitTerms): string | undefined => {
+  const below = (t.thresholds ?? []).filter(pct => pct < 100)
+  return t.limit && below.length ? `Alerts at ${below.map(pct => `${pct}%`).join(', ')}` : undefined
+}
+
+/** "per user_id" when the limit applies to each value of a property separately. */
+export const limitGroupLabel = (t: LimitTerms): string | undefined =>
+  t.limit && t.groupBy ? `per ${t.groupBy}` : undefined
+
 /**
- * Convert a resolved or effective entitlement value into the `EntitlementValue.value`
- * oneof shape used by the create/update-entitlement mutations. The spec fields
- * (limit, reset_period, …) are 1-to-1 compatible across both inputs; usage fields on
- * `EffectiveEntitlement` are dropped.
+ * The entitlement's own switch: an effective entitlement reads disabled once a blocking limit is
+ * reached, though it is still switched on.
+ */
+export function configuredEnabled(
+  value: ResolvedEntitlement['value'] | EffectiveEntitlement['value']
+): boolean {
+  if (value.case === 'boolean') return value.value.enabled
+  if (value.case === 'metered') {
+    const m = value.value
+    return m.enabled || ('limitReached' in m && m.limitReached)
+  }
+  return true
+}
+
+/** A hard limit of an effective entitlement is reached: access checks deny it until it resets. */
+export const isLimitReached = (
+  value: ResolvedEntitlement['value'] | EffectiveEntitlement['value']
+): boolean => value.case === 'metered' && 'limitReached' in value.value && value.value.limitReached
+
+type StoredMeteredTerms = {
+  limit?: string
+  resetPeriod?: ResetPeriod
+  groupBy?: string
+  overageBehavior?: OverageBehavior
+  thresholds: number[]
+}
+
+/**
+ * A metered value as written back, without the terms that act on nothing (the server refuses
+ * them): no limit means Block with no grace and no thresholds; a sliding window takes none.
+ */
+export function meteredValueToWrite(
+  m: StoredMeteredTerms,
+  enabled: boolean
+): MessageInitShape<typeof EntitlementValueSchema> {
+  const hasLimit = !!m.limit
+  const sliding = m.resetPeriod?.Inner?.case === 'slidingWindow'
+  return {
+    value: {
+      case: 'meteredValue' as const,
+      value: {
+        limit: m.limit,
+        resetPeriod: m.resetPeriod,
+        enabled,
+        groupBy: m.groupBy,
+        overageBehavior: hasLimit
+          ? m.overageBehavior
+          : { Inner: { case: 'block' as const, value: {} } },
+        thresholds: hasLimit && !sliding ? m.thresholds : [],
+      },
+    },
+  }
+}
+
+/**
+ * Convert a resolved or effective entitlement value into the `EntitlementValue.value` oneof
+ * shape used by the create/update-entitlement mutations, usage fields dropped. `enabled`
+ * defaults to the configured switch, never an auto-disabled one.
  */
 export function entitlementValueToSpec(
-  value: ResolvedEntitlement['value'] | EffectiveEntitlement['value']
+  value: ResolvedEntitlement['value'] | EffectiveEntitlement['value'],
+  enabled: boolean = configuredEnabled(value)
 ): MessageInitShape<typeof EntitlementValueSchema> {
   if (value.case === 'boolean') {
     return {
       value: {
         case: 'booleanValue' as const,
-        value: { enabled: value.value.enabled },
+        value: { enabled },
       },
     }
   }
   if (value.case === 'metered') {
-    const m = value.value
+    return meteredValueToWrite(value.value, enabled)
+  }
+  if (value.case === 'config' && value.value.value) {
     return {
       value: {
-        case: 'meteredValue' as const,
-        value: {
-          limit: m.limit,
-          resetPeriod: m.resetPeriod,
-          enabled: m.enabled,
-        },
+        case: 'configValue' as const,
+        value: value.value.value,
       },
     }
   }

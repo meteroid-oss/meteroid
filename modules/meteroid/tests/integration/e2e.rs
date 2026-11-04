@@ -56,14 +56,15 @@ async fn test_metering_e2e() {
 
     // we start pg, clickhouse, kafka
 
-    let postgres_connection_string = meteroid_it::container::create_test_database().await;
+    let postgres_connection_string = meteroid_it::container::create_seeded_test_database(
+        meteroid_it::container::SeedLevel::PRODUCT,
+    )
+    .await;
 
-    let (_kafka_container, kafka_port) = metering_it::container::start_kafka()
-        .await
-        .expect("Could not start kafka");
-
-    let (_clickhouse_container, clickhouse_http_port, clickhouse_tcp_port) =
-        metering_it::container::start_clickhouse().await;
+    let (
+        (_kafka_container, kafka_port),
+        (_clickhouse_container, clickhouse_http_port, clickhouse_tcp_port),
+    ) = metering_it::container::start_kafka_and_clickhouse().await;
 
     metering_it::kafka::create_topic(kafka_port, "meteroid-events-raw")
         .await
@@ -71,8 +72,16 @@ async fn test_metering_e2e() {
 
     // we start meteroid and metering
 
-    let meteroid_port = helpers::network::free_local_port().expect("Could not get free port");
-    let metering_port = helpers::network::free_local_port().expect("Could not get free port");
+    // Hold the meteroid gRPC listener from the moment its port is chosen so the
+    // port can't be stolen by a parallel test before meteroid binds it. Its port
+    // is cross-wired into the metering config below.
+    let meteroid_grpc_listener = meteroid_it::container::bind_meteroid_grpc().await;
+    let meteroid_port = meteroid_grpc_listener
+        .local_addr()
+        .expect("Could not get meteroid gRPC addr")
+        .port();
+    let metering_listener = metering_it::container::bind_metering_grpc().await;
+    let metering_port = metering_listener.local_addr().unwrap().port();
 
     let metering_config = metering_it::config::mocked_config(
         meteroid_port,
@@ -83,7 +92,8 @@ async fn test_metering_e2e() {
         "meteroid-events-raw".to_string(),
     );
 
-    let metering_setup = metering_it::container::start_metering(metering_config.clone()).await;
+    let metering_setup =
+        metering_it::container::start_metering(metering_config.clone(), metering_listener).await;
 
     let api_key = "pv_sand_9XzHg0EYO2Usy9ITU6bbhBnkYYbx/2vO7XtUUeQ7Wq9EZCAbBG";
 
@@ -93,20 +103,21 @@ async fn test_metering_e2e() {
         &metering_config.internal_auth,
     );
 
-    let metering_client = MeteringUsageClient::from_channel(
+    let metering_client = Arc::new(MeteringUsageClient::from_channel(
         metering_setup.channel.clone(),
         &metering_config.internal_auth,
-    );
+    ));
 
-    let meteroid_setup = meteroid_it::container::start_meteroid_with_port(
-        meteroid_port,
+    let meteroid_setup = meteroid_it::container::start_meteroid_with_grpc_listener(
+        meteroid_grpc_listener,
         metering_port,
         postgres_connection_string,
         meteroid_it::container::SeedLevel::PRODUCT,
-        Arc::new(metering_client),
+        metering_client.clone(),
         meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
     )
     .await;
+    metering_client.bind_tenant_lookup(meteroid_setup.store.keep_last_events_lookup());
 
     let store = meteroid_setup.store.clone();
 
@@ -336,8 +347,10 @@ async fn test_metering_e2e() {
                 })),
             }),
             usage_group_key: None,
+            unit_label: None,
             family_local_id: "default".to_string(),
             product_id: None,
+            filters: vec![],
         }))
         .await
         .expect("Could not create meter");
@@ -365,6 +378,7 @@ async fn test_metering_e2e() {
             plan_type: PlanType::Standard as i32,
             currency: "EUR".to_string(),
             entitlements: vec![],
+            tax_inclusive: false,
         }))
         .await
         .unwrap();
@@ -401,6 +415,7 @@ async fn test_metering_e2e() {
                                     },
                                 ),
                             ),
+                            credit_unit: None,
                         },
                     )),
                 }],
@@ -459,6 +474,10 @@ async fn test_metering_e2e() {
                         payment_methods_config: None,
                         skip_past_invoices: None,
                         entitlements: vec![],
+                        minimum_commitment_override: None,
+                        drop_minimum_commitment: false,
+                        custom_properties: None,
+                        usage_filter: None,
                     },
                 )
             },
@@ -477,6 +496,7 @@ async fn test_metering_e2e() {
             tenant_id,
             customer_id: customer_1,
             subscription_id: Some(SubscriptionId::from_proto(&subscription.id).unwrap()),
+            cycle_index: None,
             currency: subscription.currency.clone(),
             due_at: Some(
                 period_2_start.naive_utc() + chrono::Duration::days(subscription.net_terms as i64),
@@ -487,9 +507,12 @@ async fn test_metering_e2e() {
             coupons: vec![],
             data_updated_at: None,
             invoice_date: period_2_start.date_naive(),
+            billing_period_start: period_2_start.date_naive(),
+            tax_inclusive: false,
             total: 100,
             amount_due: 100,
             applied_credits: 0,
+            promotional_credits: 0,
             net_terms: 0,
             reference: None,
             purchase_order: None,
@@ -507,13 +530,17 @@ async fn test_metering_e2e() {
                 name: "Customer 1".to_string(),
                 email: None,
                 vat_number: None,
+                legal_number: None,
+                buyer_reference: None,
                 alias: None,
                 snapshot_at: period_2_start.naive_utc(),
+                preferred_locales: vec![],
             },
             seller_details: InlineInvoicingEntity {
                 id: InvoicingEntityId::new(),
                 legal_name: "".to_string(),
                 vat_number: None,
+                legal_number: None,
                 address: Address {
                     line1: None,
                     line2: None,
@@ -523,6 +550,10 @@ async fn test_metering_e2e() {
                     zip_code: None,
                 },
                 snapshot_at: period_2_start.naive_utc(),
+                invoicing_language: None,
+                contact_name: None,
+                contact_phone: None,
+                contact_email: None,
             },
             auto_advance: true,
             payment_status: InvoicePaymentStatus::Unpaid,
@@ -531,6 +562,8 @@ async fn test_metering_e2e() {
             invoicing_entity_id: INVOICING_ENTITY_ID,
             parent_invoice_id: None,
             consolidated_into_invoice_id: None,
+            annexes: vec![],
+            custom_properties: serde_json::Value::Null,
         })
         .await
         .unwrap();
@@ -659,6 +692,10 @@ async fn fetch_invoices(store: &Store, tenant_id: TenantId) -> Vec<Invoice> {
             None,
             None,
             None,
+            None,
+            false,
+            None,
+            vec![],
             Some("created_at.asc".to_string()),
             PaginationRequest {
                 per_page: Some(100),

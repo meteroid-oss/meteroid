@@ -1,19 +1,6 @@
-use crate::enums::MrrMovementType;
 use chrono::{NaiveDate, NaiveDateTime};
-use common_domain::ids::{CustomerId, InvoiceId, PlanId, PlanVersionId, SubscriptionId, TenantId};
 use diesel::QueryableByName;
 use rust_decimal::Decimal;
-use uuid::Uuid;
-
-#[derive(QueryableByName, Debug)]
-pub struct RevenueTrendRow {
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub total_ytd: i64,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub total_current_period: i64,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub total_previous_period: i64,
-}
 
 #[derive(QueryableByName, Debug)]
 pub struct NewSignupsTrend90DaysRow {
@@ -27,12 +14,17 @@ pub struct ActiveSubscriptionsCountRow {
     pub count: i32,
 }
 
+/// Pending (finalized, unpaid) invoice counts and totals grouped by the invoice's own
+/// currency. Cross-currency conversion to the tenant's reporting currency happens in Rust so
+/// it shares the single FX path (`convert_currency`) and its minor-unit exponent handling.
 #[derive(QueryableByName, Debug)]
-pub struct PendingInvoicesTotalRow {
-    #[diesel(sql_type = diesel::sql_types::Integer)]
-    pub total: i32,
-    #[diesel(sql_type = diesel::sql_types::Decimal)]
-    pub total_cents: Decimal,
+pub struct PendingInvoicesByCurrencyRow {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub currency: String,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    pub count: i64,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    pub total: i64,
 }
 
 #[derive(QueryableByName, Debug)]
@@ -69,158 +61,4 @@ pub struct SubscriptionTrialToPaidConversionRow {
     pub conversions_90: i64,
     #[diesel(sql_type = diesel::sql_types::Decimal)]
     pub conversion_rate_90_percentage: Decimal,
-}
-
-#[derive(QueryableByName, Debug)]
-pub struct CustomerTopRevenueRow {
-    #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub id: CustomerId,
-    #[diesel(sql_type = diesel::sql_types::Text)]
-    pub name: String,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub revenue_ytd_cents: i64,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub revenue_all_time_cents: i64,
-    #[diesel(sql_type = diesel::sql_types::Text)]
-    pub currency: String,
-}
-
-#[derive(QueryableByName, Debug)]
-pub struct TotalMrrRow {
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub total_net_mrr_cents: i64,
-}
-
-#[derive(QueryableByName, Debug)]
-pub struct TotalMrrChartRow {
-    #[diesel(sql_type = diesel::sql_types::Date)]
-    pub period: NaiveDate,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub total_net_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub net_new_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub new_business_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::Integer)]
-    pub new_business_count: i32,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub expansion_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::Integer)]
-    pub expansion_count: i32,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub contraction_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::Integer)]
-    pub contraction_count: i32,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub churn_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::Integer)]
-    pub churn_count: i32,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub reactivation_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::Integer)]
-    pub reactivation_count: i32,
-}
-
-#[derive(QueryableByName, Debug)]
-pub struct MrrBreakdownRow {
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub net_new_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub new_business_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::Integer)]
-    pub new_business_count: i32,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub expansion_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::Integer)]
-    pub expansion_count: i32,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub contraction_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::Integer)]
-    pub contraction_count: i32,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub churn_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::Integer)]
-    pub churn_count: i32,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub reactivation_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::Integer)]
-    pub reactivation_count: i32,
-}
-
-#[derive(QueryableByName, Debug)]
-pub struct LastMrrMovementsRow {
-    #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub id: Uuid,
-    #[diesel(sql_type = crate::schema::sql_types::MrrMovementType)]
-    pub movement_type: MrrMovementType,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub net_mrr_change: i64,
-    #[diesel(sql_type = diesel::sql_types::Text)]
-    pub currency: String,
-    #[diesel(sql_type = diesel::sql_types::Date)]
-    pub applies_to: NaiveDate,
-    #[diesel(sql_type = diesel::sql_types::Timestamp)]
-    pub created_at: NaiveDateTime,
-    #[diesel(sql_type = diesel::sql_types::Text)]
-    pub description: String,
-    #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub invoice_id: InvoiceId,
-    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Uuid>)]
-    pub credit_note_id: Option<Uuid>,
-    #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub tenant_id: TenantId,
-    #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub plan_version_id: PlanVersionId,
-    #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub customer_id: CustomerId,
-    #[diesel(sql_type = diesel::sql_types::Text)]
-    pub customer_name: String,
-    #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub subscription_id: SubscriptionId,
-    #[diesel(sql_type = diesel::sql_types::Text)]
-    pub plan_name: String,
-}
-
-#[derive(QueryableByName, Debug)]
-pub struct TotalMrrByPlanRow {
-    #[diesel(sql_type = diesel::sql_types::Date)]
-    pub date: NaiveDate,
-    #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub plan_id: PlanId,
-    #[diesel(sql_type = diesel::sql_types::Text)]
-    pub plan_name: String,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub total_net_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub net_new_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub new_business_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::Integer)]
-    pub new_business_count: i32,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub expansion_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::Integer)]
-    pub expansion_count: i32,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub contraction_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::Integer)]
-    pub contraction_count: i32,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub churn_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::Integer)]
-    pub churn_count: i32,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub reactivation_mrr: i64,
-    #[diesel(sql_type = diesel::sql_types::Integer)]
-    pub reactivation_count: i32,
-}
-
-#[derive(QueryableByName, Debug)]
-pub struct RevenueChartRow {
-    #[diesel(sql_type = diesel::sql_types::Date)]
-    pub period: NaiveDate,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub total_revenue: i64,
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    pub daily_revenue: i64,
 }

@@ -26,6 +26,10 @@ message CreditNote {
   int64 refunded_amount_cents = 12;
   optional string finalized_at = 13;
   CreditType credit_type = 14;
+  // JSON-encoded object of user-defined custom property values, keyed by definition key.
+  optional string custom_properties = 15;
+  // The invoice debt the note cancelled, apart from cash refunded and credit returned.
+  int64 debt_cancelled_amount_cents = 16;
 }
 
 message DetailedCreditNote {
@@ -55,6 +59,25 @@ message DetailedCreditNote {
   optional string voided_at = 24;
   optional string document_sharing_key = 25;
   CreditType credit_type = 26;
+  // JSON-encoded object of user-defined custom property values, keyed by definition key.
+  optional string custom_properties = 27;
+  // The structured e-invoice (EN 16931 XML), when the credit note was issued as one.
+  optional string xml_document_id = 28;
+  // Refund-type credit notes only: what is still refundable, and what has already been drawn.
+  // `refundable_amount_cents` is `refunded_amount_cents` minus every non-failed refund row.
+  int64 refundable_amount_cents = 29;
+  int64 refunded_settled_cents = 30;
+  int64 refunded_pending_cents = 31;
+  // The invoice debt the note cancelled, apart from cash refunded and credit returned.
+  int64 debt_cancelled_amount_cents = 32;
+  // What separates `subtotal` from the taxed base, positive: the discount the note reverses and
+  // the promotional credit (its net share on a tax-inclusive line).
+  // |subtotal| - discount_cents - promotional_credit_cents + |tax_amount| = |total|.
+  int64 discount_cents = 33;
+  int64 promotional_credit_cents = 34;
+  // The promotional credit given back to the customer's grants (tax included on a tax-inclusive
+  // line): as the ledger booked it on GetCreditNote of an issued note, else the lines' estimate.
+  int64 promotional_credit_restored_cents = 35;
 }
 
 enum CreditType {
@@ -65,13 +88,15 @@ enum CreditType {
 
 message CreditLineItem {
   string line_item_local_id = 1;
-  // Quantity to credit (decimal string). When null and sub_lines is empty,
-  // credits the full remaining line. Mutually exclusive with sub_lines.
+  // Quantity to credit (decimal string). Exactly one of quantity, sub_lines and amount is set.
   optional string quantity = 2;
   // Per-subline credit quantities. When non-empty, the line subtotal is
   // computed from the listed sublines (sub.unit_price * quantity, summed).
   // Sublines not listed (or with zero quantity) are excluded from the credit note.
   repeated CreditSubLineItem sub_lines = 3;
+  // Subtotal to credit, excl. tax, in minor units of the invoice currency; capped at what the
+  // line has left. The only way to credit usage priced in a credit unit (its money overage).
+  optional int64 amount = 4;
 }
 
 message CreditSubLineItem {
@@ -85,4 +110,6 @@ message NewCreditNote {
   optional string reason = 3;
   optional string memo = 4;
   CreditType credit_type = 5;
+  // JSON-encoded object of custom property values, validated against the tenant's credit note definitions.
+  optional string custom_properties = 6;
 }

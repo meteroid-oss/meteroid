@@ -1,6 +1,14 @@
 import { Separator } from '@md/ui'
 
 import { PaymentMethodBadge } from '@/features/invoice-payment/components/TransactionList'
+import { CreditUnitUsageNote } from '@/features/invoices/CreditUnitUsageNote'
+import {
+  invoiceSummary,
+  lineShownSubLines,
+  lineShownSubtotal,
+  lineShownUnitPrice,
+} from '@/features/invoices/invoiceSummary'
+import { packCreditText } from '@/features/invoices/packCredit'
 import { getCountryName } from '@/features/settings/utils'
 import { InvoicePaymentStatus } from '@/rpc/api/invoices/v1/models_pb'
 import { parseAndFormatDate } from '@/utils/date'
@@ -25,6 +33,8 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
   if (!invoice) {
     return <div>Loading invoice...</div>
   }
+
+  const summary = invoiceSummary(invoice)
 
   const getPaymentStatusLabel = (status: InvoicePaymentStatus) => {
     switch (status) {
@@ -169,7 +179,7 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
         {/* Amount Due Section */}
         <div className="col-span-6 text-right">
           <div className="text-2xl font-medium text-gray-900">
-            {formatCurrency(invoice.total, invoice.currency)}
+            {formatCurrency(invoice.amountDue, invoice.currency)}
           </div>
           {invoice.dueAt && (
             <div className="text-base text-gray-900 mt-0.5">
@@ -206,23 +216,33 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
                       {parseAndFormatDate(item.startDate)} → {parseAndFormatDate(item.endDate)}
                     </div>
                   )}
+                  {!item.creditGrantUnit && packCreditText(item, invoice.currency, {}) && (
+                    <div className="text-xs text-gray-600 mt-0.5">
+                      {packCreditText(item, invoice.currency, {})}
+                    </div>
+                  )}
+                  {item.creditUnit && (
+                    <CreditUnitUsageNote credit={item.creditUnit} className="mt-0.5" />
+                  )}
                 </div>
                 <div className="col-span-2 text-center text-gray-900">{item.quantity || ''}</div>
                 <div className="col-span-2 text-right text-gray-900">
-                  {item.unitPrice ? formatCurrencyNoRounding(item.unitPrice, invoice.currency) : ''}
+                  {lineShownUnitPrice(item)
+                    ? formatCurrencyNoRounding(lineShownUnitPrice(item) ?? '', invoice.currency)
+                    : ''}
                 </div>
                 <div className="col-span-1 text-right text-gray-900">
                   {item.taxRate ? `${rateToPercent(item.taxRate)}%` : ''}
                 </div>
                 <div className="col-span-2 text-right text-gray-900">
-                  {formatCurrency(item.subtotal, invoice.currency)}
+                  {formatCurrency(lineShownSubtotal(item), invoice.currency)}
                 </div>
               </div>
 
               {/* Sub-line items */}
-              {item.subLineItems && item.subLineItems.length > 0 && (
+              {lineShownSubLines(item).length > 0 && (
                 <div className="mt-1.5 ml-3 space-y-1">
-                  {item.subLineItems.map((subItem, subIndex) => (
+                  {lineShownSubLines(item).map((subItem, subIndex) => (
                     <div
                       key={subItem.id || subIndex}
                       className="grid grid-cols-12 gap-2 text-xs text-gray-600"
@@ -259,7 +279,10 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
                 <span
                   className={`px-2 py-1 rounded text-xs ${getPaymentStatusColor(invoice.paymentStatus)}`}
                 >
-                  {getPaymentStatusLabel(invoice.paymentStatus)}
+                  {invoice.paymentStatus === InvoicePaymentStatus.PAID &&
+                  invoice.settledByCreditNotes
+                    ? 'Credited'
+                    : getPaymentStatusLabel(invoice.paymentStatus)}
                 </span>
               </div>
 
@@ -298,23 +321,22 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
             <>
               <div className="flex justify-between">
                 <span className="text-gray-600">Subtotal</span>
-                <span>{formatCurrency(invoice.subtotal, invoice.currency)}</span>
+                <span>{formatCurrency(summary.subtotal, invoice.currency)}</span>
               </div>
 
-              {invoice.couponLineItems && invoice.couponLineItems.length > 0
-                ? invoice.couponLineItems.map(coupon => (
-                    <div key={coupon.couponId} className="flex justify-between">
-                      <span className="text-gray-600">{coupon.name}</span>
-                      <span>-{formatCurrency(coupon.total, invoice.currency)}</span>
-                    </div>
-                  ))
-                : invoice.discount &&
-                  Number(invoice.discount) > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Discount</span>
-                      <span>-{formatCurrency(invoice.discount, invoice.currency)}</span>
-                    </div>
-                  )}
+              {summary.reductions.map(row => (
+                <div key={row.label} className="flex justify-between">
+                  <span className="text-gray-600">{row.label}</span>
+                  <span>-{formatCurrency(row.amount, invoice.currency)}</span>
+                </div>
+              ))}
+
+              {summary.totalExclTax !== undefined && Number(invoice.taxAmount) > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Total excluding tax</span>
+                  <span>{formatCurrency(summary.totalExclTax, invoice.currency)}</span>
+                </div>
+              )}
 
               {invoice.taxBreakdown &&
               invoice.taxBreakdown.length > 0 &&
@@ -323,6 +345,7 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
                     <div key={index} className="flex justify-between">
                       <span className="text-gray-600">
                         {taxItem.name} {rateToPercent(taxItem.taxRate)}%
+                        {summary.taxIncluded && ' (included)'}
                       </span>
                       <span>{formatCurrency(taxItem.amount, invoice.currency)}</span>
                     </div>
@@ -345,7 +368,7 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
                 </div>
               )}
 
-              {Number(invoice.appliedCredits) > 0 && (
+              {Number(invoice.amountDue) !== Number(invoice.total) && (
                 <div className="flex justify-between text-base font-medium">
                   <span className="text-gray-900">Amount due</span>
                   <span className="text-gray-900">
@@ -508,7 +531,7 @@ export const InvoiceSummary = ({ invoicePaymentData }: InvoicePaymentData) => {
           </a>
           <span>•</span>
           <span>
-            {invoice.invoiceNumber} • {formatCurrency(invoice.total, invoice.currency)} due{' '}
+            {invoice.invoiceNumber} • {formatCurrency(invoice.amountDue, invoice.currency)} due{' '}
             {invoice.dueAt && parseAndFormatDate(invoice.dueAt)}
           </span>
         </div>

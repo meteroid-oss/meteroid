@@ -1,13 +1,70 @@
 # Meteroid Helm Chart
 
-<img src="https://img.shields.io/badge/community%20resource-blue" alt="Community maintained">
+Deploys the Meteroid API, worker, metering and web app. Each chart release pins the images of the same Meteroid
+release: chart `2.0.0` runs `ghcr.io/meteroid-oss/{meteroid-api,meteroid-worker,metering-api,meteroid-web}:v2.0.0`.
+These images include the Enterprise modules and run free without a license; a license unlocks the paid features
+(see Licensing). To run the open-source edition only, build the images from the repository with `EDITION=oss` and
+set `<component>.image.repository`.
 
-Meteroid OSS Helm Chart is provided as a community resource, and is currently not as well maintained as we would like it to be.
+## Prerequisites
 
-If you are considering a production self-hosted deployment of Meteroid OSS or Meteroid Ent and need support from our team, please reach out to us.
+The chart deploys the application only. It connects to:
 
-If you are using this Helm chart on your own, please be aware of the following current limitations:
-- The chart may not be up-to-date with the latest Meteroid releases.
-- There will be very limited documentation and support available.
+- **PostgreSQL** with the [`pgmq`](https://github.com/pgmq/pgmq) extension available: the migrations run `CREATE EXTENSION pgmq`.
+  We publish Postgres images that include it: `ghcr.io/meteroid-oss/meteroid-postgres:18.3-cnpg` for CloudNativePG and
+  `ghcr.io/meteroid-oss/meteroid-postgres:18.3-standard`.
+- **Kafka**. The defaults expect SASL/SCRAM-SHA-512 (`global.kafka.*`).
+- **ClickHouse** with Keeper (or ZooKeeper). The migrations create `Replicated*MergeTree` tables `ON CLUSTER`
+  `global.clickhouse.clusterName`, and the ClickHouse user needs `named_collection_control`.
+- **S3-compatible object storage** (`global.objectStore.*`).
+- **Traefik** for the default `IngressRoute`s, or set `ingress.useIngressRoute: false` for a standard `Ingress`.
 
-If you encounter any issues while using this Helm chart, please open a Github Issue or feel free to contribute.
+Optional: Redis (`global.redis.url`), which shares rate limits and caches across replicas, and SMTP (`global.smtp.*`).
+
+## Install
+
+```bash
+helm install meteroid oci://ghcr.io/meteroid-oss/charts/meteroid --version <version> -f values.yaml
+```
+
+Releases are listed on the [package page](https://github.com/orgs/meteroid-oss/packages/container/package/charts%2Fmeteroid).
+
+## Configuration
+
+See [`values.yaml`](values.yaml). The values you will set in most installs:
+
+| Value | Description |
+|---|---|
+| `global.publicAppUrl`, `global.publicApiUrl`, `global.publicRestApiUrl` | Public URLs of the web app, gRPC API and REST API |
+| `ingress.hosts`, `ingress.tls` | The same hosts, and their TLS secret |
+| `global.secrets.existingSecretName` | Secret holding the keys below. Leave empty to have the chart create it from `global.secrets.*` |
+| `global.secrets.databaseUrl`, `jwtPrivateKey`, `internalApiSecret` | Required. Use long random strings for the two secrets |
+| `global.secrets.secretsCryptkey` | Required. Exactly 32 ASCII characters, e.g. `openssl rand -hex 16`. It encrypts the connector credentials stored in Postgres: keep it, as changing it makes them unreadable |
+| `global.kafka.*`, `global.clickhouse.*`, `global.objectStore.uri` | Kafka, ClickHouse and object storage |
+| `global.webhooks.*` | Outbound webhook delivery, e.g. an egress proxy |
+| `global.smtp.host`, `from`, `customerFromAddr`, `replyTo` | Email delivery. `from` is required with a host; customer emails go out from `customerFromAddr`, by default the address of `from`. Credentials: `global.secrets.smtp.*` |
+| `global.secrets.kafka.password`, `clickhouse.password`, `redis.password` | Their credentials |
+| `<component>.resources`, `<component>.autoscaling` | Unset by default; autoscaling needs CPU requests |
+| `<component>.extraEnv` | Extra environment variables for a component |
+
+Components are `api`, `worker`, `metering` and `web`. The worker runs the scheduled jobs and queue consumers. Until
+2.1 the chart also reads the former `scheduler` key, over `worker`: move its settings to `worker`.
+
+## Licensing
+
+Without a license the instance runs the free tier. To unlock the licensed features, either:
+
+- set `global.secrets.licenseKey` (or the `license-key` key of your existing secret) to a license key, or
+- activate a code in Settings > License; the instance then refreshes its license from `global.licenseServerUrl`
+  (by default Meteroid's).
+
+A license is bound to one installation, by the instance id shown in Settings > License. On an instance with several
+organizations, set `global.adminOrganizationId` to the organization that manages the license.
+
+## Development
+
+```bash
+helm lint --strict k8s/meteroid -f k8s/meteroid/ci/minimal-values.yaml
+```
+
+The chart in the repository has version `0.0.0` and `appVersion: tip`; the release workflow sets both from the release tag.

@@ -1,7 +1,7 @@
 import * as AlertDialogPrimitive from '@radix-ui/react-alert-dialog'
 import * as React from 'react'
 
-import { buttonVariants } from '@ui/components/ui/button'
+import { type ButtonVariants, buttonVariants } from '@ui/components/ui/button'
 import { cn } from '@ui/lib'
 
 const AlertDialog = AlertDialogPrimitive.Root
@@ -82,9 +82,16 @@ AlertDialogDescription.displayName = AlertDialogPrimitive.Description.displayNam
 
 const AlertDialogAction = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Action>,
-  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Action>
->(({ className, ...props }, ref) => (
-  <AlertDialogPrimitive.Action ref={ref} className={cn(buttonVariants(), className)} {...props} />
+  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Action> &
+    Pick<ButtonVariants, 'variant'>
+>(({ className, variant, ...props }, ref) => (
+  // Pass `variant` rather than overriding colors via `className`: the default variant's `dark:`
+  // classes survive a plain `bg-*` override, so the button keeps its default look in dark mode.
+  <AlertDialogPrimitive.Action
+    ref={ref}
+    className={cn(buttonVariants({ variant }), className)}
+    {...props}
+  />
 ))
 AlertDialogAction.displayName = AlertDialogPrimitive.Action.displayName
 

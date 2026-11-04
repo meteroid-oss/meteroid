@@ -24,6 +24,9 @@ pub struct PlanRow {
     pub active_version_id: Option<PlanVersionId>,
     pub draft_version_id: Option<PlanVersionId>,
     pub self_service_rank: Option<i32>,
+    /// Trigger-maintained analytics ingestion marker; never written by app code.
+    pub store_committed_at: NaiveDateTime,
+    pub issues_license: bool,
 }
 
 #[derive(Debug, Default, Insertable)]
@@ -53,6 +56,7 @@ pub struct PlanRowOverview {
     pub draft_version: Option<PlanVersionId>,
     pub subscription_count: Option<i64>,
     pub self_service_rank: Option<i32>,
+    pub issues_license: bool,
 }
 
 #[derive(Debug, Queryable)]
@@ -65,6 +69,7 @@ pub struct PlanRowForSubscription {
     pub trial_duration_days: Option<i32>,
     pub trial_is_free: bool,
     pub product_family_id: ProductFamilyId,
+    pub tax_inclusive: bool,
 }
 
 #[derive(Debug, Queryable)]
@@ -114,6 +119,7 @@ pub struct PlanRowPatch {
     pub active_version_id: Option<Option<PlanVersionId>>,
     pub draft_version_id: Option<Option<PlanVersionId>>,
     pub self_service_rank: Option<Option<i32>>,
+    pub issues_license: Option<bool>,
 }
 
 #[derive(Debug, Queryable)]

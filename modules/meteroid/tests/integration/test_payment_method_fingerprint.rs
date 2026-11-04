@@ -28,6 +28,7 @@ fn method(
         card_exp_month: Some(12),
         card_exp_year: Some(exp_year),
         fingerprint: fingerprint.map(str::to_string),
+        saved_for_payment: false,
     }
 }
 

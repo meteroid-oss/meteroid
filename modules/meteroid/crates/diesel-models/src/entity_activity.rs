@@ -15,12 +15,12 @@ pub struct EntityActivityRow {
     pub entity_id: Uuid,
     pub activity_type: String,
     pub actor_type: ActorTypeEnum,
-    pub actor_uuid: Option<Uuid>,
-    pub actor_alias: Option<String>,
     pub metadata: Option<serde_json::Value>,
     pub occurred_at: NaiveDateTime,
     pub agg_customer_id: Option<Uuid>,
     pub agg_subscription_id: Option<Uuid>,
+    pub actor_uuid: Option<Uuid>,
+    pub actor_alias: Option<String>,
 }
 
 #[derive(Debug, Clone, Insertable)]

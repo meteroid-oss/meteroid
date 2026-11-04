@@ -9,6 +9,7 @@ use common_domain::ids::{
 };
 use diesel_models::accounting::{CustomTaxRow, ProductAccountingRow, ProductAccountingWithTaxRow};
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 use std::collections::HashMap;
 
 /// Builds a persistable tax-rate row, enforcing that the accounting `tax_code`
@@ -87,7 +88,6 @@ impl AccountingInterface for Store {
         tenant_id: TenantId,
         tax: TaxRateNew,
     ) -> StoreResult<TaxRate> {
-        let mut conn = self.get_conn().await?;
         let tax_row = build_custom_tax_row(
             CustomTaxId::new(),
             tenant_id,
@@ -98,16 +98,16 @@ impl AccountingInterface for Store {
             &tax.rules,
         )?;
 
-        let inserted_tax = tax_row
-            .upsert(&mut conn, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let inserted_tax = self
+            .transaction_bumping_tenant(tenant_id, |conn| {
+                async move { Ok(tax_row.upsert(conn, tenant_id).await?) }.scope_boxed()
+            })
+            .await?;
 
         Ok(inserted_tax.try_into()?)
     }
 
     async fn update_custom_tax(&self, tenant_id: TenantId, tax: TaxRate) -> StoreResult<TaxRate> {
-        let mut conn = self.get_conn().await?;
         let tax_row = build_custom_tax_row(
             tax.id,
             tenant_id,
@@ -118,20 +118,24 @@ impl AccountingInterface for Store {
             &tax.rules,
         )?;
 
-        let updated_tax = tax_row
-            .upsert(&mut conn, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let updated_tax = self
+            .transaction_bumping_tenant(tenant_id, |conn| {
+                async move { Ok(tax_row.upsert(conn, tenant_id).await?) }.scope_boxed()
+            })
+            .await?;
 
         Ok(updated_tax.try_into()?)
     }
 
     async fn delete_custom_tax(&self, tenant_id: TenantId, tax_id: CustomTaxId) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
-        CustomTaxRow::delete(&mut conn, tax_id, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-        Ok(())
+        self.transaction_bumping_tenant(tenant_id, |conn| {
+            async move {
+                CustomTaxRow::delete(conn, tax_id, tenant_id).await?;
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await
     }
 
     async fn list_custom_taxes_by_invoicing_entity_id(

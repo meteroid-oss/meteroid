@@ -2,20 +2,23 @@ import { create } from '@bufbuild/protobuf';
 import Decimal from 'decimal.js'
 
 import { formatCadence } from '@/lib/mapping/prices'
-import { formatCurrencyNoRounding } from '@/lib/utils/numbers'
+import { formatCurrencyNoRounding, formatUsage } from '@/lib/utils/numbers'
 import { UsageFeeSchema, PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb';
 import { Price , FeeStructure_BillingType } from '@/rpc/api/prices/v1/models_pb'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import {
   SubscriptionFeeSchema,
   SubscriptionFee_CapacitySubscriptionFeeSchema,
+  SubscriptionFee_CreditSubscriptionFeeSchema,
   SubscriptionFee_ExtraRecurringSubscriptionFeeSchema,
+  SubscriptionFee_FeeCreditUnitSchema,
   SubscriptionFee_OneTimeSubscriptionFeeSchema,
   SubscriptionFee_RateSubscriptionFeeSchema,
   SubscriptionFee_SlotSubscriptionFeeSchema,
   SubscriptionFeeBillingPeriod,
 } from '@/rpc/api/subscriptions/v1/models_pb';
 
+import type { CreditUnit } from '@/rpc/api/creditunits/v1/models_pb'
 import type { SubscriptionFee } from '@/rpc/api/subscriptions/v1/models_pb';
 
 
@@ -44,6 +47,8 @@ export function getPricingTypeLabel(price: Price): string {
       return 'Extra Recurring'
     case 'oneTimePricing':
       return 'One-time'
+    case 'creditPricing':
+      return 'Credit pack'
     default:
       return 'Unknown'
   }
@@ -80,17 +85,41 @@ export function priceToSubscriptionPeriod(price: Price): SubscriptionFeeBillingP
   return billingPeriodToSubscriptionPeriod(price.cadence)
 }
 
+const feeCreditUnit = (creditUnitId: string, creditUnits: CreditUnit[] | undefined, rate?: string) => {
+  const unit = creditUnits?.find(u => u.id === creditUnitId)
+  return create(SubscriptionFee_FeeCreditUnitSchema, {
+    creditUnitId,
+    code: unit?.code ?? 'credits',
+    precision: unit?.precision ?? 0,
+    rate,
+    name: unit?.name,
+    pluralName: unit?.pluralName,
+  })
+}
+
 /**
  * Convert a Price to a SubscriptionFee.
  *
  * For usage and capacity, metricId is left empty — the backend resolves
  * it from the price component's linked product during subscription creation.
+ * `creditUnits` names the unit a credit-priced usage or capacity price is expressed in, and the
+ * unit a credit pack grants (no rate: the pack itself is paid in money), as the server does.
  */
 export function priceToSubscriptionFee(
   price: Price,
-  config?: { initialSlotCount?: number }
+  config?: { initialSlotCount?: number; creditUnits?: CreditUnit[] }
 ): SubscriptionFee {
   const fee = create(SubscriptionFeeSchema)
+  const pricedIn = price.creditUnit
+  if (
+    pricedIn &&
+    (price.pricing.case === 'usagePricing' || price.pricing.case === 'capacityPricing')
+  ) {
+    fee.creditUnit = feeCreditUnit(pricedIn.creditUnitId, config?.creditUnits, pricedIn.rate)
+  }
+  if (price.pricing.case === 'creditPricing' && price.pricing.value.creditUnitId) {
+    fee.creditUnit = feeCreditUnit(price.pricing.value.creditUnitId, config?.creditUnits)
+  }
 
   switch (price.pricing.case) {
     case 'ratePricing':
@@ -152,6 +181,24 @@ export function priceToSubscriptionFee(
       break
     }
 
+    case 'creditPricing': {
+      const pack = price.pricing.value
+      const packs = pack.quantity || 1
+      fee.fee = {
+        case: 'credit',
+        value: create(SubscriptionFee_CreditSubscriptionFeeSchema, {
+          rate: pack.unitPrice,
+          quantity: packs,
+          total: new Decimal(pack.unitPrice || '0').mul(packs).toString(),
+          creditAmount: pack.creditAmount,
+          creditTotal: new Decimal(pack.creditAmount || '0').mul(packs).toString(),
+          rollover: pack.rollover,
+          once: pack.once,
+        }),
+      }
+      break
+    }
+
     case 'extraRecurringPricing': {
       const er = price.pricing.value
       const total = new Decimal(er.unitPrice || '0').mul(er.quantity || 1).toString()
@@ -186,6 +233,8 @@ export function getPriceUnitPrice(price: Price): number {
       return parseFloat(price.pricing.value.unitPrice || '0')
     case 'extraRecurringPricing':
       return parseFloat(price.pricing.value.unitPrice || '0')
+    case 'creditPricing':
+      return parseFloat(price.pricing.value.unitPrice || '0')
     case 'usagePricing':
       return 0 // metered, no simple unit price
     default:
@@ -218,6 +267,8 @@ export function getComponentPricingFromPrice(
     quantity = price.pricing.value.quantity || 1
   } else if (price.pricing.case === 'extraRecurringPricing') {
     quantity = price.pricing.value.quantity || 1
+  } else if (price.pricing.case === 'creditPricing') {
+    quantity = price.pricing.value.quantity || 1
   }
 
   return {
@@ -235,27 +286,94 @@ export function getPriceBillingLabel(price: Price): string {
   if (price.pricing.case === 'oneTimePricing') {
     return 'One-time'
   }
+  if (price.pricing.case === 'creditPricing' && price.pricing.value.once) {
+    return 'Once at start'
+  }
   return formatCadence(price.cadence)
 }
 
+// Mirrors the server's `sells_credit`: a credit pack with a non-zero price.
+export const isPaidCreditPack = (price: Price | undefined): boolean => {
+  if (price?.pricing.case !== 'creditPricing') return false
+  try {
+    return new Decimal(price.pricing.value.unitPrice || '0').greaterThan(0)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The net terms the server applies when a subscription or quote names none (store
+ * `default_net_terms`): due on receipt when it sells credit, the plan's own terms otherwise.
+ */
+export const defaultNetTerms = (
+  prices: (Price | undefined)[],
+  planNetTerms: number
+): { netTerms: number; sellsCredit: boolean } => {
+  const sellsCredit = prices.some(isPaidCreditPack)
+  return { netTerms: sellsCredit ? 0 : planNetTerms, sellsCredit }
+}
+
+export const formatNetTerms = (netTerms: number): string =>
+  netTerms > 0 ? `Net ${netTerms} days` : 'Due on receipt'
+
+export const formatDefaultNetTerms = ({
+  netTerms,
+  sellsCredit,
+}: {
+  netTerms: number
+  sellsCredit: boolean
+}): string => `${formatNetTerms(netTerms)} (${sellsCredit ? 'sells credit' : "plan's terms"})`
+
+type CreditUnitNaming = Pick<CreditUnit, 'id' | 'name' | 'pluralName'>
+
 /**
  * Format a usage-based Price for display, showing the pricing model and rate summary.
+ * A price in a credit unit is shown in credits, named from `creditUnits` when given.
  */
 export function formatUsagePriceSummary(
   price: Price,
-  currency: string
+  currency: string,
+  creditUnits?: readonly CreditUnitNaming[]
+): { model: string; amount: string; note?: string } {
+  if (price.pricing.case !== 'usagePricing') {
+    return { model: '', amount: '' }
+  }
+  const summary = usagePriceSummary(price, currency, creditUnits)
+  const pricedIn = price.creditUnit
+  if (!pricedIn?.rate) return summary
+  const unit = creditUnits?.find(u => u.id === pricedIn.creditUnitId)
+  // The money a credit is billed at when the unit's wallet does not cover it, as on the plan page.
+  return {
+    ...summary,
+    note: `1 ${unit?.name ?? 'credit'} = ${formatCurrencyNoRounding(pricedIn.rate, currency)}, billed when not covered by ${unit?.pluralName ?? 'credits'}`,
+  }
+}
+
+function usagePriceSummary(
+  price: Price,
+  currency: string,
+  creditUnits?: readonly CreditUnitNaming[]
 ): { model: string; amount: string } {
   if (price.pricing.case !== 'usagePricing') {
     return { model: '', amount: '' }
   }
 
   const usage = price.pricing.value
+  const pricedIn = price.creditUnit
+  const unit = pricedIn && creditUnits?.find(u => u.id === pricedIn.creditUnitId)
+  const amountOf = (amount: string | number) => {
+    if (!pricedIn) return formatCurrencyNoRounding(amount, currency)
+    const n = Number(amount)
+    const name = n === 1 ? (unit?.name ?? 'credit') : (unit?.pluralName ?? 'credits')
+    return `${formatUsage(n)} ${name}`
+  }
 
   switch (usage.model.case) {
     case 'perUnit':
       return {
         model: '',
-        amount: `${formatCurrencyNoRounding(usage.model.value, currency)}/unit`,
+        amount: `${amountOf(usage.model.value)}/unit`,
       }
 
     case 'tiered':
@@ -270,8 +388,8 @@ export function formatUsagePriceSummary(
       const label = usage.model.case === 'tiered' ? 'Tiered' : 'Volume'
       const amount =
         min === max
-          ? `${formatCurrencyNoRounding(min, currency)}/unit`
-          : `${formatCurrencyNoRounding(min, currency)} – ${formatCurrencyNoRounding(max, currency)}/unit`
+          ? `${amountOf(min)}/unit`
+          : `${amountOf(min)} – ${amountOf(max)}/unit`
       return { model: label, amount }
     }
 
@@ -279,7 +397,7 @@ export function formatUsagePriceSummary(
       const pkg = usage.model.value
       return {
         model: 'Package',
-        amount: `${formatCurrencyNoRounding(pkg.packagePrice, currency)} / ${pkg.blockSize} units`,
+        amount: `${amountOf(pkg.packagePrice)} / ${pkg.blockSize} units`,
       }
     }
 
@@ -293,8 +411,8 @@ export function formatUsagePriceSummary(
       const max = Math.max(...prices)
       const amount =
         min === max
-          ? `${formatCurrencyNoRounding(min, currency)}/unit`
-          : `${formatCurrencyNoRounding(min, currency)} – ${formatCurrencyNoRounding(max, currency)}/unit`
+          ? `${amountOf(min)}/unit`
+          : `${amountOf(min)} – ${amountOf(max)}/unit`
       return { model: 'Matrix', amount }
     }
 

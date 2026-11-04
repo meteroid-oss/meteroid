@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package meteroid.api.consolidation.v1;
+
+message GetInvoiceConsolidationRequest {
+  string invoicing_entity_id = 1;
+}
+message GetInvoiceConsolidationResponse {
+  bool enabled = 1;
+}
+
+message SetInvoiceConsolidationRequest {
+  string invoicing_entity_id = 1;
+  bool enabled = 2;
+}
+message SetInvoiceConsolidationResponse {
+  bool enabled = 1;
+}
+
+// Whether an invoicing entity merges a customer's recurring subscriptions renewing on the
+// same day (same currency, payment method and net terms) into one invoice.
+service InvoiceConsolidationService {
+  rpc GetInvoiceConsolidation(GetInvoiceConsolidationRequest) returns (GetInvoiceConsolidationResponse) {}
+  rpc SetInvoiceConsolidation(SetInvoiceConsolidationRequest) returns (SetInvoiceConsolidationResponse) {}
+}

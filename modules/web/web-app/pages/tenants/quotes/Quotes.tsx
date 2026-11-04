@@ -1,50 +1,64 @@
-import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query';
-import { SearchIcon } from '@md/icons'
-import {
-  Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  InputWithIcon,
-} from '@md/ui'
-import { useQueryClient } from '@tanstack/react-query'
-import { ColumnDef, PaginationState, SortingState } from '@tanstack/react-table'
-import { Eye, FileText, MoreVerticalIcon, Plus, RefreshCw, Send } from 'lucide-react'
-import { FC, useCallback, useEffect, useMemo, useState } from 'react'
+import { Button } from '@md/ui'
+import { SortingState } from '@tanstack/react-table'
+import { Plus } from 'lucide-react'
+import { useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { toast } from 'sonner'
 
-import { StandardTable } from '@/components/table/StandardTable'
+import { Gate } from '@/components/Gate'
+import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'
 import { BaseFilter } from '@/features/TablePage'
-import { QuoteStatusBadge } from '@/features/quotes/QuoteStatusBadge'
-import { SendQuoteDialog } from '@/features/quotes/SendQuoteDialog'
+import { useCustomPropertyColumns } from '@/features/customproperties/useCustomPropertyColumns'
+import { FilterBar } from '@/features/filters/FilterBar'
+import { useEntityFilters } from '@/features/filters/useEntityFilters'
+import { useRequestFilters } from '@/features/filters/useRequestFilters'
+import { ViewsBar } from '@/features/listviews/ViewsBar'
+import { useSavedViews } from '@/features/listviews/useSavedViews'
+import { QuotesTable } from '@/features/quotes/QuotesTable'
 import { useBasePath } from '@/hooks/useBasePath'
+import { useDebounceValue } from '@/hooks/useDebounce'
+import { enumSerde, useQueryState } from '@/hooks/useQueryState'
+import { useListPagination, useResetPageOnChange } from '@/hooks/useTablePreferences'
 import { useQuery } from '@/lib/connectrpc'
 import { sortingStateToOrderBy } from '@/lib/utils/sorting'
-import { Quote, QuoteStatus } from '@/rpc/api/quotes/v1/models_pb'
-import {
-  cancelQuote,
-  getQuote,
-  listQuotes,
-  sendQuote,
-} from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
-import { parseAndFormatDate, parseAndFormatDateOptional } from '@/utils/date'
+import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
+import { EntityListType } from '@/rpc/api/listviews/v1/models_pb'
+import { QuoteStatus } from '@/rpc/api/quotes/v1/models_pb'
+import { listQuotes } from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
+
+const statusSerde = enumSerde(QuoteStatus)
+
+const DEFAULT_SORTING: SortingState = [{ id: 'created_at', desc: true }]
+// URL params captured by saved views as quick filters.
+const QUICK_KEYS = ['status']
 
 export const Quotes = () => {
   const basePath = useBasePath()
 
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [sorting, setSorting] = useState<SortingState>([{ id: 'created_at', desc: true }])
-  const [pagination, setPagination] = useState<PaginationState>({
-    pageIndex: 0,
-    pageSize: 20,
+  const debouncedSearch = useDebounceValue(search, 400)
+  const [status, setStatus] = useQueryState<QuoteStatus | undefined>(
+    'status',
+    undefined,
+    statusSerde
+  )
+  const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORTING)
+  const [pagination, setPagination] = useListPagination()
+  const [filters, setFilters] = useEntityFilters()
+  const requestFilters = useRequestFilters(CustomPropertyEntityType.QUOTE, filters)
+  const { hiddenIds: cpHiddenIds } = useCustomPropertyColumns(CustomPropertyEntityType.QUOTE)
+  const savedViews = useSavedViews({
+    listType: EntityListType.QUOTE,
+    quickKeys: QUICK_KEYS,
+    filters,
+    sorting,
+    setSorting,
+    defaultSorting: DEFAULT_SORTING,
+    tableKey: 'quotes',
+    defaultHidden: cpHiddenIds,
   })
+  const queryEnabled = savedViews.ready && requestFilters.ready
 
-  useEffect(() => {
-    setPagination(prev => ({ ...prev, pageIndex: 0 }))
-  }, [search, statusFilter])
+  useResetPageOnChange(setPagination, [debouncedSearch, status, filters])
 
   const handleSortingChange = useCallback(
     (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => {
@@ -53,59 +67,47 @@ export const Quotes = () => {
       )
       setPagination(prev => ({ ...prev, pageIndex: 0 }))
     },
-    []
+    [setPagination]
   )
 
-  const quotesQuery = useQuery(listQuotes, {
-    search: search || undefined,
-    status:
-      statusFilter !== 'all'
-        ? statusFilter === 'DRAFT'
-          ? QuoteStatus.DRAFT
-          : statusFilter === 'PENDING'
-            ? QuoteStatus.PENDING
-            : statusFilter === 'ACCEPTED'
-              ? QuoteStatus.ACCEPTED
-              : statusFilter === 'DECLINED'
-                ? QuoteStatus.DECLINED
-                : statusFilter === 'EXPIRED'
-                  ? QuoteStatus.EXPIRED
-                  : statusFilter === 'CANCELLED'
-                    ? QuoteStatus.CANCELLED
-                    : undefined
-        : undefined,
-    orderBy: sortingStateToOrderBy(sorting),
-    pagination: { page: pagination.pageIndex, perPage: pagination.pageSize },
-  })
+  const quotesQuery = useQuery(
+    listQuotes,
+    {
+      search: debouncedSearch || undefined,
+      status,
+      filters: requestFilters.protoFilters,
+      orderBy: sortingStateToOrderBy(sorting),
+      pagination: { page: pagination.pageIndex, perPage: pagination.pageSize },
+    },
+    { enabled: queryEnabled }
+  )
 
   const quotes = quotesQuery.data?.quotes || []
   const totalCount = Number(quotesQuery.data?.paginationMeta?.totalItems ?? 0)
+  const isLoading = quotesQuery.isLoading || !queryEnabled
 
   return (
-    <div className="flex flex-col gap-8">
-      <div className="flex flex-row items-center justify-between">
-        <h1 className="text-2xl font-bold">
-          Quotes{' '}
-          {totalCount !== undefined && (
-            <span className="text-xs font-medium text-muted-foreground">({totalCount})</span>
-          )}
-        </h1>
-        <Button asChild variant="primary" size="sm" hasIcon>
-          <Link to={`${basePath}/quotes/create`}>
-            <Plus className="w-4 h-4" />
-            New Quote
-          </Link>
-        </Button>
-      </div>
-
-      <div className="flex items-center justify-between">
-        <div className="flex gap-2 items-center">
-          <InputWithIcon
-            placeholder="Search quotes..."
-            icon={<SearchIcon size={16} />}
-            width="fit-content"
+    <ListPageLayout
+      title="Quotes"
+      count={totalCount}
+      actions={
+        <Gate perm="billing:quotes:manage">
+          <Button asChild variant="primary" size="sm" hasIcon>
+            <Link to={`${basePath}/quotes/create`}>
+              <Plus className="w-4 h-4" />
+              New Quote
+            </Link>
+          </Button>
+        </Gate>
+      }
+      footer={<ViewsBar views={savedViews} entityLabel="quotes" />}
+      toolbar={
+        <>
+          <ListToolbarSearch
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={setSearch}
+            placeholder="Search quotes..."
+            className="max-w-xs"
           />
           <BaseFilter
             entries={[
@@ -117,20 +119,22 @@ export const Quotes = () => {
               { label: 'Cancelled', value: 'CANCELLED' },
             ]}
             emptyLabel="All Statuses"
-            selected={statusFilter !== 'all' ? [statusFilter] : []}
-            onSelectionChange={(value, checked) => setStatusFilter(checked ? value : 'all')}
+            selected={status !== undefined ? [QuoteStatus[status]] : []}
+            onSelectionChange={(value, checked) =>
+              setStatus(checked ? QuoteStatus[value as keyof typeof QuoteStatus] : undefined)
+            }
           />
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={quotesQuery.isLoading}
-          onClick={() => quotesQuery.refetch()}
-        >
-          <RefreshCw size={14} className={quotesQuery.isLoading ? 'animate-spin' : ''} />
-        </Button>
-      </div>
-
+          <FilterBar
+            entityType={CustomPropertyEntityType.QUOTE}
+            filters={filters}
+            onChange={setFilters}
+          />
+        </>
+      }
+      toolbarTrailing={
+        <RefreshButton isLoading={isLoading} onClick={() => quotesQuery.refetch()} />
+      }
+    >
       <QuotesTable
         data={quotes}
         totalCount={totalCount}
@@ -138,204 +142,9 @@ export const Quotes = () => {
         setPagination={setPagination}
         sorting={sorting}
         onSortingChange={handleSortingChange}
-        isLoading={quotesQuery.isLoading}
+        isLoading={isLoading}
+        columnState={savedViews.columnState}
       />
-    </div>
-  )
-}
-
-interface QuotesTableProps {
-  data: Quote[]
-  totalCount: number
-  pagination: PaginationState
-  setPagination: React.Dispatch<React.SetStateAction<PaginationState>>
-  sorting: SortingState
-  onSortingChange: (updaterOrValue: SortingState | ((old: SortingState) => SortingState)) => void
-  isLoading: boolean
-}
-
-const QuotesTable: FC<QuotesTableProps> = ({
-  data,
-  totalCount,
-  pagination,
-  setPagination,
-  sorting,
-  onSortingChange,
-  isLoading,
-}) => {
-  const basePath = useBasePath()
-
-  const columns = useMemo<ColumnDef<Quote>[]>(
-    () => [
-      {
-        id: 'quote_number',
-        header: 'Quote',
-        cell: ({ row }) => (
-          <span className="font-medium">{row.original.quoteNumber}</span>
-        ),
-      },
-      {
-        id: 'customer_name',
-        header: 'Customer',
-        cell: ({ row }) => <span>{row.original.customerName || 'Customer'}</span>,
-      },
-      {
-        id: 'status',
-        header: 'Status',
-        cell: ({ row }) => <QuoteStatusBadge status={row.original.status} />,
-      },
-      {
-        header: 'Type',
-        enableSorting: false,
-        cell: ({ row }) => (
-          <div>
-            <span className="font-medium">Subscription Quote</span>
-            <span className="block text-xs text-muted-foreground">{row.original.currency}</span>
-          </div>
-        ),
-      },
-      {
-        id: 'created_at',
-        header: 'Created',
-        cell: ({ row }) => (
-          <span className="text-muted-foreground">
-            {row.original.createdAt ? parseAndFormatDate(row.original.createdAt) : '—'}
-          </span>
-        ),
-      },
-      {
-        id: 'expires_at',
-        header: 'Expires',
-        cell: ({ row }) => (
-          <span className="text-muted-foreground">
-            {parseAndFormatDateOptional(row.original.expiresAt)}
-          </span>
-        ),
-      },
-      {
-        header: '',
-        id: 'actions',
-        className: 'w-[50px]',
-        enableSorting: false,
-        cell: ({ row }) => <QuoteRowActions quote={row.original} basePath={basePath} />,
-      },
-    ],
-    [basePath]
-  )
-
-  return (
-    <StandardTable
-      columns={columns}
-      data={data}
-      sortable={true}
-      sorting={sorting}
-      onSortingChange={onSortingChange}
-      pagination={pagination}
-      setPagination={setPagination}
-      totalCount={totalCount}
-      isLoading={isLoading}
-      rowLink={row => `${basePath}/quotes/${row.original.id}`}
-    />
-  )
-}
-
-const QuoteRowActions: FC<{ quote: Quote; basePath: string }> = ({ quote, basePath }) => {
-  const queryClient = useQueryClient()
-  const [showSendDialog, setShowSendDialog] = useState(false)
-  const [customMessage, setCustomMessage] = useState('')
-
-  const quoteDetailQuery = useQuery(getQuote, showSendDialog ? { id: quote.id } : skipToken)
-  const recipients = quoteDetailQuery.data?.quote?.quote?.recipients
-
-  const sendQuoteMutation = useMutation(sendQuote, {
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: listQuotes.parent,
-        cardinality: undefined
-      }) })
-    },
-  })
-
-  const cancelQuoteMutation = useMutation(cancelQuote, {
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: listQuotes.parent,
-        cardinality: undefined
-      }) })
-    },
-  })
-
-  const handleSendQuote = async () => {
-    try {
-      await sendQuoteMutation.mutateAsync({ id: quote.id, message: customMessage || undefined })
-      toast.success('Quote sent successfully')
-      setShowSendDialog(false)
-      setCustomMessage('')
-    } catch (error) {
-      toast.error('Failed to send quote')
-    }
-  }
-
-  const handleCancelQuote = async (quoteId: string) => {
-    try {
-      await cancelQuoteMutation.mutateAsync({ id: quoteId })
-      toast.success('Quote cancelled')
-    } catch (error) {
-      toast.error('Failed to cancel quote')
-    }
-  }
-
-  return (
-    <div onClick={e => e.stopPropagation()}>
-      <SendQuoteDialog
-        open={showSendDialog}
-        onOpenChange={open => {
-          setShowSendDialog(open)
-          if (!open) setCustomMessage('')
-        }}
-        quoteNumber={quote.quoteNumber}
-        recipients={recipients}
-        customMessage={customMessage}
-        onCustomMessageChange={setCustomMessage}
-        onConfirm={handleSendQuote}
-        isPending={sendQuoteMutation.isPending}
-      />
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <MoreVerticalIcon size={16} className="cursor-pointer" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem asChild>
-            <Link to={`${basePath}/quotes/${quote.id}`}>
-              <Eye className="w-4 h-4 mr-2" />
-              View
-            </Link>
-          </DropdownMenuItem>
-          {(quote.status === QuoteStatus.DRAFT || quote.status === QuoteStatus.PENDING) && (
-            <DropdownMenuItem onClick={() => setShowSendDialog(true)}>
-              <Send className="w-4 h-4 mr-2" />
-              Send to Customer
-            </DropdownMenuItem>
-          )}
-          {quote.status === QuoteStatus.ACCEPTED && (
-            <DropdownMenuItem asChild>
-              <Link to={`${basePath}/quotes/${quote.id}/convert`}>
-                <FileText className="w-4 h-4 mr-2" />
-                Convert to Subscription
-              </Link>
-            </DropdownMenuItem>
-          )}
-          {(quote.status === QuoteStatus.DRAFT || quote.status === QuoteStatus.PENDING) && (
-            <DropdownMenuItem
-              onClick={() => handleCancelQuote(quote.id)}
-              className="text-destructive"
-            >
-              Cancel Quote
-            </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+    </ListPageLayout>
   )
 }
