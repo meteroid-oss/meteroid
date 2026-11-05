@@ -21,6 +21,7 @@ use uuid::uuid;
 /// sync with the tax_categories migration seed.
 const DIGITAL_SERVICES_TAX_CATEGORY_ID: TaxCategoryId =
     TaxCategoryId::from_const(uuid!("a0000000-0000-4000-8000-000000000004"));
+use diesel_models::bank_accounts::BankAccountRow;
 use diesel_models::invoicing_entities::{
     InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,
     InvoicingEntityRowProvidersPatch,
@@ -378,6 +379,7 @@ impl InvoicingEntityInterface for Store {
             }
         }
 
+        let bank_account_id = invoicing_entity.bank_account_id.flatten();
         let row: InvoicingEntityRowProvidersPatch = invoicing_entity.into();
 
         let res = self
@@ -389,6 +391,12 @@ impl InvoicingEntityInterface for Store {
                     )
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+
+                    if let Some(bank_account_id) = bank_account_id {
+                        BankAccountRow::get_by_id(conn, tenant_id, bank_account_id)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+                    }
 
                     let patched = row
                         .patch_invoicing_entity_providers(conn, tenant_id)

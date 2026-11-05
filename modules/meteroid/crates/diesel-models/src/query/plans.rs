@@ -705,6 +705,7 @@ impl PlanRowForSubscription {
     #[allow(clippy::type_complexity)]
     pub async fn get_plans_for_subscription_by_version_ids(
         conn: &mut PgConn,
+        tenant_id: TenantId,
         version_ids: Vec<PlanVersionId>,
     ) -> DbResult<Vec<PlanRowForSubscription>> {
         use crate::schema::plan::dsl as p_dsl;
@@ -714,6 +715,7 @@ impl PlanRowForSubscription {
         let query = pv_dsl::plan_version
             .inner_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
             .filter(pv_dsl::id.eq_any(version_ids))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
             .select((
                 pv_dsl::id,
                 pv_dsl::net_terms,

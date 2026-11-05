@@ -475,6 +475,7 @@ impl CouponStatusRowPatch {
 
         let query = diesel::update(c_dsl::coupon)
             .filter(c_dsl::id.eq(self.id))
+            .filter(c_dsl::tenant_id.eq(self.tenant_id))
             .set(self);
 
         crate::debug_sql(&query);

@@ -31,6 +31,32 @@ use diesel_models::quotes::{
 use error_stack::Report;
 use scoped_futures::ScopedFutureExt;
 
+/// Quotes may only reference the tenant's own customers, and none that is archived. One query
+/// checks both. `archived_error` starts the message for an archived customer.
+async fn ensure_quotable_customers(
+    conn: &mut crate::store::PgConn,
+    tenant_id: TenantId,
+    customer_ids: &[CustomerId],
+    archived_error: &str,
+) -> StoreResult<()> {
+    use diesel_models::customers::CustomerRow;
+
+    let found = CustomerRow::list_archived_flags_by_ids(conn, tenant_id, customer_ids)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+    if let Some(missing) = customer_ids
+        .iter()
+        .find(|id| !found.iter().any(|(found_id, _, _)| found_id == *id))
+    {
+        return Err(StoreError::InvalidArgument(format!("Customer not found: {missing}")).into());
+    }
+    if let Some((id, name, _)) = found.iter().find(|(_, _, archived)| *archived) {
+        return Err(StoreError::InvalidArgument(format!("{archived_error}: {name} ({id})")).into());
+    }
+    Ok(())
+}
+
 #[async_trait::async_trait]
 pub trait QuotesInterface {
     async fn insert_quote(&self, quote: QuoteNew) -> StoreResult<Quote>;
@@ -193,23 +219,13 @@ impl QuotesInterface for Store {
     async fn insert_quote(&self, quote: QuoteNew) -> StoreResult<Quote> {
         let mut conn = self.get_conn().await?;
 
-        // Check if customer is archived before creating quote (efficient query)
-        use diesel_models::customers::CustomerRow;
-
-        if let Some((id, name)) = CustomerRow::find_archived_customer_in_batch(
+        ensure_quotable_customers(
             &mut conn,
             quote.tenant_id,
-            vec![quote.customer_id],
+            &[quote.customer_id],
+            "Cannot create quote for archived customer",
         )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?
-        {
-            return Err(StoreError::InvalidArgument(format!(
-                "Cannot create quote for archived customer: {} ({})",
-                name, id
-            ))
-            .into());
-        }
+        .await?;
 
         let mut quote = quote;
         if quote.custom_properties.is_null() {
@@ -228,8 +244,6 @@ impl QuotesInterface for Store {
     async fn insert_quote_batch(&self, quotes: Vec<QuoteNew>) -> StoreResult<Vec<Quote>> {
         let mut conn = self.get_conn().await?;
 
-        // Check if any customers are archived before creating quotes (efficient query)
-        use diesel_models::customers::CustomerRow;
         use itertools::Itertools;
 
         let customer_ids: Vec<CustomerId> = quotes.iter().map(|q| q.customer_id).unique().collect();
@@ -237,17 +251,13 @@ impl QuotesInterface for Store {
         if !customer_ids.is_empty() {
             let tenant_id = quotes.first().ok_or(StoreError::InsertError)?.tenant_id;
 
-            if let Some((id, name)) =
-                CustomerRow::find_archived_customer_in_batch(&mut conn, tenant_id, customer_ids)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?
-            {
-                return Err(StoreError::InvalidArgument(format!(
-                    "Cannot create quote for archived customer: {} ({})",
-                    name, id
-                ))
-                .into());
-            }
+            ensure_quotable_customers(
+                &mut conn,
+                tenant_id,
+                &customer_ids,
+                "Cannot create quote for archived customer",
+            )
+            .await?;
         }
 
         let rows_new: Vec<QuoteRowNew> = quotes
@@ -857,26 +867,15 @@ impl QuotesInterface for Store {
         pending_addon_materializations: Vec<crate::services::PendingMaterialization>,
         actor: Actor,
     ) -> StoreResult<Quote> {
-        use diesel_models::customers::CustomerRow;
-
         self.transaction(|conn| {
             async move {
-                // Check if customer is archived before creating quote
-                let customer_ids = vec![quote.customer_id];
-                if let Some((id, name)) = CustomerRow::find_archived_customer_in_batch(
+                ensure_quotable_customers(
                     conn,
                     quote.tenant_id,
-                    customer_ids,
+                    &[quote.customer_id],
+                    "Cannot create quote for archived customer",
                 )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                {
-                    return Err(StoreError::InvalidArgument(format!(
-                        "Cannot create quote for archived customer: {} ({})",
-                        name, id
-                    ))
-                    .into());
-                }
+                .await?;
 
                 let tenant_id = quote.tenant_id;
                 let entitlement_specs = quote.entitlements.clone();
@@ -956,7 +955,6 @@ impl QuotesInterface for Store {
         actor: Actor,
     ) -> StoreResult<Quote> {
         use crate::domain::quote_minimums::QuoteMinimumNew;
-        use diesel_models::customers::CustomerRow;
         use diesel_models::quote_adjustments::QuoteAdjustmentRow;
         use diesel_models::quotes::QuoteRowReplace;
 
@@ -994,20 +992,13 @@ impl QuotesInterface for Store {
                     }
                 }
 
-                if let Some((id, name)) = CustomerRow::find_archived_customer_in_batch(
+                ensure_quotable_customers(
                     conn,
                     tenant_id,
-                    vec![quote.customer_id],
+                    &[quote.customer_id],
+                    "Cannot assign quote to archived customer",
                 )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                {
-                    return Err(StoreError::InvalidArgument(format!(
-                        "Cannot assign quote to archived customer: {} ({})",
-                        name, id
-                    ))
-                    .into());
-                }
+                .await?;
 
                 let mut quote = quote;
                 quote.custom_properties = self

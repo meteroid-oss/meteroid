@@ -82,6 +82,7 @@ mod test_subscription;
 mod test_support_actor_masking;
 mod test_tenant;
 mod test_tenant_deletion_cascade;
+mod test_tenant_scoping;
 mod test_usage_attribution;
 mod test_usage_costs_metering;
 mod test_user;

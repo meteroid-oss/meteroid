@@ -28,6 +28,7 @@ use diesel_models::entitlements::{
 use diesel_models::enums::{EntitlementEntityTypeEnum, FeatureStatusEnum as DbFeatureStatusEnum};
 use diesel_models::plan_versions::PlanVersionRow;
 use diesel_models::plans::PlanRow;
+use diesel_models::products::ProductRow;
 use diesel_models::query::price_components::list_product_ids_for_plan_version;
 use diesel_models::quote_add_ons::QuoteAddOnRow;
 use diesel_models::quotes::QuoteComponentRow;
@@ -204,6 +205,26 @@ pub trait EntitlementsInterface {
     ) -> StoreResult<Vec<Entitlement>>;
 }
 
+/// A feature may only be attached to a product of its own tenant.
+async fn ensure_product_in_tenant(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    product_id: Option<ProductId>,
+) -> StoreResult<()> {
+    let Some(product_id) = product_id else {
+        return Ok(());
+    };
+    ProductRow::find_by_id_and_tenant_id(conn, product_id, tenant_id)
+        .await
+        .map_err(|e| match e.error.current_context() {
+            diesel_models::errors::DatabaseError::NotFound => Report::new(
+                StoreError::InvalidArgument(format!("product {product_id} not found")),
+            ),
+            _ => e.into(),
+        })?;
+    Ok(())
+}
+
 fn ensure_editable(feature: &Feature) -> StoreResult<()> {
     let reason = match feature.status {
         FeatureStatusEnum::Active | FeatureStatusEnum::Disabled => return Ok(()),
@@ -376,6 +397,7 @@ impl EntitlementsInterface for Store {
         let mut conn = self.get_conn().await?;
         let entitlement_value = feature.entitlement.clone();
         let tenant_id = feature.tenant_id;
+        ensure_product_in_tenant(&mut conn, tenant_id, feature.product_id).await?;
         if let Some(value) = &entitlement_value {
             validate_value_matches_feature_type(value, &feature.feature_type)?;
             validate_grouping(&mut conn, tenant_id, &feature.feature_type, value).await?;
@@ -587,6 +609,7 @@ impl EntitlementsInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)
             .and_then(TryInto::try_into)?;
         ensure_editable(&current)?;
+        ensure_product_in_tenant(&mut conn, tenant_id, update.product_id.flatten()).await?;
 
         // When replacing a select feature's options, reject removing any option that an
         // existing entitlement still references.

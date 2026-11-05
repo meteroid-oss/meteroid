@@ -2,9 +2,8 @@ use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::apitokens::v1::{
-    CreateApiTokenRequest, CreateApiTokenResponse, GetApiTokenByIdRequest, GetApiTokenByIdResponse,
-    ListApiTokensRequest, ListApiTokensResponse, RevokeApiTokenRequest, RevokeApiTokenResponse,
-    api_tokens_service_server::ApiTokensService,
+    CreateApiTokenRequest, CreateApiTokenResponse, ListApiTokensRequest, ListApiTokensResponse,
+    RevokeApiTokenRequest, RevokeApiTokenResponse, api_tokens_service_server::ApiTokensService,
 };
 use meteroid_store::domain;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
@@ -73,31 +72,6 @@ impl ApiTokensService for ApiTokensServiceComponents {
         };
 
         Ok(Response::new(response))
-    }
-
-    #[tracing::instrument(skip_all)]
-    async fn get_api_token_by_id(
-        &self,
-        request: Request<GetApiTokenByIdRequest>,
-    ) -> Result<Response<GetApiTokenByIdResponse>, Status> {
-        let req = request.into_inner();
-
-        let token_id = common_domain::ids::ApiTokenId::from_proto(&req.id)?;
-        let result = self
-            .store
-            .get_api_token_by_id(&token_id)
-            .await
-            .map_err(|e| {
-                ApiTokenApiError::StoreError(
-                    "Unable to get api token by hash".to_string(),
-                    Box::new(e.into_error()),
-                )
-            })?;
-
-        Ok(Response::new(GetApiTokenByIdResponse {
-            tenant_id: result.tenant_id.to_string(),
-            hash: result.hash,
-        }))
     }
 
     #[tracing::instrument(skip_all)]

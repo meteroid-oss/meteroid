@@ -158,7 +158,7 @@ impl Services {
             .map(|c| c.subscription.plan_version_id)
             .collect();
 
-        let plans = self.get_plans(conn, &plan_version_ids).await?;
+        let plans = self.get_plans(conn, tenant_id, &plan_version_ids).await?;
 
         // Load components with prices and legacy data pre-attached
         let price_components = self
@@ -284,18 +284,36 @@ impl Services {
             .map(|s| InvoicingEntityProviderSensitive::from_row(s, secret_decoding_key))
             .collect::<Result<Vec<_>, _>>()
     }
+    /// Every requested plan version must belong to the tenant, so the plan minimums and
+    /// components loaded afterwards only ever see the tenant's own plans.
     async fn get_plans(
         &self,
         conn: &mut PgConn,
+        tenant_id: TenantId,
         plan_version_ids: &[PlanVersionId],
     ) -> StoreResult<Vec<PlanForSubscription>> {
-        PlanRowForSubscription::get_plans_for_subscription_by_version_ids(
-            conn,
-            plan_version_ids.to_vec(),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)
-        .map(|x| x.into_iter().map(Into::into).collect())
+        let plans: Vec<PlanForSubscription> =
+            PlanRowForSubscription::get_plans_for_subscription_by_version_ids(
+                conn,
+                tenant_id,
+                plan_version_ids.to_vec(),
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(Into::into)
+            .collect();
+
+        if let Some(missing) = plan_version_ids
+            .iter()
+            .find(|id| !plans.iter().any(|p| p.version_id == **id))
+        {
+            return Err(
+                StoreError::ValueNotFound(format!("Plan version not found: {missing}")).into(),
+            );
+        }
+
+        Ok(plans)
     }
 
     /// Load price components with v2 prices and legacy pricing data pre-attached.
@@ -639,7 +657,7 @@ impl Services {
     ) -> StoreResult<SubscriptionCreationContext> {
         let plan_version_ids = vec![params.subscription.plan_version_id];
 
-        let plans = self.get_plans(conn, &plan_version_ids).await?;
+        let plans = self.get_plans(conn, tenant_id, &plan_version_ids).await?;
 
         // Get coupons by IDs
         let coupons = self

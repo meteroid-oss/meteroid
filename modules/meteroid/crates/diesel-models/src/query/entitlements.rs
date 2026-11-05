@@ -12,8 +12,8 @@ use common_domain::ids::{
     TenantId,
 };
 use diesel::{
-    BoolExpressionMethods, ExpressionMethods, Insertable, IntoSql, NullableExpressionMethods,
-    QueryDsl, SelectableHelper,
+    BoolExpressionMethods, ExpressionMethods, Insertable, IntoSql, JoinOnDsl,
+    NullableExpressionMethods, QueryDsl, SelectableHelper,
 };
 use error_stack::ResultExt;
 use uuid::Uuid;
@@ -66,7 +66,11 @@ impl FeatureRow {
         use diesel_async::RunQueryDsl;
 
         let query = f_dsl::feature
-            .left_join(product::table)
+            .left_join(
+                product::table.on(f_dsl::product_id
+                    .eq(product::id.nullable())
+                    .and(product::tenant_id.eq(f_dsl::tenant_id))),
+            )
             .filter(f_dsl::id.eq(param_id))
             .filter(f_dsl::tenant_id.eq(param_tenant_id))
             .select((
@@ -96,7 +100,11 @@ impl FeatureRow {
         use diesel_async::RunQueryDsl;
 
         let mut query = f_dsl::feature
-            .left_join(product::table)
+            .left_join(
+                product::table.on(f_dsl::product_id
+                    .eq(product::id.nullable())
+                    .and(product::tenant_id.eq(f_dsl::tenant_id))),
+            )
             .filter(f_dsl::tenant_id.eq(param_tenant_id))
             .select((
                 FeatureRow::as_select(),
@@ -181,6 +189,7 @@ impl FeatureRow {
         } else {
             product::table
                 .filter(product::id.eq_any(&product_ids))
+                .filter(product::tenant_id.eq(param_tenant_id))
                 .select((product::id, product::name))
                 .get_results::<(ProductId, String)>(conn)
                 .await
@@ -308,7 +317,11 @@ impl FeatureRow {
         use diesel_async::RunQueryDsl;
 
         let query = f_dsl::feature
-            .left_join(product::table)
+            .left_join(
+                product::table.on(f_dsl::product_id
+                    .eq(product::id.nullable())
+                    .and(product::tenant_id.eq(f_dsl::tenant_id))),
+            )
             .filter(f_dsl::tenant_id.eq(param_tenant_id))
             .filter(f_dsl::id.eq_any(ids))
             .filter(f_dsl::status.ne(FeatureStatusEnum::Archived))
@@ -419,7 +432,11 @@ impl FeatureRow {
         }
 
         let mut query = f_dsl::feature
-            .left_join(product::table)
+            .left_join(
+                product::table.on(f_dsl::product_id
+                    .eq(product::id.nullable())
+                    .and(product::tenant_id.eq(f_dsl::tenant_id))),
+            )
             .filter(f_dsl::tenant_id.eq(param_tenant_id))
             .filter(f_dsl::status.ne(FeatureStatusEnum::Archived))
             .select((

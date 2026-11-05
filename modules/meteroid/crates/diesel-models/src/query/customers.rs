@@ -985,6 +985,30 @@ impl CustomerRow {
         .into_db_result()
     }
 
+    /// The tenant's customers among `customer_ids`: id, name and whether it is archived. An id
+    /// that is not one of the tenant's customers is left out.
+    pub async fn list_archived_flags_by_ids(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_ids: &[CustomerId],
+    ) -> DbResult<Vec<(CustomerId, String, bool)>> {
+        use crate::schema::customer::dsl as c_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = c_dsl::customer
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .filter(c_dsl::id.eq_any(customer_ids.to_vec()))
+            .select((c_dsl::id, c_dsl::name, c_dsl::archived_at.is_not_null()));
+
+        crate::debug_sql(&query);
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while loading customers by ids")
+            .into_db_result()
+    }
+
     pub async fn find_archived_customer_in_batch(
         conn: &mut PgConn,
         tenant_id: TenantId,

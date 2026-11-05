@@ -19,7 +19,7 @@ use error_stack::Report;
 use scoped_futures::ScopedFutureExt;
 
 /// A product may only reference a category the tenant can see (built-in, or its own).
-async fn validate_tax_category(
+pub(crate) async fn validate_tax_category(
     conn: &mut diesel_models::PgConn,
     tax_category_id: Option<TaxCategoryId>,
     tenant_id: TenantId,

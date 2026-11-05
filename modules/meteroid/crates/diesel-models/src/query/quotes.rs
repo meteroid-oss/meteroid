@@ -80,7 +80,11 @@ impl QuoteRow {
         use diesel_async::RunQueryDsl;
 
         let query = q_dsl::quote
-            .inner_join(c_dsl::customer.on(q_dsl::customer_id.eq(c_dsl::id)))
+            .inner_join(
+                c_dsl::customer.on(q_dsl::customer_id
+                    .eq(c_dsl::id)
+                    .and(c_dsl::tenant_id.eq(q_dsl::tenant_id))),
+            )
             .filter(q_dsl::tenant_id.eq(param_tenant_id))
             .filter(q_dsl::id.eq(param_quote_id))
             .select(QuoteWithCustomerRow::as_select());
@@ -107,7 +111,11 @@ impl QuoteRow {
         use crate::schema::customer::dsl as c_dsl;
         use crate::schema::quote::dsl as q_dsl;
         let mut query = q_dsl::quote
-            .inner_join(c_dsl::customer.on(q_dsl::customer_id.eq(c_dsl::id)))
+            .inner_join(
+                c_dsl::customer.on(q_dsl::customer_id
+                    .eq(c_dsl::id)
+                    .and(c_dsl::tenant_id.eq(q_dsl::tenant_id))),
+            )
             .filter(q_dsl::tenant_id.eq(param_tenant_id))
             .into_boxed();
 

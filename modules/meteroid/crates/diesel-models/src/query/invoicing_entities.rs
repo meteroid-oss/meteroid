@@ -10,7 +10,8 @@ use crate::bank_accounts::BankAccountRow;
 use crate::connectors::ConnectorRow;
 use common_domain::ids::{ConnectorId, CustomerId, InvoiceId, InvoicingEntityId, TenantId};
 use diesel::{
-    ExpressionMethods, JoinOnDsl, NullableExpressionMethods, QueryDsl, Selectable, SelectableHelper,
+    BoolExpressionMethods, ExpressionMethods, JoinOnDsl, NullableExpressionMethods, QueryDsl,
+    Selectable, SelectableHelper,
 };
 use error_stack::ResultExt;
 
@@ -361,7 +362,11 @@ impl InvoicingEntityProvidersRow {
         let query = i_dsl::invoicing_entity
             .filter(i_dsl::tenant_id.eq(tenant_id))
             .filter(i_dsl::id.eq(id))
-            .left_join(b_dsl::bank_account.on(i_dsl::bank_account_id.eq(b_dsl::id.nullable())))
+            .left_join(
+                b_dsl::bank_account.on(i_dsl::bank_account_id
+                    .eq(b_dsl::id.nullable())
+                    .and(b_dsl::tenant_id.eq(i_dsl::tenant_id))),
+            )
             .left_join(
                 card_connector
                     .on(i_dsl::card_provider_id.eq(card_connector.field(c_dsl::id).nullable())),
@@ -408,7 +413,11 @@ impl InvoicingEntityProvidersRow {
 
         let query = i_dsl::invoicing_entity
             .filter(i_dsl::tenant_id.eq(tenant_id))
-            .left_join(b_dsl::bank_account.on(i_dsl::bank_account_id.eq(b_dsl::id.nullable())))
+            .left_join(
+                b_dsl::bank_account.on(i_dsl::bank_account_id
+                    .eq(b_dsl::id.nullable())
+                    .and(b_dsl::tenant_id.eq(i_dsl::tenant_id))),
+            )
             .left_join(
                 card_connector
                     .on(i_dsl::card_provider_id.eq(card_connector.field(c_dsl::id).nullable())),

@@ -20,15 +20,6 @@ message CreateApiTokenResponse {
   ApiToken details = 2;
 }
 
-message GetApiTokenByIdRequest {
-  string id = 1;
-}
-
-message GetApiTokenByIdResponse {
-  string tenant_id = 1;
-  string hash = 2;
-}
-
 message RevokeApiTokenRequest {
   string id = 1;
 }
@@ -38,6 +29,5 @@ message RevokeApiTokenResponse {}
 service ApiTokensService {
   rpc ListApiTokens(ListApiTokensRequest) returns (ListApiTokensResponse) {}
   rpc CreateApiToken(CreateApiTokenRequest) returns (CreateApiTokenResponse) {}
-  rpc GetApiTokenById(GetApiTokenByIdRequest) returns (GetApiTokenByIdResponse) {}
   rpc RevokeApiToken(RevokeApiTokenRequest) returns (RevokeApiTokenResponse) {}
 }

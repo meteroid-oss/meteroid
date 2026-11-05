@@ -3,6 +3,7 @@ use crate::domain::accounting::{
     ProductAccounting, ProductAccountingWithTaxes, TaxRate, TaxRateNew, TaxRateRule,
 };
 use crate::errors::StoreError;
+use crate::repositories::products::validate_tax_category;
 use crate::store::{PgConn, Store};
 use common_domain::ids::{
     BaseId, CustomTaxId, InvoicingEntityId, ProductId, TaxCategoryId, TenantId,
@@ -100,7 +101,11 @@ impl AccountingInterface for Store {
 
         let inserted_tax = self
             .transaction_bumping_tenant(tenant_id, |conn| {
-                async move { Ok(tax_row.upsert(conn, tenant_id).await?) }.scope_boxed()
+                async move {
+                    validate_tax_category(conn, tax_row.tax_category_id, tenant_id).await?;
+                    Ok(tax_row.upsert(conn, tenant_id).await?)
+                }
+                .scope_boxed()
             })
             .await?;
 
@@ -120,7 +125,11 @@ impl AccountingInterface for Store {
 
         let updated_tax = self
             .transaction_bumping_tenant(tenant_id, |conn| {
-                async move { Ok(tax_row.upsert(conn, tenant_id).await?) }.scope_boxed()
+                async move {
+                    validate_tax_category(conn, tax_row.tax_category_id, tenant_id).await?;
+                    Ok(tax_row.update(conn, tenant_id).await?)
+                }
+                .scope_boxed()
             })
             .await?;
 
