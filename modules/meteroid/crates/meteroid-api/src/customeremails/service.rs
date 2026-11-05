@@ -259,11 +259,15 @@ impl CustomerEmailsService for CustomerEmailsServiceComponents {
         request: Request<UpdateEmailSettingsRequest>,
     ) -> Result<Response<UpdateEmailSettingsResponse>, Status> {
         let tenant_id = request.tenant()?;
-        self.ensure_customization(request.organization()?).await?;
+        let organization = request.organization()?;
         let actor = request.actor_typed()?;
         let req = request.into_inner();
         let entity_id = mapping::entity_id_from_proto(&req.invoicing_entity_id)?;
         let patch = mapping::patch_from_proto(req.data.unwrap_or_default())?;
+        // The send hour and timezone only schedule payment reminders, which every edition has.
+        if patch.sender_name.is_some() || patch.reply_to.is_some() || patch.bcc.is_some() {
+            self.ensure_customization(organization).await?;
+        }
         let entity = self.entity(tenant_id, Some(entity_id)).await?;
         let settings = self
             .store
@@ -284,11 +288,15 @@ impl CustomerEmailsService for CustomerEmailsServiceComponents {
         request: Request<SetEmailKindEnabledRequest>,
     ) -> Result<Response<SetEmailKindEnabledResponse>, Status> {
         let tenant_id = request.tenant()?;
-        self.ensure_customization(request.organization()?).await?;
+        let organization = request.organization()?;
         let actor = request.actor_typed()?;
         let req = request.into_inner();
         let entity_id = mapping::entity_id_from_proto(&req.invoicing_entity_id)?;
         let kind = mapping::kind_from_proto(req.kind)?;
+        // Reminders are off until a sequence is set up, so their switch belongs to every edition.
+        if kind != EmailKind::PaymentReminder {
+            self.ensure_customization(organization).await?;
+        }
         let entity = self.entity(tenant_id, Some(entity_id)).await?;
         let settings = self
             .store

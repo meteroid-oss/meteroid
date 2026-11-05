@@ -3,7 +3,7 @@ use super::mapping;
 use crate::wallets::{WalletApiError, grant_product_names};
 use common_domain::ids::{CustomerId, CustomerPaymentMethodId, SubscriptionId, TenantId, WalletId};
 use common_grpc::middleware::server::auth::{RequestExt, ResourceAccess};
-use meteroid_app::features::ensure_portal_self_service;
+use meteroid_app::features::{ensure_portal_self_service, gates, tenant_gate_open};
 use meteroid_grpc::meteroid::api::invoices::v1::PaymentActionRequired;
 use meteroid_grpc::meteroid::portal::wallets::v1::{
     GetBalancesRequest, GetBalancesResponse, GetCreditOverviewRequest, GetCreditOverviewResponse,
@@ -21,6 +21,9 @@ use meteroid_store::domain::credit::{
 use meteroid_store::repositories::credit::CustomerCreditWalletsInterface;
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use tonic::{Request, Response, Status};
+
+const TOP_UP_NOT_OFFERED: &str =
+    "Credit can't be bought from this portal. Contact the merchant to add credit.";
 
 fn portal_customer<T>(request: &Request<T>) -> Result<(TenantId, CustomerId), Status> {
     let resource = request.portal_resource()?;
@@ -71,6 +74,7 @@ impl PortalWalletsServiceComponents {
             wallets.iter().map(|(wallet, _)| wallet),
         )
         .await?;
+        let unit_top_ups = self.unit_top_ups_open(tenant_id).await?;
         let plans = self
             .store
             .credit_grant_plans(
@@ -88,6 +92,7 @@ impl PortalWalletsServiceComponents {
                     stored.as_ref(),
                     health,
                     capabilities.top_up_enabled,
+                    unit_top_ups,
                     sales.get(&wallet.id),
                     &product_names,
                     &plans,
@@ -109,14 +114,37 @@ impl PortalWalletsServiceComponents {
 
     /// Whether the merchant's plan lets automatic top-ups be turned on or changed.
     async fn auto_top_up_configurable(&self, tenant_id: TenantId) -> Result<bool, Status> {
-        meteroid_app::features::tenant_gate_open(
+        tenant_gate_open(
             self.feature_resolver.as_ref(),
             &self.store,
             tenant_id,
-            meteroid_app::features::gates::AUTO_TOP_UPS,
+            gates::AUTO_TOP_UPS,
         )
         .await
         .map_err(portal_error)
+    }
+
+    /// Top-ups in money are open in every edition; buying a credit unit is credit pricing.
+    async fn unit_top_ups_open(&self, tenant_id: TenantId) -> Result<bool, Status> {
+        tenant_gate_open(
+            self.feature_resolver.as_ref(),
+            &self.store,
+            tenant_id,
+            gates::CREDIT_PRICING,
+        )
+        .await
+        .map_err(portal_error)
+    }
+
+    async fn ensure_wallet_top_up_offered(
+        &self,
+        tenant_id: TenantId,
+        wallet: &CreditWallet,
+    ) -> Result<(), Status> {
+        if wallet.credit_unit.is_none() || self.unit_top_ups_open(tenant_id).await? {
+            return Ok(());
+        }
+        Err(Status::failed_precondition(TOP_UP_NOT_OFFERED))
     }
 
     async fn customer_currency(
@@ -144,9 +172,7 @@ impl PortalWalletsServiceComponents {
         {
             return Ok(());
         }
-        Err(Status::failed_precondition(
-            "Credit can't be bought from this portal. Contact the merchant to add credit.",
-        ))
+        Err(Status::failed_precondition(TOP_UP_NOT_OFFERED))
     }
 
     /// The wallet a top-up buys into; none named is the customer's money wallet in their billing
@@ -288,6 +314,7 @@ impl PortalWalletsService for PortalWalletsServiceComponents {
             overview.wallets.iter().map(|entry| &entry.wallet),
         )
         .await?;
+        let unit_top_ups = self.unit_top_ups_open(tenant_id).await?;
         let plans = self
             .store
             .credit_grant_plans(
@@ -321,6 +348,7 @@ impl PortalWalletsService for PortalWalletsServiceComponents {
                     mapping::wallet_overview(
                         entry,
                         overview.capabilities.top_up_enabled,
+                        unit_top_ups,
                         sales.get(&entry.wallet.id),
                         &product_names,
                         &plans,
@@ -360,6 +388,8 @@ impl PortalWalletsService for PortalWalletsServiceComponents {
             let wallet = self
                 .own_wallet(tenant_id, customer_id, &req.wallet_id)
                 .await?;
+            self.ensure_wallet_top_up_offered(tenant_id, &wallet)
+                .await?;
             self.services
                 .ensure_self_service_top_up(tenant_id, customer_id, wallet.id)
                 .await
@@ -380,10 +410,11 @@ impl PortalWalletsService for PortalWalletsServiceComponents {
         request: Request<TopUpWalletRequest>,
     ) -> Result<Response<TopUpWalletResponse>, Status> {
         let (tenant_id, customer_id) = portal_customer(&request)?;
-        ensure_portal_self_service(self.feature_resolver.as_ref(), &self.store, tenant_id).await?;
         let req = request.into_inner();
         let wallet = self
             .top_up_target(tenant_id, customer_id, &req.wallet_id)
+            .await?;
+        self.ensure_wallet_top_up_offered(tenant_id, &wallet)
             .await?;
         self.services
             .ensure_self_service_top_up(tenant_id, customer_id, wallet.id)

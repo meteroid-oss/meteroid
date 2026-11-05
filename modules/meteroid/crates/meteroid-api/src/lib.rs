@@ -23,6 +23,7 @@ pub mod invoices;
 pub mod invoicingentities;
 pub mod listviews;
 pub mod organizations;
+pub mod paymentreminders;
 pub mod plans;
 pub mod portal;
 pub mod pricecomponents;

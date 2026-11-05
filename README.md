@@ -75,8 +75,9 @@ reconciling spreadsheets.
   volume, package, matrix and capacity pricing, or any mix of them. Plans are versioned, so a price change
   never touches existing customers unless you want it to.
 - **Credits and wallets:** prepaid and promotional credit per currency, with grants, priorities, expiry
-  and a full ledger, applied at invoicing. With the Enterprise images: your own credit units, credit packs
-  in plans, self-serve top-ups, scoped credit, and usage beyond the balance billed as overage.
+  and a full ledger, applied at invoicing, and top-ups customers buy from the portal. With the Enterprise
+  images: your own credit units, credit packs in plans, scoped credit, and usage beyond the balance billed
+  as overage.
 - [**Subscriptions:**](https://docs.meteroid.com/subscriptions/what-is-a-subscription) trials, coupons,
   add-ons, upgrades and downgrades mid-cycle with proration, and cancellations that credit what was paid in
   advance.
@@ -84,8 +85,8 @@ reconciling spreadsheets.
   subscription starts and bills on its own. Several signers and purchase orders come with the
   Enterprise images.
 - [**Invoicing:**](https://docs.meteroid.com/invoices/managing-invoices) invoices and credit notes in eight
-  languages, tax-inclusive or exclusive prices, and, with the Enterprise images, e-invoicing as
-  Factur-X or XRechnung.
+  languages, tax-inclusive or exclusive prices, e-invoicing as Factur-X or XRechnung, and payment
+  reminder sequences before and after the due date.
 - [**Payments:**](https://docs.meteroid.com/integrations/general-information) Stripe, GoCardless, Mollie and Stancer, with automatic retries, refunds, and a customer
   portal and hosted checkout. Customers change their own plan, add-ons and seats from the portal
   with the Enterprise images.
@@ -94,7 +95,7 @@ reconciling spreadsheets.
 - **API, webhooks and integrations:** a REST API with SDKs, signed webhooks with retries and a delivery
   log, and a growing list of connectors.
 
-Meteroid Enterprise adds many features such as [revenue reports and analytics](https://docs.meteroid.com/analytics/overview), live balances, limits, budgets, dunning, tax reports, SSO, audit log and more: see [Editions and images](#editions-and-images).
+Meteroid Enterprise adds many features such as [revenue reports and analytics](https://docs.meteroid.com/analytics/overview), live balances, limits, budgets, tax reports, SSO, audit log and more: see [Editions and images](#editions-and-images).
 
 ## Quick start
 
@@ -128,8 +129,8 @@ The default images (`ghcr.io/meteroid-oss/meteroid-api`, `meteroid-worker`, `met
 `meteroid-web`) are Meteroid Enterprise: the code of this repository plus the Enterprise modules. They are
 free for companies under 50 employees and €2M in annual revenue under the
 [Enterprise license](editions/enterprise/LICENSE), and some Enterprise features come free with
-them: dunning, tax reports, MRR and revenue reports, live balances and usage limits, credit units and packs,
-portal self-service, customer email customization and e-invoicing. Larger companies need a
+them: tax reports, MRR and revenue reports, live balances and usage limits, credit units and packs,
+portal self-service and customer email customization. Larger companies need a
 commercial license, and a license unlocks the rest. See
 [Editions](https://docs.meteroid.com/self-hosting/editions).
 

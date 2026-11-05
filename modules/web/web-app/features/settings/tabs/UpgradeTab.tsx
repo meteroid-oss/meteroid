@@ -46,11 +46,6 @@ const ENTERPRISE_FEATURES: EnterpriseArea[] = [
     area: 'Billing & invoicing',
     features: [
       {
-        name: 'Dunning',
-        description: 'Automated payment reminder sequences for overdue invoices.',
-        availability: 'free',
-      },
-      {
         name: 'Tax reports',
         description: 'VAT return and EC Sales List, ready to file.',
         availability: 'free',
@@ -68,12 +63,7 @@ const ENTERPRISE_FEATURES: EnterpriseArea[] = [
       {
         name: 'Customer email customization',
         description:
-          'Choose which emails go out and to whom, set the sender, preview and send tests, and see what was sent.',
-        availability: 'free',
-      },
-      {
-        name: 'E-invoicing',
-        description: 'Issue Factur-X / ZUGFeRD and XRechnung e-invoices alongside the PDF.',
+          'Choose which emails go out and to whom, write your own payment reminder copy, set the sender, preview and send tests, and see what was sent.',
         availability: 'free',
       },
       {
@@ -139,21 +129,16 @@ const ENTERPRISE_FEATURES: EnterpriseArea[] = [
   {
     area: 'Credits',
     summary:
-      'Prepaid credit in money is in the open-source edition; the rest comes with the images.',
+      'Prepaid credit in money, with portal top-ups, is in the open-source edition; the rest comes with the images.',
     features: [
       {
         name: 'Credit units',
-        description: 'Price and grant usage in your own credits instead of money.',
+        description: 'Price, grant and sell usage in your own credits instead of money.',
         availability: 'free',
       },
       {
         name: 'Credit packs',
         description: 'Include credit in plans, add-ons and subscriptions, or sell it as packs.',
-        availability: 'free',
-      },
-      {
-        name: 'Self-serve top-ups',
-        description: 'Let customers buy credit from the portal.',
         availability: 'free',
       },
       {
@@ -165,12 +150,12 @@ const ENTERPRISE_FEATURES: EnterpriseArea[] = [
   },
   {
     area: 'Customer portal',
-    summary: 'The open-source portal shows everything and lets customers pay and cancel.',
+    summary:
+      'The open-source portal shows everything and lets customers pay, top up credit and cancel.',
     features: [
       {
         name: 'Self-service',
-        description:
-          'Customers change plan, add-ons and seats, top up credit and redeem codes themselves.',
+        description: 'Customers change plan, add-ons and seats and redeem codes themselves.',
         availability: 'free',
       },
       {

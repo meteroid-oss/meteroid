@@ -152,9 +152,8 @@ pub struct WorkersConfig {
     #[envconfig(from = "DRAFT_REFRESH_ENABLED", default = "true")]
     pub draft_refresh_enabled: bool,
 
-    // Payment reminder sweeper schedule (due steps + enrolment), run by the dunning module;
-    // execution is further gated to each entity's local send window, so the cron only bounds
-    // lateness.
+    // Payment reminder sweeper schedule (due steps + enrolment); execution is further gated to
+    // each entity's local send window, so the cron only bounds lateness.
     #[envconfig(from = "PAYMENT_REMINDER_SWEEP_CRON", default = "*/15 * * * *")]
     pub payment_reminder_sweep_cron: ParsedCron,
 

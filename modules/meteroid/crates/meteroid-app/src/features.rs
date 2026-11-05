@@ -94,25 +94,24 @@ pub mod gates {
     /// Introducing or changing a minimum commitment on a plan, subscription or quote (the
     /// commitments module). Billing the minimums already stored stays open.
     pub const MINIMUM_COMMITMENTS: FeatureCode = FeatureCode::new("minimum_commitments");
-    /// Turning on or changing an invoicing entity's e-invoicing format.
-    pub const EINVOICING: FeatureCode = FeatureCode::new("einvoicing");
     /// More than one signer on a quote.
     pub const QUOTE_MULTIPLE_SIGNERS: FeatureCode = FeatureCode::new("quote_multiple_signers");
     /// The customer entering a purchase order on a quote.
     pub const QUOTE_PURCHASE_ORDERS: FeatureCode = FeatureCode::new("quote_purchase_orders");
-    /// Credit products, credit units and portal top-ups.
+    /// Credit products, credit units and portal top-ups of credit units.
     pub const CREDIT_PRICING: FeatureCode = FeatureCode::new("credit_pricing");
     /// Credit granted to one subscription, to usage only or to some products.
     pub const SCOPED_CREDIT: FeatureCode = FeatureCode::new("scoped_credit");
     /// The usage cost reads and the running total of a subscription's current period.
     pub const USAGE_COSTS: FeatureCode = FeatureCode::new("usage_costs");
-    /// Plan, add-on, seat, top-up and promo code changes from the customer portal.
+    /// Plan, add-on, seat and promo code changes from the customer portal.
     pub const PORTAL_SELF_SERVICE: FeatureCode = FeatureCode::new("portal_self_service");
     /// Embedding the customer portal.
     pub const PORTAL_EMBEDDING: FeatureCode = FeatureCode::new("portal_embedding");
     /// Changing the portal's theme mode and roundness.
     pub const PORTAL_THEMING: FeatureCode = FeatureCode::new("portal_theming");
-    /// Per-kind settings, audiences, sender settings and test sends of customer emails.
+    /// Per-kind settings, audiences, sender settings, test sends of customer emails and the copy
+    /// of payment reminder steps.
     pub const EMAIL_CUSTOMIZATION: FeatureCode = FeatureCode::new("email_customization");
 }
 
@@ -554,12 +553,12 @@ pub fn minimum_commitments_refused() -> tonic::Status {
     tonic::Status::permission_denied(MINIMUM_COMMITMENTS_NOT_IN_PLAN)
 }
 
-pub const EINVOICING_NOT_IN_PLAN: &str = "E-invoicing is not available for your plan";
 pub const QUOTE_MULTIPLE_SIGNERS_NOT_IN_PLAN: &str =
     "Quotes with more than one signer are not available for your plan";
 pub const SCOPED_CREDIT_NOT_IN_PLAN: &str = "Scoped credit is not available for your plan";
 pub const USAGE_COSTS_NOT_IN_PLAN: &str = "Usage costs are not available for your plan";
-pub const CREDIT_PRICING_NOT_IN_PLAN: &str = "Credit packs, credit units, self-serve top-ups and scoped credit are not available in this edition";
+pub const CREDIT_PRICING_NOT_IN_PLAN: &str =
+    "Credit packs, credit units and scoped credit are not available in this edition";
 pub const PORTAL_SELF_SERVICE_NOT_IN_PLAN: &str =
     "Changing a subscription from the portal is not available; please contact your provider";
 pub const PORTAL_THEMING_NOT_IN_PLAN: &str = "Portal theming is not available for your plan";
@@ -690,7 +689,7 @@ mod tests {
         FeatureGate::new(MFA_POLICY),
     ];
 
-    const CORE_GATES: [FeatureCode; 19] = [
+    const CORE_GATES: [FeatureCode; 18] = [
         gates::CREDIT_PRICING,
         gates::SCOPED_CREDIT,
         gates::USAGE_COSTS,
@@ -698,7 +697,6 @@ mod tests {
         gates::PORTAL_SELF_SERVICE,
         gates::PORTAL_EMBEDDING,
         gates::PORTAL_THEMING,
-        gates::EINVOICING,
         gates::QUOTE_MULTIPLE_SIGNERS,
         gates::QUOTE_PURCHASE_ORDERS,
         gates::WHITELABEL,

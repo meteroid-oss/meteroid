@@ -41,7 +41,6 @@ import { Fragment, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
-import { Slot } from '@/edition'
 import { EntityActivityTimeline } from '@/features/activity/EntityActivityTimeline'
 import { CreditNoteStatusBadge } from '@/features/creditNotes'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
@@ -62,6 +61,7 @@ import {
 } from '@/features/invoices/invoiceSummary'
 import { packCreditText } from '@/features/invoices/packCredit'
 import { useCreditUnitNames } from '@/features/invoices/useCreditUnitNames'
+import { InvoiceRemindersCard } from '@/features/payment-reminders/InvoiceRemindersCard'
 import {
   IntegrationType,
   SyncInvoiceModal,
@@ -1180,7 +1180,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
               )}
           </Flex>
 
-          {!isDraft && <Slot name="invoiceDetail.sections" invoiceId={invoiceId} />}
+          {!isDraft && <InvoiceRemindersCard invoiceId={invoiceId} />}
 
           <AddManualPaymentDialog
             open={isAddPaymentDialogOpen}

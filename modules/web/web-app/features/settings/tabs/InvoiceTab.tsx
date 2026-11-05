@@ -33,9 +33,8 @@ import {
   invoiceLanguageIsUnsafeGuess,
 } from '@/components/InvoiceLanguageSelect'
 import { Loading } from '@/components/Loading'
-import { Slot, useModule } from '@/edition'
+import { Slot } from '@/edition'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
-import { PlanLockChip } from '@/features/settings/components/PlanLockChip'
 import {
   SettingsFieldGrid,
   SettingsRow,
@@ -49,7 +48,6 @@ import {
   toByLocale,
   visibleFooterLocales,
 } from '@/features/settings/utils/footerTranslations'
-import { entitlementCodes, useEntitlement } from '@/hooks/useEntitlement'
 import { useZodForm } from '@/hooks/useZodForm'
 import {
   listInvoicingEntities,
@@ -113,12 +111,6 @@ export const InvoiceTab = () => {
   })
 
   const einvoicingFormat = useWatch({ control: methods.control, name: 'einvoicingFormat' })
-  const storedEinvoicingFormat = einvoicingFormatFromStored(currentEntity?.einvoicingFormat)
-  const einvoicingShipped = useModule('einvoicing') !== undefined
-  const einvoicingEntitled = useEntitlement(entitlementCodes.EINVOICING)
-  // A stored format stays visible so it can be turned off.
-  const showEinvoicing = einvoicingShipped || storedEinvoicingFormat !== EINVOICING_FORMAT_OFF
-
   // Every language edits `footerTranslations[locale]`, so no text sits in a slot
   // whose meaning moves. `homeLang` owns the untagged base footer — the fallback a
   // language prints wherever its own field is empty (`FooterTranslations::resolve`).
@@ -342,43 +334,35 @@ export const InvoiceTab = () => {
             </div>
           </SettingsSection>
 
-          {showEinvoicing && (
-            <SettingsSection
-              title={
-                <span className="inline-flex items-center gap-2">
-                  Structured e-invoicing
-                  {!einvoicingEntitled && <PlanLockChip />}
-                </span>
-              }
-              description="Issue every invoice as a machine-readable document alongside the PDF, under the EN 16931 standard: Factur-X / ZUGFeRD, or XRechnung for Germany."
-              className="mt-6"
-            >
-              <div className="space-y-4">
-                <SettingsFieldGrid>
-                  <EInvoicingFormatSelect
-                    name="einvoicingFormat"
-                    control={methods.control}
-                    containerClassName="sm:col-span-2"
-                    locked={einvoicingEntitled ? undefined : { stored: storedEinvoicingFormat }}
-                  />
-                </SettingsFieldGrid>
-                {einvoicingFormat && einvoicingFormat !== EINVOICING_FORMAT_OFF && (
-                  <p className="text-[13px] text-muted-foreground">
-                    Invoices are still issued when they cannot be expressed in this format — the
-                    missing fields are reported on the invoice instead. Fill them{' '}
-                    <b>before finalizing</b>: a finalized invoice is immutable, so correcting a
-                    company detail afterwards does not make it compliant.
-                  </p>
-                )}
-                {einvoicingFormat === 'XRECHNUNG' && (
-                  <p className="text-[13px] text-muted-foreground">
-                    XRechnung also needs the invoice contact from the Company tab, and a buyer
-                    reference on each customer — the Leitweg-ID for a public body.
-                  </p>
-                )}
-              </div>
-            </SettingsSection>
-          )}
+          <SettingsSection
+            title="Structured e-invoicing"
+            description="Issue every invoice as a machine-readable document alongside the PDF, under the EN 16931 standard: Factur-X / ZUGFeRD, or XRechnung for Germany."
+            className="mt-6"
+          >
+            <div className="space-y-4">
+              <SettingsFieldGrid>
+                <EInvoicingFormatSelect
+                  name="einvoicingFormat"
+                  control={methods.control}
+                  containerClassName="sm:col-span-2"
+                />
+              </SettingsFieldGrid>
+              {einvoicingFormat && einvoicingFormat !== EINVOICING_FORMAT_OFF && (
+                <p className="text-[13px] text-muted-foreground">
+                  Invoices are still issued when they cannot be expressed in this format — the
+                  missing fields are reported on the invoice instead. Fill them{' '}
+                  <b>before finalizing</b>: a finalized invoice is immutable, so correcting a
+                  company detail afterwards does not make it compliant.
+                </p>
+              )}
+              {einvoicingFormat === 'XRECHNUNG' && (
+                <p className="text-[13px] text-muted-foreground">
+                  XRechnung also needs the invoice contact from the Company tab, and a buyer
+                  reference on each customer — the Leitweg-ID for a public body.
+                </p>
+              )}
+            </div>
+          </SettingsSection>
 
           <SettingsSection
             title="Invoice footer"

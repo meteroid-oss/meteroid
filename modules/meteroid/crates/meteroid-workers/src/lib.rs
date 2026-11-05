@@ -316,6 +316,24 @@ pub async fn spawn_workers(
         });
     }
 
+    if config.workers.payment_reminders_enabled {
+        use meteroid_store::leader_lock::LeaderLock;
+        use meteroid_store::leader_lock::PgLeaderElection;
+
+        let services = services.clone();
+        let elector = Arc::new(PgLeaderElection::new(
+            store.pool.clone(),
+            LeaderLock::PaymentReminderSweep,
+        ));
+        let schedule = config.workers.payment_reminder_sweep_cron.clone();
+        join_set.spawn(async move {
+            misc::payment_reminder_sweeper::run_payment_reminder_sweeper(
+                services, elector, schedule,
+            )
+            .await;
+        });
+    }
+
     {
         let ctx = WorkerContext {
             config: config.clone(),

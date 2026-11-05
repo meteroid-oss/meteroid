@@ -479,7 +479,7 @@ export const BalanceScreen = () => {
     paymentMethods.find(method => method.id === defaultPaymentMethodId) ?? paymentMethods[0]
   // A credit unit wallet is bought only at the unit's selling price in the customer's currency.
   const canConfigureWallet = (wallet: Wallet) => !wallet.creditUnit || !!wallet.salePrice
-  const topUpEnabled = data.topUpEnabled && selfService
+  const topUpEnabled = data.topUpEnabled
   const canTopUp = (wallet: Wallet) => canConfigureWallet(wallet) && topUpEnabled && wallet.canTopUp
   const pausedInline = (wallet: Wallet) =>
     wallet.status === WalletStatus.USAGE_BLOCKED && canTopUp(wallet)

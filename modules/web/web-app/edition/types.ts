@@ -7,7 +7,7 @@ import type { CreateCustomerSchema } from '@/lib/schemas/customers'
 import type { EditPlanSchema } from '@/lib/schemas/plans'
 import type { GeneralSettingsSchema } from '@/lib/schemas/settings'
 import type { EmailKind } from '@/rpc/api/customeremails/v1/models_pb'
-import type { CustomerBrief , CustomerPaymentMethod } from '@/rpc/api/customers/v1/models_pb'
+import type { CustomerBrief, CustomerPaymentMethod } from '@/rpc/api/customers/v1/models_pb'
 import type { InvoiceAnnex } from '@/rpc/api/invoices/v1/models_pb'
 import type { MinimumCommitment, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
 import type { Subscription } from '@/rpc/api/subscriptions/v1/models_pb'
@@ -164,21 +164,6 @@ export interface GeneralSettingsContext {
 
 export interface InvoiceSettingsContext {
   invoicingEntityId: string
-}
-
-export interface InvoiceDetailContext {
-  invoiceId: string
-}
-
-/** A view of the customer emails settings, placed among the core views. */
-export interface CustomerEmailsView {
-  value: string
-  label: string
-  /** The core view this one follows; by default it ends the views. */
-  after?: string
-  /** The email kind whose schedule the view edits: the Emails view lists the kind only then, linking here. */
-  schedules?: EmailKind
-  Content: ComponentType
 }
 
 export interface WalletContext {
@@ -361,10 +346,6 @@ export interface ComponentSlots {
   'invoiceSettings.rows': InvoiceSettingsContext
   /** Rows of the customer email Sender settings' "Branding in emails" group, after the footer. */
   'emailSenderSettings.brandingRows': Record<never, never>
-  /** Rows of the customer's Invoicing details, after the invoicing emails. */
-  'customerDetail.invoicingRows': CustomerDetailContext
-  /** Below the payments of an invoice that is not a draft. */
-  'invoiceDetail.sections': InvoiceDetailContext
   /** Sections of the Branding settings form, after the core sections. */
   'brandingSettings.sections': Record<never, never>
   /** Sections of the Security page's two-factor tab, after the member's own settings. */
@@ -419,8 +400,6 @@ export type Slots = {
   'subscriptionDetail.actions': DetailAction<SubscriptionDetailContext>
   /** Notices of the help page, picked by `?topic=<id>`. */
   'help.topics': HelpTopic
-  /** Views of the customer emails settings, each after the core view it names. */
-  'customerEmails.views': CustomerEmailsView
   /** Email kinds a module sends: the Emails view lists them only then. */
   'customerEmails.kinds': EmailKind
   /** Queries refreshed with the wallet queries whenever credit changes. */

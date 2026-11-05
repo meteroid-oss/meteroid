@@ -35,6 +35,7 @@ import { CustomPropertyValue } from '@/features/customproperties/CustomPropertyV
 import { useCustomPropertyRows } from '@/features/customproperties/useCustomPropertyRows'
 import { CustomerEntitlementOverrides } from '@/features/entitlements/customer/CustomerEntitlementOverrides'
 import { EffectiveEntitlementsCard } from '@/features/entitlements/customer/EffectiveEntitlementsCard'
+import { CustomerReminderPreferenceRow } from '@/features/payment-reminders/CustomerReminderPreferenceRow'
 import { connectorDisplayName, paymentProvider } from '@/features/payments/providers'
 import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
 import { useBasePath } from '@/hooks/useBasePath'
@@ -501,7 +502,7 @@ export const Customer = () => {
                 <Flex direction="column" className="gap-2 p-6">
                   <div className="text-[15px] font-medium">Invoicing</div>
                   <FlexDetails title="Invoicing emails" value={data.invoicingEmails?.join(', ')} />
-                  <Slot name="customerDetail.invoicingRows" customerId={data.id} />
+                  <CustomerReminderPreferenceRow customerId={data.id} />
                 </Flex>
                 {!isExpress && (
                   <>

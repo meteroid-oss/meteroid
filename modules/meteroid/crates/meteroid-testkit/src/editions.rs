@@ -36,11 +36,10 @@ impl Entitlements for OpenEntitlements {
     }
 }
 
-static CORE_TESTED: [FeatureGate; 7] = [
+static CORE_TESTED: [FeatureGate; 6] = [
     FeatureGate::bundled(gates::CREDIT_PRICING),
     FeatureGate::bundled(gates::SCOPED_CREDIT),
     FeatureGate::bundled(gates::USAGE_COSTS),
-    FeatureGate::bundled(gates::EINVOICING),
     FeatureGate::bundled(gates::EMAIL_CUSTOMIZATION),
     FeatureGate::bundled(gates::PORTAL_SELF_SERVICE),
     FeatureGate::bundled(gates::QUOTE_MULTIPLE_SIGNERS),

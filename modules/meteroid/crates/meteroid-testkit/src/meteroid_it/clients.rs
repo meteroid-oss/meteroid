@@ -25,6 +25,7 @@ use meteroid_grpc::meteroid::api::invoices::v1::invoices_service_client::Invoice
 use meteroid_grpc::meteroid::api::invoicingentities::v1::invoicing_entities_service_client::InvoicingEntitiesServiceClient;
 use meteroid_grpc::meteroid::api::listviews::v1::list_views_service_client::ListViewsServiceClient;
 use meteroid_grpc::meteroid::api::organizations::v1::organizations_service_client::OrganizationsServiceClient;
+use meteroid_grpc::meteroid::api::paymentreminders::v1::payment_reminders_service_client::PaymentRemindersServiceClient;
 use meteroid_grpc::meteroid::api::plans::v1::plans_service_client::PlansServiceClient;
 use meteroid_grpc::meteroid::api::productfamilies::v1::product_families_service_client::ProductFamiliesServiceClient;
 use meteroid_grpc::meteroid::api::products::v1::products_service_client::ProductsServiceClient;
@@ -58,6 +59,7 @@ pub struct AllClients {
     pub invoices: InvoicesServiceClient<TestLayeredClientService>,
     pub invoicing_entities: InvoicingEntitiesServiceClient<TestLayeredClientService>,
     pub list_views: ListViewsServiceClient<TestLayeredClientService>,
+    pub payment_reminders: PaymentRemindersServiceClient<TestLayeredClientService>,
     pub plans: PlansServiceClient<TestLayeredClientService>,
     pub price_components: PriceComponentsServiceClient<TestLayeredClientService>,
     pub product_families: ProductFamiliesServiceClient<TestLayeredClientService>,
@@ -103,6 +105,7 @@ impl AllClients {
             invoices: InvoicesServiceClient::new(service.clone()),
             invoicing_entities: InvoicingEntitiesServiceClient::new(service.clone()),
             list_views: ListViewsServiceClient::new(service.clone()),
+            payment_reminders: PaymentRemindersServiceClient::new(service.clone()),
             plans: PlansServiceClient::new(service.clone()),
             price_components: PriceComponentsServiceClient::new(service.clone()),
             product_families: ProductFamiliesServiceClient::new(service.clone()),

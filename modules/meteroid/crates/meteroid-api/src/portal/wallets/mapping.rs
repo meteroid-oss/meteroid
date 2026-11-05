@@ -127,6 +127,7 @@ pub fn wallet(
     stored: Option<&AutomaticTopUp>,
     health: &WalletHealth,
     top_up_enabled: bool,
+    unit_top_ups: bool,
     sale: Option<&meteroid_store::services::UnitSale>,
     product_names: &HashMap<ProductId, String>,
     plans: &GrantPlans,
@@ -151,7 +152,8 @@ pub fn wallet(
         .collect(),
         auto_top_up: stored.map(|stored| auto_top_up(&stored.config, !stored.parked)),
         // A credit unit is bought only once it has a price in the customer's currency.
-        can_top_up: top_up_enabled && (wallet.credit_unit.is_none() || sale.is_some()),
+        can_top_up: top_up_enabled
+            && (wallet.credit_unit.is_none() || (unit_top_ups && sale.is_some())),
         sale_price: sale.map(|sale| server::CreditUnitSalePrice {
             currency: sale.currency.clone(),
             unit_price: sale.unit_price.normalize().to_string(),
@@ -299,6 +301,7 @@ fn grant_view(
 pub fn wallet_overview(
     overview: &PortalWalletOverview,
     top_up_enabled: bool,
+    unit_top_ups: bool,
     sale: Option<&meteroid_store::services::UnitSale>,
     product_names: &HashMap<ProductId, String>,
     plans: &GrantPlans,
@@ -311,6 +314,7 @@ pub fn wallet_overview(
             overview.auto_top_up.as_ref(),
             &overview.health,
             top_up_enabled,
+            unit_top_ups,
             sale,
             product_names,
             plans,
