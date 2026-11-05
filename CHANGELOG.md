@@ -5,6 +5,24 @@ Versions before 2.0 are described in the
 
 ## [2.0.0] - 2026-11-04
 
+> [!WARNING]
+> **Upgrade steps required.** Follow [Upgrading to 2.0](https://docs.meteroid.com/self-hosting/upgrading-to-2-0)
+> and back up your database first: the migrations cannot be reverted. Webhooks no longer go through
+> Svix: import your endpoints as the guide shows.
+
+This release brings a new baseline to Meteroid OSS, built from the same codebase as Meteroid Cloud and
+Meteroid Enterprise. The open-source edition now includes a lot more, and gets bug fixes and security
+patches much faster.
+
+The official Docker images are now Meteroid Enterprise: free to use without a license, with even more
+features. To run the open-source edition only, build the images from this repository. Details in
+[Editions](https://docs.meteroid.com/self-hosting/editions).
+
+The Helm chart is now officially maintained by our team.
+
+Enjoy!
+The Meteroid Team
+
 ### OSS
 
 #### Credits and wallets

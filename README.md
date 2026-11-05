@@ -1,5 +1,3 @@
- 
-
 <div align="center">
 
 
@@ -27,175 +25,118 @@
   <a href="https://go.meteroid.com/discord?utm_source=github">
     <img src="https://img.shields.io/discord/1202199422910595155?logo=Discord&logoColor=%23FFFFFF&style=plastic" alt="Discord">
   </a>
-   <img src="https://img.shields.io/badge/status-experimental-red" alt="Experimental">
+   <img src="https://img.shields.io/badge/status-production-brightgreen" alt="Production">
     <a href="https://twitter.com/meteroidhq">
     <img alt="Twitter" src="https://img.shields.io/twitter/url.svg?label=meteroidhq&style=social&url=https%3A%2F%2Ftwitter.com%2Fmeteroidhq" />
   </a>
 </p>
 
-<div>
-<span>
+<div align="center">
 
-Meteroid addresses the complexities and limitations of traditional billing systems, particularly for businesses
-transitioning to usage-based models or product-led-growth principles.
-It eliminates the gap between customer usage and billing, ensuring accuracy and transparency.
+🚀 **Meteroid 2.0 is out:** credits and wallets, e-invoicing, native webhooks, and a new open-source baseline.
+[Release notes](https://github.com/meteroid-oss/meteroid/releases/tag/v2.0.0) ·
+[Upgrade guide](https://docs.meteroid.com/self-hosting/upgrading-to-2-0)
 
-</span>
 </div>
 
 <br/>
+
+Meteroid is an open-source billing platform for usage-based, subscription and hybrid pricing. It meters
+your product's usage, prices it with your plans, and runs the whole cycle from quote to invoice and
+payment, so your engineers stop maintaining a homegrown billing system and your finance team stops
+reconciling spreadsheets.
+
 <div align="center">
+
+💡 **Just want to try it?** Spin up a free workspace on
+[Meteroid Cloud](https://app.meteroid.com/registration?source=github-readme-hero), ready in seconds, no credit card, hosted in the EU.
+
+
+<table>
+  <tr>
+    <td><img src="assets/product-billing.png" alt="Dashboard"></td>
+    <td><img src="assets/product-metering.png" alt="Billable metrics"></td>
+    <td><img src="assets/product-invoicing.png" alt="An invoice"></td>
+  </tr>
+</table>
+
+
+**We'd love your support or contribution! Leave a star ⭐ and join our [Discord](https://go.meteroid.com/discord?utm_source=github)!**
+
+</div>
  
-  **We'd love your support or contribution! Leave a star ⭐ and join our Discord!**
-   
-</div>
-
-<div align="center">
-
-💡 **Just want to try it?** Skip the setup and spin up a free workspace
-on [Meteroid Cloud](https://app.meteroid.com/registration?source=github-readme-hero) — ready in seconds, no credit card.
-
-</div>
-
----
-
-<p align="center">
-  <img src="assets/meteroid-banner.png" alt="Meteroid Billing Infrastructure Banner" width="1012" >
-</p>
-
-<a href="https://meteroid.com/talk-to-us">
-  Talk to us !
-</a>
-<br/>
-
-## How It Works
-
-Meteroid integrates with your existing systems via a simple API, collecting data on customer usage and interactions.
-This data fuels the Meteroid billing engine, applying your custom pricing models to generate accurate, timely invoices.
-
-Our platform simplifies the creation, scaling and maintenance of complex billing models, automates invoice generation,
-and provides _clear, actionable insights_ for achieving your KPIs.
-
-<p align="center">
-<img
-src="assets/meteroid-schema-4.webp"
-alt="Meteroid Schema"
-width="1012"
-/>
-</p>
 
 ## Features
 
-Meteroid is the complete monetization platform for modern SaaS. Key capabilities include:
+- [**Usage metering:**](https://docs.meteroid.com/metering/billable-metrics) send raw events (API calls,
+  tokens, transactions, storage) and turn them into billable metrics in real time, with filters on event
+  properties and a live preview while you author them. Events are deduplicated at ingestion.
+- [**Plans and pricing:**](https://docs.meteroid.com/billing/managing-plans) flat, per-unit, tiered,
+  volume, package, matrix and capacity pricing, or any mix of them. Plans are versioned, so a price change
+  never touches existing customers unless you want it to.
+- **Credits and wallets:** prepaid and promotional credit per currency or in your own credit units, with
+  grants, priorities, expiry and a full ledger. Sell top-ups, include credit packs in plans, and bill usage
+  beyond the balance as overage.
+- [**Subscriptions:**](https://docs.meteroid.com/subscriptions/what-is-a-subscription) trials, coupons,
+  add-ons, upgrades and downgrades mid-cycle with proration, and cancellations that credit what was paid in
+  advance.
+- [**Quotes:**](https://docs.meteroid.com/quotes/introduction) send a quote, get it signed, and the
+  subscription starts and bills on its own.
+- [**Invoicing:**](https://docs.meteroid.com/invoices/managing-invoices) invoices and credit notes in eight
+  languages, tax-inclusive or exclusive prices, and e-invoicing as Factur-X or XRechnung.
+- [**Payments:**](https://docs.meteroid.com/integrations/general-information) Stripe, GoCardless, Mollie and Stancer, with automatic retries, refunds, and a customer
+  portal and hosted checkout.
+- [**Entitlements:**](https://docs.meteroid.com/entitlements/create-and-manage-entitlements) control what
+  each customer can access or consume, from feature flags to metered limits.
+- **API, webhooks and integrations:** a REST API with SDKs, signed webhooks with retries and a delivery
+  log, and a growing list of connectors.
 
-- [**Usage Metering:**](https://docs.meteroid.com/metering/billable-metrics)
-  Transform raw usage events (API requests, tokens, transactions, storage, and more)
-  into accurate billable metrics in real time, without pre-aggregation. Powered by Rust
-  for high-throughput ingestion at scale.
+Meteroid Enterprise adds many features such as [revenue reports and analytics](https://docs.meteroid.com/analytics/overview), live balances, limits, budgets, dunning, tax reports, SSO, audit log and more: see [Editions and images](#editions-and-images).
 
-- [**Pricing & Billing:**](https://docs.meteroid.com/billing/managing-plans)
-  Model any pricing structure: flat rate, usage-based, tiered, or hybrid, without
-  engineering effort. Plans are versioned, so pricing changes never affect existing
-  customers unless you want them to.
+## Quick start
 
-- [**Subscription Management:**](https://docs.meteroid.com/subscriptions/what-is-a-subscription)
-  Create, manage, and update subscriptions with full lifecycle control: upgrades,
-  downgrades, mid-cycle changes, and cancellations.
-
-- [**Quotes (CPQ):**](https://docs.meteroid.com/quotes/introduction)
-  Generate and send quotes to close custom deals faster. Once a quote is signed,
-  a subscription is created and billing starts automatically, with no manual handovers.
-
-- [**Invoicing & Credit Notes:**](https://docs.meteroid.com/invoices/managing-invoices)
-  Automatically generate accurate, detailed invoices, from simple charges to complex
-  usage-based and hybrid billing. Issue credit notes when corrections are needed.
-
-- [**Entitlements:**](https://docs.meteroid.com/entitlements/create-and-manage-entitlements)
-  Control what each customer can access, use, or consume, from simple feature access to metered usage limits.
-
-- [**Trials, Coupons & Add-Ons:**](https://docs.meteroid.com/billing/managing-trials-and-coupons)
-  Drive conversions with trial periods and promotional coupons. Attach add-ons to
-  subscriptions to let customers unlock additional capabilities without switching plans.
-
-- [**Customer Management & Self-serve Portal:**](https://docs.meteroid.com/customer/managing-customers)
-  Full visibility into your customer base: subscriptions, payment methods, and usage
-  history. Give customers a self-serve portal so they can manage their own account
-  without contacting support.
-
-- [**Integrations:**](https://docs.meteroid.com/integrations/general-information)
-  Connect Meteroid with your existing tools: CRM, accounting, payments, and more.
-
-- [**Insights & Reporting:**](https://meteroid.com/product/insights-and-reporting)
-  Monitor your revenue in real time and identify what's driving growth with actionable insights, without waiting
-  for month-end exports. *(Coming soon)*
-
-
-## For whom ?
-
-Whether you're product-led or sales-led, or running both motions at once,
-Meteroid is your single source of truth for monetization.
-
-- **Product-led teams** that want to ship usage-based or complex or hybrid pricing from day one,
-  without building custom billing infrastructure.
-  
-- **Sales-led teams** that need to close custom deals fast, automate quote-to-cash,
-  and keep finance in sync with no manual handovers between sales and billing.
-  
-- **Engineering teams** that have been through the pain of building and maintaining a
-  billing system from scratch.
-
-## Build for Sustainable Growth
-
-Our philosophy is deeply rooted in the principles of open source and open startup culture. <br/>
-We believe in **transparency** and **collaboration** as foundational pillars that not only foster innovation but also
-build trust and community around our mission.
-
-By choosing Rust as our core technology, we leverage its efficiency, reliability, and safety features, ensuring our
-platform is built on a solid, secure foundation.
-
-Our focus on Product-Led Growth (PLG) reflects our commitment to creating products that drive user acquisition,
-retention, and expansion through their inherent value and user experience
-
-This approach, combined with our open philosophy, guides us toward creating a more inclusive, sustainable future for the
-SaaS industries.
-
-## Developer Guide
-
-Please refer to the [contributing guide](CONTRIBUTING.md) for how to install Meteroid from sources.
-
-## Self-hosting
-
-The [self-hosting guides](https://docs.meteroid.com/self-hosting) cover installation, configuration
-and upgrades:
-
-- **Docker Compose**: [`docker/deploy`](docker/deploy), see
-  [Deploy with Docker Compose](https://docs.meteroid.com/self-hosting/docker-compose).
-- **Kubernetes (Helm)**: [`k8s/meteroid`](k8s/meteroid), see
-  [Deploy on Kubernetes](https://docs.meteroid.com/self-hosting/kubernetes).
-- **Upgrading from 0.19 or a 1.0.0 release candidate**: see
-  [Upgrading to 2.0](https://docs.meteroid.com/self-hosting/upgrading-to-2-0).
-
-### Editions and images
-
-The official images (`ghcr.io/meteroid-oss/meteroid-api`, `meteroid-worker`, `metering-api` and
-`meteroid-web`) are Meteroid Enterprise: the code of this repository plus the Enterprise modules.
-They are free to run without a license, and a license unlocks the paid features. See
-[Editions](https://docs.meteroid.com/self-hosting/editions).
-
-This repository is the open-source edition, under the AGPL V3. No images of it are published:
-the Dockerfiles build it from this repository, and both editions share the same database, so you
-can switch between them by changing the images.
-
-### Git Hooks
-
-To install the pre-push hook (prevents direct pushes to main):
+Run Meteroid on your machine with Docker Compose:
 
 ```bash
-cp pre-push .git/hooks/pre-push
-chmod +x .git/hooks/pre-push
+git clone https://github.com/meteroid-oss/meteroid.git
+cd meteroid/docker/deploy
+cp .env.example .env   # set the secrets it lists
+docker compose up -d
 ```
 
-Bypass when needed: `ALLOW_MAIN=1 git push`
+Then open [http://localhost:3000](http://localhost:3000) and create your account. For a server, follow
+[Deploy with Docker Compose](https://docs.meteroid.com/self-hosting/docker-compose). For production, use the
+[Helm chart](https://docs.meteroid.com/self-hosting/kubernetes) in [`k8s/meteroid`](k8s/meteroid).
+
+Upgrading from 0.19 or a 1.0.0 release candidate? Follow
+[Upgrading to 2.0](https://docs.meteroid.com/self-hosting/upgrading-to-2-0).
+
+## Editions and images
+
+This repository is the open-source edition, under the AGPL V3. To run it, build the images from this repository; both editions share the same database, so you can switch by changing the images.
+
+The official images (`ghcr.io/meteroid-oss/meteroid-api`, `meteroid-worker`, `metering-api` and
+`meteroid-web`) are Meteroid Enterprise: the code of this repository plus the Enterprise modules. They are
+free to run without a license, and some Enterprise features come free with them: dunning, tax reports, MRR
+and revenue reports, and live balances and usage limits. A license unlocks the rest. See
+[Editions](https://docs.meteroid.com/self-hosting/editions).
+
+[Meteroid Cloud](https://app.meteroid.com/registration?source=github-readme-hero) is the managed service, run by the Meteroid team and hosted in Europe.
+
+## Services
+
+- **API** (Rust): the gRPC API used by the web app and the public REST API.
+- **Worker(s)** (Rust): invoicing, payments, emails, webhooks and every scheduled job.
+- **Metering API** (Rust): event ingestion at scale through Kafka into ClickHouse, deduplication and usage queries.
+- **Web app** (React and TypeScript).
+- **Storage:** PostgreSQL 18 with `pgmq`, ClickHouse, Kafka, Redis (optional) and S3-compatible object storage.
+
+## Contributing
+
+This repository receives the code from the repository Meteroid is developed in, one commit per change with
+its original author. Pull requests are welcome here: once a maintainer approves one, it is replayed upstream
+and comes back with the next export, under your name. See the [contributing guide](CONTRIBUTING.md) to
+build Meteroid from source.
 
 ## License
 
@@ -203,8 +144,7 @@ Copyright 2026 Meteroid
 
 Licensed under the AGPL V3 License. <br/> See [LICENSE](LICENSE) for more information.
 
-The official images are Meteroid Enterprise, see [Editions and images](#editions-and-images). For
-enterprise support, licenses or custom licensing options, contact us at
+For enterprise support, licenses or custom licensing options, contact us at
 [hey@meteroid.com](mailto:hey@meteroid.com).
 
 ## Contributors ✨
@@ -217,4 +157,4 @@ enterprise support, licenses or custom licensing options, contact us at
 
 Join us on <a href="https://go.meteroid.com/discord?utm_source=github">Discord</a> !
 
-Thanks for the crazy support 💖
+Thanks for the support 💖
