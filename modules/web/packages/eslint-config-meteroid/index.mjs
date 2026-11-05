@@ -43,6 +43,8 @@ export default tseslint.config(
       'import/resolver': {
         typescript: { project: ['./**/tsconfig.json'] },
       },
+      // Not parsing dependencies keeps import/no-cycle from walking all of node_modules (~4x faster lint).
+      'import/ignore': ['node_modules'],
       react: { version: 'detect' },
     },
     rules: {
