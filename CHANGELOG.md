@@ -1,7 +1,7 @@
 # Changelog
 
-Versions before 2.0 are described in the
-[GitHub releases](https://github.com/meteroid-oss/meteroid/releases).
+From 2.0.2, the release notes are in [GitHub Releases](https://github.com/meteroid-oss/meteroid/releases),
+as are those of the versions before 2.0.
 
 ## [2.0.1] - 2026-11-05
 
