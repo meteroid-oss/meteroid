@@ -46,6 +46,8 @@ pub fn mocked_config(
         // Off in tests: sweeps are driven explicitly with a bound `now`.
         ("PAYMENT_REMINDERS_ENABLED", "false".to_owned()),
         ("WEBHOOK_DELIVERY_CONCURRENCY", "4".to_owned()),
+        // Test receivers listen on loopback.
+        ("WEBHOOK_ALLOW_PRIVATE_DESTINATIONS", "true".to_owned()),
     ]
     .into_iter()
     .map(|(name, value)| (name.to_owned(), value))

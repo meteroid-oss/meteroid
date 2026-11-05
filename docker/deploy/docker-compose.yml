@@ -164,7 +164,7 @@ services:
     #      - AWS_ENDPOINT=${AWS_ENDPOINT:-}
     #      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
     #      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
-    #      # Optional: Redis, rate limits and caches shared across replicas
+    #      # Optional: Redis, rate limits (none without it) and caches shared across replicas
     #      - REDIS_URL=${REDIS_URL:-}
     #      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     #      # Optional: OAuth
@@ -228,7 +228,7 @@ services:
     #      - AWS_ENDPOINT=${AWS_ENDPOINT:-}
     #      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
     #      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
-    #      # Optional: Redis, rate limits and caches shared across replicas
+    #      # Optional: Redis, rate limits (none without it) and caches shared across replicas
     #      - REDIS_URL=${REDIS_URL:-}
     #      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     #      # Optional: OAuth

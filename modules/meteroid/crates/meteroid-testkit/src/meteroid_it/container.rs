@@ -4,7 +4,7 @@ use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_noop, setup_eventbus_handlers};
 use meteroid::migrations;
 use meteroid::module::Modules;
-use meteroid::services::egress::{Egress, EgressPurpose};
+use meteroid::services::egress::EgressPurpose;
 use meteroid::services::storage::{ObjectStoreService, in_memory_object_store};
 use meteroid_mailer::config::MailerConfig;
 use meteroid_mailer::service::MailerService;
@@ -394,7 +394,7 @@ async fn start_meteroid_from_config(
     meteroid_middleware::server::auth::strategies::jwt_strategy::invalidate_all_member_access_cache()
         .await;
 
-    let egress = Egress::new(config.webhook_out.clone(), modules.destination_guard());
+    let egress = meteroid::process::egress(&config.webhook_out);
 
     let store = meteroid_store::Store::new(StoreConfig {
         pg: config.pg.clone(),

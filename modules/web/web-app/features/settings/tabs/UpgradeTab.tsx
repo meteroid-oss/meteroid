@@ -1,11 +1,5 @@
 import { Badge, Button, Card } from '@md/ui'
-import {
-  ArrowLeftRightIcon,
-  ExternalLinkIcon,
-  GiftIcon,
-  LucideIcon,
-  ShieldCheckIcon,
-} from 'lucide-react'
+import { ArrowLeftRightIcon, ExternalLinkIcon, GiftIcon, LucideIcon } from 'lucide-react'
 import { FunctionComponent } from 'react'
 
 import {
@@ -44,11 +38,6 @@ const HIGHLIGHTS: { icon: LucideIcon; title: string; description: string }[] = [
     title: 'Switch both ways',
     description:
       'Same database and migrations: change the images, and change them back the same way.',
-  },
-  {
-    icon: ShieldCheckIcon,
-    title: 'Hardened at scale',
-    description: 'Performance and security improvements from our large-scale cloud setup.',
   },
 ]
 

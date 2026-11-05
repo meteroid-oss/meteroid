@@ -2,13 +2,15 @@ use crate::Modules;
 use common_logging::GLOBAL_METER;
 use fred::prelude::{Builder, ClientLike, Config as FredConfig, ReconnectPolicy};
 use meteroid_app::clients::usage::MeteringUsageClient;
-use meteroid_app::config::{Config, RedisConfig};
+use meteroid_app::config::{Config, RedisConfig, WebhookOutConfig};
 use meteroid_app::eventbus::create_eventbus_memory;
 use meteroid_app::services::egress::{Egress, EgressPurpose};
 use meteroid_store::Store;
 use meteroid_store::store::{PgPool, StoreConfig};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::ObservableGauge;
+use rate_limiter::{RateLimitConfig, RateLimiter};
+use redis_rate_limiter::RedisRateLimitBackend;
 use secrecy::ExposeSecret;
 use std::sync::Arc;
 use std::time::Duration;
@@ -54,6 +56,28 @@ pub fn build_store(
     register_pool_metrics(&store.pool);
 
     store
+}
+
+/// The process's outbound HTTP clients. Private and internal destinations are refused unless
+/// `WEBHOOK_ALLOW_PRIVATE_DESTINATIONS` (or its SSO override) allows them.
+pub fn egress(config: &WebhookOutConfig) -> Egress {
+    let guard = egress_guard::DestinationGuard::new(
+        config.allow_private_destinations,
+        config.sso_allow_private_destinations,
+    );
+    Egress::new(config.clone(), Some(Arc::new(guard)))
+}
+
+/// The API's rate limiter, shared by every replica through Redis. Without Redis, requests are
+/// not limited.
+pub async fn rate_limiter(redis: Option<&fred::prelude::Client>) -> RateLimiter {
+    match redis {
+        Some(redis) => RateLimiter::new(
+            Arc::new(RedisRateLimitBackend::new(redis.clone()).await),
+            RateLimitConfig::default(),
+        ),
+        None => RateLimiter::default(),
+    }
 }
 
 const REDIS_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -139,7 +163,7 @@ pub fn start(edition: impl FnOnce() -> Modules) -> Result<Process, dotenvy::Erro
     crate::load_dotenv()?;
     let config = Config::load();
     let modules = edition();
-    let egress = Egress::new(config.webhook_out.clone(), modules.destination_guard());
+    let egress = egress(&config.webhook_out);
 
     common_logging::telemetry::init(&config.common.telemetry);
     Config::log_ignored_settings(&modules.edition.ignored_settings());
@@ -153,4 +177,42 @@ pub fn start(edition: impl FnOnce() -> Modules) -> Result<Process, dotenvy::Erro
         usage_client,
         egress,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_default_egress_refuses_private_destinations() {
+        let egress = egress(&WebhookOutConfig::default());
+        for purpose in [
+            EgressPurpose::Webhooks,
+            EgressPurpose::Alerts,
+            EgressPurpose::Sso,
+        ] {
+            let client = egress.client(purpose).expect("egress client");
+            assert!(!client.allows_private_destinations(), "{purpose:?}");
+        }
+    }
+
+    #[test]
+    fn private_destinations_can_be_allowed() {
+        let egress = egress(&WebhookOutConfig {
+            allow_private_destinations: true,
+            ..WebhookOutConfig::default()
+        });
+        let client = egress
+            .client(EgressPurpose::Webhooks)
+            .expect("egress client");
+        assert!(client.allows_private_destinations());
+    }
+
+    #[test]
+    fn without_redis_requests_are_not_limited() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("runtime");
+        assert!(!runtime.block_on(rate_limiter(None)).is_enabled());
+    }
 }

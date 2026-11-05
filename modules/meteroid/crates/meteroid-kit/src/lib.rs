@@ -33,13 +33,13 @@ use meteroid_store::hooks::{
 };
 use meteroid_store::repositories::revenue_stats::{RevenueStats, postgres_revenue_stats};
 use meteroid_store::{Services, Store};
-use rate_limiter::{RateLimitBackend, RateLimitConfig, RateLimiter};
+use rate_limiter::RateLimiter;
 use tokio::task::JoinSet;
 use utoipa_axum::router::OpenApiRouter;
 
 use meteroid_app::config::Config;
 use meteroid_app::features::{Entitlements, FeatureGate, OssEntitlements};
-use meteroid_app::services::egress::{Egress, EgressGuard};
+use meteroid_app::services::egress::Egress;
 use meteroid_rest_common::delegated_auth::RestDelegatedAuth;
 
 pub struct ApiContext {
@@ -191,21 +191,6 @@ pub trait ApiModule: Send + Sync {
         _config: &Config,
         _egress: &Egress,
     ) -> Option<Arc<dyn AnalyticsHook>> {
-        None
-    }
-
-    /// Where the API's rate limits are counted, given the process's Redis; without a backend
-    /// every request is allowed.
-    async fn rate_limit_backend(
-        &self,
-        _redis: &fred::prelude::Client,
-    ) -> Option<Arc<dyn RateLimitBackend>> {
-        None
-    }
-
-    /// Restricts the destinations of outbound HTTP; without one, any destination is reachable.
-    /// The process builds every outbound client with it, through its [`Egress`].
-    fn destination_guard(&self) -> Option<Arc<dyn EgressGuard>> {
         None
     }
 
@@ -402,23 +387,6 @@ impl Modules {
             .iter()
             .find_map(|module| module.analytics_hook(store, config, egress))
             .unwrap_or_else(no_analytics_hook)
-    }
-
-    pub async fn rate_limiter(&self, redis: Option<&fred::prelude::Client>) -> RateLimiter {
-        if let Some(redis) = redis {
-            for module in &self.api {
-                if let Some(backend) = module.rate_limit_backend(redis).await {
-                    return RateLimiter::new(backend, RateLimitConfig::default());
-                }
-            }
-        }
-        RateLimiter::default()
-    }
-
-    pub fn destination_guard(&self) -> Option<Arc<dyn EgressGuard>> {
-        self.api
-            .iter()
-            .find_map(|module| module.destination_guard())
     }
 
     pub fn route_policies(&self) -> Vec<RoutePolicy> {

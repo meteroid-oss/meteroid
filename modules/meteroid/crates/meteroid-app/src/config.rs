@@ -247,6 +247,15 @@ pub struct WebhookOutConfig {
     #[envconfig(from = "EGRESS_USE_PROXY_SSO", default = "false")]
     pub sso_use_proxy: bool,
 
+    /// Lets webhooks, alerts and SSO reach private and internal addresses: self-hosters
+    /// delivering inside their own network, local dev and tests.
+    #[envconfig(from = "WEBHOOK_ALLOW_PRIVATE_DESTINATIONS", default = "false")]
+    pub allow_private_destinations: bool,
+
+    /// Overrides `allow_private_destinations` for SSO (OIDC discovery, token calls).
+    #[envconfig(from = "EGRESS_ALLOW_PRIVATE_DESTINATIONS_SSO")]
+    pub sso_allow_private_destinations: Option<bool>,
+
     #[envconfig(from = "WEBHOOK_RETENTION_DAYS", default = "30")]
     pub retention_days: RetentionDays,
 }
@@ -281,6 +290,8 @@ impl Default for WebhookOutConfig {
             delivery_concurrency: 32,
             egress_proxy_url: None,
             sso_use_proxy: false,
+            allow_private_destinations: false,
+            sso_allow_private_destinations: None,
             retention_days: RetentionDays(30),
         }
     }

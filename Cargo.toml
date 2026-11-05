@@ -56,12 +56,14 @@ members = [
   "crates/common-logging",
   "crates/common-utils",
   "crates/distributed-lock",
+  "crates/egress-guard",
   "crates/egress-http",
   "crates/http-client-tracing",
   "crates/secrecy",
   # enterprise
   "crates/license-protocol",
   "crates/rate-limiter",
+  "crates/redis-rate-limiter",
   # vendored third-party (see crate LICENSE files)
   "crates/world-tax",
   # first-party fork of rusty-money (see crate LICENSE)
@@ -271,6 +273,7 @@ metering-grpc = { path = "modules/metering/crates/metering-grpc" }
 meteroid-grpc = { path = "modules/meteroid/crates/meteroid-grpc" }
 common-utils = { path = "crates/common-utils" }
 distributed-lock = { path = "crates/distributed-lock", default-features = false }
+egress-guard = { path = "crates/egress-guard" }
 egress-http = { path = "crates/egress-http" }
 license-protocol = { path = "crates/license-protocol" }
 http-client-tracing = { path = "crates/http-client-tracing" }
@@ -306,5 +309,6 @@ pennylane-client = { path = "modules/meteroid/crates/pennylane-client" }
 meteroid-tax = { path = "modules/meteroid/crates/meteroid-tax" }
 meteroid-rs-dogfooding = { package = "meteroid-rs", version = "0.29.0" }
 rate-limiter = { path = "crates/rate-limiter" }
+redis-rate-limiter = { path = "crates/redis-rate-limiter" }
 
 [patch.crates-io]

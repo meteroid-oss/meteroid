@@ -103,7 +103,7 @@ global:
     username: "meteroid"
     clusterName: "meteroid"
 
-  # Optional: without it, rate limits and caches are kept per replica
+  # Optional: without it, the API is not rate limited and caches are kept per replica
   redis:
     url: ""
 
@@ -116,7 +116,7 @@ global:
     egressProxyUrl: ""
     # deliveryConcurrency: 32
     # retentionDays: 30
-    # Enterprise images only (the OSS ones do not restrict destinations):
+    # Deliveries to private and internal addresses are refused unless allowed:
     # allowPrivateDestinations: false
     # SSO overrides, defaulting to the settings above:
     # ssoAllowPrivateDestinations: false

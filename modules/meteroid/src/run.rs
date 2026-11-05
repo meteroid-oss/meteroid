@@ -48,7 +48,7 @@ pub async fn run_api(edition: impl FnOnce() -> Modules) -> Result<(), Box<dyn st
         &config.object_store_prefix,
     )?);
 
-    let rate_limiter = modules.rate_limiter(fred_client.as_ref()).await;
+    let rate_limiter = process::rate_limiter(fred_client.as_ref()).await;
 
     let grpc_server = crate::api::server::start_api_server(
         config.clone(),
@@ -183,7 +183,7 @@ async fn run_standalone_serving(
         &config.object_store_prefix,
     )?);
 
-    let rate_limiter = modules.rate_limiter(fred_client.as_ref()).await;
+    let rate_limiter = process::rate_limiter(fred_client.as_ref()).await;
 
     let idempotency: Arc<dyn IdempotencyService> = match &fred_client {
         Some(client) => Arc::new(RedisIdempotencyService::new(client.clone())),

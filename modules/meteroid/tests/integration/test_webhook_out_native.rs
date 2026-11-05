@@ -220,7 +220,7 @@ fn worker(env: &TestEnv) -> WebhookDeliveryWorker {
 }
 
 fn core_egress(env: &TestEnv) -> Egress {
-    Egress::new(env.setup.config.webhook_out.clone(), None)
+    meteroid::process::egress(&env.setup.config.webhook_out)
 }
 
 async fn deliveries(env: &TestEnv, endpoint_id: WebhookEndpointId) -> Vec<WebhookDeliveryListItem> {
@@ -1257,13 +1257,10 @@ async fn a_dead_egress_proxy_defers_without_blaming_the_endpoint(
 
     let behind_dead_proxy = WebhookDeliveryWorker::new(
         Arc::new(env.store().clone()),
-        &Egress::new(
-            meteroid::config::WebhookOutConfig {
-                egress_proxy_url: Some("http://127.0.0.1:1".to_string()),
-                ..env.setup.config.webhook_out.clone()
-            },
-            None,
-        ),
+        &meteroid::process::egress(&meteroid::config::WebhookOutConfig {
+            egress_proxy_url: Some("http://127.0.0.1:1".to_string()),
+            ..env.setup.config.webhook_out.clone()
+        }),
     )
     .expect("build delivery worker");
 
@@ -1456,7 +1453,7 @@ async fn redirects_are_never_followed(#[future] test_env_minimal: TestEnv) {
     assert_ne!(delivery.status, WebhookDeliveryStatus::Succeeded);
 }
 
-/// With private destinations reachable (as here, no destination guard), an endpoint could point
+/// With private destinations allowed (as in tests), an endpoint could point
 /// at an internal service: its answers must not be readable back from the delivery log.
 #[rstest]
 #[tokio::test]

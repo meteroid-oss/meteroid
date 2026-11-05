@@ -11,6 +11,8 @@ meteroid-app.workspace = true
 thiserror.workspace = true
 common-logging = { workspace = true }
 rate-limiter = { workspace = true, features = ["tonic", "axum"] }
+redis-rate-limiter.workspace = true
+egress-guard.workspace = true
 meteroid-grpc = { path = "../meteroid-grpc", features = ["server"] }
 meteroid-middleware = { path = "../meteroid-middleware", features = ["server"] }
 dotenvy.workspace = true

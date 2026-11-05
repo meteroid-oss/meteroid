@@ -13,7 +13,7 @@ use crate::config::Config;
 use crate::migrations;
 use crate::module::Modules;
 use crate::process::build_store;
-use crate::services::egress::{Egress, EgressPurpose};
+use crate::services::egress::EgressPurpose;
 use crate::services::svix_import::{self, client::SvixClient};
 
 const USAGE: &str = "\
@@ -92,7 +92,7 @@ async fn import(edition: impl FnOnce() -> Modules, apply: bool) -> Result<ExitCo
     // endpoint it would refuse to send to is imported disabled.
     let config = Config::init_from_env().map_err(|e| format!("invalid configuration: {e}"))?;
     let modules = edition();
-    let egress = Egress::new(config.webhook_out.clone(), modules.destination_guard());
+    let egress = crate::process::egress(&config.webhook_out);
     let webhook_egress = egress
         .client(EgressPurpose::Webhooks)
         .map_err(|e| format!("cannot build the webhook egress client: {e}"))?;

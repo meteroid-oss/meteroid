@@ -1,6 +1,6 @@
 //! Construction of the shared outbound HTTP clients. Every outbound call to a tenant- or
 //! admin-supplied destination goes through one; they share the `WEBHOOK_*` egress settings, with
-//! a per-purpose override for the proxy, and the edition's destination guard when it has one.
+//! a per-purpose override for the proxy, and the process's destination guard.
 
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -54,8 +54,8 @@ pub trait EgressGuard: Send + Sync {
     ) -> Result<Arc<dyn DestinationPolicy>, EgressError>;
 }
 
-/// The process's outbound HTTP clients: the `WEBHOOK_*` egress settings and the edition's
-/// destination guard. Built once by the process and passed down; clones share one instance.
+/// The process's outbound HTTP clients: the `WEBHOOK_*` egress settings and the destination
+/// guard. Built once by the process and passed down; clones share one instance.
 #[derive(Clone)]
 pub struct Egress(Arc<EgressInner>);
 

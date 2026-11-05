@@ -20,7 +20,8 @@ The chart deploys the application only. It connects to:
 - **S3-compatible object storage** (`global.objectStore.*`).
 - **Traefik** for the default `IngressRoute`s, or set `ingress.useIngressRoute: false` for a standard `Ingress`.
 
-Optional: Redis (`global.redis.url`), which shares rate limits and caches across replicas, and SMTP (`global.smtp.*`).
+Optional: Redis (`global.redis.url`), which rate limits the API and shares caches across replicas (without it, the API is
+not rate limited), and SMTP (`global.smtp.*`).
 
 ## Install
 
@@ -42,7 +43,7 @@ See [`values.yaml`](values.yaml). The values you will set in most installs:
 | `global.secrets.databaseUrl`, `jwtPrivateKey`, `internalApiSecret` | Required. Use long random strings for the two secrets |
 | `global.secrets.secretsCryptkey` | Required. Exactly 32 ASCII characters, e.g. `openssl rand -hex 16`. It encrypts the connector credentials stored in Postgres: keep it, as changing it makes them unreadable |
 | `global.kafka.*`, `global.clickhouse.*`, `global.objectStore.uri` | Kafka, ClickHouse and object storage |
-| `global.webhooks.*` | Outbound webhook delivery, e.g. an egress proxy |
+| `global.webhooks.*` | Outbound webhook delivery, e.g. an egress proxy. Private and internal destinations are refused unless `allowPrivateDestinations` is set |
 | `global.smtp.host`, `from`, `customerFromAddr`, `replyTo` | Email delivery. `from` is required with a host; customer emails go out from `customerFromAddr`, by default the address of `from`. Credentials: `global.secrets.smtp.*` |
 | `global.secrets.kafka.password`, `clickhouse.password`, `redis.password` | Their credentials |
 | `<component>.resources`, `<component>.autoscaling` | Unset by default; autoscaling needs CPU requests |

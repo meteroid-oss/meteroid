@@ -66,7 +66,7 @@ num-bigint = { version = "0.4" }
 num-integer = { version = "0.1", features = ["i128"] }
 num-rational = { version = "0.4", features = ["num-bigint-std"] }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
-once_cell = { version = "1" }
+once_cell = { version = "1", features = ["critical-section"] }
 opentelemetry = { version = "0.32", features = ["testing"] }
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "rt-tokio-current-thread", "testing"] }
 percent-encoding = { version = "2" }
@@ -186,7 +186,7 @@ num-bigint = { version = "0.4" }
 num-integer = { version = "0.1", features = ["i128"] }
 num-rational = { version = "0.4", features = ["num-bigint-std"] }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
-once_cell = { version = "1" }
+once_cell = { version = "1", features = ["critical-section"] }
 opentelemetry = { version = "0.32", features = ["testing"] }
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "rt-tokio-current-thread", "testing"] }
 percent-encoding = { version = "2" }
@@ -262,6 +262,7 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12"] }
 hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system"] }
+ipnet = { version = "2", features = ["serde"] }
 libc = { version = "0.2" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 tower-http = { version = "0.6", features = ["add-extension", "auth", "catch-panic", "cors", "follow-redirect", "limit", "set-header", "trace"] }
@@ -271,6 +272,7 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12"] }
 hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system"] }
+ipnet = { version = "2", features = ["serde"] }
 libc = { version = "0.2" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 tower-http = { version = "0.6", features = ["add-extension", "auth", "catch-panic", "cors", "follow-redirect", "limit", "set-header", "trace"] }
@@ -280,6 +282,7 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12"] }
 hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system"] }
+ipnet = { version = "2", features = ["serde"] }
 libc = { version = "0.2" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 tower-http = { version = "0.6", features = ["add-extension", "auth", "catch-panic", "cors", "follow-redirect", "limit", "set-header", "trace"] }
@@ -289,6 +292,7 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12"] }
 hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system"] }
+ipnet = { version = "2", features = ["serde"] }
 libc = { version = "0.2" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 tower-http = { version = "0.6", features = ["add-extension", "auth", "catch-panic", "cors", "follow-redirect", "limit", "set-header", "trace"] }
@@ -299,7 +303,9 @@ errno = { version = "0.3" }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12"] }
 hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system"] }
+ipnet = { version = "2", features = ["serde"] }
 libc = { version = "0.2" }
+security-framework-sys = { version = "2" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 tower-http = { version = "0.6", features = ["add-extension", "auth", "catch-panic", "cors", "follow-redirect", "limit", "set-header", "trace"] }
 
@@ -309,7 +315,9 @@ errno = { version = "0.3" }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12"] }
 hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system"] }
+ipnet = { version = "2", features = ["serde"] }
 libc = { version = "0.2" }
+security-framework-sys = { version = "2" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 tower-http = { version = "0.6", features = ["add-extension", "auth", "catch-panic", "cors", "follow-redirect", "limit", "set-header", "trace"] }
 
