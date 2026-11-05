@@ -100,6 +100,8 @@ Meteroid Enterprise adds many features such as [revenue reports and analytics](h
 
 Run Meteroid on your machine with Docker Compose:
 
+The default images are Meteroid Enterprise (free under 50 employees and €2M in annual revenue). For the AGPL images built from this repository, add [`-f docker-compose.oss.yml`](docker/deploy/docker-compose.oss.yml): `docker compose -f docker-compose.yml -f docker-compose.oss.yml up -d`.
+
 ```bash
 git clone https://github.com/meteroid-oss/meteroid.git
 cd meteroid/docker/deploy
@@ -116,9 +118,13 @@ Upgrading from 0.19 or a 1.0.0 release candidate? Follow
 
 ## Editions and images
 
-This repository is the open-source edition, under the AGPL V3. To run it, build the images from this repository; both editions share the same database, so you can switch by changing the images.
+This repository is the open-source edition, under the AGPL V3. Its images are published on each release as
+`ghcr.io/meteroid-oss/meteroid-oss-api`, `meteroid-oss-worker`, `meteroid-oss-metering` and `meteroid-oss-web`:
+use them with the Compose override [`docker-compose.oss.yml`](docker/deploy/docker-compose.oss.yml) or the Helm
+chart's `edition: oss`. You can also build them from this repository. Both editions share the same database, so you
+can switch by changing the images.
 
-The official images (`ghcr.io/meteroid-oss/meteroid-api`, `meteroid-worker`, `metering-api` and
+The default images (`ghcr.io/meteroid-oss/meteroid-api`, `meteroid-worker`, `metering-api` and
 `meteroid-web`) are Meteroid Enterprise: the code of this repository plus the Enterprise modules. They are
 free for companies under 50 employees and €2M in annual revenue under the
 [Enterprise license](editions/enterprise/LICENSE), and some Enterprise features come free with
@@ -148,9 +154,9 @@ build Meteroid from source.
 
 Copyright 2026 Meteroid
 
-The code of this repository is licensed under the AGPL V3 License: see [LICENSE](LICENSE). The official
-images, Meteroid Enterprise, are licensed under the Meteroid Enterprise License: see
-[editions/enterprise/LICENSE](editions/enterprise/LICENSE).
+The code of this repository, and the `meteroid-oss-*` images built from it, are licensed under the AGPL V3
+License: see [LICENSE](LICENSE). The default images, Meteroid Enterprise, are licensed under the Meteroid
+Enterprise License: see [editions/enterprise/LICENSE](editions/enterprise/LICENSE).
 
 For enterprise support, licenses or custom licensing options, contact us at
 [hey@meteroid.com](mailto:hey@meteroid.com).

@@ -159,6 +159,51 @@ The worker's values: `worker`, overridden by the former `scheduler` key, read un
 {{- end }}
 
 {{/*
+The edition: enterprise (the default) or oss
+*/}}
+{{- define "meteroid.edition" -}}
+{{- $edition := .Values.edition | default "enterprise" -}}
+{{- if not (has $edition (list "enterprise" "oss")) -}}
+{{- fail (printf "edition must be enterprise or oss, not %q" $edition) -}}
+{{- end -}}
+{{- $edition -}}
+{{- end }}
+
+{{- define "meteroid.isEnterprise" -}}
+{{- if eq (include "meteroid.edition" .) "enterprise" }}true{{ end -}}
+{{- end }}
+
+{{/*
+A component's image: its `image.repository`, else the edition's image. Takes root, component and image.
+*/}}
+{{- define "meteroid.image" -}}
+{{- $names := dict
+  "enterprise" (dict "api" "meteroid-api" "worker" "meteroid-worker" "metering" "metering-api" "web" "meteroid-web")
+  "oss" (dict "api" "meteroid-oss-api" "worker" "meteroid-oss-worker" "metering" "meteroid-oss-metering" "web" "meteroid-oss-web") }}
+{{- $default := printf "ghcr.io/meteroid-oss/%s" (index $names (include "meteroid.edition" .root) .component) }}
+{{- printf "%s:%s" (.image.repository | default $default) (.image.tag | default .root.Chart.AppVersion | toString) }}
+{{- end }}
+
+{{/*
+License settings, read by the Enterprise images only. Takes root, and licenseServer for the
+components that refresh an online license.
+*/}}
+{{- define "meteroid.licenseEnv" -}}
+{{- if include "meteroid.isEnterprise" .root }}
+- name: LICENSE_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "meteroid.secretsName" .root }}
+      key: license-key
+      optional: true
+{{- if and .licenseServer .root.Values.global.licenseServerUrl }}
+- name: LICENSE_SERVER_URL
+  value: {{ .root.Values.global.licenseServerUrl | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
 Settings shared by the API and the worker
 */}}
 {{- define "meteroid.settingsEnv" -}}

@@ -49,7 +49,7 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.api.terminationGracePeriodSeconds | default 30 }}
       containers:
         - name: {{ .Chart.Name }}-api
-          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "meteroid.image" (dict "root" . "component" "api" "image" .Values.api.image) | quote }}
           imagePullPolicy: {{ .Values.api.image.pullPolicy }}
           ports:
             - name: http
@@ -64,15 +64,8 @@ spec:
             {{- with .Values.api.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-            - name: LICENSE_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "meteroid.secretsName" . }}
-                  key: license-key
-                  optional: true
-            {{- if .Values.global.licenseServerUrl }}
-            - name: LICENSE_SERVER_URL
-              value: {{ .Values.global.licenseServerUrl | quote }}
+            {{- with include "meteroid.licenseEnv" (dict "root" . "licenseServer" true) | trim }}
+            {{- . | nindent 12 }}
             {{- end }}
             {{- with .Values.api.config.pgPoolMaxSize }}
             - name: PG_POOL_MAX_SIZE

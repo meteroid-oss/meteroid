@@ -1,3 +1,8 @@
+# enterprise: the official images (ghcr.io/meteroid-oss/meteroid-api, ...), Meteroid Enterprise.
+# oss: the AGPL images built from the public repository (ghcr.io/meteroid-oss/meteroid-oss-api,
+# ...), without the license settings. `<component>.image.repository` overrides either.
+edition: enterprise
+
 commonSettings: &commonSettings
   replicaCount: 1
   # CPU-based autoscaling needs resources.requests.cpu
@@ -158,7 +163,8 @@ ingress:
 api:
   <<: *commonSettings
   image:
-    repository: ghcr.io/meteroid-oss/meteroid-api
+    # Defaults to the edition's image
+    repository: ""
     # Defaults to the chart's appVersion
     tag: ""
   service:
@@ -174,7 +180,8 @@ api:
 web:
   <<: *commonSettings
   image:
-    repository: ghcr.io/meteroid-oss/meteroid-web
+    # Defaults to the edition's image
+    repository: ""
     # Defaults to the chart's appVersion
     tag: ""
   service:
@@ -190,7 +197,8 @@ metering:
   <<: *commonSettings
   enabled: true
   image:
-    repository: ghcr.io/meteroid-oss/metering-api
+    # Defaults to the edition's image
+    repository: ""
     # Defaults to the chart's appVersion
     tag: ""
   service:
@@ -204,7 +212,8 @@ metering:
 worker:
   <<: *commonSettings
   image:
-    repository: ghcr.io/meteroid-oss/meteroid-worker
+    # Defaults to the edition's image
+    repository: ""
     # Defaults to the chart's appVersion
     tag: ""
   config:

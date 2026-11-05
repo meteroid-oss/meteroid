@@ -50,7 +50,7 @@ spec:
       terminationGracePeriodSeconds: {{ $worker.terminationGracePeriodSeconds | default 30 }}
       containers:
         - name: {{ .Chart.Name }}-worker
-          image: "{{ $worker.image.repository }}:{{ $worker.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "meteroid.image" (dict "root" . "component" "worker" "image" $worker.image) | quote }}
           imagePullPolicy: {{ $worker.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.meteroid.containerSecurityContext | nindent 12 }}
@@ -58,15 +58,8 @@ spec:
             {{- with $worker.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-            - name: LICENSE_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "meteroid.secretsName" . }}
-                  key: license-key
-                  optional: true
-            {{- if .Values.global.licenseServerUrl }}
-            - name: LICENSE_SERVER_URL
-              value: {{ .Values.global.licenseServerUrl | quote }}
+            {{- with include "meteroid.licenseEnv" (dict "root" . "licenseServer" true) | trim }}
+            {{- . | nindent 12 }}
             {{- end }}
             {{- with $worker.config.pgPoolMaxSize }}
             - name: PG_POOL_MAX_SIZE

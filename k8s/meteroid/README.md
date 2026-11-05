@@ -4,8 +4,11 @@ Deploys the Meteroid API, worker, metering and web app. Each chart release pins 
 release: chart `2.0.0` runs `ghcr.io/meteroid-oss/{meteroid-api,meteroid-worker,metering-api,meteroid-web}:v2.0.0`.
 These images include the Enterprise modules. Under the [Enterprise license](../../editions/enterprise/LICENSE),
 they are free for companies under 50 employees and €2M in annual revenue, larger companies need a commercial license, and a
-license unlocks the paid features (see Licensing). To run the open-source edition only, build the images from the repository with `EDITION=oss` and
-set `<component>.image.repository`.
+license unlocks the paid features (see Licensing).
+
+To run the open-source edition only, set `edition: oss`: the chart then runs the AGPL images built from the public
+repository, `ghcr.io/meteroid-oss/{meteroid-oss-api,meteroid-oss-worker,meteroid-oss-metering,meteroid-oss-web}`, and
+leaves out the license settings. Both editions share the same database, so you can switch either way.
 
 ## Prerequisites
 
@@ -46,6 +49,8 @@ See [`values.yaml`](values.yaml). The values you will set in most installs:
 | `global.webhooks.*` | Outbound webhook delivery, e.g. an egress proxy. Private and internal destinations are refused unless `allowPrivateDestinations` is set |
 | `global.smtp.host`, `from`, `customerFromAddr`, `replyTo` | Email delivery. `from` is required with a host; customer emails go out from `customerFromAddr`, by default the address of `from`. Credentials: `global.secrets.smtp.*` |
 | `global.secrets.kafka.password`, `clickhouse.password`, `redis.password` | Their credentials |
+| `edition` | `enterprise` (default) or `oss`: the images the chart runs, and whether it sets the license settings |
+| `<component>.image.repository`, `<component>.image.tag` | Another image, e.g. from your own registry. The defaults are the edition's image and the chart's `appVersion` |
 | `<component>.resources`, `<component>.autoscaling` | Unset by default; autoscaling needs CPU requests |
 | `<component>.extraEnv` | Extra environment variables for a component |
 
@@ -54,7 +59,7 @@ Components are `api`, `worker`, `metering` and `web`. The worker runs the schedu
 
 ## Licensing
 
-Without a license the instance runs the free tier. To unlock the licensed features, either:
+With `edition: enterprise`, the default, an instance without a license runs the free tier. To unlock the licensed features, either:
 
 - set `global.secrets.licenseKey` (or the `license-key` key of your existing secret) to a license key, or
 - activate a code in Settings > License; the instance then refreshes its license from `global.licenseServerUrl`

@@ -1,0 +1,16 @@
+# The open-source images (AGPL), built from the public repository, instead of the Enterprise ones:
+#   docker compose -f docker-compose.yml -f docker-compose.oss.yml up -d
+# Or set COMPOSE_FILE=docker-compose.yml:docker-compose.oss.yml in .env for every command.
+
+services:
+  meteroid-api:
+    image: ghcr.io/meteroid-oss/meteroid-oss-api:${METEROID_VERSION:-latest}
+
+  meteroid-worker:
+    image: ghcr.io/meteroid-oss/meteroid-oss-worker:${METEROID_VERSION:-latest}
+
+  metering-api:
+    image: ghcr.io/meteroid-oss/meteroid-oss-metering:${METEROID_VERSION:-latest}
+
+  meteroid-web:
+    image: ghcr.io/meteroid-oss/meteroid-oss-web:${METEROID_VERSION:-latest}

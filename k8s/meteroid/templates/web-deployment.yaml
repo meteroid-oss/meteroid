@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
         - name: {{ .Chart.Name }}-web
-          image: "{{ .Values.web.image.repository }}:{{ .Values.web.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "meteroid.image" (dict "root" . "component" "web" "image" .Values.web.image) | quote }}
           imagePullPolicy: {{ .Values.web.image.pullPolicy }}
           ports:
             - name: http

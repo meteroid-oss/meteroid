@@ -49,7 +49,7 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.metering.terminationGracePeriodSeconds | default 30 }}
       containers:
         - name: {{ .Chart.Name }}-metering
-          image: "{{ .Values.metering.image.repository }}:{{ .Values.metering.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "meteroid.image" (dict "root" . "component" "metering" "image" .Values.metering.image) | quote }}
           imagePullPolicy: {{ .Values.metering.image.pullPolicy }}
           ports:
             - name: http
@@ -64,12 +64,9 @@ spec:
             {{- with .Values.metering.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-            - name: LICENSE_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "meteroid.secretsName" . }}
-                  key: license-key
-                  optional: true
+            {{- with include "meteroid.licenseEnv" (dict "root" .) | trim }}
+            {{- . | nindent 12 }}
+            {{- end }}
             - name: INTERNAL_API_SECRET
               valueFrom:
                 secretKeyRef:

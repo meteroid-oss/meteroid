@@ -1,0 +1,193 @@
+name: OSS images
+
+# Builds the open-source images (AGPL) from this repository on each release, for amd64 and arm64 on
+# native runners, and publishes them as ghcr.io/meteroid-oss/meteroid-oss-*. The images under the
+# plain names (meteroid-api, ...) are Meteroid Enterprise.
+
+on:
+  # `released` covers stable releases, including a prerelease made a release; `published` adds the
+  # prereleases.
+  release:
+    types: [published, released]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build (vX.Y.Z)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oss-images-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+  REGISTRY: ghcr.io/meteroid-oss
+  SOURCE: https://github.com/meteroid-oss/meteroid
+  LICENSE_ID: AGPL-3.0-only
+
+jobs:
+  build:
+    name: Build ${{ matrix.image.name }} (${{ matrix.platform }})
+    if: >-
+      github.repository == 'meteroid-oss/meteroid'
+      && (github.event_name != 'release' || github.event.action == 'released' || github.event.release.prerelease)
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
+        image:
+          - name: meteroid-oss-api
+            dockerfile: modules/meteroid/api.Dockerfile
+          - name: meteroid-oss-worker
+            dockerfile: modules/meteroid/worker.Dockerfile
+          - name: meteroid-oss-metering
+            dockerfile: modules/metering/Dockerfile
+          - name: meteroid-oss-web
+            dockerfile: modules/web/web-app/Dockerfile
+        include:
+          - platform: linux/amd64
+            pair: linux-amd64
+            mold_arch: x86_64
+            proto_arch: x86_64
+            grpc_health_probe_arch: amd64
+            runs_on: ubuntu-latest
+          - platform: linux/arm64
+            pair: linux-arm64
+            mold_arch: aarch64
+            proto_arch: aarch_64
+            grpc_health_probe_arch: arm64
+            runs_on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runs_on }}
+    steps:
+      - name: Check the tag
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Not a release tag: $TAG" >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v6
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          persist-credentials: false
+      - name: Commit
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.image.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            EDITION=oss
+            PROFILE=release
+            MOLD_ARCH=${{ matrix.mold_arch }}
+            PROTO_ARCH=${{ matrix.proto_arch }}
+            GRPC_HEALTH_PROBE_ARCH=${{ matrix.grpc_health_probe_arch }}
+            METEROID_VERSION=${{ env.TAG }}
+            GIT_SHA=${{ steps.commit.outputs.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ env.SOURCE }}
+            org.opencontainers.image.licenses=${{ env.LICENSE_ID }}
+            org.opencontainers.image.version=${{ env.TAG }}
+            org.opencontainers.image.revision=${{ steps.commit.outputs.sha }}
+          cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.pair }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.pair }},ignore-error=true
+          provenance: false
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ matrix.image.name }},push-by-digest=true,name-canonical=true,push=true
+      - name: Export the digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ matrix.image.name }}-${{ matrix.pair }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # One multi-arch tag set per image, once every platform of every image is built.
+  publish:
+    name: Publish ${{ matrix.image }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - meteroid-oss-api
+          - meteroid-oss-worker
+          - meteroid-oss-metering
+          - meteroid-oss-web
+    env:
+      IMAGE: ${{ matrix.image }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ matrix.image }}-*
+          merge-multiple: true
+      # `latest` follows the repository's latest release, so a patch of an older line leaves it.
+      - name: Latest release
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)
+          if [ "$latest" = "$TAG" ]; then echo "latest=true"; else echo "latest=false"; fi >> "$GITHUB_OUTPUT"
+      - name: Tags
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ matrix.image }}
+          flavor: latest=${{ steps.latest.outputs.latest }}
+          tags: |
+            type=raw,value=${{ env.TAG }}
+            type=semver,pattern={{version}},value=${{ env.TAG }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.TAG }}
+            type=semver,pattern={{major}},value=${{ env.TAG }}
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create and push the manifest list
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          mapfile -t tags < <(jq -r '.tags[] | "--tag=" + .' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          refs=()
+          for digest in *; do refs+=("$REGISTRY/$IMAGE@sha256:$digest"); done
+          if [ "${#refs[@]}" -ne 2 ]; then
+            echo "Expected the amd64 and arm64 digests, found ${#refs[@]}" >&2
+            exit 1
+          fi
+          docker buildx imagetools create "${tags[@]}" \
+            --annotation "index:org.opencontainers.image.source=$SOURCE" \
+            --annotation "index:org.opencontainers.image.licenses=$LICENSE_ID" \
+            --annotation "index:org.opencontainers.image.version=$TAG" \
+            --annotation "index:org.opencontainers.image.description=Meteroid open-source edition (AGPL-3.0), built from $SOURCE" \
+            "${refs[@]}"
+      - name: Inspect
+        run: docker buildx imagetools inspect "$REGISTRY/$IMAGE:$TAG"
