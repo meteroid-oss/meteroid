@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 
 import { CheckoutSuccessState } from '@/features/checkout/utils/checkoutRedirect'
+import { safeRedirectUrl } from '@/lib/utils/url'
 import { useForceTheme } from 'providers/ThemeProvider'
 
 export const PortalCheckoutSuccess = () => {
@@ -11,8 +12,8 @@ export const PortalCheckoutSuccess = () => {
   // Only router state can carry the redirect target: a URL parameter would make this
   // unauthenticated page an open redirect on the merchant's domain.
   const state = useLocation().state as CheckoutSuccessState | null
-  const returnUrl = state?.returnUrl
-  const backTo = state?.backTo
+  const returnUrl = safeRedirectUrl(state?.returnUrl)
+  const backTo = state?.backTo && safeRedirectUrl(state.backTo.url) ? state.backTo : undefined
   // Direct debit is submitted at checkout but settles days later, so the payment
   // isn't "successful" yet — the subscription is active and the payment is
   // processing. Card checkouts settle inline and stay on the default wording.

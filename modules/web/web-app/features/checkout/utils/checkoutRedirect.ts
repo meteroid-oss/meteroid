@@ -1,4 +1,5 @@
 import { hostedReturnTarget } from '@/features/checkout/utils/hostedReturn'
+import { safeRedirectUrl } from '@/lib/utils/url'
 
 /**
  * Merchant-set redirect targets (`success_url` / `cancel_url` on the checkout session), read from
@@ -54,7 +55,7 @@ export const consumeCheckoutRedirect = (): CheckoutRedirect => {
  * only from the token-gated checkout page.
  */
 export const legacyReturnUrl = (searchParams: URLSearchParams): string | undefined =>
-  searchParams.get('return_url') ?? undefined
+  safeRedirectUrl(searchParams.get('return_url'))
 
 /**
  * A portal page's checkout (plan change, add-on, seats): it returns to `returnFrom` without its
