@@ -4058,7 +4058,7 @@
           "Customers"
         ],
         "summary": "Generate a portal token for a customer",
-        "description": "Generates a JWT token that grants access to the customer portal.\nThe token can be used to access invoices, payment methods, and other portal features.",
+        "description": "Generates an opaque token that grants access to the customer portal. A call may return the\ntoken of an earlier call with the same scopes, with up to 10% less lifetime: rely on `expires_at`.\nThe token can be used to access invoices, payment methods, and other portal features.",
         "operationId": "create_portal_token",
         "parameters": [
           {
@@ -15342,7 +15342,7 @@
           },
           "token": {
             "type": "string",
-            "description": "JWT token for portal access"
+            "description": "Opaque token for portal access"
           }
         }
       },

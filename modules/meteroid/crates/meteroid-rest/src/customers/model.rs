@@ -260,7 +260,7 @@ pub struct CustomerPortalTokenRequest {
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize)]
 pub struct CustomerPortalTokenResponse {
-    /// JWT token for portal access
+    /// Opaque token for portal access
     pub token: String,
     /// When the token expires (RFC 3339)
     pub expires_at: ApiDateTime,

@@ -11,9 +11,10 @@ use crate::data::ids::{
 use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
-use common_domain::ids::{BaseId, CustomerId, InvoiceId};
+use common_domain::ids::{BaseId, CustomerId, InvoiceId, SavedViewId};
 use meteroid_grpc::meteroid::api;
 use meteroid_store::jwt_claims::{PortalJwtClaims, PortalScope, ResourceAccess};
+use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 
 struct Fixture {
     http: reqwest::Client,
@@ -308,6 +309,39 @@ async fn test_rest_client_api() {
         .unwrap();
     fx.assert_rejected(
         Some(&forged_expired),
+        StatusCode::UNAUTHORIZED,
+        "UNAUTHORIZED",
+    )
+    .await;
+
+    // Stored tokens: expired, for another resource, or unknown.
+    let stored_expired = setup
+        .store
+        .customer_portal_token(
+            TENANT_ID,
+            CUST_UBER_ID,
+            chrono::Duration::minutes(-1),
+            Some(vec![PortalScope::Read]),
+            false,
+        )
+        .await
+        .unwrap()
+        .token;
+    fx.assert_rejected(
+        Some(&stored_expired),
+        StatusCode::UNAUTHORIZED,
+        "TOKEN_EXPIRED",
+    )
+    .await;
+    let dashboard_token = setup
+        .store
+        .dashboard_portal_token(TENANT_ID, SavedViewId::new())
+        .await
+        .unwrap();
+    fx.assert_rejected(Some(&dashboard_token), StatusCode::FORBIDDEN, "FORBIDDEN")
+        .await;
+    fx.assert_rejected(
+        Some(&"A".repeat(32)),
         StatusCode::UNAUTHORIZED,
         "UNAUTHORIZED",
     )

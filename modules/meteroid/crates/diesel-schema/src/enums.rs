@@ -57,6 +57,17 @@ pub enum CustomPropertyEntityTypeEnum {
     Quote,
 }
 
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, Eq, PartialEq)]
+#[ExistingTypePath = "crate::schema::sql_types::PortalResourceKindEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum PortalResourceKindEnum {
+    Invoice,
+    Quote,
+    Customer,
+    CheckoutSession,
+    Dashboard,
+}
+
 /// The entity lists that keep saved views.
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[ExistingTypePath = "crate::schema::sql_types::EntityListTypeEnum"]

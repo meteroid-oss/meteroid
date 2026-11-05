@@ -74,12 +74,17 @@ const RECIPIENT: &str = "billing@uber.example";
 // ---- fixtures -----------------------------------------------------------------------------
 
 /// The seeded tenant's emails are `Off`; every send test sets the mode explicitly.
-async fn enable_emails(env: &TestEnv) {
+pub(crate) async fn enable_emails(env: &TestEnv) {
     env.set_email_delivery_mode(diesel_models::enums::EmailDeliveryModeEnum::Live)
         .await;
 }
 
-async fn set_recipients(env: &TestEnv, customer: CustomerId, emails: &[&str], locales: &[&str]) {
+pub(crate) async fn set_recipients(
+    env: &TestEnv,
+    customer: CustomerId,
+    emails: &[&str],
+    locales: &[&str],
+) {
     env.store()
         .patch_customer(
             Actor::System,
@@ -153,7 +158,7 @@ async fn set_customer_locale(env: &TestEnv, locale: Option<&str>) {
         .expect("customer locale");
 }
 
-async fn clients(env: &TestEnv) -> AllClients {
+pub(crate) async fn clients(env: &TestEnv) -> AllClients {
     let auth = meteroid_it::svc_auth::login(env.setup.channel.clone()).await;
     AllClients::from_channel(
         env.setup.channel.clone(),
@@ -178,7 +183,7 @@ async fn pipeline_invoice(env: &TestEnv, customer: CustomerId) -> InvoiceId {
 }
 
 /// A finalized unpaid invoice inserted directly, with a stored PDF and no queued email.
-async fn invoice_with_pdf(env: &TestEnv, customer: CustomerId) -> InvoiceId {
+pub(crate) async fn invoice_with_pdf(env: &TestEnv, customer: CustomerId) -> InvoiceId {
     let invoice_id = env
         .finalized_invoice(FinalizedInvoice::one_off(customer))
         .await;
@@ -229,7 +234,6 @@ async fn run_email_worker_once(env: &TestEnv) -> Vec<Email> {
         env.setup.object_store.clone(),
         config.public_url.clone(),
         config.rest_api_external_url.clone(),
-        config.jwt_secret.clone(),
     )
     .await
     .expect("email worker");
@@ -2038,7 +2042,6 @@ async fn claim_before_send_prevents_concurrent_double_send(#[future] test_env: T
             env.setup.object_store.clone(),
             config.public_url.clone(),
             config.rest_api_external_url.clone(),
-            config.jwt_secret.clone(),
             &msgs,
         )
     };
@@ -2487,6 +2490,7 @@ async fn enqueue_raw(
         resent_from,
         manual: false,
         attempts,
+        recipient: None,
     }
     .try_into()
     .expect("message");

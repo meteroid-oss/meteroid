@@ -37,6 +37,7 @@ pub mod plan_component_prices;
 pub mod plan_version_adjustments;
 pub mod plan_versions;
 pub mod plans;
+pub mod portal_tokens;
 pub mod price_components;
 pub mod prices;
 pub mod product_families;

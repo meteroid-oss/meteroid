@@ -97,6 +97,10 @@ pub struct Config {
     #[envconfig(from = "ORGANIZATION_INVITE_TTL_DAYS", default = "7")]
     pub invite_ttl_days: u32,
 
+    /// After this date, portal links still carried as non-expiring JWTs stop working.
+    #[envconfig(from = "PORTAL_LEGACY_TOKENS_ACCEPTED_UNTIL")]
+    pub portal_legacy_tokens_until: Option<chrono::NaiveDate>,
+
     #[envconfig(nested)]
     pub redis: RedisConfig,
 

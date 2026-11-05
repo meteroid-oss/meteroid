@@ -66,6 +66,7 @@ fn build_store(conn_str: &str, admin_organization_id: Option<OrganizationId>) ->
         usage_client: Arc::new(meteroid_store::clients::usage::MockUsageClient::noop()),
         invite_ttl_days: 7,
         mfa_issuer: "Meteroid".to_string(),
+        portal_legacy_tokens_until: None,
     })
     .expect("store")
 }

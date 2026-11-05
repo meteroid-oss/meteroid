@@ -409,6 +409,9 @@ pub enum SendEmailRequest {
         /// ignores: those restart every budget from zero.
         #[serde(default)]
         attempts: EmailSendAttempts,
+        /// Narrows the send to this one of the usual recipients (expired-link recovery).
+        #[serde(default)]
+        recipient: Option<String>,
     },
 
     /// Quote sent to recipient for signature
@@ -730,6 +733,7 @@ mod tests {
                 transport: 2,
                 ..Default::default()
             },
+            recipient: None,
         };
         let mut value: serde_json::Value = (&event).try_into().expect("serialize");
         let fields = value["CustomerEmail"].as_object_mut().unwrap();

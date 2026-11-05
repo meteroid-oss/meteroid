@@ -22,11 +22,11 @@ use meteroid_store::domain::{
     is_complete_billing_information,
 };
 use meteroid_store::errors::StoreError;
-use meteroid_store::jwt_claims::{ResourceAccess, generate_portal_token};
 use meteroid_store::repositories::CustomersInterface;
 use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
 use meteroid_store::repositories::credit_units::CreditUnitsInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
+use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 use meteroid_store::repositories::price_components::PriceComponentInterfaceAuto;
 use meteroid_store::repositories::products::ProductInterface;
 use meteroid_store::repositories::purchase_links::PurchaseLinksInterface;
@@ -152,7 +152,6 @@ pub struct PurchaseOffer {
 #[derive(Clone)]
 pub struct PurchaseLinks {
     store: Store,
-    jwt_secret: SecretString,
     public_url: String,
     pow: ProofOfWork,
     ip_limiter: RateLimiter,
@@ -169,7 +168,6 @@ impl PurchaseLinks {
         Self {
             store,
             pow: ProofOfWork::new(&jwt_secret),
-            jwt_secret,
             public_url: public_url.trim_end_matches('/').to_string(),
             ip_limiter: rate_limiter
                 .with_config(hourly_bucket("purchase:start:ip", STARTS_PER_IP_PER_HOUR)),
@@ -336,6 +334,7 @@ impl PurchaseLinks {
                 self.update_customer(tenant_id, attempt.customer_id, &buyer)
                     .await?;
                 self.started(tenant_id, attempt.customer_id, &checkout)
+                    .await
             }
             Some(checkout) if checkout.status == CheckoutSessionStatus::AwaitingPayment => {
                 Err(PurchaseError::InvalidInput(
@@ -423,7 +422,7 @@ impl PurchaseLinks {
             .await;
 
         match recorded {
-            Ok(Ok(_)) => self.started(tenant_id, customer.id, &checkout),
+            Ok(Ok(_)) => self.started(tenant_id, customer.id, &checkout).await,
             Ok(Err(_)) => {
                 // Lost a race on the same attempt id.
                 self.discard(tenant_id, Some(customer.id), checkout.id)
@@ -493,7 +492,7 @@ impl PurchaseLinks {
             .await;
 
         match restarted {
-            Ok(Ok(())) => self.started(tenant_id, customer_id, &checkout),
+            Ok(Ok(())) => self.started(tenant_id, customer_id, &checkout).await,
             Ok(Err(_)) => {
                 self.discard(tenant_id, created, checkout.id).await;
                 Err(PurchaseError::InvalidInput(
@@ -560,25 +559,16 @@ impl PurchaseLinks {
     }
 
     /// The checkout token lives as long as the checkout it opens.
-    fn started(
+    async fn started(
         &self,
         tenant_id: TenantId,
         customer_id: CustomerId,
         checkout: &CheckoutSession,
     ) -> Result<StartedPurchase, PurchaseError> {
-        let ttl = checkout
-            .expires_at
-            .map(|expires| expires - Utc::now())
-            .unwrap_or_else(|| chrono::Duration::hours(i64::from(CHECKOUT_EXPIRY_HOURS)))
-            .max(chrono::Duration::minutes(1));
-        let token = generate_portal_token(
-            &self.jwt_secret,
-            tenant_id,
-            ResourceAccess::CheckoutSession(checkout.id),
-            None,
-            Some(ttl),
-            false,
-        )?;
+        let token = self
+            .store
+            .checkout_portal_token(tenant_id, checkout.id, false)
+            .await?;
         Ok(StartedPurchase {
             tenant_id,
             customer_id,

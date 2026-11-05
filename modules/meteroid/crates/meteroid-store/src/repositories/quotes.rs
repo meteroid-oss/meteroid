@@ -13,7 +13,6 @@ use crate::domain::{
     },
 };
 use crate::errors::{StoreError, StoreErrorReport};
-use crate::jwt_claims::{ResourceAccess, generate_portal_token};
 use crate::repositories::pgmq::PgmqInterface;
 use crate::store::Store;
 use common_domain::ids::{
@@ -1220,15 +1219,6 @@ impl QuotesInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                // Get the invoicing entity details
-                let invoicing_entity = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
-                    conn,
-                    customer.invoicing_entity_id,
-                    tenant_id,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
                 let email_settings = self
                     .internal
                     .get_email_settings_tx(conn, tenant_id, customer.invoicing_entity_id)
@@ -1256,42 +1246,18 @@ impl QuotesInterface for Store {
                     .into());
                 }
 
-                // Generate one email request per recipient, each with their own JWT token
                 let mut email_messages = Vec::new();
                 for recipient in &recipients {
-                    // Generate a unique JWT token for this recipient
-                    let token = generate_portal_token(
-                        &self.settings.jwt_secret,
-                        tenant_id,
-                        ResourceAccess::Quote {
+                    email_messages.push(
+                        self.quote_ready_email_tx(
+                            conn,
+                            tenant_id,
                             quote_id,
-                            recipient_email: recipient.email.clone(),
-                        },
-                        None,
-                        None,
-                        false,
-                    )?;
-
-                    let portal_url =
-                        format!("{}/portal/quote?token={}", &self.settings.public_url, token);
-
-                    let email_request = SendEmailRequest::QuoteReady {
-                        tenant_id,
-                        quote_id,
-                        invoicing_entity_id: customer.invoicing_entity_id,
-                        quote_number: quote.quote_number.clone(),
-                        expires_at: quote.expires_at.map(|dt| dt.date()),
-                        company_name: invoicing_entity.legal_name.clone(),
-                        logo_attachment_id: invoicing_entity.logo_attachment_id,
-                        recipient_emails: vec![recipient.email.clone()],
-                        portal_url,
-                        custom_message: custom_message.clone(),
-                        currency: quote.currency.clone(),
-                    };
-
-                    // Convert to PgmqMessageNew
-                    let message: crate::domain::pgmq::PgmqMessageNew = email_request.try_into()?;
-                    email_messages.push(message);
+                            &recipient.email,
+                            custom_message.clone(),
+                        )
+                        .await?,
+                    );
                 }
 
                 // Queue all emails
@@ -1566,4 +1532,52 @@ async fn write_quote_minimum(
             .map_err(Into::<Report<StoreError>>::into)?;
     }
     Ok(())
+}
+
+impl Store {
+    /// One recipient's "quote ready" email, carrying their own portal link.
+    pub(crate) async fn quote_ready_email_tx(
+        &self,
+        conn: &mut crate::store::PgConn,
+        tenant_id: TenantId,
+        quote_id: QuoteId,
+        recipient_email: &str,
+        custom_message: Option<String>,
+    ) -> StoreResult<crate::domain::pgmq::PgmqMessageNew> {
+        use diesel_models::customers::CustomerRow;
+
+        let quote = QuoteRow::find_by_id(conn, tenant_id, quote_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let customer = CustomerRow::find_by_id(conn, &quote.customer_id, &tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let invoicing_entity = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
+            conn,
+            customer.invoicing_entity_id,
+            tenant_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let token = self
+            .quote_portal_token_tx(conn, tenant_id, &quote, recipient_email.to_string(), false)
+            .await?;
+        let portal_url = format!("{}/portal/quote?token={}", &self.settings.public_url, token);
+
+        SendEmailRequest::QuoteReady {
+            tenant_id,
+            quote_id,
+            invoicing_entity_id: customer.invoicing_entity_id,
+            quote_number: quote.quote_number.clone(),
+            expires_at: quote.expires_at.map(|dt| dt.date()),
+            company_name: invoicing_entity.legal_name.clone(),
+            logo_attachment_id: invoicing_entity.logo_attachment_id,
+            recipient_emails: vec![recipient_email.to_string()],
+            portal_url,
+            custom_message,
+            currency: quote.currency.clone(),
+        }
+        .try_into()
+    }
 }

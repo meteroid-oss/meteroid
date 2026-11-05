@@ -44,6 +44,7 @@ pub struct Settings {
     pub admin_organization: Option<OrganizationId>,
     pub invite_ttl_days: u32,
     pub mfa_issuer: String,
+    pub portal_legacy_tokens_until: Option<chrono::NaiveDate>,
 }
 
 impl Settings {
@@ -116,6 +117,7 @@ pub struct StoreConfig {
     pub usage_client: Arc<dyn UsageClient>,
     pub invite_ttl_days: u32,
     pub mfa_issuer: String,
+    pub portal_legacy_tokens_until: Option<chrono::NaiveDate>,
 }
 
 /**
@@ -232,6 +234,7 @@ impl Store {
                 admin_organization: config.admin_organization_id,
                 invite_ttl_days: config.invite_ttl_days,
                 mfa_issuer: config.mfa_issuer,
+                portal_legacy_tokens_until: config.portal_legacy_tokens_until,
             },
             internal: StoreInternal::default(),
             mailer: config.mailer,

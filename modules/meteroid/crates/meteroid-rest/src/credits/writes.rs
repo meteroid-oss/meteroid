@@ -28,10 +28,10 @@ use meteroid_store::domain::credit::{
 };
 use meteroid_store::errors::StoreError;
 use meteroid_store::hooks::USAGE_CONTROLS_UNAVAILABLE;
-use meteroid_store::jwt_claims::{ResourceAccess, generate_portal_token};
 use meteroid_store::repositories::credit::CustomerCreditWalletsInterface;
 use meteroid_store::repositories::credit::customer_credit::DEFAULT_PRIORITY;
 use meteroid_store::repositories::credit::customer_credit_wallets::FundCustomerCreditWallet;
+use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 use meteroid_store::services::SellCustomerCredit;
 use std::str::FromStr;
 
@@ -42,23 +42,19 @@ fn actor_user(auth: &AuthorizedAsTenant) -> Option<uuid::Uuid> {
     }
 }
 
-fn invoice_payment_url(
+async fn invoice_payment_url(
     state: &AppState,
     tenant_id: TenantId,
     invoice_id: InvoiceId,
 ) -> Result<String, RestApiError> {
-    let token = generate_portal_token(
-        &state.jwt_secret,
-        tenant_id,
-        ResourceAccess::Invoice(invoice_id),
-        None,
-        None,
-        false,
-    )
-    .map_err(|error| {
-        log::error!("Error generating an invoice payment token: {error:?}");
-        RestApiError::StoreError
-    })?;
+    let token = state
+        .store
+        .invoice_portal_token(tenant_id, invoice_id, false)
+        .await
+        .map_err(|error| {
+            log::error!("Error generating an invoice payment token: {error:?}");
+            RestApiError::StoreError
+        })?;
     Ok(format!(
         "{}/portal/invoice-payment?token={token}",
         state.portal_url.trim_end_matches('/')
@@ -304,7 +300,7 @@ pub async fn create_top_up(
                 {
                     return Ok((
                         StatusCode::CREATED,
-                        Json(charge_response(&state, receipt, credit_unit)?),
+                        Json(charge_response(&state, receipt, credit_unit).await?),
                     ));
                 }
                 let charge_currency = session.top_up().map_err(store_error)?.currency;
@@ -322,6 +318,7 @@ pub async fn create_top_up(
                             state
                                 .services
                                 .top_up_checkout_url(auth.tenant_id, session.id)
+                                .await
                                 .map_err(store_error)?,
                         ),
                     }),
@@ -345,7 +342,7 @@ pub async fn create_top_up(
                 )
                 .await
                 .map_err(store_error)?;
-            charge_response(&state, receipt, credit_unit)?
+            charge_response(&state, receipt, credit_unit).await?
         }
         TopUpCollection::SendInvoice => {
             let sold = state
@@ -372,7 +369,7 @@ pub async fn create_top_up(
                 Some(_) => (TopUpStatus::Succeeded, None),
                 None => (
                     TopUpStatus::AwaitingPayment,
-                    Some(invoice_payment_url(&state, auth.tenant_id, invoice.id)?),
+                    Some(invoice_payment_url(&state, auth.tenant_id, invoice.id).await?),
                 ),
             };
             TopUpResponse {
@@ -533,7 +530,7 @@ pub async fn patch_wallet(
     Ok(Json(response))
 }
 
-fn charge_response(
+async fn charge_response(
     state: &AppState,
     receipt: meteroid_store::services::TopUpWalletReceipt,
     credit_unit: Option<String>,
@@ -553,6 +550,7 @@ fn charge_response(
                             .checkout_session_id
                             .ok_or(RestApiError::StoreError)?,
                     )
+                    .await
                     .map_err(store_error)?,
             ),
         )

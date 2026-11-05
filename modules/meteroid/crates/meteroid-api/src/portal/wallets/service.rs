@@ -413,6 +413,7 @@ impl PortalWalletsService for PortalWalletsServiceComponents {
             let checkout_url = self
                 .services
                 .top_up_checkout_url(tenant_id, session.id)
+                .await
                 .map_err(portal_error)?;
             return Ok(Response::new(TopUpWalletResponse {
                 status: TopUpStatus::RequiresAction.into(),
@@ -456,6 +457,7 @@ impl PortalWalletsService for PortalWalletsServiceComponents {
             Some(
                 self.services
                     .top_up_checkout_url(tenant_id, id)
+                    .await
                     .map_err(portal_error)?,
             )
         } else {

@@ -421,6 +421,7 @@ async fn start_meteroid_from_config(
         usage_client: usage_client.clone(),
         invite_ttl_days: 7,
         mfa_issuer: "Meteroid".to_string(),
+        portal_legacy_tokens_until: None,
     })
     .expect("Could not create store");
 

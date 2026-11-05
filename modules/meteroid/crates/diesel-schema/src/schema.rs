@@ -254,6 +254,10 @@ pub mod sql_types {
     pub struct PlanTypeEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "PortalResourceKindEnum"))]
+    pub struct PortalResourceKindEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "QuoteStatusEnum"))]
     pub struct QuoteStatusEnum;
 
@@ -453,7 +457,7 @@ diesel::table! {
         id -> Uuid,
         tenant_id -> Uuid,
         saved_view_id -> Uuid,
-        token -> Text,
+        token -> Nullable<Text>,
         snapshot -> Jsonb,
         created_at -> Timestamp,
         updated_at -> Nullable<Timestamp>,
@@ -2236,6 +2240,27 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::PortalResourceKindEnum;
+
+    portal_token (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        token_hash -> Text,
+        resource_kind -> PortalResourceKindEnum,
+        resource_id -> Uuid,
+        recipient_email -> Nullable<Text>,
+        scopes -> Array<Nullable<Text>>,
+        delegated -> Bool,
+        created_at -> Timestamptz,
+        expires_at -> Nullable<Timestamptz>,
+        revoked_at -> Nullable<Timestamptz>,
+        last_used_at -> Nullable<Timestamptz>,
+        last_recovery_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::BillingPeriodEnum;
 
     price (id) {
@@ -3203,6 +3228,7 @@ diesel::joinable!(plan_version_adjustment_component -> product (product_id));
 diesel::joinable!(plan_version_annex_template -> invoice_annex_template (annex_template_id));
 diesel::joinable!(plan_version_annex_template -> plan_version (plan_version_id));
 diesel::joinable!(plan_version_annex_template -> tenant (tenant_id));
+diesel::joinable!(portal_token -> tenant (tenant_id));
 diesel::joinable!(price -> product (product_id));
 diesel::joinable!(price -> tenant (tenant_id));
 diesel::joinable!(price_component -> billable_metric (billable_metric_id));

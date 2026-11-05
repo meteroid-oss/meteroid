@@ -39,6 +39,7 @@ use meteroid_store::repositories::customer_connection::CustomerConnectionInterfa
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use meteroid_store::repositories::customer_signals::CustomerSignalsInterface;
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
+use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 use meteroid_store::repositories::users::UserInterface;
 use meteroid_store::services::fx::reporting_fx;
 use std::collections::HashMap;
@@ -616,16 +617,18 @@ impl CustomersService for CustomerServiceComponents {
         let req = request.into_inner();
         let customer_id = CustomerId::from_proto(req.customer_id)?;
 
-        // Generate the JWT token for customer portal access
-        let token = meteroid_store::jwt_claims::generate_portal_token(
-            &self.jwt_secret,
-            tenant_id,
-            meteroid_store::jwt_claims::ResourceAccess::Customer(customer_id),
-            None,
-            Some(meteroid_store::jwt_claims::default_customer_portal_token_ttl()),
-            delegated,
-        )
-        .map_err(Into::<CustomerApiError>::into)?;
+        let token = self
+            .store
+            .customer_portal_token(
+                tenant_id,
+                customer_id,
+                meteroid_store::jwt_claims::default_customer_portal_token_ttl(),
+                None,
+                delegated,
+            )
+            .await
+            .map_err(Into::<CustomerApiError>::into)?
+            .token;
 
         Ok(Response::new(GenerateCustomerPortalTokenResponse { token }))
     }

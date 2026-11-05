@@ -24,6 +24,7 @@ use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::add_ons::AddOnInterfaceAuto;
 use meteroid_store::repositories::plan_version_add_ons::PlanVersionAddOnInterface;
 use meteroid_store::repositories::plans::PlansInterfaceAuto;
+use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use std::collections::HashMap;
@@ -2172,15 +2173,11 @@ impl PortalSubscriptionServiceComponents {
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
-        let token = meteroid_store::jwt_claims::generate_portal_token(
-            &self.jwt_secret,
-            tenant_id,
-            meteroid_store::jwt_claims::ResourceAccess::CheckoutSession(session.id),
-            None,
-            None,
-            delegated,
-        )
-        .map_err(Into::<PortalSubscriptionApiError>::into)?;
+        let token = self
+            .store
+            .checkout_portal_token(tenant_id, session.id, delegated)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
         Ok(Response::new(PurchaseAddOnResponse {
             status: AddOnPurchaseStatus::AddonPurchaseCheckoutRequired.into(),
@@ -2339,15 +2336,11 @@ impl PortalSubscriptionServiceComponents {
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
-        let token = meteroid_store::jwt_claims::generate_portal_token(
-            &self.jwt_secret,
-            tenant_id,
-            meteroid_store::jwt_claims::ResourceAccess::CheckoutSession(session.id),
-            None,
-            None,
-            delegated,
-        )
-        .map_err(Into::<PortalSubscriptionApiError>::into)?;
+        let token = self
+            .store
+            .checkout_portal_token(tenant_id, session.id, delegated)
+            .await
+            .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
         let today = chrono::Utc::now().date_naive();
 

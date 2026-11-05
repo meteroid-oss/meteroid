@@ -4,6 +4,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use chrono::Utc;
 use common_domain::auth::PortalScope;
 use common_domain::ids::TenantId;
 use common_grpc::middleware::common::auth::BEARER_AUTH_HEADER;
@@ -11,9 +12,11 @@ use common_grpc::middleware::server::auth::TenantEnv;
 use http::{HeaderMap, Request, StatusCode};
 use meteroid_rest_common::error::{ErrorCode, RestErrorResponse};
 use meteroid_store::domain::enums::TenantEnvironmentEnum;
+use meteroid_store::domain::portal_tokens::{PortalTokenStatus, is_portal_token};
 use meteroid_store::errors::StoreError;
 use meteroid_store::jwt_claims::{PortalJwtClaims, PortalTokenError, ResourceAccess};
 use meteroid_store::repositories::TenantInterface;
+use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 use tracing::{error, log};
 
 pub async fn client_auth_middleware(
@@ -48,38 +51,69 @@ async fn authorize(
             "Invalid or missing Authorization header",
         ))?;
 
+    let (tenant_id, resource, scopes) = if is_portal_token(token) {
+        stored_token(token, app_state).await?
+    } else {
+        jwt_token(token, app_state)?
+    };
+
+    let ResourceAccess::Customer(customer_id) = resource else {
+        return Err(Rejection::forbidden("Not a customer token"));
+    };
+
+    if !grants_read(scopes.as_deref()) {
+        return Err(Rejection::forbidden(
+            "The token's scopes do not allow this operation.",
+        ));
+    }
+
+    let tenant_env = resolve_tenant_env(app_state, tenant_id).await?;
+
+    Ok(AuthorizedAsCustomer {
+        tenant_id,
+        customer_id,
+        scopes,
+        tenant_env,
+    })
+}
+
+type TokenGrant = (TenantId, ResourceAccess, Option<Vec<PortalScope>>);
+
+async fn stored_token(token: &str, app_state: &AppState) -> Result<TokenGrant, Rejection> {
+    let portal_token = app_state
+        .store
+        .authenticate_portal_token(token)
+        .await
+        .map_err(|err| {
+            error!("Failed to resolve portal token: {err:?}");
+            Rejection::internal()
+        })?
+        .ok_or(Rejection::unauthorized("Invalid token"))?;
+
+    match portal_token.status(Utc::now()) {
+        PortalTokenStatus::Active => {}
+        PortalTokenStatus::Expired => return Err(Rejection::expired()),
+        PortalTokenStatus::Revoked => return Err(Rejection::unauthorized("Invalid token")),
+    }
+    Ok((
+        portal_token.tenant_id,
+        portal_token.resource,
+        portal_token.scopes,
+    ))
+}
+
+/// SDK tokens minted before stored portal tokens.
+fn jwt_token(token: &str, app_state: &AppState) -> Result<TokenGrant, Rejection> {
     let claims =
         PortalJwtClaims::decode(token, &app_state.jwt_secret).map_err(|err| match err {
-            PortalTokenError::Expired => Rejection {
-                status: StatusCode::UNAUTHORIZED,
-                code: ErrorCode::TokenExpired,
-                message: "Token expired",
-            },
+            PortalTokenError::Expired => Rejection::expired(),
             PortalTokenError::Invalid => Rejection::unauthorized("Invalid token"),
         })?;
 
     if claims.exp.is_none() {
         return Err(Rejection::unauthorized("Token has no expiry"));
     }
-
-    let ResourceAccess::Customer(customer_id) = claims.resource else {
-        return Err(Rejection::forbidden("Not a customer token"));
-    };
-
-    if !grants_read(claims.scopes.as_deref()) {
-        return Err(Rejection::forbidden(
-            "The token's scopes do not allow this operation.",
-        ));
-    }
-
-    let tenant_env = resolve_tenant_env(app_state, claims.tenant_id).await?;
-
-    Ok(AuthorizedAsCustomer {
-        tenant_id: claims.tenant_id,
-        customer_id,
-        scopes: claims.scopes,
-        tenant_env,
-    })
+    Ok((claims.tenant_id, claims.resource, claims.scopes))
 }
 
 /// `manage` implies `read`, and a legacy token without scopes has full access.
@@ -104,11 +138,7 @@ async fn resolve_tenant_env(
             StoreError::ValueNotFound(_) => Rejection::unauthorized("Invalid token"),
             _ => {
                 error!("Failed to resolve tenant {tenant_id}: {err:?}");
-                Rejection {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    code: ErrorCode::InternalServerError,
-                    message: "Internal server error",
-                }
+                Rejection::internal()
             }
         })?;
 
@@ -130,6 +160,22 @@ impl Rejection {
             status: StatusCode::UNAUTHORIZED,
             code: ErrorCode::Unauthorized,
             message,
+        }
+    }
+
+    fn expired() -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            code: ErrorCode::TokenExpired,
+            message: "Token expired",
+        }
+    }
+
+    fn internal() -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            code: ErrorCode::InternalServerError,
+            message: "Internal server error",
         }
     }
 

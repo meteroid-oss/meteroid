@@ -10,7 +10,6 @@ use meteroid_store::domain::credit_units::CreditUnitsById;
 use meteroid_store::domain::einvoicing::{EInvoicingOutcome, EInvoicingReport};
 use meteroid_store::domain::subscriptions::PaymentMethodsConfig;
 use meteroid_store::domain::{Invoice, InvoicingEntity, LineItem, ResolvedPaymentMethod};
-use meteroid_store::jwt_claims::{ResourceAccess, generate_portal_token};
 use meteroid_store::repositories::CreditUnitsInterface;
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
@@ -20,6 +19,7 @@ use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
 use meteroid_store::repositories::invoicing_entities::{
     InvoicingEntityInterface, InvoicingEntityInterfaceAuto,
 };
+use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterface;
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -200,12 +200,35 @@ impl PaymentInfo {
     }
 }
 
+/// Previews render a placeholder link instead of issuing a live one.
+#[derive(Clone, Copy)]
+enum PayLinkMode {
+    Issue,
+    Placeholder,
+}
+
+async fn invoice_payment_url(
+    store: &Arc<Store>,
+    invoice: &Invoice,
+    public_url: &str,
+    link: PayLinkMode,
+) -> Result<String, Report<InvoicingRenderError>> {
+    let token = match link {
+        PayLinkMode::Issue => store
+            .invoice_portal_token(invoice.tenant_id, invoice.id, false)
+            .await
+            .change_context(InvoicingRenderError::StoreError)?,
+        PayLinkMode::Placeholder => "preview".to_string(),
+    };
+    Ok(format!("{public_url}/portal/invoice-payment?token={token}"))
+}
+
 async fn resolve_payment_info(
     store: &Arc<Store>,
     invoice: &Invoice,
     invoicing_entity: &InvoicingEntity,
     public_url: &str,
-    jwt_secret: &secrecy::SecretString,
+    link: PayLinkMode,
 ) -> Result<PaymentInfo, Report<InvoicingRenderError>> {
     let customer = store
         .find_customer_by_id(invoice.customer_id, invoice.tenant_id)
@@ -251,22 +274,9 @@ async fn resolve_payment_info(
             (ResolvedPaymentMethod::CustomerPaymentMethod(_), true) => Ok(PaymentInfo::default()),
 
             // Has valid payment method but charge_auto=false -> show payment portal for manual pay
-            (ResolvedPaymentMethod::CustomerPaymentMethod(_), false) => {
-                let invoice_token = generate_portal_token(
-                    jwt_secret,
-                    invoice.tenant_id,
-                    ResourceAccess::Invoice(invoice.id),
-                    None,
-                    None,
-                    false,
-                )
-                .change_context(InvoicingRenderError::StoreError)?;
-                let payment_url = format!(
-                    "{}/portal/invoice-payment?token={}",
-                    public_url, invoice_token
-                );
-                Ok(PaymentInfo::url(payment_url))
-            }
+            (ResolvedPaymentMethod::CustomerPaymentMethod(_), false) => Ok(PaymentInfo::url(
+                invoice_payment_url(store, invoice, public_url, link).await?,
+            )),
 
             // BankTransfer -> show bank details (never auto-charge)
             (ResolvedPaymentMethod::BankTransfer(_), _) => {
@@ -278,20 +288,9 @@ async fn resolve_payment_info(
                 match config {
                     PaymentMethodsConfig::Online { .. } => {
                         // Online config but no valid method -> show payment link so customer can add card
-                        let invoice_token = generate_portal_token(
-                            jwt_secret,
-                            invoice.tenant_id,
-                            ResourceAccess::Invoice(invoice.id),
-                            None,
-                            None,
-                            false,
-                        )
-                        .change_context(InvoicingRenderError::StoreError)?;
-                        let payment_url = format!(
-                            "{}/portal/invoice-payment?token={}",
-                            public_url, invoice_token
-                        );
-                        Ok(PaymentInfo::url(payment_url))
+                        Ok(PaymentInfo::url(
+                            invoice_payment_url(store, invoice, public_url, link).await?,
+                        ))
                     }
                     PaymentMethodsConfig::BankTransfer { .. } => {
                         // BankTransfer config but no bank account configured -> show nothing
@@ -310,20 +309,9 @@ async fn resolve_payment_info(
         let has_payment_method = customer.current_payment_method_id.is_some();
 
         if has_payment_method {
-            let invoice_token = generate_portal_token(
-                jwt_secret,
-                invoice.tenant_id,
-                ResourceAccess::Invoice(invoice.id),
-                None,
-                None,
-                false,
-            )
-            .change_context(InvoicingRenderError::StoreError)?;
-            let payment_url = format!(
-                "{}/portal/invoice-payment?token={}",
-                public_url, invoice_token
-            );
-            Ok(PaymentInfo::url(payment_url))
+            Ok(PaymentInfo::url(
+                invoice_payment_url(store, invoice, public_url, link).await?,
+            ))
         } else {
             fetch_bank_details(store, invoicing_entity, invoice).await
         }
@@ -357,7 +345,6 @@ pub struct InvoicePreviewRenderingService {
     generator: Arc<dyn svg::SvgGenerator>,
     storage: Arc<dyn ObjectStoreService>,
     public_url: String,
-    jwt_secret: secrecy::SecretString,
 }
 
 impl InvoicePreviewRenderingService {
@@ -365,7 +352,6 @@ impl InvoicePreviewRenderingService {
         store: Arc<Store>,
         storage: Arc<dyn ObjectStoreService>,
         public_url: String,
-        jwt_secret: secrecy::SecretString,
     ) -> Result<Self, Report<InvoicingRenderError>> {
         let generator = svg::TypstSvgGenerator::new()
             .change_context(InvoicingRenderError::InitializationError)
@@ -376,7 +362,6 @@ impl InvoicePreviewRenderingService {
             generator: Arc::new(generator),
             storage,
             public_url,
-            jwt_secret,
         })
     }
 
@@ -417,7 +402,7 @@ impl InvoicePreviewRenderingService {
             &invoice,
             &invoicing_entity,
             &self.public_url,
-            &self.jwt_secret,
+            PayLinkMode::Placeholder,
         )
         .await?;
 
@@ -560,7 +545,7 @@ impl InvoicePreviewRenderingService {
             &invoice,
             &invoicing_entity,
             &self.public_url,
-            &self.jwt_secret,
+            PayLinkMode::Placeholder,
         )
         .await?;
 
@@ -628,7 +613,6 @@ pub struct PdfRenderingService {
     pdf: Arc<dyn pdf::PdfGenerator>,
     store: Arc<Store>,
     public_url: String,
-    jwt_secret: secrecy::SecretString,
 }
 
 impl PdfRenderingService {
@@ -636,7 +620,6 @@ impl PdfRenderingService {
         storage: Arc<dyn ObjectStoreService>,
         store: Arc<Store>,
         public_url: String,
-        jwt_secret: secrecy::SecretString,
     ) -> Result<Self, Report<InvoicingRenderError>> {
         let pdf_generator = Arc::new(
             pdf::TypstPdfGenerator::new()
@@ -649,7 +632,6 @@ impl PdfRenderingService {
             pdf: pdf_generator,
             store,
             public_url,
-            jwt_secret,
         })
     }
 
@@ -765,7 +747,7 @@ impl PdfRenderingService {
             &invoice,
             invoicing_entity,
             &self.public_url,
-            &self.jwt_secret,
+            PayLinkMode::Issue,
         )
         .await?;
 

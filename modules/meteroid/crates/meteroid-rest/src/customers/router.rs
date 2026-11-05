@@ -18,10 +18,9 @@ use http::StatusCode;
 use meteroid_app::errors::RestApiError;
 use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_rest_common::model::{PaginationExt, validate_order_by};
-use meteroid_store::jwt_claims::{
-    PortalJwtClaims, ResourceAccess, default_customer_portal_token_ttl,
-};
+use meteroid_store::jwt_claims::default_customer_portal_token_ttl;
 use meteroid_store::repositories::CustomersInterface;
+use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 
 /// List customers
 ///
@@ -372,7 +371,8 @@ pub async fn unarchive_customer(
 
 /// Generate a portal token for a customer
 ///
-/// Generates a JWT token that grants access to the customer portal.
+/// Generates an opaque token that grants access to the customer portal. A call may return the
+/// token of an earlier call with the same scopes, with up to 10% less lifetime: rely on `expires_at`.
 /// The token can be used to access invoices, payment methods, and other portal features.
 #[utoipa::path(
     post,
@@ -435,19 +435,22 @@ pub async fn create_portal_token(
             RestApiError::from(e)
         })?;
 
-    let claims = PortalJwtClaims::new(
-        authorized_state.tenant_id,
-        ResourceAccess::Customer(customer.id),
-        scopes,
-        Some(expires_in),
-    )
-    .map_err(RestApiError::from)?
-    .with_delegated(delegated.is_some());
-    let token = claims.encode(&app_state.jwt_secret).map_err(|e| {
-        log::error!("Error generating portal token: {e}");
-        RestApiError::StoreError
-    })?;
-    let expires_at = claims.expires_at().ok_or(RestApiError::StoreError)?;
+    let issued = app_state
+        .store
+        .customer_portal_token(
+            authorized_state.tenant_id,
+            customer.id,
+            expires_in,
+            scopes,
+            delegated.is_some(),
+        )
+        .await
+        .map_err(|e| {
+            log::error!("Error generating portal token: {e:?}");
+            RestApiError::StoreError
+        })?;
+    let token = issued.token;
+    let expires_at = issued.expires_at.ok_or(RestApiError::StoreError)?;
 
     let portal_url = app_state.portal_url.clone();
     let portal_link = format!(

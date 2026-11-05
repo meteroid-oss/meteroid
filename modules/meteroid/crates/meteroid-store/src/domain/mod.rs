@@ -104,6 +104,7 @@ pub mod pgmq;
 pub mod plan_minimums;
 pub mod plan_version_add_ons;
 pub mod portal_credit;
+pub mod portal_tokens;
 pub mod product_families;
 pub mod products;
 pub mod purchase_links;

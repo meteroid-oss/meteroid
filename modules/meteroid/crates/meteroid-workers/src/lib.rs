@@ -72,7 +72,6 @@ pub async fn spawn_workers(
 
     let public_url = config.public_url.clone();
     let rest_api_external_url = config.rest_api_external_url.clone();
-    let jwt_secret = config.jwt_secret.clone();
     let entitlements = modules.entitlements(&store);
     let analytics = modules.analytics_hook(&store, config, egress);
 
@@ -207,7 +206,6 @@ pub async fn spawn_workers(
                 object_store_service,
                 public_url,
                 rest_api_external_url,
-                jwt_secret,
                 whitelabel,
             )
             .await;
@@ -226,6 +224,13 @@ pub async fn spawn_workers(
         let store = store.clone();
         join_set.spawn(async move {
             misc::checkout_session_cleanup::run_checkout_session_cleanup_worker(store).await;
+        });
+    }
+
+    {
+        let store = store.clone();
+        join_set.spawn(async move {
+            misc::portal_token_cleanup::run_portal_token_cleanup_worker(store).await;
         });
     }
 

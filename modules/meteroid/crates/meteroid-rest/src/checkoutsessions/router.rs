@@ -11,9 +11,9 @@ use meteroid_app::errors::RestApiError;
 use meteroid_rest_common::QueryParams;
 use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_store::domain::checkout_sessions::{CheckoutType, CreateCheckoutSession};
-use meteroid_store::jwt_claims::{ResourceAccess, generate_portal_token};
 use meteroid_store::repositories::CustomersInterface;
 use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
+use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 
 use super::mapping;
 use super::model::{
@@ -119,16 +119,12 @@ pub async fn create_checkout_session(
             RestApiError::from(e)
         })?;
 
-    let checkout_url = generate_checkout_url(
-        &app_state.jwt_secret,
-        &app_state.portal_url,
-        tenant_id,
-        session.id,
-    )
-    .map_err(|e| {
-        log::error!("Failed to generate checkout URL: {:?}", e);
-        e
-    })?;
+    let checkout_url = generate_checkout_url(&app_state, tenant_id, session.id)
+        .await
+        .map_err(|e| {
+            log::error!("Failed to generate checkout URL: {:?}", e);
+            e
+        })?;
 
     let rest_session = mapping::domain_to_rest(session, Some(checkout_url))?;
 
@@ -168,12 +164,7 @@ pub async fn get_checkout_session(
         .await?;
 
     let checkout_url = if session.can_complete() {
-        Some(generate_checkout_url(
-            &app_state.jwt_secret,
-            &app_state.portal_url,
-            tenant_id,
-            session.id,
-        )?)
+        Some(generate_checkout_url(&app_state, tenant_id, session.id).await?)
     } else {
         None
     };
@@ -214,24 +205,20 @@ pub async fn list_checkout_sessions(
         .list_checkout_sessions(tenant_id, query.customer_id, domain_status)
         .await?;
 
-    let rest_sessions = sessions
+    let mut rest_sessions = Vec::with_capacity(sessions.len());
+    for session in sessions
         .into_iter()
         .filter(|session| session.plan_version_id.is_some())
-        .map(|session| {
-            let checkout_url = if session.can_complete() {
-                generate_checkout_url(
-                    &app_state.jwt_secret,
-                    &app_state.portal_url,
-                    tenant_id,
-                    session.id,
-                )
+    {
+        let checkout_url = if session.can_complete() {
+            generate_checkout_url(&app_state, tenant_id, session.id)
+                .await
                 .ok()
-            } else {
-                None
-            };
-            mapping::domain_to_rest(session, checkout_url)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+        } else {
+            None
+        };
+        rest_sessions.push(mapping::domain_to_rest(session, checkout_url)?);
+    }
 
     Ok(Json(ListCheckoutSessionsResponse {
         sessions: rest_sessions,
@@ -294,21 +281,16 @@ fn validate_redirect_url(field: &str, value: Option<&str>) -> Result<(), RestApi
     }
 }
 
-fn generate_checkout_url(
-    jwt_secret: &secrecy::SecretString,
-    portal_url: &str,
+async fn generate_checkout_url(
+    app_state: &AppState,
     tenant_id: TenantId,
     session_id: CheckoutSessionId,
 ) -> Result<String, RestApiError> {
-    let token = generate_portal_token(
-        jwt_secret,
-        tenant_id,
-        ResourceAccess::CheckoutSession(session_id),
-        None,
-        None,
-        false,
-    )
-    .map_err(|_| RestApiError::StoreError)?;
+    let token = app_state
+        .store
+        .checkout_portal_token(tenant_id, session_id, false)
+        .await
+        .map_err(|_| RestApiError::StoreError)?;
 
-    Ok(format!("{}/checkout?token={}", portal_url, token))
+    Ok(format!("{}/checkout?token={}", app_state.portal_url, token))
 }

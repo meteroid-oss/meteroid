@@ -19,10 +19,10 @@ use meteroid_store::domain::coupons::{CouponDiscount, CouponNew};
 use meteroid_store::domain::enums::{InvoiceStatusEnum, TenantEnvironmentEnum};
 use meteroid_store::domain::{ApiTokenNew, OrganizationNew, UsagePeriod};
 use meteroid_store::errors::StoreError;
-use meteroid_store::jwt_claims::PortalJwtClaims;
 use meteroid_store::repositories::OrganizationsInterface;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use meteroid_store::repositories::coupons::CouponInterface;
+use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 
 use crate::data::ids::*;
 use crate::harness::{TestEnv, subscription, test_env_with_seed, test_env_with_seed_and_usage};
@@ -455,13 +455,14 @@ async fn delegated_and_express_credentials_cannot_reach_customer_money_routes() 
     }
 
     // A portal session opened with these credentials inherits the deny; a direct key's does not.
-    let delegated = |body: &Value| {
-        PortalJwtClaims::decode(
-            body["token"].as_str().expect("a portal token"),
-            &env.setup.config.jwt_secret,
-        )
-        .expect("a valid portal token")
-        .delegated
+    let store = env.store();
+    let delegated = move |token: String| async move {
+        store
+            .resolve_portal_token(&token)
+            .await
+            .expect("a portal token lookup")
+            .expect("a stored portal token")
+            .delegated
     };
     for (rest, delegated_session) in [(&express, true), (&Rest::new(&env).await, false)] {
         let (status, created) = rest
@@ -479,7 +480,8 @@ async fn delegated_and_express_credentials_cannot_reach_customer_money_routes() 
             )
             .await;
         assert_eq!(status, StatusCode::OK, "{token}");
-        assert_eq!(delegated(&token), delegated_session, "{token}");
+        let issued = token["token"].as_str().expect("a portal token").to_owned();
+        assert_eq!(delegated(issued).await, delegated_session, "{token}");
     }
 
     // The gRPC mint inherits it too, and the session it opens cannot top up.
@@ -504,7 +506,7 @@ async fn delegated_and_express_credentials_cannot_reach_customer_money_routes() 
         .expect("an express key mints a portal token")
         .into_inner()
         .token;
-    assert!(delegated(&json!({ "token": token })));
+    assert!(delegated(token.clone()).await);
     let mut wallets = meteroid_grpc::meteroid::portal::wallets::v1::portal_wallets_service_client::PortalWalletsServiceClient::new(env.setup.channel.clone());
     let mut request = tonic::Request::new(
         meteroid_grpc::meteroid::portal::wallets::v1::TopUpWalletRequest {

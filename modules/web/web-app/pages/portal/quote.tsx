@@ -1,6 +1,7 @@
 import { Skeleton } from '@md/ui'
 import { AlertCircle } from 'lucide-react'
 
+import { LinkExpired, isPortalLinkExpired } from '@/features/portal-links/LinkExpired'
 import QuotePortalView from '@/features/quotes/QuotePortalView'
 import { useQuery } from '@/lib/connectrpc'
 import { getQuotePortal } from '@/rpc/portal/quotes/v1/quotes-PortalQuoteService_connectquery'
@@ -13,6 +14,14 @@ export const PortalQuote = () => {
   const data = quoteQuery.data?.quote
   const error = quoteQuery.error
   const isLoading = quoteQuery.isLoading
+
+  if (isPortalLinkExpired(error)) {
+    return (
+      <div className="h-full w-full flex items-center justify-center">
+        <LinkExpired document="quote" />
+      </div>
+    )
+  }
 
   if (error) {
     return (

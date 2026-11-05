@@ -53,6 +53,7 @@ pub mod mock;
 pub mod oauth;
 pub mod openapi;
 pub mod plans;
+pub mod portal_links;
 pub mod productfamilies;
 pub mod products;
 pub mod rate_limit;

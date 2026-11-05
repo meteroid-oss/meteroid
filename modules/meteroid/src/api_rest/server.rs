@@ -196,6 +196,7 @@ where
         .nest("/files", crate::api_rest::files::file_routes())
         .nest("/webhooks", crate::api_rest::webhooks::webhook_in_routes())
         .merge(crate::api_rest::hosted_return::hosted_return_routes())
+        .merge(crate::api_rest::portal_links::portal_link_routes())
         .merge(crate::api_rest::mock::mock_routes())
         .merge(crate::api_rest::oauth::oauth_routes())
         .merge(crate::api_rest::sso::sso_routes())

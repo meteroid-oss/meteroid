@@ -78,7 +78,6 @@ pub async fn start_api_server_with_incoming(
         Arc::new(store.clone()),
         object_store.clone(),
         config.public_url.clone(),
-        config.jwt_secret.clone(),
     )?;
 
     let credit_note_preview_rendering =
@@ -273,7 +272,6 @@ pub async fn start_api_server_with_incoming(
         .add_service(api::quotes::service(
             store.clone(),
             services.clone(),
-            config.jwt_secret.clone(),
             feature_resolver.clone(),
         ))
         .add_service(api::instance::service(store.clone()))
@@ -294,7 +292,6 @@ pub async fn start_api_server_with_incoming(
         .add_service(api::subscriptions::service(
             store.clone(),
             services.clone(),
-            config.jwt_secret.clone(),
             feature_resolver.clone(),
         ))
         .add_service(api::taxes::service(
@@ -366,7 +363,6 @@ pub async fn start_api_server_with_incoming(
         .add_service(api::portal::subscription::service(
             store.clone(),
             services.clone(),
-            config.jwt_secret.clone(),
             feature_resolver.clone(),
         ))
         .add_service(api::portal::purchase::service(

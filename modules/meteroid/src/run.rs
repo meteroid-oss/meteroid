@@ -227,7 +227,6 @@ async fn run_standalone_serving(
         object_store_service.clone(),
         store_arc.clone(),
         config.public_url.clone(),
-        config.jwt_secret.clone(),
     )?);
 
     let credit_note_pdf_service = Arc::new(CreditNotePdfRenderingService::try_new(

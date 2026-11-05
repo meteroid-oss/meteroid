@@ -21,7 +21,6 @@ impl TestEnv {
                 self.setup.object_store.clone(),
                 config.public_url.clone(),
                 config.rest_api_external_url.clone(),
-                config.jwt_secret.clone(),
             )
             .await
             .expect("email worker failed");

@@ -860,7 +860,6 @@ impl Services {
                                     },
                                     &[processed],
                                     event.tenant_id,
-                                    &services.store.settings.jwt_secret,
                                     &services.store.settings.public_url,
                                 )
                                 .await?;

@@ -34,6 +34,7 @@ mod test_payment_reminder_send;
 mod test_payment_reminders;
 mod test_pgmq_store;
 mod test_pool_of_one;
+mod test_portal_links;
 // mod test_payment;
 mod customer_credit_cutover;
 mod release_migrations;

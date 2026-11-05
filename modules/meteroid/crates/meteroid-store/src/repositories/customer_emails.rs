@@ -391,6 +391,7 @@ pub fn customer_email_message(
         resent_from,
         manual: false,
         attempts: Default::default(),
+        recipient: None,
     }
     .try_into()
 }
@@ -1517,6 +1518,7 @@ impl CustomerEmailsInterface for Store {
                     resent_from: None,
                     manual: true,
                     attempts: Default::default(),
+                    recipient: None,
                 }
                 .try_into()?;
                 self.pgmq_send_batch_tx(conn, PgmqQueue::SendEmailRequest, vec![msg])

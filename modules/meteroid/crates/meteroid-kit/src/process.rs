@@ -49,6 +49,7 @@ pub fn build_store(
         usage_client: Arc::new(usage_client.clone()),
         invite_ttl_days: config.invite_ttl_days,
         mfa_issuer: config.mfa_issuer.clone(),
+        portal_legacy_tokens_until: config.portal_legacy_tokens_until,
     })
     .expect("Failed to initialize store");
 

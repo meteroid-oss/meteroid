@@ -8,6 +8,7 @@ import {
   hostedReturnErrorMessage,
 } from '@/features/checkout/utils/hostedReturn'
 import InvoicePaymentFlow from '@/features/invoice-payment/InvoicePaymentFlow'
+import { LinkExpired, isPortalLinkExpired } from '@/features/portal-links/LinkExpired'
 import { useQuery } from '@/lib/connectrpc'
 import {
   InvoicePaymentStatus,
@@ -129,6 +130,14 @@ export const PortalInvoicePayment = () => {
 
   const error = invoicePaymentQuery.error
   const isLoading = invoicePaymentQuery.isLoading
+
+  if (isPortalLinkExpired(error)) {
+    return (
+      <div className="min-h-screen w-full bg-[#00000002] flex items-center justify-center">
+        <LinkExpired document="invoice" />
+      </div>
+    )
+  }
 
   if (error) {
     return (

@@ -218,7 +218,6 @@ pub async fn run_once_send_email(
     object_store: Arc<dyn ObjectStoreService>,
     public_url: String,
     rest_api_url: String,
-    jwt_secret: secrecy::SecretString,
 ) -> PgmqResult<usize> {
     let queue = PgmqQueue::SendEmailRequest;
     let processor = Arc::new(EmailSender::new(
@@ -226,7 +225,6 @@ pub async fn run_once_send_email(
         object_store,
         public_url,
         rest_api_url,
-        jwt_secret,
         store.clone(),
         services,
         Arc::new(NoWhitelabel),
@@ -254,7 +252,6 @@ pub async fn handle_send_email_messages(
     object_store: Arc<dyn ObjectStoreService>,
     public_url: String,
     rest_api_url: String,
-    jwt_secret: secrecy::SecretString,
     msgs: &[meteroid_store::domain::pgmq::PgmqMessage],
 ) -> PgmqResult<usize> {
     let sender = EmailSender::new(
@@ -262,7 +259,6 @@ pub async fn handle_send_email_messages(
         object_store,
         public_url,
         rest_api_url,
-        jwt_secret,
         store,
         services,
         Arc::new(NoWhitelabel),
@@ -278,7 +274,6 @@ pub async fn run_email_sender(
     object_store: Arc<dyn ObjectStoreService>,
     public_url: String,
     rest_api_url: String,
-    jwt_secret: secrecy::SecretString,
     whitelabel: Arc<dyn WhitelabelResolver>,
 ) {
     let queue = PgmqQueue::SendEmailRequest;
@@ -287,7 +282,6 @@ pub async fn run_email_sender(
         object_store,
         public_url,
         rest_api_url,
-        jwt_secret,
         store.clone(),
         services,
         whitelabel,

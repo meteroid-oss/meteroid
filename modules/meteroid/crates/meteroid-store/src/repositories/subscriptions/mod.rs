@@ -391,7 +391,6 @@ impl SubscriptionInterface for Store {
 
         // Look up the linked CheckoutSession to get the checkout URL
         let checkout_url = if subscription.pending_checkout {
-            use crate::jwt_claims::{ResourceAccess, generate_portal_token};
             use diesel_models::checkout_sessions::CheckoutSessionRow;
 
             // Find the active checkout session for this subscription
@@ -400,14 +399,7 @@ impl SubscriptionInterface for Store {
                 .map_err(Into::<Report<StoreError>>::into)?;
 
             if let Some(session) = session {
-                let token = generate_portal_token(
-                    &self.settings.jwt_secret,
-                    tenant_id,
-                    ResourceAccess::CheckoutSession(session.id),
-                    None,
-                    None,
-                    false,
-                )?;
+                let token = self.checkout_portal_token_tx(conn, &session, false).await?;
                 Some(format!(
                     "{}/checkout?token={}",
                     self.settings.public_url, token

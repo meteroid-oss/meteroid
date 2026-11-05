@@ -15,7 +15,7 @@ use meteroid_grpc::meteroid::portal::customer::v1::GetCustomerPortalOverviewRequ
 use meteroid_grpc::meteroid::portal::customer::v1::portal_customer_service_client::PortalCustomerServiceClient;
 use meteroid_grpc::meteroid::portal::shared::v1::UpdateCustomerRequest;
 use meteroid_grpc::meteroid::portal::shared::v1::portal_shared_service_client::PortalSharedServiceClient;
-use meteroid_store::jwt_claims::{PortalJwtClaims, PortalScope};
+use meteroid_store::domain::portal_tokens::is_portal_token;
 
 fn with_portal_token<T>(message: T, token: &str) -> tonic::Request<T> {
     let mut request = tonic::Request::new(message);
@@ -86,11 +86,18 @@ async fn test_rest_customer_portal_token() {
     let ttl = expires_at.with_timezone(&chrono::Utc) - chrono::Utc::now();
     assert!(ttl > chrono::Duration::hours(23) && ttl <= chrono::Duration::hours(24));
 
-    let claims = PortalJwtClaims::decode(&token, &setup.config.jwt_secret).unwrap();
-    assert_eq!(claims.scopes, Some(PortalScope::ALL.to_vec()));
-    assert_eq!(claims.exp, Some(expires_at.timestamp() as usize));
+    assert!(is_portal_token(&token), "{token}");
 
-    // Read-only token.
+    // The same request hands the same token back; `manage` alone is the full set.
+    let again: Value = mint(Some(json!({ "scopes": ["manage"] })))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(again["token"], json!(token));
+    assert_eq!(again["expires_at"], minted["expires_at"]);
+
+    // Read-only token, and a much shorter lifetime: both get their own token.
     let res = mint(Some(
         json!({ "scopes": ["read"], "expires_in_seconds": 3600 }),
     ))
@@ -100,8 +107,14 @@ async fn test_rest_customer_portal_token() {
         .as_str()
         .unwrap()
         .to_string();
-    let claims = PortalJwtClaims::decode(&read_token, &setup.config.jwt_secret).unwrap();
-    assert_eq!(claims.scopes, Some(vec![PortalScope::Read]));
+    assert_ne!(read_token, token);
+    let short: Value = mint(Some(json!({ "expires_in_seconds": 3600 })))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_ne!(short["token"], json!(token));
+    assert_ne!(short["token"], json!(read_token));
 
     // Invalid scope lists are rejected.
     assert_eq!(

@@ -68,6 +68,7 @@ id_type!(AlertEventId, "alev_");
 id_type!(SavedViewId, "view_");
 id_type!(EntityListViewId, "elv_");
 id_type!(DashboardShareId, "dsh_");
+id_type!(PortalTokenId, "ptok_");
 id_type!(SegmentId, "seg_");
 id_type!(NotificationChannelId, "chan_");
 id_type!(RoleId, "role_");

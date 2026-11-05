@@ -16,7 +16,6 @@ use crate::domain::{
     SubscriptionNew, SubscriptionNewEnriched, SubscriptionStatusEnum,
 };
 use crate::errors::{StoreError, StoreErrorReport};
-use crate::jwt_claims::{ResourceAccess, generate_portal_token};
 use crate::services::InvoiceBillingMode;
 use crate::services::subscriptions::utils::{
     PendingMaterialization, apply_coupons, apply_coupons_at, apply_coupons_without_validation,
@@ -46,7 +45,6 @@ use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowNew};
 use error_stack::{Report, ResultExt, bail};
 use futures::TryFutureExt;
 use scoped_futures::ScopedFutureExt;
-use secrecy::SecretString;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::log;
@@ -981,11 +979,10 @@ impl Services {
         actor: &Actor,
         processed: &[ProcessedSubscription],
         tenant_id: TenantId,
-        jwt_secret: &SecretString,
         public_url: &String,
     ) -> StoreResult<Vec<CreatedSubscription>> {
         self.persist_subscriptions_internal(
-            conn, actor, processed, tenant_id, jwt_secret, public_url, false, None,
+            conn, actor, processed, tenant_id, public_url, false, None,
         )
         .await
     }
@@ -999,11 +996,10 @@ impl Services {
         actor: &Actor,
         processed: &[ProcessedSubscription],
         tenant_id: TenantId,
-        jwt_secret: &SecretString,
         public_url: &String,
     ) -> StoreResult<Vec<CreatedSubscription>> {
         self.persist_subscriptions_internal(
-            conn, actor, processed, tenant_id, jwt_secret, public_url, true, None,
+            conn, actor, processed, tenant_id, public_url, true, None,
         )
         .await
     }
@@ -1016,7 +1012,6 @@ impl Services {
         actor: &Actor,
         processed: &[ProcessedSubscription],
         tenant_id: TenantId,
-        jwt_secret: &SecretString,
         public_url: &String,
         redeemed_at: chrono::DateTime<chrono::Utc>,
     ) -> StoreResult<Vec<CreatedSubscription>> {
@@ -1025,7 +1020,6 @@ impl Services {
             actor,
             processed,
             tenant_id,
-            jwt_secret,
             public_url,
             false,
             Some(redeemed_at),
@@ -1040,7 +1034,6 @@ impl Services {
         actor: &Actor,
         processed: &[ProcessedSubscription],
         tenant_id: TenantId,
-        jwt_secret: &SecretString,
         public_url: &String,
         skip_coupon_validation: bool,
         redeemed_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -1490,14 +1483,10 @@ impl Services {
                         .ok()
                         .flatten()
             {
-                let token = generate_portal_token(
-                    jwt_secret,
-                    tenant_id,
-                    ResourceAccess::CheckoutSession(session.id),
-                    None,
-                    None,
-                    false,
-                )?;
+                let token = self
+                    .store
+                    .checkout_portal_token_tx(conn, &session, false)
+                    .await?;
                 let checkout_url = format!("{}/checkout?token={}", public_url, token);
                 sub.checkout_url = Some(checkout_url);
             }

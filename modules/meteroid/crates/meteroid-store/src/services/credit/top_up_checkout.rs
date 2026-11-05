@@ -244,12 +244,12 @@ impl ServicesEdge {
             .await
     }
 
-    pub fn top_up_checkout_url(
+    pub async fn top_up_checkout_url(
         &self,
         tenant_id: TenantId,
         id: CheckoutSessionId,
     ) -> StoreResult<String> {
-        self.services.top_up_checkout_url(tenant_id, id)
+        self.services.top_up_checkout_url(tenant_id, id).await
     }
 
     pub(crate) async fn complete_top_up_checkout(
@@ -313,19 +313,17 @@ impl ServicesEdge {
 }
 
 impl Services {
-    pub fn top_up_checkout_url(
+    pub async fn top_up_checkout_url(
         &self,
         tenant_id: TenantId,
         id: CheckoutSessionId,
     ) -> StoreResult<String> {
-        let token = crate::jwt_claims::generate_portal_token(
-            &self.store.settings.jwt_secret,
-            tenant_id,
-            crate::jwt_claims::ResourceAccess::CheckoutSession(id),
-            None,
-            None,
-            false,
-        )?;
+        use crate::repositories::portal_tokens::PortalTokensInterface;
+
+        let token = self
+            .store
+            .checkout_portal_token(tenant_id, id, false)
+            .await?;
         Ok(format!(
             "{}/checkout?token={token}",
             self.store.settings.public_url

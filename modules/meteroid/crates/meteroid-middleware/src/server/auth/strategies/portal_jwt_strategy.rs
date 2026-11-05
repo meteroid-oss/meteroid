@@ -1,14 +1,23 @@
 use http::HeaderMap;
 use secrecy::SecretString;
 use tonic::Status;
+use tracing::log;
 
+use chrono::{DateTime, NaiveDate, Utc};
 use common_domain::auth::PortalScope;
 use common_domain::ids::TenantId;
 use common_grpc::GrpcServiceMethod;
 use common_grpc::middleware::common::auth::PORTAL_KEY_HEADER;
 use common_grpc::middleware::server::AuthorizedState;
-use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsPortalUser};
+use common_grpc::middleware::server::auth::{
+    AuthenticatedState, AuthorizedAsPortalUser, ResourceAccess as GrpcResourceAccess,
+};
+use meteroid_store::Store;
+use meteroid_store::domain::portal_tokens::{
+    PORTAL_LINK_EXPIRED, PortalTokenStatus, is_portal_token,
+};
 use meteroid_store::jwt_claims::{PortalJwtClaims, PortalTokenError, ResourceAccess};
+use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 
 /// Customer portal methods open to a token without the `manage` scope. Fails closed: any other
 /// method, including one added later, requires `manage`.
@@ -91,17 +100,64 @@ fn customer_scopes_allow(scopes: Option<&[PortalScope]>, gm: &GrpcServiceMethod)
     }
 }
 
-pub fn validate_portal_jwt(
+pub async fn validate_portal_token(
     header_map: &HeaderMap,
     jwt_secret: SecretString,
+    store: &Store,
 ) -> Result<AuthenticatedState, Status> {
     let token = header_map
         .get(PORTAL_KEY_HEADER)
-        .ok_or(Status::unauthenticated("Missing JWT"))?
+        .ok_or(Status::unauthenticated("Missing portal token"))?
         .to_str()
-        .map_err(|_| Status::unauthenticated("Invalid JWT"))?;
+        .map_err(|_| Status::unauthenticated("Invalid portal token"))?;
 
-    let decoded = PortalJwtClaims::decode(token, &jwt_secret).map_err(|err| match err {
+    if is_portal_token(token) {
+        return validate_stored_portal_token(token, store).await;
+    }
+    validate_portal_jwt(
+        token,
+        &jwt_secret,
+        store.settings.portal_legacy_tokens_until,
+        Utc::now(),
+    )
+}
+
+async fn validate_stored_portal_token(
+    token: &str,
+    store: &Store,
+) -> Result<AuthenticatedState, Status> {
+    let portal_token = store
+        .authenticate_portal_token(token)
+        .await
+        .map_err(|err| {
+            log::error!("Error resolving portal token: {err:?}");
+            Status::internal("Failed to resolve portal token")
+        })?
+        .ok_or_else(|| Status::unauthenticated("Invalid portal token"))?;
+
+    match portal_token.status(Utc::now()) {
+        PortalTokenStatus::Active => {}
+        PortalTokenStatus::Expired => return Err(Status::unauthenticated(PORTAL_LINK_EXPIRED)),
+        PortalTokenStatus::Revoked => return Err(Status::unauthenticated("Invalid portal token")),
+    }
+
+    Ok(AuthenticatedState::Shared {
+        tenant_id: portal_token.tenant_id,
+        resource_access: to_grpc_resource(portal_token.resource),
+        scopes: portal_token.scopes,
+        delegated: portal_token.delegated,
+    })
+}
+
+/// Tokens minted before stored portal tokens. The non-expiring ones (invoice, quote, checkout
+/// and dashboard links) stop working after `legacy_until`.
+fn validate_portal_jwt(
+    token: &str,
+    jwt_secret: &SecretString,
+    legacy_until: Option<NaiveDate>,
+    now: DateTime<Utc>,
+) -> Result<AuthenticatedState, Status> {
+    let decoded = PortalJwtClaims::decode(token, jwt_secret).map_err(|err| match err {
         PortalTokenError::Expired => Status::unauthenticated("JWT expired"),
         PortalTokenError::Invalid => Status::unauthenticated("Invalid JWT"),
     })?;
@@ -110,32 +166,38 @@ pub fn validate_portal_jwt(
     // opened by delegated credentials.
     let delegated = decoded.delegated
         || matches!(decoded.resource, ResourceAccess::Customer(_)) && decoded.scopes.is_none();
+    if decoded.exp.is_none() {
+        if legacy_until.is_some_and(|until| now.date_naive() > until) {
+            return Err(Status::unauthenticated("JWT expired"));
+        }
+        log::info!(
+            "Legacy non-expiring portal JWT used (tenant {})",
+            decoded.tenant_id
+        );
+    }
+
     Ok(AuthenticatedState::Shared {
         tenant_id: decoded.tenant_id,
-        resource_access: match decoded.resource {
-            ResourceAccess::CheckoutSession(id) => {
-                common_grpc::middleware::server::auth::ResourceAccess::CheckoutSession(id)
-            }
-            ResourceAccess::Customer(id) => {
-                common_grpc::middleware::server::auth::ResourceAccess::CustomerPortal(id)
-            }
-            ResourceAccess::Invoice(id) => {
-                common_grpc::middleware::server::auth::ResourceAccess::InvoicePortal(id)
-            }
-            ResourceAccess::Quote {
-                quote_id,
-                recipient_email,
-            } => common_grpc::middleware::server::auth::ResourceAccess::QuotePortal {
-                quote_id,
-                recipient_email,
-            },
-            ResourceAccess::Dashboard(id) => {
-                common_grpc::middleware::server::auth::ResourceAccess::DashboardPortal(id)
-            }
-        },
+        resource_access: to_grpc_resource(decoded.resource),
         scopes: decoded.scopes,
         delegated,
     })
+}
+
+fn to_grpc_resource(resource: ResourceAccess) -> GrpcResourceAccess {
+    match resource {
+        ResourceAccess::CheckoutSession(id) => GrpcResourceAccess::CheckoutSession(id),
+        ResourceAccess::Customer(id) => GrpcResourceAccess::CustomerPortal(id),
+        ResourceAccess::Invoice(id) => GrpcResourceAccess::InvoicePortal(id),
+        ResourceAccess::Quote {
+            quote_id,
+            recipient_email,
+        } => GrpcResourceAccess::QuotePortal {
+            quote_id,
+            recipient_email,
+        },
+        ResourceAccess::Dashboard(id) => GrpcResourceAccess::DashboardPortal(id),
+    }
 }
 
 pub fn authorize_portal(
@@ -206,6 +268,7 @@ pub fn authorize_portal(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
     use common_domain::ids::{BaseId, CustomerId, InvoiceId};
     use common_grpc::middleware::server::auth::ResourceAccess as PortalResource;
     use meteroid_store::jwt_claims::generate_portal_token;
@@ -244,9 +307,7 @@ mod tests {
     }
 
     fn validate(token: &str) -> Result<AuthenticatedState, Status> {
-        let mut headers = HeaderMap::new();
-        headers.insert(PORTAL_KEY_HEADER, token.parse().unwrap());
-        validate_portal_jwt(&headers, secret())
+        validate_portal_jwt(token, &secret(), None, Utc::now())
     }
 
     #[test]
@@ -469,12 +530,40 @@ mod tests {
                 Some(Code::Unauthenticated)
             );
         }
+    }
+
+    #[test]
+    fn non_expiring_legacy_tokens_stop_after_the_cutoff() {
+        let invoice_token = generate_portal_token(
+            &secret(),
+            TenantId::new(),
+            meteroid_store::jwt_claims::ResourceAccess::Invoice(InvoiceId::new()),
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+        let sdk_token = generate_portal_token(
+            &secret(),
+            TenantId::new(),
+            meteroid_store::jwt_claims::ResourceAccess::Customer(CustomerId::new()),
+            None,
+            Some(chrono::Duration::hours(1)),
+            false,
+        )
+        .unwrap();
+        let cutoff = NaiveDate::from_ymd_opt(2026, 6, 30);
+        let before = Utc.with_ymd_and_hms(2026, 6, 1, 0, 0, 0).unwrap();
+        let after = Utc.with_ymd_and_hms(2026, 7, 1, 0, 0, 0).unwrap();
+
+        assert!(validate_portal_jwt(&invoice_token, &secret(), cutoff, before).is_ok());
         assert_eq!(
-            validate_portal_jwt(&HeaderMap::new(), secret())
+            validate_portal_jwt(&invoice_token, &secret(), cutoff, after)
                 .err()
                 .map(|s| s.code()),
             Some(Code::Unauthenticated)
         );
+        assert!(validate_portal_jwt(&sdk_token, &secret(), cutoff, after).is_ok());
     }
 
     #[test]

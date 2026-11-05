@@ -42,7 +42,7 @@ async fn setup_test(seed_level: SeedLevel) -> Result<TestContext, Box<dyn Error>
 }
 
 /// Helper to create a quote for testing
-async fn create_test_quote(clients: &AllClients) -> api::quotes::v1::DetailedQuote {
+pub(crate) async fn create_test_quote(clients: &AllClients) -> api::quotes::v1::DetailedQuote {
     try_create_test_quote(clients, None)
         .await
         .expect("Failed to create quote")

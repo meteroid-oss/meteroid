@@ -6,6 +6,7 @@ use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_app::features::{
     ensure_credit_pricing_allowed, minimum_commitments_open, minimum_commitments_refused,
 };
+use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 use tonic::{Request, Response, Status};
 
@@ -478,16 +479,11 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
 
-        // Generate the JWT token for the CheckoutSession
-        let token = meteroid_store::jwt_claims::generate_portal_token(
-            &self.jwt_secret,
-            tenant_id,
-            meteroid_store::jwt_claims::ResourceAccess::CheckoutSession(session.id),
-            None,
-            None,
-            delegated,
-        )
-        .map_err(Into::<SubscriptionApiError>::into)?;
+        let token = self
+            .store
+            .checkout_portal_token(tenant_id, session.id, delegated)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
 
         Ok(Response::new(GenerateCheckoutTokenResponse { token }))
     }

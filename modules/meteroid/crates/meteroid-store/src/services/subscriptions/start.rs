@@ -199,7 +199,6 @@ impl crate::services::ServicesEdge {
                             actor,
                             &processed,
                             tenant_id,
-                            &services.store.settings.jwt_secret,
                             &services.store.settings.public_url,
                             start,
                         )

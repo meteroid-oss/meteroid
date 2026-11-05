@@ -37,6 +37,7 @@ use meteroid_store::repositories::invoices::apply_tax_rates_to_priced_lines;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
 use meteroid_store::repositories::pgmq::PgmqInterface;
+use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 use meteroid_store::services::{
     CustomerDetailsUpdate, OfflineRefundCommand, RefundCommand, ReverseManualPaymentCommand,
 };
@@ -745,16 +746,11 @@ impl InvoicesService for InvoiceServiceComponents {
             ));
         }
 
-        // Generate the JWT token for invoice portal access
-        let token = meteroid_store::jwt_claims::generate_portal_token(
-            &self.jwt_secret,
-            tenant_id,
-            meteroid_store::jwt_claims::ResourceAccess::Invoice(invoice_id),
-            None,
-            None,
-            delegated,
-        )
-        .map_err(Into::<InvoiceApiError>::into)?;
+        let token = self
+            .store
+            .invoice_portal_token(tenant_id, invoice_id, delegated)
+            .await
+            .map_err(Into::<InvoiceApiError>::into)?;
 
         Ok(Response::new(GenerateInvoicePaymentTokenResponse { token }))
     }

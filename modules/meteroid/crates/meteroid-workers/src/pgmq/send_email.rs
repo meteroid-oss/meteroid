@@ -22,7 +22,6 @@ use meteroid_store::domain::pgmq::{
     EmailSendAttempts, PgmqMessage, PgmqMessageNew, PgmqQueue, SendEmailRequest,
 };
 use meteroid_store::errors::StoreError;
-use meteroid_store::jwt_claims::{ResourceAccess, generate_portal_token};
 use meteroid_store::repositories::customer_emails::{
     CLAIM_IN_FLIGHT_WINDOW, ClaimFinish, ClaimOutcome,
 };
@@ -32,6 +31,7 @@ use meteroid_store::repositories::entity_activity::{
 };
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use meteroid_store::repositories::pgmq::PgmqInterface;
+use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 use meteroid_store::repositories::{CustomerEmailsInterface, QuotesInterface, TenantInterface};
 use meteroid_store::services::customer_emails::{
     BuildOutcome, DeferReason, EmailRenderInput, EmailTarget, SendOrigin, SkipReason,
@@ -68,7 +68,6 @@ pub struct EmailSender {
     public_url: String,
     rest_api_url: String,
     object_store: Arc<dyn ObjectStoreService>,
-    jwt_secret: secrecy::SecretString,
     store: Arc<Store>,
     services: Arc<Services>,
     whitelabel: Arc<dyn WhitelabelResolver>,
@@ -83,6 +82,7 @@ struct CustomerEmailJob {
     resent_from: Option<EntityActivityId>,
     manual: bool,
     attempts: EmailSendAttempts,
+    recipient: Option<String>,
 }
 
 impl CustomerEmailJob {
@@ -95,6 +95,7 @@ impl CustomerEmailJob {
             resent_from: self.resent_from,
             manual: self.manual,
             attempts,
+            recipient: self.recipient.clone(),
         }
         .try_into()
     }
@@ -107,7 +108,6 @@ impl EmailSender {
         object_store: Arc<dyn ObjectStoreService>,
         public_url: String,
         rest_api_url: String,
-        jwt_secret: secrecy::SecretString,
         store: Arc<Store>,
         services: Arc<Services>,
         whitelabel: Arc<dyn WhitelabelResolver>,
@@ -117,22 +117,17 @@ impl EmailSender {
             public_url,
             rest_api_url,
             object_store,
-            jwt_secret,
             store,
             services,
             whitelabel,
         }
     }
 
-    fn pay_link(&self, tenant_id: TenantId, invoice_id: InvoiceId) -> StoreResult<String> {
-        let token = generate_portal_token(
-            &self.jwt_secret,
-            tenant_id,
-            ResourceAccess::Invoice(invoice_id),
-            None,
-            None,
-            false,
-        )?;
+    async fn pay_link(&self, tenant_id: TenantId, invoice_id: InvoiceId) -> StoreResult<String> {
+        let token = self
+            .store
+            .invoice_portal_token(tenant_id, invoice_id, false)
+            .await?;
         Ok(format!(
             "{}/portal/invoice-payment?token={}",
             self.public_url.trim_end_matches('/'),
@@ -159,6 +154,7 @@ impl EmailSender {
                 resent_from,
                 manual,
                 attempts,
+                recipient,
             } => {
                 self.send_customer_email(CustomerEmailJob {
                     tenant_id,
@@ -168,6 +164,7 @@ impl EmailSender {
                     resent_from,
                     manual,
                     attempts,
+                    recipient,
                 })
                 .await
             }
@@ -185,6 +182,7 @@ impl EmailSender {
                     resent_from: None,
                     manual: false,
                     attempts: EmailSendAttempts::default(),
+                    recipient: None,
                 })
                 .await
             }
@@ -201,6 +199,7 @@ impl EmailSender {
                     resent_from: None,
                     manual: false,
                     attempts: EmailSendAttempts::default(),
+                    recipient: None,
                 })
                 .await
             }
@@ -435,7 +434,23 @@ impl EmailSender {
         }
 
         let whitelabel = self.whitelabel.is_whitelabel(tenant_id).await;
-        let pay_link = |invoice_id: InvoiceId| self.pay_link(tenant_id, invoice_id);
+        let pay_link_url = match job.context.invoice_id() {
+            Some(invoice_id) => match self.pay_link(tenant_id, invoice_id).await {
+                Ok(url) => Some(url),
+                Err(e) => {
+                    self.release(&job).await?;
+                    return Err(e);
+                }
+            },
+            None => None,
+        };
+        let pay_link = |_: InvoiceId| {
+            pay_link_url.clone().ok_or_else(|| {
+                Report::new(StoreError::InvalidArgument(
+                    "email context has no invoice".to_string(),
+                ))
+            })
+        };
         let origin = if job.resent_from.is_some() || job.manual {
             SendOrigin::Manual
         } else {
@@ -454,7 +469,7 @@ impl EmailSender {
                 origin,
             )
             .await;
-        let input = match outcome {
+        let mut input = match outcome {
             Ok(BuildOutcome::Render(input)) => input,
             Ok(BuildOutcome::Skip(reason, target)) => {
                 self.release(&job).await?;
@@ -469,6 +484,15 @@ impl EmailSender {
                 return Err(e);
             }
         };
+        if let Some(only) = &job.recipient {
+            input.recipients.retain(|r| r.eq_ignore_ascii_case(only));
+            if input.recipients.is_empty() {
+                self.release(&job).await?;
+                return self
+                    .record_skip(&job, SkipReason::NoRecipients, &input.target)
+                    .await;
+            }
+        }
 
         let rendered = match render(&input.layout, input.subject.clone(), input.body.clone()) {
             Ok(r) => r,

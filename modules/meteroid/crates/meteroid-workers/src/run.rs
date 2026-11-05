@@ -45,7 +45,6 @@ pub async fn run_workers(
         object_store_service.clone(),
         store.clone(),
         config.public_url.clone(),
-        config.jwt_secret.clone(),
     )?);
 
     let credit_note_pdf_service = Arc::new(CreditNotePdfRenderingService::try_new(

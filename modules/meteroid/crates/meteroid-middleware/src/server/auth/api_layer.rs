@@ -9,7 +9,9 @@ use crate::server::auth::strategies::api_key_strategy::validate_api_key;
 use crate::server::auth::strategies::jwt_strategy::{
     authorize_user, is_user_active_cached, validate_jwt,
 };
-use crate::server::auth::strategies::portal_jwt_strategy::{authorize_portal, validate_portal_jwt};
+use crate::server::auth::strategies::portal_jwt_strategy::{
+    authorize_portal, validate_portal_token,
+};
 use cached::proc_macro::cached;
 use common_domain::ids::{OrganizationId, UserId};
 use common_domain::rbac::ResolvedPermissions;
@@ -26,6 +28,7 @@ use futures_util::TryFutureExt;
 use futures_util::future::BoxFuture;
 use http::StatusCode;
 use meteroid_store::Store;
+use meteroid_store::domain::portal_tokens::PORTAL_LINK_EXPIRED;
 use meteroid_store::repositories::OrganizationsInterface;
 use std::task::{Context, Poll};
 use tonic::Status;
@@ -245,7 +248,8 @@ where
                     .await
                     .map_err(|e| BoxError::from(e) as BoxError)
             } else if metadata.contains_key(PORTAL_KEY_HEADER) {
-                validate_portal_jwt(&metadata, jwt_secret)
+                validate_portal_token(&metadata, jwt_secret, &store)
+                    .await
                     .map_err(|e| BoxError::from(e) as BoxError)
             } else if metadata.contains_key(BEARER_AUTH_HEADER) {
                 validate_jwt(&metadata, jwt_secret).map_err(|e| BoxError::from(e) as BoxError)
@@ -331,6 +335,13 @@ where
 
         let future = future.or_else(|e: BoxError| async move {
             log::warn!("Error in auth middleware: {e:?}");
+            // The portal offers recovery on this one, so it must keep its message.
+            if let Some(status) = e
+                .downcast_ref::<Status>()
+                .filter(|s| s.message() == PORTAL_LINK_EXPIRED)
+            {
+                return Ok(status.clone().into_http());
+            }
             let status_code = e
                 .downcast_ref::<Status>()
                 .map(|s| match s.code() {

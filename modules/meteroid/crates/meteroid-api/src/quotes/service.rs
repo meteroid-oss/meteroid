@@ -29,6 +29,7 @@ use meteroid_store::domain::{PriceComponent, quotes::QuotePriceComponentNew};
 use meteroid_store::repositories::CreditUnitsInterface;
 use meteroid_store::repositories::QuotesInterface;
 use meteroid_store::repositories::customer_emails::CustomerEmailsInterface;
+use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 use nanoid::nanoid;
 use tonic::{Request, Response, Status};
 
@@ -383,19 +384,16 @@ impl QuotesService for QuoteServiceComponents {
             ));
         }
 
-        // Generate portal token
-        let token = meteroid_store::jwt_claims::generate_portal_token(
-            &self.jwt_secret,
-            tenant_id,
-            meteroid_store::jwt_claims::ResourceAccess::Quote {
+        let token = self
+            .store
+            .quote_portal_token(
+                tenant_id,
                 quote_id,
-                recipient_email: inner.recipient_email.clone(),
-            },
-            None,
-            None,
-            delegated,
-        )
-        .map_err(Into::<QuoteApiError>::into)?;
+                inner.recipient_email.clone(),
+                delegated,
+            )
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
 
         Ok(Response::new(GenerateQuotePortalTokenResponse { token }))
     }

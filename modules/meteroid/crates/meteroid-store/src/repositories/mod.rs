@@ -62,6 +62,7 @@ pub(crate) mod payment_reversal;
 pub mod payment_transactions;
 pub mod pgmq;
 pub mod plan_version_add_ons;
+pub mod portal_tokens;
 pub mod price_components;
 pub mod prices;
 pub mod product_families;

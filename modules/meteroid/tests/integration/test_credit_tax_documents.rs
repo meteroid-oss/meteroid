@@ -270,7 +270,6 @@ async fn vat_findings(setup: &MeteroidSetup, invoice_id: InvoiceId) -> TestResul
         Arc::new(setup.store.clone()),
         setup.object_store.clone(),
         "http://localhost".to_owned(),
-        setup.config.jwt_secret.clone(),
     )
     .map_err(test_error)?;
     let report = rendering
