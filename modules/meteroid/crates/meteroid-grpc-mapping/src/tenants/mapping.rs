@@ -22,6 +22,7 @@ pub mod tenants {
             email_delivery_mode: delivery_mode_to_grpc(tenant.email_delivery_mode).into(),
             email_test_recipients: tenant.email_test_recipients,
             keep_last_events: tenant.keep_last_events,
+            portal_embed_origins: tenant.portal_embed_origins,
         }
     }
 
@@ -87,6 +88,7 @@ pub mod tenants {
                 .alert_evaluation_interval_secs
                 .map(|v| if v <= 0 { None } else { Some(v) }),
             keep_last_events: req.keep_last_events,
+            portal_embed_origins: req.portal_embed_origins.map(|o| o.origins),
         })
     }
 

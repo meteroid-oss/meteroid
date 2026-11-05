@@ -130,6 +130,9 @@ pub trait TenantInterface {
 
     async fn find_tenant_by_id(&self, tenant_id: TenantId) -> StoreResult<TenantWithOrganization>;
 
+    /// Read uncached, so removing an origin applies at once on every replica.
+    async fn get_portal_embed_origins(&self, tenant_id: TenantId) -> StoreResult<Vec<String>>;
+
     /// Resolve multiple tenants in one call, cached.
     /// Transient error returns a partial result instead of failing the entire batch.
     async fn find_tenants_by_ids(
@@ -239,6 +242,10 @@ impl TenantInterface for Store {
                         tenant.email_test_recipients =
                             Some(domain::tenants::normalize_test_recipients(recipients)?);
                     }
+                    if let Some(origins) = tenant.portal_embed_origins.take() {
+                        tenant.portal_embed_origins =
+                            Some(domain::tenants::normalize_embed_origins(origins)?);
+                    }
                     let environment = tenant
                         .environment
                         .clone()
@@ -311,6 +318,9 @@ impl TenantInterface for Store {
                     }
                     if before.keep_last_events != updated_tenant.keep_last_events {
                         changed_fields.push("keep_last_events");
+                    }
+                    if before.portal_embed_origins != updated_tenant.portal_embed_origins {
+                        changed_fields.push("portal_embed_origins");
                     }
 
                     if !changed_fields.is_empty() {
@@ -595,6 +605,14 @@ impl TenantInterface for Store {
 
     async fn find_tenant_by_id(&self, tenant_id: TenantId) -> StoreResult<TenantWithOrganization> {
         find_tenant_by_id_cached(&self.pool, tenant_id).await
+    }
+
+    async fn get_portal_embed_origins(&self, tenant_id: TenantId) -> StoreResult<Vec<String>> {
+        let mut conn = self.get_conn().await?;
+        TenantRow::find_by_id(&mut conn, tenant_id)
+            .await
+            .map(|row| row.portal_embed_origins)
+            .map_err(Into::into)
     }
 
     async fn find_tenants_by_ids(

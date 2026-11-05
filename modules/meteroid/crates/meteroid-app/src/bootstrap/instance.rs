@@ -205,6 +205,7 @@ async fn find_or_create_tenant(
                 legacy_disable_emails: None,
                 alert_evaluation_interval_secs: None,
                 keep_last_events: None,
+                portal_embed_origins: None,
             },
             organization.id,
             tenant.id,

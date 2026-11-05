@@ -18,6 +18,7 @@ export const entitlementCodes = {
   CREDIT_PRICING: 'credit_pricing',
   SCOPED_CREDIT: 'scoped_credit',
   PORTAL_THEMING: 'portal_theming',
+  PORTAL_EMBEDDING: 'portal_embedding',
   EMAIL_CUSTOMIZATION: 'email_customization',
   QUOTE_MULTIPLE_SIGNERS: 'quote_multiple_signers',
 } as const

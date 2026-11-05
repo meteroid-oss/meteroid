@@ -2833,6 +2833,7 @@ diesel::table! {
         email_delivery_mode -> EmailDeliveryModeEnum,
         email_test_recipients -> Array<Nullable<Text>>,
         keep_last_events -> Bool,
+        portal_embed_origins -> Array<Nullable<Text>>,
     }
 }
 

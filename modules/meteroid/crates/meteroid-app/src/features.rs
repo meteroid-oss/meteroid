@@ -563,6 +563,8 @@ pub const CREDIT_PRICING_NOT_IN_PLAN: &str = "Credit packs, credit units, self-s
 pub const PORTAL_SELF_SERVICE_NOT_IN_PLAN: &str =
     "Changing a subscription from the portal is not available; please contact your provider";
 pub const PORTAL_THEMING_NOT_IN_PLAN: &str = "Portal theming is not available for your plan";
+pub const PORTAL_EMBEDDING_NOT_IN_PLAN: &str =
+    "Embedding the customer portal is not available for your plan";
 pub const EMAIL_CUSTOMIZATION_NOT_IN_PLAN: &str =
     "Customizing customer emails is not available in this edition";
 pub const QUOTE_PURCHASE_ORDERS_NOT_IN_PLAN: &str =

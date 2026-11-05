@@ -30,8 +30,10 @@ message CustomerPortalOverview {
   bool show_powered_by = 13;
   // Whether the customer may change their plan, add-ons, seats and wallet here.
   bool self_service = 14;
-  // Whether the portal may be shown embedded in the merchant's application.
+  // Whether the portal may be shown embedded in the merchant's application, anywhere.
   bool embedding_allowed = 15;
+  // Origins the portal may be embedded in even when embedding_allowed is false.
+  repeated string embed_origins = 16;
 }
 
 message SubscriptionSummary {

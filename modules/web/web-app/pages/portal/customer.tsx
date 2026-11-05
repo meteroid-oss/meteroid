@@ -5,6 +5,7 @@ import { useForceTheme } from 'providers/ThemeProvider'
 import { PortalApp } from './experience/PortalApp'
 import { PortalThemeProvider } from './experience/PortalThemeProvider'
 import { EmbedHost, getEmbedView, type EmbedView } from './experience/embed/EmbedHost'
+import { ancestorOrigins, embeddingPermitted } from './experience/embed/embedding'
 import { usePortalOverview } from './experience/hooks'
 import { resolveTheme } from './experience/theme'
 
@@ -34,7 +35,7 @@ export const PortalCustomer = () => {
 const PortalFull = () => {
   const { branding, overview } = usePortalOverview()
   useForceTheme(resolveTheme(branding).theme)
-  if (overview && !overview.embeddingAllowed && isFramed()) {
+  if (overview && isFramed() && !embeddable(overview)) {
     return <EmbeddingUnavailable />
   }
   return (
@@ -48,7 +49,7 @@ const PortalEmbed = ({ view }: { view: EmbedView }) => {
   const { branding, overview } = usePortalOverview()
   useForceTheme(resolveTheme(branding).theme)
   useTransparentBody()
-  if (overview && !overview.embeddingAllowed) {
+  if (overview && !embeddable(overview)) {
     return <EmbeddingUnavailable />
   }
   return (
@@ -72,6 +73,13 @@ const useTransparentBody = () => {
     return () => document.documentElement.classList.remove('mtp-embed')
   }, [])
 }
+
+const embeddable = (overview: { embeddingAllowed: boolean; embedOrigins: string[] }) =>
+  embeddingPermitted(
+    overview.embeddingAllowed,
+    overview.embedOrigins,
+    isFramed() ? ancestorOrigins() : []
+  )
 
 const isFramed = () => {
   try {

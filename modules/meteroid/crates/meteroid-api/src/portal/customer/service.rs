@@ -18,7 +18,7 @@ use meteroid_store::repositories::CreditUnitsInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
-use meteroid_store::repositories::{InvoiceInterface, SubscriptionInterface};
+use meteroid_store::repositories::{InvoiceInterface, SubscriptionInterface, TenantInterface};
 use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
@@ -254,6 +254,11 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
         };
         let self_service = gate(meteroid_app::features::gates::PORTAL_SELF_SERVICE).await?;
         let embedding_allowed = gate(meteroid_app::features::gates::PORTAL_EMBEDDING).await?;
+        let embed_origins = self
+            .store
+            .get_portal_embed_origins(tenant)
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)?;
 
         Ok(Response::new(GetCustomerPortalOverviewResponse {
             overview: Some(CustomerPortalOverview {
@@ -271,6 +276,7 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                 show_powered_by,
                 self_service,
                 embedding_allowed,
+                embed_origins,
             }),
         }))
     }

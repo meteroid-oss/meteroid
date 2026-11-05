@@ -990,6 +990,7 @@ async fn per_kind_toggle_skips_with_activity_but_tenant_switch_wins(#[future] te
                 legacy_disable_emails: None,
                 alert_evaluation_interval_secs: None,
                 keep_last_events: None,
+                portal_embed_origins: None,
             },
             ORGANIZATION_ID,
             TENANT_ID,

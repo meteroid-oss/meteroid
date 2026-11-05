@@ -29,6 +29,8 @@ pub struct TenantRow {
     #[diesel(deserialize_as = crate::extend::non_null_array::NonNullArray<String>)]
     pub email_test_recipients: Vec<String>,
     pub keep_last_events: bool,
+    #[diesel(deserialize_as = crate::extend::non_null_array::NonNullArray<String>)]
+    pub portal_embed_origins: Vec<String>,
 }
 
 #[derive(Debug, Insertable)]
@@ -63,6 +65,7 @@ pub struct TenantRowPatch {
     pub email_delivery_mode: Option<EmailDeliveryModeEnum>,
     pub email_test_recipients: Option<Vec<String>>,
     pub keep_last_events: Option<bool>,
+    pub portal_embed_origins: Option<Vec<String>>,
 }
 
 #[derive(Debug, Queryable, Selectable)]

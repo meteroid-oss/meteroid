@@ -20,10 +20,16 @@ message Tenant {
   repeated string email_test_recipients = 10;
   // A re-sent event id replaces the earlier copy instead of being ignored.
   bool keep_last_events = 11;
+  // Origins (scheme://host[:port]) the customer portal may be embedded in.
+  repeated string portal_embed_origins = 12;
 }
 
 message EmailTestRecipients {
   repeated string recipients = 1;
+}
+
+message PortalEmbedOrigins {
+  repeated string origins = 1;
 }
 
 message TenantUpdate {
@@ -42,6 +48,8 @@ message TenantUpdate {
   optional EmailTestRecipients email_test_recipients = 9;
   // Setting it to true requires the keep_last_events feature.
   optional bool keep_last_events = 10;
+  // Replaces the whole list when set. Adding an origin requires the portal_embedding feature.
+  optional PortalEmbedOrigins portal_embed_origins = 11;
 }
 
 enum TenantEnvironmentEnum {

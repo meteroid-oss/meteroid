@@ -33,6 +33,8 @@ pub struct Tenant {
     pub email_test_recipients: Vec<String>,
     /// A re-sent event id replaces the earlier copy instead of being dropped.
     pub keep_last_events: bool,
+    /// Where the customer portal may be framed even without the `portal_embedding` gate.
+    pub portal_embed_origins: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -59,6 +61,8 @@ pub struct TenantUpdate {
     /// default (NULL); `Some(Some(v))` = set the cadence to `v` seconds.
     pub alert_evaluation_interval_secs: Option<Option<i32>>,
     pub keep_last_events: Option<bool>,
+    /// Replaces the whole list when set.
+    pub portal_embed_origins: Option<Vec<String>>,
 }
 
 impl From<TenantUpdate> for TenantRowPatch {
@@ -74,6 +78,7 @@ impl From<TenantUpdate> for TenantRowPatch {
             email_delivery_mode: u.email_delivery_mode.map(Into::into),
             email_test_recipients: u.email_test_recipients,
             keep_last_events: u.keep_last_events,
+            portal_embed_origins: u.portal_embed_origins,
         }
     }
 }
@@ -125,9 +130,81 @@ pub fn is_test_recipient(email: &str, members: &[String], allowlist: &[String]) 
         })
 }
 
+/// Each entry as the browser reports a frame's origin (`https://app.acme.com`), de-duplicated.
+pub fn normalize_embed_origins(
+    origins: Vec<String>,
+) -> Result<Vec<String>, crate::errors::StoreError> {
+    const MAX: usize = 20;
+    let mut out: Vec<String> = Vec::new();
+    for raw in origins {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let origin = url::Url::parse(trimmed)
+            .ok()
+            .filter(|u| {
+                matches!(u.scheme(), "http" | "https")
+                    && u.host_str().is_some()
+                    && u.username().is_empty()
+                    && u.password().is_none()
+                    && u.path() == "/"
+                    && u.query().is_none()
+                    && u.fragment().is_none()
+            })
+            .map(|u| u.origin().ascii_serialization())
+            .ok_or_else(|| {
+                crate::errors::StoreError::InvalidArgument(format!(
+                    "Invalid origin `{raw}`: use scheme://host[:port], e.g. https://app.example.com"
+                ))
+            })?;
+        if !out.contains(&origin) {
+            out.push(origin);
+        }
+    }
+    if out.len() > MAX {
+        return Err(crate::errors::StoreError::InvalidArgument(format!(
+            "At most {MAX} embedding origins"
+        )));
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn embed_origins_normalize_to_what_the_browser_reports() {
+        let list = normalize_embed_origins(vec![
+            " HTTPS://App.Acme.com/ ".into(),
+            "https://app.acme.com".into(),
+            "http://localhost:3000".into(),
+            "https://acme.com:443".into(),
+            "".into(),
+        ])
+        .unwrap();
+        assert_eq!(
+            list,
+            vec![
+                "https://app.acme.com",
+                "http://localhost:3000",
+                "https://acme.com"
+            ]
+        );
+        for invalid in [
+            "acme.com",
+            "https://acme.com/billing",
+            "https://acme.com?x=1",
+            "javascript:alert(1)",
+            "https://user@acme.com",
+        ] {
+            assert!(
+                normalize_embed_origins(vec![invalid.into()]).is_err(),
+                "{invalid}"
+            );
+        }
+    }
 
     #[test]
     fn test_recipients_normalize_and_match() {

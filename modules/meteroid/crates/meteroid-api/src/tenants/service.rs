@@ -1,7 +1,10 @@
 use crate::tenants::error::TenantApiError;
 use common_domain::ids::TenantId;
 use common_grpc::middleware::server::auth::RequestExt;
-use meteroid_app::features::{ResolvedEntitlements, ensure_production_tenant_allowed, gates};
+use meteroid_app::features::{
+    PORTAL_EMBEDDING_NOT_IN_PLAN, ResolvedEntitlements, ensure_change_allowed,
+    ensure_production_tenant_allowed, gates,
+};
 use meteroid_grpc::meteroid::api::tenants::v1::{
     ActiveTenantRequest, ActiveTenantResponse, CreateTenantRequest, CreateTenantResponse,
     DeleteTenantRequest, DeleteTenantResponse, GetTenantByIdRequest, GetTenantByIdResponse,
@@ -16,6 +19,7 @@ use meteroid_grpc::meteroid::api::tenants::v1::{
 };
 use meteroid_store::domain::TenantEnvironmentEnum;
 use meteroid_store::domain::sandbox_seeds::SandboxSeedStatus;
+use meteroid_store::domain::tenants::normalize_embed_origins;
 use meteroid_store::repositories::sandbox::SandboxInterface;
 use meteroid_store::repositories::{OrganizationsInterface, TenantInterface};
 use tonic::{Request, Response, Status};
@@ -82,6 +86,24 @@ impl TenantsService for TenantServiceComponents {
                     "Keeping the last copy of re-sent events is no longer offered",
                 ));
             }
+        }
+        if let Some(origins) = &req.portal_embed_origins {
+            let current = self
+                .store
+                .get_portal_embed_origins(tenant_id)
+                .await
+                .map_err(Into::<TenantApiError>::into)?;
+            let origins = normalize_embed_origins(origins.clone())
+                .map_err(|e| Status::invalid_argument(e.to_string()))?;
+            let adds = origins.iter().any(|o| !current.contains(o));
+            ensure_change_allowed(
+                self.feature_resolver.as_ref(),
+                organization_id,
+                gates::PORTAL_EMBEDDING,
+                adds,
+                PORTAL_EMBEDDING_NOT_IN_PLAN,
+            )
+            .await?;
         }
 
         let organization = self
