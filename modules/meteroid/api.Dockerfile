@@ -3,6 +3,10 @@ FROM lukemathwalker/cargo-chef:latest-rust-1.96.0-bookworm AS chef
 ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 WORKDIR /opt/src
+# The pinned toolchain, before the cook: else `COPY . .` switches compilers and every cooked
+# dependency is compiled again.
+COPY rust-toolchain.toml .
+RUN rustup toolchain install
 
 FROM chef AS planner
 COPY . .
