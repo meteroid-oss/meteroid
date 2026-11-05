@@ -3,6 +3,17 @@
 Versions before 2.0 are described in the
 [GitHub releases](https://github.com/meteroid-oss/meteroid/releases).
 
+## [2.0.1] - 2026-11-05
+
+### OSS
+
+- The metering API image includes the PostgreSQL client library its arm64 build needs: on arm64, the
+  2.0.0 metering API stopped at startup with `libpq.so.5: cannot open shared object file`.
+
+### Upgrade notes
+
+- None. On arm64, upgrade from 2.0.0 to get a metering API that starts.
+
 ## [2.0.0] - 2026-11-04
 
 > [!WARNING]
