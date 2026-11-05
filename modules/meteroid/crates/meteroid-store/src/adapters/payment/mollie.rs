@@ -62,6 +62,7 @@ pub(super) const MOLLIE_CAPABILITIES: PaymentCapabilities = PaymentCapabilities 
     refunds: RefundSupport::Partial,
     // Mollie forgets an Idempotency-Key after an hour.
     refund_replay_window: Some(std::time::Duration::from_secs(45 * 60)),
+    charge_replay_window: std::time::Duration::from_secs(45 * 60),
     // 3DS runs on the hosted first payment; renewals are merchant-initiated.
     supports_3ds: true,
     supports_disputes: true,

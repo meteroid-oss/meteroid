@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_payment_transaction_unsent_charge;

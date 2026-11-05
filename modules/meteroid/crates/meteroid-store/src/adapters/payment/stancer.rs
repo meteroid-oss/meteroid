@@ -57,6 +57,7 @@ pub(super) const STANCER_CAPABILITIES: PaymentCapabilities = PaymentCapabilities
     refunds: RefundSupport::Partial,
     // A refund carries no idempotency key, so an unconfirmed one is never replayed.
     refund_replay_window: None,
+    charge_replay_window: std::time::Duration::from_secs(12 * 60 * 60),
     // The hosted page runs the 3DS challenge (`threeds: required` on the
     // intent). Off-session charges omit `auth` → no 3DS (MIT posture).
     supports_3ds: true,

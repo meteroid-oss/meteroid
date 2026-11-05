@@ -104,8 +104,11 @@ impl Services {
         }
 
         // Cancelled is aborted (often on purpose, from the provider dashboard), not declined:
-        // retrying it would fight that intent. No dunning; the invoice stays payable.
-        if event.status == crate::domain::PaymentStatusEnum::Cancelled {
+        // retrying it would fight that intent. No dunning; the invoice stays payable. An
+        // unconfirmed charge may have gone through, so it is neither retried nor reported failed.
+        if event.status == crate::domain::PaymentStatusEnum::Cancelled
+            || event.decline_kind == Some(DeclineKind::Unconfirmed)
+        {
             self.release_processing_invoice(event.tenant_id, invoice_id)
                 .await?;
             // Nothing retries a cancelled system charge: reminders take the invoice over.

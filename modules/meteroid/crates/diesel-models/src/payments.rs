@@ -78,6 +78,8 @@ pub struct PaymentTransactionRow {
     /// On a REFUND row without a credit note: the part of it that gave back money collected above
     /// the invoice when it was issued.
     pub refund_excess: i64,
+    /// The provider request of an invoice charge, committed before it is sent.
+    pub charge_attempt: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Insertable)]
@@ -131,6 +133,7 @@ pub struct PaymentTransactionRowPatch {
     pub amount_reversed_excess: Option<i64>,
     pub refund_excess: Option<i64>,
     pub amount: Option<i64>,
+    pub charge_attempt: Option<Option<serde_json::Value>>,
 }
 
 #[derive(Debug, Queryable, Selectable)]

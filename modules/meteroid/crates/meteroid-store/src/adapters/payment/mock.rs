@@ -51,6 +51,7 @@ pub(super) const MOCK_CAPABILITIES: PaymentCapabilities = PaymentCapabilities {
     refunds: RefundSupport::Partial,
     // The mock keys its simulated refunds the same way a real provider would.
     refund_replay_window: Some(Duration::from_secs(12 * 60 * 60)),
+    charge_replay_window: Duration::from_secs(12 * 60 * 60),
     supports_3ds: true,
     supports_disputes: true,
     webhooks: Some(InboundWebhooks {

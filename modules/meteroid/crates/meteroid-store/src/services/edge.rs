@@ -23,6 +23,7 @@ use crate::repositories::{InvoiceInterface, SubscriptionInterface};
 use crate::services::CycleTransitionResult;
 use crate::services::clients::usage::WindowedUsageData;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
+use crate::services::payment::process_payment::{InvoiceChargeResult, payment_in_flight};
 use crate::services::subscriptions::payment_resolution::ResolvedPaymentMethods;
 use crate::services::subscriptions::start::{StartTransition, mark_subscription_started_tx};
 use crate::services::{InvoiceBillingMode, ServicesEdge};
@@ -1111,48 +1112,34 @@ impl ServicesEdge {
         invoice_id: InvoiceId,
         payment_method_id: CustomerPaymentMethodId,
         on_session: bool,
-        // Stable provider-idempotency seed; see `process_invoice_payment_tx`.
+        // Stable provider-idempotency seed; see `charge_invoice`.
         // The webhook off-session charge passes one so a pgmq retry can't
         // double-charge; interactive callers pass None.
         idempotency_ref: Option<String>,
     ) -> StoreResult<(PaymentTransaction, Option<PaymentNextAction>)> {
-        self.store
-            .transaction(|conn| {
-                async move {
-                    let (transaction, next_action) = self
-                        .services
-                        .process_invoice_payment_tx(
-                            conn,
-                            tenant_id,
-                            invoice_id,
-                            payment_method_id,
-                            // Both edge callers (portal pay + mandate-setup
-                            // webhook charge) act on the customer's behalf.
-                            true,
-                            on_session,
-                            idempotency_ref,
-                        )
-                        .await?;
-
-                    self.services
-                        .mark_processing_if_async_debit(
-                            conn,
-                            tenant_id,
-                            invoice_id,
-                            payment_method_id,
-                            &transaction,
-                        )
-                        .await?;
-
-                    Ok((transaction, next_action))
-                }
-                .scope_boxed()
-            })
-            .await
+        match self
+            .services
+            .charge_invoice(
+                tenant_id,
+                invoice_id,
+                payment_method_id,
+                // Both edge callers (portal pay + mandate-setup
+                // webhook charge) act on the customer's behalf.
+                true,
+                on_session,
+                idempotency_ref,
+                true,
+            )
+            .await?
+        {
+            InvoiceChargeResult::Charged(tx, next_action) => Ok((tx, next_action)),
+            InvoiceChargeResult::InFlight(_) => Err(payment_in_flight()),
+        }
     }
 
     /// The queued off-session charge (first attempt and dunning retries): nobody is present, so
     /// the attempt is not attributed to the customer and its failure can be emailed (D23).
+    /// A payment already in flight for the invoice is returned as is: there is nothing to retry.
     pub async fn complete_invoice_payment_automatic(
         &self,
         tenant_id: TenantId,
@@ -1160,35 +1147,64 @@ impl ServicesEdge {
         payment_method_id: CustomerPaymentMethodId,
         idempotency_ref: Option<String>,
     ) -> StoreResult<(PaymentTransaction, Option<PaymentNextAction>)> {
-        self.store
+        match self
+            .services
+            .charge_invoice(
+                tenant_id,
+                invoice_id,
+                payment_method_id,
+                false,
+                false,
+                idempotency_ref,
+                true,
+            )
+            .await?
+        {
+            InvoiceChargeResult::Charged(tx, next_action) => Ok((tx, next_action)),
+            InvoiceChargeResult::InFlight(tx) => Ok((tx, None)),
+        }
+    }
+
+    /// Re-send an invoice charge whose provider answer never came back. Fourth pass of the
+    /// reconciliation worker's sweep.
+    pub async fn resume_unsent_invoice_charge(
+        &self,
+        transaction_id: common_domain::ids::PaymentTransactionId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        self.services
+            .resume_unsent_invoice_charge(transaction_id, tenant_id)
+            .await
+    }
+
+    /// Claim up to `limit` committed invoice charges with no provider answer, older than
+    /// `older_than`; see `PaymentTransactionRow::claim_unsent_charges`.
+    pub async fn claim_unsent_invoice_charges(
+        &self,
+        older_than: chrono::DateTime<chrono::Utc>,
+        limit: i64,
+    ) -> StoreResult<Vec<PendingTransactionRef>> {
+        let rows = self
+            .store
             .transaction(|conn| {
                 async move {
-                    let (transaction, next_action) = self
-                        .services
-                        .process_invoice_payment_tx(
-                            conn,
-                            tenant_id,
-                            invoice_id,
-                            payment_method_id,
-                            false,
-                            false,
-                            idempotency_ref,
-                        )
-                        .await?;
-                    self.services
-                        .mark_processing_if_async_debit(
-                            conn,
-                            tenant_id,
-                            invoice_id,
-                            payment_method_id,
-                            &transaction,
-                        )
-                        .await?;
-                    Ok((transaction, next_action))
+                    diesel_models::payments::PaymentTransactionRow::claim_unsent_charges(
+                        conn, older_than, limit,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)
                 }
                 .scope_boxed()
             })
-            .await
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| PendingTransactionRef {
+                id: r.id,
+                tenant_id: r.tenant_id,
+                created_at: r.created_at,
+            })
+            .collect())
     }
 
     pub async fn get_or_create_customer_connections(

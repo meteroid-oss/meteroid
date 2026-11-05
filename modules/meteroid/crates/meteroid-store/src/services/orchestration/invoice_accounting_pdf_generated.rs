@@ -87,8 +87,7 @@ impl Services {
 
             // A payment already owns this invoice — an async debit accepted at checkout, or a
             // settlement whose Paid status hasn't been applied yet. Enqueueing another charge
-            // would be rejected downstream by the pending-transaction guard in
-            // `process_invoice_payment_tx`, dead-lettering the message after its retry budget.
+            // would only be turned away by the in-flight guard of `claim_invoice_charge_tx`.
             if self
                 .store
                 .invoice_has_live_payment(tenant_id, invoice.id)

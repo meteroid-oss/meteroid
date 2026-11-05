@@ -293,6 +293,7 @@ pub enum DeclineKind {
     ProcessingError,
     Other,
     DoNotRetry,
+    Unconfirmed,
 }
 
 /// How a voluntary refund was issued: through the provider, or recorded after a wire or cash

@@ -83,6 +83,7 @@ pub(super) const STRIPE_CAPABILITIES: PaymentCapabilities = PaymentCapabilities 
     refunds: RefundSupport::Partial,
     // Stripe keeps an Idempotency-Key 24h; replays stay well inside it.
     refund_replay_window: Some(Duration::from_secs(12 * 60 * 60)),
+    charge_replay_window: Duration::from_secs(12 * 60 * 60),
     supports_3ds: true,
     supports_disputes: true,
     webhooks: Some(InboundWebhooks {
@@ -1103,7 +1104,7 @@ fn card_error_to_failure(req_err: stripe_client::error::RequestError) -> ChargeF
     }
 }
 
-/// Network failures, Stripe 5xx and idempotency conflicts map to `Transport` (the
+/// Network failures, Stripe 5xx, rate limits and idempotency conflicts map to `Transport` (the
 /// outcome is unknown, so never treat it as a decline); other 4xx map to
 /// `Charge`/`Configuration` (not retryable).
 fn map_stripe_error(e: StripeError) -> Report<ConnectorError> {
@@ -1114,7 +1115,8 @@ fn map_stripe_error(e: StripeError) -> Report<ConnectorError> {
             ConnectorError::Transport(format!("stripe 5xx: {}", req_err)),
         ),
         StripeError::Stripe(req_err)
-            if req_err.http_status == 409 || req_err.error_type == "idempotency_error" =>
+            if matches!(req_err.http_status, 409 | 429)
+                || req_err.error_type == "idempotency_error" =>
         {
             Report::new(ConnectorError::Transport(format!(
                 "stripe idempotency conflict: {}",

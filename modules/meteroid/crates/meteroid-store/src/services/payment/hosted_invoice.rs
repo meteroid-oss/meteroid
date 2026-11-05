@@ -62,7 +62,7 @@ impl Services {
                                 .await
                                 .map_err(Into::<Report<StoreError>>::into)?;
 
-                        // Same payability gates as `process_invoice_payment_tx`.
+                        // Same payability gates as `claim_invoice_charge_tx`.
                         if invoice.invoice.consolidated_into_invoice_id.is_some() {
                             return Err(Report::new(StoreError::BillingError)
                                 .attach("Cannot pay an invoice merged into a consolidated parent"));

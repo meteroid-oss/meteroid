@@ -201,6 +201,7 @@ async fn release_migrations_revert_exactly_and_reapply_identically() -> TestResu
     let kept = [
         "enum CheckoutTypeEnum 5 TOP_UP",
         "enum DeclineKindEnum 9 DO_NOT_RETRY",
+        "enum DeclineKindEnum 10 UNCONFIRMED",
         "enum FeeTypeEnum 7 CREDIT",
         "enum PaymentTypeEnum 3 TOP_UP",
         "enum PaymentTypeEnum 4 AUTO_TOPUP",

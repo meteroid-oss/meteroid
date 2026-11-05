@@ -66,6 +66,7 @@ pub(super) const GOCARDLESS_CAPABILITIES: PaymentCapabilities = PaymentCapabilit
     refunds: RefundSupport::Partial,
     // Idempotency keys are honoured for at least 30 days.
     refund_replay_window: Some(std::time::Duration::from_secs(12 * 60 * 60)),
+    charge_replay_window: std::time::Duration::from_secs(7 * 24 * 60 * 60),
     supports_3ds: false,
     supports_disputes: true,
     webhooks: Some(InboundWebhooks {

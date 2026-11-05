@@ -54,6 +54,7 @@ modules/meteroid/crates/diesel-models/src/query/subscriptions_lifecycle.rs::Subs
 modules/meteroid/crates/diesel-models/src/query/scheduled_events.rs::ScheduledEventRow::find_and_claim_due_events | claim | autocommitted claim of due events; each runs in a transaction that locks its customer first
 modules/meteroid/crates/diesel-models/src/query/scheduled_events.rs::ScheduledEventRow::get_event_by_types_and_date_for_update | claim | a subscription's due terminal event, during its renewal under the customer
 modules/meteroid/crates/diesel-models/src/query/payment_reminders.rs::END_UNPAYABLE_SCHEDULED_SQL | claim | invoices skipped when locked, one autocommitted statement
+modules/meteroid/crates/diesel-models/src/query/payment_transactions.rs::PaymentTransactionRow::claim_unsent_charges | claim | unsent invoice charges a sweep re-sends, stamped and committed in their own short transaction
 modules/meteroid/crates/diesel-models/src/query/batch_jobs.rs::BatchJobRow::claim_pending_job | claim | batch job claim
 modules/meteroid/crates/diesel-models/src/query/batch_jobs.rs::BatchJobChunkRow::claim_pending_chunk | claim | batch chunk claim
 modules/meteroid/crates/diesel-models/src/query/webhooks_out.rs::WebhookOutDeliveryRow::claim_due | claim | outgoing webhook delivery lease

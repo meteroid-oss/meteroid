@@ -56,6 +56,10 @@ pub struct PaymentCapabilities {
     /// unconfirmed refund is re-issued by the sweep only inside it; past it, or with `None`, a
     /// replay could move the money twice.
     pub refund_replay_window: Option<Duration>,
+    /// How long a charge re-sent under its idempotency key is deduplicated (a Stancer
+    /// `unique_id` is looked up instead). An attempt whose outcome never came back is re-sent
+    /// only inside it; past it, a re-send could charge twice, so the attempt is failed.
+    pub charge_replay_window: Duration,
     pub supports_3ds: bool,
     pub supports_disputes: bool,
     /// On what terms inbound webhooks arrive; `None` for a provider that sends none (Stancer),

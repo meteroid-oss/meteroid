@@ -624,27 +624,28 @@ impl Services {
     ) -> StoreResult<HostedSetupOutcome> {
         let payment_method_id = payment_method.id;
         let charge_result = self
-            .store
-            .transaction(|conn| {
-                async move {
-                    self.process_invoice_payment_tx(
-                        conn,
-                        tenant_id,
-                        invoice_id,
-                        payment_method_id,
-                        // Customer-initiated: they just completed the hosted flow.
-                        true,
-                        // Off-session: the hosted page already ran any 3DS.
-                        false,
-                        // No explicit ref: invoice charges derive a stable
-                        // (method, invoice, attempt) key in `create_payment_intent`.
-                        None,
-                    )
-                    .await
+            .charge_invoice(
+                tenant_id,
+                invoice_id,
+                payment_method_id,
+                // Customer-initiated: they just completed the hosted flow.
+                true,
+                // Off-session: the hosted page already ran any 3DS.
+                false,
+                // No explicit ref: invoice charges derive a stable
+                // (method, invoice, attempt) key where the provider supports it.
+                None,
+                false,
+            )
+            .await
+            .and_then(|result| match result {
+                super::process_payment::InvoiceChargeResult::Charged(tx, next_action) => {
+                    Ok((tx, next_action))
                 }
-                .scope_boxed()
-            })
-            .await;
+                super::process_payment::InvoiceChargeResult::InFlight(_) => {
+                    Err(super::process_payment::payment_in_flight())
+                }
+            });
 
         match charge_result {
             Ok((tx, _)) => match tx.status {

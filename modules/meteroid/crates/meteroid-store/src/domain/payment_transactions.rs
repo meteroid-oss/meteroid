@@ -204,6 +204,7 @@ mod tests {
             amount_disputed: 0,
             amount_reversed_excess: 0,
             refund_excess: 0,
+            charge_attempt: None,
         }
     }
 

@@ -15515,7 +15515,8 @@
           "FRAUD",
           "PROCESSING_ERROR",
           "OTHER",
-          "DO_NOT_RETRY"
+          "DO_NOT_RETRY",
+          "UNCONFIRMED"
         ]
       },
       "DoubleSegmentationMatrix": {

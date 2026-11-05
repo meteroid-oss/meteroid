@@ -562,6 +562,86 @@ impl PaymentTransactionRow {
             .into_db_result()
     }
 
+    /// Invoice charges committed before sending whose provider answer never came back (no
+    /// provider id yet), stamped like [`Self::claim_pending_for_reconcile`] so a row the
+    /// provider keeps refusing is retried with the same backoff. Run it in a transaction: the
+    /// row locks are what keep a concurrent sweeper off the same rows.
+    pub async fn claim_unsent_charges(
+        conn: &mut PgConn,
+        older_than: chrono::DateTime<chrono::Utc>,
+        limit: i64,
+    ) -> DbResult<Vec<PaymentTransactionRow>> {
+        use crate::schema::payment_transaction::dsl::{
+            charge_attempt, created_at, id, last_reconciled_at, payment_transaction, payment_type,
+            provider_transaction_id, status,
+        };
+        use diesel::dsl::sql;
+        use diesel::sql_types::{Bool, Timestamptz};
+        use diesel_async::RunQueryDsl;
+
+        let query = payment_transaction
+            .filter(status.eq(PaymentStatusEnum::Pending))
+            .filter(payment_type.eq(PaymentTypeEnum::Payment))
+            .filter(provider_transaction_id.is_null())
+            .filter(charge_attempt.is_not_null())
+            .filter(created_at.lt(older_than))
+            .filter(sql::<Bool>(
+                "(last_reconciled_at IS NULL OR last_reconciled_at < NOW() - \
+                 LEAST(GREATEST((NOW() - created_at) / 10, INTERVAL '1 minute'), INTERVAL '1 hour'))",
+            ))
+            .order(sql::<Timestamptz>("COALESCE(last_reconciled_at, created_at)").asc())
+            .limit(limit)
+            .select(id)
+            // A concurrent sweeper skips the rows this one is claiming instead of re-sending them.
+            .for_update()
+            .skip_locked();
+
+        crate::debug_sql(&query);
+
+        let due: Vec<PaymentTransactionId> = query
+            .get_results(conn)
+            .await
+            .attach("Error listing unsent charges")
+            .into_db_result()?;
+        if due.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        diesel::update(payment_transaction.filter(id.eq_any(due)))
+            .set(last_reconciled_at.eq(chrono::Utc::now()))
+            .returning(PaymentTransactionRow::as_returning())
+            .get_results(conn)
+            .await
+            .attach("Error claiming unsent charges")
+            .into_db_result()
+    }
+
+    /// Removes a committed charge the provider refused before creating anything, as a
+    /// single-transaction charge's rollback would have. Such a row was never ingested by
+    /// analytics (no `processed_at`). A row an answer already moved on is kept.
+    pub async fn delete_unsent_charge(
+        conn: &mut PgConn,
+        tx_id: PaymentTransactionId,
+        tenant_uid: TenantId,
+    ) -> DbResult<usize> {
+        use crate::schema::payment_transaction::dsl::{
+            id, payment_transaction, provider_transaction_id, status, tenant_id,
+        };
+        use diesel_async::RunQueryDsl;
+
+        diesel::delete(
+            payment_transaction
+                .filter(id.eq(tx_id))
+                .filter(tenant_id.eq(tenant_uid))
+                .filter(status.eq(PaymentStatusEnum::Pending))
+                .filter(provider_transaction_id.is_null()),
+        )
+        .execute(conn)
+        .await
+        .attach("Error deleting unsent charge")
+        .into_db_result()
+    }
+
     /// Refunds we issued but never got an answer for: the provider call failed in transport, so
     /// the row never left `Ready` and carries no provider id. The money may or may not have
     /// moved, so the row is re-issued rather than abandoned.

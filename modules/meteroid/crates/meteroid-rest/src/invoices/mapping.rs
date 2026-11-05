@@ -142,6 +142,7 @@ pub fn map_decline_kind_to_rest(kind: domain::enums::DeclineKind) -> DeclineKind
         domain::enums::DeclineKind::ProcessingError => DeclineKind::ProcessingError,
         domain::enums::DeclineKind::Other => DeclineKind::Other,
         domain::enums::DeclineKind::DoNotRetry => DeclineKind::DoNotRetry,
+        domain::enums::DeclineKind::Unconfirmed => DeclineKind::Unconfirmed,
     }
 }
 

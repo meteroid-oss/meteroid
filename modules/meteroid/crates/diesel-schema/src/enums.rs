@@ -360,6 +360,7 @@ pub enum DeclineKindEnum {
     ProcessingError,
     Other,
     DoNotRetry,
+    Unconfirmed,
 }
 
 impl PaymentTypeEnum {

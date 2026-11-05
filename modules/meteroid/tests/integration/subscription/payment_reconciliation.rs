@@ -208,10 +208,16 @@ async fn test_uncertain_charge_is_not_recorded_as_a_decline(#[future] test_env: 
     let invoice = env.get_detailed_invoice(invoice_id).await;
     assert!(invoice.invoice.amount_due > 0, "invoice stays collectable");
 
-    // And the invoice is not poisoned: a later attempt still settles it.
-    env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
-        .await;
-    let (tx, _) = env
+    // The attempt was committed before it was sent, so it stays in flight with no provider
+    // answer: a second click is fenced instead of minting a new key (a double charge).
+    let unsent = transactions
+        .iter()
+        .find(|tx| tx.transaction.status == PaymentStatusEnum::Pending)
+        .expect("the uncertain attempt stays Pending")
+        .transaction
+        .clone();
+    assert!(unsent.provider_transaction_id.is_none());
+    let err = env
         .services()
         .complete_invoice_payment(
             TENANT_ID,
@@ -221,14 +227,219 @@ async fn test_uncertain_charge_is_not_recorded_as_a_decline(#[future] test_env: 
             None,
         )
         .await
-        .expect("retry after an uncertain charge is accepted");
-    assert_eq!(tx.status, PaymentStatusEnum::Settled);
+        .expect_err("a second attempt waits for the first one's outcome");
+    assert!(matches!(
+        err.current_context(),
+        meteroid_store::errors::StoreError::PaymentError(_)
+    ));
+
+    // The sweep re-sends it under its committed key, and the provider's answer settles it.
+    env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
+        .await;
+    env.services()
+        .resume_unsent_invoice_charge(unsent.id, TENANT_ID)
+        .await
+        .expect("resume the unsent charge");
     env.run_outbox_and_orchestration().await;
+
+    let transactions = env
+        .store()
+        .list_payment_tx_by_invoice_id(TENANT_ID, invoice_id)
+        .await
+        .expect("list transactions");
+    assert_eq!(transactions.len(), 1, "the re-send is the same attempt");
+    assert_eq!(
+        transactions[0].transaction.status,
+        PaymentStatusEnum::Settled
+    );
 
     let invoice = env.get_detailed_invoice(invoice_id).await;
     assert_eq!(
         invoice.invoice.amount_due, 0,
-        "the retry pays the invoice off"
+        "the resumed charge pays the invoice off"
+    );
+}
+
+/// Past the provider's idempotency window a re-send could charge twice, so an attempt that
+/// never got an answer is failed instead, which frees the invoice for its next attempt.
+#[rstest]
+#[tokio::test]
+async fn test_unsent_charge_past_its_replay_window_is_failed(#[future] test_env: TestEnv) {
+    use diesel::prelude::*;
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::payment_transaction::dsl as pt;
+
+    let env = test_env.await;
+    env.seed_payments().await;
+    let invoice_id = unpaid_invoice(&env).await;
+
+    env.set_mock_charge_behavior(MockChargeBehavior::Unknown)
+        .await;
+    let err = env
+        .services()
+        .complete_invoice_payment(
+            TENANT_ID,
+            invoice_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            false,
+            None,
+        )
+        .await
+        .expect_err("uncertain charge");
+    assert!(matches!(
+        err.current_context(),
+        meteroid_store::errors::StoreError::PaymentProviderError
+    ));
+
+    let unsent = env
+        .store()
+        .list_payment_tx_by_invoice_id(TENANT_ID, invoice_id)
+        .await
+        .expect("list transactions")
+        .remove(0)
+        .transaction;
+
+    let mut conn = env.conn().await;
+    diesel::update(pt::payment_transaction.filter(pt::id.eq(unsent.id)))
+        .set(pt::created_at.eq(chrono::Utc::now() - chrono::Duration::days(2)))
+        .execute(&mut conn)
+        .await
+        .expect("age the attempt");
+    drop(conn);
+
+    let claimed = env
+        .services()
+        .claim_unsent_invoice_charges(chrono::Utc::now(), 10)
+        .await
+        .expect("claim unsent charges");
+    assert!(claimed.iter().any(|r| r.id == unsent.id));
+
+    env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
+        .await;
+    env.services()
+        .resume_unsent_invoice_charge(unsent.id, TENANT_ID)
+        .await
+        .expect("resume");
+
+    let tx = env
+        .store()
+        .get_payment_tx_by_id(TENANT_ID, unsent.id)
+        .await
+        .expect("transaction");
+    assert_eq!(
+        tx.status,
+        PaymentStatusEnum::Failed,
+        "never re-sent once the provider may have forgotten the key"
+    );
+    assert!(tx.provider_transaction_id.is_none());
+}
+
+/// An uncertain charge whose invoice was paid by other means (or voided) meanwhile is not
+/// re-sent: the attempt is failed as unconfirmed, without dunning.
+#[rstest]
+#[tokio::test]
+async fn test_unsent_charge_is_not_resent_once_the_invoice_is_settled(#[future] test_env: TestEnv) {
+    use diesel::prelude::*;
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::invoice::dsl as inv;
+
+    let env = test_env.await;
+    env.seed_payments().await;
+    let invoice_id = unpaid_invoice(&env).await;
+
+    env.set_mock_charge_behavior(MockChargeBehavior::Unknown)
+        .await;
+    let _ = env
+        .services()
+        .complete_invoice_payment(
+            TENANT_ID,
+            invoice_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            false,
+            None,
+        )
+        .await;
+    let unsent = env
+        .store()
+        .list_payment_tx_by_invoice_id(TENANT_ID, invoice_id)
+        .await
+        .expect("list transactions")
+        .remove(0)
+        .transaction;
+
+    // Settled out of band (bank transfer recorded by an operator).
+    let mut conn = env.conn().await;
+    diesel::update(inv::invoice.filter(inv::id.eq(invoice_id)))
+        .set(inv::amount_due.eq(0))
+        .execute(&mut conn)
+        .await
+        .expect("settle invoice out of band");
+    drop(conn);
+
+    env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
+        .await;
+    env.services()
+        .resume_unsent_invoice_charge(unsent.id, TENANT_ID)
+        .await
+        .expect("resume");
+
+    let tx = env
+        .store()
+        .get_payment_tx_by_id(TENANT_ID, unsent.id)
+        .await
+        .expect("transaction");
+    assert_eq!(tx.status, PaymentStatusEnum::Failed, "never re-sent");
+    assert_eq!(
+        tx.decline_kind,
+        Some(meteroid_store::domain::DeclineKind::Unconfirmed)
+    );
+}
+
+/// A re-send the provider refuses says nothing about the first send, which may have charged:
+/// the attempt is kept (failed as unconfirmed), never deleted.
+#[rstest]
+#[tokio::test]
+async fn test_refused_resend_keeps_the_attempt(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+    let invoice_id = unpaid_invoice(&env).await;
+
+    env.set_mock_charge_behavior(MockChargeBehavior::Unknown)
+        .await;
+    let _ = env
+        .services()
+        .complete_invoice_payment(
+            TENANT_ID,
+            invoice_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            false,
+            None,
+        )
+        .await;
+    let unsent = env
+        .store()
+        .list_payment_tx_by_invoice_id(TENANT_ID, invoice_id)
+        .await
+        .expect("list transactions")
+        .remove(0)
+        .transaction;
+
+    env.set_mock_charge_behavior(MockChargeBehavior::RejectedCredentials)
+        .await;
+    env.services()
+        .resume_unsent_invoice_charge(unsent.id, TENANT_ID)
+        .await
+        .expect("resume");
+
+    let tx = env
+        .store()
+        .get_payment_tx_by_id(TENANT_ID, unsent.id)
+        .await
+        .expect("the attempt is kept");
+    assert_eq!(tx.status, PaymentStatusEnum::Failed);
+    assert_eq!(
+        tx.decline_kind,
+        Some(meteroid_store::domain::DeclineKind::Unconfirmed)
     );
 }
 

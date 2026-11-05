@@ -1,15 +1,13 @@
 use crate::StoreResult;
 use crate::adapters::payment::bridge::payment_intent_from_outcome;
 use crate::adapters::payment::error::{AdoptedCharge, ConnectorError};
-use crate::adapters::payment::model::{
-    ChargeOutcome, ChargeRequest, IdempotencyKey, PaymentDescriptor,
-};
+use crate::adapters::payment::model::{ChargeRequest, IdempotencyKey, PaymentDescriptor};
 use crate::adapters::payment::{PaymentConnector, initialize_payment_connector};
-use crate::domain::PaymentStatusEnum as DomainPaymentStatus;
 use crate::domain::connectors::Connector;
 use crate::domain::entity_activity::Actor;
 use crate::domain::outbox_event::PaymentTransactionEvent;
 use crate::domain::payment_transactions::{PaymentIntent, PaymentNextAction, PaymentTransaction};
+use crate::domain::{DeclineKind, PaymentStatusEnum as DomainPaymentStatus};
 use crate::errors::StoreError;
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::services::InvoiceDelivery;
@@ -28,14 +26,68 @@ use diesel_models::payments::{
 };
 use error_stack::{Report, ResultExt};
 use scoped_futures::ScopedFutureExt;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 /// Maximum time to wait for payment provider API calls.
 /// This is a safety net in addition to the HTTP client timeout.
 pub(in crate::services) const PAYMENT_PROVIDER_TIMEOUT: Duration = Duration::from_secs(45);
 
+/// The provider request of an invoice charge, committed with its Pending row before it is sent,
+/// so a re-send after a lost answer is byte-identical under the same idempotency key.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(in crate::services) struct ChargeAttempt {
+    idempotency_key: String,
+    on_session: bool,
+    merchant_name: String,
+    invoice_number: Option<String>,
+}
+
+/// A Pending invoice charge and everything needed to send it.
+pub(in crate::services) struct InvoiceCharge {
+    transaction: PaymentTransactionRow,
+    method: CustomerPaymentMethodRow,
+    external_customer_id: String,
+    connector: Connector,
+    connector_impl: Box<dyn PaymentConnector>,
+    attempt: ChargeAttempt,
+}
+
+pub(in crate::services) enum InvoiceChargeClaim {
+    /// Another payment for the invoice is still in flight.
+    InFlight(PaymentTransaction),
+    /// This seeded attempt is already recorded (a redelivery after its ack was lost).
+    Recorded(PaymentTransaction),
+    Claimed(Box<InvoiceCharge>),
+}
+
+/// What the provider answered, sorted by what it proves about the money.
+pub(in crate::services) enum ChargeAnswer {
+    /// `amount` is what the provider holds: the request's, unless it adopted an earlier payment
+    /// made under this key for another amount.
+    Outcome {
+        intent: Box<PaymentIntent>,
+        amount: i64,
+    },
+    /// Refused before anything was created (bad request, credentials): the attempt is undone.
+    Refused(Report<StoreError>),
+    /// The outcome can no longer be confirmed and re-sending could charge twice (replay window
+    /// over, invoice no longer payable, or a re-send refused while the first send is unknown).
+    Unconfirmed,
+    /// No answer (timeout, transport): the money may have moved, so the row stays Pending.
+    Unknown(Report<StoreError>),
+}
+
+pub enum InvoiceChargeResult {
+    Charged(PaymentTransaction, Option<PaymentNextAction>),
+    /// Another payment for the invoice is still in flight; nothing was sent.
+    InFlight(PaymentTransaction),
+}
+
 impl Services {
-    /// Creates a payment intent and the associated payment transaction.
+    /// Charges an invoice in one transaction, for callers whose invoice is not committed yet
+    /// (checkout `FinalizeAfterPayment`, slot upgrades). A rollback after the provider took the
+    /// money loses the row: prefer [`Self::charge_invoice`] whenever the invoice is committed.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::services) async fn process_invoice_payment_tx(
         &self,
@@ -43,17 +95,8 @@ impl Services {
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         payment_method_id: CustomerPaymentMethodId,
-        // True when a customer triggered this payment (portal), so the settled
-        // payment is attributed to them; false for system auto-charges.
         customer_initiated: bool,
         on_session: bool,
-        // Stable, caller-supplied seed for the provider idempotency key. When
-        // set, a retry that mints a fresh transaction id still reuses the SAME
-        // provider key, so the provider dedupes instead of double-charging. Only
-        // the webhook-driven off-session invoice charge (which can be retried by
-        // pgmq) passes this; interactive callers pass None (per-transaction key).
-        // Ignored for Stancer connections, which always derive a stable
-        // invoice-scoped key — see `create_payment_intent`.
         idempotency_ref: Option<String>,
     ) -> StoreResult<(PaymentTransaction, Option<PaymentNextAction>)> {
         self.process_invoice_payment_at_tx(
@@ -83,7 +126,248 @@ impl Services {
         idempotency_ref: Option<String>,
         processed_at: Option<NaiveDateTime>,
     ) -> StoreResult<(PaymentTransaction, Option<PaymentNextAction>)> {
-        // Get the invoice
+        let charge = match self
+            .claim_invoice_charge_tx(
+                conn,
+                tenant_id,
+                invoice_id,
+                payment_method_id,
+                customer_initiated,
+                on_session,
+                idempotency_ref,
+            )
+            .await?
+        {
+            InvoiceChargeClaim::InFlight(_) => return Err(payment_in_flight()),
+            InvoiceChargeClaim::Recorded(tx) => return Ok((tx, None)),
+            InvoiceChargeClaim::Claimed(charge) => charge,
+        };
+
+        let (intent, amount) = match self.send_invoice_charge(&charge).await {
+            ChargeAnswer::Outcome { intent, amount } => (*intent, amount),
+            ChargeAnswer::Refused(e) | ChargeAnswer::Unknown(e) => return Err(e),
+            ChargeAnswer::Unconfirmed => return Err(Report::new(StoreError::PaymentProviderError)),
+        };
+        let intent = match processed_at {
+            Some(at) if intent.status != DomainPaymentStatus::Pending => PaymentIntent {
+                processed_at: Some(at),
+                ..intent
+            },
+            _ => intent,
+        };
+        let next_action = intent.next_action.clone();
+        let row = if amount == charge.transaction.amount {
+            charge.transaction
+        } else {
+            record_charged_amount(
+                conn,
+                charge.transaction.tenant_id,
+                charge.transaction.id,
+                amount,
+            )
+            .await?
+        };
+        let tx = self
+            .store
+            .consolidate_intent_and_transaction_tx(conn, &Actor::System, row.into(), intent)
+            .await?;
+        Ok((tx, next_action))
+    }
+
+    /// Charges a committed invoice without holding a connection across the provider call: the
+    /// Pending row (and its exact request) is committed first, the charge is sent, then its
+    /// answer is recorded. An answer that never comes back leaves the row Pending for
+    /// [`Self::resume_unsent_invoice_charge`] to re-send under the same key.
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::services) async fn charge_invoice(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        payment_method_id: CustomerPaymentMethodId,
+        // True when a customer triggered this payment (portal), so the settled
+        // payment is attributed to them; false for system auto-charges.
+        customer_initiated: bool,
+        on_session: bool,
+        // Stable, caller-supplied seed for the provider idempotency key, so a redelivery
+        // reuses the same key (and transaction id). Ignored by providers with their own seed.
+        idempotency_ref: Option<String>,
+        mark_processing: bool,
+    ) -> StoreResult<InvoiceChargeResult> {
+        let claim = self
+            .store
+            .transaction(|conn| {
+                async move {
+                    self.claim_invoice_charge_tx(
+                        conn,
+                        tenant_id,
+                        invoice_id,
+                        payment_method_id,
+                        customer_initiated,
+                        on_session,
+                        idempotency_ref,
+                    )
+                    .await
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        let charge = match claim {
+            InvoiceChargeClaim::InFlight(tx) => return Ok(InvoiceChargeResult::InFlight(tx)),
+            InvoiceChargeClaim::Recorded(tx) => return Ok(InvoiceChargeResult::Charged(tx, None)),
+            InvoiceChargeClaim::Claimed(charge) => charge,
+        };
+
+        let answer = self.send_invoice_charge(&charge).await;
+        let (tx, next_action) = self
+            .settle_invoice_charge(&charge, answer, mark_processing)
+            .await?;
+        Ok(InvoiceChargeResult::Charged(tx, next_action))
+    }
+
+    /// Re-sends an invoice charge whose provider answer never came back, under the idempotency
+    /// key it was committed with, so a provider that already took it answers with the original.
+    /// When that is no longer safe (see [`ChargeAnswer::Unconfirmed`]) the attempt is failed
+    /// without dunning; a late success webhook still settles it (Failed → Settled is honoured).
+    pub(in crate::services) async fn resume_unsent_invoice_charge(
+        &self,
+        transaction_id: PaymentTransactionId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        let mut conn = self.store.get_conn().await?;
+        let row = PaymentTransactionRow::get_by_id(&mut conn, transaction_id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let unsent = row.status == PaymentStatusEnum::Pending
+            && row.payment_type == PaymentTypeEnum::Payment
+            && row.provider_transaction_id.is_none()
+            && row.invoice_id.is_some()
+            && row.charge_attempt.is_some();
+        if !unsent {
+            return Ok(());
+        }
+        let charge = self.load_unsent_charge(&mut conn, &row).await;
+        drop(conn);
+
+        let age = chrono::Utc::now() - row.created_at;
+        let charge = match charge {
+            Ok(charge) => charge,
+            Err(e) if age >= longest_charge_replay_window() => {
+                log::error!("Unsent charge {transaction_id} can no longer be loaded: {e:?}");
+                self.settle_charge_row(&row, ChargeAnswer::Unconfirmed, false)
+                    .await?;
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
+
+        let window =
+            chrono::Duration::from_std(charge.connector_impl.capabilities().charge_replay_window)
+                .unwrap_or_default();
+        let answer = if age >= window {
+            log::warn!(
+                "Charge {transaction_id} never got a provider answer within its replay window; \
+                 failing it rather than risking a second charge"
+            );
+            ChargeAnswer::Unconfirmed
+        } else if !self.still_chargeable(&charge).await? {
+            log::warn!("Charge {transaction_id} is no longer chargeable; not re-sending it");
+            ChargeAnswer::Unconfirmed
+        } else {
+            match self.send_invoice_charge(&charge).await {
+                // The refusal answers this re-send only: the first one's outcome is still unknown.
+                ChargeAnswer::Refused(e) => {
+                    log::warn!("Re-send of charge {transaction_id} refused: {e:?}");
+                    ChargeAnswer::Unconfirmed
+                }
+                answer => answer,
+            }
+        };
+
+        self.settle_invoice_charge(&charge, answer, true).await?;
+        Ok(())
+    }
+
+    async fn load_unsent_charge(
+        &self,
+        conn: &mut PgConn,
+        row: &PaymentTransactionRow,
+    ) -> StoreResult<InvoiceCharge> {
+        let (Some(attempt), Some(payment_method_id)) =
+            (row.charge_attempt.clone(), row.payment_method_id)
+        else {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "Unsent charge has no attempt or payment method".to_string(),
+            )));
+        };
+        let attempt: ChargeAttempt = serde_json::from_value(attempt)
+            .map_err(|e| StoreError::SerdeError("Invalid charge attempt".to_string(), e))?;
+        let (method, external_customer_id, connector, connector_impl) = self
+            .load_charge_context(conn, &row.tenant_id, &payment_method_id)
+            .await?;
+        Ok(InvoiceCharge {
+            transaction: row.clone(),
+            method,
+            external_customer_id,
+            connector,
+            connector_impl,
+            attempt,
+        })
+    }
+
+    /// The claim's gates, re-run before a re-send: the invoice may have been paid by other means
+    /// or voided, or the connector disabled, since the attempt was committed.
+    async fn still_chargeable(&self, charge: &InvoiceCharge) -> StoreResult<bool> {
+        let Some(invoice_id) = charge.transaction.invoice_id else {
+            return Ok(true);
+        };
+        let tenant_id = charge.transaction.tenant_id;
+        let connector = &charge.connector;
+        self.store
+            .transaction(|conn| {
+                async move {
+                    let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?
+                        .invoice;
+                    let payable = invoice.consolidated_into_invoice_id.is_none()
+                        && matches!(
+                            invoice.status,
+                            diesel_models::enums::InvoiceStatusEnum::Draft
+                                | diesel_models::enums::InvoiceStatusEnum::Finalized
+                        )
+                        && invoice.amount_due > 0;
+                    if !payable {
+                        return Ok(false);
+                    }
+                    match connector.ensure_active_locked(conn).await {
+                        Ok(()) => Ok(true),
+                        Err(e)
+                            if matches!(e.current_context(), StoreError::ConnectorNotActive(_)) =>
+                        {
+                            Ok(false)
+                        }
+                        Err(e) => Err(e),
+                    }
+                }
+                .scope_boxed()
+            })
+            .await
+    }
+
+    /// Locks the invoice, checks it can be paid, and inserts the Pending row with its exact
+    /// provider request. Nothing is sent: the caller sends it once this is committed.
+    #[allow(clippy::too_many_arguments)]
+    async fn claim_invoice_charge_tx(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        payment_method_id: CustomerPaymentMethodId,
+        customer_initiated: bool,
+        on_session: bool,
+        idempotency_ref: Option<String>,
+    ) -> StoreResult<InvoiceChargeClaim> {
         let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
@@ -106,23 +390,20 @@ impl Services {
             return Err(Report::new(StoreError::BillingError).attach("Invoice has no amount due"));
         }
 
-        // Check for existing transactions that would prevent a new payment
         let existing_transactions =
             PaymentTransactionRow::list_by_invoice_id(conn, invoice_id, tenant_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-        // Check for pending transactions - only one payment attempt at a time.
-        // A REFUND row in flight moves money the other way and never fences a charge.
-        let has_pending_transaction = existing_transactions.iter().any(|tx| {
+        // Only one payment attempt at a time. A REFUND row in flight moves money the other way
+        // and never fences a charge.
+        if let Some(pending) = existing_transactions.iter().find(|tx| {
             tx.transaction.payment_type.is_collection()
                 && tx.transaction.status == PaymentStatusEnum::Pending
-        });
-
-        if has_pending_transaction {
-            return Err(Report::new(StoreError::PaymentError(
-                "A payment for this invoice is already being processed. Please wait for it to complete before attempting another payment.".to_string()
-            )));
+        }) {
+            return Ok(InvoiceChargeClaim::InFlight(
+                pending.transaction.clone().into(),
+            ));
         }
 
         // Calculate total of active payments (pending/ready/settled) to prevent over-payment.
@@ -162,48 +443,54 @@ impl Services {
             ))));
         }
 
-        // Committed prior attempts (never the uncommitted row inserted below):
-        // seeds the per-attempt component of the Stancer idempotency key in
-        // `create_payment_intent`. Rollback-stable — a retry after a rolled-back
-        // charge recomputes the same value and dedupes at the provider.
-        let prior_invoice_attempts = existing_transactions.len();
-
-        // Persist the Pending row BEFORE the external charge so the provider
-        // idempotency key `charge:{id}` is derived from a row that already exists:
-        // a retry that reuses this id can never double-charge.
-        //
-        // Residual window: this insert shares the surrounding DB transaction. When
-        // the invoice is created in that same (uncommitted) transaction — the
-        // checkout `FinalizeAfterPayment` path — a fresh connection can't see it
-        // (FK invisible), so the row genuinely can't be committed ahead of the
-        // charge. If the surrounding transaction later rolls back after the charge
-        // succeeded, the row is lost; recovery is via the provider webhook /
-        // reconciliation (which re-drive from the provider's own record). A retry
-        // through this function mints a NEW id only if the row did not survive —
-        // that is the uncovered window, bounded to a crash between charge and commit.
-        // For Stancer (no webhook, reconcile polls local rows only) that window is
-        // closed instead by the invoice-derived key in `create_payment_intent`.
-        let charge = self
-            .prepare_invoice_charge(
-                conn,
-                &tenant_id,
-                &invoice_id,
-                &payment_method_id,
-                idempotency_ref.as_deref(),
-                prior_invoice_attempts,
-            )
+        let (method, external_customer_id, connector, connector_impl) = self
+            .load_charge_context(conn, &tenant_id, &payment_method_id)
             .await?;
+        connector.ensure_active_locked(conn).await?;
 
-        // Same seed as a committed attempt (e.g. a redelivery after its ack was lost).
+        // Committed prior attempts seed the provider key (Mollie, Stancer): a retry of an
+        // accepted attempt dedupes, an attempt after a decline gets a new key. A seeded key
+        // also fixes the transaction id, so a re-send carries identical metadata.
+        let seed = invoice_charge_idempotency_seed(
+            connector_impl.as_ref(),
+            &payment_method_id,
+            &invoice_id,
+            existing_transactions.len(),
+            idempotency_ref.as_deref(),
+        );
+        // Not `unwrap_or_default`: the id type's `Default` is the `Uuid::max()` sentinel.
+        let transaction_id = match seed.as_deref() {
+            Some(seed) => transaction_id_from_seed(seed),
+            None => PaymentTransactionId::new(),
+        };
+
         if let Some(existing) = existing_transactions
             .iter()
-            .find(|tx| tx.transaction.id == charge.transaction_id)
+            .find(|tx| tx.transaction.id == transaction_id)
         {
-            return Ok((existing.transaction.clone().into(), None));
+            return Ok(InvoiceChargeClaim::Recorded(
+                existing.transaction.clone().into(),
+            ));
         }
 
-        let transaction = PaymentTransactionRowNew {
-            id: charge.transaction_id,
+        let attempt = ChargeAttempt {
+            idempotency_key: invoice_charge_idempotency_key(seed.as_deref(), &transaction_id)
+                .as_str()
+                .to_string(),
+            on_session,
+            // The seller as snapshotted on the invoice.
+            merchant_name: invoice
+                .invoice
+                .seller_details
+                .get("legal_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            invoice_number: Some(invoice.invoice.invoice_number.clone()),
+        };
+
+        PaymentTransactionRowNew {
+            id: transaction_id,
             tenant_id,
             invoice_id: Some(invoice_id),
             provider_transaction_id: None,
@@ -224,80 +511,43 @@ impl Services {
             credit_note_id: None,
             refund_mode: None,
             reversal_reason: None,
-        };
+        }
+        .insert(conn)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
-        let inserted_transaction = transaction
-            .insert(conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let transaction = PaymentTransactionRowPatch {
+            id: transaction_id,
+            charge_attempt: Some(Some(serde_json::to_value(&attempt).map_err(|e| {
+                StoreError::SerdeError("Failed to serialize charge attempt".to_string(), e)
+            })?)),
+            ..Default::default()
+        }
+        .patch(conn, tenant_id, transaction_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
-        // Create payment intent with payment provider
-        let (payment_intent, charged_amount) = self
-            .create_payment_intent(
-                charge,
-                &tenant_id,
-                inserted_transaction.amount as u64,
-                inserted_transaction.currency.clone(),
-                on_session,
-                Some(PaymentDescriptor {
-                    // The seller as snapshotted on the invoice.
-                    merchant_name: invoice
-                        .invoice
-                        .seller_details
-                        .get("legal_name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default()
-                        .to_string(),
-                    invoice_number: Some(invoice.invoice.invoice_number.clone()),
-                }),
-            )
-            .await?;
-
-        let payment_intent = match processed_at {
-            Some(at) if payment_intent.status != DomainPaymentStatus::Pending => PaymentIntent {
-                processed_at: Some(at),
-                ..payment_intent
-            },
-            _ => payment_intent,
-        };
-
-        // Transient next_action (carries the client secret) — surfaced to the
-        // on-session caller so the portal can complete 3DS; never persisted.
-        let next_action = payment_intent.next_action.clone();
-
-        let inserted_transaction = if charged_amount == inserted_transaction.amount {
-            inserted_transaction
-        } else {
-            record_charged_amount(conn, &inserted_transaction, charged_amount).await?
-        };
-
-        // Consolidate the transaction
-        let tx = self
-            .store
-            .consolidate_intent_and_transaction_tx(
-                conn,
-                &Actor::System,
-                inserted_transaction.into(),
-                payment_intent,
-            )
-            .await?;
-
-        Ok((tx, next_action))
+        Ok(InvoiceChargeClaim::Claimed(Box::new(InvoiceCharge {
+            transaction,
+            method,
+            external_customer_id,
+            connector,
+            connector_impl,
+            attempt,
+        })))
     }
 
-    /// Loads the charge's provider context and fixes its idempotency key. A seeded key
-    /// (stable across retries) also fixes the transaction id, so a retry after a rollback
-    /// resends identical parameters (`meteroid.transaction_id` metadata included) and the
-    /// provider replays the original charge instead of rejecting a parameter mismatch.
-    async fn prepare_invoice_charge(
+    async fn load_charge_context(
         &self,
         conn: &mut PgConn,
         tenant_id: &TenantId,
-        invoice_id: &InvoiceId,
         payment_method_id: &CustomerPaymentMethodId,
-        idempotency_ref: Option<&str>,
-        prior_invoice_attempts: usize,
-    ) -> StoreResult<PreparedInvoiceCharge> {
+    ) -> StoreResult<(
+        CustomerPaymentMethodRow,
+        String,
+        Connector,
+        Box<dyn PaymentConnector>,
+    )> {
         let method = CustomerPaymentMethodRow::get_by_id(conn, tenant_id, payment_method_id)
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
@@ -309,88 +559,154 @@ impl Services {
 
         let external_customer_id = connection.external_customer_id;
         let connector = Connector::from_row(&self.store.settings.crypt_key, connection.connector)?;
-        connector.ensure_active_locked(conn).await?;
-
         let connector_impl = initialize_payment_connector(&connector)
             .change_context(StoreError::PaymentProviderError)?;
 
-        let seed = invoice_charge_idempotency_seed(
-            connector_impl.as_ref(),
-            payment_method_id,
-            invoice_id,
-            prior_invoice_attempts,
-            idempotency_ref,
-        );
-        // Not `unwrap_or_default`: the id type's `Default` is the `Uuid::max()` sentinel.
-        let transaction_id = match seed.as_deref() {
-            Some(seed) => transaction_id_from_seed(seed),
-            None => PaymentTransactionId::new(),
-        };
-        let idempotency_key = invoice_charge_idempotency_key(seed.as_deref(), &transaction_id);
-
-        Ok(PreparedInvoiceCharge {
-            method,
-            external_customer_id,
-            connector,
-            connector_impl,
-            transaction_id,
-            idempotency_key,
-        })
+        Ok((method, external_customer_id, connector, connector_impl))
     }
 
-    async fn create_payment_intent(
-        &self,
-        charge: PreparedInvoiceCharge,
-        tenant_id: &TenantId,
-        amount: u64,
-        currency: String,
-        on_session: bool,
-        descriptor: Option<PaymentDescriptor>,
-    ) -> StoreResult<(PaymentIntent, i64)> {
-        let PreparedInvoiceCharge {
-            method,
-            external_customer_id,
-            connector,
-            connector_impl,
-            transaction_id,
-            idempotency_key,
-        } = charge;
-        let transaction_id = &transaction_id;
-
+    /// Sends the committed request. Holds no connection: the answer is recorded afterwards.
+    async fn send_invoice_charge(&self, charge: &InvoiceCharge) -> ChargeAnswer {
+        let row = &charge.transaction;
         let request = ChargeRequest {
-            transaction_id: *transaction_id,
-            customer_external_id: &external_customer_id,
-            payment_method_external_id: &method.external_payment_method_id,
-            payment_method_type: method.payment_method_type.clone().into(),
-            amount_minor: amount as i64,
-            currency: &currency,
-            idempotency_key,
-            on_session,
-            descriptor,
+            transaction_id: row.id,
+            customer_external_id: &charge.external_customer_id,
+            payment_method_external_id: &charge.method.external_payment_method_id,
+            payment_method_type: charge.method.payment_method_type.clone().into(),
+            amount_minor: row.amount,
+            currency: &row.currency,
+            idempotency_key: IdempotencyKey::new(charge.attempt.idempotency_key.clone()),
+            on_session: charge.attempt.on_session,
+            descriptor: Some(PaymentDescriptor {
+                merchant_name: charge.attempt.merchant_name.clone(),
+                invoice_number: charge.attempt.invoice_number.clone(),
+            }),
             webhook_url: crate::adapters::payment::model::connector_webhook_url(
                 self.store.settings.webhook_base_url(),
-                &connector,
+                &charge.connector,
             ),
         };
 
-        let outcome = tokio::time::timeout(
+        let Ok(outcome) = tokio::time::timeout(
             PAYMENT_PROVIDER_TIMEOUT,
-            connector_impl.charge_off_session(request),
+            charge.connector_impl.charge_off_session(request),
         )
         .await
-        .map_err(|_| {
-            Report::new(StoreError::PaymentProviderError)
-                .attach("Payment provider request timed out")
-        })?;
+        else {
+            return ChargeAnswer::Unknown(
+                Report::new(StoreError::PaymentProviderError)
+                    .attach("Payment provider request timed out"),
+            );
+        };
         self.store
-            .note_rejected_credentials(&connector, &outcome)
+            .note_rejected_credentials(&charge.connector, &outcome)
             .await;
-        let (outcome, amount) = adopted_or_outcome(outcome, amount as i64)?;
 
-        Ok((
-            payment_intent_from_outcome(outcome, *transaction_id, *tenant_id, amount, currency),
-            amount,
-        ))
+        let outcome = match outcome {
+            Err(e) => match adopted_charge(&e) {
+                Some(adopted) => Ok((adopted.outcome, adopted.amount_minor)),
+                None => Err(e),
+            },
+            Ok(outcome) => Ok((outcome, row.amount)),
+        };
+        match outcome {
+            Ok((outcome, amount)) => ChargeAnswer::Outcome {
+                intent: Box::new(payment_intent_from_outcome(
+                    outcome,
+                    row.id,
+                    row.tenant_id,
+                    amount,
+                    row.currency.clone(),
+                )),
+                amount,
+            },
+            Err(e) => {
+                let unknown = matches!(e.current_context(), ConnectorError::Transport(_));
+                let e = e.change_context(StoreError::PaymentProviderError);
+                if unknown {
+                    ChargeAnswer::Unknown(e)
+                } else {
+                    ChargeAnswer::Refused(e)
+                }
+            }
+        }
+    }
+
+    /// Records the provider's answer on the committed row. A refusal removes the attempt (and is
+    /// returned), an unknown answer leaves it Pending (and is returned), an expired one fails it.
+    async fn settle_invoice_charge(
+        &self,
+        charge: &InvoiceCharge,
+        answer: ChargeAnswer,
+        mark_processing: bool,
+    ) -> StoreResult<(PaymentTransaction, Option<PaymentNextAction>)> {
+        self.settle_charge_row(&charge.transaction, answer, mark_processing)
+            .await
+    }
+
+    async fn settle_charge_row(
+        &self,
+        row: &PaymentTransactionRow,
+        answer: ChargeAnswer,
+        mark_processing: bool,
+    ) -> StoreResult<(PaymentTransaction, Option<PaymentNextAction>)> {
+        let (intent, amount) = match answer {
+            ChargeAnswer::Outcome { intent, amount } => (*intent, amount),
+            ChargeAnswer::Unknown(e) => return Err(e),
+            ChargeAnswer::Refused(e) => {
+                let mut conn = self.store.get_conn().await?;
+                PaymentTransactionRow::delete_unsent_charge(&mut conn, row.id, row.tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                return Err(e);
+            }
+            ChargeAnswer::Unconfirmed => (unconfirmed_intent(row), row.amount),
+        };
+        let next_action = intent.next_action.clone();
+        let (transaction_id, tenant_id) = (row.id, row.tenant_id);
+        let (invoice_id, payment_method_id) = (row.invoice_id, row.payment_method_id);
+
+        let tx = self
+            .store
+            .transaction(|conn| {
+                async move {
+                    let mut existing = self
+                        .store
+                        .get_payment_tx_by_id_for_update(conn, transaction_id, tenant_id)
+                        .await?;
+                    if amount != existing.amount {
+                        existing = record_charged_amount(conn, tenant_id, transaction_id, amount)
+                            .await?
+                            .into();
+                    }
+                    let tx = self
+                        .store
+                        .consolidate_intent_and_transaction_tx(
+                            conn,
+                            &Actor::System,
+                            existing,
+                            intent,
+                        )
+                        .await?;
+                    if mark_processing
+                        && let (Some(invoice_id), Some(payment_method_id)) =
+                            (invoice_id, payment_method_id)
+                    {
+                        self.mark_processing_if_async_debit(
+                            conn,
+                            tenant_id,
+                            invoice_id,
+                            payment_method_id,
+                            &tx,
+                        )
+                        .await?;
+                    }
+                    Ok(tx)
+                }
+                .scope_boxed()
+            })
+            .await?;
+        Ok((tx, next_action))
     }
 }
 
@@ -454,48 +770,56 @@ impl Services {
     }
 }
 
-/// The provider's answer, or the payment it already holds under this key when that one's amount
-/// differs (see [`AdoptedCharge`]), with the amount actually charged.
-pub(in crate::services) fn adopted_or_outcome(
-    outcome: Result<ChargeOutcome, Report<ConnectorError>>,
-    requested_amount: i64,
-) -> StoreResult<(ChargeOutcome, i64)> {
-    match outcome {
-        Ok(outcome) => Ok((outcome, requested_amount)),
-        Err(e) => match e
-            .frames()
-            .find_map(|f| f.downcast_ref::<AdoptedCharge>())
-            .cloned()
-        {
-            Some(adopted) => Ok((adopted.outcome, adopted.amount_minor)),
-            None => Err(e.change_context(StoreError::PaymentProviderError)),
-        },
-    }
+/// The payment the provider already holds under this key, when its amount differs from ours.
+fn adopted_charge(error: &Report<ConnectorError>) -> Option<AdoptedCharge> {
+    error
+        .frames()
+        .find_map(|f| f.downcast_ref::<AdoptedCharge>())
+        .cloned()
 }
 
 /// The row records what the provider holds, so the invoice's amount due nets what moved.
-pub(in crate::services) async fn record_charged_amount(
+async fn record_charged_amount(
     conn: &mut PgConn,
-    row: &PaymentTransactionRow,
+    tenant_id: TenantId,
+    transaction_id: PaymentTransactionId,
     amount: i64,
 ) -> StoreResult<PaymentTransactionRow> {
     PaymentTransactionRowPatch {
-        id: row.id,
+        id: transaction_id,
         amount: Some(amount),
         ..Default::default()
     }
-    .patch(conn, row.tenant_id, row.id)
+    .patch(conn, tenant_id, transaction_id)
     .await
     .map_err(Into::<Report<StoreError>>::into)
 }
 
-struct PreparedInvoiceCharge {
-    method: CustomerPaymentMethodRow,
-    external_customer_id: String,
-    connector: Connector,
-    connector_impl: Box<dyn PaymentConnector>,
-    transaction_id: PaymentTransactionId,
-    idempotency_key: IdempotencyKey,
+/// Past the longest provider replay window, a row that cannot be re-sent is safe to fail.
+fn longest_charge_replay_window() -> chrono::Duration {
+    chrono::Duration::days(7)
+}
+
+pub(in crate::services) fn payment_in_flight() -> Report<StoreError> {
+    Report::new(StoreError::PaymentError(
+        "A payment for this invoice is already being processed. Please wait for it to complete before attempting another payment.".to_string(),
+    ))
+}
+
+fn unconfirmed_intent(row: &PaymentTransactionRow) -> PaymentIntent {
+    PaymentIntent {
+        external_id: String::new(),
+        transaction_id: row.id,
+        tenant_id: row.tenant_id,
+        amount_requested: row.amount,
+        amount_received: None,
+        currency: row.currency.clone(),
+        next_action: None,
+        status: DomainPaymentStatus::Failed,
+        last_payment_error: Some("The payment provider never confirmed this charge".to_string()),
+        decline_kind: Some(DeclineKind::Unconfirmed),
+        processed_at: None,
+    }
 }
 
 /// The provider's committed-state seed, else the caller's (both survive rollback and pgmq
@@ -562,29 +886,29 @@ mod tests {
         super::invoice_charge_idempotency_key(seed.as_deref(), tx)
     }
 
-    /// A key the provider already used for another amount records that payment, at its amount.
+    /// A key the provider already used for another amount yields that payment and its amount.
     #[test]
-    fn mismatched_adoption_records_the_provider_payment() {
+    fn mismatched_adoption_yields_the_provider_payment() {
         use crate::adapters::payment::error::{AdoptedCharge, ConnectorError};
         use crate::adapters::payment::model::{ChargeAcknowledged, ChargeOutcome};
         use error_stack::Report;
 
-        let existing = ChargeOutcome::Pending(ChargeAcknowledged {
-            external_id: "PM1".to_string(),
-            provider_request_id: None,
-        });
         let adopted = Report::new(ConnectorError::Charge("mismatch".to_string())).attach_opaque(
             AdoptedCharge {
-                outcome: existing,
+                outcome: ChargeOutcome::Pending(ChargeAcknowledged {
+                    external_id: "PM1".to_string(),
+                    provider_request_id: None,
+                }),
                 amount_minor: 900,
             },
         );
-        let (outcome, amount) = super::adopted_or_outcome(Err(adopted), 1000).unwrap();
-        assert_eq!(amount, 900);
-        assert!(matches!(outcome, ChargeOutcome::Pending(a) if a.external_id == "PM1"));
-
-        let refused = Report::new(ConnectorError::Charge("currency".to_string()));
-        assert!(super::adopted_or_outcome(Err(refused), 1000).is_err());
+        let found = super::adopted_charge(&adopted).expect("adopted payment");
+        assert_eq!(found.amount_minor, 900);
+        assert!(matches!(found.outcome, ChargeOutcome::Pending(a) if a.external_id == "PM1"));
+        assert!(
+            super::adopted_charge(&Report::new(ConnectorError::Charge("currency".into())))
+                .is_none()
+        );
     }
 
     /// The retry of a seeded charge carries the same transaction id, so its metadata matches.

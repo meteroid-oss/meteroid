@@ -369,6 +369,9 @@ pub enum DeclineKind {
     Other,
     /// The issuer or network forbids re-presenting this charge (e.g. revoked authorization).
     DoNotRetry,
+    /// Not a decline: the provider never confirmed the charge and it could not safely be
+    /// re-sent. No automatic retry; a late confirmation still settles it.
+    Unconfirmed,
 }
 
 impl DeclineKind {

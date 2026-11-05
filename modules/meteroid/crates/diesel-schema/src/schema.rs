@@ -2128,6 +2128,7 @@ diesel::table! {
         amount_disputed -> Int8,
         amount_reversed_excess -> Int8,
         refund_excess -> Int8,
+        charge_attempt -> Nullable<Jsonb>,
     }
 }
 
