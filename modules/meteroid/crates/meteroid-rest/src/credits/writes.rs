@@ -17,7 +17,7 @@ use axum_valid::Valid;
 use common_domain::ids::{AliasOr, CustomerId, InvoiceId, TenantId};
 use common_grpc::middleware::server::auth::{AuthorizedAsTenant, TenantActor};
 use meteroid_app::errors::RestApiError;
-use meteroid_app::features::gates;
+use meteroid_app::features::{SCOPED_CREDIT_NOT_IN_PLAN, ensure_change_allowed, gates};
 use meteroid_app::rest::denomination::{Denominations, requested_code};
 use meteroid_app::rest::writes::{fingerprint, idempotency_key, invalid, store_error};
 use meteroid_rest_common::error::RestErrorResponse;
@@ -126,6 +126,16 @@ pub async fn create_credit_grant(
         &customer.currency,
     )?;
     let application = CreditApplication::from(request.applies_to);
+    ensure_change_allowed(
+        state.feature_resolver.as_ref(),
+        auth.organization_id,
+        gates::SCOPED_CREDIT,
+        request.subscription_id.is_some()
+            || matches!(application, CreditApplication::Usage)
+            || request.applicable_product_ids.is_some(),
+        SCOPED_CREDIT_NOT_IN_PLAN,
+    )
+    .await?;
     // Refused before the wallet is opened, so a refused grant leaves no empty wallet behind.
     if let Some(subscription_id) = request.subscription_id {
         state

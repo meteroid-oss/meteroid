@@ -14,6 +14,12 @@ export const entitlementCodes = {
   ADMIN_SANDBOXES: 'admin_sandboxes',
   SSO: 'sso',
   WHITELABEL: 'whitelabel',
+  EINVOICING: 'einvoicing',
+  CREDIT_PRICING: 'credit_pricing',
+  SCOPED_CREDIT: 'scoped_credit',
+  PORTAL_THEMING: 'portal_theming',
+  EMAIL_CUSTOMIZATION: 'email_customization',
+  QUOTE_MULTIPLE_SIGNERS: 'quote_multiple_signers',
 } as const
 
 /**

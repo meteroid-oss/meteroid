@@ -53,6 +53,14 @@ export const FeaturesTable = ({
         ),
       },
       {
+        id: 'code',
+        header: 'Code',
+        enableSorting: false,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs text-muted-foreground">{row.original.code}</span>
+        ),
+      },
+      {
         id: 'product',
         header: 'Product',
         enableSorting: false,

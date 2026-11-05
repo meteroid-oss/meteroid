@@ -15,10 +15,7 @@ import { Edit2, Trash2 } from 'lucide-react'
 import { FC, useState } from 'react'
 import { toast } from 'sonner'
 
-import {
-  MinimumCommitmentDisplay,
-  productScopeOptions,
-} from '@/features/billing/minimumCommitment'
+import { MinimumCommitmentDisplay, productScopeOptions } from '@/features/billing/minimumCommitment'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import {
   PricingComponent,
@@ -46,6 +43,8 @@ export interface QuoteViewProps {
   subscriptionComponents?: PricingComponent[]
   /** Effective minimum-commitment term to show on the document (override or plan default). */
   minimumCommitment?: MinimumCommitment
+  /** In the portal: whether the customer may enter a purchase order. */
+  purchaseOrderEnabled?: boolean
 }
 
 const LegalIdentifiers = ({
@@ -67,8 +66,9 @@ export const QuoteView: FC<QuoteViewProps> = ({
   className = '',
   subscriptionComponents,
   minimumCommitment,
+  purchaseOrderEnabled = false,
 }) => {
-  const isPurchaseOrderEditable = mode == 'portal'
+  const isPurchaseOrderEditable = mode == 'portal' && purchaseOrderEnabled
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [purchaseOrderValue, setPurchaseOrderValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)

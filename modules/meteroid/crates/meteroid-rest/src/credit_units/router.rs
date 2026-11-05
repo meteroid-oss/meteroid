@@ -15,6 +15,7 @@ use common_domain::ids::{CreditUnitId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_app::errors::RestApiError;
+use meteroid_app::features::ensure_credit_pricing_allowed;
 use meteroid_app::rest::writes::store_error;
 use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_store::domain::credit_units as domain;
@@ -132,6 +133,8 @@ pub async fn create_credit_unit(
     Valid(Json(payload)): Valid<Json<CreditUnitCreateRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let new = create_req_to_domain(auth.tenant_id, payload)?;
+    ensure_credit_pricing_allowed(state.feature_resolver.as_ref(), auth.organization_id, true)
+        .await?;
     let created = state
         .store
         .create_credit_unit(new)
@@ -172,6 +175,12 @@ pub async fn update_credit_unit(
     Valid(Json(payload)): Valid<Json<CreditUnitUpdateRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let patch = update_req_to_domain(auth.tenant_id, id, payload)?;
+    ensure_credit_pricing_allowed(
+        state.feature_resolver.as_ref(),
+        auth.organization_id,
+        patch.archived == Some(false),
+    )
+    .await?;
     let unit = state
         .store
         .update_credit_unit(patch)

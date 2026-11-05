@@ -200,7 +200,14 @@ pub async fn get_subscription_usage(
                 .invalidate(&(tenant_id, subscription_id))
                 .await;
         }
-        return Ok(Json(current.only_metric(query.metric_id)));
+        let usage = current.only_metric(query.metric_id);
+        return Ok(Json(
+            if crate::usage_costs::router::usage_costs_open(&app_state, &authorized_state).await {
+                usage
+            } else {
+                usage.without_costs()
+            },
+        ));
     }
 
     let details = app_state

@@ -1,5 +1,6 @@
 use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId, TaxCategoryId};
 use common_grpc::middleware::server::auth::RequestExt;
+use meteroid_app::features::ensure_credit_pricing_allowed;
 use meteroid_grpc::meteroid::api::products::v1::{
     ArchiveProductRequest, ArchiveProductResponse, CreateProductRequest, CreateProductResponse,
     GetProductRequest, GetProductResponse, ListProductsRequest, ListProductsResponse,
@@ -31,6 +32,7 @@ impl ProductsService for ProductServiceComponents {
         request: Request<CreateProductRequest>,
     ) -> Result<Response<CreateProductResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let organization_id = request.organization()?;
         let actor_typed = request.actor_typed()?;
 
         let req = request.into_inner();
@@ -41,6 +43,12 @@ impl ProductsService for ProductServiceComponents {
             .map(fee_structure_from_proto)
             .transpose()?
             .ok_or_else(|| Status::invalid_argument("fee_structure is required"))?;
+        ensure_credit_pricing_allowed(
+            self.feature_resolver.as_ref(),
+            organization_id,
+            fee_structure.is_credit(),
+        )
+        .await?;
 
         let res = self
             .store
@@ -73,6 +81,7 @@ impl ProductsService for ProductServiceComponents {
         request: Request<UpdateProductRequest>,
     ) -> Result<Response<UpdateProductResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let organization_id = request.organization()?;
         let actor = request.actor_typed()?;
         let req = request.into_inner();
 
@@ -82,6 +91,19 @@ impl ProductsService for ProductServiceComponents {
             .fee_structure
             .map(fee_structure_from_proto)
             .transpose()?;
+        if fee_structure.as_ref().is_some_and(FeeStructure::is_credit) {
+            let stored = self
+                .store
+                .find_product_by_id(product_id, tenant_id)
+                .await
+                .map_err(Into::<ProductApiError>::into)?;
+            ensure_credit_pricing_allowed(
+                self.feature_resolver.as_ref(),
+                organization_id,
+                !stored.fee_structure.is_credit(),
+            )
+            .await?;
+        }
 
         let res = self
             .store

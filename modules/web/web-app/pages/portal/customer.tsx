@@ -32,8 +32,11 @@ export const PortalCustomer = () => {
 }
 
 const PortalFull = () => {
-  const { branding } = usePortalOverview()
+  const { branding, overview } = usePortalOverview()
   useForceTheme(resolveTheme(branding).theme)
+  if (overview && !overview.embeddingAllowed && isFramed()) {
+    return <EmbeddingUnavailable />
+  }
   return (
     <PortalThemeProvider className="mtp" branding={branding}>
       <PortalApp />
@@ -42,9 +45,12 @@ const PortalFull = () => {
 }
 
 const PortalEmbed = ({ view }: { view: EmbedView }) => {
-  const { branding } = usePortalOverview()
+  const { branding, overview } = usePortalOverview()
   useForceTheme(resolveTheme(branding).theme)
   useTransparentBody()
+  if (overview && !overview.embeddingAllowed) {
+    return <EmbeddingUnavailable />
+  }
   return (
     <PortalThemeProvider className="mtp" branding={branding} bare>
       <EmbedHost view={view} />
@@ -65,4 +71,26 @@ const useTransparentBody = () => {
     document.documentElement.classList.add('mtp-embed')
     return () => document.documentElement.classList.remove('mtp-embed')
   }, [])
+}
+
+const isFramed = () => {
+  try {
+    return window.self !== window.top
+  } catch {
+    return true
+  }
+}
+
+const EmbeddingUnavailable = () => {
+  const standalone = new URL(window.location.href)
+  standalone.searchParams.delete('embed')
+  return (
+    <div style={{ padding: 16, fontSize: 13, fontFamily: 'system-ui, sans-serif' }}>
+      This billing portal cannot be embedded here.{' '}
+      <a href={standalone.toString()} target="_blank" rel="noreferrer">
+        Open it in a new tab
+      </a>
+      .
+    </div>
+  )
 }

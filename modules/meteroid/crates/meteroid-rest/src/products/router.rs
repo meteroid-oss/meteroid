@@ -13,6 +13,7 @@ use meteroid_store::repositories::products::{ProductInterface, ProductUpdate};
 use crate::products::mapping;
 use crate::products::model::*;
 use meteroid_app::errors::RestApiError;
+use meteroid_app::features::ensure_credit_pricing_allowed;
 use meteroid_rest_common::QueryParams;
 use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_rest_common::model::{PaginationExt, validate_order_by};
@@ -142,6 +143,12 @@ pub async fn create_product(
     Valid(Json(payload)): Valid<Json<CreateProductRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let (fee_type, fee_structure) = mapping::rest_fee_structure_to_domain(&payload.fee_structure)?;
+    ensure_credit_pricing_allowed(
+        app_state.feature_resolver.as_ref(),
+        authorized_state.organization_id,
+        fee_structure.is_credit(),
+    )
+    .await?;
 
     let product = app_state
         .store
@@ -200,6 +207,18 @@ pub async fn update_product(
         }
         None => (None, None),
     };
+    if fee_structure.as_ref().is_some_and(|f| f.is_credit()) {
+        let stored = app_state
+            .store
+            .find_product_by_id(product_id, authorized_state.tenant_id)
+            .await?;
+        ensure_credit_pricing_allowed(
+            app_state.feature_resolver.as_ref(),
+            authorized_state.organization_id,
+            !stored.fee_structure.is_credit(),
+        )
+        .await?;
+    }
 
     let product = app_state
         .store

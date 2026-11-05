@@ -73,6 +73,7 @@ RUN edition="$EDITION"; \
 
 
 FROM debian:stable-slim AS runtime
+COPY LICENSE /usr/share/doc/meteroid/LICENSE
 ARG PROFILE
 ARG TARGET_DIR=$PROFILE
 RUN apt-get update && \

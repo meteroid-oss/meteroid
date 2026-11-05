@@ -320,7 +320,7 @@ pub async fn start_meteroid_with_grpc_listener(
         seed_level,
         usage_client,
         mailer,
-        Modules::core(),
+        crate::editions::core_test_modules(),
     )
     .await
 }
@@ -580,7 +580,7 @@ pub async fn start_meteroid_with_rate_limiter(
         Some(rate_limit_config),
         None,
         None,
-        Modules::core(),
+        crate::editions::core_test_modules(),
     )
     .await
 }
@@ -616,7 +616,7 @@ pub async fn start_meteroid(database: TestDatabase, seed_level: SeedLevel) -> Me
         None,
         None,
         None,
-        Modules::core(),
+        crate::editions::core_test_modules(),
     )
     .await
 }
@@ -657,7 +657,7 @@ pub async fn start_meteroid_with_clients(
         None,
         None,
         None,
-        Modules::core(),
+        crate::editions::core_test_modules(),
     )
     .await
 }

@@ -59,6 +59,7 @@ RUN cd modules/web && pnpm --filter @md/portal-embed run build
 
 # nginx state for serving content
 FROM nginx:stable-alpine AS runtime
+COPY LICENSE /usr/share/doc/meteroid/LICENSE
 RUN apk upgrade --no-cache
 # Copy from build stage
 COPY --from=installer /app/modules/web/web-app/dist /usr/share/nginx/html

@@ -68,6 +68,7 @@ import { useLiveSubscriptions } from '@/features/credit/useLiveSubscriptions'
 import { formatUsageFilter } from '@/features/subscriptions/UsageFilterFields'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useDebounceValue } from '@/hooks/useDebounce'
+import { entitlementCodes, useEntitlement } from '@/hooks/useEntitlement'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { formatCurrency, formatCurrencyNoRounding } from '@/lib/utils/numbers'
@@ -173,6 +174,7 @@ export const AddCreditDialog = ({
   const mode = type === 'paid' ? collection : 'grant'
   const amountInput = useWatch({ control: methods.control, name: 'amount' })
   const subscriptionId = useWatch({ control: methods.control, name: 'subscriptionId' })
+  const scopedCredit = useEntitlement(entitlementCodes.SCOPED_CREDIT)
   // Money credit for one subscription pays only what that subscription bills.
   const scopedSubscription = useQuery(
     getSubscriptionDetails,
@@ -574,11 +576,11 @@ export const AddCreditDialog = ({
                   defaultOpen={hasAdvancedGrantValues}
                   forceOpen={advancedGrantError}
                 >
-                  {subscriptions.length > 0 && (
+                  {scopedCredit && subscriptions.length > 0 && (
                     <SubscriptionField control={methods.control} subscriptions={subscriptions} />
                   )}
                   {/* Credit in a credit unit pays the usage priced in it, for every product. */}
-                  {!creditUnit && (
+                  {scopedCredit && !creditUnit && (
                     <>
                       <ChoiceField
                         name="appliesTo"

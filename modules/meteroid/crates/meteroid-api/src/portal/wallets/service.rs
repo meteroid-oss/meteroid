@@ -3,6 +3,7 @@ use super::mapping;
 use crate::wallets::{WalletApiError, grant_product_names};
 use common_domain::ids::{CustomerId, CustomerPaymentMethodId, SubscriptionId, TenantId, WalletId};
 use common_grpc::middleware::server::auth::{RequestExt, ResourceAccess};
+use meteroid_app::features::ensure_portal_self_service;
 use meteroid_grpc::meteroid::api::invoices::v1::PaymentActionRequired;
 use meteroid_grpc::meteroid::portal::wallets::v1::{
     GetBalancesRequest, GetBalancesResponse, GetCreditOverviewRequest, GetCreditOverviewResponse,
@@ -379,6 +380,7 @@ impl PortalWalletsService for PortalWalletsServiceComponents {
         request: Request<TopUpWalletRequest>,
     ) -> Result<Response<TopUpWalletResponse>, Status> {
         let (tenant_id, customer_id) = portal_customer(&request)?;
+        ensure_portal_self_service(self.feature_resolver.as_ref(), &self.store, tenant_id).await?;
         let req = request.into_inner();
         let wallet = self
             .top_up_target(tenant_id, customer_id, &req.wallet_id)
@@ -522,6 +524,7 @@ impl PortalWalletsService for PortalWalletsServiceComponents {
         request: Request<RedeemCodeRequest>,
     ) -> Result<Response<RedeemCodeResponse>, Status> {
         let (tenant_id, customer_id) = portal_customer(&request)?;
+        ensure_portal_self_service(self.feature_resolver.as_ref(), &self.store, tenant_id).await?;
         let code_try = self.promo_codes.try_code(tenant_id, customer_id).await?;
         let req = request.into_inner();
         let subscription_id = SubscriptionId::from_proto_opt(req.subscription_id)?;

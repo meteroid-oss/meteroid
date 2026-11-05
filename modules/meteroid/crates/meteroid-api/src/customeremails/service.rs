@@ -259,6 +259,7 @@ impl CustomerEmailsService for CustomerEmailsServiceComponents {
         request: Request<UpdateEmailSettingsRequest>,
     ) -> Result<Response<UpdateEmailSettingsResponse>, Status> {
         let tenant_id = request.tenant()?;
+        self.ensure_customization(request.organization()?).await?;
         let actor = request.actor_typed()?;
         let req = request.into_inner();
         let entity_id = mapping::entity_id_from_proto(&req.invoicing_entity_id)?;
@@ -283,6 +284,7 @@ impl CustomerEmailsService for CustomerEmailsServiceComponents {
         request: Request<SetEmailKindEnabledRequest>,
     ) -> Result<Response<SetEmailKindEnabledResponse>, Status> {
         let tenant_id = request.tenant()?;
+        self.ensure_customization(request.organization()?).await?;
         let actor = request.actor_typed()?;
         let req = request.into_inner();
         let entity_id = mapping::entity_id_from_proto(&req.invoicing_entity_id)?;
@@ -307,6 +309,7 @@ impl CustomerEmailsService for CustomerEmailsServiceComponents {
         request: Request<SetEmailKindAudienceRequest>,
     ) -> Result<Response<SetEmailKindAudienceResponse>, Status> {
         let tenant_id = request.tenant()?;
+        self.ensure_customization(request.organization()?).await?;
         let actor = request.actor_typed()?;
         let req = request.into_inner();
         let entity_id = mapping::entity_id_from_proto(&req.invoicing_entity_id)?;
@@ -531,6 +534,7 @@ impl CustomerEmailsService for CustomerEmailsServiceComponents {
         request: Request<SendTestEmailRequest>,
     ) -> Result<Response<SendTestEmailResponse>, Status> {
         let tenant_id = request.tenant()?;
+        self.ensure_customization(request.organization()?).await?;
         let Actor::User { id: user_id } = request.actor_typed()? else {
             return Err(Status::failed_precondition(
                 "Test emails need a user session",
@@ -790,5 +794,21 @@ impl CustomerEmailsService for CustomerEmailsServiceComponents {
             .await
             .map_err(Into::<CustomerEmailsApiError>::into)?;
         Ok(Response::new(ResendUnknownEmailResponse {}))
+    }
+}
+
+impl CustomerEmailsServiceComponents {
+    async fn ensure_customization(
+        &self,
+        organization_id: common_domain::ids::OrganizationId,
+    ) -> Result<(), Status> {
+        meteroid_app::features::ensure_change_allowed(
+            self.feature_resolver.as_ref(),
+            organization_id,
+            meteroid_app::features::gates::EMAIL_CUSTOMIZATION,
+            true,
+            meteroid_app::features::EMAIL_CUSTOMIZATION_NOT_IN_PLAN,
+        )
+        .await
     }
 }

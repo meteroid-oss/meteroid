@@ -28,6 +28,10 @@ message CustomerPortalOverview {
   reserved "credit_billing_enabled";
   // False when the merchant's plan includes white-label.
   bool show_powered_by = 13;
+  // Whether the customer may change their plan, add-ons, seats and wallet here.
+  bool self_service = 14;
+  // Whether the portal may be shown embedded in the merchant's application.
+  bool embedding_allowed = 15;
 }
 
 message SubscriptionSummary {

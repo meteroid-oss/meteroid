@@ -8,7 +8,7 @@ use common_domain::ids::{
     TenantId, WalletId,
 };
 use common_grpc::middleware::server::auth::RequestExt;
-use meteroid_app::features::gates;
+use meteroid_app::features::{SCOPED_CREDIT_NOT_IN_PLAN, ensure_change_allowed, gates};
 use meteroid_grpc::meteroid::api::wallets::v1::{
     ConfigureWalletRequest, ConfigureWalletResponse, CreateWalletRequest, CreateWalletResponse,
     CreditAppliesTo, CreditGrantType, ExportCustomerLedgerRequest, ExportCustomerLedgerResponse,
@@ -411,6 +411,7 @@ impl WalletsService for WalletServiceComponents {
         request: Request<GrantCreditRequest>,
     ) -> Result<Response<GrantCreditResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let organization_id = request.organization()?;
         let actor = request.actor_user()?;
         let req = request.into_inner();
         let customer_id = CustomerId::from_proto(&req.customer_id)?;
@@ -459,6 +460,14 @@ impl WalletsService for WalletServiceComponents {
             product_ids: Vec::new(),
         }
         .with_products(applicable_product_ids);
+        ensure_change_allowed(
+            self.feature_resolver.as_ref(),
+            organization_id,
+            gates::SCOPED_CREDIT,
+            scope.is_scoped(),
+            SCOPED_CREDIT_NOT_IN_PLAN,
+        )
+        .await?;
         let command = FundCustomerCreditWallet {
             tenant_id,
             customer_id,

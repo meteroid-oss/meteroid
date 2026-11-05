@@ -2,6 +2,10 @@ use bytes::Bytes;
 use common_domain::ids::{BankAccountId, ConnectorId, InvoicingEntityId};
 use common_grpc::middleware::server::auth::RequestExt;
 use image::ImageFormat;
+use meteroid_app::features::{
+    EINVOICING_NOT_IN_PLAN, PORTAL_THEMING_NOT_IN_PLAN, ensure_change_allowed,
+    ensure_credit_pricing_allowed, gates,
+};
 use meteroid_grpc::meteroid::api::invoicingentities::v1::{
     GetInvoicingEntityProvidersRequest, GetInvoicingEntityProvidersResponse,
     GetInvoicingEntityRequest, GetInvoicingEntityResponse, ListInvoicingEntitiesRequest,
@@ -74,23 +78,62 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
         request: Request<UpdateInvoicingEntityRequest>,
     ) -> Result<Response<UpdateInvoicingEntityResponse>, Status> {
         let tenant = request.tenant()?;
+        let organization = request.organization()?;
         let actor = request.actor_typed()?;
         let req = request.into_inner();
 
         let data = req
             .data
             .ok_or_else(|| Status::invalid_argument("Missing data"))?;
+        let id = InvoicingEntityId::from_proto(req.id)?;
+        let patch = mapping::invoicing_entities::proto_to_patch_domain(data, id)?;
+
+        let sets_format = patch.einvoicing_format.flatten();
+        let enables_top_ups = patch.portal_credit_top_up_enabled == Some(true);
+        let sets_theme = patch.portal_theme_mode.is_some() || patch.portal_roundness.is_some();
+        if sets_format.is_some() || enables_top_ups || sets_theme {
+            let stored = self
+                .store
+                .get_invoicing_entity(tenant, Some(id))
+                .await
+                .map_err(Into::<InvoicingEntitiesApiError>::into)?;
+            ensure_change_allowed(
+                self.feature_resolver.as_ref(),
+                organization,
+                gates::EINVOICING,
+                sets_format.is_some_and(|format| stored.einvoicing_format != Some(format)),
+                EINVOICING_NOT_IN_PLAN,
+            )
+            .await?;
+            ensure_credit_pricing_allowed(
+                self.feature_resolver.as_ref(),
+                organization,
+                enables_top_ups && !stored.portal_credit_top_up_enabled,
+            )
+            .await?;
+            // The settings form fills an unset value with the portal's built-in default.
+            let changes = |new: &Option<Option<String>>, stored: &Option<String>, default: &str| {
+                new.as_ref().is_some_and(|new| {
+                    new.as_deref()
+                        .is_some_and(|new| new != stored.as_deref().unwrap_or(default))
+                })
+            };
+            let changes_theme =
+                changes(&patch.portal_theme_mode, &stored.portal_theme_mode, "dark")
+                    || changes(&patch.portal_roundness, &stored.portal_roundness, "Modern");
+            ensure_change_allowed(
+                self.feature_resolver.as_ref(),
+                organization,
+                gates::PORTAL_THEMING,
+                changes_theme,
+                PORTAL_THEMING_NOT_IN_PLAN,
+            )
+            .await?;
+        }
 
         let res = self
             .store
-            .patch_invoicing_entity(
-                actor,
-                mapping::invoicing_entities::proto_to_patch_domain(
-                    data,
-                    InvoicingEntityId::from_proto(req.id)?,
-                )?,
-                tenant,
-            )
+            .patch_invoicing_entity(actor, patch, tenant)
             .await
             .map_err(Into::<InvoicingEntitiesApiError>::into)?;
 

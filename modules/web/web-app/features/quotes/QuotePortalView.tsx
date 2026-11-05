@@ -204,6 +204,7 @@ const QuotePortalView: FC<QuotePortalViewProps> = ({ quoteData }) => {
                   }}
                   mode="portal"
                   minimumCommitment={quoteData.minimumCommitment}
+                  purchaseOrderEnabled={quoteData.purchaseOrderEnabled}
                 />
               )}
             </CardContent>

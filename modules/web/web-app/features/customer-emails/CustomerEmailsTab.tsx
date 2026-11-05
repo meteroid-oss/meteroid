@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { placeAfter, slotItems } from '@/edition'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
 import { SettingsSection } from '@/features/settings/components/SettingsSection'
+import { entitlementCodes, useEntitlement } from '@/hooks/useEntitlement'
 import { useQueryState } from '@/hooks/useQueryState'
 
 import { DeliveryView } from './DeliveryView'
@@ -32,6 +33,7 @@ export const CustomerEmailsTab = () => {
     v => v.value
   )
   const view = tabList.some(v => v.value === requestedView) ? requestedView : 'emails'
+  const customization = useEntitlement(entitlementCodes.EMAIL_CUSTOMIZATION)
 
   const views = (
     <Tabs value={view} onValueChange={setView} className="w-full">
@@ -58,6 +60,18 @@ export const CustomerEmailsTab = () => {
       </TabsContent>
     </Tabs>
   )
+
+  if (!customization) {
+    return (
+      <div className="flex flex-col gap-6">
+        <DeliveryView />
+        <SettingsSection
+          title="Customer emails"
+          description="Your customers receive every default email but payment reminders, sent in your entity's legal name."
+        />
+      </div>
+    )
+  }
 
   if (fullscreen) {
     return (

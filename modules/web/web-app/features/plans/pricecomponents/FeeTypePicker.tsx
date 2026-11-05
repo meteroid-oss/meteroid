@@ -2,6 +2,7 @@ import { Badge } from '@md/ui'
 import { createElement } from 'react'
 
 import { feeTypeIcon } from '@/features/plans/pricecomponents/utils'
+import { entitlementCodes, useEntitlement } from '@/hooks/useEntitlement'
 import { FeeType } from '@/rpc/api/prices/v1/models_pb'
 
 import type { ComponentFeeType } from '@/features/pricing/conversions'
@@ -51,7 +52,10 @@ interface FeeTypePickerProps {
 }
 
 export const FeeTypePicker = ({ onSelect, options }: FeeTypePickerProps) => {
-  const feeTypeOptions = options ?? defaultOptions
+  const creditPricing = useEntitlement(entitlementCodes.CREDIT_PRICING)
+  const feeTypeOptions = (options ?? defaultOptions).filter(
+    option => creditPricing || option.type !== 'credit'
+  )
 
   return (
     <div className="grid grid-cols-2 gap-3">

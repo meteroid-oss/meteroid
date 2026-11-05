@@ -7,6 +7,7 @@ use crate::pricecomponents::mapping::components::{
 };
 use common_domain::ids::{AddOnId, PlanVersionId, PriceId, ProductFamilyId};
 use common_grpc::middleware::server::auth::RequestExt;
+use meteroid_app::features::ensure_credit_pricing_allowed;
 use meteroid_grpc::meteroid::api::addons::v1::add_ons_service_server::AddOnsService;
 use meteroid_grpc::meteroid::api::addons::v1::{
     AttachAddOnToPlanVersionRequest, AttachAddOnToPlanVersionResponse, CreateAddOnRequest,
@@ -77,9 +78,16 @@ impl AddOnsService for AddOnsServiceComponents {
         request: Request<CreateAddOnRequest>,
     ) -> Result<Response<CreateAddOnResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let organization_id = request.organization()?;
         let req = request.into_inner();
 
         let product_ref = product_ref_from_proto(req.product)?;
+        ensure_credit_pricing_allowed(
+            self.feature_resolver.as_ref(),
+            organization_id,
+            product_ref.creates_credit_product(),
+        )
+        .await?;
         let price_entries = price_entries_from_proto(req.price.into_iter().collect())?;
         let price_entry = price_entries
             .into_iter()

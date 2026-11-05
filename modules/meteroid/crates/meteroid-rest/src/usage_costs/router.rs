@@ -11,6 +11,7 @@ use axum_valid::Valid;
 use common_domain::ids::{AliasOr, BillableMetricId, CustomerId, SubscriptionId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_app::errors::RestApiError;
+use meteroid_app::features::gates;
 use meteroid_rest_common::QueryParams;
 use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_store::domain::usage_costs::{MetricRef, UsageOwner};
@@ -111,6 +112,7 @@ pub async fn list_customer_usage_events(
     Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
     Valid(QueryParams(request)): Valid<QueryParams<ListUsageEventsRequest>>,
 ) -> Result<Json<UsageEventListResponse>, RestApiError> {
+    ensure_usage_costs(&state, &auth).await?;
     rate_limit_usage_costs(&state, &auth).await?;
     let customer = resolve_customer(&state, &auth, id_or_alias).await?;
     usage_events(&state, &auth, UsageOwner::Customer(customer.id), request).await
@@ -145,6 +147,7 @@ pub async fn list_subscription_usage_events(
     Path(subscription_id): Path<SubscriptionId>,
     Valid(QueryParams(request)): Valid<QueryParams<ListUsageEventsRequest>>,
 ) -> Result<Json<UsageEventListResponse>, RestApiError> {
+    ensure_usage_costs(&state, &auth).await?;
     rate_limit_usage_costs(&state, &auth).await?;
     usage_events(
         &state,
@@ -187,6 +190,7 @@ pub async fn list_customer_usage_costs(
     Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
     Valid(QueryParams(request)): Valid<QueryParams<ListUsageCostsRequest>>,
 ) -> Result<Json<UsageCostListResponse>, RestApiError> {
+    ensure_usage_costs(&state, &auth).await?;
     rate_limit_usage_costs(&state, &auth).await?;
     let customer = resolve_customer(&state, &auth, id_or_alias).await?;
     usage_costs(&state, &auth, UsageOwner::Customer(customer.id), request).await
@@ -221,6 +225,7 @@ pub async fn list_subscription_usage_costs(
     Path(subscription_id): Path<SubscriptionId>,
     Valid(QueryParams(request)): Valid<QueryParams<ListUsageCostsRequest>>,
 ) -> Result<Json<UsageCostListResponse>, RestApiError> {
+    ensure_usage_costs(&state, &auth).await?;
     rate_limit_usage_costs(&state, &auth).await?;
     usage_costs(
         &state,
@@ -229,4 +234,23 @@ pub async fn list_subscription_usage_costs(
         request,
     )
     .await
+}
+
+pub(crate) async fn usage_costs_open(state: &AppState, auth: &AuthorizedAsTenant) -> bool {
+    state
+        .feature_resolver
+        .resolve(auth.organization_id)
+        .await
+        .is_enabled(gates::USAGE_COSTS)
+}
+
+async fn ensure_usage_costs(
+    state: &AppState,
+    auth: &AuthorizedAsTenant,
+) -> Result<(), RestApiError> {
+    if usage_costs_open(state, auth).await {
+        Ok(())
+    } else {
+        Err(RestApiError::Forbidden)
+    }
 }

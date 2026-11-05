@@ -12,6 +12,7 @@ use common_domain::ids::{CreditUnitId, PlanId, PlanVersionId, ProductId, TenantI
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_app::errors::RestApiError;
+use meteroid_app::features::ensure_credit_pricing_allowed;
 use meteroid_app::features::minimum_commitments_open;
 use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_rest_common::model::{PaginationExt, validate_order_by};
@@ -174,6 +175,14 @@ pub async fn create_plan(
         .iter()
         .map(|c| mapping::rest_to_domain_component(c, &payload.currency))
         .collect::<Result<Vec<_>, _>>()?;
+    ensure_credit_pricing_allowed(
+        app_state.feature_resolver.as_ref(),
+        authorized_state.organization_id,
+        components
+            .iter()
+            .any(|c| c.product_ref.creates_credit_product()),
+    )
+    .await?;
 
     let billing = payload.billing.unwrap_or(BillingConfig {
         net_terms: 0,
@@ -355,6 +364,14 @@ pub async fn replace_plan(
         .iter()
         .map(|c| mapping::rest_to_domain_component(c, &payload.currency))
         .collect::<Result<Vec<_>, _>>()?;
+    ensure_credit_pricing_allowed(
+        app_state.feature_resolver.as_ref(),
+        authorized_state.organization_id,
+        components
+            .iter()
+            .any(|c| c.product_ref.creates_credit_product()),
+    )
+    .await?;
 
     let billing = payload.billing.unwrap_or(BillingConfig {
         net_terms: 0,

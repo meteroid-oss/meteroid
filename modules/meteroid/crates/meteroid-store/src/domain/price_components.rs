@@ -29,6 +29,11 @@ pub enum ProductRef {
 }
 
 impl ProductRef {
+    /// A new product of the credit fee structure.
+    pub fn creates_credit_product(&self) -> bool {
+        matches!(self, ProductRef::New { fee_structure, .. } if fee_structure.is_credit())
+    }
+
     pub fn existing_product_id(&self) -> Option<ProductId> {
         match self {
             ProductRef::Existing(id) => Some(*id),

@@ -65,6 +65,7 @@ RUN edition="$EDITION"; \
 
 
 FROM debian:stable-slim AS runtime
+COPY LICENSE /usr/share/doc/meteroid/LICENSE
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install --no-install-recommends -y ca-certificates libssl3 libpq5 && \

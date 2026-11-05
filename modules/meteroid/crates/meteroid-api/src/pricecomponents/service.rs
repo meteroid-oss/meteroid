@@ -1,5 +1,6 @@
 use common_domain::ids::{PlanVersionId, PriceComponentId, ProductId};
 use common_grpc::middleware::server::auth::RequestExt;
+use meteroid_app::features::ensure_credit_pricing_allowed;
 use meteroid_grpc::meteroid::api::components::v1::{
     CreatePriceComponentRequest, CreatePriceComponentResponse, EditPriceComponentRequest,
     EditPriceComponentResponse, EmptyResponse, ListPriceComponentRequest,
@@ -57,10 +58,17 @@ impl PriceComponentsService for PriceComponentServiceComponents {
     ) -> Result<Response<CreatePriceComponentResponse>, Status> {
         let actor = request.actor_typed()?;
         let tenant_id = request.tenant()?;
+        let organization_id = request.organization()?;
         let req = request.into_inner();
 
         let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
         let product_ref = mapping::components::product_ref_from_proto(req.product)?;
+        ensure_credit_pricing_allowed(
+            self.feature_resolver.as_ref(),
+            organization_id,
+            product_ref.creates_credit_product(),
+        )
+        .await?;
         let price_entries = mapping::components::price_entries_from_proto(req.prices)?;
 
         if price_entries.is_empty() {

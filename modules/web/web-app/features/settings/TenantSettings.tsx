@@ -42,6 +42,7 @@ import { UpgradeTab } from '@/features/settings/tabs/UpgradeTab'
 import { UsersTab } from '@/features/settings/tabs/UsersTab'
 import { WebhooksTab } from '@/features/settings/tabs/WebhooksTab'
 import { useBasePath } from '@/hooks/useBasePath'
+import { entitlementCodes, useEntitlement } from '@/hooks/useEntitlement'
 import {
   useExpressOrganizationState,
   useIsExpressOrganization,
@@ -98,6 +99,7 @@ export const TenantSettings: FunctionComponent = () => {
 
   const moduleTabs = slotItems('settings.tabs')
   const visibleModuleTabs = useVisibleItems(moduleTabs, undefined)
+  const creditPricing = useEntitlement(entitlementCodes.CREDIT_PRICING)
 
   const sections: SettingsSection[] = [
     {
@@ -121,7 +123,7 @@ export const TenantSettings: FunctionComponent = () => {
     {
       title: 'Finance',
       items: [
-        { value: 'credit-units', label: 'Credit', icon: Coins, show: !isExpress, content: <CreditTab /> },
+        { value: 'credit-units', label: 'Credit', icon: Coins, show: !isExpress && creditPricing, content: <CreditTab /> },
       ],
     },
     {

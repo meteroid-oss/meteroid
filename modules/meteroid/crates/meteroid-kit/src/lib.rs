@@ -375,7 +375,10 @@ impl Modules {
     }
 
     pub fn entitlements(&self, store: &Store) -> Arc<dyn Entitlements> {
-        self.edition.entitlements(store)
+        meteroid_app::features::with_bundled_gates(
+            self.edition.entitlements(store),
+            &self.feature_gates(),
+        )
     }
 
     /// The gates the modules declare, each code once, in module order.

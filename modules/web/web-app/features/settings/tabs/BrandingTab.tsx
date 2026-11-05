@@ -16,7 +16,7 @@ import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { Loading } from '@/components/Loading'
-import { Slot } from '@/edition'
+import { Slot, useModule } from '@/edition'
 import { TEMPLATE_LOCALES } from '@/features/customer-emails/locales'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
 import { LocaleToggles, sortLocales } from '@/features/settings/components/LocaleToggles'
@@ -31,6 +31,7 @@ import {
 import { UnsavedChangesBar } from '@/features/settings/components/UnsavedChangesBar'
 import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
 import { localeLabel } from '@/features/settings/utils/localeRecord'
+import { entitlementCodes, useEntitlement } from '@/hooks/useEntitlement'
 import { useZodForm } from '@/hooks/useZodForm'
 import { env } from '@/lib/env'
 import {
@@ -155,6 +156,9 @@ export const BrandingTab = () => {
     }
   }, [currentInvoicingEntity])
 
+  const themingShipped = useModule('portal') !== undefined
+  const theming = useEntitlement(entitlementCodes.PORTAL_THEMING)
+
   if (isLoading) {
     return <Loading />
   }
@@ -176,8 +180,8 @@ export const BrandingTab = () => {
       data: {
         brandColor: values.brandColor,
         brandColorLight: values.brandColorLight,
-        portalThemeMode: values.portalThemeMode,
-        portalRoundness: values.portalRoundness,
+        portalThemeMode: theming ? values.portalThemeMode : undefined,
+        portalRoundness: theming ? values.portalRoundness : undefined,
         customerLocale: values.customerLocale === SAME_AS_INVOICE ? '' : values.customerLocale,
         customerExtraLocales: {
           values: sortLocales(
@@ -209,25 +213,31 @@ export const BrandingTab = () => {
             </SettingsRowGroup>
 
             <SettingsFieldGrid>
-              <SelectFormField
-                name="portalThemeMode"
-                control={methods.control}
-                label="Theme"
-                placeholder="Dark"
-              >
-                <SelectItem value="light">Light</SelectItem>
-                <SelectItem value="dark">Dark</SelectItem>
-              </SelectFormField>
-              <SelectFormField
-                name="portalRoundness"
-                control={methods.control}
-                label="Roundness"
-                placeholder="Modern"
-              >
-                <SelectItem value="Sharp">Sharp</SelectItem>
-                <SelectItem value="Modern">Modern</SelectItem>
-                <SelectItem value="Rounded">Rounded</SelectItem>
-              </SelectFormField>
+              {themingShipped && (
+                <>
+                  <SelectFormField
+                    name="portalThemeMode"
+                    control={methods.control}
+                    label="Theme"
+                    placeholder="Dark"
+                    disabled={!theming}
+                  >
+                    <SelectItem value="light">Light</SelectItem>
+                    <SelectItem value="dark">Dark</SelectItem>
+                  </SelectFormField>
+                  <SelectFormField
+                    name="portalRoundness"
+                    control={methods.control}
+                    label="Roundness"
+                    placeholder="Modern"
+                    disabled={!theming}
+                  >
+                    <SelectItem value="Sharp">Sharp</SelectItem>
+                    <SelectItem value="Modern">Modern</SelectItem>
+                    <SelectItem value="Rounded">Rounded</SelectItem>
+                  </SelectFormField>
+                </>
+              )}
               <PortalAccentField
                 name="brandColor"
                 control={methods.control}

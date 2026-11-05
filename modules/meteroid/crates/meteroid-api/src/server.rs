@@ -191,7 +191,10 @@ pub async fn start_api_server_with_incoming(
             config.jwt_secret.clone(),
         ))
         .add_service(api::rbac::service(store.clone(), feature_resolver.clone()))
-        .add_service(api::addons::service(store.clone()))
+        .add_service(api::addons::service(
+            store.clone(),
+            feature_resolver.clone(),
+        ))
         .add_service(api::billablemetrics::service(
             store.clone(),
             services.usage_clients(),
@@ -212,6 +215,7 @@ pub async fn start_api_server_with_incoming(
         .add_service(api::invoicingentities::service(
             store.clone(),
             object_store.clone(),
+            feature_resolver.clone(),
         ))
         .add_service(api::connectors::service(store.clone(), services.clone()))
         .add_service(api::coupons::service(store.clone()))
@@ -230,6 +234,7 @@ pub async fn start_api_server_with_incoming(
         .add_service(api::customeremails::service(
             store.clone(),
             services.clone(),
+            feature_resolver.clone(),
         ))
         .add_service(meteroid_app::featuregates::service(
             store.clone(),
@@ -249,11 +254,17 @@ pub async fn start_api_server_with_incoming(
             sandboxes,
         ))
         .add_service(api::apitokens::service(store.clone()))
-        .add_service(api::pricecomponents::service(store.clone()))
+        .add_service(api::pricecomponents::service(
+            store.clone(),
+            feature_resolver.clone(),
+        ))
         .add_service(api::plans::service(store.clone(), feature_resolver.clone()))
         .add_service(api::schedules::service(store.clone()))
         .add_service(api::prices::service(store.clone(), services.clone()))
-        .add_service(api::productitems::service(store.clone()))
+        .add_service(api::productitems::service(
+            store.clone(),
+            feature_resolver.clone(),
+        ))
         .add_service(api::productfamilies::service(store.clone()))
         .add_service(api::purchaselinks::service(
             store.clone(),
@@ -329,7 +340,10 @@ pub async fn start_api_server_with_incoming(
             config.jwt_secret.clone(),
             feature_resolver.clone(),
         ))
-        .add_service(api::creditunits::service(store.clone()))
+        .add_service(api::creditunits::service(
+            store.clone(),
+            feature_resolver.clone(),
+        ))
         .add_service(api::portal::wallets::service(
             store.clone(),
             services.clone(),
@@ -347,11 +361,13 @@ pub async fn start_api_server_with_incoming(
             store.clone(),
             services.clone(),
             object_store.clone(),
+            feature_resolver.clone(),
         ))
         .add_service(api::portal::subscription::service(
             store.clone(),
             services.clone(),
             config.jwt_secret.clone(),
+            feature_resolver.clone(),
         ))
         .add_service(api::portal::purchase::service(
             store.clone(),

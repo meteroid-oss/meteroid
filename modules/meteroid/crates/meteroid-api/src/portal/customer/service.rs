@@ -242,6 +242,18 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
             tenant,
         )
         .await;
+        let gate = |code| async move {
+            meteroid_app::features::tenant_gate_open(
+                self.feature_resolver.as_ref(),
+                &self.store,
+                tenant,
+                code,
+            )
+            .await
+            .map_err(Into::<PortalCustomerApiError>::into)
+        };
+        let self_service = gate(meteroid_app::features::gates::PORTAL_SELF_SERVICE).await?;
+        let embedding_allowed = gate(meteroid_app::features::gates::PORTAL_EMBEDDING).await?;
 
         Ok(Response::new(GetCustomerPortalOverviewResponse {
             overview: Some(CustomerPortalOverview {
@@ -257,6 +269,8 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                 invoicing_entity_theme_mode: branding.theme_mode,
                 invoicing_entity_roundness: branding.roundness,
                 show_powered_by,
+                self_service,
+                embedding_allowed,
             }),
         }))
     }

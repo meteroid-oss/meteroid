@@ -18,6 +18,7 @@ use common_domain::ids::{AliasOr, BaseId, CustomerId, SubscriptionId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_app::errors::RestApiError;
+use meteroid_app::features::ensure_credit_pricing_allowed;
 use meteroid_rest_common::QueryParams;
 use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_rest_common::model::{PaginationExt, validate_order_by};
@@ -274,18 +275,27 @@ pub async fn create_subscription(
             RestApiError::from(e)
         })?;
 
+    let create = rest_to_domain_create_request(
+        resolved_plan_version,
+        resolved_customer_id,
+        resolved_coupon_ids,
+        payload,
+    )?;
+    ensure_credit_pricing_allowed(
+        app_state.feature_resolver.as_ref(),
+        authorized_state.organization_id,
+        create.price_components.as_ref().is_some_and(|components| {
+            components
+                .extra_components
+                .iter()
+                .any(|e| e.product_ref.creates_credit_product())
+        }),
+    )
+    .await?;
+
     let created = app_state
         .services
-        .insert_subscription(
-            authorized_state.as_actor(),
-            rest_to_domain_create_request(
-                resolved_plan_version,
-                resolved_customer_id,
-                resolved_coupon_ids,
-                payload,
-            )?,
-            authorized_state.tenant_id,
-        )
+        .insert_subscription(authorized_state.as_actor(), create, authorized_state.tenant_id)
         .await
         .map_err(|e| {
             log::error!(

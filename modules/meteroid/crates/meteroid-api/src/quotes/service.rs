@@ -6,7 +6,10 @@ use common_domain::ids::{
 };
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_app::conversions::FromProtoOpt;
-use meteroid_app::features::{minimum_commitments_open, minimum_commitments_refused};
+use meteroid_app::features::{
+    QUOTE_MULTIPLE_SIGNERS_NOT_IN_PLAN, ensure_change_allowed, ensure_credit_pricing_allowed,
+    gates, minimum_commitments_open, minimum_commitments_refused,
+};
 use meteroid_grpc::meteroid::api::quotes::v1::{
     CancelQuoteRequest, CancelQuoteResponse, ConvertQuoteToSubscriptionRequest,
     ConvertQuoteToSubscriptionResponse, CreateQuote, CreateQuoteRequest, CreateQuoteResponse,
@@ -67,6 +70,14 @@ impl QuotesService for QuoteServiceComponents {
         {
             return Err(minimum_commitments_refused());
         }
+        self.ensure_signers_allowed(organization_id, prepared.quote_new.recipients.len(), 1)
+            .await?;
+        ensure_credit_pricing_allowed(
+            self.feature_resolver.as_ref(),
+            organization_id,
+            prepared.creates_credit_product,
+        )
+        .await?;
 
         let created_quote = self
             .store
@@ -305,6 +316,18 @@ impl QuotesService for QuoteServiceComponents {
                 return Err(minimum_commitments_refused());
             }
         }
+        self.ensure_signers_allowed(
+            organization_id,
+            prepared.quote_new.recipients.len(),
+            existing.recipients.len(),
+        )
+        .await?;
+        ensure_credit_pricing_allowed(
+            self.feature_resolver.as_ref(),
+            organization_id,
+            prepared.creates_credit_product,
+        )
+        .await?;
 
         self.store
             .replace_quote(
@@ -455,6 +478,24 @@ fn parse_quote_datetime(s: &str) -> Option<chrono::NaiveDateTime> {
         })
 }
 
+impl QuoteServiceComponents {
+    async fn ensure_signers_allowed(
+        &self,
+        organization_id: common_domain::ids::OrganizationId,
+        signers: usize,
+        stored: usize,
+    ) -> Result<(), Status> {
+        ensure_change_allowed(
+            self.feature_resolver.as_ref(),
+            organization_id,
+            gates::QUOTE_MULTIPLE_SIGNERS,
+            signers > stored.max(1),
+            QUOTE_MULTIPLE_SIGNERS_NOT_IN_PLAN,
+        )
+        .await
+    }
+}
+
 struct PreparedQuote {
     quote_new: meteroid_store::domain::quotes::QuoteNew,
     components: Vec<QuotePriceComponentNew>,
@@ -465,6 +506,7 @@ struct PreparedQuote {
         i64,
         meteroid_store::domain::plan_minimums::CreateMinimumScope,
     )>,
+    creates_credit_product: bool,
 }
 
 impl QuoteServiceComponents {
@@ -599,6 +641,7 @@ impl QuoteServiceComponents {
             }
         }
 
+        let mut creates_credit_product = false;
         // Process quote components (fetch plan price components + products + prices first)
         let mut quote_components = if let Some(components) = quote.components {
             let price_components = self
@@ -608,6 +651,10 @@ impl QuoteServiceComponents {
                 .map_err(Into::<QuoteApiError>::into)?;
 
             let create_components = create_subscription_components_from_grpc(components)?;
+            creates_credit_product = create_components
+                .extra_components
+                .iter()
+                .any(|e| e.product_ref.creates_credit_product());
 
             // Load products referenced by price components and extra components
             let pc_product_ids: Vec<ProductId> = price_components
@@ -848,6 +895,7 @@ impl QuoteServiceComponents {
             coupons: quote_coupons,
             pending_addon_materializations,
             minimum,
+            creates_credit_product,
         })
     }
 }

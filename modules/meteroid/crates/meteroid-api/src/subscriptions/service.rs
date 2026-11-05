@@ -3,7 +3,9 @@ use common_domain::ids::{
     SubscriptionId,
 };
 use common_grpc::middleware::server::auth::RequestExt;
-use meteroid_app::features::{minimum_commitments_open, minimum_commitments_refused};
+use meteroid_app::features::{
+    ensure_credit_pricing_allowed, minimum_commitments_open, minimum_commitments_refused,
+};
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 use tonic::{Request, Response, Status};
 
@@ -89,7 +91,37 @@ impl SubscriptionServiceComponents {
         {
             return Err(minimum_commitments_refused());
         }
-        Ok(())
+        let credit_products = creates.iter().any(|c| {
+            c.price_components.as_ref().is_some_and(|components| {
+                components
+                    .extra_components
+                    .iter()
+                    .any(|e| e.product_ref.creates_credit_product())
+            })
+        });
+        ensure_credit_pricing_allowed(
+            self.feature_resolver.as_ref(),
+            organization_id,
+            credit_products,
+        )
+        .await
+    }
+
+    async fn ensure_amendment_allowed(
+        &self,
+        organization_id: OrganizationId,
+        amendment: &meteroid_store::domain::subscription_amendment::SubscriptionAmendment,
+    ) -> Result<(), Status> {
+        ensure_credit_pricing_allowed(
+            self.feature_resolver.as_ref(),
+            organization_id,
+            amendment
+                .component_changes
+                .added
+                .iter()
+                .any(|a| a.product.creates_credit_product()),
+        )
+        .await
     }
 }
 
@@ -804,6 +836,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         request: Request<PreviewAmendmentRequest>,
     ) -> Result<Response<PreviewAmendmentResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let request_organization = request.organization()?;
         let inner = request.into_inner();
 
         let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
@@ -812,6 +845,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             inner.component_changes,
             inner.add_on_changes,
         )?;
+        self.ensure_amendment_allowed(request_organization, &amendment)
+            .await?;
 
         let result = self
             .services
@@ -897,6 +932,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         request: Request<ApplyAmendmentRequest>,
     ) -> Result<Response<ApplyAmendmentResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let request_organization = request.organization()?;
         let actor = request.actor_typed()?;
         let inner = request.into_inner();
 
@@ -906,6 +942,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             inner.component_changes,
             inner.add_on_changes,
         )?;
+        self.ensure_amendment_allowed(request_organization, &amendment)
+            .await?;
 
         match amendment.apply_mode {
             meteroid_store::domain::subscription_changes::PlanChangeMode::Immediate => {

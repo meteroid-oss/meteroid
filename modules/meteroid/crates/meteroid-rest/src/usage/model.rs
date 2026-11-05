@@ -55,6 +55,15 @@ pub struct UsageResponse {
 }
 
 impl UsageResponse {
+    pub fn without_costs(mut self) -> Self {
+        self.computed_at = None;
+        self.totals = None;
+        for metric in &mut self.usage {
+            metric.costs = None;
+        }
+        self
+    }
+
     pub fn only_metric(&self, metric_id: Option<BillableMetricId>) -> Self {
         let Some(metric_id) = metric_id else {
             return self.clone();

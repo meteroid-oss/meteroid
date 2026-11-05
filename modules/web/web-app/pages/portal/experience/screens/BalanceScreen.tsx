@@ -15,7 +15,7 @@ import { WalletSchema, WalletStatus } from '@/rpc/portal/wallets/v1/models_pb'
 import { RedeemCodeCard } from '../RedeemCodeCard'
 import { usePortalNav } from '../context'
 import { cadenceAdjective, clampPct, money, pmLabel } from '../format'
-import { useCreditOverview } from '../hooks'
+import { useCreditOverview, useSelfService } from '../hooks'
 import { TopUpModal, hasPendingTopUp } from '../modals/TopUpModal'
 import { TOP_UP_RETURN_PARAM, returnedWallet } from '../modals/topUpCheckout'
 import {
@@ -415,6 +415,7 @@ const YourCredit = ({ overview, named }: { overview: LoadedOverview; named: bool
 /** The customer's credit: balances, how to add more, each credit grant and each statement. */
 export const BalanceScreen = () => {
   const credit = useCreditOverview()
+  const selfService = useSelfService()
   const { overview, goTo } = usePortalNav()
   const [searchParams, setSearchParams] = useSearchParams()
   // `opening` is the customer's money wallet not opened yet: the first quote opens it.
@@ -478,15 +479,15 @@ export const BalanceScreen = () => {
     paymentMethods.find(method => method.id === defaultPaymentMethodId) ?? paymentMethods[0]
   // A credit unit wallet is bought only at the unit's selling price in the customer's currency.
   const canConfigureWallet = (wallet: Wallet) => !wallet.creditUnit || !!wallet.salePrice
-  const canTopUp = (wallet: Wallet) =>
-    canConfigureWallet(wallet) && data.topUpEnabled && wallet.canTopUp
+  const topUpEnabled = data.topUpEnabled && selfService
+  const canTopUp = (wallet: Wallet) => canConfigureWallet(wallet) && topUpEnabled && wallet.canTopUp
   const pausedInline = (wallet: Wallet) =>
     wallet.status === WalletStatus.USAGE_BLOCKED && canTopUp(wallet)
   const topUpWallet = topUp?.opening ?? wallets.find(w => w.wallet.id === topUp?.walletId)?.wallet
   const several = wallets.length > 1
   // Top-ups offered and no wallet yet: credit is bought in the customer's billing currency.
   const opening =
-    wallets.length === 0 && data.topUpEnabled && data.customerCurrency
+    wallets.length === 0 && topUpEnabled && data.customerCurrency
       ? create(WalletSchema, { id: '', currency: data.customerCurrency, canTopUp: true })
       : undefined
 
@@ -511,7 +512,7 @@ export const BalanceScreen = () => {
               )
             }
           />
-          <RedeemCodeCard />
+          {selfService && <RedeemCodeCard />}
         </Fragment>
       ) : (
         <Fragment key="wallets">
@@ -562,7 +563,7 @@ export const BalanceScreen = () => {
             .map(entry => (
               <YourCredit key={entry.wallet.id} overview={entry} named={several} />
             ))}
-          <RedeemCodeCard />
+          {selfService && <RedeemCodeCard />}
           {wallets.map(entry => (
             <WalletStatement key={entry.wallet.id} wallet={entry.wallet} named={several} />
           ))}

@@ -106,6 +106,8 @@ export const usePortalOverview = () => {
   return { ...query, overview: query.data?.overview, branding, refetch: query.refetch }
 }
 
+export const useSelfService = () => usePortalOverview().overview?.selfService ?? false
+
 export const useInvoices = (page: number, perPage = 8) =>
   useQuery(listInvoices, { pagination: { page, perPage } })
 

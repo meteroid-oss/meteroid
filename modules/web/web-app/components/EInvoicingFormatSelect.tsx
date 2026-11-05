@@ -51,20 +51,33 @@ interface Props<TFieldValues extends FieldValues, TName extends FieldPath<TField
   control: Control<TFieldValues>
   label?: string
   containerClassName?: string
+  /** Offers only "Off" and the stored format. */
+  locked?: { stored: string }
 }
 
 export function EInvoicingFormatSelect<
   TFieldValues extends FieldValues,
   TName extends FieldPath<TFieldValues>,
->({ name, control, label = 'E-invoicing format', containerClassName }: Props<TFieldValues, TName>) {
+>({
+  name,
+  control,
+  label = 'E-invoicing format',
+  containerClassName,
+  locked,
+}: Props<TFieldValues, TName>) {
   const current = useWatch({ control, name })
 
   // A format set outside the UI still has to read back as itself rather than
   // silently as "Off", which a Save would then write back as a real change.
   const options =
-    typeof current === 'string' && current !== EINVOICING_FORMAT_OFF && !SELECTABLE.includes(current)
+    typeof current === 'string' &&
+    current !== EINVOICING_FORMAT_OFF &&
+    !SELECTABLE.includes(current)
       ? [...EINVOICING_FORMAT_OPTIONS, option(current)]
       : EINVOICING_FORMAT_OPTIONS
+  const offered = locked
+    ? options.filter(o => o.value === EINVOICING_FORMAT_OFF || o.value === locked.stored)
+    : options
 
   return (
     <ComboboxFormField
@@ -73,7 +86,7 @@ export function EInvoicingFormatSelect<
       control={control}
       containerClassName={containerClassName}
       placeholder="Off — PDF only"
-      options={options}
+      options={offered}
     />
   )
 }

@@ -4,6 +4,7 @@ use crate::portal::wallets::mapping::credit_unit_label;
 use common_domain::ids::{AddOnId, BillableMetricId, CreditUnitId, PlanVersionId, SubscriptionId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_app::conversions::ProtoConv;
+use meteroid_app::features::ensure_portal_self_service;
 use meteroid_grpc::meteroid::api::prices::v1 as prices_proto;
 use meteroid_grpc::meteroid::api::subscriptions::v1 as sub_proto;
 use meteroid_grpc::meteroid::portal::subscription::v1::portal_subscription_service_server::PortalSubscriptionService;
@@ -790,6 +791,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
         request: Request<ConfirmPlanChangeRequest>,
     ) -> Result<Response<ConfirmPlanChangeResponse>, Status> {
         let tenant_id = request.tenant()?;
+        ensure_portal_self_service(self.feature_resolver.as_ref(), &self.store, tenant_id).await?;
         let delegated = request.delegated();
         let customer_id = request.portal_resource()?.customer()?;
         let inner = request.into_inner();
@@ -2018,6 +2020,12 @@ impl PortalSubscriptionServiceComponents {
         tenant_id: common_domain::ids::TenantId,
         details: &meteroid_store::domain::SubscriptionDetails,
     ) -> Result<bool, Status> {
+        if ensure_portal_self_service(self.feature_resolver.as_ref(), &self.store, tenant_id)
+            .await
+            .is_err()
+        {
+            return Ok(false);
+        }
         Ok(self.self_service_plan(tenant_id, details).await?.is_ok())
     }
 

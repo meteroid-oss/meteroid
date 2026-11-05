@@ -21,6 +21,8 @@ message QuotePortalDetails {
   // Effective minimum-commitment shown on the signed document: the quote-level override
   // when set, otherwise the plan's default floor. Display-only.
   optional meteroid.api.plans.v1.MinimumCommitment minimum_commitment = 14;
+  // Whether the customer may enter a purchase order on this quote.
+  bool purchase_order_enabled = 15;
 }
 
 message QuoteSignature {

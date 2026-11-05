@@ -76,6 +76,13 @@ pub struct GrantScope {
 }
 
 impl GrantScope {
+    /// Narrower than customer-wide: one subscription, usage only, or some products.
+    pub fn is_scoped(&self) -> bool {
+        self.subscription_id.is_some()
+            || matches!(self.application, CreditApplication::Usage)
+            || !self.product_ids.is_empty()
+    }
+
     /// Pays any charge of any of the customer's subscriptions.
     pub fn customer_wide() -> Self {
         Self {

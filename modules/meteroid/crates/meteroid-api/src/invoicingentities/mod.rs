@@ -1,3 +1,4 @@
+use meteroid_app::features::Entitlements;
 use meteroid_app::services::storage::ObjectStoreService;
 use meteroid_grpc::meteroid::api::invoicingentities::v1::invoicing_entities_service_server::InvoicingEntitiesServiceServer;
 use meteroid_store::Store;
@@ -10,14 +11,17 @@ mod service;
 pub struct InvoicingEntitiesServiceComponents {
     store: Store,
     object_store: Arc<dyn ObjectStoreService>,
+    feature_resolver: Arc<dyn Entitlements>,
 }
 
 pub fn service(
     store: Store,
     object_store: Arc<dyn ObjectStoreService>,
+    feature_resolver: Arc<dyn Entitlements>,
 ) -> InvoicingEntitiesServiceServer<InvoicingEntitiesServiceComponents> {
     InvoicingEntitiesServiceServer::new(InvoicingEntitiesServiceComponents {
         store,
         object_store,
+        feature_resolver,
     })
 }

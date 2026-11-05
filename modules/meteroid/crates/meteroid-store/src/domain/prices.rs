@@ -59,6 +59,10 @@ impl From<&UsagePricingModel> for UsageModel {
 }
 
 impl FeeStructure {
+    pub fn is_credit(&self) -> bool {
+        matches!(self, FeeStructure::Credit {})
+    }
+
     fn kind(&self) -> &'static str {
         match self {
             FeeStructure::Rate {} => "rate",

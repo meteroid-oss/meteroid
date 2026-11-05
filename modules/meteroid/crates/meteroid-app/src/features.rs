@@ -40,6 +40,8 @@ pub struct FeatureGate {
     /// Part of the Intelligence add-on: the `intelligence_trial_environments` policy can open
     /// it in a non-production tenant.
     pub environment_trial: bool,
+    /// Open wherever the module is in the edition, whatever the license says.
+    pub bundled: bool,
 }
 
 impl FeatureGate {
@@ -47,6 +49,7 @@ impl FeatureGate {
         Self {
             code,
             environment_trial: false,
+            bundled: false,
         }
     }
 
@@ -55,6 +58,15 @@ impl FeatureGate {
         Self {
             code,
             environment_trial: true,
+            bundled: false,
+        }
+    }
+
+    pub const fn bundled(code: FeatureCode) -> Self {
+        Self {
+            code,
+            environment_trial: false,
+            bundled: true,
         }
     }
 }
@@ -82,6 +94,26 @@ pub mod gates {
     /// Introducing or changing a minimum commitment on a plan, subscription or quote (the
     /// commitments module). Billing the minimums already stored stays open.
     pub const MINIMUM_COMMITMENTS: FeatureCode = FeatureCode::new("minimum_commitments");
+    /// Turning on or changing an invoicing entity's e-invoicing format.
+    pub const EINVOICING: FeatureCode = FeatureCode::new("einvoicing");
+    /// More than one signer on a quote.
+    pub const QUOTE_MULTIPLE_SIGNERS: FeatureCode = FeatureCode::new("quote_multiple_signers");
+    /// The customer entering a purchase order on a quote.
+    pub const QUOTE_PURCHASE_ORDERS: FeatureCode = FeatureCode::new("quote_purchase_orders");
+    /// Credit products, credit units and portal top-ups.
+    pub const CREDIT_PRICING: FeatureCode = FeatureCode::new("credit_pricing");
+    /// Credit granted to one subscription, to usage only or to some products.
+    pub const SCOPED_CREDIT: FeatureCode = FeatureCode::new("scoped_credit");
+    /// The usage cost reads and the running total of a subscription's current period.
+    pub const USAGE_COSTS: FeatureCode = FeatureCode::new("usage_costs");
+    /// Plan, add-on, seat, top-up and promo code changes from the customer portal.
+    pub const PORTAL_SELF_SERVICE: FeatureCode = FeatureCode::new("portal_self_service");
+    /// Embedding the customer portal.
+    pub const PORTAL_EMBEDDING: FeatureCode = FeatureCode::new("portal_embedding");
+    /// Changing the portal's theme mode and roundness.
+    pub const PORTAL_THEMING: FeatureCode = FeatureCode::new("portal_theming");
+    /// Per-kind settings, audiences, sender settings and test sends of customer emails.
+    pub const EMAIL_CUSTOMIZATION: FeatureCode = FeatureCode::new("email_customization");
 }
 
 /// How an enabled feature came to be enabled for the requesting tenant.
@@ -162,6 +194,20 @@ impl ResolvedEntitlements {
     /// The upstream could not be asked: every gate reads closed, but nothing is known.
     pub fn is_outage(&self) -> bool {
         matches!(self.0, Resolution::Closed)
+    }
+
+    /// `codes` read enabled; an outage stays closed.
+    pub fn with_bundled(self, codes: &[FeatureCode]) -> Self {
+        let Resolution::Resolved(listed) = &self.0 else {
+            return self;
+        };
+        let mut v: Vec<FeatureEntitlement> = listed
+            .iter()
+            .filter(|e| !codes.iter().any(|c| c.as_str() == e.code))
+            .cloned()
+            .collect();
+        v.extend(codes.iter().map(|c| FeatureEntitlement::on(*c)));
+        Self(Resolution::Resolved(Arc::new(v)))
     }
 
     pub fn is_enabled(&self, code: FeatureCode) -> bool {
@@ -380,6 +426,41 @@ pub trait Entitlements: Send + Sync {
     async fn invoicing_entity_limit(&self, org_id: OrganizationId) -> Option<u32>;
 }
 
+pub fn with_bundled_gates(
+    inner: Arc<dyn Entitlements>,
+    gates: &[FeatureGate],
+) -> Arc<dyn Entitlements> {
+    let codes: Vec<FeatureCode> = gates.iter().filter(|g| g.bundled).map(|g| g.code).collect();
+    if codes.is_empty() {
+        return inner;
+    }
+    Arc::new(BundledEntitlements { inner, codes })
+}
+
+struct BundledEntitlements {
+    inner: Arc<dyn Entitlements>,
+    codes: Vec<FeatureCode>,
+}
+
+#[async_trait::async_trait]
+impl Entitlements for BundledEntitlements {
+    async fn resolve(&self, org_id: OrganizationId) -> ResolvedEntitlements {
+        self.inner.resolve(org_id).await.with_bundled(&self.codes)
+    }
+
+    async fn alert_definition_limit(&self, org_id: OrganizationId) -> Option<u32> {
+        self.inner.alert_definition_limit(org_id).await
+    }
+
+    async fn production_tenant_limit(&self, org_id: OrganizationId) -> Option<u32> {
+        self.inner.production_tenant_limit(org_id).await
+    }
+
+    async fn invoicing_entity_limit(&self, org_id: OrganizationId) -> Option<u32> {
+        self.inner.invoicing_entity_limit(org_id).await
+    }
+}
+
 /// The OSS edition: no license and no gated feature, so every gate core checks is closed.
 /// Like its single organization, its one Production tenant is the edition's, not a cap.
 pub struct OssEntitlements;
@@ -473,6 +554,66 @@ pub fn minimum_commitments_refused() -> tonic::Status {
     tonic::Status::permission_denied(MINIMUM_COMMITMENTS_NOT_IN_PLAN)
 }
 
+pub const EINVOICING_NOT_IN_PLAN: &str = "E-invoicing is not available for your plan";
+pub const QUOTE_MULTIPLE_SIGNERS_NOT_IN_PLAN: &str =
+    "Quotes with more than one signer are not available for your plan";
+pub const SCOPED_CREDIT_NOT_IN_PLAN: &str = "Scoped credit is not available for your plan";
+pub const USAGE_COSTS_NOT_IN_PLAN: &str = "Usage costs are not available for your plan";
+pub const CREDIT_PRICING_NOT_IN_PLAN: &str = "Credit packs, credit units, self-serve top-ups and scoped credit are not available in this edition";
+pub const PORTAL_SELF_SERVICE_NOT_IN_PLAN: &str =
+    "Changing a subscription from the portal is not available; please contact your provider";
+pub const PORTAL_THEMING_NOT_IN_PLAN: &str = "Portal theming is not available for your plan";
+pub const EMAIL_CUSTOMIZATION_NOT_IN_PLAN: &str =
+    "Customizing customer emails is not available in this edition";
+pub const QUOTE_PURCHASE_ORDERS_NOT_IN_PLAN: &str =
+    "Purchase orders on quotes are not available in this edition";
+
+pub async fn ensure_credit_pricing_allowed(
+    resolver: &dyn Entitlements,
+    org_id: OrganizationId,
+    introduces: bool,
+) -> Result<(), tonic::Status> {
+    ensure_change_allowed(
+        resolver,
+        org_id,
+        gates::CREDIT_PRICING,
+        introduces,
+        CREDIT_PRICING_NOT_IN_PLAN,
+    )
+    .await
+}
+
+pub async fn ensure_portal_self_service(
+    resolver: &dyn Entitlements,
+    store: &Store,
+    tenant_id: TenantId,
+) -> Result<(), tonic::Status> {
+    let open = tenant_gate_open(resolver, store, tenant_id, gates::PORTAL_SELF_SERVICE)
+        .await
+        .map_err(|e| tonic::Status::internal(format!("Failed to resolve features: {e}")))?;
+    if open {
+        Ok(())
+    } else {
+        Err(tonic::Status::permission_denied(
+            PORTAL_SELF_SERVICE_NOT_IN_PLAN,
+        ))
+    }
+}
+
+/// Refuses a change behind `code` unless the org holds it.
+pub async fn ensure_change_allowed(
+    resolver: &dyn Entitlements,
+    org_id: OrganizationId,
+    code: FeatureCode,
+    changes: bool,
+    refusal: &'static str,
+) -> Result<(), tonic::Status> {
+    if !changes || resolver.resolve(org_id).await.is_enabled(code) {
+        return Ok(());
+    }
+    Err(tonic::Status::permission_denied(refusal))
+}
+
 /// D28: [`gates::WHITELABEL`] hides "Powered by Meteroid" from customer emails, portals, checkout and dashboards.
 #[async_trait::async_trait]
 pub trait WhitelabelResolver: Send + Sync {
@@ -547,7 +688,17 @@ mod tests {
         FeatureGate::new(MFA_POLICY),
     ];
 
-    const CORE_GATES: [FeatureCode; 9] = [
+    const CORE_GATES: [FeatureCode; 19] = [
+        gates::CREDIT_PRICING,
+        gates::SCOPED_CREDIT,
+        gates::USAGE_COSTS,
+        gates::EMAIL_CUSTOMIZATION,
+        gates::PORTAL_SELF_SERVICE,
+        gates::PORTAL_EMBEDDING,
+        gates::PORTAL_THEMING,
+        gates::EINVOICING,
+        gates::QUOTE_MULTIPLE_SIGNERS,
+        gates::QUOTE_PURCHASE_ORDERS,
         gates::WHITELABEL,
         gates::INVOICE_ANNEXES,
         gates::LICENSING,
@@ -807,6 +958,43 @@ mod tests {
         assert_eq!(
             ResolvedEntitlements::outage().usage_costs_rate_limit(),
             None
+        );
+    }
+
+    #[test]
+    fn a_bundled_gate_opens_whatever_the_license_lists() {
+        let r = map(&[(AUDIT_LOG, false), (MFA_POLICY, true)]).with_bundled(&[AUDIT_LOG]);
+        assert!(r.is_enabled(AUDIT_LOG));
+        assert!(r.is_enabled(MFA_POLICY));
+        assert!(!r.is_enabled(ANALYTICS));
+        assert_eq!(r.get(AUDIT_LOG).grant, Some(EntitlementGrant::Entitlement));
+        assert!(
+            ResolvedEntitlements::from_entitlements(vec![])
+                .with_bundled(&[AUDIT_LOG])
+                .is_enabled(AUDIT_LOG)
+        );
+        assert!(
+            !ResolvedEntitlements::outage()
+                .with_bundled(&[AUDIT_LOG])
+                .is_enabled(AUDIT_LOG)
+        );
+    }
+
+    #[tokio::test]
+    async fn only_bundled_gates_are_opened_by_the_wrapper() {
+        let gates = [
+            FeatureGate::bundled(AUDIT_LOG),
+            FeatureGate::new(MFA_POLICY),
+        ];
+        let resolver = with_bundled_gates(Arc::new(OssEntitlements), &gates);
+        let r = resolver.resolve(OrganizationId::new()).await;
+        assert!(r.is_enabled(AUDIT_LOG));
+        assert!(!r.is_enabled(MFA_POLICY));
+        assert_eq!(
+            resolver
+                .production_tenant_limit(OrganizationId::new())
+                .await,
+            Some(1)
         );
     }
 }

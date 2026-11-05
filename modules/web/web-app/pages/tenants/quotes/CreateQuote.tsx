@@ -60,6 +60,7 @@ import {
 import { PriceComponentsState } from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
 import { PricingComponent } from '@/features/subscriptions/pricecomponents/SubscriptionPricingTable'
 import { useBasePath } from '@/hooks/useBasePath'
+import { entitlementCodes, useEntitlement } from '@/hooks/useEntitlement'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
@@ -320,6 +321,7 @@ export const CreateQuote = ({ seed, editQuoteId, template }: CreateQuoteProps = 
     name: 'recipients',
   })
 
+  const multipleSigners = useEntitlement(entitlementCodes.QUOTE_MULTIPLE_SIGNERS)
   const [previewMode, setPreviewMode] = useState(false)
   const [pricingValidation, setPricingValidation] = useState({
     isValid: false,
@@ -1453,10 +1455,17 @@ export const CreateQuote = ({ seed, editQuoteId, template }: CreateQuoteProps = 
                     </div>
                   ))}
 
-                  <Button type="button" variant="outline" onClick={addRecipient} className="w-full">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Recipient
-                  </Button>
+                  {multipleSigners && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={addRecipient}
+                      className="w-full"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Recipient
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
 

@@ -74,18 +74,21 @@ reconciling spreadsheets.
 - [**Plans and pricing:**](https://docs.meteroid.com/billing/managing-plans) flat, per-unit, tiered,
   volume, package, matrix and capacity pricing, or any mix of them. Plans are versioned, so a price change
   never touches existing customers unless you want it to.
-- **Credits and wallets:** prepaid and promotional credit per currency or in your own credit units, with
-  grants, priorities, expiry and a full ledger. Sell top-ups, include credit packs in plans, and bill usage
-  beyond the balance as overage.
+- **Credits and wallets:** prepaid and promotional credit per currency, with grants, priorities, expiry
+  and a full ledger, applied at invoicing. With the Enterprise images: your own credit units, credit packs
+  in plans, self-serve top-ups, scoped credit, and usage beyond the balance billed as overage.
 - [**Subscriptions:**](https://docs.meteroid.com/subscriptions/what-is-a-subscription) trials, coupons,
   add-ons, upgrades and downgrades mid-cycle with proration, and cancellations that credit what was paid in
   advance.
 - [**Quotes:**](https://docs.meteroid.com/quotes/introduction) send a quote, get it signed, and the
-  subscription starts and bills on its own.
+  subscription starts and bills on its own. Several signers and purchase orders come with the
+  Enterprise images.
 - [**Invoicing:**](https://docs.meteroid.com/invoices/managing-invoices) invoices and credit notes in eight
-  languages, tax-inclusive or exclusive prices, and e-invoicing as Factur-X or XRechnung.
+  languages, tax-inclusive or exclusive prices, and, with the Enterprise images, e-invoicing as
+  Factur-X or XRechnung.
 - [**Payments:**](https://docs.meteroid.com/integrations/general-information) Stripe, GoCardless, Mollie and Stancer, with automatic retries, refunds, and a customer
-  portal and hosted checkout.
+  portal and hosted checkout. Customers change their own plan, add-ons and seats from the portal
+  with the Enterprise images.
 - [**Entitlements:**](https://docs.meteroid.com/entitlements/create-and-manage-entitlements) control what
   each customer can access or consume, from feature flags to metered limits.
 - **API, webhooks and integrations:** a REST API with SDKs, signed webhooks with retries and a delivery
@@ -117,8 +120,11 @@ This repository is the open-source edition, under the AGPL V3. To run it, build 
 
 The official images (`ghcr.io/meteroid-oss/meteroid-api`, `meteroid-worker`, `metering-api` and
 `meteroid-web`) are Meteroid Enterprise: the code of this repository plus the Enterprise modules. They are
-free to run without a license, and some Enterprise features come free with them: dunning, tax reports, MRR
-and revenue reports, and live balances and usage limits. A license unlocks the rest. See
+free for companies under 50 employees and €2M in annual revenue under the
+[Enterprise license](https://docs.meteroid.com/self-hosting/enterprise-license), and some Enterprise features come free with
+them: dunning, tax reports, MRR and revenue reports, live balances and usage limits, credit units and packs,
+portal self-service, customer email customization and e-invoicing. Larger companies need a
+commercial license, and a license unlocks the rest. See
 [Editions](https://docs.meteroid.com/self-hosting/editions).
 
 [Meteroid Cloud](https://app.meteroid.com/registration?source=github-readme-hero) is the managed service, run by the Meteroid team and hosted in Europe.

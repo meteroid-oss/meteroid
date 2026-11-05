@@ -1,5 +1,6 @@
 use common_domain::ids::{CreditUnitId, CreditUnitPriceId, ProductId, TenantId};
 use common_grpc::middleware::server::auth::RequestExt;
+use meteroid_app::features::ensure_credit_pricing_allowed;
 use meteroid_grpc::meteroid::api::creditunits::v1::{
     ArchiveCreditUnitPriceRequest, ArchiveCreditUnitPriceResponse, ArchiveCreditUnitRequest,
     ArchiveCreditUnitResponse, CreateCreditUnitRequest, CreateCreditUnitResponse, CreditUnit,
@@ -85,7 +86,9 @@ impl CreditUnitsService for CreditUnitsServiceComponents {
         request: Request<CreateCreditUnitRequest>,
     ) -> Result<Response<CreateCreditUnitResponse>, Status> {
         let tenant = request.tenant()?;
+        let organization = request.organization()?;
         let new = mapping::create_req_to_domain(tenant, request.into_inner())?;
+        ensure_credit_pricing_allowed(self.feature_resolver.as_ref(), organization, true).await?;
 
         let unit = self
             .store
@@ -104,7 +107,14 @@ impl CreditUnitsService for CreditUnitsServiceComponents {
         request: Request<UpdateCreditUnitRequest>,
     ) -> Result<Response<UpdateCreditUnitResponse>, Status> {
         let tenant = request.tenant()?;
+        let organization = request.organization()?;
         let patch = mapping::update_req_to_domain(tenant, request.into_inner())?;
+        ensure_credit_pricing_allowed(
+            self.feature_resolver.as_ref(),
+            organization,
+            patch.archived == Some(false),
+        )
+        .await?;
 
         let unit = self
             .store

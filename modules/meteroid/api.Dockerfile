@@ -79,6 +79,7 @@ RUN edition="$EDITION"; \
 
 
 FROM debian:stable-slim AS runtime
+COPY LICENSE /usr/share/doc/meteroid/LICENSE
 # Official images send the anonymous daily report (docs.meteroid.com/self-hosting/telemetry); METEROID_TELEMETRY=off stops it.
 ENV METEROID_TELEMETRY=on \
     METEROID_DEPLOYMENT=docker

@@ -2,8 +2,10 @@ use crate::portal::quotes::PortalQuoteServiceComponents;
 use crate::portal::quotes::error::PortalQuoteApiError;
 use chrono::Utc;
 use common_domain::actor::Actor;
+use common_domain::ids::TenantId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_app::conversions::ProtoConv;
+use meteroid_app::features::{QUOTE_PURCHASE_ORDERS_NOT_IN_PLAN, gates, tenant_gate_open};
 use meteroid_app::services::storage;
 use meteroid_grpc::meteroid::portal::quotes::v1::portal_quote_service_server::PortalQuoteService;
 use meteroid_grpc::meteroid::portal::quotes::v1::{
@@ -159,6 +161,7 @@ impl PortalQuoteService for PortalQuoteServiceComponents {
                 current_recipient_name: current_recipient.name.clone(),
                 logo_url,
                 minimum_commitment,
+                purchase_order_enabled: self.purchase_orders_open(tenant).await?,
             }),
         }))
     }
@@ -318,6 +321,9 @@ impl PortalQuoteService for PortalQuoteServiceComponents {
         if quote.status != QuoteStatusEnum::Pending {
             return Err(PortalQuoteApiError::NotEditable.into());
         }
+        if !self.purchase_orders_open(tenant).await? {
+            return Err(Status::permission_denied(QUOTE_PURCHASE_ORDERS_NOT_IN_PLAN));
+        }
 
         let _ = self
             .store
@@ -326,5 +332,18 @@ impl PortalQuoteService for PortalQuoteServiceComponents {
             .map_err(Into::<PortalQuoteApiError>::into)?;
 
         Ok(Response::new(SetQuotePurchaseOrderResponse {}))
+    }
+}
+
+impl PortalQuoteServiceComponents {
+    async fn purchase_orders_open(&self, tenant: TenantId) -> Result<bool, Status> {
+        tenant_gate_open(
+            self.feature_resolver.as_ref(),
+            &self.store,
+            tenant,
+            gates::QUOTE_PURCHASE_ORDERS,
+        )
+        .await
+        .map_err(|e| Into::<PortalQuoteApiError>::into(e).into())
     }
 }

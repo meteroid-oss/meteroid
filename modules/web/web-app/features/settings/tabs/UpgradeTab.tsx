@@ -16,6 +16,7 @@ import {
 
 const PRICING_URL = 'https://meteroid.com/pricing'
 const SWITCH_EDITIONS_DOCS_URL = 'https://docs.meteroid.com/self-hosting/editions'
+const LICENSE_URL = 'https://docs.meteroid.com/self-hosting/enterprise-license'
 
 type Availability = 'free' | 'licensed'
 
@@ -34,8 +35,9 @@ interface EnterpriseArea {
 const HIGHLIGHTS: { icon: LucideIcon; title: string; description: string }[] = [
   {
     icon: GiftIcon,
-    title: 'Free to run',
-    description: 'The Enterprise images cost nothing. A license unlocks the paid features.',
+    title: 'Free for small companies',
+    description:
+      'The Enterprise images are free under 50 employees and €2M in annual revenue. A license unlocks the paid features.',
   },
   {
     icon: ArrowLeftRightIcon,
@@ -62,6 +64,27 @@ const ENTERPRISE_FEATURES: EnterpriseArea[] = [
       {
         name: 'Tax reports',
         description: 'VAT return and EC Sales List, ready to file.',
+        availability: 'free',
+      },
+      {
+        name: 'Quotes with several signers',
+        description: 'Collect signatures from several people on a quote.',
+        availability: 'licensed',
+      },
+      {
+        name: 'Purchase orders on quotes',
+        description: 'Let customers add their purchase order to the quote they sign.',
+        availability: 'licensed',
+      },
+      {
+        name: 'Customer email customization',
+        description:
+          'Choose which emails go out and to whom, set the sender, preview and send tests, and see what was sent.',
+        availability: 'free',
+      },
+      {
+        name: 'E-invoicing',
+        description: 'Issue Factur-X / ZUGFeRD and XRechnung e-invoices alongside the PDF.',
         availability: 'free',
       },
       {
@@ -125,6 +148,55 @@ const ENTERPRISE_FEATURES: EnterpriseArea[] = [
     ],
   },
   {
+    area: 'Credits',
+    summary:
+      'Prepaid credit in money is in the open-source edition; the rest comes with the images.',
+    features: [
+      {
+        name: 'Credit units',
+        description: 'Price and grant usage in your own credits instead of money.',
+        availability: 'free',
+      },
+      {
+        name: 'Credit packs',
+        description: 'Include credit in plans, add-ons and subscriptions, or sell it as packs.',
+        availability: 'free',
+      },
+      {
+        name: 'Self-serve top-ups',
+        description: 'Let customers buy credit from the portal.',
+        availability: 'free',
+      },
+      {
+        name: 'Scoped credit',
+        description: 'Grant credit for one subscription, usage only or some products.',
+        availability: 'licensed',
+      },
+    ],
+  },
+  {
+    area: 'Customer portal',
+    summary: 'The open-source portal shows everything and lets customers pay and cancel.',
+    features: [
+      {
+        name: 'Self-service',
+        description:
+          'Customers change plan, add-ons and seats, top up credit and redeem codes themselves.',
+        availability: 'free',
+      },
+      {
+        name: 'Embedded portal',
+        description: 'Show the portal and its widgets inside your own application.',
+        availability: 'licensed',
+      },
+      {
+        name: 'Portal theming',
+        description: 'Light or dark theme and corner roundness, on top of your logo and colors.',
+        availability: 'licensed',
+      },
+    ],
+  },
+  {
     area: 'Usage controls',
     features: [
       {
@@ -132,6 +204,12 @@ const ENTERPRISE_FEATURES: EnterpriseArea[] = [
         description:
           'Live credit balances, low-balance alerts, hard limits and the real-time access check, and what happens when credit runs out.',
         availability: 'free',
+      },
+      {
+        name: 'Usage costs and running totals',
+        description:
+          "Read what each customer's usage costs over time, and what the next invoice bills so far.",
+        availability: 'licensed',
       },
       {
         name: 'Budgets',
@@ -254,6 +332,11 @@ export const UpgradeTab: FunctionComponent = () => (
           <Button variant="secondary" size="sm" hasIcon asChild>
             <a href={SWITCH_EDITIONS_DOCS_URL} target="_blank" rel="noreferrer">
               How to switch images <ExternalLinkIcon size={14} />
+            </a>
+          </Button>
+          <Button variant="ghost" size="sm" hasIcon asChild>
+            <a href={LICENSE_URL} target="_blank" rel="noreferrer">
+              License terms <ExternalLinkIcon size={14} />
             </a>
           </Button>
         </div>
