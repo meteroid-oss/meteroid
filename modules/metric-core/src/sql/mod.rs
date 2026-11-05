@@ -14,7 +14,7 @@ pub enum BindValue {
 /// which then picks either value non-deterministically.
 pub const LATEST_EVENT_ORDER: &str = "(timestamp, ingested_at, id)";
 
-/// How a raw-events read collapses re-sent event ids (ADR-0011 §4).
+/// How a raw-events read collapses re-sent event ids.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventDedup {
     /// Keep-last tenant: the last copy ingested wins.

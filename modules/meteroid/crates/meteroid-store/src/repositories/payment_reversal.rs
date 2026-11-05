@@ -613,7 +613,7 @@ impl Store {
         )
         .await?;
         if let Some(kind) = reopen {
-            // Nothing automatic collects clawed-back money again: reminders take over (D4),
+            // Nothing automatic collects clawed-back money again: reminders take over,
             // unless the cause is unclear, then an operator decides.
             self.internal
                 .on_invoice_reopened(

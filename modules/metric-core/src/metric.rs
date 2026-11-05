@@ -121,11 +121,11 @@ pub enum Expr {
     /// A leaf operand that references a metric whose **sub-series** carries its own
     /// per-operand [`CrossPeriod`] transform, applied before the derived join.
     ///
-    /// `Expr` stays a pure per-window scalar algebra (DESIGN §3.1): the transform is
+    /// `Expr` stays a pure per-window scalar algebra: the transform is
     /// not a scalar op — it is a directive to the compiler to build *this operand's*
     /// `m_<key>` CTE as a windowed sub-series (e.g. a lagged running total = *opening*
     /// balance) rather than the default within-window value. This is the mechanism that
-    /// unlocks server-side retention ratios (flow ÷ opening MRR; DESIGN §6): one operand
+    /// unlocks server-side retention ratios (flow ÷ opening MRR): one operand
     /// composes as a lagged cumulative, another as a within-window sum, then divide.
     MetricTransformed {
         metric: String,
@@ -224,7 +224,7 @@ pub struct MetricDef {
     #[serde(default)]
     pub source: MetricSource,
     /// Per-metric dimension filters, ANDed with the request-level filters into *this metric's*
-    /// own read (a sumIf-style isolation). The retention enabler from DESIGN §6: it lets one
+    /// own read (a sumIf-style isolation). What retention ratios need: it lets one
     /// derived query isolate several movement components (churn, contraction, …) as separate
     /// sub-series while leaving the opening-balance operand unfiltered. Ignored by derived
     /// metrics (they have no direct source). Empty = no per-metric filter.
@@ -568,7 +568,7 @@ pub enum CrossPeriod {
     /// PRECEDING AND 1 PRECEDING)`. Like [`RunningTotal`](Self::RunningTotal) it is
     /// primed from history before `from`, so the first displayed window has a valid
     /// opening balance. Used as a per-operand transform (see [`Expr::MetricTransformed`])
-    /// to express retention ratios (flow ÷ opening MRR; DESIGN §6).
+    /// to express retention ratios (flow ÷ opening MRR).
     RunningTotalLagged,
     PeriodOverPeriodDelta,
     PercentChange,

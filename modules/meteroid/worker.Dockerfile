@@ -46,17 +46,17 @@ RUN cargo chef cook --recipe-path recipe.json --profile $PROFILE --package meter
 # Build application
 COPY . .
 
-# Inject production license public key (if provided); only the Enterprise edition verifies licenses
+# The license public key, when provided; only the Enterprise edition verifies licenses
 ARG LICENSE_PUBLIC_KEY_PEM
 RUN if [ -n "$LICENSE_PUBLIC_KEY_PEM" ] && [ -d ee/crates/enterprise-license ]; then \
       echo "$LICENSE_PUBLIC_KEY_PEM" > ee/crates/enterprise-license/keys/public.pem; \
     fi
 
-# Reported by the anonymous instance report (ADR 0010); a release build passes its tag.
+# Reported by the anonymous instance report; a release build passes its tag.
 ARG METEROID_VERSION
 
-# The Enterprise edition when ee/ is present (this repository), the OSS edition otherwise
-# (its public mirror). EDITION=oss|enterprise overrides.
+# The Enterprise edition when ee/ is present, the open-source edition otherwise.
+# EDITION=oss|enterprise overrides.
 ARG EDITION=auto
 RUN edition="$EDITION"; \
     if [ "$edition" = auto ]; then [ -d ee ] && edition=enterprise || edition=oss; fi; \

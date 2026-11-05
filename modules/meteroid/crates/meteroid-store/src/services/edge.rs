@@ -1138,7 +1138,7 @@ impl ServicesEdge {
     }
 
     /// The queued off-session charge (first attempt and dunning retries): nobody is present, so
-    /// the attempt is not attributed to the customer and its failure can be emailed (D23).
+    /// the attempt is not attributed to the customer and its failure can be emailed.
     /// A payment already in flight for the invoice is returned as is: there is nothing to retry.
     pub async fn complete_invoice_payment_automatic(
         &self,

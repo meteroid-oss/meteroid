@@ -1,4 +1,4 @@
-//! The Halyard AI catalog of `design/scenario-timelines.md` §2.1, seeded by the sandbox preset in a
+//! The Halyard AI catalog of the credit billing scenarios, seeded by the sandbox preset in a
 //! sandbox tenant of its own, driven in business time (2025, so every scenario day is past), with
 //! usage kept as dated events and read like the metering backend reads them.
 use std::collections::{BTreeMap, HashMap};

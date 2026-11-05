@@ -17,7 +17,7 @@ Billing, customers, plans, invoicing all work; raw-usage ingestion does not.
 
 The **full** file adds the metering stack and builds the backend with the
 `metering-server` feature so metering runs in-process — memory-tuned to fit a
-small box. Built from the Enterprise repository, the backend is the Enterprise
+small box. When the Enterprise sources are present, the backend is the Enterprise
 edition and also serves analytics on the metering port.
 
 ## Coolify setup
@@ -69,8 +69,8 @@ tighter host, but ClickHouse/Redpanda can OOM if starved.
 
 ## Notes
 
-- **Config** lives in `preview.env` (committed dev secrets — safe, the dev
-  license only validates against dev builds). Public URLs are set in the compose
+- **Config** lives in `preview.env` (committed dev secrets, safe), plus an
+  optional `license.env` next to it. Public URLs are set in the compose
   so Coolify can inject preview domains. The full variant adds
   ClickHouse/Kafka/Redis connection env inline.
 - **Data** is ephemeral (object store on `/tmp`; drop the volumes for a clean slate).

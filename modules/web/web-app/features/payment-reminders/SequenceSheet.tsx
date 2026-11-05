@@ -63,7 +63,7 @@ import {
 
 import type { AudiencePredicate } from '@/features/customer-emails/audience/types'
 
-// Server limits (spec §1.4, §1.5, §2.6).
+// Server limits.
 const MAX_STEPS = 20
 const MAX_NAME_CHARS = 80
 const MAX_SUBJECT_CHARS = 200

@@ -563,7 +563,7 @@ async fn test_metering_ingestion() {
 
     log::info!("Clickhouse filtered usage data validated!");
 
-    // ---- ADR-0011: the first copy of an id wins, keep-last tenants store every copy ----
+    // ---- The first copy of an id wins, keep-last tenants store every copy ----
     let topic = "meteroid-events-raw";
     let mut moved = unique_events[0].clone();
     moved.timestamp = (period_2_start + chrono::Duration::hours(1)).to_rfc3339();
@@ -697,7 +697,7 @@ async fn test_metering_ingestion() {
         "the REST API carries the tenant's keep-last flag"
     );
 
-    // ---- ADR-0011 §4: a keep-last tenant reads the last copy ingested within the window ----
+    // ---- A keep-last tenant reads the last copy ingested within the window ----
     meteroid_clients
         .metrics
         .clone()

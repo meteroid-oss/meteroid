@@ -1893,7 +1893,9 @@ impl WebhookOutEventTypeEnum {
                 // via `invoice.created` and is now superseded by the consolidated parent
                 // (`consolidated_into_invoice_id`). Integrators should treat the child as merged and
                 // follow the parent for finalization, payment and PDF.
-                "An invoice was merged into a consolidated invoice and is superseded by its parent"
+                "An invoice was merged into a consolidated invoice and is superseded by its \
+                 parent. Sent only for invoicing entities that consolidate recurring invoices, an \
+                 Enterprise edition setting"
                     .to_string()
             }
             WebhookOutEventTypeEnum::InvoiceDeleted => {

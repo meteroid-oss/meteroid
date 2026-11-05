@@ -499,7 +499,7 @@ impl Services {
         //   the next renewal bills again — a double charge.
         // - It is recurring but static: no usage-based lines, and no arrears can accrue for this
         //   period. Otherwise the amount still depends on usage that may have landed since the
-        //   draft was created, and freezing it would drop that usage (see ADR 0001) — including the
+        //   draft was created, and freezing it would drop that usage — including the
         //   empty/shortfall-only case, where there is no usage line to detect staleness from.
         if let Some(invoice) = invoice
             && (!invoice_type.bills_subscription_usage()

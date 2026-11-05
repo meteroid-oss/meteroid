@@ -1,7 +1,7 @@
 import { Navigate, RouteObject } from 'react-router-dom'
 
 import { StandardOnly } from '@/components/StandardOnly'
-import { NotImplemented } from '@/features/NotImplemented'
+import { NotFound } from '@/features/NotFound'
 import { BillingOutlet } from '@/pages/tenants/billing'
 import { CreditNote, CreditNotes } from '@/pages/tenants/creditnote'
 import { Invoice, Invoices } from '@/pages/tenants/invoice'
@@ -87,6 +87,6 @@ export const billingRoutes: RouteObject = {
         { path: 'wallets', element: <Wallets />, handle: { title: 'Wallets' } },
       ],
     },
-    { path: '*', element: <NotImplemented /> },
+    { path: '*', element: <NotFound /> },
   ],
 }

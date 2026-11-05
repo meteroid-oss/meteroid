@@ -124,7 +124,8 @@ services:
         FEATURES: metering-server
     env_file:
       - ./preview.env
-      - path: ../../ee/docker/preview/license.env
+      # Optional settings on top of preview.env, such as a license key.
+      - path: ./license.env
         required: false
     environment:
       - SERVICE_FQDN_GRPCAPI_50061

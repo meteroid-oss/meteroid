@@ -74,7 +74,7 @@ import {
 
 const PAUSE_PRESETS = [7, 14, 30]
 
-/** An enrolled invoice the sweeper holds: nothing is sent until the hold is released (D5). */
+/** An enrolled invoice the sweeper holds: nothing is sent until the hold is released. */
 const HOLD_REASONS = new Set<NotEligibleReason>([
   NotEligibleReason.KIND_DISABLED,
   NotEligibleReason.EMAILS_DISABLED,

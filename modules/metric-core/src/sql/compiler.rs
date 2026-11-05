@@ -397,7 +397,7 @@ fn build_series(
     database: &str,
     cohort: Option<&CohortClause>,
 ) -> Result<Series, MetricError> {
-    // Per-metric filters (DESIGN §6) AND into *this* metric's read only: clone the query with the
+    // Per-metric filters AND into *this* metric's read only: clone the query with the
     // request-level filters extended by the def's own. A derived metric has no direct read, so its
     // filters (if any) don't apply here — each referenced sub-metric carries its own.
     let merged;
@@ -2726,8 +2726,8 @@ fn carry_over_gauge_series(series: Series, query: &MetricQuery, window: &WindowS
     // dense grid for the ungrouped (single-series balance) case: a scaffold can't know which
     // dimension tuples to densify, and emitting NULL-dimension rows would pollute the result with
     // junk groups. For grouped gauges we forward-fill over the rows the gauge already produced
-    // (fully-empty windows for a given dimension stay absent — per-dimension densification is future
-    // work, see DESIGN.md §3.2). The forward-fill itself applies in both cases.
+    // (fully-empty windows for a given dimension stay absent — per-dimension densification is not done
+    // here). The forward-fill itself applies in both cases.
     let inner = if dims.is_empty() {
         // Build the dense grid as a Fragment so each `?` carries its bind inline: the old code
         // pushed six binds in a separate block that had to mirror the SQL's `?` order by hand.

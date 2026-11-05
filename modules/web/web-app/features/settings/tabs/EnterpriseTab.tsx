@@ -276,20 +276,21 @@ const AvailabilityBadge = ({ availability }: { availability: Availability }) =>
     </Badge>
   )
 
-export const UpgradeTab: FunctionComponent = () => (
+export const EnterpriseTab: FunctionComponent = () => (
   <div className="flex max-w-3xl flex-col gap-6">
     <Card className="grid gap-6 p-6 md:grid-cols-[minmax(0,1fr)_minmax(0,18rem)] md:items-center">
       <div className="flex flex-col gap-4">
         <div className="space-y-1">
-          <h3 className="text-base font-semibold tracking-tight">Meteroid Enterprise</h3>
+          <h3 className="text-base font-semibold tracking-tight">The Enterprise edition</h3>
           <p className="text-[13px] leading-snug text-muted-foreground">
-            You are running the open-source edition. The Enterprise images add the features below.
+            This installation runs the open-source edition. The Enterprise images run the same
+            application with the features below.
           </p>
         </div>
         <ul className="flex flex-col gap-3">
           {HIGHLIGHTS.map(({ icon: Icon, title, description }) => (
             <li key={title} className="flex gap-2.5">
-              <Icon size={16} className="mt-0.5 shrink-0 text-brand" />
+              <Icon size={16} className="mt-0.5 shrink-0 text-muted-foreground" />
               <div className="space-y-0.5">
                 <div className="text-[13px] font-medium">{title}</div>
                 <div className="text-xs leading-snug text-muted-foreground">{description}</div>
@@ -298,12 +299,12 @@ export const UpgradeTab: FunctionComponent = () => (
           ))}
         </ul>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="brand" size="sm" hasIcon asChild>
+          <Button variant="secondary" size="sm" hasIcon asChild>
             <a href={PRICING_URL} target="_blank" rel="noreferrer">
               See editions & pricing <ExternalLinkIcon size={14} />
             </a>
           </Button>
-          <Button variant="secondary" size="sm" hasIcon asChild>
+          <Button variant="ghost" size="sm" hasIcon asChild>
             <a href={SWITCH_EDITIONS_DOCS_URL} target="_blank" rel="noreferrer">
               How to switch images <ExternalLinkIcon size={14} />
             </a>

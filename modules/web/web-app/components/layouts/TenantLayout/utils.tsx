@@ -1,4 +1,4 @@
-import { Box, Home, LifeBuoy, ReceiptText, Settings, Sparkles, User, Zap } from 'lucide-react'
+import { Box, Briefcase, Home, LifeBuoy, ReceiptText, Settings, User, Zap } from 'lucide-react'
 
 import { editionId } from '@/edition'
 import { env } from '@/lib/env'
@@ -25,10 +25,9 @@ const NAV_SUB_READ_PERMISSION: Record<string, string> = {
   Accounts: 'alerts:read',
 }
 
-// The open-source edition presents what the Enterprise images add on one page, listed above
-// "What's new".
-const upgradeNav = () =>
-  editionId === 'oss' ? [{ title: 'Upgrade', url: 'settings/upgrade', icon: Sparkles }] : []
+// The open-source edition lists what Meteroid Enterprise adds on one page, linked last in the nav.
+const enterpriseNav = () =>
+  editionId === 'oss' ? [{ title: 'Enterprise', url: 'settings/enterprise', icon: Briefcase }] : []
 
 export const getFilteredSidebarItems = (
   isExpress: boolean,
@@ -78,7 +77,7 @@ export const getFilteredSidebarItems = (
         ...sidebarItems.navSecondary,
         ...moduleNavSecondary.map(({ title, url, icon }) => ({ title, url, icon })),
       ],
-      navLeading: upgradeNav(),
+      navTrailing: enterpriseNav(),
     }
   }
 
@@ -135,7 +134,7 @@ export const getFilteredSidebarItems = (
         icon: Settings,
       },
     ],
-    navLeading: upgradeNav(),
+    navTrailing: enterpriseNav(),
   }
 }
 

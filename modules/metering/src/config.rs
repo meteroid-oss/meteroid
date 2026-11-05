@@ -41,7 +41,7 @@ pub struct Config {
 #[derive(Envconfig, Clone, Debug)]
 pub struct ConsumerConfig {
     /// `auto` is a majority of replicas. `1` resumes writes during a replica outage on two
-    /// replicas, at the risk of duplicates (ADR-0011).
+    /// replicas, at the risk of duplicates.
     #[envconfig(from = "CLICKHOUSE_CONSUMER_INSERT_QUORUM", default = "auto")]
     pub insert_quorum: String,
 

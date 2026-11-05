@@ -14,7 +14,7 @@ pub enum ActorTypeEnum {
 /// Discriminator for the stateless, invoice-time *adjustment* family (floor/cap terms).
 /// `Minimum` is the only kind shipped today; `Maximum` (a per-period cap) and any future
 /// floor/cap-style term slot in here as a new variant + a synthesis branch, with no new
-/// tables. Stateful term/drawdown commitments are NOT modeled here (see ADR 0001).
+/// tables. Stateful term/drawdown commitments are NOT modeled here.
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[ExistingTypePath = "crate::schema::sql_types::AdjustmentKindEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
@@ -935,7 +935,7 @@ pub enum StoredObjectKindEnum {
     TaxReport,
 }
 
-/// Canonical activation milestones (dogfooding analytics): the single source
+/// Canonical organization activation milestones: the single source
 /// of truth for derivation, the funnel API and filters. `as_str` values feed
 /// stable event ids; `FUNNEL` is the display order.
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq, Hash)]

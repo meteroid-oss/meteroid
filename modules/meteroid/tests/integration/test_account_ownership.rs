@@ -1,4 +1,4 @@
-//! Account ownership (ADR-0002) through the customers and users gRPC services.
+//! Account ownership through the customers and users gRPC services.
 
 use common_domain::ids::{BaseId, CustomerId, UserId};
 use common_grpc::meteroid::common::v1::{Filter, FilterOperator};

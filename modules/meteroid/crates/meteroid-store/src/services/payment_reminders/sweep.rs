@@ -1,4 +1,4 @@
-//! The payment reminder sweeper (spec §3.3–§3.4): pass 1 executes due steps (≤ 1 per invoice
+//! The payment reminder sweeper: pass 1 executes due steps (≤ 1 per invoice
 //! per run, cursor advance and enqueue in one `FOR UPDATE` tx), pass 2 enrols candidates per
 //! entity with a keyset bounded by the ladder reach. Kill switches are holds, never burns.
 
@@ -82,7 +82,7 @@ enum ExecOutcome {
 }
 
 /// What resolution and planning need for one entity: its send window, the `payment_reminder`
-/// toggle and its enabled live sequences in position order (disabled ones are absent, D6).
+/// toggle and its enabled live sequences in position order (disabled ones are absent).
 pub(crate) struct EntityRules {
     pub tenant_id: TenantId,
     pub window: SendWindow,
@@ -135,7 +135,7 @@ impl ReopenedReminders {
     }
 }
 
-/// D4: decided from persisted facts, never from a live resolver call.
+/// Decided from persisted facts, never from a live resolver call.
 pub(crate) fn is_reminder_eligible(invoice: &InvoiceRow) -> bool {
     invoice.payment_status == InvoicePaymentStatus::Errored
         || invoice.auto_charge_requested_at.is_none()
@@ -211,7 +211,7 @@ impl StoreInternal {
         })
     }
 
-    /// §3.3 step 1: a valid customer override wins, then the enabled sequences in position
+    /// A valid customer override wins, then the enabled sequences in position
     /// order (audiences evaluated in Postgres on the still-unassigned batch, the default takes
     /// the rest). An invoice absent from the result has no winner.
     pub(crate) async fn resolve_sequences<'a>(
@@ -275,7 +275,7 @@ impl StoreInternal {
         Ok(assigned)
     }
 
-    /// D16: generation bumped, stop/pause/completion/end cleared, the sequence re-resolved
+    /// Generation bumped, stop/pause/completion/end cleared, the sequence re-resolved
     /// with the current rules and the cursor placed so the last elapsed step executes once at
     /// the next slot (never before `floor`). Runs under the caller's invoice and row locks.
     #[allow(clippy::too_many_arguments)]
@@ -379,9 +379,9 @@ impl StoreInternal {
         .await
     }
 
-    /// §3.6 reopen hook (claw-back, credit-note void, abandoned auto-charge), called inside the
-    /// caller's money transaction. `hand_over`: automatic collection is over, so the D4 stamp is
-    /// cleared and reminders own the invoice. Reminder failures never propagate.
+    /// Reopen hook (claw-back, credit-note void, abandoned auto-charge), called inside the
+    /// caller's money transaction. `hand_over`: automatic collection is over, so the auto-charge
+    /// stamp is cleared and reminders own the invoice. Reminder failures never propagate.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn on_invoice_reopened(
         &self,
@@ -578,7 +578,7 @@ impl StoreInternal {
         }
     }
 
-    /// §2.7: a timezone / send-hour change re-derives the next fire of every in-flight
+    /// A timezone / send-hour change re-derives the next fire of every in-flight
     /// invoice of the entity (an elapsed step lands on the next slot).
     pub(crate) async fn restamp_reminders_for_entity(
         &self,
@@ -639,7 +639,7 @@ impl StoreInternal {
     }
 }
 
-/// §3.9 step 3, the reminder-only send-time checks: the row must still carry the message's
+/// The reminder-only send-time checks: the row must still carry the message's
 /// sequence and generation (else `superseded`, manual sends included), the customer must not
 /// have opted out, and a scheduled send also needs the row enrolled, not stopped, not paused.
 pub(crate) async fn reminder_send_guard(
@@ -774,7 +774,7 @@ impl Services {
         }
     }
 
-    /// §3.4: one transaction per invoice; every precondition is re-checked under the locks.
+    /// One transaction per invoice; every precondition is re-checked under the locks.
     async fn execute_reminder_invoice(
         &self,
         tenant_id: TenantId,
@@ -1120,7 +1120,7 @@ impl Services {
         Ok(())
     }
 
-    /// §3.3 step 3, one transaction per invoice. `Some(true)` enrolled, `Some(false)` stamped
+    /// Enrols one invoice, in one transaction. `Some(true)` enrolled, `Some(false)` stamped
     /// `LADDER_STALE`, `None` when a re-check under the locks failed (nothing written).
     async fn write_enrollment(
         &self,

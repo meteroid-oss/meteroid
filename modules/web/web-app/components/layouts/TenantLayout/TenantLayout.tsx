@@ -99,8 +99,8 @@ export const TenantLayoutOutlet = () => {
     moduleNavMain
   )
 
-  // The longest match wins, so `settings/upgrade` doesn't also light up Settings.
-  const footerItems = [...filteredSidebarItems.navLeading, ...filteredSidebarItems.navSecondary]
+  // The longest match wins, so `settings/enterprise` doesn't also light up Settings.
+  const footerItems = [...filteredSidebarItems.navSecondary, ...filteredSidebarItems.navTrailing]
   const activeSecondaryUrl = footerItems
     .map(item => item.url)
     .filter(url => pathname.includes(url))
@@ -290,9 +290,9 @@ export const TenantLayoutOutlet = () => {
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>
-                {filteredSidebarItems.navLeading.map(renderFooterItem)}
                 <UpdatesPopover />
                 {filteredSidebarItems.navSecondary.map(renderFooterItem)}
+                {filteredSidebarItems.navTrailing.map(renderFooterItem)}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

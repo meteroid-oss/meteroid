@@ -563,7 +563,7 @@ pub fn check_customer_level(audience: &Audience) -> StoreResult<()> {
     }
 }
 
-/// Save-time checks (§1.4): literal sets, catalog references in the tenant (customers in the
+/// Save-time checks: literal sets, catalog references in the tenant (customers in the
 /// entity), property keys and operators, structural limits, `segment` rejected.
 pub async fn validate_audience(
     conn: &mut PgConn,

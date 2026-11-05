@@ -407,7 +407,7 @@ pub async fn create_top_up(
         (status = 200, description = "The wallet's configuration after the change", body = model::Wallet),
         (status = 400, description = "Invalid request", body = RestErrorResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
-        (status = 403, description = "Automatic top-ups are not included in the plan: turning one on or changing its terms is refused", body = RestErrorResponse),
+        (status = 403, description = "Automatic top-ups are not enabled for this organization: turning one on or changing its terms is refused", body = RestErrorResponse),
         (status = 404, description = "Customer or payment method not found", body = RestErrorResponse),
         (status = 409, description = "Idempotency-Key reused with another request", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),

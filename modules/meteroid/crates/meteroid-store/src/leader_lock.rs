@@ -19,7 +19,7 @@ pub enum LeaderLock {
     TenantLifecycle = 92_000_004,
     /// Daily VAT revalidation enqueuer.
     VatRevalidation = 92_000_005,
-    /// Dogfooding activation-milestones derivation worker.
+    /// Organization activation-milestones derivation worker.
     DogfoodingMilestones = 92_000_006,
     /// Hourly stale-draft invoice refresh worker.
     DraftRefresh = 92_000_007,

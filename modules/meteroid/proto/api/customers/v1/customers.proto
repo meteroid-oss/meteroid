@@ -125,7 +125,7 @@ message DeleteCustomerConnectionRequest {
 message DeleteCustomerConnectionResponse {}
 
 // Assign (or, with an empty owner, unassign) the account owner for one or more
-// customers (ADR-0002). Bulk shape mirrors the sync RPCs so a worklist can assign
+// customers. Bulk shape mirrors the sync RPCs so a worklist can assign
 // a page or a whole filter. Requires `customers:manage`.
 message AssignCustomerOwnerRequest {
   repeated string customer_ids = 1;
@@ -197,7 +197,7 @@ service CustomersService {
   rpc RefreshVatValidation(RefreshVatValidationRequest) returns (RefreshVatValidationResponse) {}
   rpc UpsertCustomerConnection(UpsertCustomerConnectionRequest) returns (UpsertCustomerConnectionResponse) {}
   rpc DeleteCustomerConnection(DeleteCustomerConnectionRequest) returns (DeleteCustomerConnectionResponse) {}
-  // Assign / unassign the account owner for one or more customers (ADR-0002).
+  // Assign / unassign the account owner for one or more customers.
   rpc AssignCustomerOwner(AssignCustomerOwnerRequest) returns (AssignCustomerOwnerResponse) {}
 }
 

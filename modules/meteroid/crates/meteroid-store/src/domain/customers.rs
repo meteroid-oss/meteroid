@@ -123,7 +123,7 @@ pub struct Customer {
     pub customer_type: CustomerType,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
-    /// Internal user who owns this account (ADR-0002); `None` = unassigned.
+    /// Internal user who owns this account; `None` = unassigned.
     pub owner_user_id: Option<UserId>,
     pub payment_reminders_opt_out: bool,
     /// Override sequence for this customer's invoices; `None` = resolve by audience.
@@ -494,7 +494,7 @@ pub struct CustomerPatch {
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     // Ownership is intentionally NOT patchable here: owner is mutated only through the
-    // validated `assign_customer_owner` choke point (ADR-0002). A patch preserves it.
+    // validated `assign_customer_owner` choke point. A patch preserves it.
 }
 
 impl CustomerPatch {

@@ -2,7 +2,7 @@ use chrono::NaiveDateTime;
 use diesel::sql_types::{Array, BigInt, Integer, Text};
 use diesel::{Queryable, QueryableByName, Selectable};
 
-/// This instance's anonymous telemetry identity (ADR 0010). At most one row.
+/// This instance's anonymous telemetry identity. At most one row.
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::instance_telemetry)]
 #[diesel(check_for_backend(diesel::pg::Pg))]

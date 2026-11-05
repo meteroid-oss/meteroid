@@ -1190,7 +1190,7 @@ impl InvoiceReminderUpdates {
         .into_db_result()
     }
 
-    /// Step edit (D12): in-flight invoices are pulled to `now` so the claim-time planner
+    /// Step edit: in-flight invoices are pulled to `now` so the claim-time planner
     /// re-derives; completed ones are re-armed only when the new last step is still reachable
     /// (anchor + max_offset inside the 24 h enrolment window).
     pub async fn rearm_for_sequence(
@@ -1266,7 +1266,7 @@ ORDER BY GREATEST(i.due_at, i.finalized_at), i.id \
 LIMIT $6";
 
 /// Entities with at least one enabled live sequence, and how far their ladders reach. Zero-step
-/// sequences count with a reach of 0; disabled sequences never extend it (D6).
+/// sequences count with a reach of 0; disabled sequences never extend it.
 pub const LIST_ENTITY_REACH_SQL: &str = "\
 SELECT sq.tenant_id, sq.invoicing_entity_id, COALESCE(MAX(st.offset_days), 0) AS max_offset \
 FROM payment_reminder_sequence sq \
@@ -1278,7 +1278,7 @@ ORDER BY sq.tenant_id, sq.invoicing_entity_id";
 
 /// Due rows with every kill switch joined as a hold: a disabled sequence, an opted-out
 /// customer, a tenant with emails off or an entity whose `payment_reminder` kind is off (an
-/// entity without a settings row has the kind off, §1.1) simply does not match.
+/// entity without a settings row has the kind off) simply does not match.
 pub const LIST_REMINDER_DUE_SQL: &str = "\
 SELECT r.invoice_id, r.tenant_id, r.next_reminder_at \
 FROM invoice_payment_reminder r \
@@ -1298,7 +1298,7 @@ ORDER BY r.next_reminder_at, r.invoice_id \
 LIMIT $2";
 
 /// Scheduled rows whose invoice can no longer be collected end in one statement; `PROCESSING`
-/// is held (D15). Invoices are locked first and re-read, so a row a concurrent reopen just
+/// is held. Invoices are locked first and re-read, so a row a concurrent reopen just
 /// restarted is never ended (READ COMMITTED); a locked invoice waits for the next run.
 pub const END_UNPAYABLE_SCHEDULED_SQL: &str = "\
 WITH unpayable AS ( \

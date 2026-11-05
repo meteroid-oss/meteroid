@@ -1,6 +1,6 @@
--- Customer signals (ADR-0002, ADR-0004).
+-- Customer signals.
 
--- Account ownership (ADR-0002). A deleted user frees their accounts; org membership is checked in
+-- Account ownership. A deleted user frees their accounts; org membership is checked in
 -- the store, since the FK to "user" cannot express it.
 ALTER TABLE "customer"
   ADD COLUMN "owner_user_id" UUID NULL REFERENCES "user" ("id") ON DELETE SET NULL;

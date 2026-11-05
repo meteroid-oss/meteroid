@@ -49,7 +49,7 @@ pub struct CustomerRow {
     /// BT-47 — the buyer's national register identifier (SIREN/SIRET, HRB).
     pub legal_number: Option<String>,
     pub preferred_locales: Vec<Option<String>>,
-    /// Internal user who owns this account (ADR-0002). Nullable; set/unset via the
+    /// Internal user who owns this account. Nullable; set/unset via the
     /// dedicated assign path, which validates org membership.
     pub owner_user_id: Option<UserId>,
     pub payment_reminders_opt_out: bool,

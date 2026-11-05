@@ -57,7 +57,7 @@ impl InvoiceServiceComponents {
             .is_enabled(gates::INVOICE_ANNEXES)
         {
             return Err(Status::permission_denied(
-                "Invoice annexes are not available for your plan",
+                "Invoice annexes are not enabled for this organization.",
             ));
         }
         Ok(())

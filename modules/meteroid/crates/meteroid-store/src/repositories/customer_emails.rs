@@ -1,4 +1,4 @@
-//! Per-entity email settings, the claim-before-send state machine (D10) and the sent-email
+//! Per-entity email settings, the claim-before-send state machine and the sent-email
 //! reads behind `CustomerEmailsService`.
 
 use crate::StoreResult;
@@ -240,7 +240,7 @@ fn invalid(msg: impl Into<String>) -> Report<StoreError> {
     Report::new(StoreError::InvalidArgument(msg.into()))
 }
 
-/// §2.7: the stored sender fields after applying `patch`, or `InvalidArgument`.
+/// The stored sender fields after applying `patch`, or `InvalidArgument`.
 fn apply_patch(
     mut settings: EmailSettings,
     patch: EmailSettingsPatch,
@@ -445,7 +445,7 @@ pub trait CustomerEmailsInterface {
         limit: u32,
     ) -> StoreResult<SkippedEmailPage>;
 
-    /// §2.5: upserts the claim in its own committed transaction, before any transport call.
+    /// Upserts the claim in its own committed transaction, before any transport call.
     async fn claim_email_send(
         &self,
         tenant_id: TenantId,
@@ -665,7 +665,7 @@ impl StoreInternal {
         .await
     }
 
-    /// Reminder fire times depend on the send window: in-flight invoices are re-stamped (§2.7).
+    /// Reminder fire times depend on the send window: in-flight invoices are re-stamped.
     pub(crate) async fn on_email_send_window_changed(
         &self,
         conn: &mut PgConn,
@@ -1271,7 +1271,7 @@ impl CustomerEmailsInterface for Store {
                 "This email has no re-renderable context".to_string(),
             ))
         })?;
-        // An explicit resend is a manual send (§3.7): it carries the row's current sequence and
+        // An explicit resend is a manual send: it carries the row's current sequence and
         // generation so a restart in between does not drop it as superseded.
         if let EmailContext::PaymentReminder {
             invoice_id,

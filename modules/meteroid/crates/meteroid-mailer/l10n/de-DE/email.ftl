@@ -63,7 +63,7 @@ already-paid-disregard = Falls Sie bereits bezahlt haben, betrachten Sie diese E
 powered-by = Bereitgestellt von Meteroid
 test-mode-notice = Test-E-Mail: aus einer Nicht-Produktionsumgebung gesendet. Es wird keine echte Zahlung eingezogen.
 
-## Seeded default reminder sequence (D30): steps -3 / 0 / +7 / +14, copied into payment_reminder_step.content.
+## Seeded default reminder sequence: steps -3 / 0 / +7 / +14, copied into payment_reminder_step.content.
 reminder-default-before-subject = Rechnung { "{{invoice_number}}" } ist am { "{{due_date}}" } fällig
 reminder-default-before-body =
     Guten Tag { "{{customer_name}}" },

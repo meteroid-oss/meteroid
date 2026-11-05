@@ -21,7 +21,7 @@ message CustomerBrief {
   string lifecycle_state = 10;
   // JSON-encoded object of user-defined custom property values, keyed by definition key.
   optional string custom_properties = 11;
-  // Internal account owner (ADR-0002); absent = unassigned. display_name may be empty on
+  // Internal account owner; absent = unassigned. display_name may be empty on
   // the list row (batch-resolved by the caller); the id always carries the "my accounts" key.
   optional CustomerOwner owner = 12;
   // The customer's open (firing) signals; absent without alerts:read or the Signals entitlement.
@@ -62,7 +62,7 @@ enum CustomerType {
   CUSTOMER_TYPE_INDIVIDUAL = 1;
 }
 
-// The internal user who owns an account (ADR-0002). Internal-only; never exposed
+// The internal user who owns an account. Internal-only; never exposed
 // to the customer portal.
 message CustomerOwner {
   string user_id = 1;
@@ -134,7 +134,7 @@ message Customer {
   CustomerType customer_type = 36;
   optional string first_name = 37;
   optional string last_name = 38;
-  // Internal account owner (ADR-0002); absent = unassigned.
+  // Internal account owner; absent = unassigned.
   optional CustomerOwner owner = 39;
   // BT-10 — the reference the buyer routes invoices by (Leitweg-ID for German public
   // bodies). Required by XRechnung.

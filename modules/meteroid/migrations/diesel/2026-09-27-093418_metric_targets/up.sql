@@ -1,4 +1,4 @@
--- Targets (ADR-0005): the planned value of a catalog metric over a month or a quarter, its
+-- Targets: the planned value of a catalog metric over a month or a quarter, its
 -- owner, and the history of every change to it.
 CREATE TYPE "MetricTargetPeriodGrainEnum" AS ENUM ('MONTH', 'QUARTER');
 

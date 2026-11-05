@@ -206,11 +206,9 @@ pub fn generate_spec(edition: EditionSpec, dir: &str) {
       )
     ),
     tags(
-        (name = "Meteroid", description = "Meteroid API"),
         (name = "Webhook Endpoints", description = "Manage outbound webhook endpoints and inspect their deliveries"),
         (name = "Credits", description = "Prepaid credit: a customer's wallets, credit grants, ledger and top-ups. Promotional credit applies before tax like a discount; paid credit applies after tax like a payment."),
-        (name = "Credit units", description = "Custom denominations, such as \"credits\", that usage can be priced in and credit granted or sold in, instead of money."),
-        (name = "Licenses", description = "Licenses for your customers' self-hosted installations: signed tokens carrying their plan's entitlements, activated and refreshed by the installation over the public licensing endpoints.")
+        (name = "Credit units", description = "Custom denominations, such as \"credits\", that usage can be priced in and credit granted or sold in, instead of money.")
     )
 )]
 pub struct ApiDoc;
@@ -505,7 +503,7 @@ pub fn apply_sorted_tags(openapi: &mut utoipa::openapi::OpenApi) {
         }
     }
 
-    let mut sorted_tags: Vec<utoipa::openapi::Tag> = tag_names
+    let sorted_tags: Vec<utoipa::openapi::Tag> = tag_names
         .into_iter()
         .map(|name| {
             existing
@@ -513,13 +511,6 @@ pub fn apply_sorted_tags(openapi: &mut utoipa::openapi::OpenApi) {
                 .unwrap_or_else(|| TagBuilder::new().name(name).build())
         })
         .collect();
-
-    // todo do we need Meteroid tag?
-    // Pin "Meteroid" as the first entry
-    if let Some(pos) = sorted_tags.iter().position(|t| t.name == "Meteroid") {
-        let meteroid = sorted_tags.remove(pos);
-        sorted_tags.insert(0, meteroid);
-    }
 
     openapi.tags = Some(sorted_tags);
 }

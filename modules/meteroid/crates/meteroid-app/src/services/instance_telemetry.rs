@@ -1,4 +1,4 @@
-//! The anonymous instance report (ADR 0010): one aggregated payload a day, never an identifier
+//! The anonymous instance report: one aggregated payload a day, never an identifier
 //! of a user, customer or invoice, never an exact amount.
 
 use chrono::{DateTime, NaiveDate, Utc};

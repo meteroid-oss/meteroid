@@ -1,7 +1,6 @@
 //! Pure derivation of a customer's `lifecycle_state` from native billing signals.
 //!
-//! The taxonomy and precedence mirror `REVENUE_SEGMENTS.md` §6.2: a customer
-//! resolves to exactly one primary state by first-match precedence (top wins).
+//! A customer resolves to exactly one primary state by first-match precedence (top wins).
 //! The result string is written into `dim_customer.attributes['lifecycle_state']`
 //! so the existing engine can segment (`DimensionMap`) and break down
 //! (`CustomerAttr`) on it with no new compiler work.

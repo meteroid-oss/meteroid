@@ -217,7 +217,7 @@ impl Services {
             })
             .await?;
 
-        // D23: `payment_failed` only for a system charge that actually errored the invoice; a
+        // `payment_failed` only for a system charge that actually errored the invoice; a
         // customer's own portal attempt already showed them the decline.
         if matches!(outcome, FailureOutcome::MarkedErrored) {
             let payment = self
@@ -283,8 +283,8 @@ impl Services {
             .await
     }
 
-    /// Automatic collection gave up (its charge was cancelled or dead-lettered): the D4 stamp
-    /// is cleared and reminders take over, unless another charge is still in flight.
+    /// Automatic collection gave up (its charge was cancelled or dead-lettered): the auto-charge
+    /// stamp is cleared and reminders take over, unless another charge is still in flight.
     pub(crate) async fn hand_over_to_reminders(
         &self,
         tenant_id: TenantId,

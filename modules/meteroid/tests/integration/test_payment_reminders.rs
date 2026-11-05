@@ -1,5 +1,5 @@
 //! Payment reminder sequences: default seeding, validation, audiences, archive and the
-//! per-customer override (spec §7.2 group B).
+//! per-customer override.
 
 use std::collections::{HashMap, HashSet};
 

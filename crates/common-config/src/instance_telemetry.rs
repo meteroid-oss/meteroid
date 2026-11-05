@@ -1,4 +1,4 @@
-//! The anonymous instance report (ADR 0010). Not the OpenTelemetry settings in [`crate::telemetry`].
+//! The anonymous instance report. Not the OpenTelemetry settings in [`crate::telemetry`].
 
 use envconfig::Envconfig;
 

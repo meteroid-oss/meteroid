@@ -34,7 +34,7 @@
 <div align="center">
 
 🚀 **Meteroid 2.0 is out:** credits and wallets, e-invoicing, native webhooks, and a new open-source baseline.
-[Release notes](https://github.com/meteroid-oss/meteroid/releases/tag/v2.0.0) ·
+[Release notes](https://github.com/meteroid-oss/meteroid/releases/latest) ·
 [Upgrade guide](https://docs.meteroid.com/self-hosting/upgrading-to-2-0)
 
 </div>

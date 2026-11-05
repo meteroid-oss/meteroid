@@ -34,7 +34,7 @@ fn ensure_sandbox_preset_entitled(
         SandboxPreset::Default => Ok(()),
         SandboxPreset::AiCredits if resolved.is_enabled(gates::ADMIN_SANDBOXES) => Ok(()),
         SandboxPreset::AiCredits => Err(Status::permission_denied(
-            "This sandbox example is not available for your organization",
+            "This sandbox example is not enabled for this organization.",
         )),
     }
 }

@@ -63,7 +63,7 @@ already-paid-disregard = Si vous avez déjà réglé cette facture, veuillez ign
 powered-by = Propulsé par Meteroid
 test-mode-notice = Email de test : envoyé depuis un environnement hors production. Aucun paiement réel ne sera prélevé.
 
-## Seeded default reminder sequence (D30): steps -3 / 0 / +7 / +14, copied into payment_reminder_step.content.
+## Seeded default reminder sequence: steps -3 / 0 / +7 / +14, copied into payment_reminder_step.content.
 reminder-default-before-subject = La facture { "{{invoice_number}}" } arrive à échéance le { "{{due_date}}" }
 reminder-default-before-body =
     Bonjour { "{{customer_name}}" },

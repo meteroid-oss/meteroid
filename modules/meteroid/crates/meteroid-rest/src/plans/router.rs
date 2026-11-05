@@ -327,7 +327,7 @@ pub async fn create_plan(
         (status = 200, description = "Plan updated", body = Plan),
         (status = 400, description = "Bad request, or a credit-unit component sent without its `credit_unit`", body = RestErrorResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
-        (status = 403, description = "Minimum commitments are not included in the plan: introducing or changing one is refused", body = RestErrorResponse),
+        (status = 403, description = "Minimum commitments are not enabled for this organization: introducing or changing one is refused", body = RestErrorResponse),
         (status = 404, description = "Plan not found", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
@@ -898,7 +898,7 @@ pub async fn list_plan_versions(
         (status = 200, description = "Minimum commitment saved", body = MinimumCommitment),
         (status = 400, description = "Invalid input", body = RestErrorResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
-        (status = 403, description = "Minimum commitments are not included in the plan: introducing or changing one is refused", body = RestErrorResponse),
+        (status = 403, description = "Minimum commitments are not enabled for this organization: introducing or changing one is refused", body = RestErrorResponse),
         (status = 404, description = "Plan version not found", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))

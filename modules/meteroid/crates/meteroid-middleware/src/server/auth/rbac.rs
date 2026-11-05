@@ -436,7 +436,7 @@ mod tests {
             )),
             Some(RouteAuth::Requires(CustomersManage))
         );
-        // Account ownership (ADR-0002): assigning is a mutation -> customers:manage;
+        // Account ownership: assigning is a mutation -> customers:manage;
         // reading the owner rides customers:read via the Customer read path. Verb-based,
         // so no new permission code.
         assert_eq!(

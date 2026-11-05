@@ -5,7 +5,7 @@ import basicSsl from '@vitejs/plugin-basic-ssl'
 import react from '@vitejs/plugin-react'
 import remarkFrontmatter from 'remark-frontmatter'
 import remarkMdxFrontmatter from 'remark-mdx-frontmatter'
-import { UserConfigExport, defineConfig, searchForWorkspaceRoot } from 'vite'
+import { UserConfigExport, defineConfig, loadEnv, searchForWorkspaceRoot } from 'vite'
 import svgr from 'vite-plugin-svgr'
 import tsconfigPaths from 'vite-tsconfig-paths'
 
@@ -60,10 +60,14 @@ export default defineConfig(({ mode }) => {
       svgr(),
     ],
   }
+  // `dev-ssl` serves a local certificate, for the hostname DEV_SSL_HOST (root .env) when set.
+  const sslHost = localSsl
+    ? loadEnv(mode, path.resolve(import.meta.dirname, '../../..'), '').DEV_SSL_HOST
+    : undefined
   return localSsl
     ? {
         ...standard,
-        server: { ...standard.server, host: 'local.stg.meteroid.io' },
+        server: { ...standard.server, host: sslHost || standard.server?.host },
         plugins: [...(standard.plugins ?? []), basicSsl()],
       }
     : standard

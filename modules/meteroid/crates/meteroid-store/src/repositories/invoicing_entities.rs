@@ -746,8 +746,8 @@ impl StoreInternal {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        // New email kinds stay off until an operator enables them (D22); the default reminder
-        // sequence is seeded disabled (D30).
+        // New email kinds stay off until an operator enables them; the default reminder
+        // sequence is seeded disabled.
         InvoicingEntityEmailSettingsRowNew {
             invoicing_entity_id: invoicing_entity_row.id,
             tenant_id,

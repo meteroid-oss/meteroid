@@ -1,5 +1,5 @@
 // Audience of a payment reminder sequence: a closed leaf set mirroring the Rust
-// `AudiencePredicate` (spec §1.4). Unknown keys are a deserialization error
+// `AudiencePredicate`. Unknown keys are a deserialization error
 // server-side, so nothing outside this union is ever built here.
 
 import type { RulePredicate } from '@/features/rules/ruleModel'

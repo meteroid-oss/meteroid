@@ -1,6 +1,6 @@
 //! S19. One metric priced by a filtered and an unfiltered subscription of one customer: the
-//! filtered one bills its key's events, the unfiltered one the events no filter claims (D2
-//! precision), and with every subscription filtered the rest is kept as unattributed usage.
+//! filtered one bills its key's events, the unfiltered one the events no filter claims,
+//! and with every subscription filtered the rest is kept as unattributed usage.
 use common_domain::ids::{CustomerId, SubscriptionId};
 use rust_decimal::Decimal;
 

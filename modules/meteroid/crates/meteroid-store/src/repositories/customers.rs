@@ -177,7 +177,7 @@ pub trait CustomersInterface {
         customer: CustomerPatch,
     ) -> StoreResult<Option<Customer>>;
 
-    /// Sets (or clears, with `None`) the owner; the owner must be an org member (ADR-0002).
+    /// Sets (or clears, with `None`) the owner; the owner must be an org member.
     async fn assign_customer_owner(
         &self,
         actor: Actor,
@@ -764,7 +764,7 @@ impl CustomersInterface for Store {
                     match updated {
                         None => Ok(None),
                         Some(mut updated) => {
-                            // A reminder override belongs to the old entity's sequences (D7).
+                            // A reminder override belongs to the old entity's sequences.
                             if let Some((entity_before, Some(sequence_id))) = entity_before
                                 && updated.invoicing_entity_id != entity_before
                             {

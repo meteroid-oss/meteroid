@@ -80,8 +80,7 @@ pub mod gates {
     pub const INVOICE_ANNEXES: FeatureCode = FeatureCode::new("invoice_annexes");
     /// Issuing software licenses to customers.
     pub const LICENSING: FeatureCode = FeatureCode::new("licensing");
-    /// Exploratory sandbox presets (the AI credits example) offered to internal and
-    /// design-partner organizations on top of the default one.
+    /// Exploratory sandbox presets (the AI credits example), on top of the default one.
     pub const ADMIN_SANDBOXES: FeatureCode = FeatureCode::new("admin_sandboxes");
     /// Custom roles: creating, editing and assigning organization-defined roles.
     pub const RBAC: FeatureCode = FeatureCode::new("rbac");
@@ -163,7 +162,7 @@ impl FeatureEntitlement {
 
 #[derive(Clone)]
 enum Resolution {
-    /// Every gate on: the cloud admin org, or a legacy license that predates entitlements.
+    /// Every gate on: an operator organization, or a legacy license that predates entitlements.
     Open,
     /// Resolved from upstream — only codes matched from upstream feature names.
     Resolved(Arc<Vec<FeatureEntitlement>>),
@@ -401,7 +400,7 @@ pub fn intelligence_gate_open_for(
 /// Cap on alert definitions for organizations without a subscription.
 pub const DEFAULT_FREE_TIER_ALERT_LIMIT: u32 = 3;
 
-/// Cap on alert definitions per organization. Self-hosted only: cloud caps by subscription.
+/// Cap on alert definitions per organization, when a license sets one.
 pub const ALERT_DEFINITIONS_CODE: &str = "alert_definitions";
 /// Cap on the Production tenants of an organization (Number config or metered limit).
 pub const PRODUCTION_TENANTS_CODE: &str = "production_tenants";
@@ -461,7 +460,8 @@ impl Entitlements for BundledEntitlements {
 }
 
 /// The OSS edition: no license and no gated feature, so every gate core checks is closed.
-/// Like its single organization, its one Production tenant is the edition's, not a cap.
+/// Like its single organization, its one Production tenant and one invoicing entity per tenant
+/// are the edition's, not a cap.
 pub struct OssEntitlements;
 
 #[async_trait::async_trait]
@@ -479,7 +479,7 @@ impl Entitlements for OssEntitlements {
     }
 
     async fn invoicing_entity_limit(&self, _org_id: OrganizationId) -> Option<u32> {
-        None
+        Some(1)
     }
 }
 
@@ -530,7 +530,7 @@ pub async fn ensure_invoicing_entity_allowed(
         .len();
     if count >= limit as usize {
         return Err(tonic::Status::resource_exhausted(format!(
-            "Your plan allows up to {limit} invoicing entit{} per tenant",
+            "This organization can hold up to {limit} invoicing entit{} per tenant",
             if limit == 1 { "y" } else { "ies" }
         )));
     }
@@ -538,7 +538,7 @@ pub async fn ensure_invoicing_entity_allowed(
 }
 
 pub const MINIMUM_COMMITMENTS_NOT_IN_PLAN: &str =
-    "Minimum commitments are not available for your plan";
+    "Minimum commitments are not enabled for this organization.";
 
 /// Whether the org may introduce or change minimum commitments. Without the gate a write may
 /// still keep the stored minimum, so editing existing data survives a downgrade.
@@ -554,20 +554,19 @@ pub fn minimum_commitments_refused() -> tonic::Status {
 }
 
 pub const QUOTE_MULTIPLE_SIGNERS_NOT_IN_PLAN: &str =
-    "Quotes with more than one signer are not available for your plan";
-pub const SCOPED_CREDIT_NOT_IN_PLAN: &str = "Scoped credit is not available for your plan";
-pub const USAGE_COSTS_NOT_IN_PLAN: &str = "Usage costs are not available for your plan";
+    "Quotes with more than one signer are not enabled for this organization.";
+pub const SCOPED_CREDIT_NOT_IN_PLAN: &str = "Scoped credit is not enabled for this organization.";
 pub const CREDIT_PRICING_NOT_IN_PLAN: &str =
-    "Credit packs, credit units and scoped credit are not available in this edition";
+    "Credit packs, credit units and scoped credit are not enabled for this organization.";
 pub const PORTAL_SELF_SERVICE_NOT_IN_PLAN: &str =
     "Changing a subscription from the portal is not available; please contact your provider";
-pub const PORTAL_THEMING_NOT_IN_PLAN: &str = "Portal theming is not available for your plan";
+pub const PORTAL_THEMING_NOT_IN_PLAN: &str = "Portal theming is not enabled for this organization.";
 pub const PORTAL_EMBEDDING_NOT_IN_PLAN: &str =
-    "Embedding the customer portal is not available for your plan";
+    "Embedding the customer portal is not enabled for this organization.";
 pub const EMAIL_CUSTOMIZATION_NOT_IN_PLAN: &str =
-    "Customizing customer emails is not available in this edition";
+    "Customizing customer emails is not enabled for this organization.";
 pub const QUOTE_PURCHASE_ORDERS_NOT_IN_PLAN: &str =
-    "Purchase orders on quotes are not available in this edition";
+    "Purchase orders on quotes are not enabled for this organization.";
 
 pub async fn ensure_credit_pricing_allowed(
     resolver: &dyn Entitlements,
@@ -615,7 +614,8 @@ pub async fn ensure_change_allowed(
     Err(tonic::Status::permission_denied(refusal))
 }
 
-/// D28: [`gates::WHITELABEL`] hides "Powered by Meteroid" from customer emails, portals, checkout and dashboards.
+/// [`gates::WHITELABEL`] hides "Powered by Meteroid" from customer emails, portals, checkout and
+/// dashboards.
 #[async_trait::async_trait]
 pub trait WhitelabelResolver: Send + Sync {
     async fn is_whitelabel(&self, tenant_id: TenantId) -> bool;
@@ -876,7 +876,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn oss_closes_every_gate_and_holds_one_production_tenant() {
+    async fn oss_closes_every_gate_and_holds_one_production_tenant_and_entity() {
         let org = OrganizationId::new();
         let r = OssEntitlements.resolve(org).await;
         for code in CORE_GATES {
@@ -885,7 +885,7 @@ mod tests {
         assert!(!r.is_outage());
         assert_eq!(OssEntitlements.alert_definition_limit(org).await, None);
         assert_eq!(OssEntitlements.production_tenant_limit(org).await, Some(1));
-        assert_eq!(OssEntitlements.invoicing_entity_limit(org).await, None);
+        assert_eq!(OssEntitlements.invoicing_entity_limit(org).await, Some(1));
     }
 
     #[test]

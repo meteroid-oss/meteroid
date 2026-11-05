@@ -1,7 +1,7 @@
 //! S17. Studio's included credits at period boundaries: periods are half-open, a rollover child
 //! burns before the fresh credit lapsing with it (OQ4), it never rolls again, and usage reaching
 //! the metering store after the settlement grace is paid only by credit effective in its own
-//! period, the rest billed beyond credit (OQ15; founder 2026-10-20, Orb). The rollover reaches the
+//! period, the rest billed beyond credit, as Orb does. The rollover reaches the
 //! next invoice whether the sweep or that invoice runs first.
 use chrono::{DateTime, Utc};
 use common_domain::ids::{BaseId, CustomerId, SubscriptionId};
@@ -287,7 +287,7 @@ async fn s17_late_event_inside_the_grace_is_paid_before_the_roll() {
 
 /// The same late event reaching the metering store after the grace: September's credit has
 /// rolled, so the invoice pays it with the credit valid in September that is left, its rollover
-/// (founder 2026-10-20: late usage is paid only by credit valid in its own period).
+/// (late usage is paid only by credit valid in its own period).
 #[tokio::test]
 async fn s17_late_event_after_the_grace_is_paid_by_septembers_rollover() {
     let h = Halyard::new().await;

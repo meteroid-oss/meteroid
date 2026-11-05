@@ -4,7 +4,7 @@ import { RouteObject } from 'react-router-dom'
 import { StandardOnly } from '@/components/StandardOnly'
 import { TenantLayoutOutlet } from '@/components/layouts'
 import { editionTenantRoutes } from '@/edition'
-import { NotImplemented } from '@/features/NotImplemented'
+import { NotFound } from '@/features/NotFound'
 import { ManageConnectorModal } from '@/features/payments/ManageConnectorModal'
 import { PaymentProviderConnectModal } from '@/features/payments/PaymentProviderConnectModal'
 import { UpdateCredentialsModal } from '@/features/payments/UpdateCredentialsModal'
@@ -20,7 +20,6 @@ import { SettingsIndexRedirect, TenantSettings } from '@/pages/tenants/settings'
 import { billingRoutes } from 'router/tenant/billing'
 import { productCatalogRoutes } from 'router/tenant/catalog'
 import { customersRoutes } from 'router/tenant/customers'
-import { growthRoutes } from 'router/tenant/growth'
 import { PlanVersionRedirect } from 'router/tenant/planVersionRedirect'
 
 export const tenantRoutes: RouteObject = {
@@ -112,13 +111,12 @@ export const tenantRoutes: RouteObject = {
           path: 'plan-version/:planVersionId',
           element: <PlanVersionRedirect />,
         },
-        growthRoutes,
       ],
     },
     ...editionTenantRoutes(),
     {
       path: '*',
-      element: <NotImplemented />,
+      element: <NotFound />,
     },
   ],
 }

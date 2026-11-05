@@ -1,4 +1,4 @@
-//! The credit billing invariants of `design/scenario-timelines.md` §4 that the database alone can
+//! The credit billing invariants that the database alone can
 //! prove: the ledger, invoices, credit notes, usage settlements and usage filters agree with each
 //! other. Every test's database is checked when it is dropped (`TestDatabase`), so a test gets
 //! them without asking; `assert_credit_invariants` checks one tenant mid-test.

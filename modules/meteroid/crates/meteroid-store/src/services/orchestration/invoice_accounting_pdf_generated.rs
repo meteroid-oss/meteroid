@@ -149,7 +149,7 @@ impl Services {
     }
 
     /// Slim job: the worker reloads invoice, customer, entity settings and PDF at send time.
-    /// The key makes a redelivered PDF-generated event a no-op (D25 step 7).
+    /// The key makes a redelivered PDF-generated event a no-op.
     pub(crate) async fn enqueue_invoice_email(
         &self,
         tenant_id: TenantId,
@@ -166,7 +166,7 @@ impl Services {
             .await
     }
 
-    /// D4: the collection decision is stamped (once) in the same transaction that queues the
+    /// The collection decision is stamped (once) in the same transaction that queues the
     /// charge, so an invoice never reads as auto-charged with no charge on the way.
     async fn request_auto_charge(&self, invoice: &Invoice, evt: PgmqMessageNew) -> StoreResult<()> {
         let (invoice_id, tenant_id) = (invoice.id, invoice.tenant_id);

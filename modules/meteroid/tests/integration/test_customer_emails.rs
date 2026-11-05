@@ -1,5 +1,5 @@
 //! Customer emails platform: entity settings, the shared send path, producers of the new kinds,
-//! previews, resend and the claim-before-send state machine (spec §7.2 group A).
+//! previews, resend and the claim-before-send state machine.
 
 use std::str::FromStr;
 use std::sync::Arc;

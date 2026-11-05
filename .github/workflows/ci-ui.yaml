@@ -46,7 +46,7 @@ jobs:
         run: pnpm install --prefix modules/web
       - name: Run lint
         run: pnpm --prefix modules/web lint
-      # The Enterprise edition's screens; the OSS mirror has no ee/ and skips this.
+      # The Enterprise edition's screens, skipped without ee/.
       - name: Typecheck and lint (Enterprise)
         if: ${{ hashFiles('ee/web/package.json') != '' }}
         working-directory: ee/web

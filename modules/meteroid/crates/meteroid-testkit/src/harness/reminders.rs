@@ -386,7 +386,7 @@ impl TestEnv {
         self.patch_sequence_at(patch, Utc::now().naive_utc()).await
     }
 
-    /// `now` drives the D12 re-arm of frozen invoices.
+    /// `now` drives the re-arm of frozen invoices.
     pub async fn patch_sequence_at(
         &self,
         patch: PaymentReminderSequencePatch,

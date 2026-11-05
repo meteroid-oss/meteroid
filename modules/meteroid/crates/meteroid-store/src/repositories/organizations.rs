@@ -143,7 +143,7 @@ pub trait OrganizationsInterface {
 }
 
 /// Checked inside the caller's write transaction under a share lock on the membership, so a
-/// concurrent removal waits for the write and then releases it (ADR-0002).
+/// concurrent removal waits for the write and then releases it.
 pub(crate) async fn ensure_org_member(
     conn: &mut PgConn,
     tenant_id: TenantId,
@@ -199,7 +199,7 @@ pub(crate) async fn mark_organization_for_deletion(
     Ok(tenant_ids)
 }
 
-/// ADR-0002 / ADR-0005: a departing member's accounts, and what the edition lets them own, become
+/// A departing member's accounts, and what the edition lets them own, become
 /// unowned, in the removal transaction.
 pub(crate) async fn release_member_accounts(
     conn: &mut PgConn,
@@ -229,7 +229,7 @@ impl OrganizationsInterface for Store {
 
             if exists {
                 return Err(StoreError::InvalidArgument(
-                    "This instance does not allow mutiple organizations".to_string(),
+                    "This instance does not allow multiple organizations".to_string(),
                 )
                 .into());
             }

@@ -20,7 +20,7 @@ CREATE TYPE "MilestoneEnum" AS ENUM (
     'FIRST_QUOTE_CREATED'
 );
 
--- First-occurrence activation milestones per organization (dogfooding analytics).
+-- First-occurrence activation milestones per organization.
 -- Rows are write-once: the derivation worker inserts with ON CONFLICT DO NOTHING.
 CREATE TABLE organization_milestone (
     organization_id UUID            NOT NULL REFERENCES organization (id) ON DELETE CASCADE,
@@ -36,7 +36,7 @@ CREATE TABLE organization_milestone (
     PRIMARY KEY (organization_id, milestone)
 );
 
--- Per-stream cursor for the dogfooding activation event sync.
+-- Per-stream cursor for the activation event sync.
 -- Deleting a row re-syncs that stream; stable event ids make re-runs safe.
 CREATE TABLE dogfooding_sync_state (
     stream     TEXT PRIMARY KEY,

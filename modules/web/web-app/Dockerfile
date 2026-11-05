@@ -8,7 +8,7 @@ RUN apk update
 WORKDIR /app
 RUN yarn global add turbo
 COPY . .
-# ee/ exists only in the enterprise repository; an empty one keeps the COPY below valid in OSS.
+# ee/ holds the Enterprise edition; an empty one keeps the COPY below valid without it.
 RUN mkdir -p ee
 # Prune @md/web plus @md/portal-embed (the embed loader served at /embed.js).
 RUN (cd modules/web/ && turbo prune @md/web @md/portal-embed --docker)

@@ -356,7 +356,7 @@ impl Services {
         };
         // A pack line carries the credit it sells, frozen apart from its charge so the grant is
         // exactly what was sold whatever the catalog becomes. A pack granting a credit unit is
-        // counted in that unit and taxed when sold: its credit is never redeemed as money (D3).
+        // counted in that unit and taxed when sold: its credit is never redeemed as money.
         let credit_grant_unit = match component.fee_ref() {
             SubscriptionFee::Credit { credit_unit, .. } => credit_unit.clone(),
             _ => None,

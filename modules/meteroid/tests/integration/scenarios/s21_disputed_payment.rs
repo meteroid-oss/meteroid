@@ -107,7 +107,7 @@ async fn s21_a_charged_back_invoice_stays_paid_and_a_won_dispute_restores_the_sa
     h.check().await;
 }
 
-/// The founder's seed 0xc0fff2 on S14: 5000 wired back, then the provider takes all 30000. Only the
+/// Seed 0xc0fff2 on S14: 5000 wired back, then the provider takes all 30000. Only the
 /// 25000 the payment still held is applied; the 5000 above it is the merchant's to contest.
 #[tokio::test]
 async fn s21_a_full_chargeback_after_a_wire_refund_takes_only_what_the_payment_held() {

@@ -18,7 +18,6 @@ on:
       - "spec/**"
       - "editions/**"
       - "ee/**"
-      - "scripts/editions/**"
   pull_request:
     types: [ opened, reopened, synchronize ]
     paths:
@@ -34,7 +33,6 @@ on:
       - "spec/**"
       - "editions/**"
       - "ee/**"
-      - "scripts/editions/**"
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
@@ -101,10 +99,10 @@ jobs:
           -c "ALTER SYSTEM SET full_page_writes = off"
           -c "ALTER SYSTEM SET synchronous_commit = off"
           -c "SELECT pg_reload_conf()"
-      # The OSS mirror has no ee/ and skips this; see the script for why.
+      # With ee/ (the Enterprise edition), one workspace builds and tests both editions.
       - name: Fold ee/ into the root workspace
-        if: ${{ hashFiles('ee/Cargo.toml') != '' }}
-        run: python3 scripts/editions/fold-ee-into-root.py
+        if: ${{ hashFiles('ee/scripts/fold-into-root.py') != '' }}
+        run: python3 ee/scripts/fold-into-root.py
       # Dependencies optimized for this job only: it compiles once and runs every test, which
       # otherwise spend most of their time in unoptimized dependency code. Workspace crates stay at 0.
       - name: Build tests
@@ -140,51 +138,6 @@ jobs:
       - name: Test
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: cargo nextest run --config 'profile.dev.package."*".opt-level=3'
-
-  # Enterprise repository only: the OSS mirror has no ee/ and skips every step.
-  editions:
-    name: Editions
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: The EE workspace dependencies follow the root ones
-        if: ${{ hashFiles('ee/Cargo.toml') != '' }}
-        run: python3 scripts/editions/sync-ee-workspace.py --check
-      - name: Both lockfiles resolve shared packages alike
-        if: ${{ hashFiles('ee/Cargo.toml') != '' }}
-        run: python3 scripts/editions/check-lockfiles.py
-      - name: The EE lockfile is up to date
-        if: ${{ hashFiles('ee/Cargo.toml') != '' }}
-        working-directory: ee
-        # This job installs no sccache; metadata compiles nothing.
-        env:
-          RUSTC_WRAPPER: ""
-        run: cargo metadata --locked --format-version 1 > /dev/null
-      - name: Exported code does not point into ee/ or excluded paths
-        if: ${{ hashFiles('ee/Cargo.toml') != '' }}
-        run: python3 scripts/editions/check-oss-boundary.py
-
-  # The Enterprise workspace on its own, as it ships. Too slow for every pull request: the checks
-  # above and the folded build stand in for it there. The OSS export is built on its own by
-  # oss-export.yaml (after merge, and on pull requests labelled `oss-export`).
-  editions-alone:
-    name: Editions build alone
-    if: ${{ github.event_name != 'pull_request' }}
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
-    steps:
-      # GitHub's runners (the public repository) keep ~14 GB free: drop toolchains the build does not use.
-      - name: Free disk space
-        if: ${{ !vars.CI_RUNNER }}
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          df -h /
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/rust-setup
-        if: ${{ hashFiles('ee/Cargo.toml') != '' }}
-      - name: The Enterprise workspace builds on its own
-        if: ${{ hashFiles('ee/Cargo.toml') != '' }}
-        working-directory: ee
-        run: cargo check --locked --workspace --all-targets
 
   fmt:
     name: Rustfmt
@@ -242,8 +195,8 @@ jobs:
         with:
           components: clippy
       - name: Fold ee/ into the root workspace
-        if: ${{ hashFiles('ee/Cargo.toml') != '' }}
-        run: python3 scripts/editions/fold-ee-into-root.py
+        if: ${{ hashFiles('ee/scripts/fold-into-root.py') != '' }}
+        run: python3 ee/scripts/fold-into-root.py
       - name: Only ring is compiled in, and only our wrappers use it
         run: ./.github/scripts/check-crypto-backends.sh
       - name: Linting

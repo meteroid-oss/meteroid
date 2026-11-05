@@ -108,7 +108,7 @@ pub trait PaymentRemindersInterface {
         sequence: PaymentReminderSequenceNew,
     ) -> StoreResult<SequenceWithInFlight>;
 
-    /// A `steps` replacement re-arms the frozen invoices in the same transaction (D12).
+    /// A `steps` replacement re-arms the frozen invoices in the same transaction.
     async fn update_reminder_sequence(
         &self,
         actor: Actor,
@@ -160,7 +160,7 @@ pub trait PaymentRemindersInterface {
         now: NaiveDateTime,
     ) -> StoreResult<InvoiceReminderState>;
 
-    /// §3.6 paid hook: the schedule is cleared, the row kept as `ENDED`, unless the invoice
+    /// Paid hook: the schedule is cleared, the row kept as `ENDED`, unless the invoice
     /// (locked and re-read) is payable or processing again.
     async fn end_invoice_reminders(
         &self,
@@ -200,7 +200,7 @@ pub trait PaymentRemindersInterface {
         now: NaiveDateTime,
     ) -> StoreResult<InvoiceReminderState>;
 
-    /// D16: generation bumped, sequence re-resolved over enabled sequences (none ⇒
+    /// Generation bumped, sequence re-resolved over enabled sequences (none ⇒
     /// `FailedPrecondition`), the last elapsed step executes once at the next slot.
     async fn restart_invoice_reminders(
         &self,
@@ -224,7 +224,7 @@ pub trait PaymentRemindersInterface {
     ) -> StoreResult<()>;
 
     /// `sequence_id` must be a live sequence of the customer's entity; `opt_out = true` stops
-    /// the customer's in-flight invoices in the same transaction (D8).
+    /// the customer's in-flight invoices in the same transaction.
     async fn set_customer_reminder_preference(
         &self,
         actor: Actor,
@@ -275,7 +275,7 @@ fn validate_copy(locale: &str, copy: &EmailCopy) -> StoreResult<()> {
         .map_err(|e| invalid(format!("Copy for {locale}: {e}")))
 }
 
-/// §1.5: keys are template locales, every enabled email locale has a non-blank entry, every
+/// Keys are template locales, every enabled email locale has a non-blank entry, every
 /// entry passes the operator-copy rules (variables, lengths, Markdown whitelist). Entries for
 /// locales not enabled are kept.
 pub(crate) fn validate_content(
@@ -317,8 +317,8 @@ pub(crate) fn validate_content(
     )))
 }
 
-/// §2.6: 0..=20 steps, offsets strictly increasing in `[-30, 365]`, copy per §1.5 in every
-/// enabled email locale (default first).
+/// 0..=20 steps, offsets strictly increasing in `[-30, 365]`, copy as
+/// [`validate_content`] checks it in every enabled email locale (default first).
 pub(crate) fn validate_steps(
     steps: &[PaymentReminderStepInput],
     enabled_locales: &[&str],
@@ -373,7 +373,7 @@ fn step_rows(
         .collect()
 }
 
-/// The seeded default ladder (D30): no stored copy, so every step renders the built-in
+/// The seeded default ladder: no stored copy, so every step renders the built-in
 /// reminder text for its offset, in whichever locale the email resolves to.
 fn default_steps() -> Vec<PaymentReminderStepInput> {
     [-3, 0, 7, 14]
@@ -387,7 +387,7 @@ fn default_steps() -> Vec<PaymentReminderStepInput> {
 
 impl StoreInternal {
     /// Under a per-entity xact lock, `INSERT … ON CONFLICT DO NOTHING` on the live-default index,
-    /// then the −3/0/+7/+14 steps on built-in copy; unaudited, starts disabled (D30).
+    /// then the −3/0/+7/+14 steps on built-in copy; unaudited, starts disabled.
     pub async fn ensure_default_sequence(
         &self,
         conn: &mut PgConn,
@@ -1194,7 +1194,7 @@ impl PaymentRemindersInterface for Store {
             .await
     }
 
-    // ---- per-invoice state and actions (§3.7) -----------------------------------------------
+    // ---- per-invoice state and actions ------------------------------------------------------
 
     async fn get_invoice_reminder_state(
         &self,

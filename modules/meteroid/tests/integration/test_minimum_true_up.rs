@@ -192,7 +192,7 @@ async fn note_lines(env: &TestEnv, invoice: &Invoice) -> Vec<(String, i64)> {
     lines
 }
 
-/// The founder's example: September's usage of 0 leaves 1000.00 − 29.00 = 971.00, trued up on
+/// September's usage of 0 leaves 1000.00 − 29.00 = 971.00, trued up on
 /// Oct 1 over September. Cancelled Oct 10 after 900.00 of usage: only the fee comes back
 /// (2900 × 22/31 = 2058), and Oct 1–10 owes nothing (29032 − 842 − 90000 < 0).
 #[tokio::test]

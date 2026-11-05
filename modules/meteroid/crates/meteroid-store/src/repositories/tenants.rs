@@ -860,7 +860,7 @@ const KEEP_LAST_CACHE_SIZE: usize = 10_000;
 
 type Gates = Mutex<HashMap<TenantId, Arc<tokio::sync::Mutex<()>>>>;
 
-/// A tenant's `keep_last_events`, cached for the 2 minutes ADR-0011 allows a change to take.
+/// A tenant's `keep_last_events`, cached for up to 2 minutes, the delay a change may take.
 /// Held by its store, never process-wide: stores sharing a process each read their own database.
 #[derive(Clone)]
 pub struct KeepLastEventsLookup {

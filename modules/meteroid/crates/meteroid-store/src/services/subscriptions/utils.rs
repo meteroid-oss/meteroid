@@ -138,7 +138,7 @@ pub(crate) fn fee_taxed_at_redemption(fee: &SubscriptionFee) -> bool {
 }
 
 /// The product a fee's charge is taxed and booked under: a credit unit pack's is the unit's tax
-/// product when the unit has one, as for the unit's direct sales (ADR-0008 §1).
+/// product when the unit has one, as for the unit's direct sales.
 pub(crate) fn fee_tax_product(
     fee: &SubscriptionFee,
     component_product: Option<common_domain::ids::ProductId>,
@@ -252,7 +252,7 @@ pub(crate) fn blended_inclusive_rate(lines: &[(Decimal, Decimal)]) -> Option<Dec
     (!rate.is_zero()).then_some(rate)
 }
 
-/// Raise an MRR figure to honor a period minimum-commitment floor (ADR 0001).
+/// Raise an MRR figure to honor a period minimum-commitment floor.
 ///
 /// The minimum is a per-billing-period floor; MRR is monthly, so the floor is converted to its
 /// monthly equivalent through the same `monthly_share` every component MRR goes through — a floor

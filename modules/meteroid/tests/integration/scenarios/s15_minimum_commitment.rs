@@ -167,7 +167,7 @@ async fn s15_oh_shortfall_taxed_at_the_default_rate() {
     h.check().await;
 }
 
-/// D4: usage-only credit of the subscription pays the usage line only, never the shortfall.
+/// Usage-only credit of the subscription pays the usage line only, never the shortfall.
 #[tokio::test]
 async fn s15_d4_usage_only_credit_never_pays_the_shortfall() {
     let h = Halyard::new().await;

@@ -1107,7 +1107,8 @@ pub enum AutoTopUpChange {
 }
 
 /// Refuses an automatic top-up being turned on or changed without the `auto_top_ups` gate.
-pub const AUTO_TOP_UPS_NOT_IN_PLAN: &str = "Automatic top-ups are not available for your plan";
+pub const AUTO_TOP_UPS_NOT_IN_PLAN: &str =
+    "Automatic top-ups are not enabled for this organization.";
 
 impl AutoTopUpChange {
     /// This change from an organization whose plan excludes automatic top-ups: keeping or

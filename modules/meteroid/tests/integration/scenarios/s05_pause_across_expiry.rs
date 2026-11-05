@@ -82,7 +82,7 @@ async fn s05_pause_bills_its_usage_and_the_pack_lapses_at_its_expiry() {
     );
     assert!(
         grants.iter().all(|g| g.ends_at.is_none()),
-        "a pause ends no credit (D5)"
+        "a pause ends no credit"
     );
     h.check().await;
 

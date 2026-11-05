@@ -478,8 +478,8 @@ pub trait UsageClient: Send + Sync {
     }
 
     /// First ingested raw event per tenant, each no earlier than its own cutoff
-    /// (empty filter = all tenants, unbounded). Backs dogfooding activation
-    /// milestones. Default impl is empty; the metering-backed client overrides it.
+    /// (empty filter = all tenants, unbounded). Backs the organization
+    /// activation milestones. Default impl is empty; the metering-backed client overrides it.
     async fn list_tenant_first_events(
         &self,
         _tenants: &[TenantEventScan],

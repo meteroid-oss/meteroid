@@ -359,7 +359,7 @@ async fn a_unit_pack_is_taxed_when_sold_and_funds_its_credits_at_the_net_price()
 }
 
 /// A plan's pack is taxed and booked under the unit's tax product, as the unit's direct sales
-/// are (ADR-0008 §1), not under its component's: 10 % on EUR 40.
+/// are, not under its component's: 10 % on EUR 40.
 #[tokio::test]
 async fn a_unit_pack_is_taxed_with_the_unit_s_tax_product() {
     let s = pack_scenario_with(true).await;

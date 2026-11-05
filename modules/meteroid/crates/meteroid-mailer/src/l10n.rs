@@ -51,7 +51,7 @@ mod tests {
         ("pt-BR", include_str!("../l10n/pt-BR/email.ftl")),
     ];
 
-    /// The §2.3 operator-copy variables; the seeded reminders may use nothing else.
+    /// The operator-copy variables; the seeded reminders may use nothing else.
     const VARIABLES: [&str; 9] = [
         "customer_name",
         "company_name",

@@ -1,7 +1,7 @@
 import { Navigate, RouteObject } from 'react-router-dom'
 
 import { StandardOnly } from '@/components/StandardOnly'
-import { NotImplemented } from '@/features/NotImplemented'
+import { NotFound } from '@/features/NotFound'
 import { PlanCreateInitModal } from '@/features/plans/PlanCreateInitModal'
 import { DetailsFormModal } from '@/features/plans/create/details/DetailsFormModal'
 import { AddonDetails } from '@/pages/tenants/billing/addonDetails'
@@ -184,7 +184,7 @@ export const productCatalogRoutes: RouteObject = {
         },
         {
           path: '*',
-          element: <NotImplemented />,
+          element: <NotFound />,
         },
       ],
     },

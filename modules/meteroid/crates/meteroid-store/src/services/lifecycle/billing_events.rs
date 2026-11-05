@@ -332,7 +332,7 @@ impl Services {
         let msg: PgmqMessageNew =
             PaymentRequestEvent::new(event.tenant_id, invoice_id, payment_method_id).try_into()?;
 
-        // D4: a retried collection is still an auto-charge decision for this invoice.
+        // A retried collection is still an auto-charge decision for this invoice.
         if invoice.auto_charge_requested_at.is_none() {
             InvoiceRow::set_auto_charge_requested(
                 conn,

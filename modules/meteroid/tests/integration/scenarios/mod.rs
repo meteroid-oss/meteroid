@@ -1,4 +1,4 @@
-//! The credit billing scenarios of `design/scenario-timelines.md` §5, one test per scenario and
+//! The credit billing scenarios, one test per scenario and
 //! variant, asserting the timeline's figures exactly and the credit invariants after each step.
 //! Other test binaries include this suite: reach the harness through `meteroid_testkit`, not
 //! `crate::harness`.

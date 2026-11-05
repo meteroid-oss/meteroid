@@ -384,7 +384,7 @@ impl MeteringUsageClient {
         }
     }
 
-    /// Lets usage queries read the tenant's `keep_last_events` (ADR-0011 §4).
+    /// Lets usage queries read the tenant's `keep_last_events`.
     pub fn bind_tenant_lookup(&self, lookup: KeepLastEventsLookup) {
         let _ = self.tenant_lookup.set(lookup);
     }

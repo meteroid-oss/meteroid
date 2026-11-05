@@ -43,7 +43,7 @@ impl Plan {
     }
 }
 
-/// Token prices per 1M, in cents, identical on both plans (scenario-timelines §2.1).
+/// Token prices per 1M, in cents, identical on both plans.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Token {
     Lite,
@@ -103,8 +103,8 @@ impl Grant {
             && self.sub.is_none_or(|s| s == sub)
     }
 
-    /// Usage is paid only by credit effective before the end of its line's dates (founder
-    /// 2026-10-20, Orb).
+    /// Usage is paid only by credit effective before the end of its line's dates, as
+    /// Orb does.
     fn pays_usage_ending(&self, end: At) -> bool {
         self.effective < end
     }
@@ -467,7 +467,7 @@ impl Model {
         }
     }
 
-    /// Expiry settlement at `bound` (R10, D3): the usage dated before it of every open period a
+    /// Expiry settlement at `bound` (R10): the usage dated before it of every open period a
     /// lapsing grant may pay is paid now, by the grants lapsing then first (promotional, then
     /// paid), then by every other grant spendable just before it, in draw order.
     fn settle_group(&mut self, bound: At, group: Vec<usize>) {

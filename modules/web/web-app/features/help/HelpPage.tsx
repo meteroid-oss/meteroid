@@ -71,17 +71,20 @@ export const HelpPage: FunctionComponent = () => {
   const isCloud = useIsCloud()
 
   const { tenant } = useTenant()
-  const organization = useQuery(getCurrentOrganizations).data?.organization
+  const currentOrganization = useQuery(getCurrentOrganizations).data
+  const organization = currentOrganization?.organization
   const [searchParams] = useSearchParams()
   const topicId = searchParams.get('topic')
   const topic = slotItems('help.topics').find(item => item.id === topicId)
   const prefill = useCallback((text: string) => setFeedback(current => current || text), [])
 
   const isLocalhost = ['localhost', '127.0.0.1'].includes(window.location.hostname)
-  const isMeteroidUser = user.data?.user?.email?.endsWith('@meteroid.com') ?? false
-  const showIdConverter = isLocalhost || isMeteroidUser
+  // Admins of the instance's admin organization, in it or in a support session.
+  const isOperator =
+    (currentOrganization?.isPlatformAdmin || currentOrganization?.supportSession) ?? false
+  const showIdConverter = isLocalhost || isOperator
   // The IDs are for Meteroid's support, which only Cloud organizations reach.
-  const showTechnicalContext = isCloud === true || isMeteroidUser
+  const showTechnicalContext = isCloud === true || isOperator
 
   const showMessage = () => {
     if (hideTimerRef.current) {

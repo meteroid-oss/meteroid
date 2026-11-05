@@ -2669,7 +2669,7 @@ async fn test_amendment_removal_nets_the_coupon_and_returns_promotional_credit(
     );
 }
 
-/// Under a minimum commitment a decrease waits for the period's end (founder): removing a €29 fee
+/// Under a minimum commitment a decrease waits for the period's end: removing a €29 fee
 /// immediately is refused, in preview and apply; at the period's end it applies. Increases apply
 /// at once and count toward the period's true-up (test_plan_minimum).
 #[rstest]

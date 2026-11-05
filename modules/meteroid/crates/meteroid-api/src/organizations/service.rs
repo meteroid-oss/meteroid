@@ -24,7 +24,7 @@ use meteroid_app::features::{Entitlements, ensure_production_tenant_allowed};
 use super::{OrganizationsServiceComponents, mapping};
 
 /// A new organization starts with a Production tenant next to its Development one, where the
-/// edition allows it (cloud requires a subscription first). Never fails the signup.
+/// organization may hold one. Never fails the signup.
 pub async fn signup_production_tenant(
     store: &Store,
     entitlements: &dyn Entitlements,

@@ -43,7 +43,7 @@ pub struct EligibilityFacts {
     pub ladder_stale: bool,
 }
 
-/// The first applicable reason in enum order, so the badge text is stable (§4.2).
+/// The first applicable reason in enum order, so the badge text is stable.
 pub fn not_eligible_reason(f: &EligibilityFacts) -> Option<NotEligibleReason> {
     [
         (!f.payable, NotEligibleReason::NotPayable),

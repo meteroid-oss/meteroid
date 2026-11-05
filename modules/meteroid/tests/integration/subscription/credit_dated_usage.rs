@@ -1,4 +1,4 @@
-//! Usage is paid only by credit effective before its line's usage ends (founder 2026-10-20): an
+//! Usage is paid only by credit effective before its line's usage ends: an
 //! immediate cancellation dates its last line by the cancellation instant, a plan pack pays from
 //! its period's start, and credit taking effect after an immediate plan change pays only the new
 //! plan's usage.

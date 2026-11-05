@@ -407,7 +407,7 @@ impl PaymentTransactionInterface for Store {
 
         let tenant_id = transaction.tenant_id;
         // A challenge is being set on a charge that was merely pending: it enters the
-        // awaiting-authentication state now (D23), whichever path delivered the intent.
+        // awaiting-authentication state now, whichever path delivered the intent.
         let enters_authentication = transaction.status == PaymentStatusEnum::Pending
             && matches!(patch.next_action, Some(Some(_)));
         let updated_transaction = self

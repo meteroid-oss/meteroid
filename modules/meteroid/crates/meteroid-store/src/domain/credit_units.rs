@@ -198,7 +198,7 @@ impl TryFrom<CreditUnitRow> for CreditUnit {
     }
 }
 
-/// A credit unit to create. Code and precision become immutable once stored (D11).
+/// A credit unit to create. Code and precision become immutable once stored.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreditUnitNew {
     pub id: CreditUnitId,
@@ -255,7 +255,7 @@ impl From<CreditUnitNew> for CreditUnitRowNew {
 }
 
 /// Partial update: a `None` field is left unchanged. `archived` toggles `archived_at`; code and
-/// precision have no field here, they are immutable (D11).
+/// precision have no field here, they are immutable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreditUnitPatch {
     pub tenant_id: TenantId,
@@ -429,7 +429,7 @@ pub struct CreditUnitRef {
     pub code: String,
     pub precision: u8,
     /// The unit's tax product when resolved: a plan's pack of the unit is taxed and booked under
-    /// it, as the unit's direct sales are (ADR-0008 §1).
+    /// it, as the unit's direct sales are.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub product_id: Option<ProductId>,
 }

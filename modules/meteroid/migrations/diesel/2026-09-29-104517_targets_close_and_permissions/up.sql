@@ -1,4 +1,4 @@
--- A closed period's value, frozen once the books close (ADR-0005 §12): late entries may restate
+-- A closed period's value, frozen once the books close: late entries may restate
 -- the live series, never the number the board saw.
 ALTER TABLE metric_target
     ADD COLUMN final_value DOUBLE PRECISION,

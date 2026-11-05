@@ -1,10 +1,10 @@
 import { cn } from '@md/ui'
 import { LockIcon } from 'lucide-react'
 
-// Inline "this is a paid capability" marker. Sits next to a disabled control or
-// a section title; the shared vocabulary for partial paywalls across settings.
+// Inline marker of a capability this organization does not have. Sits next to a disabled
+// control or a section title.
 export const PlanLockChip = ({
-  label = 'Paid',
+  label = 'Enterprise',
   noLabel = false,
   className,
 }: {

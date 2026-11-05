@@ -1,5 +1,13 @@
 # Contributing Guide
 
+## Pull requests
+
+Meteroid is developed in another repository, which publishes its open-source code here, one commit
+per change with its original author. Pull requests are welcome on this repository but are not
+merged here: once you have signed the CLA and a maintainer approves your pull request, its changes
+are applied upstream as one commit authored by you, with every other author credited. The next
+publication brings that commit here and closes your pull request.
+
 ## Building from source
 
 This project uses
@@ -49,9 +57,7 @@ Metering requires quite a lot of resources (clickhouse + kafka), so if you don't
 
 You can now access the app at http://localhost:5173
 
-The commands above run the OSS edition. In the enterprise repository, run the same binaries from the
-`ee/` workspace to get the Enterprise edition, e.g. `(cd ee && cargo run -p meteroid-enterprise-standalone)`
-(see `ee/README.md`).
+The commands above run the open-source edition.
 
 ### Run Meteroid (WITH Metering)
 

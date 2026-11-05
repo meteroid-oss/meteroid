@@ -1,5 +1,5 @@
 //! Payment reminder scheduling: enrolment, due execution, holds, lifecycle hooks, per-invoice
-//! actions and the reminder-specific worker checks (spec §7.2 group C). Every sweep runs with
+//! actions and the reminder-specific worker checks. Every sweep runs with
 //! an explicit `now`; the base date sits in the past so the worker's real clock never sees a
 //! pause or cooldown the scenario did not ask for.
 

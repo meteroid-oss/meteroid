@@ -1,4 +1,4 @@
-//! Customer and account emails. Customer emails are claim-before-send (D10): one
+//! Customer and account emails. Customer emails are claim-before-send: one
 //! `email_send_claim` row per dedupe key is upserted before SMTP; a released `FAILED` claim
 //! is re-won by the retried message, a stale `SENDING` one becomes `delivery_unknown`.
 
@@ -168,7 +168,7 @@ impl EmailSender {
                 })
                 .await
             }
-            // Fat messages enqueued before this release: same path, live state (D25).
+            // Fat messages enqueued before this release: same path, live state.
             SendEmailRequest::InvoiceReady {
                 tenant_id,
                 invoice_id,
@@ -367,7 +367,7 @@ impl EmailSender {
         }
     }
 
-    /// §3.9 steps 1–6.
+    /// Renders, claims and sends one customer email.
     async fn send_customer_email(&self, job: CustomerEmailJob) -> Result<(), Report<StoreError>> {
         let tenant_id = job.tenant_id;
         let delivery = self.store.email_delivery(tenant_id).await?;
@@ -601,7 +601,7 @@ impl EmailSender {
         }
     }
 
-    /// At-most-once (D10): the claim turns `UNKNOWN`, terminal, and the operator resends.
+    /// At-most-once: the claim turns `UNKNOWN`, terminal, and the operator resends.
     async fn delivery_unknown(&self, job: &CustomerEmailJob) -> Result<(), Report<StoreError>> {
         let target = self
             .services

@@ -1,6 +1,7 @@
 import { Dialog, DialogContent, DialogTitle, cn } from '@md/ui'
 import {
   Blocks,
+  Briefcase,
   Building2,
   Coins,
   CreditCard,
@@ -14,7 +15,6 @@ import {
   ReceiptText,
   Settings2,
   ShieldCheck,
-  Sparkles,
   Users,
   Webhook,
   type LucideIcon,
@@ -33,12 +33,12 @@ import { ApiKeysTab } from '@/features/settings/tabs/ApiKeysTab'
 import { BrandingTab } from '@/features/settings/tabs/BrandingTab'
 import { CompanyTab } from '@/features/settings/tabs/CompanyTab'
 import { CreditTab } from '@/features/settings/tabs/CreditTab'
+import { EnterpriseTab } from '@/features/settings/tabs/EnterpriseTab'
 import { GeneralTab } from '@/features/settings/tabs/GeneralTab'
 import { IntegrationsTab } from '@/features/settings/tabs/IntegrationsTab'
 import { InvoiceTab } from '@/features/settings/tabs/InvoiceTab'
 import { PaymentMethodsTab } from '@/features/settings/tabs/PaymentsTab'
 import { TaxesTab } from '@/features/settings/tabs/TaxesTab'
-import { UpgradeTab } from '@/features/settings/tabs/UpgradeTab'
 import { UsersTab } from '@/features/settings/tabs/UsersTab'
 import { WebhooksTab } from '@/features/settings/tabs/WebhooksTab'
 import { useBasePath } from '@/hooks/useBasePath'
@@ -54,6 +54,8 @@ import type { SettingsSectionTitle } from '@/edition/types'
 interface SettingsItem {
   value: string
   label: string
+  /** The page header, when it differs from the nav label. */
+  title?: string
   icon: LucideIcon
   show: boolean
   content: ReactNode
@@ -78,6 +80,9 @@ export const SettingsIndexRedirect: FunctionComponent = () => {
   const query = params.toString()
   return <Navigate to={{ pathname: tab, search: query && `?${query}`, hash }} replace />
 }
+
+// Renamed tabs: bookmarks and older links land on the new path.
+const RENAMED_TABS = new Map([['upgrade', 'enterprise']])
 
 export const TenantSettings: FunctionComponent = () => {
   const navigate = useNavigate()
@@ -104,7 +109,7 @@ export const TenantSettings: FunctionComponent = () => {
       title: 'Workspace',
       items: [
         { value: 'general', label: 'General', icon: Settings2, show: !isExpress, content: <GeneralTab /> },
-        { value: 'upgrade', label: 'Upgrade', icon: Sparkles, show: editionId === 'oss', content: <UpgradeTab /> },
+        { value: 'enterprise', label: 'Enterprise', title: 'Meteroid Enterprise', icon: Briefcase, show: editionId === 'oss', content: <EnterpriseTab /> },
       ],
     },
     {
@@ -170,6 +175,9 @@ export const TenantSettings: FunctionComponent = () => {
   const visibleItems = visibleSections.flatMap(section => section.items)
   const current = visibleItems.find(item => item.value === tab) ?? visibleItems[0]
 
+  const renamedTab = tab && RENAMED_TABS.get(tab)
+  if (renamedTab) return <Navigate to={`../${renamedTab}`} replace />
+
   return (
     <Dialog open onOpenChange={open => !open && close()}>
       <DialogContent
@@ -229,7 +237,9 @@ export const TenantSettings: FunctionComponent = () => {
             >
               <Menu size={18} />
             </button>
-            <h2 className="truncate pr-12 text-base font-semibold">{current?.label}</h2>
+            <h2 className="truncate pr-12 text-base font-semibold">
+              {current?.title ?? current?.label}
+            </h2>
           </header>
           <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">{current?.content}</div>
         </div>

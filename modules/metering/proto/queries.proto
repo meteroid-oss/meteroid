@@ -91,7 +91,7 @@ message QueryMeterRequest {
   optional SegmentationFilter segmentation_filter = 12;
   optional string value_property = 13;  // property to aggregate on (required for non-Count aggregations)
   repeated PropertyFilter filters = 14;  // pre-aggregation WHERE-only property filters
-  bool keep_last_events = 15;  // the tenant's setting (ADR-0011): the last copy ingested wins
+  bool keep_last_events = 15;  // the tenant's setting: the last copy ingested wins
   OriginFilter origin_filter = 16;
   // Applies segmentation_filter as a filter only, so its segments aggregate into one row.
   bool merge_segments = 17;
@@ -156,7 +156,7 @@ message QueryRawEventsRequest {
   // Pre-aggregation property filters (WHERE-only) — list only events a metric would count.
   repeated PropertyFilter filters = 10;
 
-  // The tenant's keep_last_events (ADR-0011).
+  // The tenant's keep_last_events.
   bool keep_last_events = 11;
 
   // Keyset pagination (timestamp sort orders only): resume strictly after this (timestamp, id).
@@ -368,7 +368,7 @@ service UsageQueryService {
   // Hard-delete all raw events for the given (deleted) tenants, batched.
   rpc PurgeTenants(PurgeTenantsRequest) returns (PurgeTenantsResponse);
 
-  // First ingested event per tenant. Internal — powers dogfooding activation milestones.
+  // First ingested event per tenant, for the organization activation milestones.
   rpc ListTenantFirstEvents(ListTenantFirstEventsRequest) returns (ListTenantFirstEventsResponse);
 
   // First ingested event per customer of one tenant. Internal — powers the

@@ -1,4 +1,4 @@
--- The anonymous instance report (ADR 0010): a random identity and when the last report went out.
+-- The anonymous instance report: a random identity and when the last report went out.
 CREATE TABLE instance_telemetry
 (
     id            BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),

@@ -2203,8 +2203,8 @@ async fn test_disabled_entitlement_resolved_and_overrideable() {
 
 /// Regression: a customer with **no active subscription** must still receive tenant-global
 /// feature-level defaults. The resolver used to short-circuit to an empty result whenever the
-/// customer had no subscription, so features that are enabled by default (e.g. the dogfooding
-/// gates) surfaced as absent/false even though a feature-level entitlement granted them.
+/// customer had no subscription, so features that are enabled by default (e.g. the
+/// operator's own gates) surfaced as absent/false even though a feature-level entitlement granted them.
 #[tokio::test]
 async fn test_feature_level_defaults_resolve_without_subscription() {
     use meteroid_grpc::meteroid::api::entitlements::v1::effective_entitlement;

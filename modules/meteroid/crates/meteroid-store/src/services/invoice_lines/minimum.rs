@@ -855,8 +855,8 @@ fn scope_component_names(
 
 /// The in-scope revenue lines, counted by `amount_subtotal` (GROSS, pre-discount).
 ///
-/// The floor is measured against **gross list spend**, before any coupon/discount is applied
-/// (ADR 0001). This is the standard B2B "minimum committed spend" semantics: a discount is a
+/// The floor is measured against **gross list spend**, before any coupon/discount is applied.
+/// This is the standard B2B "minimum committed spend" semantics: a discount is a
 /// negotiated benefit on actual consumption, not something the floor claws back. Consequences:
 /// - a discount that takes the customer *below* the floor still benefits them (the top-up is
 ///   measured against gross spend, not the discounted amount);

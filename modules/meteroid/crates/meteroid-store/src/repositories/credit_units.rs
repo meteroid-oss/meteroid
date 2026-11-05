@@ -1,5 +1,5 @@
 //! CRUD for the tenant's credit unit catalog. Code and precision are immutable once
-//! created (D11: `CreditUnitPatch` carries neither); only name,
+//! created (`CreditUnitPatch` carries neither); only name,
 //! plural name, symbol and `archived_at` can change.
 use crate::StoreResult;
 use crate::domain::credit_units::{

@@ -63,7 +63,7 @@ already-paid-disregard = Se você já efetuou o pagamento, desconsidere este e-m
 powered-by = Desenvolvido por Meteroid
 test-mode-notice = E-mail de teste: enviado de um ambiente que não é de produção. Nenhum pagamento real será cobrado.
 
-## Seeded default reminder sequence (D30): steps -3 / 0 / +7 / +14, copied into payment_reminder_step.content.
+## Seeded default reminder sequence: steps -3 / 0 / +7 / +14, copied into payment_reminder_step.content.
 reminder-default-before-subject = A fatura { "{{invoice_number}}" } vence em { "{{due_date}}" }
 reminder-default-before-body =
     Olá, { "{{customer_name}}" },

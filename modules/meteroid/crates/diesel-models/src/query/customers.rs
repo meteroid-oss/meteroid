@@ -959,7 +959,7 @@ impl CustomerRow {
             .into_db_result()
     }
 
-    /// Member-removal cleanup (ADR-0002): the user row survives, so `ON DELETE SET NULL`
+    /// Member-removal cleanup: the user row survives, so `ON DELETE SET NULL`
     /// never fires. Call inside the member-removal transaction.
     pub async fn clear_owner_for_user_in_org(
         conn: &mut PgConn,

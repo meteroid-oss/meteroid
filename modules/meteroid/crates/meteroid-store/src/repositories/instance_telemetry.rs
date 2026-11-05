@@ -1,4 +1,4 @@
-//! Storage for the anonymous instance report (ADR 0010).
+//! Storage for the anonymous instance report.
 
 use chrono::{NaiveDate, NaiveDateTime};
 use diesel_models::instance_telemetry::{InstanceTelemetryRow, InstanceUsageRow};

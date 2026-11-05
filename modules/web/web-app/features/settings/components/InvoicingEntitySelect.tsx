@@ -60,8 +60,8 @@ export const InvoicingEntitySelect = ({
           showCreate ? (
             atLimit ? (
               <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                Your plan allows up to {limit} invoicing {limit === 1 ? 'entity' : 'entities'} per
-                tenant
+                This organization can hold up to {limit} invoicing{' '}
+                {limit === 1 ? 'entity' : 'entities'} per tenant
               </p>
             ) : (
               <Button

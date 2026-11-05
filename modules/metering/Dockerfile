@@ -61,9 +61,9 @@ RUN cargo chef cook --recipe-path recipe.json --profile $PROFILE --package meter
 # Build application
 COPY . .
 
-# The Enterprise edition when ee/ is present (this repository), the OSS edition otherwise
-# (its public mirror). EDITION=oss|enterprise overrides. The Enterprise metering-api also
-# serves the analytics planes on its port.
+# The Enterprise edition when ee/ is present, the open-source edition otherwise.
+# EDITION=oss|enterprise overrides. The Enterprise metering-api also serves the analytics planes
+# on its port.
 ARG EDITION=auto
 # .git is not in the build context: the commit reported at startup comes from here.
 ARG GIT_SHA

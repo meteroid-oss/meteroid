@@ -321,7 +321,7 @@ impl PlansService for PlanServiceComponents {
                     .is_enabled(gates::LICENSING)
             {
                 return Err(Status::permission_denied(
-                    "Licensing is not available for your plan",
+                    "Licensing is not enabled for this organization.",
                 ));
             }
         }

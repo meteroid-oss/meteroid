@@ -63,7 +63,7 @@ already-paid-disregard = Se ha già effettuato il pagamento, La preghiamo di ign
 powered-by = Powered by Meteroid
 test-mode-notice = Email di prova: inviata da un ambiente non di produzione. Non verrà addebitato alcun pagamento reale.
 
-## Seeded default reminder sequence (D30): steps -3 / 0 / +7 / +14, copied into payment_reminder_step.content.
+## Seeded default reminder sequence: steps -3 / 0 / +7 / +14, copied into payment_reminder_step.content.
 reminder-default-before-subject = La fattura { "{{invoice_number}}" } scade il { "{{due_date}}" }
 reminder-default-before-body =
     Gentile { "{{customer_name}}" },
