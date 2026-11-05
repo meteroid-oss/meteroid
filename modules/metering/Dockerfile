@@ -77,7 +77,7 @@ ARG PROFILE
 ARG TARGET_DIR=$PROFILE
 RUN apt-get update && \
     apt-get upgrade -y && \
-    apt-get install --no-install-recommends -y ca-certificates libssl3 && \
+    apt-get install --no-install-recommends -y ca-certificates libssl3 libpq5 && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=builder /opt/src/target/$TARGET_DIR/metering-api /usr/local/bin/metering-api
 COPY --from=builder /bin/grpc_health_probe /bin/grpc_health_probe
