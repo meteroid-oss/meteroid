@@ -14,6 +14,7 @@ use common_grpc::middleware::server::auth::api_token_validator::{
 use common_grpc::middleware::server::auth::{
     AuthenticatedState, AuthorizedAsTenant, TenantActor, TenantEnv,
 };
+use http::request::Parts;
 use http::{HeaderMap, Request};
 use meteroid_rest_common::error::{ErrorCode, RestErrorResponse};
 use meteroid_store::Store;
@@ -76,7 +77,7 @@ fn money_route_forbidden() -> Response {
 
 pub async fn auth_middleware(
     State(AuthState { store, delegated }): State<AuthState>,
-    mut req: Request<axum::body::Body>,
+    req: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, Response> {
     let path = req.uri().path();
@@ -96,43 +97,53 @@ pub async fn auth_middleware(
         return Ok(next.run(req).await);
     }
 
+    let (mut parts, body) = req.into_parts();
+    authenticate(&store, delegated.as_deref(), &mut parts).await?;
+    Ok(next.run(Request::from_parts(parts, body)).await)
+}
+
+/// Checks the credentials and stores who the caller is acting as in the request extensions.
+async fn authenticate(
+    store: &Store,
+    delegated: Option<&dyn RestDelegatedAuth>,
+    req: &mut Parts,
+) -> Result<(), Response> {
+    let path = req.uri.path();
+
     let bearer = req
-        .headers()
+        .headers
         .get(BEARER_AUTH_HEADER)
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
         .map(str::to_string);
-    if let (Some(token), Some(delegated)) = (bearer, delegated.as_ref())
+    if let (Some(token), Some(delegated)) = (bearer, delegated)
         && delegated.claims_token(&token)
     {
-        let path = req.uri().path();
         delegated.check_token_path(path).map_err(delegated_error)?;
-        if is_customer_money_route(req.method(), path) {
+        if is_customer_money_route(&req.method, path) {
             return Err(money_route_forbidden());
         }
         let authorized = delegated
-            .authenticate_token(&store, &token, req.headers())
+            .authenticate_token(store, &token, req)
             .await
             .map_err(|err| {
                 log::debug!("Failed to validate a delegated token: {err:?}");
                 delegated_error(err)
             })?;
-        req.extensions_mut().insert(authorized);
-        req.extensions_mut().insert(DelegatedCredentials);
-        return Ok(next.run(req).await);
+        req.extensions.insert(authorized);
+        req.extensions.insert(DelegatedCredentials);
+        return Ok(());
     }
 
     // Handle API key
-    let authenticated_state = validate_api_key(req.headers(), &store)
-        .await
-        .map_err(|err| {
-            log::debug!("Failed to validate API key: {err:?}");
-            let json = Json(RestErrorResponse {
-                code: ErrorCode::Unauthorized,
-                message: err.msg.unwrap_or_else(|| "Unauthorized".to_string()),
-            });
-            (err.status, json).into_response()
-        })?;
+    let authenticated_state = validate_api_key(&req.headers, store).await.map_err(|err| {
+        log::debug!("Failed to validate API key: {err:?}");
+        let json = Json(RestErrorResponse {
+            code: ErrorCode::Unauthorized,
+            message: err.msg.unwrap_or_else(|| "Unauthorized".to_string()),
+        });
+        (err.status, json).into_response()
+    })?;
 
     if let AuthenticatedState::ApiKey {
         tenant_id,
@@ -143,31 +154,31 @@ pub async fn auth_middleware(
     {
         // Check for Connect Account header
         // When present, resolve to the child org's tenant instead of the platform's.
-        if req.headers().contains_key(CONNECT_ACCOUNT_HEADER) {
-            if is_customer_money_route(req.method(), req.uri().path()) {
+        if req.headers.contains_key(CONNECT_ACCOUNT_HEADER) {
+            if is_customer_money_route(&req.method, path) {
                 return Err(money_route_forbidden());
             }
-            let Some(delegated) = delegated.as_ref() else {
+            let Some(delegated) = delegated else {
                 return Err(delegated_error(DelegatedAuthError {
                     status: StatusCode::FORBIDDEN,
                     message: "Acting for a connected account is not available".to_string(),
                 }));
             };
             let authorized = delegated
-                .act_for_account(&store, organization_id, id, req.headers())
+                .act_for_account(store, organization_id, id, req)
                 .await
                 .map_err(|err| {
                     log::debug!("Failed to resolve connect account: {err:?}");
                     delegated_error(err)
                 })?;
 
-            req.extensions_mut().insert(authorized);
-            req.extensions_mut().insert(DelegatedCredentials);
-            return Ok(next.run(req).await);
+            req.extensions.insert(authorized);
+            req.extensions.insert(DelegatedCredentials);
+            return Ok(());
         }
 
         // Check express org restrictions for direct API key access
-        if is_organization_express_cached(&store, organization_id)
+        if is_organization_express_cached(store, organization_id)
             .await
             .map_err(|err| {
                 let json = Json(RestErrorResponse {
@@ -177,7 +188,6 @@ pub async fn auth_middleware(
                 (err.status, json).into_response()
             })?
         {
-            let path = req.uri().path();
             if !EXPRESS_ALLOWED_PATH_PREFIXES
                 .iter()
                 .any(|prefix| path.starts_with(prefix))
@@ -188,10 +198,10 @@ pub async fn auth_middleware(
                 });
                 return Err((StatusCode::FORBIDDEN, json).into_response());
             }
-            if is_customer_money_route(req.method(), path) {
+            if is_customer_money_route(&req.method, path) {
                 return Err(money_route_forbidden());
             }
-            req.extensions_mut().insert(DelegatedCredentials);
+            req.extensions.insert(DelegatedCredentials);
         }
 
         let state = AuthorizedAsTenant {
@@ -200,8 +210,8 @@ pub async fn auth_middleware(
             actor: TenantActor::ApiKey(id),
             tenant_env,
         };
-        req.extensions_mut().insert(state);
-        return Ok(next.run(req).await);
+        req.extensions.insert(state);
+        return Ok(());
     }
 
     let err = Json(RestErrorResponse {

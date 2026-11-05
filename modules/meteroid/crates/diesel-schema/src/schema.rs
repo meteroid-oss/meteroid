@@ -757,6 +757,7 @@ diesel::table! {
         pending_country -> Nullable<Text>,
         platform_customer_id -> Nullable<Uuid>,
         connected_tenant_id -> Nullable<Uuid>,
+        granted_scopes -> Array<Nullable<Text>>,
     }
 }
 
