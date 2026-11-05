@@ -2,7 +2,7 @@
 
 Deploys the Meteroid API, worker, metering and web app. Each chart release pins the images of the same Meteroid
 release: chart `2.0.0` runs `ghcr.io/meteroid-oss/{meteroid-api,meteroid-worker,metering-api,meteroid-web}:v2.0.0`.
-These images include the Enterprise modules. Under the [Enterprise license](https://docs.meteroid.com/self-hosting/enterprise-license),
+These images include the Enterprise modules. Under the [Enterprise license](../../editions/enterprise/LICENSE),
 they are free for companies under 50 employees and €2M in annual revenue, larger companies need a commercial license, and a
 license unlocks the paid features (see Licensing). To run the open-source edition only, build the images from the repository with `EDITION=oss` and
 set `<component>.image.repository`.

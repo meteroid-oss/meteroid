@@ -16,7 +16,7 @@ import {
 
 const PRICING_URL = 'https://meteroid.com/pricing'
 const SWITCH_EDITIONS_DOCS_URL = 'https://docs.meteroid.com/self-hosting/editions'
-const LICENSE_URL = 'https://docs.meteroid.com/self-hosting/enterprise-license'
+const LICENSE_URL = 'https://github.com/meteroid-oss/meteroid/blob/main/editions/enterprise/LICENSE'
 
 type Availability = 'free' | 'licensed'
 

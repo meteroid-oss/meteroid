@@ -1,0 +1,210 @@
+METEROID ENTERPRISE LICENSE AGREEMENT
+
+Copyright (c) 2026 Meteroid
+
+IMPORTANT: READ THIS LICENSE AGREEMENT CAREFULLY BEFORE USING THIS SOFTWARE.
+
+By using, copying, or distributing this software, you agree to be bound by the
+terms of this license agreement. If you do not agree to these terms, do not
+use, copy, or distribute this software.
+
+1. DEFINITIONS
+
+"Meteroid" means METEROID, a company registered with the Lille Trade and
+Companies Register under number 979 116 688.
+
+"Software" means the Meteroid Enterprise software: the official images
+published by Meteroid, their source code, object code, binaries and
+documentation, excluding components that Meteroid publishes under an
+open-source license, which remain under that license. Nothing in this
+Agreement restricts the rights those open-source licenses grant.
+
+"Licensee" means the individual or legal entity that uses the Software,
+together with its Affiliates.
+
+"Affiliate" means any entity that controls, is controlled by, or is under
+common control with the Licensee, control meaning more than 50% of the voting
+rights or control within the meaning of Article L233-3 of the French Commercial
+Code.
+
+"Installation" means one set of the Software's services sharing one database.
+
+"License Key" means a key issued by Meteroid that identifies the Licensee and
+the features it is entitled to.
+
+"Commercial License" means a paid license to the Software under a separate
+agreement with Meteroid, such as an order form or a subscription.
+
+"Free Features" means the features the Software provides without a License
+Key, as listed in its documentation.
+
+"Licensed Features" means the features of the Software that require a License
+Key granting them.
+
+2. FREE USE
+
+Subject to the terms and conditions of this Agreement, Meteroid grants each
+Qualifying Organization a non-exclusive, non-transferable, royalty-free license
+to:
+
+a) Use the Software, with its Free Features, solely for its internal business
+   purposes;
+b) Install the Software on systems it owns or controls;
+c) Make copies of the Software solely for backup or archival purposes.
+
+3. QUALIFYING ORGANIZATIONS AND COMMERCIAL USE
+
+3.1. A "Qualifying Organization" is a Licensee that, together with its
+Affiliates, has fewer than 50 employees (full-time equivalent) and less than
+EUR 2,000,000 (or its equivalent in another currency) in annual revenue, both
+measured over its last completed financial year, or over its current one if it
+has none.
+
+3.2. A Licensee that is not a Qualifying Organization needs a Commercial
+License to use the Software, including its Free Features. The Commercial
+License grants the rights set out in Section 2, and the Licensed Features its
+License Key lists, on the terms of the agreement under which it is purchased.
+
+3.3. Any Licensee may use the Software as Section 2 allows for a single
+evaluation period of 30 days from its first use, or longer if Meteroid agrees
+in writing, solely to decide whether to purchase a Commercial License. During
+the evaluation the Software may not be used in production, meaning with real
+customers, invoices or payments.
+
+3.4. A Licensee that ceases to be a Qualifying Organization, including by
+becoming an Affiliate of another entity, may keep using the Software under
+Section 2 for 90 days, after which it needs a Commercial License.
+
+4. LICENSE KEYS AND LICENSED FEATURES
+
+4.1. Licensed Features may be used only as granted by a valid License Key, and
+only for its term.
+
+4.2. Meteroid may issue free registration keys to Qualifying Organizations.
+
+4.3. When a License Key expires or is revoked, the Software keeps running with
+its Free Features, and data created with Licensed Features remains available,
+as the documentation of the Software describes.
+
+4.4. A License Key is for one Installation, unless Meteroid agrees otherwise in
+writing. One Installation may hold the organizations and tenants its License
+Key grants.
+
+5. RESTRICTIONS
+
+Contractors and hosting providers may install and operate the Software, and
+hold its License Keys, on the Licensee's behalf and under its responsibility,
+for the Licensee's use only.
+
+Licensee shall NOT:
+
+a) Use Licensed Features without a valid License Key that grants them;
+b) Distribute, sublicense, sell, lease, rent, or transfer the Software or a
+   License Key to any third party;
+c) Modify, adapt, translate, reverse engineer, decompile, disassemble, or
+   create derivative works based on the Software, except to the extent
+   applicable law permits it despite this restriction;
+d) Remove, alter, or obscure any proprietary notices, labels, or marks on the
+   Software;
+e) Make the Software or its functionality available to third parties as a
+   hosted or managed service (such as SaaS or hosting) without a separate
+   commercial agreement with Meteroid. Billing the Licensee's own customers,
+   including through the portals and pages of the Software, is internal use;
+f) Share, publish, or disclose a License Key to any third party;
+g) Circumvent, disable, or interfere with any license verification mechanisms
+   in the Software.
+
+6. UPDATES AND SUPPORT
+
+Meteroid provides security updates for the Software as applicable law
+requires, and may provide them only for its latest version. Keeping the
+Software up to date is the Licensee's responsibility. Support, where provided,
+is set out in the agreement of the Licensee's Commercial License.
+
+7. INTELLECTUAL PROPERTY
+
+The Software and all copies thereof are proprietary to Meteroid and title
+thereto remains exclusively with Meteroid. All rights in the Software not
+specifically granted in this Agreement are reserved to Meteroid. The Software
+is protected by copyright laws and international treaty provisions.
+
+8. CONFIDENTIALITY
+
+Licensee agrees to maintain the confidentiality of its License Keys and of any
+part of the Software that Meteroid has not made public, and to take reasonable
+measures to protect them from unauthorized disclosure or use.
+
+9. TERM AND TERMINATION
+
+This license is effective until terminated. It will terminate automatically if:
+
+a) Licensee fails to comply with this Agreement and does not cure the breach
+   within 30 days of Meteroid's written notice, or immediately upon such notice
+   for a breach of Section 5 (b), (e) or (g);
+b) Licensee provides written notice of termination to Meteroid.
+
+The expiry or revocation of a License Key ends the right to use the Licensed
+Features it grants, not the license to the Free Features granted by Section 2
+or by a Commercial License.
+
+Upon termination, Licensee must stop using the Software and destroy all copies
+of it, except as needed for up to 90 days to export its data, and as required
+by law. Licensee's data remains its own.
+
+10. WARRANTY DISCLAIMER
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS PROVIDED
+"AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. METEROID DOES NOT
+WARRANT THAT THE SOFTWARE WILL BE ERROR-FREE OR UNINTERRUPTED.
+
+11. LIMITATION OF LIABILITY
+
+11.1. For use under Section 2 without a Commercial License, to the fullest
+extent permitted by applicable law, Meteroid shall not be liable for any
+damages of any kind arising out of or in connection with this Agreement or the
+use or performance of the Software.
+
+11.2. Under a Commercial License, in no event shall Meteroid be liable for any
+indirect, incidental, special, consequential, or punitive damages, or any
+damages for loss of profits, revenue, data, or use, whether in an action in
+contract or tort, arising out of or in connection with this Agreement or the
+use or performance of the Software, even if Meteroid has been advised of the
+possibility of such damages. Meteroid's total liability under a Commercial
+License shall not exceed the fees paid by Licensee for it in the six months
+preceding the event giving rise to the claim.
+
+11.3. Nothing in this Agreement limits or excludes liability that cannot be
+limited or excluded under applicable law, including liability for intent or
+gross negligence, for injury to life, body or health, or under mandatory
+product liability law.
+
+12. EXPORT COMPLIANCE
+
+Licensee agrees to comply with all applicable export laws and regulations in
+connection with the use of the Software.
+
+13. GOVERNING LAW
+
+This Agreement is governed by French law, excluding its conflict-of-laws rules
+and the United Nations Convention on Contracts for the International Sale of
+Goods. The courts of Lille, France have exclusive jurisdiction, subject to any
+mandatory rule of applicable law.
+
+14. ENTIRE AGREEMENT
+
+This Agreement, together with the agreement of any Commercial License,
+constitutes the entire agreement between the parties concerning the subject
+matter hereof and supersedes all prior or contemporaneous agreements,
+representations, warranties, and understandings. Where they conflict, the
+agreement of the Commercial License prevails.
+
+15. CONTACT
+
+For licensing inquiries, please contact: licensing@meteroid.com
+
+---
+
+BY USING THIS SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE READ THIS AGREEMENT,
+UNDERSTAND IT, AND AGREE TO BE BOUND BY ITS TERMS AND CONDITIONS.

@@ -121,7 +121,7 @@ This repository is the open-source edition, under the AGPL V3. To run it, build 
 The official images (`ghcr.io/meteroid-oss/meteroid-api`, `meteroid-worker`, `metering-api` and
 `meteroid-web`) are Meteroid Enterprise: the code of this repository plus the Enterprise modules. They are
 free for companies under 50 employees and €2M in annual revenue under the
-[Enterprise license](https://docs.meteroid.com/self-hosting/enterprise-license), and some Enterprise features come free with
+[Enterprise license](editions/enterprise/LICENSE), and some Enterprise features come free with
 them: dunning, tax reports, MRR and revenue reports, live balances and usage limits, credit units and packs,
 portal self-service, customer email customization and e-invoicing. Larger companies need a
 commercial license, and a license unlocks the rest. See
@@ -148,7 +148,9 @@ build Meteroid from source.
 
 Copyright 2026 Meteroid
 
-Licensed under the AGPL V3 License. <br/> See [LICENSE](LICENSE) for more information.
+The code of this repository is licensed under the AGPL V3 License: see [LICENSE](LICENSE). The official
+images, Meteroid Enterprise, are licensed under the Meteroid Enterprise License: see
+[editions/enterprise/LICENSE](editions/enterprise/LICENSE).
 
 For enterprise support, licenses or custom licensing options, contact us at
 [hey@meteroid.com](mailto:hey@meteroid.com).
