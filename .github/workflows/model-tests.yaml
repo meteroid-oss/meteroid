@@ -14,10 +14,6 @@ on:
         description: "First seed (MODEL_SEED); empty picks one from the run id"
         default: ""
 
-env:
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
-
 jobs:
   model:
     name: Reference model

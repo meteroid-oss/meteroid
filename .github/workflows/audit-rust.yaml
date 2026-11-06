@@ -23,10 +23,6 @@ concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
   cancel-in-progress: true
 
-env:
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
-
 jobs:
   audit:
     timeout-minutes: 30
@@ -39,6 +35,8 @@ jobs:
       - uses: ./.github/actions/rust-setup
         with:
           install-deps: 'false'
+          sccache: 'false'
+          mold: 'false'
 
       - name: Install cargo-audit
         uses: taiki-e/install-action@v2

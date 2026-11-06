@@ -38,10 +38,6 @@ concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
   cancel-in-progress: true
 
-env:
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
-
 jobs:
   check:
     name: Test
@@ -174,8 +170,6 @@ jobs:
       # Every crate builds against the same third-party features, so `cargo run -p` and the
       # tests reuse one set of artifacts. Fix with `cargo hakari generate && cargo hakari manage-deps`.
       - name: The workspace-hack is up to date
-        env:
-          RUSTC_WRAPPER: ""
         run: |
           cargo hakari generate --diff
           cargo hakari manage-deps --dry-run

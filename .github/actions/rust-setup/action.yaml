@@ -2,9 +2,6 @@ name: 'Rust Setup'
 description: 'Setup Rust toolchain with dependencies, caching, and mold linker'
 
 inputs:
-  toolchain:
-    description: 'Rust toolchain version'
-    default: '1.96.0'
   components:
     description: 'Rust components to install (comma-separated)'
     default: ''
@@ -17,6 +14,9 @@ inputs:
   mold:
     description: 'Use mold linker'
     default: 'true'
+  workspaces:
+    description: 'Cargo workspaces whose target directory is cached (rust-cache syntax)'
+    default: '.'
 
 runs:
   using: 'composite'
@@ -43,22 +43,42 @@ runs:
       run: |
         mkdir -p .cargo && ln -s ../.cargo-templates/ci.toml $_/config.toml
 
+    # The channel rust-toolchain.toml names, so the build does not switch to another toolchain.
+    - name: Read the pinned toolchain
+      id: toolchain
+      shell: bash
+      run: echo "channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+
     - name: Install toolchain
       uses: dtolnay/rust-toolchain@master
       with:
-        toolchain: ${{ inputs.toolchain }}
+        toolchain: ${{ steps.toolchain.outputs.channel }}
         components: ${{ inputs.components }}
 
-    # Saved from main only: PR runs claiming the key first left main unable to save, and PRs
-    # can only restore main's caches. The default environment hash covers every toolchain on
-    # the runner image, so it flipped between images; key on the pinned toolchain instead.
+    # The cache key hashes every installed toolchain: the image's own would flip it between images.
+    - name: Remove the other toolchains
+      shell: bash
+      run: |
+        rustup toolchain list --quiet | grep -v "^${{ steps.toolchain.outputs.channel }}-" | xargs -r -n1 rustup toolchain uninstall
+        rustup toolchain list
+
+    # Saved from main only: PRs can only restore main's caches. The key ends with a hash of the
+    # lockfiles, so a dependency change saves a new entry and restores the previous one meanwhile.
     - name: Rust cache
       uses: Swatinem/rust-cache@v2
       with:
-        prefix-key: v1-rust-${{ inputs.toolchain }}-${{ hashFiles('rust-toolchain.toml') }}
-        add-rust-environment-hash-key: 'false'
+        prefix-key: v2-rust
+        workspaces: ${{ inputs.workspaces }}
         save-if: ${{ github.ref == 'refs/heads/main' }}
 
     - name: Run sccache
       if: inputs.sccache == 'true'
       uses: mozilla-actions/sccache-action@v0.0.9
+
+    - name: Use sccache
+      if: inputs.sccache == 'true'
+      shell: bash
+      run: |
+        echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+        echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+        echo "SCCACHE_IDLE_TIMEOUT=0" >> "$GITHUB_ENV"
