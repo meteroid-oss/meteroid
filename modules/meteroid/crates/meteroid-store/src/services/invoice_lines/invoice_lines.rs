@@ -1413,14 +1413,19 @@ impl Services {
 
         // One-time fees: billed in full, never prorated, exactly once. Billing point:
         //  - plan-level one-time fees bill on the subscription's first invoice
-        //    (`cycle_index == 0`); they are not re-billed on renewals or carried over
+        //    (`cycle_index == 0`, not the closing invoice of a subscription ending in
+        //    cycle 0); they are not re-billed on renewals or carried over
         //    by a plan change (which is why `applies_this_period` excludes them);
         //  - a one-time fee added by a manual amendment bills on the invoice for the
         //    period it becomes effective (`effective_from == invoice_date`), which for
         //    an immediate amendment is its adjustment invoice (handled elsewhere) and
         //    for an end-of-period amendment is the upcoming renewal.
+        let sub = &subscription_details.subscription;
+        let closes_first_period = sub.current_period_end.is_none()
+            && !sub.pending_checkout
+            && invoice_date > billing_start_or_resume_date;
         for component in one_time_records {
-            let bill_now = cycle_index == 0
+            let bill_now = (cycle_index == 0 && !closes_first_period)
                 || (component.added_by_amendment()
                     && component.effective_from() == Some(invoice_date));
             if !bill_now {

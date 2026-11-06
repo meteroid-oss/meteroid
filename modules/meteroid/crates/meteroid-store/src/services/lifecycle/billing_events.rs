@@ -969,8 +969,8 @@ impl Services {
                     .map_err(Into::<error_stack::Report<StoreError>>::into)?;
             }
 
-            // Seed slot transactions for newly added Slot components/add-ons.
-            for c in component_insert {
+            // Overrides and edited add-ons keep their unit's ledger: a seed would reset the live count.
+            for c in component_insert.iter().filter(|c| !c.is_override) {
                 if let Some(tx) = SlotTransactionNewInternal::from_fee(&c.fee, apply_date) {
                     tx.into_row(event.subscription_id)
                         .insert(conn)
@@ -978,7 +978,7 @@ impl Services {
                         .map_err(Into::<error_stack::Report<StoreError>>::into)?;
                 }
             }
-            for a in addon_insert {
+            for a in addon_insert.iter().filter(|a| a.lineage_id.is_none()) {
                 if let Some(tx) = SlotTransactionNewInternal::from_fee(&a.fee, apply_date) {
                     tx.into_row(event.subscription_id)
                         .insert(conn)

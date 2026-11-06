@@ -34,7 +34,7 @@ use meteroid_store::domain::subscription_amendment::{
     AddOnChanges, ComponentChanges, SubscriptionAmendment,
 };
 use meteroid_store::domain::subscription_changes::PlanChangeMode;
-use meteroid_store::domain::{BillingPeriodEnum, UsagePeriod, UsagePricingModel};
+use meteroid_store::domain::{BillingPeriodEnum, Invoice, UsagePeriod, UsagePricingModel};
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
 
@@ -1874,5 +1874,185 @@ async fn test_consolidation_refuses_when_a_member_recomputes_empty() {
     assert!(
         parents.is_empty(),
         "no consolidated parent may be built from a wiped member"
+    );
+}
+
+const PLAN_VERSION_USAGE_SETUP_ID: PlanVersionId =
+    PlanVersionId::from_const(uuid!("019438e0-0f04-7000-8000-0000000000f4"));
+const COMP_USAGE_SETUP_API_CALLS_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0f05-7000-8000-0000000000f5"));
+const PRICE_USAGE_SETUP_API_CALLS_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0f06-7000-8000-0000000000f6"));
+const COMP_USAGE_SETUP_FEE_ID: PriceComponentId =
+    PriceComponentId::from_const(uuid!("019438e0-0f07-7000-8000-0000000000f7"));
+const PRICE_USAGE_SETUP_FEE_ID: PriceId =
+    PriceId::from_const(uuid!("019438e0-0f08-7000-8000-0000000000f8"));
+
+async fn seed_usage_with_setup_fee_plan(env: &TestEnv) {
+    let mut conn = env.conn().await;
+    PlanSeed::seed_version(
+        &mut conn,
+        PLAN_USAGE_ALPHA_ID,
+        PLAN_VERSION_USAGE_SETUP_ID,
+        91,
+        "EUR",
+        &[
+            SeedComp::usage(
+                COMP_USAGE_SETUP_API_CALLS_ID,
+                "API Calls",
+                PRODUCT_API_CALLS_ID,
+                METRIC_BANDWIDTH,
+                PRICE_USAGE_SETUP_API_CALLS_ID,
+                DieselBillingPeriodEnum::Monthly,
+                UsagePricingModel::PerUnit {
+                    rate: Decimal::new(10, 2),
+                },
+            ),
+            SeedComp::one_time(
+                COMP_USAGE_SETUP_FEE_ID,
+                "Setup Fee",
+                PRODUCT_ONETIME_SETUP_ID,
+                PRICE_USAGE_SETUP_FEE_ID,
+                Decimal::new(20000, 2),
+                1,
+            ),
+        ],
+    )
+    .await
+    .expect("failed to seed usage + setup fee plan version");
+}
+
+async fn cancel_in_first_period_with_setup_fee(grace_hours: i32) -> Vec<Invoice> {
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let cancel_date = NaiveDate::from_ymd_opt(2024, 1, 15).unwrap();
+
+    let usage_client = build_usage_client(Decimal::from(100), &[(start_date, cancel_date)]);
+    let env = test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(usage_client)).await;
+    seed_usage_with_setup_fee_plan(&env).await;
+    env.set_consolidate_and_grace(false, grace_hours).await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_USAGE_SETUP_ID)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    env.services()
+        .cancel_subscription(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            Some("first-period termination with a setup fee".to_string()),
+            CancellationEffectiveAt::Date(cancel_date),
+        )
+        .await
+        .expect("cancel_subscription failed");
+
+    env.process_due_events().await;
+    env.process_due_events().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.status, SubscriptionStatusEnum::Cancelled);
+    env.get_invoices(sub_id).await
+}
+
+/// A plan-level one-time fee bills on the first invoice only. A subscription terminated in its first
+/// period closes on a cycle-0 recurring invoice, which must bill that period's usage but not the
+/// one-time fee a second time.
+#[tokio::test]
+async fn test_first_period_termination_does_not_rebill_one_time_fee() {
+    let invoices = cancel_in_first_period_with_setup_fee(-1).await;
+    invoices.assert().has_count(2);
+    invoices
+        .assert()
+        .invoice_at(0)
+        .with_context("first invoice: the setup fee")
+        .has_total(20000);
+    invoices
+        .assert()
+        .invoice_at(1)
+        .with_context("closing invoice: 100 units x EUR 0.10, no second setup fee")
+        .has_total(1000);
+}
+
+/// The first invoice is still a draft in its grace period when the subscription terminates: its
+/// recompute at finalization must keep the setup fee it was created with.
+#[tokio::test]
+async fn test_first_period_termination_keeps_one_time_fee_on_draft_first_invoice() {
+    let invoices = cancel_in_first_period_with_setup_fee(720).await;
+    let summary: Vec<_> = invoices
+        .iter()
+        .map(|i| {
+            (
+                i.billing_period_start,
+                i.invoice_type.clone(),
+                i.status,
+                i.total,
+            )
+        })
+        .collect();
+    assert_eq!(invoices.len(), 2, "{summary:?}");
+    assert_eq!(
+        invoices[0].total, 20000,
+        "first invoice keeps the setup fee: {summary:?}"
+    );
+    assert_eq!(
+        invoices[1].total, 1000,
+        "closing invoice bills usage only: {summary:?}"
+    );
+}
+
+/// Same-day immediate cancel: the closing invoice shares the first invoice's date, and must still
+/// leave the setup fee to the first invoice.
+#[tokio::test]
+async fn test_same_day_cancel_does_not_rebill_one_time_fee() {
+    let usage = MutableMockUsageClient::new();
+    let env = test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(usage.clone())).await;
+    seed_usage_with_setup_fee_plan(&env).await;
+    env.set_consolidate_and_grace(false, -1).await;
+
+    let today = chrono::Utc::now().date_naive();
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_USAGE_SETUP_ID)
+        .start_date(today)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    env.services()
+        .cancel_subscription(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            Some("same-day immediate cancel with a setup fee".to_string()),
+            CancellationEffectiveAt::Immediate,
+        )
+        .await
+        .expect("cancel_subscription failed");
+    env.process_due_events().await;
+
+    let invoices = env.get_invoices(sub_id).await;
+    let summary: Vec<_> = invoices
+        .iter()
+        .map(|i| {
+            (
+                i.billing_period_start,
+                i.invoice_type.clone(),
+                i.status,
+                i.total,
+            )
+        })
+        .collect();
+    let billed: i64 = invoices
+        .iter()
+        .filter(|i| i.status != InvoiceStatusEnum::Void)
+        .map(|i| i.total)
+        .sum();
+    assert_eq!(
+        billed, 20000,
+        "the setup fee bills exactly once: {summary:?}"
     );
 }
