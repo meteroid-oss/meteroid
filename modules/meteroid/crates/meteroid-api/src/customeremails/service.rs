@@ -3,7 +3,8 @@ use common_domain::ids::{BaseId, CustomerId, EntityActivityId, InvoiceId, Invoic
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::customeremails::v1::{
     ClearEmailKindAudienceRequest, ClearEmailKindAudienceResponse, EmailVariable,
-    GetEmailSettingsRequest, GetEmailSettingsResponse, GetSentEmailRequest, GetSentEmailResponse,
+    GetEmailSettingsRequest, GetEmailSettingsResponse, GetPaymentRemindersEnabledRequest,
+    GetPaymentRemindersEnabledResponse, GetSentEmailRequest, GetSentEmailResponse,
     ListEmailVariablesRequest, ListEmailVariablesResponse, ListSentEmailsRequest,
     ListSentEmailsResponse, ListSkippedEmailsRequest, ListSkippedEmailsResponse,
     PreviewEmailKindAudienceRequest, PreviewEmailKindAudienceResponse, PreviewEmailRequest,
@@ -11,7 +12,8 @@ use meteroid_grpc::meteroid::api::customeremails::v1::{
     ResendEmailRequest, ResendEmailResponse, ResendUnknownEmailRequest, ResendUnknownEmailResponse,
     SendTestEmailRequest, SendTestEmailResponse, SentEmail as ProtoSentEmail,
     SetEmailKindAudienceRequest, SetEmailKindAudienceResponse, SetEmailKindEnabledRequest,
-    SetEmailKindEnabledResponse, UpdateEmailSettingsRequest, UpdateEmailSettingsResponse,
+    SetEmailKindEnabledResponse, SetPaymentRemindersEnabledRequest,
+    SetPaymentRemindersEnabledResponse, UpdateEmailSettingsRequest, UpdateEmailSettingsResponse,
     customer_emails_service_server::CustomerEmailsService,
 };
 use meteroid_mailer::copy::{self, VariableKind};
@@ -22,13 +24,15 @@ use meteroid_store::domain::customer_emails::{
     AudienceSubject, EmailContext, EmailKind, EmailSettings,
 };
 use meteroid_store::domain::entity_activity::EntityType;
-use meteroid_store::domain::payment_reminders::EmailCopy;
+use meteroid_store::domain::payment_reminders::{EmailCopy, PaymentReminderSequencePatch};
 use meteroid_store::repositories::customer_emails::{
     SENT_EMAILS_DEFAULT_LIMIT, SentEmailFilter, SkippedEmailFilter,
 };
 use meteroid_store::repositories::entity_activity::EntityActivityInterfaceResolveEntities;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
-use meteroid_store::repositories::{CustomerEmailsInterface, UserInterface};
+use meteroid_store::repositories::{
+    CustomerEmailsInterface, PaymentRemindersInterface, UserInterface,
+};
 use meteroid_store::services::customer_emails::{BuildOutcome, EmailRenderInput, tenant_test_mode};
 use meteroid_store::services::customer_locale::customer_default_locale;
 use meteroid_store::services::payment_reminders::audience::parse_audience;
@@ -111,6 +115,23 @@ impl CustomerEmailsServiceComponents {
             .await
             .map_err(Into::<CustomerEmailsApiError>::into)
             .map_err(Into::into)
+    }
+
+    /// The entity's live reminder sequences, the default one seeded on first use.
+    async fn reminder_sequences(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        entity_id: InvoicingEntityId,
+    ) -> Result<Vec<meteroid_store::domain::payment_reminders::PaymentReminderSequence>, Status>
+    {
+        Ok(self
+            .store
+            .list_reminder_sequences(tenant_id, entity_id, false)
+            .await
+            .map_err(Into::<CustomerEmailsApiError>::into)?
+            .into_iter()
+            .map(|s| s.sequence)
+            .collect())
     }
 
     async fn settings_response(
@@ -259,15 +280,11 @@ impl CustomerEmailsService for CustomerEmailsServiceComponents {
         request: Request<UpdateEmailSettingsRequest>,
     ) -> Result<Response<UpdateEmailSettingsResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let organization = request.organization()?;
+        self.ensure_customization(request.organization()?).await?;
         let actor = request.actor_typed()?;
         let req = request.into_inner();
         let entity_id = mapping::entity_id_from_proto(&req.invoicing_entity_id)?;
         let patch = mapping::patch_from_proto(req.data.unwrap_or_default())?;
-        // The send hour and timezone only schedule payment reminders, which every edition has.
-        if patch.sender_name.is_some() || patch.reply_to.is_some() || patch.bcc.is_some() {
-            self.ensure_customization(organization).await?;
-        }
         let entity = self.entity(tenant_id, Some(entity_id)).await?;
         let settings = self
             .store
@@ -288,15 +305,11 @@ impl CustomerEmailsService for CustomerEmailsServiceComponents {
         request: Request<SetEmailKindEnabledRequest>,
     ) -> Result<Response<SetEmailKindEnabledResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let organization = request.organization()?;
+        self.ensure_customization(request.organization()?).await?;
         let actor = request.actor_typed()?;
         let req = request.into_inner();
         let entity_id = mapping::entity_id_from_proto(&req.invoicing_entity_id)?;
         let kind = mapping::kind_from_proto(req.kind)?;
-        // Reminders are off until a sequence is set up, so their switch belongs to every edition.
-        if kind != EmailKind::PaymentReminder {
-            self.ensure_customization(organization).await?;
-        }
         let entity = self.entity(tenant_id, Some(entity_id)).await?;
         let settings = self
             .store
@@ -308,6 +321,79 @@ impl CustomerEmailsService for CustomerEmailsServiceComponents {
                 self.settings_response(tenant_id, &entity, &settings)
                     .await?,
             ),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn get_payment_reminders_enabled(
+        &self,
+        request: Request<GetPaymentRemindersEnabledRequest>,
+    ) -> Result<Response<GetPaymentRemindersEnabledResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+        let entity_id = mapping::entity_id_from_proto(&req.invoicing_entity_id)?;
+        let entity = self.entity(tenant_id, Some(entity_id)).await?;
+        let settings = self
+            .store
+            .get_email_settings(tenant_id, entity.id)
+            .await
+            .map_err(Into::<CustomerEmailsApiError>::into)?;
+        let enabled = settings.is_enabled(EmailKind::PaymentReminder)
+            && self
+                .reminder_sequences(tenant_id, entity.id)
+                .await?
+                .iter()
+                .any(|s| s.enabled);
+        Ok(Response::new(GetPaymentRemindersEnabledResponse {
+            enabled,
+        }))
+    }
+
+    /// On turns on the reminder emails, and the default sequence when no sequence is on; off turns
+    /// the emails off, which stops every sequence of the entity.
+    #[tracing::instrument(skip_all)]
+    async fn set_payment_reminders_enabled(
+        &self,
+        request: Request<SetPaymentRemindersEnabledRequest>,
+    ) -> Result<Response<SetPaymentRemindersEnabledResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
+        let req = request.into_inner();
+        let entity_id = mapping::entity_id_from_proto(&req.invoicing_entity_id)?;
+        let entity = self.entity(tenant_id, Some(entity_id)).await?;
+        if req.enabled {
+            let sequences = self.reminder_sequences(tenant_id, entity.id).await?;
+            if !sequences.iter().any(|s| s.enabled) {
+                let default = sequences.iter().find(|s| s.is_default()).ok_or_else(|| {
+                    Status::internal("the invoicing entity has no default reminder sequence")
+                })?;
+                self.store
+                    .update_reminder_sequence(
+                        actor.clone(),
+                        tenant_id,
+                        PaymentReminderSequencePatch {
+                            id: default.id,
+                            enabled: Some(true),
+                            ..Default::default()
+                        },
+                        chrono::Utc::now().naive_utc(),
+                    )
+                    .await
+                    .map_err(Into::<CustomerEmailsApiError>::into)?;
+            }
+        }
+        self.store
+            .set_email_kind_enabled(
+                actor,
+                tenant_id,
+                entity.id,
+                EmailKind::PaymentReminder,
+                req.enabled,
+            )
+            .await
+            .map_err(Into::<CustomerEmailsApiError>::into)?;
+        Ok(Response::new(SetPaymentRemindersEnabledResponse {
+            enabled: req.enabled,
         }))
     }
 

@@ -29,7 +29,7 @@ interface EmailKindMeta {
   description: string
   editableCopy: boolean
   attachesDocument: boolean
-  /** Sent on the schedule the Payment reminders view edits. */
+  /** Sent on the schedule a module's view edits: listed only when one does. */
   scheduled?: boolean
   /** Sent by a module only: listed only when one declares it. */
   sentByModule?: boolean
@@ -127,9 +127,6 @@ export const EMAIL_KIND_META: EmailKindMeta[] = [
     sentByModule: true,
   },
 ]
-
-/** The customer emails view editing the reminder sequences. */
-export const REMINDERS_VIEW = 'reminders'
 
 const byKind = (kind: EmailKind) => EMAIL_KIND_META.find(m => m.kind === kind)
 
@@ -257,11 +254,18 @@ const KindChips = ({
   </>
 )
 
+const scheduleViewOf = (kind: EmailKind) =>
+  slotItems('customerEmails.views').find(view => view.schedules === kind)
+
 const listedGroups = () => {
   const moduleKinds = slotItems('customerEmails.kinds')
   return GROUPS.map(group => ({
     ...group,
-    kinds: group.kinds.filter(meta => !meta.sentByModule || moduleKinds.includes(meta.kind)),
+    kinds: group.kinds.filter(
+      meta =>
+        (!meta.scheduled || scheduleViewOf(meta.kind)) &&
+        (!meta.sentByModule || moduleKinds.includes(meta.kind))
+    ),
   })).filter(group => group.kinds.length > 0 || (group.placeholders?.length ?? 0) > 0)
 }
 
@@ -342,6 +346,7 @@ export const EmailKindsView = ({ onOpenView }: { onOpenView: (view: string) => v
               {group.kinds.map(meta => {
                 const serverInfo = kindInfo(meta.kind)
                 const info = serverInfo ?? meta
+                const scheduleView = scheduleViewOf(meta.kind)
                 return (
                   <KindRow
                     key={meta.kind}
@@ -363,14 +368,14 @@ export const EmailKindsView = ({ onOpenView }: { onOpenView: (view: string) => v
                     selected={selectedKind === meta.kind}
                     onSelect={() => setSelectedKind(meta.kind)}
                   >
-                    {meta.scheduled && (
+                    {scheduleView && (
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
                         hasIcon
                         className="h-7 text-[13px]"
-                        onClick={() => onOpenView(REMINDERS_VIEW)}
+                        onClick={() => onOpenView(scheduleView.value)}
                       >
                         <CalendarClock size={13} />
                         Edit schedule

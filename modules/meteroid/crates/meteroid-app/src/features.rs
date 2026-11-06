@@ -109,8 +109,8 @@ pub mod gates {
     pub const PORTAL_EMBEDDING: FeatureCode = FeatureCode::new("portal_embedding");
     /// Changing the portal's theme mode and roundness.
     pub const PORTAL_THEMING: FeatureCode = FeatureCode::new("portal_theming");
-    /// Per-kind settings, audiences, sender settings, test sends of customer emails and the copy
-    /// of payment reminder steps.
+    /// Per-kind settings, audiences, sender settings and test sends of customer emails, and the
+    /// copy of payment reminder steps.
     pub const EMAIL_CUSTOMIZATION: FeatureCode = FeatureCode::new("email_customization");
 }
 

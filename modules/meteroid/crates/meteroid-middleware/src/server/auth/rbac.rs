@@ -650,6 +650,8 @@ mod tests {
             ("PreviewEmail", SettingsRead),
             ("UpdateEmailSettings", SettingsManage),
             ("SetEmailKindEnabled", SettingsManage),
+            ("GetPaymentRemindersEnabled", SettingsRead),
+            ("SetPaymentRemindersEnabled", SettingsManage),
             ("SetEmailKindAudience", SettingsManage),
             ("ClearEmailKindAudience", SettingsManage),
             ("PreviewEmailKindAudience", SettingsRead),

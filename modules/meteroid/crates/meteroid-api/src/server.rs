@@ -235,10 +235,6 @@ pub async fn start_api_server_with_incoming(
             services.clone(),
             feature_resolver.clone(),
         ))
-        .add_service(api::paymentreminders::service(
-            store.clone(),
-            feature_resolver.clone(),
-        ))
         .add_service(meteroid_app::featuregates::service(
             store.clone(),
             feature_resolver.clone(),

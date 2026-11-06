@@ -2,24 +2,24 @@ import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
 import { Maximize2Icon, XIcon } from 'lucide-react'
 import { useState } from 'react'
 
-import { RemindersView } from '@/features/payment-reminders/RemindersView'
+import { placeAfter, slotItems } from '@/edition'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
 import { SettingsSection } from '@/features/settings/components/SettingsSection'
 import { entitlementCodes, useEntitlement } from '@/hooks/useEntitlement'
 import { useQueryState } from '@/hooks/useQueryState'
 
 import { DeliveryView } from './DeliveryView'
-import { EmailKindsView, REMINDERS_VIEW } from './EmailKindsView'
+import { EmailKindsView } from './EmailKindsView'
+import { PaymentRemindersSwitch } from './PaymentRemindersSwitch'
 import { SenderView } from './SenderView'
 import { SentEmailsView } from './SentEmailsView'
 
 const tabTriggerCls =
   'rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none'
 
-const VIEWS = [
+const CORE_VIEWS = [
   { value: 'emails', label: 'Emails' },
   { value: 'general', label: 'General' },
-  { value: REMINDERS_VIEW, label: 'Payment reminders' },
   { value: 'activity', label: 'Activity' },
 ]
 
@@ -27,13 +27,19 @@ export const CustomerEmailsTab = () => {
   const [requestedView, setView] = useQueryState('view', 'emails', { replace: true })
   const [fullscreen, setFullscreen] = useState(false)
 
-  const view = VIEWS.some(v => v.value === requestedView) ? requestedView : 'emails'
+  const moduleViews = slotItems('customerEmails.views')
+  const tabList = placeAfter<{ value: string; label: string; after?: string }>(
+    CORE_VIEWS,
+    moduleViews,
+    v => v.value
+  )
+  const view = tabList.some(v => v.value === requestedView) ? requestedView : 'emails'
   const customization = useEntitlement(entitlementCodes.EMAIL_CUSTOMIZATION)
 
   const views = (
     <Tabs value={view} onValueChange={setView} className="w-full">
       <TabsList className="h-auto w-full justify-start gap-6 rounded-none border-b border-border bg-transparent p-0">
-        {VIEWS.map(v => (
+        {tabList.map(v => (
           <TabsTrigger key={v.value} value={v.value} className={tabTriggerCls}>
             {v.label}
           </TabsTrigger>
@@ -45,9 +51,11 @@ export const CustomerEmailsTab = () => {
       <TabsContent value="general" className="mt-5">
         <SenderView />
       </TabsContent>
-      <TabsContent value={REMINDERS_VIEW} className="mt-5">
-        <RemindersView />
-      </TabsContent>
+      {moduleViews.map(({ value, Content }) => (
+        <TabsContent key={value} value={value} className="mt-5">
+          <Content />
+        </TabsContent>
+      ))}
       <TabsContent value="activity" className="mt-5">
         <SentEmailsView />
       </TabsContent>
@@ -60,10 +68,10 @@ export const CustomerEmailsTab = () => {
         <DeliveryView />
         <SettingsSection
           title="Customer emails"
-          description="Your customers receive every default email, sent in your entity's legal name. Payment reminders follow the sequences below, with the built-in copy."
+          description="Your customers receive every default email, sent in your entity's legal name."
           action={<InvoicingEntitySelect />}
         >
-          <RemindersView />
+          <PaymentRemindersSwitch />
         </SettingsSection>
       </div>
     )

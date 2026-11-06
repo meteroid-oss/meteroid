@@ -32,6 +32,24 @@ message SetEmailKindEnabledResponse {
   EmailSettings settings = 1;
 }
 
+// The entity's default payment reminders: 3 days before the due date, on it, then 7 and 14 days after.
+message GetPaymentRemindersEnabledRequest {
+  string invoicing_entity_id = 1;
+}
+
+message GetPaymentRemindersEnabledResponse {
+  bool enabled = 1;
+}
+
+message SetPaymentRemindersEnabledRequest {
+  string invoicing_entity_id = 1;
+  bool enabled = 2;
+}
+
+message SetPaymentRemindersEnabledResponse {
+  bool enabled = 1;
+}
+
 message SetEmailKindAudienceRequest {
   string invoicing_entity_id = 1;
   // Any kind but PAYMENT_REMINDER.
@@ -178,6 +196,8 @@ service CustomerEmailsService {
   rpc GetEmailSettings(GetEmailSettingsRequest) returns (GetEmailSettingsResponse) {}
   rpc UpdateEmailSettings(UpdateEmailSettingsRequest) returns (UpdateEmailSettingsResponse) {}
   rpc SetEmailKindEnabled(SetEmailKindEnabledRequest) returns (SetEmailKindEnabledResponse) {}
+  rpc GetPaymentRemindersEnabled(GetPaymentRemindersEnabledRequest) returns (GetPaymentRemindersEnabledResponse) {}
+  rpc SetPaymentRemindersEnabled(SetPaymentRemindersEnabledRequest) returns (SetPaymentRemindersEnabledResponse) {}
   rpc SetEmailKindAudience(SetEmailKindAudienceRequest) returns (SetEmailKindAudienceResponse) {}
   rpc ClearEmailKindAudience(ClearEmailKindAudienceRequest) returns (ClearEmailKindAudienceResponse) {}
   rpc PreviewEmailKindAudience(PreviewEmailKindAudienceRequest) returns (PreviewEmailKindAudienceResponse) {}

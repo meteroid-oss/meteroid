@@ -86,7 +86,8 @@ reconciling spreadsheets.
   Enterprise images.
 - [**Invoicing:**](https://docs.meteroid.com/invoices/managing-invoices) invoices and credit notes in eight
   languages, tax-inclusive or exclusive prices, e-invoicing as Factur-X or XRechnung, and payment
-  reminder sequences before and after the due date.
+  reminders before and after the due date. Reminder sequences per customer group come with the
+  Enterprise images.
 - [**Payments:**](https://docs.meteroid.com/integrations/general-information) Stripe, GoCardless, Mollie and Stancer, with automatic retries, refunds, and a customer
   portal and hosted checkout. Customers change their own plan, add-ons and seats from the portal
   with the Enterprise images.
