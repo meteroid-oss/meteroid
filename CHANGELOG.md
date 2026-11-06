@@ -26,8 +26,8 @@ Meteroid Enterprise. The open-source edition now includes a lot more, and gets b
 patches much faster.
 
 The official Docker images are now Meteroid Enterprise: free for companies under 50 employees and €2M
-in annual revenue, with even more features. To run the open-source edition only, build the images from this repository. Details in
-[Editions](https://docs.meteroid.com/self-hosting/editions).
+in annual revenue, with even more features. To run the open-source edition only, use the `meteroid-oss-*` images,
+or build them from this repository. Details in [Editions](https://docs.meteroid.com/self-hosting/editions).
 
 The Helm chart is now officially maintained by our team.
 
@@ -100,58 +100,9 @@ The Meteroid Team
 
 ### Enterprise
 
-Each feature is marked **free** (with the Enterprise images, no license) or **license**.
-
-#### Editions and licensing
-- The official Docker images are the Enterprise build, free for companies under 50 employees and €2M in annual revenue; larger companies need a commercial license. Without a license, an installation runs one Production tenant per organization, one invoicing entity per tenant, and the free features below. A license, activated in Settings › License, unlocks the others, and you can switch between the open-source and Enterprise images on the same database.
-- **Several invoicing entities and organizations** (license), which the open-source edition had up to 1.0.0-rc7.
-- **License issuing** (license): issue signed software licenses to your customers, tied to their subscriptions or not, with the activation protocol their installations refresh against.
-
-#### Credits
-- **Credit units** (free): your own currency of credit, such as "API credits": you price usage in it, sell it at a price per currency, and bill usage beyond the balance as overage in money.
-- **Credit packs** (free): included in plans, add-ons and subscriptions, sold or free, granted every period or once at start, with expiry and rollover.
-- **Self-serve top-ups** (free): customers buy credit in the portal when you allow it.
-- **Scoped credit** (license): grants for one subscription, for usage only or for some products.
-
-#### Customer portal
-- **Self-service** (free): customers change their plan, add-ons and seats, top up credit and redeem promotion codes. The open-source portal shows the same screens read-only, and customers still pay their invoices, manage payment methods and cancel.
-- **Embedded portal** (license): the portal and its widgets inside your application.
-- **Portal theming** (license): theme mode and corner roundness, on top of your logo and colors.
-
-#### Billing and invoicing
-- **Dunning** (free): payment reminder sequences per invoicing entity, with steps before and after the due date, audience rules, editable copy per language and per-customer overrides.
-- **Tax reports** (free): the VAT return and the EC Sales List, ready to file.
-- **E-invoicing** (free): invoices and credit notes are issued as EN 16931 Factur-X or XRechnung documents. Missing fields are listed before finalization, and the outcome shows on the invoice list, in the REST API and in the `invoice.accounting_pdf_generated` webhook.
-- **Customer email customization** (free): which emails go out and to whom, the sender, previews and test sends, and a log of every sent or skipped email.
-- **Invoice consolidation** (license): bill all of a customer's subscriptions on one invoice.
-- **Minimum commitments** (license): a minimum spend per billing period on plans, subscriptions and quotes. The shortfall is billed as a true-up of the closed period, after coupons.
-- **Invoice annexes** (license): usage tables built from your events, attached to invoices and editable on corrections.
-- **Custom properties** (license): your own typed fields on customers, subscriptions, invoices, credit notes and quotes, usable in filters, breakdowns and CSV imports.
-
-#### Quotes
-- **Several signers** (license): collect signatures from several people on a quote.
-- **Purchase orders** (license): customers add their purchase order to the quote they sign.
-
-#### Usage controls
-- **Live balances and limits** (free): live credit balances, low-balance and threshold alerts, hard limits on metered entitlements, and a real-time access check (REST and client API) that your product calls before serving a request. Meteroid never rejects usage events.
-- **When credit runs out** (free): a rule on the plan (invoice the overage, deny access at zero, or invoice up to a cap then deny access), with a per-wallet override.
-- **Usage costs** (license): what each customer's and subscription's usage costs over time, and a running total of the usage the next invoice will bill, in the REST API (beta).
-- **Budgets** (license): cap a customer's or one subscription's usage spend with alerts or denied access. Customers can manage them in the portal.
-- **Automatic top-ups** (license): buy credit automatically when a wallet runs low, within a monthly cap. Customers can manage them in the portal.
-
-#### Intelligence
-- **MRR and revenue reports** (free): recurring revenue and revenue, with their movements over time.
-- **Analytics and dashboards** (license): explore any metric, break it down by customer, plan, segment or custom property, and share dashboards. An activation funnel shows how new customers reach their first paid invoice, and where they stall.
-- **Customer signals and steering** (license): see which customers are at risk or ready to expand, set targets on your metrics with pacing against recent periods, and send alerts to Slack, Discord, email or a webhook.
-
-#### Security and access
-- **Single sign-on** (license): your team signs in through your identity provider (OIDC) on the domains you verify, and you can enforce it.
-- **Required two-factor authentication, custom roles, security and audit logs** (license).
-
-#### Multi-business and platform
-- **Several Production tenants and organizations, and Connect** (license): Connect lets businesses on your platform bill their own customers through you. A connected account created through the REST API goes through onboarding.
-- **White-label** (license): "Powered by Meteroid" is hidden from portals, checkout and emails.
-- **Production hardening** (free): a Redis-backed API rate limiter and a guard that keeps outbound webhooks and alerts away from private or disallowed addresses; new organizations start with a Sandbox tenant.
+The official images run Meteroid Enterprise: the code of this repository plus proprietary modules, free
+for companies under 50 employees and €2M in annual revenue. What each edition includes is listed in
+[Editions](https://docs.meteroid.com/self-hosting/editions).
 
 ### Upgrade notes
 
@@ -220,7 +171,7 @@ database first: the migrations are not meant to be reverted.
   keep the `svix-*` headers next to the Standard Webhooks `webhook-*` ones.
 - Coming from 0.19, the payload is no longer wrapped in `data`: the object's fields are at the
   top level, and its identifier has its own field (`customer_id`, `invoice_id`...).
-- The Enterprise images refuse private and loopback destinations and plain `http`, unless
+- Meteroid refuses private and loopback destinations and plain `http`, unless
   `WEBHOOK_ALLOW_PRIVATE_DESTINATIONS=true`.
 
 #### REST API
