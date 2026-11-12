@@ -9,12 +9,13 @@ use crate::StoreResult;
 use crate::domain::credit_notes::CreditNote;
 use crate::domain::credit_units::CreditUnitRef;
 use crate::domain::entity_activity::Actor;
+use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::invoice_lines::LineItem;
 use crate::domain::subscription_changes::{PackChange, PackChangeKind};
 use crate::domain::subscription_changes::{ProrationLineItem, ProrationResult};
 use crate::domain::{
-    Invoice, LineItemKind, Subscription, SubscriptionComponent, SubscriptionDetails,
-    SubscriptionFee,
+    Invoice, LineItemKind, Subscription, SubscriptionAddOn, SubscriptionComponent,
+    SubscriptionDetails, SubscriptionFee,
 };
 use crate::errors::StoreError;
 use crate::repositories::credit::customer_credit::{
@@ -33,15 +34,17 @@ use crate::services::subscriptions::plan_change::PreparedPlanChange;
 use crate::services::subscriptions::proration::{
     DayFraction, capped_pack_fee_credit, component_advance_amount_cents, is_period_tied,
 };
+use crate::services::subscriptions::utils::scale_fee;
 use crate::store::PgConn;
 use chrono::{DateTime, NaiveDate, Utc};
 use common_domain::ids::{
-    BaseId, CreditGrantId, CreditNoteId, CustomerId, InvoiceId, PriceComponentId, SubscriptionId,
-    TenantId,
+    BaseId, CreditGrantId, CreditNoteId, CustomerId, InvoiceId, PriceComponentId,
+    SubscriptionAddOnId, SubscriptionId, TenantId,
 };
 use diesel_models::customer_credit::CustomerCreditGrantRow;
 use diesel_models::lock::CustomerLock;
 use diesel_models::slot_transactions::SlotTransactionRow;
+use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use diesel_models::subscription_events::SettlingEnding;
 use error_stack::Report;
 use rust_decimal::prelude::ToPrimitive;
@@ -197,14 +200,26 @@ impl Ending {
             .values()
             .map(|root| root.to_string())
             .collect();
-        Self::of_components(
+        let mut ending = Self::of_components(
             PeriodCreditRemoval::PlanChange,
             &prepared.proration.lines,
             &prepared.subscription_details,
             &carried,
             at,
             midnight(at),
-        )
+        );
+        ending.end_add_ons(&prepared.ending_add_ons);
+        ending
+    }
+
+    fn end_add_ons(&mut self, add_ons: &[SubscriptionAddOn]) {
+        for add_on in add_ons.iter().filter(|a| is_period_tied(&a.fee)) {
+            self.tied_packs.insert(add_on.lineage().to_string());
+        }
+        self.reach_months = add_ons
+            .iter()
+            .map(|a| a.period.as_months().max(0) as u32)
+            .fold(self.reach_months, u32::max);
     }
 
     /// An immediate cancellation: every component and add-on ends. A true-up is never credited; a
@@ -224,14 +239,7 @@ impl Ending {
             at,
             settle_at,
         );
-        for add_on in details.add_ons.iter().filter(|a| is_period_tied(&a.fee)) {
-            ending.tied_packs.insert(add_on.lineage().to_string());
-        }
-        ending.reach_months = details
-            .add_ons
-            .iter()
-            .map(|a| a.period.as_months().max(0) as u32)
-            .fold(ending.reach_months, u32::max);
+        ending.end_add_ons(&details.add_ons);
         ending.credits_minimum = credits_minimum;
         ending
     }
@@ -369,15 +377,55 @@ impl Ending {
                 ending.tied_packs.insert(key);
                 continue;
             }
-            let full = component_advance_amount_cents(&component.fee, &component.period, precision);
-            if full > 0
-                && let FeeCap::FullPeriod(total) =
-                    ending.fees.entry(key).or_insert(FeeCap::FullPeriod(0))
-            {
-                *total += full;
+            ending.add_full_period_fee(key, &component.fee, &component.period, precision);
+        }
+        let add_ons = SubscriptionAddOnRow::list_add_on_history_for_period(
+            conn,
+            &subscription_id,
+            at.pred_opt().unwrap_or(at),
+            at.succ_opt().unwrap_or(at),
+        )
+        .await?;
+        let continued: HashSet<SubscriptionAddOnId> = add_ons
+            .iter()
+            .filter(|row| row.effective_to.is_none_or(|to| to > at))
+            .map(|row| row.lineage_id.unwrap_or(row.id))
+            .collect();
+        for row in add_ons
+            .into_iter()
+            .filter(|row| row.effective_to == Some(at))
+        {
+            let add_on: SubscriptionAddOn = row.try_into()?;
+            if continued.contains(&add_on.lineage()) {
+                continue;
             }
+            let key = add_on.lineage().to_string();
+            ending.reach_months = ending
+                .reach_months
+                .max(add_on.period.as_months().max(0) as u32);
+            if is_period_tied(&add_on.fee) {
+                ending.tied_packs.insert(key);
+                continue;
+            }
+            let fee = scale_fee(&add_on.fee, add_on.quantity);
+            ending.add_full_period_fee(key, &fee, &add_on.period, precision);
         }
         Ok(ending)
+    }
+
+    fn add_full_period_fee(
+        &mut self,
+        key: String,
+        fee: &SubscriptionFee,
+        period: &SubscriptionFeeBillingPeriod,
+        precision: u8,
+    ) {
+        let full = component_advance_amount_cents(fee, period, precision);
+        if full > 0
+            && let FeeCap::FullPeriod(total) = self.fees.entry(key).or_insert(FeeCap::FullPeriod(0))
+        {
+            *total += full;
+        }
     }
 }
 

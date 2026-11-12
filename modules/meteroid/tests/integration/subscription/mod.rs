@@ -33,6 +33,7 @@ mod payment_reconciliation;
 mod payment_refunds;
 mod payment_webhook_settlement;
 mod plan_change;
+mod plan_change_addons;
 mod plan_change_checkout;
 mod portal_plan_change;
 mod promo_credit;

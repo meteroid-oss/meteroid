@@ -1,7 +1,7 @@
 use crate::StoreResult;
-use crate::domain::SubscriptionDetails;
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::subscription_changes::{ProrationResult, RemovedComponent};
+use crate::domain::{SubscriptionAddOn, SubscriptionDetails};
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::repositories::entity_activity::EntityActivityInterface;
@@ -593,14 +593,7 @@ pub(crate) fn cancellation_proration(
             net_key: Some(c.lineage().to_string()),
         });
     }
-    for a in &details.add_ons {
-        removed.push(RemovedComponent {
-            name: a.name.clone(),
-            current_fee: scale_fee(&a.fee, a.quantity),
-            current_period: a.period,
-            net_key: Some(a.lineage().to_string()),
-        });
-    }
+    removed.extend(details.add_ons.iter().map(removed_add_on));
     calculate_proration(
         &[],
         &[],
@@ -610,4 +603,14 @@ pub(crate) fn cancellation_proration(
         termination_date,
         precision,
     )
+}
+
+/// An ending add-on as the proration credits it: its fee for every instance, keyed by lineage.
+pub(crate) fn removed_add_on(add_on: &SubscriptionAddOn) -> RemovedComponent {
+    RemovedComponent {
+        name: add_on.name.clone(),
+        current_fee: scale_fee(&add_on.fee, add_on.quantity),
+        current_period: add_on.period,
+        net_key: Some(add_on.lineage().to_string()),
+    }
 }

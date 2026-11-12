@@ -623,7 +623,7 @@ impl Services {
                 }
             }
 
-            // Remove subscription add-ons incompatible with the new plan version
+            // Add-ons the new plan version does not offer end with the old plan.
             let compatible_addon_ids: Vec<common_domain::ids::AddOnId> =
                 PlanVersionAddOnRow::list_by_plan_version_id(
                     conn,
@@ -636,10 +636,11 @@ impl Services {
                 .map(|pva| pva.add_on_id)
                 .collect();
 
-            let removed_addons = SubscriptionAddOnRow::delete_incompatible(
+            let removed_addons = SubscriptionAddOnRow::close_incompatible(
                 conn,
                 &event.subscription_id,
                 &compatible_addon_ids,
+                apply_date,
             )
             .await
             .map_err(Into::<error_stack::Report<StoreError>>::into)?;
@@ -648,7 +649,7 @@ impl Services {
                 log::log!(
                     target: applying.target(),
                     level,
-                    "Removed {} incompatible add-on(s) during scheduled plan change for subscription {}: {:?}",
+                    "Ended {} incompatible add-on(s) during scheduled plan change for subscription {}: {:?}",
                     removed_addons.len(),
                     event.subscription_id,
                     removed_addons

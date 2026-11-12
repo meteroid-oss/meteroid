@@ -1,5 +1,4 @@
 use crate::StoreResult;
-use crate::domain::SubscriptionStatusEnum;
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::price_components::resolve_legacy_subscription_fee;
@@ -19,6 +18,7 @@ use crate::domain::subscription_components::{
     ComponentParameterization, ComponentParameters, SubscriptionComponent,
     SubscriptionComponentNew, SubscriptionComponentNewInternal, SubscriptionFee,
 };
+use crate::domain::{SubscriptionAddOn, SubscriptionStatusEnum};
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::repositories::entity_activity::EntityActivityInterface;
@@ -27,11 +27,12 @@ use crate::services::subscriptions::proration::{
     DayFraction, calculate_proration, component_proration_factor, detect_change_direction,
     pack_charge_line,
 };
+use crate::services::subscriptions::terminate::removed_add_on;
 use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
 use chrono::{Datelike, NaiveDate, NaiveTime};
 use common_domain::ids::{
-    BaseId, CreditNoteId, PlanVersionId, PriceComponentId, ProductId, SubscriptionId,
+    AddOnId, BaseId, CreditNoteId, PlanVersionId, PriceComponentId, ProductId, SubscriptionId,
     SubscriptionPriceComponentId, TenantId,
 };
 use common_utils::decimals::ToSubunit;
@@ -83,6 +84,7 @@ struct ValidatedPlanChangeContext {
     products: HashMap<ProductId, Product>,
     units: crate::domain::credit_units::CreditUnitsById,
     target_minimum: Option<crate::domain::plan_minimums::PlanMinimum>,
+    compatible_add_on_ids: Vec<AddOnId>,
 }
 
 /// A minimum commitment is a term of the period: it changes at the period's end, never within.
@@ -186,12 +188,21 @@ async fn load_validated_plan_change_context(
     )
     .await?;
 
+    let compatible_add_on_ids =
+        PlanVersionAddOnRow::list_by_plan_version_id(conn, new_plan_version_id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(|pva| pva.add_on_id)
+            .collect();
+
     Ok(ValidatedPlanChangeContext {
         subscription_details,
         target_components,
         products,
         units,
         target_minimum,
+        compatible_add_on_ids,
     })
 }
 
@@ -869,10 +880,23 @@ impl Services {
             })
             .cloned()
             .collect();
+        let ending_add_ons: Vec<SubscriptionAddOn> = ctx
+            .subscription_details
+            .add_ons
+            .iter()
+            .filter(|a| !ctx.compatible_add_on_ids.contains(&a.add_on_id))
+            .cloned()
+            .collect();
+        let removed: Vec<RemovedComponent> = preview
+            .removed
+            .iter()
+            .cloned()
+            .chain(ending_add_ons.iter().map(removed_add_on))
+            .collect();
         let mut proration = calculate_proration(
             &changed,
             &added_recurring,
-            &preview.removed,
+            &removed,
             period_start,
             period_end,
             change_date,
@@ -916,6 +940,8 @@ impl Services {
             direction,
             precision,
             target_minimum: ctx.target_minimum,
+            compatible_add_on_ids: ctx.compatible_add_on_ids,
+            ending_add_ons,
         })
     }
 
@@ -1088,32 +1114,21 @@ impl Services {
             }
         }
 
-        // Remove subscription add-ons incompatible with the new plan version
-        let compatible_addon_ids: Vec<common_domain::ids::AddOnId> =
-            PlanVersionAddOnRow::list_by_plan_version_id(conn, new_plan_version_id, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .into_iter()
-                .map(|pva| pva.add_on_id)
-                .collect();
-
-        let removed_addons = SubscriptionAddOnRow::delete_incompatible(
+        let ended_addons = SubscriptionAddOnRow::close_incompatible(
             conn,
             &subscription_id,
-            &compatible_addon_ids,
+            &prepared.compatible_add_on_ids,
+            change_date,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-        if !removed_addons.is_empty() {
+        if !ended_addons.is_empty() {
             log::info!(
-                "Removed {} incompatible add-on(s) during plan change for subscription {}: {:?}",
-                removed_addons.len(),
+                "Ended {} incompatible add-on(s) during plan change for subscription {}: {:?}",
+                ended_addons.len(),
                 subscription_id,
-                removed_addons
-                    .iter()
-                    .map(|a| a.add_on_id)
-                    .collect::<Vec<_>>(),
+                ended_addons.iter().map(|a| a.add_on_id).collect::<Vec<_>>(),
             );
         }
 
@@ -1295,6 +1310,9 @@ pub struct PreparedPlanChange {
     target_minimum: Option<crate::domain::plan_minimums::PlanMinimum>,
     /// In a trial that bills nothing, as activation decides it (`trial_is_free_tx`).
     free_trial: bool,
+    compatible_add_on_ids: Vec<AddOnId>,
+    /// The subscription's add-ons the target plan version does not offer: they end at the change.
+    pub(crate) ending_add_ons: Vec<SubscriptionAddOn>,
 }
 
 impl PreparedPlanChange {

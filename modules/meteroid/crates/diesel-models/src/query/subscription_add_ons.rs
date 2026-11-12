@@ -9,21 +9,25 @@ use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 
 impl SubscriptionAddOnRow {
-    /// Delete subscription add-ons whose add_on_id is NOT in the allowed set.
-    pub async fn delete_incompatible(
+    /// Ends, on `effective_to`, the active add-ons whose add_on_id is not in the allowed set:
+    /// their history stays, so the period's invoice still bills what they owe up to then.
+    pub async fn close_incompatible(
         conn: &mut PgConn,
         subscription_id: &SubscriptionId,
         compatible_add_on_ids: &[common_domain::ids::AddOnId],
+        effective_to: NaiveDate,
     ) -> DbResult<Vec<SubscriptionAddOnRow>> {
         use crate::schema::subscription_add_on::dsl as sao_dsl;
 
-        let query = diesel::delete(
+        let query = diesel::update(
             sao_dsl::subscription_add_on
                 .filter(sao_dsl::subscription_id.eq(subscription_id))
+                .filter(sao_dsl::effective_to.is_null())
                 .filter(diesel::dsl::not(
                     sao_dsl::add_on_id.eq_any(compatible_add_on_ids),
                 )),
         )
+        .set(sao_dsl::effective_to.eq(effective_to))
         .returning(SubscriptionAddOnRow::as_select());
 
         crate::debug_sql(&query);
@@ -31,7 +35,7 @@ impl SubscriptionAddOnRow {
         query
             .get_results(conn)
             .await
-            .attach("Error while deleting incompatible subscription add-ons")
+            .attach("Error while closing incompatible subscription add-ons")
             .into_db_result()
     }
 
