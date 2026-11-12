@@ -35,17 +35,21 @@ message IssueLicenseRequest {
   bool offline = 4;
   // Offline only: the installation the license names and stays bound to.
   optional string instance_id = 5;
+  // Ephemeral (CI, short-lived installations): the activation code is reusable, each activation
+  // gets a license of this many hours (1-24), never refreshed. Not with offline or validity_days.
+  optional uint32 ephemeral_hours = 6;
 }
 
 message IssueLicenseResponse {
   License license = 1;
-  // Online: the one-time code the installation activates the license with.
+  // Online: the one-time code the installation activates the license with. Ephemeral: the
+  // reusable one.
   optional string activation_code = 2;
   // Offline: the signed license, installed in the instance (settings or LICENSE_KEY).
   optional string offline_license = 3;
 }
 
-// The activation code of a license that wasn't activated yet.
+// The activation code of a license that wasn't activated yet, or of a live ephemeral one.
 message GetActivationCodeRequest {
   string id = 1;
 }

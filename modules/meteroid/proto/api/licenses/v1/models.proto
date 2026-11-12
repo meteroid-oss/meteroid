@@ -30,6 +30,8 @@ message License {
   // Another copy of the installation, refused in the last day while this one kept refreshing:
   // a clone, or a staging copy of production.
   optional OtherCopy other_copy = 15;
+  // Ephemeral: each activation of the reusable code gets a license of this many hours.
+  optional uint32 ephemeral_hours = 16;
 }
 
 message OtherCopy {

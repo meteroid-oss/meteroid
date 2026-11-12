@@ -1809,6 +1809,7 @@ diesel::table! {
         contender_seen_at -> Nullable<Timestamp>,
         contender_url -> Nullable<Text>,
         stats_reported_through -> Nullable<Date>,
+        ephemeral_hours -> Nullable<Int4>,
     }
 }
 

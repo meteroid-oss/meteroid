@@ -70,8 +70,10 @@ pub const HELD_BY_ANOTHER_COPY: &str = "another copy of this installation holds 
 pub struct LicenseResponse {
     /// The signed license JWT.
     pub license: String,
-    /// Replaces the refresh token used for this call.
-    pub refresh_token: String,
+    /// Replaces the refresh token used for this call. Absent for an ephemeral license, which
+    /// is activated again instead of refreshed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
 }
 
 /// The body of a 403 that revokes a license at once. A bare 403 only stops its renewal.
