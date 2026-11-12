@@ -82,6 +82,30 @@ async fn test_plans_basic() {
 
     assert_eq!(&plan_details, &created_plan_details);
 
+    let active_or_draft = |local_id: String| {
+        let mut plans = clients.plans.clone();
+        async move {
+            plans
+                .get_plan_with_version(api::plans::v1::GetPlanWithVersionRequest {
+                    local_id,
+                    filter: Some(
+                        api::plans::v1::get_plan_with_version_request::Filter::ActiveOrDraft(()),
+                    ),
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .plan
+                .unwrap()
+        }
+    };
+
+    // never published: active_or_draft falls back to the draft
+    assert_eq!(
+        &active_or_draft(created_plan.local_id.clone()).await,
+        &created_plan_details
+    );
+
     // list plans
     let plans = clients
         .plans
@@ -204,6 +228,15 @@ async fn test_plans_basic() {
         .unwrap();
 
     assert_eq!(&last_published_version, &published_version);
+
+    // published, with a newer draft: active_or_draft picks the published version
+    assert_eq!(
+        active_or_draft(created_plan.local_id.clone())
+            .await
+            .version
+            .as_ref(),
+        Some(&published_version)
+    );
 
     // update draft plan
     let update = |kind: api::plans::v1::credit_exhausted_rule::Kind, caps| {
@@ -455,4 +488,52 @@ async fn a_price_component_is_removed_from_a_draft_only() {
             .iter()
             .all(|c| c.id != seats.id)
     );
+}
+
+/// The list carries the products its components reference and the metrics those products bill on,
+/// so a plan renders without a lookup per component.
+#[tokio::test]
+async fn price_components_come_with_their_products_and_metrics() {
+    use crate::data::ids::{
+        METRIC_BANDWIDTH, PLAN_VERSION_USAGE_ID, PRODUCT_BANDWIDTH_ID, PRODUCT_PLATFORM_FEE_ID,
+    };
+
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup =
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
+    let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
+    let clients = meteroid_it::clients::AllClients::from_channel(
+        setup.channel.clone(),
+        auth.token.clone().as_str(),
+        "TESTORG",
+        "testslug",
+    );
+
+    let res = clients
+        .price_components
+        .clone()
+        .list_price_components(api::components::v1::ListPriceComponentRequest {
+            plan_version_id: PLAN_VERSION_USAGE_ID.as_proto(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(
+        res.components
+            .iter()
+            .any(|c| c.product_id == Some(PRODUCT_BANDWIDTH_ID.as_proto()))
+    );
+    let mut product_ids: Vec<_> = res.products.iter().map(|p| p.id.clone()).collect();
+    product_ids.sort();
+    let mut expected = vec![
+        PRODUCT_BANDWIDTH_ID.as_proto(),
+        PRODUCT_PLATFORM_FEE_ID.as_proto(),
+    ];
+    expected.sort();
+    assert_eq!(product_ids, expected);
+    let metric_ids: Vec<_> = res.metrics.iter().map(|m| m.id.clone()).collect();
+    assert_eq!(metric_ids, vec![METRIC_BANDWIDTH.as_proto()]);
 }

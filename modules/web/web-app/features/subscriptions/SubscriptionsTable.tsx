@@ -11,9 +11,11 @@ import { SubscriptionStatusBadge } from '@/features/subscriptions/SubscriptionSt
 import { formatUsageFilter } from '@/features/subscriptions/UsageFilterFields'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useCurrency } from '@/hooks/useCurrency'
+import { usePrefetch } from '@/hooks/usePrefetch'
 import { mapDateFromGrpcv2 } from '@/lib/mapping'
 import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 import { Subscription } from '@/rpc/api/subscriptions/v1/models_pb'
+import { getSubscriptionDetails } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 
 import type { FunctionComponent } from 'react'
 
@@ -49,6 +51,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
 }) => {
   const { formatAmount } = useCurrency()
   const basePath = useBasePath()
+  const prefetch = usePrefetch()
 
   const { columns: customPropertyColumns, hiddenIds: customPropertyHiddenIds } =
     useCustomPropertyColumns<Subscription>(CustomPropertyEntityType.SUBSCRIPTION)
@@ -148,6 +151,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
       isLoading={isLoading}
       defaultHidden={tableKey ? customPropertyHiddenIds : undefined}
       rowLink={row => `${basePath}/subscriptions/${row.original.id}`}
+      onRowIntent={row => prefetch(getSubscriptionDetails, { subscriptionId: row.original.id })}
       chart={chart}
     />
   )

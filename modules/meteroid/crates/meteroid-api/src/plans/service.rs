@@ -28,6 +28,7 @@ use meteroid_store::domain;
 use meteroid_store::domain::{
     PlanAndVersionPatch, PlanFilters, PlanPatch, PlanVersionFilter, PlanVersionPatch, TrialPatch,
 };
+use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::plans::PlansInterfaceAuto;
 use meteroid_store::repositories::{PlansInterface, ProductFamilyInterface};
 use tonic::{Request, Response, Status};
@@ -424,21 +425,30 @@ impl PlansService for PlanServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let filter = match req.filter {
-            None => PlanVersionFilter::Active,
+        let plan_id = PlanId::from_proto(&req.local_id)?;
+        let (filter, fallback_to_draft) = match req.filter {
+            None => (PlanVersionFilter::Active, false),
             Some(c) => match c {
-                Filter::Version(v) => PlanVersionFilter::Version(v as i32),
-                Filter::Draft(()) => PlanVersionFilter::Draft,
-                Filter::Active(()) => PlanVersionFilter::Active,
+                Filter::Version(v) => (PlanVersionFilter::Version(v as i32), false),
+                Filter::Draft(()) => (PlanVersionFilter::Draft, false),
+                Filter::Active(()) => (PlanVersionFilter::Active, false),
+                Filter::ActiveOrDraft(()) => (PlanVersionFilter::Active, true),
             },
         };
 
-        let res = self
-            .store
-            .get_plan(PlanId::from_proto(&req.local_id)?, tenant_id, filter)
-            .await
-            .map(|x| PlanWithVersionWrapper::from(x).0)
-            .map_err(Into::<PlanApiError>::into)?;
+        let res = match self.store.get_plan(plan_id, tenant_id, filter).await {
+            Err(err)
+                if fallback_to_draft
+                    && matches!(err.current_context(), StoreError::ValueNotFound(_)) =>
+            {
+                self.store
+                    .get_plan(plan_id, tenant_id, PlanVersionFilter::Draft)
+                    .await
+            }
+            other => other,
+        }
+        .map(|x| PlanWithVersionWrapper::from(x).0)
+        .map_err(Into::<PlanApiError>::into)?;
 
         Ok(Response::new(GetPlanWithVersionResponse {
             plan: Some(res),

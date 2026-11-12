@@ -8,6 +8,8 @@ import {
   withCustomPropertyColumns,
 } from '@/features/customproperties/useCustomPropertyColumns'
 import { useBasePath } from '@/hooks/useBasePath'
+import { usePrefetch } from '@/hooks/usePrefetch'
+import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { CustomerBrief } from '@/rpc/api/customers/v1/models_pb'
 import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 
@@ -39,6 +41,7 @@ export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
   renderSelectionActions,
 }) => {
   const basePath = useBasePath()
+  const prefetch = usePrefetch()
 
   const baseColumns = useCustomersColumns({ rows: data })
   const { columns: customPropertyColumns, hiddenIds } = useCustomPropertyColumns<CustomerBrief>(
@@ -65,6 +68,7 @@ export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
         isLoading={isLoading}
         defaultHidden={hiddenIds}
         rowLink={row => `${basePath}/customers/${row.original.id}`}
+        onRowIntent={row => prefetch(getCustomerById, { id: row.original.id })}
         enableSelection={!!renderSelectionActions}
         getRowId={row => row.id}
         renderSelectionActions={renderSelectionActions}

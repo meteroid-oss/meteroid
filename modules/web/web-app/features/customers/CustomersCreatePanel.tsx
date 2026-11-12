@@ -30,7 +30,7 @@ import {
   INVOICE_LANGUAGE_DEFAULT,
   invoiceLanguageToLocales,
 } from '@/components/InvoiceLanguageSelect'
-import { Loading } from '@/components/Loading'
+import { InlineLoading } from '@/components/Loading'
 import { Slot } from '@/edition'
 import { OwnerField, useSaveOwner } from '@/features/customers/OwnerPicker'
 import { CustomerFormFields } from '@/features/customers/form/CustomerFormFields'
@@ -172,7 +172,7 @@ export const CustomersCreatePanel = ({ visible, closePanel }: CustomersCreatePan
               <div className="flex-1 overflow-y-auto">
                 <div className="space-y-6 p-6">
                   {isLoading ? (
-                    <Loading />
+                    <InlineLoading />
                   ) : (
                     <>
                       {/* Invoicing Entity & Currency - only shown on create */}

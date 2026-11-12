@@ -1,6 +1,8 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
 
+import { usePrefetch } from '@/hooks/usePrefetch'
 import { useQuery } from '@/lib/connectrpc'
 import {
   createView,
@@ -35,4 +37,30 @@ export function useListViews(listType: EntityListType) {
     duplicate: useMutation(duplicateView, opts),
     setDefault: useMutation(setDefaultView, opts),
   }
+}
+
+const LIST_TYPES = [
+  EntityListType.CUSTOMER,
+  EntityListType.SUBSCRIPTION,
+  EntityListType.INVOICE,
+  EntityListType.CREDIT_NOTE,
+  EntityListType.QUOTE,
+]
+
+/**
+ * A list waits for its saved views before its first query (to open the default view), so loading
+ * them up front, once the app is idle, turns that wait into a cache hit.
+ */
+export function usePrefetchListViews(tenantSlug?: string) {
+  const prefetch = usePrefetch()
+
+  useEffect(() => {
+    const run = () => LIST_TYPES.forEach(entityType => prefetch(listViews, { entityType }))
+    if (typeof window.requestIdleCallback !== 'function') {
+      const id = setTimeout(run, 1000)
+      return () => clearTimeout(id)
+    }
+    const id = window.requestIdleCallback(run, { timeout: 2000 })
+    return () => window.cancelIdleCallback(id)
+  }, [prefetch, tenantSlug])
 }

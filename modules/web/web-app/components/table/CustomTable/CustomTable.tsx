@@ -1,7 +1,6 @@
 import { ChevronDownIcon, ChevronUpIcon } from '@md/icons'
 import {
   Checkbox,
-  Skeleton,
   Table,
   TableBody,
   TableCell,
@@ -68,6 +67,8 @@ interface CustomTableProps<A> {
   getRowId?: (originalRow: A, index: number) => string
   renderSelectionActions?: (rows: Row<A>[]) => ReactNode
 }
+
+const MAX_SKELETON_ROWS = 10
 
 export const CustomTable = <A extends object>({
   columns,
@@ -199,21 +200,20 @@ export const CustomTable = <A extends object>({
 
   const tableBody = useMemo(() => {
     if (isLoading) {
-      const skeletonRows = pagination.pageSize
-      const skeletonColumns = columns.length
-
-      const skeletonRowsArray = Array.from({ length: skeletonRows })
-      const skeletonColumnsArray = Array.from({ length: skeletonColumns })
+      // One animation per row, not per cell: each animated element costs style and compositing work.
+      const skeletonRowsArray = Array.from({ length: Math.min(pagination.pageSize, MAX_SKELETON_ROWS) })
 
       return skeletonRowsArray.map((_, rowIndex) => (
-        <TableRow key={rowIndex}>
-          {skeletonColumnsArray.map((_, colIndex) => {
-            const header = columns[colIndex].header
+        <TableRow key={rowIndex} className="animate-pulse">
+          {columns.map((column, colIndex) => {
+            const header = column.header
             const isEmpty = typeof header === 'function'
 
             return (
               <TableCell key={colIndex}>
-                {header && !isEmpty ? <Skeleton className="h-[16px] w-[100px]" /> : null}
+                {header && !isEmpty ? (
+                  <div className="h-[16px] w-[100px] rounded-md bg-accent/50" />
+                ) : null}
               </TableCell>
             )
           })}

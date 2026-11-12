@@ -1,4 +1,4 @@
-use common_domain::ids::{PlanVersionId, PriceComponentId, ProductId};
+use common_domain::ids::{BillableMetricId, PlanVersionId, PriceComponentId, ProductId, TenantId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_app::features::ensure_credit_pricing_allowed;
 use meteroid_grpc::meteroid::api::components::v1::{
@@ -7,13 +7,21 @@ use meteroid_grpc::meteroid::api::components::v1::{
     ListPriceComponentResponse, RemovePriceComponentRequest,
     price_components_service_server::PriceComponentsService,
 };
+use std::collections::HashSet;
 use tonic::{Request, Response, Status};
 
+use meteroid_grpc::meteroid::api::billablemetrics::v1::BillableMetric as ProtoBillableMetric;
+use meteroid_grpc::meteroid::api::products::v1::Product as ProtoProduct;
 use meteroid_store::domain::price_components as domain;
+use meteroid_store::domain::prices::FeeStructure;
+use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::price_components::PriceComponentInterface;
 use meteroid_store::repositories::price_components::PriceComponentInterfaceAuto;
+use meteroid_store::repositories::products::ProductInterface;
 
+use crate::billablemetrics::mapping::metric::ServerBillableMetricWrapper;
 use crate::pricecomponents::error::PriceComponentApiError;
+use crate::productitems::mapping::products::ProductWrapper;
 use common_eventbus::Event;
 
 use super::{PriceComponentServiceComponents, mapping};
@@ -41,12 +49,20 @@ impl PriceComponentsService for PriceComponentServiceComponents {
                 )
             })?;
 
+        let (products, metrics) = self
+            .referenced_products_and_metrics(&domain_components, tenant_id)
+            .await?;
+
         let components = domain_components
             .into_iter()
             .map(mapping::components::domain_to_api)
             .collect();
 
-        let response = ListPriceComponentResponse { components };
+        let response = ListPriceComponentResponse {
+            components,
+            products,
+            metrics,
+        };
 
         Ok(Response::new(response))
     }
@@ -200,5 +216,66 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             .await;
 
         Ok(Response::new(EmptyResponse {}))
+    }
+}
+
+impl PriceComponentServiceComponents {
+    async fn referenced_products_and_metrics(
+        &self,
+        components: &[domain::PriceComponent],
+        tenant_id: TenantId,
+    ) -> Result<(Vec<ProtoProduct>, Vec<ProtoBillableMetric>), Status> {
+        let product_ids: Vec<ProductId> = components
+            .iter()
+            .filter_map(|c| c.product_id)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        if product_ids.is_empty() {
+            return Ok((vec![], vec![]));
+        }
+
+        let store_error = |what: &str, err: error_stack::Report<_>| {
+            PriceComponentApiError::StoreError(
+                format!("Failed to load the components' {what}"),
+                Box::new(err.into_error()),
+            )
+        };
+
+        let products = self
+            .store
+            .find_products_by_ids(&product_ids, tenant_id)
+            .await
+            .map_err(|err| store_error("products", err))?;
+
+        let metric_ids: Vec<BillableMetricId> = products
+            .iter()
+            .filter_map(|p| match &p.fee_structure {
+                FeeStructure::Capacity { metric_id } | FeeStructure::Usage { metric_id, .. } => {
+                    Some(*metric_id)
+                }
+                _ => None,
+            })
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        let metrics = self
+            .store
+            .find_billable_metrics_by_ids(&metric_ids, tenant_id)
+            .await
+            .map_err(|err| store_error("metrics", err))?
+            .into_iter()
+            .map(|m| ServerBillableMetricWrapper::try_from(m).map(|w| w.0))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| store_error("metrics", err))?;
+
+        Ok((
+            products
+                .into_iter()
+                .map(|p| ProductWrapper::from(p).0)
+                .collect(),
+            metrics,
+        ))
     }
 }

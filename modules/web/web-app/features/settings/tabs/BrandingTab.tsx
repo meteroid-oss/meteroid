@@ -15,7 +15,7 @@ import { Control, useWatch } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import { Loading } from '@/components/Loading'
+import { InlineLoading } from '@/components/Loading'
 import { Slot, useModule } from '@/edition'
 import { TEMPLATE_LOCALES } from '@/features/customer-emails/locales'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
@@ -160,7 +160,7 @@ export const BrandingTab = () => {
   const theming = useEntitlement(entitlementCodes.PORTAL_THEMING)
 
   if (isLoading) {
-    return <Loading />
+    return <InlineLoading />
   }
 
   const brandHex = brandColor && HEX_COLOR.test(brandColor) ? brandColor : undefined

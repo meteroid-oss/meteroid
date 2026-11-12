@@ -15,7 +15,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import { Loading } from '@/components/Loading'
+import { InlineLoading } from '@/components/Loading'
 import { CredentialsErrorBadge, railStatus } from '@/features/payments/connectors'
 import { PaymentRail, paymentProvider } from '@/features/payments/providers'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
@@ -326,7 +326,7 @@ export const PaymentMethodsTab = () => {
     providersQuery.isLoading ||
     bankAccountsQuery.isLoading
   ) {
-    return <Loading />
+    return <InlineLoading />
   }
 
   const paymentProviders =

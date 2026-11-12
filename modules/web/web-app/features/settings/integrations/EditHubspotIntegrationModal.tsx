@@ -11,7 +11,7 @@ import { useParams } from 'react-router'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import { Loading } from "@/components/Loading";
+import { InlineLoading } from "@/components/Loading";
 import { hubspotIntegrationSchema } from "@/features/settings/integrations/schemas";
 import { useDismissRouteModal } from '@/hooks/useDismissRouteModal'
 import { useZodForm } from "@/hooks/useZodForm";
@@ -72,7 +72,7 @@ export const EditHubspotIntegrationModal = () => {
   }
 
   if (!connection) {
-    return <Loading/>
+    return <InlineLoading />
   }
 
   return (

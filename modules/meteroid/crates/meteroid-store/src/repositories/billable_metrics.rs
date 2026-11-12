@@ -22,6 +22,12 @@ pub trait BillableMetricInterface {
         tenant_id: TenantId,
     ) -> StoreResult<domain::BillableMetric>;
 
+    async fn find_billable_metrics_by_ids(
+        &self,
+        ids: &[BillableMetricId],
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<domain::BillableMetric>>;
+
     async fn list_billable_metrics(
         &self,
         tenant_id: TenantId,
@@ -85,6 +91,24 @@ impl BillableMetricInterface for Store {
             .await
             .map_err(Into::into)
             .and_then(TryInto::try_into)
+    }
+
+    async fn find_billable_metrics_by_ids(
+        &self,
+        ids: &[BillableMetricId],
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<domain::BillableMetric>> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut conn = self.get_conn().await?;
+
+        BillableMetricRow::get_by_ids(&mut conn, ids, &tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect()
     }
 
     async fn list_billable_metrics(

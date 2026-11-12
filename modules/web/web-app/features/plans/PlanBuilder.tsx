@@ -8,7 +8,7 @@ import { ReactNode, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 
-import { Loading } from '@/components/Loading'
+import { InlineLoading } from '@/components/Loading'
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { SimpleTable } from '@/components/table/SimpleTable'
 import { Slot, hasSlot } from '@/edition'
@@ -261,11 +261,7 @@ const PlanBody = () => {
   const planData = usePlanWithVersion()
 
   if (planData.isLoading) {
-    return (
-      <>
-        <Loading/>
-      </>
-    )
+    return <InlineLoading />
   }
 
   if (!planData?.plan || !planData.version) {

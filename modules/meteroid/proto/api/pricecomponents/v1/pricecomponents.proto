@@ -2,7 +2,9 @@ syntax = "proto3";
 
 package meteroid.api.components.v1;
 
+import "api/billablemetrics/v1/models.proto";
 import "api/pricecomponents/v1/models.proto";
+import "api/products/v1/models.proto";
 
 message EditPriceComponentRequest {
   string plan_version_id = 1;
@@ -36,6 +38,10 @@ message ListPriceComponentRequest {
 
 message ListPriceComponentResponse {
   repeated PriceComponent components = 1;
+  // The products the components reference, and the metrics those products bill on,
+  // so a plan renders without a lookup per component.
+  repeated meteroid.api.products.v1.Product products = 2;
+  repeated meteroid.api.billablemetrics.v1.BillableMetric metrics = 3;
 }
 
 message EmptyResponse {

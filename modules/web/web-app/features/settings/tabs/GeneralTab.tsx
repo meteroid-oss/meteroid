@@ -15,7 +15,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import { Loading } from '@/components/Loading'
+import { InlineLoading } from '@/components/Loading'
 import { Slot } from '@/edition'
 import { DeliveryModeBadge } from '@/features/customer-emails/DeliveryView'
 import { DangerZone } from '@/features/settings/DangerZone'
@@ -142,7 +142,7 @@ export const GeneralTab = () => {
     getCurrenciesQuery.isLoading ||
     activeCurrenciesQuery.isLoading
   ) {
-    return <Loading />
+    return <InlineLoading />
   }
 
   const onSubmit = async (values: GeneralSettingsSchema) => {

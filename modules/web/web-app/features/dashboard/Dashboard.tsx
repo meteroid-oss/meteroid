@@ -3,14 +3,12 @@ import { Heart, SettingsIcon } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
-import { Loading } from '@/components/Loading'
 import { DetailsSection } from '@/features/dashboard/sections/DetailsSection'
 import { MrrSection } from '@/features/dashboard/sections/MrrSection'
 import { TopSection } from '@/features/dashboard/sections/TopSection'
 import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { useSyncQueries } from '@/hooks/useSyncQueries'
-import { useTenant } from '@/hooks/useTenant'
 import { useQuery } from '@/lib/connectrpc'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
@@ -18,7 +16,6 @@ export const Dashboard = () => {
   // Auto-refresh queries based on URL params (e.g., ?_sync=stats after onboarding)
   useSyncQueries()
   const isExpress = useIsExpressOrganization()
-  const { isRefetching } = useTenant()
   const { defaultEntity, isLoading: isLoadingEntity } = useInvoicingEntity()
 
   const username = useQuery(me)?.data?.user?.firstName
@@ -46,10 +43,6 @@ export const Dashboard = () => {
       return 'morning'
     }
   }, [])
-
-  if (isRefetching) {
-    return <Loading />
-  }
 
   return (
     <>

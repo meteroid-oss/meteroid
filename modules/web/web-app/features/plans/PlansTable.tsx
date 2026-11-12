@@ -16,6 +16,7 @@ import { Gate } from '@/components/Gate'
 import { LocalId } from '@/components/LocalId'
 import { StandardTable } from '@/components/table/StandardTable'
 import { PlanStatusBadge } from '@/features/plans/PlanStatusBadge'
+import { usePrefetchPlan } from '@/features/plans/hooks/usePlan'
 import { displayPlanType } from '@/features/plans/utils'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
 import { PlanOverview, PlanStatus } from '@/rpc/api/plans/v1/models_pb'
@@ -45,6 +46,7 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
 }) => {
   const queryClient = useQueryClient()
   const isExpress = useIsExpressOrganization()
+  const prefetchPlan = usePrefetchPlan()
 
   const archiveMutation = useMutation(archivePlan, {
     onSuccess: async () => {
@@ -194,6 +196,7 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
       totalCount={plansQuery.data?.paginationMeta?.totalItems ?? 0}
       isLoading={plansQuery.isLoading}
       rowLink={row => `${row.original.localId}`}
+      onRowIntent={row => prefetchPlan(row.original, plansQuery.dataUpdatedAt)}
     />
   )
 }

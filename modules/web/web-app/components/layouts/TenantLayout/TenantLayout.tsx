@@ -29,6 +29,7 @@ import { SeedingBanner } from '@/components/layouts/shared/SeedingBanner'
 import { TenantStatusBanner } from '@/components/layouts/shared/TenantStatusBanner'
 import { TestModeBanner } from '@/components/layouts/shared/TestModeBanner'
 import { Slot, slotItems, useNavMainSections, useVisibleItems } from '@/edition'
+import { usePrefetchListViews } from '@/features/listviews/useListViews'
 import UpdatesPopover from '@/features/updates/UpdatesPopover'
 import { useTrackLastVisited } from '@/features/updates/useUserPreferences'
 import { useLogout } from '@/hooks/useLogout'
@@ -63,6 +64,7 @@ export const TenantLayoutOutlet = () => {
   const { pathname } = useLocation()
   const { organizationSlug, tenantSlug } = useTypedParams()
   useTrackLastVisited(organizationSlug, tenantSlug)
+  usePrefetchListViews(tenantSlug)
 
   const navigate = useNavigate()
   const logout = useLogout()

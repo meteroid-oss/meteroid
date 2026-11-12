@@ -27,6 +27,7 @@ import { MarkAsPaidDialog } from '@/features/invoices/MarkAsPaidDialog'
 import { amountFormat } from '@/features/invoices/amountFormat'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useIsExpressOrganization } from '@/hooks/useIsExpressOrganization'
+import { usePrefetch } from '@/hooks/usePrefetch'
 import { useQuery } from '@/lib/connectrpc'
 import { InvoiceConfirmationDialog } from '@/pages/tenants/invoice/InvoiceConfirmationDialog'
 import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
@@ -231,6 +232,7 @@ export const InvoicesTable = ({
   columnState,
 }: InvoicesTableProps) => {
   const basePath = useBasePath()
+  const prefetch = usePrefetch()
   const isExpress = useIsExpressOrganization()
   const [now] = useState(() => new Date())
 
@@ -367,6 +369,7 @@ export const InvoicesTable = ({
       totalCount={totalCount}
       isLoading={isLoading}
       rowLink={row => `${basePath}/invoices/${row.original.id}`}
+      onRowIntent={row => prefetch(getInvoice, { id: row.original.id })}
       defaultHidden={
         tableKey ? [...INVOICES_DEFAULT_HIDDEN, ...customPropertyHiddenIds] : undefined
       }

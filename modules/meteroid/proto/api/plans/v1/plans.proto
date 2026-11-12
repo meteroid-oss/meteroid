@@ -133,6 +133,8 @@ message GetPlanWithVersionRequest {
     uint32 version = 2;
     google.protobuf.Empty draft = 3;
     google.protobuf.Empty active = 4;
+    // The active version, or the draft when the plan was never published.
+    google.protobuf.Empty active_or_draft = 5;
   }
 }
 

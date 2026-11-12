@@ -8,7 +8,7 @@ import {
   SortingState,
   flexRender,
 } from '@tanstack/react-table'
-import { ReactNode } from 'react'
+import { ReactNode, useRef } from 'react'
 import { Link } from 'react-router-dom'
 
 import { CustomTable } from '@/components/table/CustomTable'
@@ -26,6 +26,8 @@ interface StandardTableProps<A> {
   emptyMessage?: string | ReactNode
   isLoading?: boolean
   rowLink?: (row: Row<A>) => string
+  /** Called when a row is hovered for a moment or focused, to prefetch what its link opens. */
+  onRowIntent?: (row: Row<A>) => void
   rowClassName?: (row: Row<A>) => string
   // When set, enables per-user column visibility (persisted under this key) and
   // the discreet view-options menu. Omit to keep the plain table. Row height is
@@ -61,6 +63,7 @@ export const StandardTable = <A extends object>({
   emptyMessage = 'No data to display',
   isLoading,
   rowLink,
+  onRowIntent,
   rowClassName,
   tableKey,
   defaultHidden,
@@ -88,7 +91,7 @@ export const StandardTable = <A extends object>({
       setPagination={setPagination}
       totalCount={totalCount}
       emptyMessage={emptyMessage}
-      rowRenderer={row => standardRowRenderer(row, rowLink, rowClassName)}
+      rowRenderer={row => standardRowRenderer(row, rowLink, rowClassName, onRowIntent)}
       isLoading={isLoading}
       columnVisibility={enabled ? (columnState?.visibility ?? columnVisibility) : undefined}
       onColumnVisibilityChange={
@@ -118,7 +121,8 @@ export const StandardTable = <A extends object>({
 const standardRowRenderer = <A extends object>(
   row: Row<A>,
   rowLink?: (row: Row<A>) => string,
-  rowClassName?: (row: Row<A>) => string
+  rowClassName?: (row: Row<A>) => string,
+  onRowIntent?: (row: Row<A>) => void
 ) => {
   const cells = row.getVisibleCells().map(cell => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -137,9 +141,48 @@ const standardRowRenderer = <A extends object>(
     )
   })
 
+  if (onRowIntent) {
+    return (
+      <IntentRow key={row.id} className={rowClassName?.(row)} onIntent={() => onRowIntent(row)}>
+        {cells}
+      </IntentRow>
+    )
+  }
+
   return (
     <TableRow key={row.id} className={rowClassName?.(row)}>
       {cells}
+    </TableRow>
+  )
+}
+
+// Long enough to skip rows the pointer only sweeps across.
+const HOVER_INTENT_MS = 80
+
+const IntentRow = ({
+  className,
+  onIntent,
+  children,
+}: {
+  className?: string
+  onIntent: () => void
+  children: ReactNode
+}) => {
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const cancel = () => clearTimeout(timer.current)
+
+  return (
+    <TableRow
+      className={className}
+      onPointerEnter={() => {
+        cancel()
+        timer.current = setTimeout(onIntent, HOVER_INTENT_MS)
+      }}
+      onPointerLeave={cancel}
+      onPointerDown={onIntent}
+      onFocus={onIntent}
+    >
+      {children}
     </TableRow>
   )
 }

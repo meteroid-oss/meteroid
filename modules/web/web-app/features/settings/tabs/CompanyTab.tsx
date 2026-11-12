@@ -17,7 +17,7 @@ import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
-import { Loading } from '@/components/Loading'
+import { InlineLoading } from '@/components/Loading'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
 import {
   SettingsFieldGrid,
@@ -104,7 +104,7 @@ export const CompanyTab = () => {
   }, [currentInvoicingEntity])
 
   if (isLoading) {
-    return <Loading />
+    return <InlineLoading />
   }
 
   const onSubmit = async (values: z.infer<typeof merchantSchema>) => {

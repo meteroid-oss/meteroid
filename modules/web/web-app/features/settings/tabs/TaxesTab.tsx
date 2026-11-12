@@ -32,7 +32,7 @@ import { match } from 'ts-pattern'
 import { z } from 'zod'
 
 import { CountrySelect } from '@/components/CountrySelect'
-import { Loading } from '@/components/Loading'
+import { InlineLoading } from '@/components/Loading'
 import { SubdivisionSelect } from '@/components/SubdivisionSelect'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
 import {
@@ -439,7 +439,7 @@ export const TaxesTab = () => {
     : 'A named rate that defines the tax for a product category, chosen by your customer’s location.'
 
   if (isLoading) {
-    return <Loading />
+    return <InlineLoading />
   }
 
   const onSubmit = async (values: z.infer<typeof taxSettingsSchema>) => {
@@ -684,7 +684,7 @@ export const TaxesTab = () => {
             }
           >
               {listTaxRatesQuery.isLoading ? (
-                <Loading />
+                <InlineLoading />
               ) : listTaxRatesQuery.data?.taxRates && listTaxRatesQuery.data.taxRates.length > 0 ? (
                 <div className="overflow-hidden rounded-lg border border-border">
                   <Table>
@@ -770,7 +770,7 @@ export const TaxesTab = () => {
             }
           >
               {listTaxCategoriesQuery.isLoading ? (
-                <Loading />
+                <InlineLoading />
               ) : categories.length ? (
                 <div className="overflow-hidden rounded-lg border border-border">
                   <Table>

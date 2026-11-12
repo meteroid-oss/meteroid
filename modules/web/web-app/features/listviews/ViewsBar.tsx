@@ -87,8 +87,8 @@ export const ViewsBar = ({ views: sv, entityLabel }: Props) => {
   useEffect(() => {
     const el = tabsRef.current
     if (!el) return
+    // No initial call: `observe` reports the first size after layout, so mounting never forces one.
     const measure = () => setOverflowing(el.scrollWidth > el.clientWidth + 1)
-    measure()
     const observer = new ResizeObserver(measure)
     observer.observe(el)
     return () => observer.disconnect()

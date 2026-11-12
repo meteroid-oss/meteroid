@@ -1,4 +1,4 @@
-import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { Badge, Button, Tooltip, TooltipContent, TooltipTrigger } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAtom } from 'jotai'
@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 
 import { metricUnitFromProto } from '@/features/billing/metrics/units'
 import { useIsDraftVersion, usePlanWithVersion } from '@/features/plans/hooks/usePlan'
+import { useComponentMetric, useComponentProduct } from '@/features/plans/pricecomponents/componentRefs'
 import { PriceComponentProperty } from '@/features/plans/pricecomponents/components/PriceComponentProperty'
 import { PricingDetailsView } from '@/features/plans/pricecomponents/components/PricingDetailsView'
 import {
@@ -22,17 +23,14 @@ import {
   useCurrency,
 } from '@/features/plans/pricecomponents/utils'
 import { useBasePath } from '@/hooks/useBasePath'
-import { useQuery } from '@/lib/connectrpc'
 import { formatCadence } from '@/lib/mapping/prices'
 import { rpcErrorMessage } from '@/lib/rpcError'
-import { getBillableMetric } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { getResolvedEntitlementsForPlanVersion } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import {
   listPriceComponents,
   removePriceComponent,
 } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 import { FeeStructure_BillingType } from '@/rpc/api/prices/v1/models_pb'
-import { getProduct } from '@/rpc/api/products/v1/products-ProductsService_connectquery'
 import { useConfirmationModal } from 'providers/ConfirmationProvider'
 
 import type { BillableMetric } from '@/rpc/api/billablemetrics/v1/models_pb'
@@ -50,17 +48,13 @@ export const PriceComponentCard: React.FC<{
   const isDraft = useIsDraftVersion()
   const currency = useCurrency()
 
-  const product = useQuery(
-    getProduct,
-    component.productId ? { productId: component.productId } : skipToken
-  ).data?.product
+  const product = useComponentProduct(component.productId)
   const structure = product?.feeStructure?.structure
   const metricId =
     structure?.case === 'usage' || structure?.case === 'capacity'
       ? structure.value.metricId
       : undefined
-  const metric = useQuery(getBillableMetric, metricId ? { id: metricId } : skipToken).data
-    ?.billableMetric
+  const metric = useComponentMetric(metricId)
 
   const deleteComponentMutation = useMutation(removePriceComponent, {
     onSuccess: () => {
@@ -315,10 +309,10 @@ export function deriveSummary(prices: Price[]): PriceSummary {
 // --- Product-linked structural info (metric, unit name) ---
 
 export const ProductLinkedItem = ({ productId }: { productId: string }) => {
-  const product = useQuery(getProduct, { productId })
-  if (!product.data?.product?.feeStructure) return null
+  const product = useComponentProduct(productId)
+  if (!product?.feeStructure) return null
 
-  const structure = product.data.product.feeStructure.structure
+  const structure = product.feeStructure.structure
   switch (structure.case) {
     case 'slot':
       return (
@@ -358,6 +352,6 @@ export const ProductLinkedItem = ({ productId }: { productId: string }) => {
 // --- Shared display components ---
 
 const DisplayBillableMetric = ({ metricId }: { metricId: string }) => {
-  const metric = useQuery(getBillableMetric, { id: metricId })
-  return metric.isLoading ? <></> : <>{metric.data?.billableMetric?.name}</>
+  const metric = useComponentMetric(metricId)
+  return <>{metric?.name}</>
 }

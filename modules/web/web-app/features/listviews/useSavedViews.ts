@@ -58,6 +58,27 @@ const writePresetDefault = (listType: EntityListType, id: string | undefined) =>
   }
 }
 
+// Whether the list had a saved default view when last loaded, so landing on it can skip waiting
+// for the views when there's none. '1' | '0'; absent = unknown.
+const hasDefaultKey = (listType: EntityListType) => `listviews:has-default:${listType}`
+
+const readHasDefault = (listType: EntityListType): boolean | undefined => {
+  try {
+    const value = localStorage.getItem(hasDefaultKey(listType))
+    return value === null ? undefined : value === '1'
+  } catch {
+    return undefined
+  }
+}
+
+const writeHasDefault = (listType: EntityListType, hasDefault: boolean) => {
+  try {
+    localStorage.setItem(hasDefaultKey(listType), hasDefault ? '1' : '0')
+  } catch {
+    // Storage unavailable: landings keep waiting for the views.
+  }
+}
+
 export interface SavedViewsOptions {
   listType: EntityListType
   /** URL parameters holding the page's quick filters (captured raw into a view). */
@@ -241,6 +262,17 @@ export function useSavedViews({
   // - anything else (filters in the URL, `?view=all`) is left as the URL says.
   const [bootstrapped, setBootstrapped] = useState(false)
   const bootstrapping = useRef(false)
+  // Landing that can't open a view: the list may query right away, without the views. A stale
+  // "no default" only costs one re-query when the default turns up and gets applied below.
+  const [landsWithoutView] = useState(() => {
+    const urlHasState = [...searchParams.keys()].some(k => k !== VIEW_PARAM && k !== 'page')
+    if (urlHasState || viewParam === ALL_VIEWS) return true
+    if (viewParam) return false
+    return !presetDefault && readHasDefault(listType) === false
+  })
+  useEffect(() => {
+    if (api.query.isSuccess) writeHasDefault(listType, !!api.defaultViewId)
+  }, [api.query.isSuccess, api.defaultViewId, listType])
   useEffect(() => {
     if (bootstrapped || bootstrapping.current) return
     if (api.query.isError) return setBootstrapped(true)
@@ -361,7 +393,7 @@ export function useSavedViews({
     isCustomized,
     isLoading: api.query.isLoading,
     /** False until the default view has been resolved (gate the list query on it). */
-    ready: bootstrapped,
+    ready: bootstrapped || landsWithoutView,
     isSaving: api.create.isPending || api.update.isPending,
     columnState,
     selectView,

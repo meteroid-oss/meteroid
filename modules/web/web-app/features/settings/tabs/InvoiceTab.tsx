@@ -32,7 +32,7 @@ import {
   invoiceLanguageFromStored,
   invoiceLanguageIsUnsafeGuess,
 } from '@/components/InvoiceLanguageSelect'
-import { Loading } from '@/components/Loading'
+import { InlineLoading } from '@/components/Loading'
 import { Slot } from '@/edition'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
 import {
@@ -205,7 +205,7 @@ export const InvoiceTab = () => {
   }, [currentEntity])
 
   if (isLoading) {
-    return <Loading />
+    return <InlineLoading />
   }
 
   const onSubmit = async (values: z.infer<typeof invoiceDetailsSchema>) => {

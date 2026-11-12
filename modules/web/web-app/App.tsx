@@ -26,7 +26,8 @@ export const App: React.FC = () => {
   return (
     <TransportProvider transport={transport}>
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
+        {/* Route changes render as a transition: the clicked page keeps responding while the next one renders. */}
+        <RouterProvider router={router} future={{ v7_startTransition: true }} />
       </QueryClientProvider>
     </TransportProvider>
   )
