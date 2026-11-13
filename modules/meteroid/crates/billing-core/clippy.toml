@@ -1,0 +1,8 @@
+# Replaces the workspace clippy.toml for this crate: billing-core has no clock.
+large-error-threshold = 256
+too-many-arguments-threshold = 12
+disallowed-methods = [
+    { path = "chrono::Utc::now", reason = "billing-core is pure: take the instant as a parameter" },
+    { path = "chrono::Local::now", reason = "billing-core is pure: take the instant as a parameter" },
+    { path = "std::time::SystemTime::now", reason = "billing-core is pure: take the instant as a parameter" },
+]

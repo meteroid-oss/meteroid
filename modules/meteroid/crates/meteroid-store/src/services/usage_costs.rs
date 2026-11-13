@@ -234,40 +234,6 @@ fn rating_key(dimensions: &HashMap<String, String>) -> String {
         .join("\u{1e}")
 }
 
-/// Splits `total` minor units by `weights`, largest remainder first, so the parts add up to it.
-fn allocate(total: i64, weights: &[Decimal]) -> Vec<i64> {
-    let sum: Decimal = weights.iter().sum();
-    if weights.len() <= 1 || sum <= Decimal::ZERO || weights.iter().any(|w| *w < Decimal::ZERO) {
-        let mut parts = vec![0; weights.len()];
-        if let Some(first) = parts.first_mut() {
-            *first = total;
-        }
-        return parts;
-    }
-    let exact = weights
-        .iter()
-        .map(|weight| Decimal::from(total) * weight / sum)
-        .collect::<Vec<_>>();
-    let mut parts = exact
-        .iter()
-        .map(|share| {
-            use rust_decimal::prelude::ToPrimitive;
-            share.floor().to_i64().unwrap_or(0)
-        })
-        .collect::<Vec<_>>();
-    let mut leftover = total - parts.iter().sum::<i64>();
-    let mut order = (0..weights.len()).collect::<Vec<_>>();
-    order.sort_by_key(|index| Reverse(exact[*index] - exact[*index].floor()));
-    for index in order {
-        if leftover <= 0 {
-            break;
-        }
-        parts[index] += 1;
-        leftover -= 1;
-    }
-    parts
-}
-
 #[derive(Debug, Clone)]
 struct BucketPoint {
     bucket_start: NaiveDateTime,
@@ -1009,7 +975,7 @@ impl ServicesEdge {
                     .iter()
                     .map(|point| billed_units(metric, point.value))
                     .collect::<Vec<_>>();
-                let shares = allocate(delta, &quantities);
+                let shares = billing_core::split(delta, &quantities);
                 for ((point, quantity), share) in group_points.iter().zip(quantities).zip(shares) {
                     let amount = Decimal::new(share, u32::from(window.precision));
                     let acc = rows.entry((bucket_start, group_of(point))).or_default();

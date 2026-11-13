@@ -990,7 +990,8 @@ async fn tenant_disable_emails_and_kind_toggle_hold_without_burning(#[future] te
 #[tokio::test]
 async fn processing_or_live_payment_defers_without_advancing(#[future] test_env: TestEnv) {
     let env = test_env.await;
-    env.skip_credit_invariants(
+    env.skip_checks(
+        &["I14"],
         "marks an invoice paid without a payment, to exercise the reminder states",
     );
     default_with_steps(&env, &[0, 7]).await;
@@ -1828,7 +1829,8 @@ async fn send_now_advances_cursor_for_future_step_and_refuses_paid_invoice(
     #[future] test_env: TestEnv,
 ) {
     let env = test_env.await;
-    env.skip_credit_invariants(
+    env.skip_checks(
+        &["I14"],
         "marks an invoice paid without a payment, to exercise the reminder states",
     );
     default_with_steps(&env, &[0, 7, 14]).await;
@@ -2457,7 +2459,8 @@ async fn sequence_save_needs_copy_for_every_enabled_locale(#[future] test_env: T
 #[tokio::test]
 async fn worker_skips_unpayable_with_activity(#[future] test_env: TestEnv) {
     let env = test_env.await;
-    env.skip_credit_invariants(
+    env.skip_checks(
+        &["I14"],
         "marks an invoice paid without a payment, to exercise the reminder states",
     );
     default_with_steps(&env, &[0, 7]).await;

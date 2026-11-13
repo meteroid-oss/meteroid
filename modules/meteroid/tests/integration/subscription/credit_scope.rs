@@ -199,7 +199,7 @@ async fn a_grant_ends_once_with_its_subscription(#[future] test_env: TestEnv) {
 
     let env = test_env.await;
 
-    env.skip_credit_invariants(
+    env.skip_checks(&["I5"], 
 
         "moves a grant's expiry or a subscription's end into the past by raw SQL after credit was drawn",
 
@@ -307,7 +307,7 @@ async fn credit_given_back_to_an_ended_grant_lapses_at_once(#[future] test_env: 
 
     let env = test_env.await;
 
-    env.skip_credit_invariants(
+    env.skip_checks(&["I5"], 
 
         "moves a grant's expiry or a subscription's end into the past by raw SQL after credit was drawn",
 
@@ -465,7 +465,8 @@ async fn a_scoped_grant_replays_after_its_subscription_ended(#[future] test_env:
 
     let env = test_env.await;
 
-    env.skip_credit_invariants(
+    env.skip_checks(
+        &["I9"],
         "cancels a subscription by raw SQL, without the terminal transition that ends its credit",
     );
     let a = live_subscription(&env).await;

@@ -1,0 +1,17 @@
+[package]
+name = "billing-core"
+version = "0.1.0"
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Pure billing computations: no database, no clock, no network."
+
+[dependencies]
+chrono = { workspace = true }
+rust_decimal = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
+
+[dev-dependencies]
+proptest = "1"
+rust_decimal_macros = { workspace = true }

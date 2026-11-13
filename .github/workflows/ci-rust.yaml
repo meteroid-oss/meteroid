@@ -99,6 +99,10 @@ jobs:
       - name: Fold ee/ into the root workspace
         if: ${{ hashFiles('ee/scripts/fold-into-root.py') != '' }}
         run: python3 ee/scripts/fold-into-root.py
+      # The billing document corpus is enterprise only; without it the tests compare no documents.
+      - name: Compare billing documents with the corpus
+        if: ${{ hashFiles('ee/modules/billing-rules/RULES.md') != '' }}
+        run: echo "METEROID_BILLING_CORPUS=$GITHUB_WORKSPACE/ee/modules/billing-rules/corpus" >> "$GITHUB_ENV"
       # Dependencies optimized for this job only: it compiles once and runs every test, which
       # otherwise spend most of their time in unoptimized dependency code. Workspace crates stay at 0.
       - name: Build tests
@@ -133,7 +137,14 @@ jobs:
           cat "$RUNNER_TEMP/test-images.log"
       - name: Test
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: cargo nextest run --config 'profile.dev.package."*".opt-level=3'
+        run: cargo nextest run --profile ci --config 'profile.dev.package."*".opt-level=3'
+      - name: Upload test timings
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
 
   fmt:
     name: Rustfmt
@@ -203,6 +214,17 @@ jobs:
       - uses: actions/checkout@v6
       - name: Check for duplicate migration versions
         run: ./.github/scripts/check-migration-versions.sh
+
+  billing-rules:
+    name: Billing rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Every cited rule ID is in the registry, every Enforced symbol exists
+        if: ${{ hashFiles('ee/modules/billing-rules/RULES.md') != '' }}
+        run: ./ee/modules/billing-rules/check-rule-ids.sh
+      - name: Credit input tokens are written only by their bump functions
+        run: ./.github/scripts/check-credit-bumps.sh
 
   lock-sites:
     name: Row lock sites

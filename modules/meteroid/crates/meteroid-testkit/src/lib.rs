@@ -1,6 +1,7 @@
 //! The integration-test harness: containers, seeds and clients, shared by core and module tests.
 
 pub mod annex_templates;
+pub mod corpus;
 pub mod custom_properties;
 pub mod data;
 pub mod editions;

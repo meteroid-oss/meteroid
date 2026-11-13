@@ -123,7 +123,7 @@ async fn assert_labelled_statement(
 #[tokio::test]
 async fn credit_activity_and_labelled_ledger_follow_every_movement() -> TestResult {
     let setup = setup().await;
-    setup.skip_credit_invariants(
+    setup.skip_checks(&["I5"], 
         "moves a grant's expiry or a subscription's end into the past by raw SQL after credit was drawn",
     );
     let store = &setup.store;

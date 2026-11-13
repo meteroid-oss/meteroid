@@ -110,7 +110,7 @@ async fn rejected(setup: &MeteroidSetup, sql: &str, account_id: WalletId) -> Tes
 async fn usage_settled_at_a_bound_again_is_recorded_after_it_and_handed_to_its_invoice_once()
 -> TestResult {
     let setup = setup().await;
-    setup.skip_credit_invariants(
+    setup.skip_checks(&["I18", "I20"], 
         "writes ledger, settlement or invoice rows by raw SQL for the revenue projector or the schema",
     );
     let account_id = wallet(&setup).await;

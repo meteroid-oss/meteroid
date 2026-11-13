@@ -300,7 +300,7 @@ async fn a_voided_invoice_returns_the_credit_it_drew_once() -> TestResult {
 #[tokio::test]
 async fn historical_invoice_void_restores_the_original_currency_once() -> TestResult {
     let setup = setup().await;
-    setup.skip_credit_invariants(
+    setup.skip_checks(&["I3"], 
         "seeds pre-ledger balances and purchases by raw SQL, without the cost the cutover backfills",
     );
     let invoice = draft(&setup, vec![line("Usage", 7_000, true)]).await?;
@@ -359,9 +359,6 @@ async fn historical_invoice_void_restores_the_original_currency_once() -> TestRe
 async fn credit_a_void_of_a_pre_ledger_invoice_restored_pays_usage_of_any_date() -> TestResult {
     use diesel_models::customer_credit::CustomerCreditEntryRow;
     let setup = setup().await;
-    setup.skip_credit_invariants(
-        "seeds pre-ledger balances and purchases by raw SQL, without the cost the cutover backfills",
-    );
     let invoice = draft(&setup, vec![line("Seats", 7_000, false)]).await?;
     let mut conn = setup.store.get_conn().await.map_err(test_error)?;
     diesel::sql_query(
@@ -470,7 +467,7 @@ async fn historical_paid_invoice_of(
 #[tokio::test]
 async fn historical_partial_refunds_return_the_original_currency_cumulatively() -> TestResult {
     let setup = setup().await;
-    setup.skip_credit_invariants(
+    setup.skip_checks(&["I3"], 
         "seeds pre-ledger balances and purchases by raw SQL, without the cost the cutover backfills",
     );
     let invoice = historical_paid_invoice(&setup, "HISTORICAL-PARTIAL-FX").await?;
@@ -518,7 +515,7 @@ async fn historical_partial_refunds_return_the_original_currency_cumulatively() 
 #[tokio::test]
 async fn historical_refund_after_an_unrecorded_return_is_refused() -> TestResult {
     let setup = setup().await;
-    setup.skip_credit_invariants(
+    setup.skip_checks(&["I3"], 
         "seeds pre-ledger balances and purchases by raw SQL, without the cost the cutover backfills",
     );
     let invoice = historical_paid_invoice(&setup, "HISTORICAL-AMBIGUOUS").await?;
@@ -566,7 +563,7 @@ async fn historical_refund_after_an_unrecorded_return_is_refused() -> TestResult
 #[tokio::test]
 async fn historical_refunds_that_round_to_nothing_do_not_block_later_ones() -> TestResult {
     let setup = setup().await;
-    setup.skip_credit_invariants(
+    setup.skip_checks(&["I3"], 
         "seeds pre-ledger balances and purchases by raw SQL, without the cost the cutover backfills",
     );
     let invoice = historical_paid_invoice_of(&setup, "HISTORICAL-ROUNDING", 1).await?;
@@ -592,7 +589,7 @@ async fn historical_refunds_that_round_to_nothing_do_not_block_later_ones() -> T
 #[tokio::test]
 async fn a_historical_deduction_in_the_customers_currency_is_returned_exactly() -> TestResult {
     let setup = setup().await;
-    setup.skip_credit_invariants(
+    setup.skip_checks(&["I3"], 
         "seeds pre-ledger balances and purchases by raw SQL, without the cost the cutover backfills",
     );
     let invoice = draft(&setup, vec![line("Usage", 9_000, true)]).await?;
@@ -1886,7 +1883,7 @@ async fn a_voided_invoice_takes_back_the_credit_its_included_credit_rolled_into(
 #[tokio::test]
 async fn voiding_a_pre_ledger_note_takes_back_the_carried_balance() -> TestResult {
     let setup = setup().await;
-    setup.skip_credit_invariants(
+    setup.skip_checks(&["I7"], 
         "seeds pre-ledger balances and purchases by raw SQL, without the cost the cutover backfills",
     );
     let invoice = draft(&setup, vec![line("Seats", 3_000, false)]).await?;
@@ -2095,7 +2092,8 @@ async fn a_purchase_funds_only_the_credit_paid_for_net_of_forgiven_debt() -> Tes
 #[tokio::test]
 async fn partial_refunds_of_a_credit_line_reverse_its_whole_grant() -> TestResult {
     let setup = setup().await;
-    setup.skip_credit_invariants(
+    setup.skip_checks(
+        &["I7"],
         "sells a currency pack above its face through store internals, which no API allows",
     );
     let pack = LineItem {

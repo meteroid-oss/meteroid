@@ -8,7 +8,7 @@ use common_domain::ids::{CreditGrantId, InvoiceId};
 use meteroid::workers::pgmq::processors::run_once_invoice_orchestration;
 use meteroid_store::domain::enums::{InvoicePaymentStatus, InvoiceStatusEnum, InvoiceType};
 use meteroid_store::domain::{
-    DetailedInvoice, Invoice, InvoiceNew, LineItem, LineItemKind, TaxDetail,
+    DetailedInvoice, Invoice, InvoiceNew, LineItem, LineItemKind, TaxBreakdownItem, TaxDetail,
 };
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
@@ -173,6 +173,33 @@ pub fn taxed(name: &str, net: i64) -> LineItem {
 }
 
 /// A draft one-off invoice of taxed lines, which finalization keeps as they are.
+/// One breakdown row per tax rate of the lines, as the tax engine writes them.
+fn breakdown_of(lines: &[LineItem]) -> Vec<TaxBreakdownItem> {
+    let mut rows: Vec<TaxBreakdownItem> = Vec::new();
+    for line in lines.iter().filter(|line| line.tax_amount != 0) {
+        match rows.iter_mut().find(|row| row.tax_rate == line.tax_rate) {
+            Some(row) => {
+                row.taxable_amount += line.taxable_amount;
+                row.tax_amount += line.tax_amount;
+            }
+            None => rows.push(TaxBreakdownItem {
+                taxable_amount: line.taxable_amount,
+                tax_amount: line.tax_amount,
+                tax_rate: line.tax_rate,
+                name: format!("VAT {}", line.tax_rate),
+                exemption_type: None,
+                exemption_reason: None,
+                tax_reference: None,
+                overridden: false,
+                supply_basis: None,
+                tax_kind: None,
+                prepaid_credit: false,
+            }),
+        }
+    }
+    rows
+}
+
 pub async fn taxed_draft(
     setup: &MeteroidSetup,
     lines: Vec<LineItem>,
@@ -196,6 +223,7 @@ pub async fn taxed_draft(
         .iter()
         .map(|line| line.amount_subtotal - line.taxable_amount)
         .sum();
+    let tax_breakdown = breakdown_of(&lines);
     let today = Utc::now().date_naive();
     setup
         .store
@@ -234,7 +262,7 @@ pub async fn taxed_draft(
             seller_details: entity.into(),
             auto_advance: false,
             payment_status: InvoicePaymentStatus::Unpaid,
-            tax_breakdown: Vec::new(),
+            tax_breakdown,
             manual: true,
             invoicing_entity_id: INVOICING_ENTITY_ID,
             parent_invoice_id: None,

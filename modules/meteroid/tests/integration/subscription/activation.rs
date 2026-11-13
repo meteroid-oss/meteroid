@@ -192,6 +192,7 @@ async fn test_cancel_pending_checkout_does_not_bill(#[future] test_env: TestEnv)
         .assert()
         .with_context("cancelled pending-checkout subscription must have no invoice")
         .assert_empty();
+    env.assert_corpus("fix292_cancel_pending_checkout").await;
 }
 
 /// OnCheckout + Free Trial: Should be TrialActive with pending_checkout=true

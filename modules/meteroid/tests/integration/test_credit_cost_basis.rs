@@ -224,7 +224,7 @@ async fn a_discounted_pack_costs_its_net_amount_and_its_draws_carry_all_of_it() 
 #[tokio::test]
 async fn an_expired_pack_records_its_unconsumed_cost_as_breakage() -> TestResult {
     let setup = setup().await;
-    setup.skip_credit_invariants(
+    setup.skip_checks(&["I5", "I7"], 
         "moves a grant's expiry or a subscription's end into the past by raw SQL after credit was drawn",
     );
     bought(&setup, pack(1_000, 1_000, 800, Some(CreditExpiry::Day(30)))).await?;
@@ -261,7 +261,8 @@ async fn an_expired_pack_records_its_unconsumed_cost_as_breakage() -> TestResult
 #[tokio::test]
 async fn refunds_of_a_pack_reverse_its_cost_cumulatively() -> TestResult {
     let setup = setup().await;
-    setup.skip_credit_invariants(
+    setup.skip_checks(
+        &["I7"],
         "sells a currency pack above its face through store internals, which no API allows",
     );
     let invoice = bought(&setup, pack(10, 30, 30, None)).await?;

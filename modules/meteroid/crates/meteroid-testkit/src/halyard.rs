@@ -334,6 +334,28 @@ pub struct Halyard {
     pub scale: PlanVersionId,
     pub studio: PlanVersionId,
     pub enterprise: PlanVersionId,
+    skip_corpus: std::sync::atomic::AtomicBool,
+}
+
+/// Every scenario's documents are compared with its corpus file when it ends (`crate::corpus`).
+impl Drop for Halyard {
+    fn drop(&mut self) {
+        if std::thread::panicking()
+            || std::sync::atomic::AtomicBool::load(
+                &self.skip_corpus,
+                std::sync::atomic::Ordering::Relaxed,
+            )
+        {
+            return;
+        }
+        if let Some(name) = crate::corpus::current_test_name() {
+            crate::corpus::assert_matches(
+                self.env.setup.database_url(),
+                self.tenant.as_uuid(),
+                &crate::corpus::claim(&name),
+            );
+        }
+    }
 }
 
 /// One invoice's figures as the timeline's INV rows give them: subtotal, discount, promotional
@@ -412,11 +434,18 @@ impl Halyard {
             scale,
             studio,
             enterprise,
+            skip_corpus: Default::default(),
         }
     }
 
     pub fn store(&self) -> &Store {
         self.env.store()
+    }
+
+    /// Leaves this test out of the document corpus, e.g. when its documents depend on the clock.
+    pub fn skip_corpus(&self, _reason: &'static str) {
+        self.skip_corpus
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn services(&self) -> &Services {

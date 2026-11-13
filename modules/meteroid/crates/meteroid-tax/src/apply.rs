@@ -7,7 +7,6 @@
 
 use ordermap::OrderMap;
 use rust_decimal::Decimal;
-use rust_decimal::prelude::ToPrimitive;
 
 /// One tax to levy on a line.
 #[derive(Debug, Clone)]
@@ -128,37 +127,7 @@ fn tax_chain(base: Decimal, taxes: &[TaxToApply]) -> Vec<Decimal> {
         .collect()
 }
 
-pub fn round_to_minor(amount: Decimal) -> i64 {
-    amount
-        .round_dp_with_strategy(0, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
-        .to_i64()
-        .unwrap_or(0)
-}
-
-/// Rounds exact shares to whole minor units while preserving their rounded total:
-/// floor every share, then hand the leftover units to the largest remainders.
-pub fn largest_remainder(exact: &[Decimal]) -> Vec<i64> {
-    let total = round_to_minor(exact.iter().sum());
-    let mut rounded: Vec<i64> = exact
-        .iter()
-        .map(|amount| amount.floor().to_i64().unwrap_or(0))
-        .collect();
-
-    // A floor is at most one unit below its share, so the leftover is a non-negative
-    // count of units, never more than one per share — and never any for a zero share.
-    let leftover = (total - rounded.iter().sum::<i64>()).clamp(0, exact.len() as i64);
-    let mut by_remainder: Vec<usize> = (0..exact.len()).collect();
-    by_remainder.sort_by(|a, b| {
-        let remainder = |i: usize| exact[i] - exact[i].floor();
-        remainder(*b).cmp(&remainder(*a)).then_with(|| a.cmp(b))
-    });
-
-    for &share in by_remainder.iter().take(leftover as usize) {
-        rounded[share] += 1;
-    }
-
-    rounded
-}
+pub use billing_core::{largest_remainder, round_to_minor};
 
 #[cfg(test)]
 mod tests {

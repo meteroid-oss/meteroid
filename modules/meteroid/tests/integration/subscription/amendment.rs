@@ -1017,6 +1017,8 @@ async fn test_mid_period_cancel_prorates_fixed_arrears(#[future] test_env: TestE
     );
     assert_eq!(arrears_line.start_date, jan1);
     assert_eq!(arrears_line.end_date, jan16);
+    env.assert_corpus("fix383_mid_period_cancel_fixed_arrears")
+        .await;
 }
 
 /// Regression: when a fixed arrears component is BOTH added mid-period and the subscription is
@@ -1086,6 +1088,8 @@ async fn test_add_then_cancel_mid_period_composes_arrears_proration(#[future] te
     assert!(arrears_line.is_prorated);
     assert_eq!(arrears_line.start_date, jan10);
     assert_eq!(arrears_line.end_date, jan20);
+    env.assert_corpus("fix383_add_then_cancel_composed_arrears")
+        .await;
 }
 
 /// Regression: a ONE-TIME component scheduled end-of-period must appear on the next
@@ -2704,6 +2708,7 @@ async fn test_amendment_add_then_remove_addon_credits_adjustment_invoice(
         recurring_cns.is_empty(),
         "recurring invoice must not be credited for an add-on it never billed"
     );
+    env.assert_corpus("fix169_add_on_removed_same_period").await;
 }
 
 /// Fetch the single active subscription_add_on id (test helper).

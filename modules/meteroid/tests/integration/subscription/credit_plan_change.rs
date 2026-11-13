@@ -1676,6 +1676,11 @@ async fn legacy_pending_adjustment(
         })
         .await
         .expect("legacy adjustment");
+    env.exempt_invoice_from(
+        "I23",
+        legacy.id,
+        "an earlier release netted credits as negative lines with no taxable amount",
+    );
     env.manual_finalize_invoice(legacy.id)
         .await
         .expect("finalized");

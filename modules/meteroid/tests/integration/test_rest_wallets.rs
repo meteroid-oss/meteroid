@@ -1154,9 +1154,6 @@ async fn used_up_grants_are_listed_page_by_page() {
     use crate::helpers::credit::{expire_grant, fund};
     use common_grpc::meteroid::common::v1::Pagination;
     let fixture = fixture().await;
-    fixture
-        .setup
-        .skip_credit_invariants("moves grants' expiry into the past by raw SQL");
     let store = &fixture.setup.store;
     let live = fund(store, TENANT_ID, CUST_UBER_ID, Some("EUR"), 1_000).await;
     let older = fund(store, TENANT_ID, CUST_UBER_ID, Some("EUR"), 2_000).await;

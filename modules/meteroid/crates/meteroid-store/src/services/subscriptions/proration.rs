@@ -6,8 +6,7 @@ use crate::domain::subscription_changes::{
 use crate::domain::subscription_components::SubscriptionFee;
 use chrono::NaiveDate;
 use common_utils::decimals::ToSubunit;
-use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::{Decimal, RoundingStrategy};
+use rust_decimal::Decimal;
 
 /// Per-period advance-billed amount (cents). Returns 0 for arrears/usage/onetime.
 /// Mirrors the pattern from calculate_mrr.
@@ -80,77 +79,7 @@ pub(crate) fn fee_instance_count(fee: &SubscriptionFee) -> rust_decimal::Decimal
     }
 }
 
-/// A share of a period as whole days over whole days. Amounts are prorated as
-/// `amount × num / den` in Decimal, rounded half away from zero to the minor unit like every
-/// invoice line, so a true half-cent is never flipped by an inexact factor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DayFraction {
-    num: i64,
-    den: i64,
-}
-
-impl DayFraction {
-    pub const WHOLE: DayFraction = DayFraction { num: 1, den: 1 };
-    pub const NONE: DayFraction = DayFraction { num: 0, den: 1 };
-
-    /// `num / den` clamped to [0, 1]; an empty period is none of it.
-    pub fn new(num: i64, den: i64) -> Self {
-        if den <= 0 {
-            return Self::NONE;
-        }
-        DayFraction {
-            num: num.clamp(0, den),
-            den,
-        }
-    }
-
-    /// What is left of `[period_start, period_end)` from `at` on.
-    pub fn remaining(period_start: NaiveDate, period_end: NaiveDate, at: NaiveDate) -> Self {
-        Self::new(
-            (period_end - at).num_days(),
-            (period_end - period_start).num_days(),
-        )
-    }
-
-    pub fn is_whole(&self) -> bool {
-        self.num == self.den
-    }
-
-    pub fn prorate(&self, amount_minor: i64) -> i64 {
-        (Decimal::from(amount_minor) * Decimal::from(self.num) / Decimal::from(self.den))
-            .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
-            .to_i64()
-            .unwrap_or(amount_minor)
-    }
-
-    pub fn as_f64(&self) -> f64 {
-        self.num as f64 / self.den as f64
-    }
-
-    /// `amount × num / den`, multiplied before dividing so a whole-day share of a price is exact
-    /// before the caller rounds it (1/28 first would truncate to 28 digits: 0.135 read 0.1349…).
-    pub fn prorate_decimal(&self, amount: Decimal) -> Decimal {
-        amount * Decimal::from(self.num) / Decimal::from(self.den)
-    }
-
-    /// This share of `other`'s share, still exact in whole days.
-    pub fn of(self, other: DayFraction) -> Self {
-        match (
-            self.num.checked_mul(other.num),
-            self.den.checked_mul(other.den),
-        ) {
-            (Some(num), Some(den)) => Self::new(num, den),
-            _ => Self::new(
-                other
-                    .prorate_decimal(Decimal::from(self.num))
-                    .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
-                    .to_i64()
-                    .unwrap_or(self.num),
-                self.den,
-            ),
-        }
-    }
-}
+pub use billing_core::DayFraction;
 
 /// Nominal length, in days, of a billing period. Used to prorate components
 /// whose billing cadence differs from the subscription's current period.

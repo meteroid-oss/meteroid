@@ -810,6 +810,8 @@ async fn test_immediate_cancel_same_day_bills_usage() {
         inv.invoice_number, "draft",
         "a finalized closing invoice carries a real number"
     );
+    env.assert_corpus("fix373_immediate_cancel_same_day_usage")
+        .await;
 }
 
 /// A usage-metered subscription cancelled **effective today by date** (not immediately) on the day

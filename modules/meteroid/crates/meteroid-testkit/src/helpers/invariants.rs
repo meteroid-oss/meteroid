@@ -1,7 +1,7 @@
-//! The credit billing invariants that the database alone can
-//! prove: the ledger, invoices, credit notes, usage settlements and usage filters agree with each
-//! other. Every test's database is checked when it is dropped (`TestDatabase`), so a test gets
-//! them without asking; `assert_credit_invariants` checks one tenant mid-test.
+//! The billing invariants the database alone can prove: the ledger, invoices, credit notes, usage
+//! settlements and usage filters agree with each other. Every check is named after its ID in the
+//! billing rule registry. Every test's database is checked when it is dropped (`TestDatabase`), so
+//! a test gets them without asking; `assert_credit_invariants` checks one tenant mid-test.
 use common_domain::ids::{BaseId, TenantId};
 use diesel::sql_types::{Array, Text};
 use diesel_async::{RunQueryDsl, SimpleAsyncConnection};
@@ -342,14 +342,14 @@ const CHECKS: &[(&str, &str)] = &[
     // R26 (owing nothing ⇒ paid) is reached by the orchestration that follows the PDF, which a
     // test need not run; scenarios assert it after running it.
     (
-        "A paid invoice owes nothing",
+        "I14 a paid invoice owes nothing",
         "SELECT format('paid invoice %s owes %s of %s', i.id, i.amount_due, i.total) AS message
          FROM invoice i
          WHERE i.tenant_id = $1 AND i.status = 'FINALIZED' AND i.payment_status = 'PAID'
            AND i.amount_due <> 0",
     ),
     (
-        "Credit notes never credit more than their invoice line",
+        "I15 credit notes never credit more than their invoice line",
         "WITH billed AS (
              SELECT i.id AS invoice_id, l->>'local_id' AS local_id,
                     abs(coalesce((l->>'amount_subtotal')::bigint, (l->>'subtotal')::bigint))
@@ -371,7 +371,7 @@ const CHECKS: &[(&str, &str)] = &[
          WHERE b.local_id IS NULL OR c.subtotal > b.subtotal OR c.tax > b.tax",
     ),
     (
-        "Credit notes never exceed their invoice",
+        "I16 credit notes never exceed their invoice",
         "SELECT format('notes on invoice %s total %s of its %s', i.id, n.total, i.total) AS message
          FROM invoice i
          JOIN (SELECT invoice_id, sum(abs(total)) AS total FROM credit_note
@@ -380,7 +380,7 @@ const CHECKS: &[(&str, &str)] = &[
          WHERE i.tenant_id = $1 AND n.total > abs(i.total)",
     ),
     (
-        "Credit note identity",
+        "I17 credit note identity",
         "WITH sums AS (
              SELECT n.id,
                     coalesce(sum(coalesce((l->>'amount_subtotal')::bigint,
@@ -402,7 +402,7 @@ const CHECKS: &[(&str, &str)] = &[
                         + n.debt_cancelled_amount_cents <> abs(n.total)))",
     ),
     (
-        "Settlement = its draws",
+        "I18 a settlement equals its draws",
         "SELECT format('settlement %s of %s: its draws total %s', s.id, s.amount,
                        coalesce(d.total, 0)) AS message
          FROM credit_usage_settlement s
@@ -412,7 +412,7 @@ const CHECKS: &[(&str, &str)] = &[
          WHERE s.tenant_id = $1 AND s.amount <> coalesce(d.total, 0)",
     ),
     (
-        "Settlement returned whole when no invoice took it",
+        "I19 a settlement no invoice took is returned whole",
         "WITH give_back AS (SELECT * FROM unnest($4::uuid[], $5::uuid[]) AS x(settlement_id, source_id))
          SELECT format('returned settlement %s of %s came back %s', s.id, s.amount,
                        coalesce(r.total, 0)) AS message
@@ -425,7 +425,7 @@ const CHECKS: &[(&str, &str)] = &[
            AND s.amount <> coalesce(r.total, 0)",
     ),
     (
-        "Settlement taken over by one issued invoice of its subscription",
+        "I20 a settlement is taken over by one issued invoice of its subscription",
         "WITH billed AS (
              SELECT id AS invoice_id, subscription_id, customer_id, status FROM invoice
              WHERE tenant_id = $1
@@ -443,7 +443,7 @@ const CHECKS: &[(&str, &str)] = &[
            AND (b.invoice_id IS NULL OR b.status = 'DRAFT')",
     ),
     (
-        "A period's settlements are taken over by at most one invoice",
+        "I21 a period's settlements are taken over by at most one invoice",
         "SELECT format('the settlements of subscription %s for %s (wallet %s) went to %s invoices',
                        subscription_id, period_start, account_id,
                        count(DISTINCT invoice_id)) AS message
@@ -513,21 +513,116 @@ const CHECKS: &[(&str, &str)] = &[
            AND sa.status IN ('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE')
            AND sb.status IN ('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE')",
     ),
+    (
+        "I22 a line's total is its taxable amount plus its tax",
+        "SELECT format('%s invoice %s line %s: total %s, taxable %s, tax %s', i.status, i.id,
+                       l->>'local_id', l->>'amount_total', l->>'taxable_amount',
+                       l->>'tax_amount') AS message
+         FROM invoice i, jsonb_array_elements(i.line_items) l
+         WHERE i.tenant_id = $1 AND i.status NOT IN ('DRAFT', 'CLOSED')
+           AND coalesce((l->>'amount_total')::bigint, (l->>'total')::bigint)
+               <> coalesce((l->>'taxable_amount')::bigint, 0) + coalesce((l->>'tax_amount')::bigint, 0)",
+    ),
+    (
+        "I23 the lines' taxable amounts are the discounted subtotal",
+        "SELECT format('%s invoice %s: lines taxable %s, subtotal %s - discount %s - promotional %s',
+                       i.status, i.id, s.taxable, i.subtotal, i.discount,
+                       i.promotional_credits) AS message
+         FROM invoice i
+         JOIN LATERAL (SELECT coalesce(sum((l->>'taxable_amount')::bigint), 0) AS taxable
+                       FROM jsonb_array_elements(i.line_items) l) s ON true
+         WHERE i.tenant_id = $1 AND i.status NOT IN ('DRAFT', 'CLOSED')
+           AND s.taxable <> i.subtotal - i.discount - i.promotional_credits",
+    ),
+    (
+        "I24 the tax breakdown adds up to the invoice tax",
+        "SELECT format('%s invoice %s: tax %s, breakdown %s', i.status, i.id, i.tax_amount,
+                       s.tax) AS message
+         FROM invoice i
+         JOIN LATERAL (SELECT coalesce(sum(coalesce((b->>'tax_amount')::bigint, 0)), 0) AS tax
+                       FROM jsonb_array_elements(i.tax_breakdown) b) s ON true
+         WHERE i.tenant_id = $1 AND i.status NOT IN ('DRAFT', 'CLOSED')
+           AND s.tax <> i.tax_amount",
+    ),
+    (
+        "I25 a discount is within the charges it is spread over",
+        "SELECT format('%s invoice %s: discount %s, charges %s', i.status, i.id, i.discount,
+                       s.charges) AS message
+         FROM invoice i
+         JOIN LATERAL (SELECT coalesce(sum(greatest(coalesce((l->>'amount_subtotal')::bigint,
+                                                             (l->>'subtotal')::bigint), 0)), 0)
+                                AS charges
+                       FROM jsonb_array_elements(i.line_items) l) s ON true
+         WHERE i.tenant_id = $1 AND i.status NOT IN ('DRAFT', 'CLOSED')
+           AND (i.discount < 0 OR i.discount > s.charges)",
+    ),
+    (
+        "I26 a credit note line's total is its taxable amount plus its tax",
+        "SELECT format('credit note %s line %s: total %s, taxable %s, tax %s', c.id,
+                       l->>'local_id', l->>'amount_total', l->>'taxable_amount',
+                       l->>'tax_amount') AS message
+         FROM credit_note c, jsonb_array_elements(c.line_items) l
+         WHERE c.tenant_id = $1 AND c.status <> 'VOIDED'
+           AND coalesce((l->>'amount_total')::bigint, (l->>'total')::bigint)
+               <> coalesce((l->>'taxable_amount')::bigint, 0) + coalesce((l->>'tax_amount')::bigint, 0)",
+    ),
 ];
+
+/// One violated invariant: the check (`"I23 the lines' taxable amounts …"`) and what broke it.
+#[derive(Debug, Clone)]
+pub struct InvariantViolation {
+    pub tenant: Uuid,
+    pub check: &'static str,
+    pub message: String,
+}
+
+impl InvariantViolation {
+    /// The check's registry ID, e.g. `I23`.
+    pub fn id(&self) -> &str {
+        check_id(self.check)
+    }
+}
+
+impl std::fmt::Display for InvariantViolation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "tenant {}: {}: {}",
+            self.tenant, self.check, self.message
+        )
+    }
+}
+
+fn check_id(check: &str) -> &str {
+    check.split_whitespace().next().unwrap_or(check)
+}
+
+/// Whether `id` names a check, so an exemption cannot silently match nothing.
+pub fn is_check_id(id: &str) -> bool {
+    CHECKS.iter().any(|(check, _)| check_id(check) == id)
+}
 
 /// Every invariant violated by `tenant_id`, as "invariant: detail" lines. Reads one snapshot.
 pub async fn credit_invariant_violations(conn: &mut PgConn, tenant_id: TenantId) -> Vec<String> {
+    tenant_violations(conn, tenant_id.as_uuid())
+        .await
+        .into_iter()
+        .map(|v| format!("{}: {}", v.check, v.message))
+        .collect()
+}
+
+async fn tenant_violations(conn: &mut PgConn, tenant: Uuid) -> Vec<InvariantViolation> {
     conn.batch_execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
         .await
         .expect("open the invariant snapshot");
-    let violations = violations_in_snapshot(conn, tenant_id.as_uuid()).await;
+    let violations = violations_in_snapshot(conn, tenant).await;
     conn.batch_execute("COMMIT")
         .await
         .expect("close the invariant snapshot");
     violations
 }
 
-async fn violations_in_snapshot(conn: &mut PgConn, tenant: Uuid) -> Vec<String> {
+async fn violations_in_snapshot(conn: &mut PgConn, tenant: Uuid) -> Vec<InvariantViolation> {
     let ids = |sql: &'static str| diesel::sql_query(sql).bind::<diesel::sql_types::Uuid, _>(tenant);
     let invoices: Vec<Uuid> = ids("SELECT id FROM invoice WHERE tenant_id = $1")
         .load::<IdRow>(conn)
@@ -568,13 +663,18 @@ async fn violations_in_snapshot(conn: &mut PgConn, tenant: Uuid) -> Vec<String> 
             .await
             .unwrap_or_else(|error| panic!("invariant query `{name}` failed: {error:?}"));
         let count = rows.len();
+        let violation = |message: String| InvariantViolation {
+            tenant,
+            check: name,
+            message,
+        };
         violations.extend(
             rows.into_iter()
                 .take(SHOWN)
-                .map(|row| format!("{name}: {}", row.message)),
+                .map(|row| violation(row.message)),
         );
         if count > SHOWN {
-            violations.push(format!("{name}: … {} more", count - SHOWN));
+            violations.push(violation(format!("… {} more", count - SHOWN)));
         }
     }
     violations
@@ -648,7 +748,7 @@ pub async fn assert_credit_invariants(store: &Store, tenant_id: TenantId) {
 
 /// The violations of every tenant of the database at `url`, read from a thread of its own: called
 /// while the test's runtime is being torn down.
-pub fn database_violations(url: &str) -> Vec<String> {
+pub fn database_violations(url: &str) -> Vec<InvariantViolation> {
     let url = url.to_owned();
     std::thread::spawn(move || {
         tokio::runtime::Builder::new_current_thread()
@@ -670,11 +770,7 @@ pub fn database_violations(url: &str) -> Vec<String> {
                     .collect();
                 let mut violations = Vec::new();
                 for tenant in tenants {
-                    for violation in
-                        credit_invariant_violations(&mut conn, TenantId::from(tenant)).await
-                    {
-                        violations.push(format!("tenant {tenant}: {violation}"));
-                    }
+                    violations.extend(tenant_violations(&mut conn, tenant).await);
                 }
                 violations
             })

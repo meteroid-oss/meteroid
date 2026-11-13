@@ -1,26 +1,11 @@
-//! Runs generated sequences against the engine and the model, compares them after every step,
-//! shrinks a failing sequence and prints it as a dated scenario.
+//! The credit model in the harness: how its actions read, and how the engine's documents and
+//! grants compare with the model's after every step.
 use std::collections::BTreeMap;
-use std::time::Instant;
 
-use futures::StreamExt;
-
-use super::engine::{Engine, sub_name, token_name};
+use super::engine::{Engine, Fingerprint, sub_name, token_name};
 use super::generator::{Op, generate, resolve};
-use super::reference::{Action, At, How, Kind, Late, Model, NoteType, Plan};
-
-#[derive(Clone, Debug)]
-pub struct Failure {
-    pub step: usize,
-    pub signature: String,
-    pub details: Vec<String>,
-}
-
-pub struct Run {
-    pub lines: Vec<String>,
-    pub kinds: Vec<&'static str>,
-    pub failure: Option<Failure>,
-}
+use super::harness::{self, Diff, Knobs, ModelHarness};
+use super::reference::{Action, At, How, Kind, Late, Model, NoteType, Plan, Refused};
 
 fn when(at: At) -> String {
     at.format("%Y-%m-%d %H:%M").to_string()
@@ -232,7 +217,7 @@ const FIGURES: [&str; 7] = [
 ];
 
 /// Each difference as (category, detail); the category names the kind of mismatch.
-fn compare(model: &Model, observed: &super::engine::Observed) -> Vec<(String, String)> {
+fn compare(model: &Model, observed: &super::engine::Observed) -> Vec<Diff> {
     let mut diffs = vec![];
     if observed.invoices.len() != model.invoices.len() || !observed.unmapped.is_empty() {
         diffs.push((
@@ -349,250 +334,101 @@ fn state(model: &Model) -> String {
     )
 }
 
-/// One case: every operation resolved against the model, run on both, then compared.
-pub async fn run_case(ops: &[Op]) -> Run {
-    let mut engine = Engine::new().await;
-    let run = run_with(&mut engine, ops).await;
-    // Dropping a test database blocks on DROP DATABASE, which waits for every backend, including
-    // another case's connection still authenticating on this task: drop it off the task.
-    tokio::task::spawn_blocking(move || drop(engine))
-        .await
-        .expect("the test database dropped");
-    run
+impl harness::Reference for Model {
+    type Op = Op;
+    type Action = Action;
+    type Refusal = Refused;
+
+    fn generate(seed: u64, steps: usize) -> Vec<Op> {
+        generate(seed, steps)
+    }
+
+    fn resolve(&self, op: &Op) -> Option<Action> {
+        resolve(self, op)
+    }
+
+    fn kind(action: &Action) -> &'static str {
+        kind_of(action)
+    }
+
+    fn describe(&self, action: &Action) -> String {
+        describe(action, self)
+    }
+
+    fn apply(&mut self, action: &Action) -> Result<(), Refused> {
+        Model::apply(self, action)
+    }
+
+    fn reason(refusal: &Refused) -> &str {
+        refusal.0
+    }
+
+    fn state(&self) -> String {
+        state(self)
+    }
 }
 
-async fn run_with(engine: &mut Engine, ops: &[Op]) -> Run {
-    let mut model = Model::default();
-    let mut lines = vec![];
-    let mut kinds = vec![];
-    for (step, op) in ops.iter().enumerate() {
-        let Some(action) = resolve(&model, op) else {
-            continue;
-        };
-        let mut details: Vec<(String, String)> = vec![];
+impl harness::Engine<Model> for Engine {
+    type Fingerprint = Fingerprint;
+
+    async fn new() -> Self {
+        Engine::new().await
+    }
+
+    /// The expiry sweeps due before the action, one per lapse, on both sides.
+    async fn before(&mut self, model: &mut Model, action: &Action) -> Vec<Diff> {
+        let mut details = vec![];
         if model.now.is_some() {
             for at in model.sweeps_due(action.at()) {
                 model.sweep(at);
-                if let Err(e) = engine.sweep(at).await {
+                if let Err(e) = self.sweep(at).await {
                     details.push(("engine error".to_owned(), format!("sweep at {at}: {e}")));
                 }
             }
         }
-        lines.push(describe(&action, &model));
-        kinds.push(kind_of(&action));
-        let before = model.clone();
-        let expected = model.apply(&action);
-        let actual = engine.apply(&action, &before).await;
-        match (&expected, &actual) {
-            (Ok(()), Ok(())) | (Err(_), Err(_)) => {}
-            (Ok(()), Err(e)) => {
-                details.push(("outcome".to_owned(), format!("engine refused: {e}")))
-            }
-            (Err(r), Ok(())) => details.push((
-                "outcome".to_owned(),
-                format!("expected a refusal ({}), the engine accepted", r.0),
-            )),
-        }
-        if let (Err(r), Err(e)) = (&expected, &actual) {
-            lines.push(format!("        refused as expected ({}): {e}", r.0));
-        }
-        let observed = engine.observe().await;
-        details.extend(compare(&model, &observed));
-        for violation in engine.invariants().await {
-            let name = violation.split(": ").next().unwrap_or_default().to_owned();
-            details.push((format!("invariant {name}"), violation));
-        }
-        if details.is_empty() {
-            let first = engine.fingerprint().await;
-            match engine.rerun_workers(&action).await {
-                Err(e) => details.push(("idempotency".to_owned(), e)),
-                Ok(()) => {
-                    let second = engine.fingerprint().await;
-                    if first != second {
-                        details.push((
-                            "idempotency".to_owned(),
-                            format!("a second pass changed {first:?} into {second:?}"),
-                        ));
-                    }
-                }
-            }
-        }
-        lines.push(state(&model));
-        if !details.is_empty() {
-            details.extend(
-                engine
-                    .dump()
-                    .await
-                    .into_iter()
-                    .map(|line| ("ledger".to_owned(), format!("ledger: {line}"))),
-            );
-            let signature = format!("{}: {}", kind_of(&action), details[0].0);
-            return Run {
-                lines,
-                kinds,
-                failure: Some(Failure {
-                    step,
-                    signature,
-                    details: details.into_iter().map(|(_, d)| d).collect(),
-                }),
-            };
-        }
+        details
     }
-    Run {
-        lines,
-        kinds,
-        failure: None,
-    }
-}
 
-/// Truncates after the failing step, then drops every operation whose removal keeps the same
-/// failure, last first.
-pub async fn shrink(ops: &[Op], failure: &Failure, budget: usize) -> (Vec<Op>, Run) {
-    let mut best: Vec<Op> = ops[..=failure.step].to_vec();
-    let mut best_run = run_case(&best).await;
-    let mut runs = 1;
-    let mut i = best.len().saturating_sub(1);
-    while i >= 1 && runs < budget {
-        let mut candidate = best.clone();
-        candidate.remove(i);
-        let run = run_case(&candidate).await;
-        runs += 1;
-        if let Some(f) = &run.failure
-            && f.signature == failure.signature
-        {
-            candidate.truncate(f.step + 1);
-            best = candidate;
-            best_run = run;
-            i = i.min(best.len());
-        }
-        i -= 1;
+    async fn apply(&mut self, action: &Action, model: &Model) -> Result<(), String> {
+        Engine::apply(self, action, model).await
     }
-    (best, best_run)
-}
 
-fn env(name: &str, default: u64) -> u64 {
-    std::env::var(name)
-        .ok()
-        .and_then(|v| {
-            v.strip_prefix("0x")
-                .map(|hex| u64::from_str_radix(hex, 16).ok())
-                .unwrap_or_else(|| v.parse().ok())
-        })
-        .unwrap_or(default)
+    async fn compare(&self, model: &Model) -> Vec<Diff> {
+        compare(model, &self.observe().await)
+    }
+
+    async fn invariants(&self) -> Vec<String> {
+        Engine::invariants(self).await
+    }
+
+    async fn fingerprint(&self) -> Fingerprint {
+        Engine::fingerprint(self).await
+    }
+
+    async fn rerun_workers(&self, action: &Action) -> Result<(), String> {
+        Engine::rerun_workers(self, action).await
+    }
+
+    async fn dump(&self) -> Vec<String> {
+        Engine::dump(self)
+            .await
+            .into_iter()
+            .map(|line| format!("ledger: {line}"))
+            .collect()
+    }
 }
 
 /// The `shard`-th of `shards` slices of MODEL_CASES cases from MODEL_SEED, MODEL_STEPS operations
 /// each, MODEL_JOBS at a time; the first MODEL_SHRINK distinct failures are shrunk and printed.
 pub async fn run_cases(shard: u64, shards: u64) {
-    let cases = env("MODEL_CASES", 16);
-    let base = env("MODEL_SEED", 0x00C0_FFEE);
-    let steps = env("MODEL_STEPS", 25) as usize;
-    let jobs = env("MODEL_JOBS", 4) as usize;
-    let shrinks = env("MODEL_SHRINK", 8) as usize;
-    let started = Instant::now();
-    let seeds: Vec<u64> = (0..cases)
-        .filter(|i| i % shards == shard)
-        .map(|i| base.wrapping_add(i))
-        .collect();
-    let results: Vec<(u64, Vec<Op>, Run)> = futures::stream::iter(seeds)
-        .map(|seed| async move {
-            let ops = generate(seed, steps);
-            let run = run_case(&ops).await;
-            (seed, ops, run)
-        })
-        .buffer_unordered(jobs)
-        .collect()
-        .await;
-    let mut failures: Vec<&(u64, Vec<Op>, Run)> = results
-        .iter()
-        .filter(|(_, _, r)| r.failure.is_some())
-        .collect();
-    failures.sort_by_key(|(seed, _, _)| *seed);
-    eprintln!(
-        "model tests: {} cases from seed {base:#x}, {} failed, {:?}",
-        results.len(),
-        failures.len(),
-        started.elapsed()
-    );
-    let mut actions: BTreeMap<&str, usize> = BTreeMap::new();
-    for (_, _, run) in &results {
-        for kind in &run.kinds {
-            *actions.entry(kind).or_default() += 1;
-        }
-    }
-    eprintln!("  actions run: {actions:?}");
-    let mut by_signature: BTreeMap<String, Vec<u64>> = BTreeMap::new();
-    for (seed, _, run) in &failures {
-        let failure = run.failure.as_ref().expect("failed");
-        by_signature
-            .entry(failure.signature.clone())
-            .or_default()
-            .push(*seed);
-    }
-    for (signature, seeds) in &by_signature {
-        eprintln!(
-            "  {signature}: {} case(s), seeds {}",
-            seeds.len(),
-            seeds
-                .iter()
-                .map(|s| format!("{s:#x}"))
-                .collect::<Vec<_>>()
-                .join(" ")
-        );
-    }
-    for (signature, seeds) in &by_signature {
-        let (_, _, run) = failures
-            .iter()
-            .find(|(seed, _, _)| *seed == seeds[0])
-            .expect("the first seed");
-        let failure = run.failure.as_ref().expect("failed");
-        eprintln!("\n--- {signature}, seed {:#x}, unshrunk ---", seeds[0]);
-        for line in &run.lines {
-            eprintln!("{line}");
-        }
-        for detail in &failure.details {
-            eprintln!("      {detail}");
-        }
-    }
-    let firsts: Vec<(String, u64, Vec<Op>, Failure)> = by_signature
-        .iter()
-        .map(|(signature, seeds)| {
-            let (_, ops, run) = failures
-                .iter()
-                .find(|(seed, _, _)| *seed == seeds[0])
-                .expect("the first seed");
-            let failure = run.failure.clone().expect("failed");
-            (signature.clone(), seeds[0], ops.clone(), failure)
-        })
-        .collect();
-    let shrunk: Vec<Vec<String>> = futures::stream::iter(firsts.into_iter().enumerate())
-        .map(|(n, (signature, seed, ops, failure))| async move {
-            let (lines, failure) = if n < shrinks {
-                let (_, run) = shrink(&ops, &failure, 40).await;
-                let failure = run.failure.clone().unwrap_or(failure);
-                (run.lines, failure)
-            } else {
-                let run = run_case(&ops[..=failure.step]).await;
-                (run.lines, failure)
-            };
-            let mut report = vec![format!(
-                "\n=== {signature} (seed {seed:#x}, replay with MODEL_SEED={seed:#x} MODEL_CASES=1) ==="
-            )];
-            report.extend(lines);
-            report.push("    mismatch:".to_owned());
-            report.extend(failure.details.iter().map(|d| format!("      {d}")));
-            report
-        })
-        .buffer_unordered(jobs)
-        .collect()
-        .await;
-    let report: Vec<String> = shrunk.into_iter().flatten().collect();
-    eprintln!("{}", report.join("\n"));
-    assert!(
-        failures.is_empty(),
-        "{} of {} model cases failed: {:?}",
-        failures.len(),
-        results.len(),
-        by_signature.keys().collect::<Vec<_>>()
-    );
+    ModelHarness::<Model, Engine>::run_cases(Knobs {
+        prefix: "MODEL",
+        label: "model",
+        cases: 16,
+        seed: 0x00C0_FFEE,
+        steps: 25,
+        shard,
+        shards,
+    })
+    .await;
 }

@@ -1,7 +1,8 @@
 name: Model tests
 
-# The reference-model tests of the credit engine on fresh seeds: pull requests run a fixed
-# handful of cases, this explores new ones. A failure prints its seed and the shrunk sequence.
+# The reference-model tests of the credit and invoice engines on fresh seeds, and the billing-core
+# properties at depth: pull requests run a fixed handful of cases, this explores new ones. A
+# failure prints its seed and the shrunk sequence.
 on:
   schedule:
     - cron: "17 3 * * *"
@@ -38,6 +39,8 @@ jobs:
       METEROID_TEST_PG_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
       MODEL_CASES: ${{ inputs.cases || '512' }}
       MODEL_JOBS: "8"
+      INVOICE_MODEL_CASES: ${{ inputs.cases || '512' }}
+      INVOICE_MODEL_JOBS: "8"
     steps:
       # GitHub's runners (the public repository) keep ~14 GB free: drop toolchains the build does not use.
       - name: Free disk space
@@ -54,9 +57,16 @@ jobs:
       - name: Pick the seed
         env:
           SEED: ${{ inputs.seed }}
-        run: echo "MODEL_SEED=${SEED:-$(( ${{ github.run_id }} << 16 ))}" >> "$GITHUB_ENV"
+        run: |
+          seed="${SEED:-$(( ${{ github.run_id }} << 16 ))}"
+          echo "MODEL_SEED=$seed" >> "$GITHUB_ENV"
+          echo "INVOICE_MODEL_SEED=$seed" >> "$GITHUB_ENV"
+      - name: billing-core properties, 100k cases each
+        env:
+          PROPTEST_CASES: "100000"
+        run: cargo nextest run -p billing-core --release
       - name: Run the model tests
         run: >-
           cargo nextest run -p meteroid --test integration
           --config 'profile.dev.package."*".opt-level=3'
-          -E 'test(/^model::credit_engine_matches_the_reference_model/)'
+          -E 'test(/^model::(credit|invoice)_engine_matches_the_reference_model/)'

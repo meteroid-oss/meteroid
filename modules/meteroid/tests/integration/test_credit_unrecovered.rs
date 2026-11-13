@@ -725,7 +725,8 @@ async fn grant_reversals(
 #[tokio::test]
 async fn a_partial_chargeback_of_two_packs_takes_back_half_of_each() -> TestResult {
     let setup = setup().await;
-    setup.skip_credit_invariants(
+    setup.skip_checks(
+        &["I7"],
         "sells a currency pack above its face through store internals, which no API allows",
     );
     let premium = LineItem {

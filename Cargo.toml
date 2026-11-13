@@ -29,6 +29,7 @@ members = [
   "modules/meteroid/crates/diesel-models",
   "modules/meteroid/crates/diesel-schema",
   "modules/meteroid/crates/meteroid-store",
+  "modules/meteroid/crates/billing-core",
   "modules/meteroid/crates/meteroid-store-macros",
   "modules/meteroid/crates/meteroid-invoicing",
   "modules/meteroid/crates/meteroid-mailer",
@@ -286,6 +287,7 @@ metric-core = { path = "modules/metric-core" }
 diesel-models = { path = "modules/meteroid/crates/diesel-models" }
 diesel-schema = { path = "modules/meteroid/crates/diesel-schema" }
 meteroid-store = { path = "modules/meteroid/crates/meteroid-store" }
+billing-core = { path = "modules/meteroid/crates/billing-core" }
 meteroid-store-macros = { path = "modules/meteroid/crates/meteroid-store-macros" }
 meteroid-invoicing = { path = "modules/meteroid/crates/meteroid-invoicing" }
 meteroid-mailer = { path = "modules/meteroid/crates/meteroid-mailer" }

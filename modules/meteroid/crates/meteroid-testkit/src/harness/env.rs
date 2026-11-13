@@ -7,6 +7,7 @@ use rstest::fixture;
 use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::{MeteroidSetup, SeedLevel};
+use common_domain::ids::{BaseId, InvoiceId};
 use meteroid_store::clients::usage::{MockUsageClient, UsageClient};
 use meteroid_store::store::PgConn;
 use meteroid_store::{Services, Store};
@@ -167,5 +168,28 @@ impl TestEnv {
     #[allow(dead_code)]
     pub fn skip_credit_invariants(&self, reason: &'static str) {
         self.setup.skip_credit_invariants(reason);
+    }
+
+    /// Compares the seeded tenant's invoices, credit notes and grants with `corpus/<name>.txt`.
+    pub async fn assert_corpus(&self, name: &str) {
+        let mut conn = self.conn().await;
+        crate::corpus::assert_tenant(&mut conn, crate::data::ids::TENANT_ID.as_uuid(), name).await;
+    }
+
+    /// See [`crate::meteroid_it::container::MeteroidSetup::skip_checks`].
+    #[allow(dead_code)]
+    pub fn skip_checks(&self, checks: &[&'static str], reason: &'static str) {
+        self.setup.skip_checks(checks, reason);
+    }
+
+    /// See [`crate::meteroid_it::container::MeteroidSetup::exempt_invoice_from`].
+    #[allow(dead_code)]
+    pub fn exempt_invoice_from(
+        &self,
+        check: &'static str,
+        invoice: InvoiceId,
+        reason: &'static str,
+    ) {
+        self.setup.exempt_invoice_from(check, invoice, reason);
     }
 }

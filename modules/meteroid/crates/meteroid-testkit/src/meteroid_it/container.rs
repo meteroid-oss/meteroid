@@ -1,5 +1,6 @@
 use crate::helpers;
 use backon::{ExponentialBuilder, Retryable};
+use common_domain::ids::{BaseId, InvoiceId};
 use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_noop, setup_eventbus_handlers};
 use meteroid::migrations;
@@ -17,7 +18,7 @@ use rate_limiter::RateLimiter;
 use std::fmt::{Debug, Display};
 use std::future::Future;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use testcontainers::core::wait::LogWaitStrategy;
 use testcontainers::core::{Mount, WaitFor};
@@ -63,6 +64,23 @@ pub struct TestDatabase {
     invariants_opt_out: OnceLock<&'static str>,
     /// The seed the database was cloned with, so starting meteroid does not seed it again.
     seeded: Option<SeedLevel>,
+    /// Checks expected to fail, for the whole database or for one invoice.
+    invariant_exemptions: Mutex<Vec<Exemption>>,
+}
+
+struct Exemption {
+    check: &'static str,
+    invoice: Option<String>,
+}
+
+impl Exemption {
+    fn covers(&self, violation: &helpers::invariants::InvariantViolation) -> bool {
+        violation.id() == self.check
+            && self
+                .invoice
+                .as_deref()
+                .is_none_or(|invoice| violation.message.contains(invoice))
+    }
 }
 
 impl TestDatabase {
@@ -92,18 +110,25 @@ impl TestDatabase {
 
 impl Drop for TestDatabase {
     fn drop(&mut self) {
-        let violations = if std::thread::panicking() || self.invariants_opt_out.get().is_some() {
+        let mut violations = if std::thread::panicking() || self.invariants_opt_out.get().is_some()
+        {
             Vec::new()
         } else {
             helpers::invariants::database_violations(&self.url)
         };
+        let exemptions = self.invariant_exemptions.lock().unwrap();
+        violations.retain(|violation| !exemptions.iter().any(|e| e.covers(violation)));
         if let Err(err) = self.drop_database() {
             log::warn!("Could not drop test database {}: {err}", self.name);
         }
         assert!(
             violations.is_empty(),
-            "credit invariants violated at the end of the test:\n{}",
-            violations.join("\n")
+            "billing invariants violated at the end of the test:\n{}",
+            violations
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("\n")
         );
     }
 }
@@ -686,11 +711,32 @@ pub async fn start_meteroid_with_clients_and_modules(
 }
 
 impl MeteroidSetup {
+    pub fn database_url(&self) -> &str {
+        &self._database.url
+    }
+
     /// Skips the credit invariants checked when the test's database is dropped. Only for a test
     /// that writes states the product cannot reach (raw SQL fixtures); `reason` says which.
     #[allow(dead_code)]
     pub fn skip_credit_invariants(&self, reason: &'static str) {
         self._database.skip_credit_invariants(reason);
+    }
+
+    /// Skips the named checks (`"I5"`, `"I9"`) for this test; every other check still runs.
+    #[allow(dead_code)]
+    pub fn skip_checks(&self, checks: &[&'static str], reason: &'static str) {
+        self._database.skip_checks(checks, reason);
+    }
+
+    /// Expects `check` to fail for one invoice only, e.g. a fixture in an earlier release's shape.
+    #[allow(dead_code)]
+    pub fn exempt_invoice_from(
+        &self,
+        check: &'static str,
+        invoice: InvoiceId,
+        reason: &'static str,
+    ) {
+        self._database.exempt_invoice_from(check, invoice, reason);
     }
 }
 
@@ -698,6 +744,34 @@ impl TestDatabase {
     #[allow(dead_code)]
     pub fn skip_credit_invariants(&self, reason: &'static str) {
         let _ = self.invariants_opt_out.set(reason);
+    }
+
+    #[allow(dead_code)]
+    pub fn skip_checks(&self, checks: &[&'static str], reason: &'static str) {
+        for check in checks {
+            self.exempt(check, None, reason);
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn exempt_invoice_from(
+        &self,
+        check: &'static str,
+        invoice: InvoiceId,
+        reason: &'static str,
+    ) {
+        self.exempt(check, Some(invoice.as_uuid().to_string()), reason);
+    }
+
+    fn exempt(&self, check: &'static str, invoice: Option<String>, reason: &'static str) {
+        assert!(
+            helpers::invariants::is_check_id(check),
+            "no invariant {check} to exempt ({reason})"
+        );
+        self.invariant_exemptions
+            .lock()
+            .unwrap()
+            .push(Exemption { check, invoice });
     }
 }
 
@@ -862,6 +936,7 @@ async fn clone_database(
         base_url: shared.base_connection_string.clone(),
         invariants_opt_out: OnceLock::new(),
         seeded,
+        invariant_exemptions: Mutex::new(Vec::new()),
     }
 }
 

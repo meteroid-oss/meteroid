@@ -217,6 +217,7 @@ async fn a_monthly_add_on_on_an_annual_subscription_bills_monthly(#[future] test
         (sub.current_period_start, sub.current_period_end),
         (day(2025, 5, 1), Some(day(2025, 6, 1)))
     );
+    env.assert_corpus("fix561_monthly_add_on_on_annual").await;
 }
 
 /// The preview of the same change, made today: the stub runs to the end of this month, the

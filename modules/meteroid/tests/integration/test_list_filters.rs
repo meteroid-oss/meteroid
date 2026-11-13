@@ -678,7 +678,10 @@ async fn test_subscription_list_filters(#[future] test_env: TestEnv) {
 #[tokio::test]
 async fn test_invoice_list_filters(#[future] test_env: TestEnv) {
     let env = test_env.await;
-    env.skip_credit_invariants("inserts documents with arbitrary totals to exercise list filters");
+    env.skip_checks(
+        &["I2"],
+        "inserts documents with arbitrary totals to exercise list filters",
+    );
     let store = env.store();
     type T = CustomPropertyType;
     const I: CustomPropertyEntityType = CustomPropertyEntityType::Invoice;
@@ -853,7 +856,10 @@ async fn test_invoice_list_filters(#[future] test_env: TestEnv) {
 #[tokio::test]
 async fn test_credit_note_list_filters(#[future] test_env: TestEnv) {
     let env = test_env.await;
-    env.skip_credit_invariants("inserts documents with arbitrary totals to exercise list filters");
+    env.skip_checks(
+        &["I16", "I17"],
+        "inserts documents with arbitrary totals to exercise list filters",
+    );
     let store = env.store();
     type T = CustomPropertyType;
     const CN: CustomPropertyEntityType = CustomPropertyEntityType::CreditNote;

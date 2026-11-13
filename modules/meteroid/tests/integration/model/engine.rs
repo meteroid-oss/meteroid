@@ -102,6 +102,7 @@ impl Engine {
         let h = Halyard::new().await;
         h.env
             .skip_credit_invariants("the model runner checks them after every step");
+        h.skip_corpus("a model case's documents follow from its seed");
         let customer = h.customer("Model", Tax::Untaxed).await;
         let wallet = h
             .store()
