@@ -1,0 +1,20 @@
+-- Restores the defaults where the dropping migration already ran: pods of the previous release
+-- insert these rows without created_at. Drop them again once no release relies on them.
+SET LOCAL lock_timeout = '5s';
+ALTER TABLE applied_coupon ALTER COLUMN created_at SET DEFAULT now();
+ALTER TABLE checkout_session ALTER COLUMN created_at SET DEFAULT now();
+ALTER TABLE credit_note ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE credit_usage_settlement ALTER COLUMN created_at SET DEFAULT now();
+ALTER TABLE customer_credit_entry ALTER COLUMN created_at SET DEFAULT clock_timestamp();
+ALTER TABLE customer_credit_grant ALTER COLUMN created_at SET DEFAULT now();
+ALTER TABLE customer_credit_line_allocation ALTER COLUMN created_at SET DEFAULT clock_timestamp();
+ALTER TABLE customer_credit_operation ALTER COLUMN created_at SET DEFAULT now();
+ALTER TABLE customer_credit_purchase ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE invoice ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE payment_reversal_movement ALTER COLUMN created_at SET DEFAULT now();
+ALTER TABLE payment_transaction ALTER COLUMN created_at SET DEFAULT now();
+ALTER TABLE scheduled_event ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE subscription ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE subscription_add_on ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE subscription_adjustment ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE subscription_event ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP;
