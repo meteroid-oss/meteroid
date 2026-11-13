@@ -8,6 +8,7 @@ on:
     paths:
       - ".github/workflows/ci-ui.yaml"
       - "modules/meteroid/proto/**"
+      - "modules/meteroid/crates/meteroid-app/src/services/customer_ingest.rs"
       - "modules/web/**"
       - "ee/web/**"
       - "ee/modules/*/web/**"
@@ -16,6 +17,7 @@ on:
     paths:
       - ".github/workflows/ci-ui.yaml"
       - "modules/meteroid/proto/**"
+      - "modules/meteroid/crates/meteroid-app/src/services/customer_ingest.rs"
       - "modules/web/**"
       - "ee/web/**"
       - "ee/modules/*/web/**"
@@ -46,6 +48,8 @@ jobs:
         run: pnpm install --prefix modules/web
       - name: Run lint
         run: pnpm --prefix modules/web lint
+      - name: Run tests
+        run: pnpm --prefix modules/web/web-app test
       # The Enterprise edition's screens, skipped without ee/.
       - name: Typecheck and lint (Enterprise)
         if: ${{ hashFiles('ee/web/package.json') != '' }}

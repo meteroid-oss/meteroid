@@ -101,7 +101,7 @@ fn map_to_domain(
         } else {
             CustomerTaxStatus::Taxable
         },
-        exemption_reason: None,
+        exemption_reason: csv.exemption_reason.map(|r| r.0),
         connected_account_id: None,
         // `Null` when the file declares no `custom_properties.*` column, which leaves the
         // entity's properties untouched (and skips validation) in the store.

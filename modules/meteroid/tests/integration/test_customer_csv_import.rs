@@ -11,7 +11,7 @@ use meteroid_store::domain::custom_property_definitions::{
 };
 use meteroid_store::domain::enums::{
     BatchJobChunkStatusEnum, BatchJobStatusEnum, BatchJobTypeEnum, CustomPropertyEntityType,
-    CustomPropertyType,
+    CustomPropertyType, CustomerType,
 };
 use meteroid_store::repositories::CustomersInterface;
 use meteroid_testkit::custom_properties::create_custom_property_definition;
@@ -391,6 +391,64 @@ async fn test_customer_csv_import_preferred_locales() {
         result.failures
     );
     assert_eq!(locales_of(&store, "acme").await, vec!["pl-PL", "de-DE"]);
+
+    setup.token.cancel();
+}
+
+#[tokio::test]
+async fn test_customer_csv_import_reimport_updates_all_fields() {
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::MINIMAL).await;
+    let setup =
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
+            .await;
+
+    let store = setup.store.clone();
+    let processor = CustomerCsvProcessor::new(Arc::new(store.clone()));
+    let job = job();
+
+    let import = |csv: &'static str| {
+        let processor = &processor;
+        let job = &job;
+        async move {
+            let result = processor
+                .process_chunk(job, &chunk(job.id, 1), Some(csv.as_bytes().to_vec().into()))
+                .await
+                .unwrap();
+            assert!(result.failures.is_empty(), "{:?}", result.failures);
+        }
+    };
+
+    import(
+        "name,alias,currency,legal_number,buyer_reference,is_tax_exempt,exemption_reason\n\
+        Acme,acme,EUR,552100554,LEITWEG-1,true,Non-profit\n",
+    )
+    .await;
+    let created = store
+        .find_customer_by_alias("acme".to_string(), TENANT_ID)
+        .await
+        .unwrap();
+    assert_eq!(created.legal_number.as_deref(), Some("552100554"));
+    assert_eq!(created.buyer_reference.as_deref(), Some("LEITWEG-1"));
+    assert_eq!(created.exemption_reason.as_deref(), Some("Non-profit"));
+
+    import(
+        "name,alias,currency,customer_type,first_name,last_name,billing_address.country,legal_number,buyer_reference\n\
+        ,acme,EUR,INDIVIDUAL,Ada,Lovelace,FR,732829320,LEITWEG-2\n",
+    )
+    .await;
+    let updated = store
+        .find_customer_by_alias("acme".to_string(), TENANT_ID)
+        .await
+        .unwrap();
+    assert_eq!(updated.id, created.id);
+    assert_eq!(updated.customer_type, CustomerType::Individual);
+    assert_eq!(updated.first_name.as_deref(), Some("Ada"));
+    assert_eq!(updated.last_name.as_deref(), Some("Lovelace"));
+    assert_eq!(updated.legal_number.as_deref(), Some("732829320"));
+    assert_eq!(updated.buyer_reference.as_deref(), Some("LEITWEG-2"));
+    assert_eq!(updated.exemption_reason, None);
 
     setup.token.cancel();
 }

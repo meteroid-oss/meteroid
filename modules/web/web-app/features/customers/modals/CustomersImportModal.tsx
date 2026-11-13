@@ -9,10 +9,31 @@ import { useCustomPropertyImportColumn } from '@/features/customproperties/useCu
 import { BatchJobType } from '@/rpc/api/batchjobs/v1/models_pb'
 import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 
+import { customerCsvOptionalColumns, customerCsvRequiredColumns } from './customerCsvColumns'
+
+import type { CsvColumnSpec } from './customerCsvColumns'
+import type { ColumnDefinition } from '@/components/csvPreview'
 import type { FunctionComponent } from 'react'
 
 const optionalValid = (re: RegExp, msg: string) =>
   z.string().refine(v => !v || re.test(v), msg).optional()
+
+const toColumnDefinition = ({ name, hint, fields }: CsvColumnSpec): ColumnDefinition => ({
+  name,
+  tooltipMessage: fields ? (
+    <div className="space-y-2">
+      <p className="font-semibold">Available fields:</p>
+      <ul className="list-disc pl-4 space-y-1">
+        {fields.map(field => (
+          <li key={field}>{field}</li>
+        ))}
+      </ul>
+      {hint && <p>{hint}</p>}
+    </div>
+  ) : (
+    hint
+  ),
+})
 
 const customerRowSchema = z.object({
   // Blank for INDIVIDUAL rows (derived from first/last name); a blank COMPANY name is rejected on import.
@@ -106,91 +127,18 @@ export const CustomersImportModal: FunctionComponent<CustomersImportModalProps> 
       dialogDescription="Import customer data from a CSV file. All imports must include headers."
       dialogIcon={<FileSpreadsheetIcon className="h-5 w-5" />}
       rowSchema={customerRowSchema}
-      requiredColumns={[
-        { name: 'name', tooltipMessage: 'Company name. Leave blank for INDIVIDUAL customers' },
-        { name: 'currency', tooltipMessage: '3-letter ISO code (e.g., USD, EUR)' },
-      ]}
+      requiredColumns={customerCsvRequiredColumns.map(toColumnDefinition)}
       optionalColumns={[
-        { name: 'invoicing_emails', tooltipMessage: 'Comma-separated for multiple emails' },
-        { name: 'alias' },
-        { name: 'billing_email' },
-        { name: 'phone' },
-        { name: 'customer_type', tooltipMessage: 'COMPANY (default) or INDIVIDUAL' },
-        { name: 'first_name', tooltipMessage: 'Required for INDIVIDUAL customers' },
-        { name: 'last_name', tooltipMessage: 'Required for INDIVIDUAL customers' },
-        { name: 'invoicing_entity_id', tooltipMessage: '`default` entity is used if empty' },
-        { name: 'vat_number' },
-        { name: 'is_tax_exempt' },
-        {
-          name: 'preferred_locales',
-          tooltipMessage:
-            'Comma-separated BCP-47 codes, most-preferred first (e.g., fr-FR,en); overrides the invoicing entity default',
-        },
-        {
-          name: 'tax_rate1.*',
-          tooltipMessage: (
-            <div className="space-y-2">
-              <p className="font-semibold">Available fields:</p>
-              <ul className="list-disc pl-4 space-y-1">
-                <li>tax_rate1.tax_code</li>
-                <li>tax_rate1.name</li>
-                <li>tax_rate1.rate</li>
-              </ul>
-            </div>
-          ),
-        },
-        {
-          name: 'tax_rate2.*',
-          tooltipMessage: (
-            <div className="space-y-2">
-              <p className="font-semibold">Available fields:</p>
-              <ul className="list-disc pl-4 space-y-1">
-                <li>tax_rate2.tax_code</li>
-                <li>tax_rate2.name</li>
-                <li>tax_rate2.rate</li>
-              </ul>
-            </div>
-          ),
-        },
-        {
-          name: 'billing_address.*',
-          tooltipMessage: (
-            <div className="space-y-2">
-              <p className="font-semibold">Available fields:</p>
-              <ul className="list-disc pl-4 space-y-1">
-                <li>billing_address.line1</li>
-                <li>billing_address.line2</li>
-                <li>billing_address.city</li>
-                <li>billing_address.country</li>
-                <li>billing_address.state</li>
-                <li>billing_address.zip_code</li>
-              </ul>
-            </div>
-          ),
-        },
-        {
-          name: 'shipping_address.*',
-          tooltipMessage: (
-            <div className="space-y-2">
-              <p className="font-semibold">Available fields:</p>
-              <ul className="list-disc pl-4 space-y-1">
-                <li>shipping_address.same_as_billing (true/false)</li>
-                <li>shipping_address.line1</li>
-                <li>shipping_address.line2</li>
-                <li>shipping_address.city</li>
-                <li>shipping_address.country</li>
-                <li>shipping_address.state</li>
-                <li>shipping_address.zip_code</li>
-              </ul>
-            </div>
-          ),
-        },
+        ...customerCsvOptionalColumns.map(toColumnDefinition),
         ...customPropertyColumn,
       ]}
       additionalInfo={
         <ul>
           <li>• Headers are required in the first row</li>
-          <li>• If customer with the same alias exists, it will be updated</li>
+          <li>
+            • If a customer with the same alias exists, the row replaces it: blank or missing
+            columns are cleared, except preferred_locales and custom properties
+          </li>
           <li>
             • Group fields (e.g. <i>billing_address.*</i>): hover on info icon to see available
             fields within the group

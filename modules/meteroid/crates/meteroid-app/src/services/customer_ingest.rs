@@ -84,6 +84,8 @@ pub struct NewCustomerCsv {
     pub tax_rates: CustomTaxRatesCsv,
     #[serde(default, with = "optional_bool")]
     pub is_tax_exempt: Option<bool>,
+    #[serde(default, with = "optional_csv_string")]
+    pub exemption_reason: Option<CsvString>,
     /// Comma-separated, most-preferred first (`fr-FR,en`).
     #[serde(default)]
     pub preferred_locales: Option<PreferredLocales>,
