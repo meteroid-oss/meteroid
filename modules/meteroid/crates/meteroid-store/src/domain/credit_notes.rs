@@ -1,5 +1,5 @@
 use super::einvoicing::{EInvoicingReport, EInvoicingStatus};
-use super::enums::{CreditNoteStatus, CreditType};
+use super::enums::{CreditNoteOrigin, CreditNoteStatus, CreditType};
 use super::invoice_lines::LineItem;
 use super::invoices::{InlineCustomer, InlineInvoicingEntity, TaxBreakdownItem};
 use crate::domain::Customer;
@@ -70,6 +70,8 @@ pub struct CreditNote {
     pub einvoicing_status: Option<EInvoicingStatus>,
     #[from(~.and_then(| v | serde_json::from_value(v).ok()))]
     pub einvoicing_report: Option<EInvoicingReport>,
+    #[from(~.into())]
+    pub origin: CreditNoteOrigin,
 }
 
 /// What separates a note's subtotal from its taxed base, positive: the discount it reverses and
@@ -166,6 +168,8 @@ pub struct CreditNoteNew {
     pub custom_properties: serde_json::Value,
     #[ghost({None})]
     pub finalized_at: Option<NaiveDateTime>,
+    #[into(~.into())]
+    pub origin: CreditNoteOrigin,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -139,6 +139,27 @@ pub enum CreditNoteStatus {
     Voided,
 }
 
+/// Who issued a credit note: an operator, or the engine for a change it settled.
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq, Default)]
+#[map_owned(diesel_enums::CreditNoteOriginEnum)]
+pub enum CreditNoteOrigin {
+    #[default]
+    Manual,
+    Amendment,
+    PlanChange,
+    Cancellation,
+    LatePack,
+    UnappliedChange,
+    Void,
+}
+
+impl CreditNoteOrigin {
+    /// Whether the engine issued it, correcting what a charge billed.
+    pub fn corrects(self) -> bool {
+        !matches!(self, Self::Manual)
+    }
+}
+
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq)]
 #[map_owned(diesel_enums::CreditTypeEnum)]
 pub enum CreditType {

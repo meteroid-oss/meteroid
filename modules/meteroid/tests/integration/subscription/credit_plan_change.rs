@@ -2568,7 +2568,8 @@ async fn a_minimum_commitment_holds_a_plan_change_to_the_period_end(#[future] te
 }
 
 /// A note an operator wrote with the reason a plan change uses is not one: the change still
-/// credits the line it touched, less what that note took.
+/// credits the unused time of the line it touched; that note only caps what can be taken back
+/// (R-082).
 #[rstest]
 #[tokio::test]
 async fn a_hand_written_note_is_not_a_plan_change_note(#[future] test_env: TestEnv) {
@@ -2620,8 +2621,8 @@ async fn a_hand_written_note_is_not_a_plan_change_note(#[future] test_env: TestE
         .collect();
     assert_eq!(seat_credits.len(), 2);
     assert!(
-        seat_credits.contains(&-465),
-        "900 × 16/31 = 464.5, {seat_credits:?}"
+        seat_credits.contains(&-516),
+        "1,000 × 16/31 = 516.1, {seat_credits:?}"
     );
 }
 

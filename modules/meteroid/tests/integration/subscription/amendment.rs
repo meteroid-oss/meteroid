@@ -2940,3 +2940,235 @@ async fn test_immediate_amendment_under_a_minimum_commitment_is_refused(
         .await
         .expect("an amendment at the period's end is accepted");
 }
+
+// =============================================================================
+// OVERRIDES THEN AN ENDING, IN ONE PERIOD (R-078, R-080)
+// =============================================================================
+
+fn edit_platform_amendment(
+    component: SubscriptionPriceComponentId,
+    rate_cents: i64,
+) -> SubscriptionAmendment {
+    SubscriptionAmendment {
+        apply_mode: PlanChangeMode::Immediate,
+        component_changes: ComponentChanges {
+            edited: vec![EditComponent {
+                subscription_component_id: component,
+                name: None,
+                price_entry: PriceEntry::New(PriceInput {
+                    cadence: BillingPeriodEnum::Monthly,
+                    currency: "EUR".to_string(),
+                    pricing: Pricing::Rate {
+                        rate: Decimal::new(rate_cents, 2),
+                    },
+                    credit_unit: None,
+                }),
+            }],
+            added: vec![],
+            removed: vec![],
+        },
+        add_on_changes: AddOnChanges::default(),
+    }
+}
+
+fn remove_component_amendment(component: SubscriptionPriceComponentId) -> SubscriptionAmendment {
+    SubscriptionAmendment {
+        apply_mode: PlanChangeMode::Immediate,
+        component_changes: ComponentChanges {
+            edited: vec![],
+            added: vec![],
+            removed: vec![component],
+        },
+        add_on_changes: AddOnChanges::default(),
+    }
+}
+
+async fn component_named(
+    env: &TestEnv,
+    sub_id: SubscriptionId,
+    name: &str,
+) -> SubscriptionPriceComponentId {
+    env.get_subscription_components(sub_id)
+        .await
+        .into_iter()
+        .find(|c| c.name == name)
+        .unwrap_or_else(|| panic!("{name} component"))
+        .id
+}
+
+async fn amend(
+    env: &TestEnv,
+    sub_id: SubscriptionId,
+    amendment: SubscriptionAmendment,
+    on: NaiveDate,
+) {
+    env.services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            amendment,
+            on,
+        )
+        .await
+        .expect("amendment applied");
+}
+
+/// What the subscription's credit notes took off lines whose name starts with `name`.
+async fn credited(env: &TestEnv, sub_id: SubscriptionId, name: &str) -> Vec<i64> {
+    let mut credited = Vec::new();
+    for invoice in env.get_invoices(sub_id).await {
+        for note in env
+            .store()
+            .list_credit_notes_by_invoice_id(TENANT_ID, invoice.id)
+            .await
+            .expect("credit notes")
+        {
+            credited.extend(
+                note.line_items
+                    .iter()
+                    .filter(|line| line.name.starts_with(name))
+                    .map(|line| line.amount_subtotal),
+            );
+        }
+    }
+    credited.sort();
+    credited
+}
+
+async fn starter_from_january(env: &TestEnv) -> SubscriptionId {
+    subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await
+}
+
+fn january(day: u32) -> NaiveDate {
+    NaiveDate::from_ymd_opt(2024, 1, day).unwrap()
+}
+
+/// 29.00 billed for January, lowered to 14.50 on the 11th (9.83 back: 21 days at 14.50 less
+/// 21 days at 29.00), removed on the 21st: 5.15 back, the 11 days left at 14.50. The 10 days
+/// at 29.00 before the override stay billed.
+#[rstest]
+#[tokio::test]
+async fn an_override_down_then_a_removal_give_back_the_unused_time_of_each_price(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    let sub_id = starter_from_january(&env).await;
+    let platform = component_named(&env, sub_id, "Platform Fee").await;
+    amend(
+        &env,
+        sub_id,
+        edit_platform_amendment(platform, 1450),
+        january(11),
+    )
+    .await;
+    let platform = component_named(&env, sub_id, "Platform Fee").await;
+    amend(
+        &env,
+        sub_id,
+        remove_component_amendment(platform),
+        january(21),
+    )
+    .await;
+
+    assert_eq!(
+        credited(&env, sub_id, "Platform Fee").await,
+        vec![-983, -515]
+    );
+}
+
+/// 29.00 billed for January, raised to 58.00 on the 11th (19.64 more), removed on the 21st:
+/// 20.58 back, the 11 days left at 58.00, from the adjustment line first.
+#[rstest]
+#[tokio::test]
+async fn an_override_up_then_a_removal_give_back_the_unused_time_of_the_new_price(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    let sub_id = starter_from_january(&env).await;
+    let platform = component_named(&env, sub_id, "Platform Fee").await;
+    amend(
+        &env,
+        sub_id,
+        edit_platform_amendment(platform, 5800),
+        january(11),
+    )
+    .await;
+    let platform = component_named(&env, sub_id, "Platform Fee").await;
+    amend(
+        &env,
+        sub_id,
+        remove_component_amendment(platform),
+        january(21),
+    )
+    .await;
+
+    assert_eq!(
+        credited(&env, sub_id, "Platform Fee").await,
+        vec![-1964, -94]
+    );
+}
+
+/// The same override up, then the subscription cancelled on the 21st: the same 20.58 back, each
+/// line its own 11 days left.
+#[rstest]
+#[tokio::test]
+async fn an_override_up_then_a_cancellation_give_back_the_unused_time_of_the_new_price(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    let sub_id = starter_from_january(&env).await;
+    let platform = component_named(&env, sub_id, "Platform Fee").await;
+    amend(
+        &env,
+        sub_id,
+        edit_platform_amendment(platform, 5800),
+        january(11),
+    )
+    .await;
+    env.services()
+        .cancel_subscription(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::Date(january(21)),
+        )
+        .await
+        .expect("cancellation scheduled");
+    env.process_due_events().await;
+    env.process_due_events().await;
+
+    assert_eq!(
+        credited(&env, sub_id, "Platform Fee").await,
+        vec![-1029, -1029]
+    );
+}
+
+/// A one-time fee added on the 11th is billed once; removing it on the 21st gives nothing back.
+#[rstest]
+#[tokio::test]
+async fn removing_a_one_time_fee_gives_nothing_back(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let sub_id = starter_from_january(&env).await;
+    amend(
+        &env,
+        sub_id,
+        amendment_add_component(
+            PlanChangeMode::Immediate,
+            extra_onetime_component("Setup", 20_000),
+        ),
+        january(11),
+    )
+    .await;
+    let setup = component_named(&env, sub_id, "Setup").await;
+    amend(&env, sub_id, remove_component_amendment(setup), january(21)).await;
+
+    assert_eq!(credited(&env, sub_id, "").await, Vec::<i64>::new());
+}

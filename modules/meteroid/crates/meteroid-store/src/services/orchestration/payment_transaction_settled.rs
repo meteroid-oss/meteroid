@@ -387,6 +387,7 @@ impl Services {
                             },
                             false,
                             false,
+                            crate::domain::enums::CreditNoteOrigin::UnappliedChange,
                         )
                         .await?;
                         crate::repositories::credit_notes::finalize_credit_note_tx(

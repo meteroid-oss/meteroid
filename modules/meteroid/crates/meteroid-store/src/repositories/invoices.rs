@@ -1097,6 +1097,7 @@ impl InvoiceInterface for Store {
                         purchased_credit_removed: false,
                         applied_credits_restored_externally: true,
                         voids_invoice: true,
+                        origin: domain::enums::CreditNoteOrigin::Void,
                     },
                 )
                 .await?;

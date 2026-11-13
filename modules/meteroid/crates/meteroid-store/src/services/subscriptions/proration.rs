@@ -81,44 +81,6 @@ pub(crate) fn fee_instance_count(fee: &SubscriptionFee) -> rust_decimal::Decimal
 
 pub use billing_core::DayFraction;
 
-/// Nominal length, in days, of a billing period. Used to prorate components
-/// whose billing cadence differs from the subscription's current period.
-fn nominal_period_days(period: &SubscriptionFeeBillingPeriod) -> i64 {
-    match period {
-        SubscriptionFeeBillingPeriod::Monthly => 30,
-        SubscriptionFeeBillingPeriod::Quarterly => 91,
-        SubscriptionFeeBillingPeriod::Semiannual => 182,
-        SubscriptionFeeBillingPeriod::Annual => 365,
-        SubscriptionFeeBillingPeriod::OneTime => 0,
-    }
-}
-
-/// Proration factor for a single component.
-///
-/// When the component bills on the same cadence as the subscription's current
-/// period (the common case), we use the exact day-based factor so existing
-/// behaviour is unchanged. When the component's cadence differs (e.g. a yearly
-/// component added to a monthly subscription), we prorate against the
-/// component's own nominal period length, so a yearly fee is charged for
-/// `days_remaining / 365` rather than `days_remaining / days_in_month`.
-pub(crate) fn component_proration_factor(
-    period: &SubscriptionFeeBillingPeriod,
-    days_remaining: i64,
-    days_in_period: i64,
-    base_factor: DayFraction,
-) -> DayFraction {
-    let nominal = nominal_period_days(period);
-    if nominal <= 0 {
-        return base_factor;
-    }
-    // Aligned with the subscription period when within 25% of the nominal length.
-    if (days_in_period - nominal).abs() * 4 <= nominal {
-        base_factor
-    } else {
-        DayFraction::new(days_remaining, nominal)
-    }
-}
-
 /// Monthly share of an amount billed every `period`, for comparisons only.
 fn per_month(amount: Decimal, period: &SubscriptionFeeBillingPeriod) -> Decimal {
     match period.as_months() {
@@ -404,11 +366,8 @@ pub(crate) fn pack_charge_line(
     }))
 }
 
-/// Calculate proration for all advance-billed components.
-///
-/// factor = (period_end - change_date) / (period_end - period_start)
-/// Credit per old component: -(old_amount * factor)
-/// Charge per new component: +(new_amount * factor)
+/// [`calculate_proration_by`] with every fee on the period `[period_start, period_end)`.
+#[cfg(test)]
 pub fn calculate_proration(
     matched: &[MatchedComponent],
     added: &[AddedComponent],
@@ -418,9 +377,7 @@ pub fn calculate_proration(
     change_date: NaiveDate,
     precision: u8,
 ) -> ProrationResult {
-    let days_in_period = (period_end - period_start).num_days();
-    let days_remaining = (period_end - change_date).num_days();
-    let proration_factor = DayFraction::remaining(period_start, period_end, change_date);
+    let factor = DayFraction::remaining(period_start, period_end, change_date);
     calculate_proration_by(
         matched,
         added,
@@ -428,17 +385,22 @@ pub fn calculate_proration(
         (period_start, period_end),
         change_date,
         precision,
-        |period| {
-            (
-                component_proration_factor(
-                    period,
-                    days_remaining,
-                    days_in_period,
-                    proration_factor,
-                ),
-                None,
-            )
-        },
+        |_| (factor, None),
+    )
+}
+
+/// [`stub_on_own_grid`] on the grid of `sub`, whose current period is `current`.
+pub(crate) fn subscription_stub(
+    sub: &crate::domain::Subscription,
+    current: (NaiveDate, NaiveDate),
+    change_date: NaiveDate,
+) -> impl Fn(&SubscriptionFeeBillingPeriod) -> (DayFraction, Option<NaiveDate>) {
+    stub_on_own_grid(
+        current,
+        sub.period,
+        sub.billing_start_date.unwrap_or(sub.current_period_start),
+        u32::from(sub.billing_day_anchor),
+        change_date,
     )
 }
 
@@ -451,20 +413,33 @@ pub(crate) fn stub_on_own_grid(
     billing_day: u32,
     change_date: NaiveDate,
 ) -> impl Fn(&SubscriptionFeeBillingPeriod) -> (DayFraction, Option<NaiveDate>) {
+    let own = own_period(current, cadence, billing_start, billing_day, change_date);
     move |period| {
-        let (start, end) = match period.as_billing_period_opt() {
-            Some(own) if own.as_months() != cadence.as_months() => {
-                let own = crate::utils::periods::find_period_containing_date(
-                    billing_start,
-                    change_date,
-                    &own,
-                    billing_day,
-                );
-                (own.start, own.end)
-            }
-            _ => current,
-        };
+        let (start, end) = own(period);
         (DayFraction::remaining(start, end, change_date), Some(end))
+    }
+}
+
+/// The period a fee of `period` bills on at `change_date`: `current` on the subscription's
+/// cadence, else its own period on the grid from `billing_start`.
+pub(crate) fn own_period(
+    current: (NaiveDate, NaiveDate),
+    cadence: crate::domain::enums::BillingPeriodEnum,
+    billing_start: NaiveDate,
+    billing_day: u32,
+    change_date: NaiveDate,
+) -> impl Fn(&SubscriptionFeeBillingPeriod) -> (NaiveDate, NaiveDate) {
+    move |period| match period.as_billing_period_opt() {
+        Some(own) if own.as_months() != cadence.as_months() => {
+            let own = crate::utils::periods::find_period_containing_date(
+                billing_start,
+                change_date,
+                &own,
+                billing_day,
+            );
+            (own.start, own.end)
+        }
+        _ => current,
     }
 }
 
@@ -650,13 +625,15 @@ pub fn net_override_lines(lines: &[ProrationLineItem]) -> Vec<ProrationLineItem>
             Some(key) => {
                 if let Some(&idx) = index_by_key.get(key) {
                     netted[idx].amount_cents += line.amount_cents;
-                    // Prefer the charge (new price) line's identity for display.
+                    // Prefer the charge (new price) line's identity, and the row it bills.
                     if !line.is_credit {
                         netted[idx].name = line.name.clone();
                         netted[idx].is_prorated = line.is_prorated;
                         netted[idx].product_id = line.product_id;
                         netted[idx].price_component_id = line.price_component_id;
                         netted[idx].period_end = line.period_end;
+                        netted[idx].sub_component_id = line.sub_component_id;
+                        netted[idx].sub_add_on_id = line.sub_add_on_id;
                     }
                 } else {
                     index_by_key.insert(key.clone(), netted.len());
@@ -1108,8 +1085,8 @@ mod tests {
 
     #[test]
     fn test_added_yearly_component_prorated_over_its_own_period() {
-        // A yearly component added to a 30-day (monthly) period must be prorated
-        // over the year (days_remaining / 365), not over the month.
+        // A yearly fee added on Jan 16 to a monthly subscription started Jan 1 bills what is left
+        // of its own year: 350 of 365 days, not 15 of the month's 31.
         let added = vec![AddedComponent {
             name: "Annual".to_string(),
             fee: rate_fee(3650),
@@ -1120,20 +1097,31 @@ mod tests {
             instance_quantity: None,
             price_component_id: None,
         }];
+        let day = |m, d| NaiveDate::from_ymd_opt(2025, m, d).unwrap();
+        let current = (day(1, 1), day(2, 1));
 
-        let result = calculate_proration(
+        let result = calculate_proration_by(
             &[],
             &added,
             &[],
-            NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
-            NaiveDate::from_ymd_opt(2025, 1, 31).unwrap(),
-            NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            current,
+            day(1, 16),
             2,
+            stub_on_own_grid(
+                current,
+                crate::domain::enums::BillingPeriodEnum::Monthly,
+                day(1, 1),
+                1,
+                day(1, 16),
+            ),
         );
 
         assert_eq!(result.lines.len(), 1);
-        // 365000 cents * 30/365 = 30000, NOT 365000 * 30/30.
-        assert_eq!(result.lines[0].amount_cents, 30_000);
+        assert_eq!(result.lines[0].amount_cents, 350_000);
+        assert_eq!(
+            result.lines[0].period_end,
+            Some(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap())
+        );
     }
 
     #[test]

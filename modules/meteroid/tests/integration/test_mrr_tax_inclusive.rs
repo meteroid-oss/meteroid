@@ -1723,15 +1723,28 @@ async fn an_upgrade_credits_the_unused_plan_with_the_tax_it_bore_in_both_modes()
                 .find(|line| line.local_id == credited.local_id)
                 .expect("the credited line");
             assert!(credited.tax_amount < 0, "tax_inclusive={tax_inclusive}");
-            // The unused 16 of 31 days of the net billed, never of the price quoted with tax.
+            // The unused 16 of 31 days in the figures the line was priced in: of its quote VAT
+            // included, taken as the same share of its net, never the quote as net (R-081).
+            let round = |amount: rust_decimal::Decimal| {
+                amount
+                    .round_dp_with_strategy(0, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
+                    .to_string()
+                    .parse::<i64>()
+                    .unwrap()
+            };
+            let unused = |amount: i64| {
+                round(rust_decimal::Decimal::from(amount * 16) / rust_decimal::Decimal::from(31))
+            };
+            let net = match &billed.tax_inclusive_quote {
+                Some(quote) => round(
+                    rust_decimal::Decimal::from(
+                        unused(quote.amount_subtotal) * billed.amount_subtotal,
+                    ) / rust_decimal::Decimal::from(quote.amount_subtotal),
+                ),
+                None => unused(billed.amount_subtotal),
+            };
             assert_eq!(
-                -credited.amount_subtotal,
-                (rust_decimal::Decimal::from(billed.amount_subtotal * 16)
-                    / rust_decimal::Decimal::from(31))
-                .round_dp_with_strategy(0, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
-                .to_string()
-                .parse::<i64>()
-                .unwrap(),
+                -credited.amount_subtotal, net,
                 "tax_inclusive={tax_inclusive}"
             );
             assert_eq!(credited.tax_rate, billed.tax_rate);
@@ -1747,4 +1760,67 @@ async fn an_upgrade_credits_the_unused_plan_with_the_tax_it_bore_in_both_modes()
             );
         }
     }
+}
+
+/// A fee added on Jan 10 at 50.00 VAT included is billed 35.48 for its 22 days; removed on Jan
+/// 20, its 12 days left give back 19.35 VAT included (16.13 net), not the quoted 19.35 as net
+/// with VAT on top (R-081).
+#[tokio::test]
+async fn a_tax_inclusive_fee_removed_mid_period_gives_back_its_quoted_unused_time() {
+    use meteroid_store::repositories::credit_notes::CreditNoteInterface;
+
+    let env =
+        test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(MockUsageClient::noop())).await;
+    enable_eu_vat(&env).await;
+    let customer_id = create_french_consumer(&env).await;
+    set_plan_version_tax_inclusive(&env, true).await;
+    let subscription_id = subscription()
+        .customer(customer_id)
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+        .start_date(START_DATE.unwrap())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    add_support_component(
+        &env,
+        subscription_id,
+        NaiveDate::from_ymd_opt(2024, 1, 10).unwrap(),
+    )
+    .await;
+    let support = env
+        .get_subscription_components(subscription_id)
+        .await
+        .into_iter()
+        .find(|c| c.name == "Support")
+        .expect("the support component");
+    remove_components(
+        &env,
+        subscription_id,
+        vec![support.id],
+        NaiveDate::from_ymd_opt(2024, 1, 20).unwrap(),
+    )
+    .await;
+
+    let adjustment = env
+        .get_invoices(subscription_id)
+        .await
+        .into_iter()
+        .find(|invoice| {
+            invoice.invoice_type == meteroid_store::domain::enums::InvoiceType::Adjustment
+        })
+        .expect("the support's adjustment invoice");
+    assert_eq!(adjustment.total, 3_548);
+    let notes = env
+        .store()
+        .list_credit_notes_by_customer_id(TENANT_ID, customer_id)
+        .await
+        .expect("credit notes");
+    assert_eq!(
+        notes
+            .iter()
+            .map(|n| (n.subtotal, n.tax_amount, n.total))
+            .collect::<Vec<_>>(),
+        vec![(-1_613, -322, -1_935)]
+    );
 }

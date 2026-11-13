@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
 
-use crate::enums::{CreditNoteStatus, CreditTypeEnum, EInvoicingStatusEnum};
+use crate::enums::{CreditNoteOriginEnum, CreditNoteStatus, CreditTypeEnum, EInvoicingStatusEnum};
 use common_domain::ids::{
     CreditNoteId, CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, StoredDocumentId,
     SubscriptionId, TenantId,
@@ -54,6 +54,7 @@ pub struct CreditNoteRow {
     pub voids_invoice: bool,
     /// The transaction that last wrote the row, trigger-set; the analytics projector's keyset.
     pub store_xid: Option<i64>,
+    pub origin: CreditNoteOriginEnum,
 }
 
 #[derive(Insertable, Debug)]
@@ -85,6 +86,7 @@ pub struct CreditNoteRowNew {
     pub invoicing_entity_id: InvoicingEntityId,
     pub custom_properties: serde_json::Value,
     pub voids_invoice: bool,
+    pub origin: CreditNoteOriginEnum,
 }
 
 #[derive(Debug, AsChangeset)]

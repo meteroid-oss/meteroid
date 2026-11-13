@@ -636,6 +636,7 @@ impl Services {
                         params,
                         false,
                         false,
+                        crate::domain::enums::CreditNoteOrigin::Manual,
                     )
                     .await?;
                     let invoice_id = draft.invoice_id;

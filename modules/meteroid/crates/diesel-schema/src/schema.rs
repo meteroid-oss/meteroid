@@ -110,6 +110,10 @@ pub mod sql_types {
     pub struct CreditNoteStatus;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "CreditNoteOriginEnum"))]
+    pub struct CreditNoteOriginEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "CreditTypeEnum"))]
     pub struct CreditTypeEnum;
 
@@ -924,6 +928,7 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::CreditNoteOriginEnum;
     use super::sql_types::CreditNoteStatus;
     use super::sql_types::CreditTypeEnum;
     use super::sql_types::EInvoicingStatusEnum;
@@ -968,6 +973,7 @@ diesel::table! {
         credited_retired_balance -> Bool,
         voids_invoice -> Bool,
         store_xid -> Nullable<Xid8>,
+        origin -> CreditNoteOriginEnum,
     }
 }
 

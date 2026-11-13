@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use billing_core::{ChargeKey, ChargeKind, Fee};
-use common_domain::ids::BaseId;
+use common_domain::ids::{BaseId, SubscriptionAddOnId, SubscriptionPriceComponentId};
 use uuid::Uuid;
 
 use crate::domain::{LineItem, LineItemKind, SubscriptionDetails};
@@ -26,6 +26,32 @@ impl Lineages {
 
     pub(crate) fn none() -> Self {
         Self(HashMap::new())
+    }
+
+    /// The roots issued `lines` were billed under, from each line's lineage by its id.
+    pub(crate) fn of_lines<'a>(
+        lines: impl IntoIterator<Item = &'a LineItem>,
+        line_lineage: &HashMap<String, String>,
+    ) -> Self {
+        Self(
+            lines
+                .into_iter()
+                .filter_map(|line| {
+                    let root = line_lineage.get(&line.local_id)?;
+                    match (line.sub_component_id, line.sub_add_on_id) {
+                        (Some(row), _) => Some((
+                            row.as_uuid(),
+                            root.parse::<SubscriptionPriceComponentId>().ok()?.as_uuid(),
+                        )),
+                        (None, Some(row)) => Some((
+                            row.as_uuid(),
+                            root.parse::<SubscriptionAddOnId>().ok()?.as_uuid(),
+                        )),
+                        (None, None) => None,
+                    }
+                })
+                .collect(),
+        )
     }
 
     fn root(&self, row: Uuid) -> Uuid {
@@ -101,5 +127,69 @@ pub(crate) fn disambiguate(lines: &mut [LineItem], lineages: &Lineages) {
                 sub_line.local_id = format!("{}.{n}", line.local_id);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveDate;
+    use common_domain::ids::SubscriptionId;
+
+    fn seats(row: SubscriptionPriceComponentId) -> LineItem {
+        let day = |d| NaiveDate::from_ymd_opt(2026, 1, d).unwrap();
+        LineItem {
+            local_id: String::new(),
+            name: "Seats".to_owned(),
+            charge_type: None,
+            amount_subtotal: 1_000,
+            tax_rate: Default::default(),
+            taxable_amount: 1_000,
+            tax_amount: 0,
+            amount_total: 1_000,
+            tax_details: vec![],
+            quantity: None,
+            unit_price: None,
+            start_date: day(1),
+            end_date: day(31),
+            sub_lines: vec![],
+            is_prorated: false,
+            price_component_id: None,
+            sub_component_id: Some(row),
+            sub_add_on_id: None,
+            product_id: None,
+            metric_id: None,
+            description: None,
+            group_by_dimensions: None,
+            kind: LineItemKind::Regular,
+            credit_grant_amount: None,
+            credit_grant_expiry: None,
+            credit_grant_included: false,
+            taxed_at_purchase: false,
+            tax_inclusive_quote: None,
+            credit_unit: None,
+            credit_grant_unit: None,
+            credit_grant_rollover: None,
+            promotional_credit: None,
+            subscription_id: Some(SubscriptionId::new()),
+            usage_ends_at: None,
+        }
+    }
+
+    /// An issued line, read back with its lineage by id, has the key it was computed under.
+    #[test]
+    fn an_issued_line_reads_back_the_charge_it_billed() {
+        let (row, root) = (
+            SubscriptionPriceComponentId::new(),
+            SubscriptionPriceComponentId::new(),
+        );
+        let computed = identified(
+            seats(row),
+            &Lineages(HashMap::from([(row.as_uuid(), root.as_uuid())])),
+        );
+        let lineage = HashMap::from([(computed.local_id.clone(), root.to_string())]);
+        let read_back = charge_key(&computed, &Lineages::of_lines([&computed], &lineage));
+        assert_eq!(read_back.line_id(), computed.local_id);
+        assert_eq!(read_back.fee, Fee::Component(root.as_uuid()));
     }
 }

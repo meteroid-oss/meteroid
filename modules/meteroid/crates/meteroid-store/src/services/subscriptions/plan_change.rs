@@ -24,8 +24,7 @@ use crate::repositories::SubscriptionInterface;
 use crate::repositories::entity_activity::EntityActivityInterface;
 use crate::services::Services;
 use crate::services::subscriptions::proration::{
-    DayFraction, calculate_proration, component_proration_factor, detect_change_direction,
-    pack_charge_line,
+    calculate_proration_by, detect_change_direction, pack_charge_line, subscription_stub,
 };
 use crate::services::subscriptions::terminate::removed_add_on;
 use crate::store::PgConn;
@@ -893,14 +892,18 @@ impl Services {
             .cloned()
             .chain(ending_add_ons.iter().map(removed_add_on))
             .collect();
-        let mut proration = calculate_proration(
+        let mut proration = calculate_proration_by(
             &changed,
             &added_recurring,
             &removed,
-            period_start,
-            period_end,
+            (period_start, period_end),
             change_date,
             precision,
+            subscription_stub(
+                &ctx.subscription_details.subscription,
+                (period_start, period_end),
+                change_date,
+            ),
         );
 
         let component_mappings = build_component_mappings(
@@ -2125,9 +2128,7 @@ async fn new_pack_lines(
     precision: u8,
 ) -> StoreResult<Vec<crate::domain::subscription_changes::ProrationLineItem>> {
     use diesel_models::invoices::InvoiceRow;
-    let days_in_period = (period_end - period_start).num_days();
-    let days_remaining = (period_end - change_date).num_days();
-    let base = DayFraction::remaining(period_start, period_end, change_date);
+    let stub = subscription_stub(subscription, (period_start, period_end), change_date);
     let mut lines = Vec::new();
     for mapping in mappings {
         let (target_component_id, product_id, name, fee, period) = match mapping {
@@ -2172,7 +2173,7 @@ async fn new_pack_lines(
                 continue;
             }
         }
-        let factor = component_proration_factor(period, days_remaining, days_in_period, base);
+        let (factor, _) = stub(period);
         if let Some(line) = pack_charge_line(
             name,
             fee,

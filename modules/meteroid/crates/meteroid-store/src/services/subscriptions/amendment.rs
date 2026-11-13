@@ -1,4 +1,5 @@
 use crate::StoreResult;
+use crate::domain::LineItemKind;
 use crate::domain::SubscriptionStatusEnum;
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::enums::SubscriptionFeeBillingPeriod;
@@ -16,7 +17,7 @@ use crate::domain::subscription_amendment::{
     AmendmentPreview, AmendmentPreviewExtended, ImmediateAmendmentResult, SubscriptionAmendment,
 };
 use crate::domain::subscription_changes::{
-    AddedComponent, PlanChangeMode, ProrationLineItem, ProrationSummary, RemovedComponent,
+    AddedComponent, PlanChangeMode, ProrationSummary, RemovedComponent,
 };
 use crate::domain::subscription_components::{
     SubscriptionComponent, SubscriptionComponentNew, SubscriptionComponentNewInternal,
@@ -352,31 +353,32 @@ impl Services {
                 _ => None,
             };
 
-            // Credit note (immediate, non-trial): the credit side of the netted
-            // proration, crediting the unused portion of the original invoice lines.
+            // Credit note (immediate, non-trial): what reconcile takes back of the period's
+            // lines, as the apply path issues it.
             let credit_note = match (proration_result.as_ref(), is_free_trial(&sub_details)) {
-                (Some(result), false) => {
-                    let credit_lines: Vec<_> =
-                        crate::services::subscriptions::proration::net_override_lines(
-                            &result.lines,
-                        )
-                        .into_iter()
-                        .filter(|l| l.amount_cents < 0)
-                        .collect();
-                    if credit_lines.is_empty() {
-                        None
-                    } else {
-                        self.compute_amendment_credit_note_preview(
-                            &mut conn,
-                            tenant_id,
-                            &sub_details.subscription,
-                            period_start,
-                            period_end,
-                            &credit_lines,
-                            precision,
-                        )
-                        .await?
-                    }
+                (Some(_), false) => {
+                    let grid = amendment_grid(
+                        &sub_details.subscription,
+                        cadence.as_ref(),
+                        period_end,
+                        effective_date,
+                    );
+                    let change = crate::services::subscriptions::fee_terms::AmendmentChange {
+                        details: &sub_details,
+                        added: &added,
+                        removed: &removed,
+                        change: effective_date,
+                        own_period: &grid,
+                        precision,
+                    };
+                    self.compute_amendment_credit_note_preview(
+                        &mut conn,
+                        tenant_id,
+                        (period_start, period_end),
+                        &change,
+                        precision,
+                    )
+                    .await?
                 }
                 _ => None,
             };
@@ -527,7 +529,7 @@ impl Services {
                 let removed = resolved.preview.all_removed();
                 ensure_immediate_amendment_allowed(&sub_details, &added, &removed, precision)?;
 
-                let (proration, _) = prorate_amendment(
+                let (proration, cadence) = prorate_amendment(
                     conn,
                     &sub_details,
                     &resolved,
@@ -538,21 +540,32 @@ impl Services {
                 .await?;
 
                 let is_free_trial = is_free_trial(&sub_details);
+                let grid = amendment_grid(
+                    &sub_details.subscription,
+                    cadence.as_ref(),
+                    period_end,
+                    change_date,
+                );
+                let change = crate::services::subscriptions::fee_terms::AmendmentChange {
+                    details: &sub_details,
+                    added: &added,
+                    removed: &removed,
+                    change: change_date,
+                    own_period: &grid,
+                    precision,
+                };
 
-                // Split the netted proration into charges (→ adjustment invoice)
-                // and credits (→ credit note against the original invoice). A
-                // price override nets to a single line whose sign decides the
-                // side: upgrades charge the delta, downgrades/removals credit it.
+                // The charges of the netted proration go on an adjustment invoice; what
+                // reconcile takes back of the period's lines on credit notes against them.
                 let (adjustment_invoice_id, credit_note_ids) = services
                     .settle_immediate_proration(
                         conn,
                         actor,
                         tenant_id,
-                        &sub_details.subscription,
                         &sub_details.customer,
-                        period_start,
-                        period_end,
+                        (period_start, period_end),
                         &proration,
+                        &change,
                         is_free_trial,
                         "Subscription amendment",
                     )
@@ -614,24 +627,23 @@ impl Services {
 
     /// Settle the financial side of an immediate, mid-period amendment in the EU-correct way.
     ///
-    /// The netted proration is split by sign: positive lines are *charges* that go
-    /// onto a finalized adjustment invoice; negative lines are *credits* that become
-    /// real credit notes against the invoice(s) that originally billed them
-    /// (`CreditToBalance` when paid or a payment is in flight, otherwise `DebtCancellation`). This avoids
-    /// mixing a gross charge and an untaxed credit on a single document. Free trials
-    /// settle nothing (no money has changed hands yet). Returns the adjustment
-    /// invoice id (if any charges) and the issued credit note ids (if any credits).
+    /// The positive lines of the netted proration are *charges* that go onto a finalized
+    /// adjustment invoice; what reconcile takes back of the period's lines (read before that
+    /// invoice bills the change) becomes real credit notes against the invoice(s) that billed
+    /// them (`CreditToBalance` when paid or a payment is in flight, otherwise
+    /// `DebtCancellation`). This avoids mixing a gross charge and an untaxed credit on a single
+    /// document. Free trials settle nothing (no money has changed hands yet). Returns the
+    /// adjustment invoice id (if any charges) and the issued credit note ids (if any credits).
     #[allow(clippy::too_many_arguments)]
     pub(in crate::services) async fn settle_immediate_proration(
         &self,
         conn: &mut PgConn,
         actor: &Actor,
         tenant_id: TenantId,
-        subscription: &crate::domain::Subscription,
         customer: &crate::domain::Customer,
-        period_start: NaiveDate,
-        period_end: NaiveDate,
+        (period_start, period_end): (NaiveDate, NaiveDate),
         proration: &crate::domain::subscription_changes::ProrationResult,
+        change: &crate::services::subscriptions::fee_terms::AmendmentChange<'_>,
         is_free_trial: bool,
         reason: &str,
     ) -> StoreResult<(Option<InvoiceId>, Vec<CreditNoteId>)> {
@@ -640,12 +652,22 @@ impl Services {
             if is_free_trial {
                 return Ok((None, vec![]));
             }
+            let subscription = &change.details.subscription;
+            let ctx = gather_period_credit_context(
+                conn,
+                tenant_id,
+                subscription.id,
+                period_start,
+                period_end,
+            )
+            .await?;
+            let credits = change.credits(conn, &ctx).await?;
 
-            let netted =
-                crate::services::subscriptions::proration::net_override_lines(&proration.lines);
-            let (charge_lines, credit_lines): (Vec<_>, Vec<_>) =
-                netted.into_iter().partition(|l| l.amount_cents > 0);
-
+            let charge_lines: Vec<_> =
+                crate::services::subscriptions::proration::net_override_lines(&proration.lines)
+                    .into_iter()
+                    .filter(|l| l.amount_cents > 0)
+                    .collect();
             let adjustment_invoice_id = if !charge_lines.is_empty() {
                 let charge_proration = crate::domain::subscription_changes::ProrationResult {
                     net_amount_cents: charge_lines.iter().map(|l| l.amount_cents).sum(),
@@ -673,94 +695,29 @@ impl Services {
                 None
             };
 
-            let credit_note_ids = if !credit_lines.is_empty() {
-                self.create_proration_credit_notes(
-                    conn,
-                    actor,
-                    tenant_id,
-                    subscription,
-                    period_start,
-                    period_end,
-                    &credit_lines,
-                    reason,
-                    proration
-                        .change_date
-                        .and_time(chrono::NaiveTime::MIN)
-                        .and_utc(),
-                )
-                .await?
-            } else {
-                vec![]
-            };
-
-            Ok((adjustment_invoice_id, credit_note_ids))
-        })
-        .await
-    }
-
-    /// Issue credit notes for the credit side of an immediate amendment.
-    ///
-    /// Credits, per closed/downgraded component or add-on, the unused portion of
-    /// the line that originally billed it — reversing the billed amount and its
-    /// VAT proportionally. The originally-billed line lives either on the period's
-    /// recurring invoice (base/overridden components billed in advance at period
-    /// start) or on an adjustment invoice from an earlier immediate amendment in
-    /// the same period (an item that was *added* mid-period). Both are searched,
-    /// and a separate credit note is issued against each source invoice that has
-    /// matched lines. Paid / partially-paid / payment-in-flight invoices use `CreditToBalance` (the
-    /// credit lands on the customer balance); otherwise `DebtCancellation` reduces
-    /// what is owed. Returns an empty vec when there is nothing billed in advance
-    /// to refund (e.g. arrears billing).
-    #[allow(clippy::too_many_arguments)]
-    pub(in crate::services) async fn create_proration_credit_notes(
-        &self,
-        conn: &mut PgConn,
-        actor: &Actor,
-        tenant_id: TenantId,
-        subscription: &crate::domain::Subscription,
-        period_start: NaiveDate,
-        period_end: NaiveDate,
-        credit_lines: &[ProrationLineItem],
-        reason: &str,
-        // When the change took effect: the business date of the credit the notes return.
-        changed_at: chrono::DateTime<chrono::Utc>,
-    ) -> StoreResult<Vec<CreditNoteId>> {
-        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
-        Box::pin(async move {
-            let ctx = gather_period_credit_context(
-                conn,
-                tenant_id,
-                subscription.id,
-                period_start,
-                period_end,
-            )
-            .await?;
-            if ctx.invoices.is_empty() {
-                return Ok(vec![]);
-            }
-
-            let items = build_amendment_credit_lines(
-                credit_lines,
-                &ctx.all_lines,
-                &ctx.line_lineage,
-                &ctx.already_credited,
-            );
-
-            Ok(self
+            let credit_note_ids = self
                 .issue_period_credit_notes_tx(
                     conn,
                     actor,
                     tenant_id,
                     &ctx,
-                    items,
+                    credits,
                     reason,
                     false,
-                    Some(changed_at),
+                    Some(
+                        proration
+                            .change_date
+                            .and_time(chrono::NaiveTime::MIN)
+                            .and_utc(),
+                    ),
+                    crate::domain::enums::CreditNoteOrigin::Amendment,
                 )
                 .await?
                 .into_iter()
                 .map(|note| note.id)
-                .collect())
+                .collect();
+
+            Ok((adjustment_invoice_id, credit_note_ids))
         })
         .await
     }
@@ -781,6 +738,7 @@ impl Services {
         // The caller removes the credit the credited purchase lines funded.
         purchased_credit_removed: bool,
         credit_at: Option<chrono::DateTime<chrono::Utc>>,
+        origin: crate::domain::enums::CreditNoteOrigin,
     ) -> StoreResult<Vec<crate::domain::credit_notes::CreditNote>> {
         // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
         Box::pin(async move {
@@ -857,6 +815,7 @@ impl Services {
                     // line prorated only where proration actually reduced it (factor < 1).
                     true,
                     purchased_credit_removed,
+                    origin,
                 )
                 .await?;
 
@@ -878,8 +837,8 @@ impl Services {
         .await
     }
 
-    /// Read-only preview of the credit note(s) that `create_proration_credit_notes`
-    /// would issue: the unused portion of each originally-billed line (across the
+    /// Read-only preview of the credit note(s) that `settle_immediate_proration`
+    /// would issue: what reconcile takes back of each originally-billed line (across the
     /// recurring invoice and any in-period adjustment invoices), with its VAT
     /// reversed proportionally. Returns the negative-amount lines (a credit) as a
     /// single combined `ComputedInvoiceContent` so it renders with the same card as
@@ -888,16 +847,14 @@ impl Services {
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
-        subscription: &crate::domain::Subscription,
-        period_start: NaiveDate,
-        period_end: NaiveDate,
-        credit_lines: &[ProrationLineItem],
+        (period_start, period_end): (NaiveDate, NaiveDate),
+        change: &crate::services::subscriptions::fee_terms::AmendmentChange<'_>,
         precision: u8,
     ) -> StoreResult<Option<ComputedInvoiceContent>> {
         let ctx = gather_period_credit_context(
             conn,
             tenant_id,
-            subscription.id,
+            change.details.subscription.id,
             period_start,
             period_end,
         )
@@ -906,14 +863,8 @@ impl Services {
             return Ok(None);
         }
 
-        // Which original lines get credited, and for what quantity — the same
-        // mapping (lineage match + remaining-value cap) the real credit note uses.
-        let credits = build_amendment_credit_lines(
-            credit_lines,
-            &ctx.all_lines,
-            &ctx.line_lineage,
-            &ctx.already_credited,
-        );
+        // Which original lines get credited, and for what: the same reconcile the change runs.
+        let credits = change.credits(conn, &ctx).await?;
         if credits.is_empty() {
             return Ok(None);
         }
@@ -1184,7 +1135,7 @@ impl Services {
                 // matched to the originally-billed invoice line; `None` leaves the new
                 // row as its own root.
                 row.lineage_id = c.lineage_id;
-                // Use the pre-generated id (genuine immediate adds) so it matches the
+                // Use the pre-generated id (immediate adds and overrides) so it matches the
                 // id already stamped onto the adjustment invoice's charge line.
                 if let Some(id) = c.subscription_component_id {
                     row.id = id;
@@ -1382,10 +1333,7 @@ async fn prorate_amendment(
     )
     .await?;
     let sub = &sub_details.subscription;
-    let (current, renews_on) = match &cadence {
-        Some(cadence) => ((cadence.current.start, cadence.current.end), cadence.period),
-        None => ((sub.current_period_start, period_end), sub.period),
-    };
+    let (current, renews_on) = amendment_period(sub, cadence.as_ref(), period_end);
     let proration = calculate_proration_by(
         &[],
         added,
@@ -1402,6 +1350,38 @@ async fn prorate_amendment(
         ),
     );
     Ok((proration, cadence))
+}
+
+/// The period an immediate amendment prorates over, and the cadence it renews on.
+fn amendment_period(
+    sub: &crate::domain::Subscription,
+    cadence: Option<&crate::services::subscriptions::cadence::Cadence>,
+    period_end: NaiveDate,
+) -> (
+    (NaiveDate, NaiveDate),
+    crate::domain::enums::BillingPeriodEnum,
+) {
+    match cadence {
+        Some(cadence) => ((cadence.current.start, cadence.current.end), cadence.period),
+        None => ((sub.current_period_start, period_end), sub.period),
+    }
+}
+
+/// The period each fee of an immediate amendment bills on, as its proration reads it.
+fn amendment_grid(
+    sub: &crate::domain::Subscription,
+    cadence: Option<&crate::services::subscriptions::cadence::Cadence>,
+    period_end: NaiveDate,
+    change_date: NaiveDate,
+) -> impl Fn(&SubscriptionFeeBillingPeriod) -> (NaiveDate, NaiveDate) + Sync + use<> {
+    let (current, renews_on) = amendment_period(sub, cadence, period_end);
+    crate::services::subscriptions::proration::own_period(
+        current,
+        renews_on,
+        sub.billing_start_date.unwrap_or(sub.current_period_start),
+        u32::from(sub.billing_day_anchor),
+        change_date,
+    )
 }
 
 /// Audit-trail metadata describing the shape of an amendment.
@@ -1563,76 +1543,79 @@ async fn resolve_live_slot_count(
     Ok(())
 }
 
-/// Map the credit (negative) side of a netted amendment to credit-note line items
-/// against the original recurring invoice.
-///
-/// Each credit line carries the component / add-on **lineage root** in `net_key`;
-/// `line_lineage` maps each invoice line's `local_id` to the lineage root of the
-/// component / add-on that billed it, so the credit matches the originally-billed
-/// line even after the component was overridden (and re-keyed) one or more times
-/// (preferring the latest segment when a component was split within the period).
-///
-/// The credited quantity is the fraction of the line corresponding to the credit
-/// amount (`|credit| / line_subtotal × line_quantity`), capped at the line's
-/// *remaining* subtotal — its billed subtotal minus what earlier credit notes
-/// already reversed (`already_credited`, keyed by `local_id`) — so stacked
-/// downgrades never credit more than was billed. Lines with no matching
-/// advance-billed invoice line (e.g. arrears components) are skipped.
-pub(in crate::services) fn build_amendment_credit_lines(
-    credit_lines: &[ProrationLineItem],
-    invoice_lines: &[LineItem],
+/// `lines` as billing-core reads them: each with its lineage, quantity, what notes already took
+/// off it, and what an earlier ending credited from it (`settled`).
+pub(in crate::services) fn issued_lines<'a>(
+    lines: impl IntoIterator<Item = &'a LineItem>,
     line_lineage: &HashMap<String, String>,
     already_credited: &HashMap<String, i64>,
-) -> Vec<CreditLineItem> {
-    let mut items = Vec::new();
+    corrected: &HashMap<String, i64>,
+    up_front: impl Fn(&LineItem) -> bool,
+    settled: impl Fn(&str) -> Option<i64>,
+) -> Vec<billing_core::IssuedLine> {
+    use billing_core::{IssuedKind, IssuedLine};
+    let lines: Vec<&LineItem> = lines.into_iter().collect();
+    let lineages = crate::services::invoice_lines::charges::Lineages::of_lines(
+        lines.iter().copied(),
+        line_lineage,
+    );
+    lines
+        .into_iter()
+        .map(|line| IssuedLine {
+            id: line.local_id.clone(),
+            key: crate::services::invoice_lines::charges::charge_key(line, &lineages),
+            kind: match (&line.kind, line.metric_id) {
+                (LineItemKind::Regular, None) => IssuedKind::Fee {
+                    price_component: line.price_component_id.map(|id| id.as_uuid()),
+                    add_on: line.sub_add_on_id.is_some(),
+                },
+                (LineItemKind::MinimumShortfall, _) => IssuedKind::Shortfall {
+                    up_front: up_front(line),
+                },
+                _ => IssuedKind::Other,
+            },
+            lineage: line_lineage.get(&line.local_id).cloned(),
+            quantity: line.quantity,
+            unit_priced: line.unit_price.is_some(),
+            from: line.start_date,
+            until: line.end_date,
+            subtotal: line.amount_subtotal,
+            quoted: line
+                .tax_inclusive_quote
+                .as_ref()
+                .map(|quote| quote.amount_subtotal),
+            already_credited: already_credited.get(&line.local_id).copied().unwrap_or(0),
+            corrected: corrected.get(&line.local_id).copied().unwrap_or(0),
+            settled: settled(&line.local_id),
+        })
+        .collect()
+}
 
-    for cl in credit_lines {
-        let Some(key) = cl.net_key.as_deref() else {
-            continue;
-        };
-        let target = (-cl.amount_cents).max(0);
-        if target == 0 {
-            continue;
-        }
-
-        let matched = invoice_lines
-            .iter()
-            .filter(|l| {
-                l.amount_subtotal > 0
-                    && l.unit_price.is_some()
-                    && l.quantity.is_some()
-                    && line_lineage.get(&l.local_id).map(String::as_str) == Some(key)
-            })
-            .max_by_key(|l| l.end_date);
-
-        let Some(line) = matched else {
-            continue;
-        };
-        let original_qty = line.quantity.unwrap_or(Decimal::ONE);
-        if original_qty <= Decimal::ZERO {
-            continue;
-        }
-
-        // Never credit more than the line's remaining (not-yet-credited) subtotal.
-        let credited = already_credited.get(&line.local_id).copied().unwrap_or(0);
-        let remaining = (line.amount_subtotal - credited).max(0);
-        let target = target.min(remaining);
-        if target == 0 {
-            continue;
-        }
-        let quantity = (Decimal::from(target) / Decimal::from(line.amount_subtotal) * original_qty)
-            .min(original_qty);
-        if quantity <= Decimal::ZERO {
-            continue;
-        }
-
-        items.push(CreditLineItem::Line {
-            local_id: line.local_id.clone(),
-            quantity,
-        });
+impl PeriodCreditContext {
+    /// The period's lines as billing-core reads them (see [`issued_lines`]).
+    pub(in crate::services) fn issued_lines(
+        &self,
+        settled: impl Fn(&str) -> Option<i64>,
+    ) -> Vec<billing_core::IssuedLine> {
+        issued_lines(
+            &self.all_lines,
+            &self.line_lineage,
+            &self.already_credited,
+            &self.corrected,
+            |line| {
+                self.line_to_invoice
+                    .get(&line.local_id)
+                    .and_then(|id| self.invoices.iter().find(|invoice| invoice.id == *id))
+                    .is_some_and(|invoice| {
+                        crate::services::invoice_lines::minimum::is_up_front(
+                            line,
+                            invoice.billing_period_start,
+                        )
+                    })
+            },
+            settled,
+        )
     }
-
-    items
 }
 
 /// Credit-matching context spanning every invoice that advance-billed part of the
@@ -1646,6 +1629,8 @@ pub(in crate::services) struct PeriodCreditContext {
     pub line_to_invoice: HashMap<String, InvoiceId>,
     pub line_lineage: HashMap<String, String>,
     pub already_credited: HashMap<String, i64>,
+    /// What the engine's own notes took off each line: corrections of what it billed.
+    pub corrected: HashMap<String, i64>,
     /// What the lines' finalized notes returned of their taxable amount and tax.
     pub returned: HashMap<String, crate::repositories::credit_notes::Returned>,
 }
@@ -1679,6 +1664,7 @@ pub(in crate::services) async fn gather_period_credit_context(
         line_to_invoice: HashMap::new(),
         line_lineage: HashMap::new(),
         already_credited: HashMap::new(),
+        corrected: HashMap::new(),
         returned: HashMap::new(),
     };
 
@@ -1717,10 +1703,11 @@ pub(in crate::services) async fn gather_period_credit_context(
                 )),
             );
         }
-        let (line_lineage, already_credited, returned) =
+        let (line_lineage, already_credited, corrected, returned) =
             load_credit_matching_context(conn, tenant_id, &invoice).await?;
         ctx.line_lineage.extend(line_lineage);
         ctx.already_credited.extend(already_credited);
+        ctx.corrected.extend(corrected);
         ctx.returned.extend(returned);
         for line in &invoice.line_items {
             ctx.line_to_invoice
@@ -1748,6 +1735,7 @@ async fn load_credit_matching_context(
     invoice: &Invoice,
 ) -> StoreResult<(
     HashMap<String, String>,
+    HashMap<String, i64>,
     HashMap<String, i64>,
     HashMap<String, crate::repositories::credit_notes::Returned>,
 )> {
@@ -1809,6 +1797,7 @@ async fn load_credit_matching_context(
     }
 
     let mut already_credited: HashMap<String, i64> = HashMap::new();
+    let mut corrected: HashMap<String, i64> = HashMap::new();
     let mut returned: HashMap<String, crate::repositories::credit_notes::Returned> = HashMap::new();
     let credit_notes = CreditNoteRow::list_by_invoice_id(conn, tenant_id, invoice.id)
         .await
@@ -1827,12 +1816,15 @@ async fn load_credit_matching_context(
             returned.entry(l.local_id.clone()).or_default().add(&l)?;
             // Credit-note lines carry negative subtotals; accumulate the magnitude.
             if l.amount_subtotal < 0 {
+                if cn.origin != diesel_models::enums::CreditNoteOriginEnum::Manual {
+                    *corrected.entry(l.local_id.clone()).or_insert(0) += -l.amount_subtotal;
+                }
                 *already_credited.entry(l.local_id).or_insert(0) += -l.amount_subtotal;
             }
         }
     }
 
-    Ok((line_lineage, already_credited, returned))
+    Ok((line_lineage, already_credited, corrected, returned))
 }
 
 /// Build an in-memory `SubscriptionComponent` from a resolved insert, for use in
@@ -1943,6 +1935,7 @@ async fn resolve_amendment(
         // line still references the lineage root, so this keeps them matched.
         let lineage = current.lineage();
         let net_key = Some(lineage.to_string());
+        let billed_component_id = SubscriptionPriceComponentId::new();
         component_removed.push(RemovedComponent {
             name: current.name.clone(),
             current_fee,
@@ -1954,9 +1947,9 @@ async fn resolve_amendment(
             fee: new_fee.clone(),
             period: new_period,
             net_key,
-            // Overrides are credited via the original recurring invoice line
-            // (matched by lineage), not by stamping the adjustment line.
-            billed_component_id: None,
+            // The new row's id, stamped on the adjustment line: what it bills counts under
+            // the lineage.
+            billed_component_id: Some(billed_component_id),
             billed_add_on_id: None,
             instance_quantity: None,
             price_component_id: None,
@@ -1972,7 +1965,7 @@ async fn resolve_amendment(
             fee: new_fee,
             is_override: true,
             lineage_id: Some(lineage),
-            subscription_component_id: None,
+            subscription_component_id: Some(billed_component_id),
         });
     }
 
@@ -2177,6 +2170,7 @@ async fn resolve_amendment(
         // originally-billed invoice line across overrides.
         let lineage = current.lineage();
         let net_key = Some(lineage.to_string());
+        let billed_add_on_id = SubscriptionAddOnId::new();
         addon_removed.push(RemovedComponent {
             name: current.name.clone(),
             current_fee: scale_fee(&current.fee, current.quantity),
@@ -2188,9 +2182,9 @@ async fn resolve_amendment(
             fee: scale_fee(&new_fee, new_quantity),
             period: new_period,
             net_key,
-            // Edits are credited via the original line (matched by lineage).
+            // The new row's id, stamped on the adjustment line, as for a component override.
             billed_component_id: None,
-            billed_add_on_id: None,
+            billed_add_on_id: Some(billed_add_on_id),
             instance_quantity: None,
             price_component_id: None,
         });
@@ -2206,7 +2200,7 @@ async fn resolve_amendment(
             fee: new_fee,
             quantity: new_quantity,
             lineage_id: Some(lineage),
-            subscription_add_on_id: None,
+            subscription_add_on_id: Some(billed_add_on_id),
         });
     }
 
@@ -2552,397 +2546,5 @@ mod tests {
         );
         // credit -5000 (1 unit half), charge +15000 (3 units half) => net +10000
         assert_eq!(result.net_amount_cents, 10000);
-    }
-
-    mod credit_lines {
-        use super::super::build_amendment_credit_lines;
-        use crate::domain::invoice_lines::LineItem;
-        use crate::domain::subscription_changes::ProrationLineItem;
-        use crate::repositories::credit_notes::CreditLineItem;
-        use chrono::NaiveDate;
-        use common_domain::ids::{BaseId, SubscriptionAddOnId, SubscriptionPriceComponentId};
-        use rust_decimal::Decimal;
-        use std::collections::HashMap;
-
-        /// Identity lineage map (each line's root is its own billing component / add-on
-        /// id), mirroring the production path before any override has happened.
-        fn lineage(lines: &[LineItem]) -> HashMap<String, String> {
-            lines
-                .iter()
-                .filter_map(|l| {
-                    let root = l
-                        .sub_component_id
-                        .map(|i| i.to_string())
-                        .or_else(|| l.sub_add_on_id.map(|i| i.to_string()))?;
-                    Some((l.local_id.clone(), root))
-                })
-                .collect()
-        }
-
-        /// No prior credit notes.
-        fn no_credits() -> HashMap<String, i64> {
-            HashMap::new()
-        }
-
-        fn credit(net_key: &str, amount_cents: i64) -> ProrationLineItem {
-            ProrationLineItem {
-                period_end: None,
-                name: "x (adjustment)".into(),
-                amount_cents, // negative for a credit
-                full_period_amount_cents: 0,
-                is_credit: true,
-                is_prorated: true,
-                quantity: None,
-                unit_price: None,
-                product_id: None,
-                price_component_id: None,
-                net_key: Some(net_key.to_string()),
-                sub_component_id: None,
-                sub_add_on_id: None,
-                charge_type: None,
-                pack: None,
-            }
-        }
-
-        fn line(
-            local_id: &str,
-            subtotal: i64,
-            qty: i64,
-            unit_price: i64,
-            end: NaiveDate,
-        ) -> LineItem {
-            LineItem {
-                local_id: local_id.to_string(),
-                name: "Component".into(),
-                charge_type: None,
-                amount_subtotal: subtotal,
-                tax_rate: Decimal::ZERO,
-                taxable_amount: subtotal,
-                tax_amount: 0,
-                amount_total: subtotal,
-                tax_details: vec![],
-                quantity: Some(Decimal::from(qty)),
-                unit_price: Some(Decimal::from(unit_price)),
-                start_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-                end_date: end,
-                sub_lines: vec![],
-                is_prorated: false,
-                price_component_id: None,
-                sub_component_id: None,
-                sub_add_on_id: None,
-                product_id: None,
-                metric_id: None,
-                description: None,
-                group_by_dimensions: None,
-                kind: crate::domain::LineItemKind::Regular,
-                credit_grant_amount: None,
-                credit_grant_expiry: None,
-                credit_grant_included: false,
-                taxed_at_purchase: false,
-                tax_inclusive_quote: None,
-                credit_unit: None,
-                credit_grant_unit: None,
-                credit_grant_rollover: None,
-                promotional_credit: None,
-                subscription_id: None,
-                usage_ends_at: None,
-            }
-        }
-
-        fn with_component(mut l: LineItem, id: SubscriptionPriceComponentId) -> LineItem {
-            l.sub_component_id = Some(id);
-            l
-        }
-
-        fn only(items: &[CreditLineItem]) -> (&str, Decimal) {
-            match items {
-                [CreditLineItem::Line { local_id, quantity }] => (local_id.as_str(), *quantity),
-                _ => panic!("expected exactly one Line credit, got {items:?}"),
-            }
-        }
-
-        // A full removal credits the unused fraction of the billed line.
-        #[test]
-        fn removal_credits_unused_fraction() {
-            let id = SubscriptionPriceComponentId::new();
-            let invoice = vec![with_component(
-                line(
-                    "li-1",
-                    2900,
-                    1,
-                    2900,
-                    NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
-                ),
-                id,
-            )];
-            // half a month unused => credit 1450 of the 2900 billed.
-            let credits = vec![credit(&id.to_string(), -1450)];
-
-            let items =
-                build_amendment_credit_lines(&credits, &invoice, &lineage(&invoice), &no_credits());
-            let (local_id, qty) = only(&items);
-            assert_eq!(local_id, "li-1");
-            assert_eq!(qty, Decimal::new(5, 1)); // 0.5
-        }
-
-        // A downgrade credits only the delta portion of the original line.
-        #[test]
-        fn downgrade_credits_delta_fraction() {
-            let id = SubscriptionPriceComponentId::new();
-            let invoice = vec![with_component(
-                line(
-                    "li-1",
-                    2900,
-                    1,
-                    2900,
-                    NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
-                ),
-                id,
-            )];
-            // net credit of 725 (quarter of the line).
-            let credits = vec![credit(&id.to_string(), -725)];
-
-            let items =
-                build_amendment_credit_lines(&credits, &invoice, &lineage(&invoice), &no_credits());
-            let (_, qty) = only(&items);
-            assert_eq!(qty, Decimal::new(25, 2)); // 0.25
-        }
-
-        // The credit never exceeds what was billed on the line.
-        #[test]
-        fn credit_is_capped_at_line_subtotal() {
-            let id = SubscriptionPriceComponentId::new();
-            let invoice = vec![with_component(
-                line(
-                    "li-1",
-                    2900,
-                    1,
-                    2900,
-                    NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
-                ),
-                id,
-            )];
-            let credits = vec![credit(&id.to_string(), -9999)];
-
-            let items =
-                build_amendment_credit_lines(&credits, &invoice, &lineage(&invoice), &no_credits());
-            let (_, qty) = only(&items);
-            assert_eq!(qty, Decimal::ONE); // capped at the full quantity
-        }
-
-        // An add-on credit matches by sub_add_on_id.
-        #[test]
-        fn matches_addon_line() {
-            let id = SubscriptionAddOnId::new();
-            let mut l = line(
-                "li-addon",
-                2000,
-                1,
-                2000,
-                NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
-            );
-            l.sub_add_on_id = Some(id);
-            let credits = vec![credit(&id.to_string(), -1000)];
-
-            let invoice = vec![l];
-            let items =
-                build_amendment_credit_lines(&credits, &invoice, &lineage(&invoice), &no_credits());
-            let (local_id, qty) = only(&items);
-            assert_eq!(local_id, "li-addon");
-            assert_eq!(qty, Decimal::new(5, 1));
-        }
-
-        // No matching advance-billed line (e.g. arrears) => nothing to credit.
-        #[test]
-        fn unmatched_credit_is_skipped() {
-            let billed = SubscriptionPriceComponentId::new();
-            let other = SubscriptionPriceComponentId::new();
-            let invoice = vec![with_component(
-                line(
-                    "li-1",
-                    2900,
-                    1,
-                    2900,
-                    NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
-                ),
-                billed,
-            )];
-            let credits = vec![credit(&other.to_string(), -1450)];
-
-            assert!(
-                build_amendment_credit_lines(&credits, &invoice, &lineage(&invoice), &no_credits())
-                    .is_empty()
-            );
-        }
-
-        // When a component was split within the period, the latest segment is credited.
-        #[test]
-        fn prefers_latest_segment() {
-            let id = SubscriptionPriceComponentId::new();
-            let early = with_component(
-                line(
-                    "li-early",
-                    1000,
-                    1,
-                    1000,
-                    NaiveDate::from_ymd_opt(2024, 1, 15).unwrap(),
-                ),
-                id,
-            );
-            let late = with_component(
-                line(
-                    "li-late",
-                    1900,
-                    1,
-                    1900,
-                    NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
-                ),
-                id,
-            );
-            let credits = vec![credit(&id.to_string(), -950)];
-
-            let invoice = vec![early, late];
-            let items =
-                build_amendment_credit_lines(&credits, &invoice, &lineage(&invoice), &no_credits());
-            let (local_id, qty) = only(&items);
-            assert_eq!(local_id, "li-late");
-            assert_eq!(qty, Decimal::new(5, 1)); // 950 / 1900
-        }
-
-        // After an override the invoice line still references the original (root)
-        // component, while the credit is keyed by the lineage root. They must match
-        // even though the subscription's current component id has changed.
-        #[test]
-        fn credits_match_across_lineage_override() {
-            let root = SubscriptionPriceComponentId::new();
-            let current = SubscriptionPriceComponentId::new(); // post-override id (unused here)
-            let invoice = vec![with_component(
-                line(
-                    "li-1",
-                    2900,
-                    1,
-                    2900,
-                    NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
-                ),
-                root,
-            )];
-            // The line was billed under `root`, but the second amendment edits the
-            // already-overridden component whose id is `current`; its lineage resolves
-            // back to `root`, which is what the credit is keyed by.
-            assert_ne!(root, current);
-            let credits = vec![credit(&root.to_string(), -1450)];
-
-            let items =
-                build_amendment_credit_lines(&credits, &invoice, &lineage(&invoice), &no_credits());
-            let (local_id, qty) = only(&items);
-            assert_eq!(local_id, "li-1");
-            assert_eq!(qty, Decimal::new(5, 1)); // 0.5
-        }
-
-        // A second downgrade can only credit the line's remaining (not-yet-credited)
-        // value: 900 left of a 2900 line caps the 1450 credit at 900.
-        #[test]
-        fn credit_capped_by_prior_credits() {
-            let id = SubscriptionPriceComponentId::new();
-            let invoice = vec![with_component(
-                line(
-                    "li-1",
-                    2900,
-                    1,
-                    2900,
-                    NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
-                ),
-                id,
-            )];
-            // A previous credit note already reversed 2000 of the 2900 line.
-            let mut already = HashMap::new();
-            already.insert("li-1".to_string(), 2000_i64);
-            let credits = vec![credit(&id.to_string(), -1450)];
-
-            let items =
-                build_amendment_credit_lines(&credits, &invoice, &lineage(&invoice), &already);
-            let (_, qty) = only(&items);
-            // Capped at 900 of 2900 => 900/2900 exact.
-            assert_eq!(qty, Decimal::from(900) / Decimal::from(2900));
-        }
-
-        // The add-then-remove case. An add-on added mid-period is billed on a
-        // separate adjustment invoice; its line is concatenated *after* the
-        // recurring invoice's own lines (exactly how `gather_period_credit_context`
-        // assembles the flat line set). Removing the add-on must credit the
-        // adjustment line, not any recurring line.
-        #[test]
-        fn credits_addon_billed_on_adjustment_among_recurring_lines() {
-            let base = SubscriptionPriceComponentId::new();
-            let addon = SubscriptionAddOnId::new();
-            let end = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
-
-            // Recurring invoice line (base component billed at period start).
-            let recurring = with_component(line("li-base", 3900, 1, 3900, end), base);
-            // Adjustment invoice line (add-on's prorated mid-period charge, €10.32).
-            let mut adjustment = line("li-addon", 1032, 1, 1032, end);
-            adjustment.sub_add_on_id = Some(addon);
-
-            let invoice = vec![recurring, adjustment];
-            // Remove the add-on: credit the unused €7.74 of the €10.32 billed.
-            let credits = vec![credit(&addon.to_string(), -774)];
-
-            let items =
-                build_amendment_credit_lines(&credits, &invoice, &lineage(&invoice), &no_credits());
-            let (local_id, qty) = only(&items);
-            assert_eq!(local_id, "li-addon");
-            assert_eq!(qty, Decimal::from(774) / Decimal::from(1032));
-        }
-
-        // Removing a base component *and* a mid-period-added add-on in one amendment
-        // credits each against its own (different-invoice) line. Distinct local_ids
-        // are what lets the caller group the credits into one note per source invoice.
-        #[test]
-        fn credits_base_and_added_addon_to_separate_lines() {
-            let base = SubscriptionPriceComponentId::new();
-            let addon = SubscriptionAddOnId::new();
-            let end = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
-
-            let recurring = with_component(line("li-base", 3900, 1, 3900, end), base);
-            let mut adjustment = line("li-addon", 1032, 1, 1032, end);
-            adjustment.sub_add_on_id = Some(addon);
-
-            let invoice = vec![recurring, adjustment];
-            let credits = vec![
-                credit(&base.to_string(), -1950),
-                credit(&addon.to_string(), -774),
-            ];
-
-            let items =
-                build_amendment_credit_lines(&credits, &invoice, &lineage(&invoice), &no_credits());
-            assert_eq!(items.len(), 2);
-            let ids: Vec<&str> = items.iter().map(|i| i.local_id()).collect();
-            assert!(ids.contains(&"li-base"));
-            assert!(ids.contains(&"li-addon"));
-        }
-
-        // When the line is already fully credited, a further credit produces nothing.
-        #[test]
-        fn fully_credited_line_yields_no_credit() {
-            let id = SubscriptionPriceComponentId::new();
-            let invoice = vec![with_component(
-                line(
-                    "li-1",
-                    2900,
-                    1,
-                    2900,
-                    NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
-                ),
-                id,
-            )];
-            let mut already = HashMap::new();
-            already.insert("li-1".to_string(), 2900_i64);
-            let credits = vec![credit(&id.to_string(), -500)];
-
-            assert!(
-                build_amendment_credit_lines(&credits, &invoice, &lineage(&invoice), &already)
-                    .is_empty()
-            );
-        }
     }
 }

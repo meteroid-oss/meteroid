@@ -6,6 +6,7 @@ mod effective_plan;
 mod minimum;
 mod mrr;
 
+pub(in crate::services) mod fee_terms;
 pub(in crate::services) mod insert;
 mod late_pack;
 pub mod payment_resolution;

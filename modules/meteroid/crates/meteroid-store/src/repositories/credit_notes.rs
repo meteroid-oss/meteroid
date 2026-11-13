@@ -119,6 +119,7 @@ pub(crate) struct CreateCreditNoteTxParams {
     pub applied_credits_restored_externally: bool,
     /// Issued by voiding the invoice, whose void reversal reports the revenue it reverses.
     pub voids_invoice: bool,
+    pub origin: crate::domain::enums::CreditNoteOrigin,
 }
 
 #[async_trait::async_trait]
@@ -1292,6 +1293,7 @@ pub(crate) async fn create_user_credit_note_tx(
     params: CreateCreditNoteParams,
     from_proration: bool,
     purchased_credit_removed: bool,
+    origin: crate::domain::enums::CreditNoteOrigin,
 ) -> StoreResult<CreditNote> {
     // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
     Box::pin(async move {
@@ -1371,6 +1373,7 @@ pub(crate) async fn create_user_credit_note_tx(
             purchased_credit_removed,
             applied_credits_restored_externally: false,
             voids_invoice: false,
+            origin,
         },
     )
     .await
@@ -2014,6 +2017,7 @@ pub(crate) async fn create_credit_note_tx(
         invoicing_entity_id: invoice.invoicing_entity_id,
         custom_properties,
         finalized_at: params.finalized_at,
+        origin: params.origin,
     };
 
     // 11. Insert the credit note
@@ -2061,7 +2065,17 @@ impl CreditNoteInterface for Store {
         self.transaction(|conn| {
             let actor = &actor;
             async move {
-                create_user_credit_note_tx(self, conn, tenant_id, actor, params, false, false).await
+                create_user_credit_note_tx(
+                    self,
+                    conn,
+                    tenant_id,
+                    actor,
+                    params,
+                    false,
+                    false,
+                    crate::domain::enums::CreditNoteOrigin::Manual,
+                )
+                .await
             }
             .scope_boxed()
         })
@@ -2077,9 +2091,17 @@ impl CreditNoteInterface for Store {
         self.transaction(|conn| {
             let actor = &actor;
             async move {
-                let draft =
-                    create_user_credit_note_tx(self, conn, tenant_id, actor, params, false, false)
-                        .await?;
+                let draft = create_user_credit_note_tx(
+                    self,
+                    conn,
+                    tenant_id,
+                    actor,
+                    params,
+                    false,
+                    false,
+                    crate::domain::enums::CreditNoteOrigin::Manual,
+                )
+                .await?;
                 finalize_credit_note_tx(self, conn, tenant_id, actor, draft.id).await
             }
             .scope_boxed()

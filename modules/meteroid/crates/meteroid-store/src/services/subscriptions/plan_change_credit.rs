@@ -30,6 +30,7 @@ use crate::services::served_usage::UsageReads;
 use crate::services::subscriptions::amendment::{
     PeriodCreditContext, gather_period_credit_context,
 };
+use crate::services::subscriptions::fee_terms::{FeeHistory, ending_credits};
 use crate::services::subscriptions::plan_change::PreparedPlanChange;
 use crate::services::subscriptions::proration::{
     DayFraction, capped_pack_fee_credit, component_advance_amount_cents, is_period_tied,
@@ -49,7 +50,7 @@ use diesel_models::subscription_events::SettlingEnding;
 use error_stack::Report;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::{Decimal, RoundingStrategy};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 pub(crate) use crate::domain::credit::{
     CANCELLATION_NOTE_REASON, LATE_PAYMENT_NOTE_REASON, PLAN_CHANGE_NOTE_REASON,
@@ -175,22 +176,14 @@ pub(crate) struct Ending {
     /// Whether a shortfall that prepaid the period (invoices written before the true-up) is
     /// credited by the time left (cancellation only).
     pub credits_minimum: bool,
-    /// The most each fixed fee gives back for the time left.
-    pub fees: BTreeMap<String, FeeCap>,
+    /// The lineages of the fixed fees it ends, whose lines give back what they billed past it.
+    pub fees: BTreeSet<String>,
     /// Packs tied to the period.
     pub tied_packs: HashSet<String>,
     /// Seats added mid-period are billed on lines naming only the plan component.
     pub plan_components: HashMap<String, PriceComponentId>,
     /// How far back, in months, a line billing it in advance may start.
     pub reach_months: u32,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum FeeCap {
-    /// The fee for the time left, as the change priced it.
-    Remaining(i64),
-    /// A full period's fee, prorated over the period of the first line that billed it.
-    FullPeriod(i64),
 }
 
 impl Ending {
@@ -252,15 +245,11 @@ impl Ending {
         at: NaiveDate,
         settle_at: DateTime<Utc>,
     ) -> Self {
-        let mut fees = BTreeMap::new();
-        for line in lines.iter().filter(|l| l.amount_cents < 0) {
-            if let Some(key) = &line.net_key
-                && let FeeCap::Remaining(total) =
-                    fees.entry(key.clone()).or_insert(FeeCap::Remaining(0))
-            {
-                *total -= line.amount_cents;
-            }
-        }
+        let fees = lines
+            .iter()
+            .filter(|l| l.amount_cents < 0)
+            .filter_map(|l| l.net_key.clone())
+            .collect();
         let components = &details.price_components;
         Ending {
             kind,
@@ -308,7 +297,7 @@ impl Ending {
             at,
             settle_at: midnight(at),
             credits_minimum: false,
-            fees: BTreeMap::new(),
+            fees: BTreeSet::new(),
             tied_packs: HashSet::new(),
             plan_components: HashMap::new(),
             reach_months: 0,
@@ -377,7 +366,7 @@ impl Ending {
                 ending.tied_packs.insert(key);
                 continue;
             }
-            ending.add_full_period_fee(key, &component.fee, &component.period, precision);
+            ending.add_priced_fee(key, &component.fee, &component.period, precision);
         }
         let add_ons = SubscriptionAddOnRow::list_add_on_history_for_period(
             conn,
@@ -408,23 +397,20 @@ impl Ending {
                 continue;
             }
             let fee = scale_fee(&add_on.fee, add_on.quantity);
-            ending.add_full_period_fee(key, &fee, &add_on.period, precision);
+            ending.add_priced_fee(key, &fee, &add_on.period, precision);
         }
         Ok(ending)
     }
 
-    fn add_full_period_fee(
+    fn add_priced_fee(
         &mut self,
         key: String,
         fee: &SubscriptionFee,
         period: &SubscriptionFeeBillingPeriod,
         precision: u8,
     ) {
-        let full = component_advance_amount_cents(fee, period, precision);
-        if full > 0
-            && let FeeCap::FullPeriod(total) = self.fees.entry(key).or_insert(FeeCap::FullPeriod(0))
-        {
-            *total += full;
+        if component_advance_amount_cents(fee, period, precision) > 0 {
+            self.fees.insert(key);
         }
     }
 }
@@ -531,99 +517,34 @@ impl Settled {
     }
 }
 
-/// The old fees' credits: each line that billed the component in advance across the change gives
-/// back its own unused time of what it still bills, at its own discount and tax (the note
-/// reverses them as charged). A fee billed on several lines (seats added mid-period) comes back
-/// from each, never above the fee for the time left, less what a change already credited.
+fn credit_items(credits: Vec<(String, i64)>) -> Vec<CreditLineItem> {
+    credits
+        .into_iter()
+        .map(|(local_id, amount_cents)| CreditLineItem::Amount {
+            local_id,
+            amount_cents,
+        })
+        .collect()
+}
+
+/// The old fees' credits: what reconcile takes back of what their lines billed (R-080).
 fn fee_credit_items(
     ending: &Ending,
     ctx: &PeriodCreditContext,
-    settled: &Settled,
+    history: Option<&FeeHistory>,
 ) -> Vec<CreditLineItem> {
-    let at = ending.at;
-    let covers = |line: &LineItem| line.start_date <= at && line.end_date > at;
-    let unused_of = |line: &LineItem| {
-        let already = ctx
-            .already_credited
-            .get(&line.local_id)
-            .copied()
-            .unwrap_or(0);
-        DayFraction::remaining(line.start_date, line.end_date, at)
-            .prorate((line.amount_subtotal - already).max(0))
-    };
-    let mut items = Vec::new();
-    for (key, cap) in &ending.fees {
-        let mut billed: Vec<&LineItem> = ctx
-            .all_lines
-            .iter()
-            .filter(|line| {
-                line.kind == LineItemKind::Regular
-                    && line.metric_id.is_none()
-                    && line.amount_subtotal > 0
-                    && covers(line)
-                    && match ctx.line_lineage.get(&line.local_id) {
-                        Some(lineage) => lineage == key,
-                        None => {
-                            line.sub_add_on_id.is_none()
-                                && line.price_component_id.is_some()
-                                && ending.plan_components.get(key).copied()
-                                    == line.price_component_id
-                        }
-                    }
-            })
-            .collect();
-        billed.sort_by_key(|line| line.start_date);
-        let Some(first) = billed.first() else {
-            continue;
-        };
-        let cap = match cap {
-            FeeCap::Remaining(cap) => *cap,
-            FeeCap::FullPeriod(full) => {
-                DayFraction::remaining(first.start_date, first.end_date, at).prorate(*full)
-            }
-        };
-        let consumed: i64 = billed
-            .iter()
-            .filter_map(|line| settled.credited.get(&line.local_id))
-            .sum();
-        let unused: Vec<(&LineItem, i64)> = billed
-            .iter()
-            .filter(|line| !settled.contains(line))
-            .map(|line| (*line, unused_of(line)))
-            .filter(|(_, unused)| *unused > 0)
-            .collect();
-        let cap = (cap - consumed).max(0);
-        let total: i64 = unused.iter().map(|(_, unused)| unused).sum();
-        // The cap is one half-up rounding of the fee for the time left, the lines' credits one
-        // each: they differ by up to half a cent per extra line, which is no over-credit.
-        let rounding = i64::try_from(billed.len() / 2).unwrap_or(i64::MAX);
-        let within_cap = total <= cap.saturating_add(rounding);
-        let mut left = total.min(cap);
-        let count = unused.len();
-        for (index, (line, amount)) in unused.into_iter().enumerate() {
-            // Scaled down to the cap by each line's share, the last line taking the remainder.
-            let amount = if within_cap {
-                amount
-            } else if index + 1 == count {
-                left
-            } else {
-                DayFraction::new(amount, total).prorate(cap).min(left)
-            };
-            left -= amount;
-            if amount > 0 {
-                items.push(CreditLineItem::Amount {
-                    local_id: line.local_id.clone(),
-                    amount_cents: amount,
-                });
-            }
-        }
-    }
-    items
+    history.map_or_else(Vec::new, |history| {
+        ending_credits(
+            history,
+            ending.at,
+            &ending.fees,
+            &ending.plan_components,
+            ctx,
+        )
+    })
 }
 
-/// The credit, on a cancellation, of a shortfall an invoice written before the true-up charged up
-/// front and that prepaid its period: its days left, prorated once over the lines a product-scoped
-/// minimum split it into, never above what earlier notes left of a line.
+/// On a cancellation, the credit of a shortfall charged up front that prepaid its period (R-077).
 fn shortfall_credit_items(
     ending: &Ending,
     ctx: &PeriodCreditContext,
@@ -632,64 +553,8 @@ fn shortfall_credit_items(
     if !ending.credits_minimum {
         return Vec::new();
     }
-    let at = ending.at;
-    let charged_up_front = |line: &LineItem| {
-        ctx.line_to_invoice
-            .get(&line.local_id)
-            .and_then(|id| ctx.invoices.iter().find(|invoice| invoice.id == *id))
-            .is_some_and(|invoice| minimum::is_up_front(line, invoice.billing_period_start))
-    };
-    let current: Vec<&LineItem> = ctx
-        .all_lines
-        .iter()
-        .filter(|line| {
-            line.kind == LineItemKind::MinimumShortfall
-                && line.start_date <= at
-                && at < line.end_date
-                && charged_up_front(line)
-                && !settled.contains(line)
-        })
-        .collect();
-    let mut items = Vec::new();
-    let mut periods: Vec<(NaiveDate, NaiveDate)> = current
-        .iter()
-        .map(|line| (line.start_date, line.end_date))
-        .collect();
-    periods.sort();
-    periods.dedup();
-    for (start, end) in periods {
-        let lines: Vec<&&LineItem> = current
-            .iter()
-            .filter(|line| (line.start_date, line.end_date) == (start, end))
-            .collect();
-        let billed: i64 = lines.iter().map(|line| line.amount_subtotal).sum();
-        if billed <= 0 {
-            continue;
-        }
-        let credited = DayFraction::remaining(start, end, at).prorate(billed);
-        let exact: Vec<Decimal> = lines
-            .iter()
-            .map(|line| {
-                Decimal::from(credited) * Decimal::from(line.amount_subtotal)
-                    / Decimal::from(billed)
-            })
-            .collect();
-        for (line, share) in lines.iter().zip(meteroid_tax::largest_remainder(&exact)) {
-            let already = ctx
-                .already_credited
-                .get(&line.local_id)
-                .copied()
-                .unwrap_or(0);
-            let amount = share.min((line.amount_subtotal - already).max(0));
-            if amount > 0 {
-                items.push(CreditLineItem::Amount {
-                    local_id: line.local_id.clone(),
-                    amount_cents: amount,
-                });
-            }
-        }
-    }
-    items
+    let lines = ctx.issued_lines(|id| settled.credited.get(id).copied());
+    credit_items(billing_core::shortfall_credits(ending.at, &lines))
 }
 
 /// The old packs tied to the period whose line covers the change and that no change settled yet,
@@ -1234,10 +1099,17 @@ impl Services {
         let Some(planned) = self.plan_ending_tx(conn, scope, ending).await? else {
             return Ok(vec![]);
         };
-        let reason = match ending.kind {
-            PeriodCreditRemoval::PlanChange => PLAN_CHANGE_NOTE_REASON,
-            PeriodCreditRemoval::Cancellation => CANCELLATION_NOTE_REASON,
-            PeriodCreditRemoval::LatePayment => LATE_PAYMENT_NOTE_REASON,
+        use crate::domain::enums::CreditNoteOrigin;
+        let (reason, origin) = match ending.kind {
+            PeriodCreditRemoval::PlanChange => {
+                (PLAN_CHANGE_NOTE_REASON, CreditNoteOrigin::PlanChange)
+            }
+            PeriodCreditRemoval::Cancellation => {
+                (CANCELLATION_NOTE_REASON, CreditNoteOrigin::Cancellation)
+            }
+            PeriodCreditRemoval::LatePayment => {
+                (LATE_PAYMENT_NOTE_REASON, CreditNoteOrigin::LatePack)
+            }
         };
         let mut items = planned.fee_items;
         items.extend(
@@ -1260,6 +1132,7 @@ impl Services {
                 reason,
                 true,
                 Some(ending.settle_at),
+                origin,
             )
             .await?;
         self.remove_outgoing_pack_credit_tx(conn, &planned.lock, &planned.packs, &notes, ending)
@@ -1447,6 +1320,11 @@ impl Services {
             gather_period_credit_context(conn, tenant_id, subscription_id, scope.from, scope.to)
                 .await?;
         let settled = Settled::read(conn, tenant_id, subscription_id, &unlocked).await?;
+        let history = if ending.fees.is_empty() {
+            None
+        } else {
+            Some(FeeHistory::read(conn, tenant_id, subscription_id, ending.at).await?)
+        };
         let grants =
             CustomerCreditGrantRow::list_for_customer(conn, tenant_id, customer_id).await?;
         let mut owed_packs = tied_pack_lines(&unlocked, ending, &settled);
@@ -1463,7 +1341,7 @@ impl Services {
             !lines.is_empty()
         });
         if owed_packs.is_empty()
-            && fee_credit_items(ending, &unlocked, &settled).is_empty()
+            && fee_credit_items(ending, &unlocked, history.as_ref()).is_empty()
             && shortfall_credit_items(ending, &unlocked, &settled).is_empty()
         {
             return Ok(None);
@@ -1556,7 +1434,7 @@ impl Services {
                 });
             }
         }
-        let mut fee_items = fee_credit_items(ending, &ctx, &settled);
+        let mut fee_items = fee_credit_items(ending, &ctx, history.as_ref());
         fee_items.extend(shortfall_credit_items(ending, &ctx, &settled));
         Ok(Some(PlannedEnding {
             lock,
@@ -1809,6 +1687,7 @@ impl Services {
                         LATE_PAYMENT_NOTE_REASON,
                         true,
                         Some(funded_at),
+                        crate::domain::enums::CreditNoteOrigin::LatePack,
                     )
                     .await?;
                 notes.iter().find_map(|note| {
@@ -2043,195 +1922,6 @@ mod tests {
             lapses_at: None,
             pays_usage_from: None,
         }
-    }
-
-    fn ending(at: NaiveDate, key: &str, cap: i64) -> Ending {
-        Ending {
-            kind: PeriodCreditRemoval::PlanChange,
-            at,
-            settle_at: midnight(at),
-            credits_minimum: false,
-            fees: [(key.to_owned(), FeeCap::Remaining(cap))]
-                .into_iter()
-                .collect(),
-            tied_packs: HashSet::new(),
-            plan_components: HashMap::new(),
-            reach_months: 1,
-        }
-    }
-
-    fn seat_line(local_id: &str, subtotal: i64, start: NaiveDate) -> LineItem {
-        LineItem {
-            local_id: local_id.to_owned(),
-            name: "Seats".to_owned(),
-            charge_type: None,
-            amount_subtotal: subtotal,
-            tax_rate: Decimal::ZERO,
-            taxable_amount: subtotal,
-            tax_amount: 0,
-            amount_total: subtotal,
-            tax_details: vec![],
-            quantity: None,
-            unit_price: None,
-            start_date: start,
-            end_date: NaiveDate::from_ymd_opt(2026, 5, 1).unwrap(),
-            sub_lines: vec![],
-            is_prorated: false,
-            price_component_id: None,
-            sub_component_id: None,
-            sub_add_on_id: None,
-            product_id: None,
-            metric_id: None,
-            description: None,
-            group_by_dimensions: None,
-            kind: LineItemKind::Regular,
-            credit_grant_amount: None,
-            credit_grant_expiry: None,
-            credit_grant_included: false,
-            taxed_at_purchase: false,
-            tax_inclusive_quote: None,
-            credit_unit: None,
-            credit_grant_unit: None,
-            credit_grant_rollover: None,
-            promotional_credit: None,
-            subscription_id: None,
-            usage_ends_at: None,
-        }
-    }
-
-    #[test]
-    fn each_billed_line_gives_back_its_own_unused_time() {
-        // 10 seats billed April 1 for 300.00, 10 more added April 11 for 200.00 (20 of 30 days);
-        // removed April 16: 300 × 15/30 and 200 × 15/20, never 300.00 from the newest line first.
-        let day = |d| NaiveDate::from_ymd_opt(2026, 4, d).unwrap();
-        let ctx = PeriodCreditContext {
-            invoices: vec![],
-            all_lines: vec![
-                seat_line("first", 30_000, day(1)),
-                seat_line("added", 20_000, day(11)),
-            ],
-            line_to_invoice: Default::default(),
-            line_lineage: [("first", "seats"), ("added", "seats")]
-                .into_iter()
-                .map(|(line, key)| (line.to_owned(), key.to_owned()))
-                .collect(),
-            already_credited: Default::default(),
-            returned: Default::default(),
-        };
-        let items = fee_credit_items(&ending(day(16), "seats", 30_000), &ctx, &Settled::default());
-        let amounts: Vec<(String, i64)> = items
-            .into_iter()
-            .map(|item| match item {
-                CreditLineItem::Amount {
-                    local_id,
-                    amount_cents,
-                } => (local_id, amount_cents),
-                _ => unreachable!(),
-            })
-            .collect();
-        assert_eq!(
-            amounts,
-            vec![("first".to_owned(), 15_000), ("added".to_owned(), 15_000)]
-        );
-    }
-
-    #[test]
-    fn each_line_gives_back_its_own_rounded_share_under_the_rounded_cap() {
-        // 1 seat billed October 1 for 10.00, 9 more added October 18 for 40.65 (14 of 31 days)
-        // and credited back by the change, which priced the 10 seats left at 45.16: the first
-        // seat's own 10.00 × 14/31 = 4.52, not the 4.51 left under the cap rounded once.
-        let day = |d| NaiveDate::from_ymd_opt(2026, 10, d).unwrap();
-        let end = NaiveDate::from_ymd_opt(2026, 11, 1).unwrap();
-        let ctx = PeriodCreditContext {
-            invoices: vec![],
-            all_lines: vec![
-                LineItem {
-                    end_date: end,
-                    ..seat_line("first", 1_000, day(1))
-                },
-                LineItem {
-                    end_date: end,
-                    ..seat_line("added", 4_065, day(18))
-                },
-            ],
-            line_to_invoice: Default::default(),
-            line_lineage: [("first", "seats"), ("added", "seats")]
-                .into_iter()
-                .map(|(line, key)| (line.to_owned(), key.to_owned()))
-                .collect(),
-            already_credited: Default::default(),
-            returned: Default::default(),
-        };
-        let settled = Settled {
-            credited: [("added".to_owned(), 4_065)].into_iter().collect(),
-        };
-        let amounts: Vec<(String, i64)> =
-            fee_credit_items(&ending(day(18), "seats", 4_516), &ctx, &settled)
-                .into_iter()
-                .map(|item| match item {
-                    CreditLineItem::Amount {
-                        local_id,
-                        amount_cents,
-                    } => (local_id, amount_cents),
-                    _ => unreachable!(),
-                })
-                .collect();
-        assert_eq!(amounts, vec![("first".to_owned(), 452)]);
-    }
-
-    #[test]
-    fn discount_and_tax_never_change_the_share_credited() {
-        // The note credits subtotals; it scales each line's discount and tax down with them.
-        // 100.00 less a 20.00 coupon taxed 20%, and 60.00 taxed 10%; half the period left,
-        // capped at 64.00 of the 80.00 unused: 64 × 50/80 and the remainder.
-        let day = |d| NaiveDate::from_ymd_opt(2026, 4, d).unwrap();
-        let discounted = LineItem {
-            name: "Platform Fee".to_owned(),
-            tax_rate: Decimal::new(20, 2),
-            taxable_amount: 8_000,
-            tax_amount: 1_600,
-            amount_total: 9_600,
-            ..seat_line("discounted", 10_000, day(1))
-        };
-        let taxed = LineItem {
-            name: "Platform Fee".to_owned(),
-            tax_rate: Decimal::new(10, 2),
-            tax_amount: 600,
-            amount_total: 6_600,
-            ..seat_line("taxed", 6_000, day(1))
-        };
-        let ctx = PeriodCreditContext {
-            invoices: vec![],
-            all_lines: vec![discounted, taxed],
-            line_to_invoice: Default::default(),
-            line_lineage: [("discounted", "platform"), ("taxed", "platform")]
-                .into_iter()
-                .map(|(line, key)| (line.to_owned(), key.to_owned()))
-                .collect(),
-            already_credited: Default::default(),
-            returned: Default::default(),
-        };
-        let amounts: Vec<(String, i64)> = fee_credit_items(
-            &ending(day(16), "platform", 6_400),
-            &ctx,
-            &Settled::default(),
-        )
-        .into_iter()
-        .map(|item| match item {
-            CreditLineItem::Amount {
-                local_id,
-                amount_cents,
-            } => (local_id, amount_cents),
-            _ => unreachable!(),
-        })
-        .collect();
-        assert_eq!(
-            amounts,
-            vec![
-                ("discounted".to_owned(), 4_000),
-                ("taxed".to_owned(), 2_400)
-            ]
-        );
     }
 
     #[test]

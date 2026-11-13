@@ -180,6 +180,19 @@ pub enum CreditNoteStatus {
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, Eq, PartialEq)]
+#[ExistingTypePath = "crate::schema::sql_types::CreditNoteOriginEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum CreditNoteOriginEnum {
+    Manual,
+    Amendment,
+    PlanChange,
+    Cancellation,
+    LatePack,
+    UnappliedChange,
+    Void,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, Eq, PartialEq)]
 #[ExistingTypePath = "crate::schema::sql_types::CreditTypeEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum CreditTypeEnum {

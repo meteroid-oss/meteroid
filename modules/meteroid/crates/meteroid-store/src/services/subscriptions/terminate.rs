@@ -9,7 +9,7 @@ use crate::services::credit::scope::ends_credit;
 use crate::services::credit::subscription_end::end_subscription_credit_tx;
 use crate::services::subscriptions::mrr::subscription_movement;
 use crate::services::subscriptions::plan_change_credit::CancellationRecord;
-use crate::services::subscriptions::proration::calculate_proration;
+use crate::services::subscriptions::proration::{calculate_proration_by, subscription_stub};
 use crate::services::subscriptions::utils::scale_fee;
 use crate::services::{InvoiceBillingMode, Services};
 use crate::store::PgConn;
@@ -594,14 +594,18 @@ pub(crate) fn cancellation_proration(
         });
     }
     removed.extend(details.add_ons.iter().map(removed_add_on));
-    calculate_proration(
+    calculate_proration_by(
         &[],
         &[],
         &removed,
-        period_start,
-        period_end,
+        (period_start, period_end),
         termination_date,
         precision,
+        subscription_stub(
+            &details.subscription,
+            (period_start, period_end),
+            termination_date,
+        ),
     )
 }
 
