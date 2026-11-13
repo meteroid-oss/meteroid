@@ -101,7 +101,8 @@ serde_spanned = { version = "1", default-features = false, features = ["serde", 
 sha2 = { version = "0.10" }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "union", "write"] }
-socket2 = { version = "0.6", default-features = false, features = ["all"] }
+socket2-3b31131e45eafb45 = { package = "socket2", version = "0.6", default-features = false, features = ["all"] }
+socket2-d8f496e17d97b5cb = { package = "socket2", version = "0.5", default-features = false, features = ["all"] }
 spki = { version = "0.7", default-features = false, features = ["pem", "std"] }
 stable_deref_trait = { version = "1", default-features = false, features = ["alloc"] }
 strum = { version = "0.28", default-features = false, features = ["derive", "std"] }
@@ -222,7 +223,8 @@ serde_spanned = { version = "1", default-features = false, features = ["serde", 
 sha2 = { version = "0.10" }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "union", "write"] }
-socket2 = { version = "0.6", default-features = false, features = ["all"] }
+socket2-3b31131e45eafb45 = { package = "socket2", version = "0.6", default-features = false, features = ["all"] }
+socket2-d8f496e17d97b5cb = { package = "socket2", version = "0.5", default-features = false, features = ["all"] }
 spki = { version = "0.7", default-features = false, features = ["pem", "std"] }
 stable_deref_trait = { version = "1", default-features = false, features = ["alloc"] }
 strum = { version = "0.28", default-features = false, features = ["derive", "std"] }
