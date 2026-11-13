@@ -77,7 +77,7 @@ impl EInvoicingReport {
     pub fn generated(profile: &str) -> Self {
         EInvoicingReport {
             profile: profile.to_string(),
-            checked_at: chrono::Utc::now().naive_utc(),
+            checked_at: common_domain::clock::now().naive_utc(),
             findings: Vec::new(),
             error: None,
         }
@@ -86,7 +86,7 @@ impl EInvoicingReport {
     pub fn failed(profile: &str, findings: Vec<EInvoicingFinding>, error: Option<String>) -> Self {
         EInvoicingReport {
             profile: profile.to_string(),
-            checked_at: chrono::Utc::now().naive_utc(),
+            checked_at: common_domain::clock::now().naive_utc(),
             findings,
             error,
         }

@@ -90,7 +90,7 @@ async fn list_invoices_paginated(
         status.map(Into::into),
         payment_status.map(Into::into),
         einvoicing_status.map(Into::into),
-        overdue.then(|| chrono::Utc::now().naive_utc()),
+        overdue.then(|| common_domain::clock::now().naive_utc()),
         issued_only,
         query,
         cp_filters,
@@ -967,7 +967,7 @@ impl InvoiceInterface for Store {
         id: InvoiceId,
         tenant_id: TenantId,
     ) -> StoreResult<DetailedInvoice> {
-        self.void_invoice_at(actor, id, tenant_id, chrono::Utc::now())
+        self.void_invoice_at(actor, id, tenant_id, common_domain::clock::now())
             .await
     }
 
@@ -1151,7 +1151,7 @@ impl InvoiceInterface for Store {
                     }
                 }
                 self.internal
-                    .end_reminders_best_effort(conn, tenant_id, id, chrono::Utc::now().naive_utc())
+                    .end_reminders_best_effort(conn, tenant_id, id, common_domain::clock::now().naive_utc())
                     .await;
 
                 // 5. Get the voided invoice
@@ -1205,7 +1205,12 @@ impl InvoiceInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
         self.internal
-            .end_reminders_best_effort(&mut conn, tenant_id, id, chrono::Utc::now().naive_utc())
+            .end_reminders_best_effort(
+                &mut conn,
+                tenant_id,
+                id,
+                common_domain::clock::now().naive_utc(),
+            )
             .await;
 
         InvoiceRow::find_detailed_by_id(&mut conn, tenant_id, id)

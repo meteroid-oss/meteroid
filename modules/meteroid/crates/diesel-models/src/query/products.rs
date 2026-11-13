@@ -210,15 +210,15 @@ impl ProductRow {
         param_tenant_id: TenantId,
     ) -> DbResult<ProductRow> {
         use crate::schema::product::dsl as p_dsl;
-        use chrono::Utc;
+
         use diesel_async::RunQueryDsl;
 
         let query = diesel::update(p_dsl::product)
             .filter(p_dsl::id.eq(product_id))
             .filter(p_dsl::tenant_id.eq(param_tenant_id))
             .set((
-                p_dsl::archived_at.eq(Some(Utc::now().naive_utc())),
-                p_dsl::updated_at.eq(diesel::dsl::now),
+                p_dsl::archived_at.eq(Some(common_domain::clock::now().naive_utc())),
+                p_dsl::updated_at.eq(common_domain::clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -243,7 +243,7 @@ impl ProductRow {
             .filter(p_dsl::tenant_id.eq(param_tenant_id))
             .set((
                 p_dsl::archived_at.eq::<Option<chrono::NaiveDateTime>>(None),
-                p_dsl::updated_at.eq(diesel::dsl::now),
+                p_dsl::updated_at.eq(common_domain::clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -292,7 +292,10 @@ impl ProductRowPatch {
         let query = diesel::update(p_dsl::product)
             .filter(p_dsl::id.eq(self.id))
             .filter(p_dsl::tenant_id.eq(self.tenant_id))
-            .set((self, p_dsl::updated_at.eq(diesel::dsl::now)));
+            .set((
+                self,
+                p_dsl::updated_at.eq(common_domain::clock::now().naive_utc()),
+            ));
 
         crate::debug_sql(&query);
 

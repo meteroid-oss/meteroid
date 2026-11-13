@@ -11,7 +11,6 @@ use crate::domain::{
     SubscriptionDetails, SubscriptionFee, SubscriptionFeeInterface, UsagePeriod, UsagePricingModel,
 };
 use crate::services::subscriptions::proration::DayFraction;
-use crate::utils::local_id::LocalId;
 
 use super::fees;
 use crate::StoreResult;
@@ -481,7 +480,7 @@ impl Services {
                 Ok(LineItem {
                     local_id: existing_line
                         .map(|el| el.local_id.clone())
-                        .unwrap_or_else(LocalId::no_prefix),
+                        .unwrap_or_default(),
                     name: existing_line.map(|el| el.name.clone()).unwrap_or(name),
                     charge_type: Some(charge_type),
                     quantity: line.quantity,
@@ -520,7 +519,14 @@ impl Services {
                     usage_ends_at,
                 })
             })
-            .collect()
+            .collect::<StoreResult<Vec<LineItem>>>()
+            .map(|lines| {
+                let lineages = super::charges::Lineages::of(subscription_details);
+                lines
+                    .into_iter()
+                    .map(|line| super::charges::identified(line, &lineages))
+                    .collect()
+            })
     }
 
     async fn fetch_usage(
@@ -754,7 +760,7 @@ pub(crate) fn usage_lines(
                                         .unwrap_or_default()
                                 );
                                 sublines.push(SubLineItem {
-                                    local_id: LocalId::no_prefix(),
+                                    local_id: String::new(),
                                     name,
                                     total: price_cents as i64,
                                     quantity,
@@ -863,7 +869,7 @@ pub(crate) fn usage_lines(
 
                         let mut line = InvoiceLineInner::from_usage_sublines(
                             vec![SubLineItem {
-                                local_id: LocalId::no_prefix(),
+                                local_id: String::new(),
                                 name: "Package".to_string(),
                                 total: price_total
                                     .to_subunit_opt(precision)
@@ -936,7 +942,7 @@ pub(crate) fn capacity_overage_lines(
                 is_prorated: false,
                 custom_line_name: None,
                 sublines: vec![SubLineItem {
-                    local_id: LocalId::no_prefix(),
+                    local_id: String::new(),
                     name: "Overage".to_string(),
                     total: overage_total,
                     quantity: overage_units,

@@ -104,7 +104,7 @@ impl Store {
         ts: Option<chrono::NaiveDateTime>,
         status: SlotTransactionStatusEnum,
     ) -> StoreResult<SlotTransactionRow> {
-        let now = ts.unwrap_or(chrono::Utc::now().naive_utc());
+        let now = ts.unwrap_or(common_domain::clock::now().naive_utc());
         let period_end = current_period_end.and_time(NaiveTime::MIN); // TODO MAX => change after the inclusive period update
 
         // Determine effective_at based on upgrade/downgrade
@@ -150,7 +150,7 @@ impl Store {
         invoice_id: common_domain::ids::InvoiceId,
         effective_at: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<Vec<SlotTransactionRow>> {
-        let now = effective_at.unwrap_or(chrono::Utc::now().naive_utc());
+        let now = effective_at.unwrap_or(common_domain::clock::now().naive_utc());
 
         SlotTransactionRow::activate_pending_for_invoice(conn, lock, invoice_id, now)
             .await
@@ -174,7 +174,7 @@ impl SubscriptionSlotsInterface for Store {
             tenant_id,
             subscription_id,
             unit,
-            at_ts.unwrap_or_else(|| chrono::Utc::now().naive_utc()),
+            at_ts.unwrap_or_else(|| common_domain::clock::now().naive_utc()),
         )
         .await
         .map(|slots| slots.unwrap_or(0) as u32)

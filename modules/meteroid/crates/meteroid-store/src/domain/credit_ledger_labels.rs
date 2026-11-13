@@ -102,7 +102,7 @@ impl LedgerMovement<'_> {
 mod tests {
     use super::*;
     use crate::domain::credit::{CANCELLATION_REMOVAL, CreditApplication};
-    use chrono::Utc;
+
     use common_domain::ids::{
         BaseId, CreditGrantId, CreditNoteId, InvoiceId, LedgerEntryId, WalletId,
     };
@@ -121,8 +121,8 @@ mod tests {
             reason: reason.to_owned(),
             reference: None,
             created_by: None,
-            effective_at: Utc::now(),
-            recorded_at: Utc::now(),
+            effective_at: common_domain::clock::now(),
+            recorded_at: common_domain::clock::now(),
             cost: None,
             application: CreditApplication::Invoice,
             subscription_id: None,

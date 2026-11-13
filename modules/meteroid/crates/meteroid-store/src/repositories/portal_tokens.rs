@@ -208,7 +208,7 @@ impl Store {
         recipient_email: String,
         delegated: bool,
     ) -> StoreResult<String> {
-        let now = Utc::now();
+        let now = common_domain::clock::wall();
         self.issue_portal_token_tx(
             conn,
             tenant_id,
@@ -233,8 +233,8 @@ impl Store {
     ) -> StoreResult<String> {
         let reuse_until = session
             .expires_at
-            .map_or(Utc::now() + min_link_validity(), |exp| {
-                exp.min(Utc::now() + min_link_validity())
+            .map_or(common_domain::clock::wall() + min_link_validity(), |exp| {
+                exp.min(common_domain::clock::wall() + min_link_validity())
             });
         self.issue_portal_token_tx(
             conn,
@@ -288,7 +288,7 @@ impl Store {
             dedupe_key: format!(
                 "{kind}:link_recovery:{}:{}",
                 token.id,
-                Utc::now().timestamp()
+                common_domain::clock::wall().timestamp()
             ),
             resent_from: None,
             manual: true,
@@ -325,7 +325,7 @@ impl Store {
         PortalTokenRow::claim_recovery(
             conn,
             id,
-            Utc::now(),
+            common_domain::clock::wall(),
             Duration::minutes(RECOVERY_COOLDOWN_MINUTES),
         )
         .await
@@ -345,7 +345,7 @@ impl PortalTokensInterface for Store {
         let invoice = InvoiceRow::find_by_id(&mut conn, tenant_id, invoice_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
-        let now = Utc::now();
+        let now = common_domain::clock::wall();
         self.issue_portal_token_tx(
             &mut conn,
             tenant_id,
@@ -400,7 +400,7 @@ impl PortalTokensInterface for Store {
         scopes: Option<Vec<PortalScope>>,
         delegated: bool,
     ) -> StoreResult<IssuedPortalToken> {
-        let expires_at = Utc::now() + ttl;
+        let expires_at = common_domain::clock::wall() + ttl;
         let mut conn = self.get_conn().await?;
         self.issue_portal_token_tx(
             &mut conn,
@@ -430,7 +430,7 @@ impl PortalTokensInterface for Store {
             None,
             false,
             None,
-            Reuse::valid_until(Utc::now()),
+            Reuse::valid_until(common_domain::clock::wall()),
         )
         .await
         .map(|issued| issued.token)
@@ -453,7 +453,7 @@ impl PortalTokensInterface for Store {
     }
 
     async fn touch_portal_token(&self, token: &PortalToken) -> StoreResult<()> {
-        let now = Utc::now();
+        let now = common_domain::clock::wall();
         let granularity = Duration::minutes(LAST_USED_GRANULARITY_MINUTES);
         if token
             .last_used_at
@@ -485,7 +485,7 @@ impl PortalTokensInterface for Store {
         let Some(portal_token) = self.resolve_portal_token(token).await? else {
             return Ok(());
         };
-        if portal_token.status(Utc::now()) != PortalTokenStatus::Expired {
+        if portal_token.status(common_domain::clock::wall()) != PortalTokenStatus::Expired {
             return Ok(());
         }
         self.transaction(|conn| {
@@ -519,7 +519,7 @@ impl PortalTokensInterface for Store {
     }
 
     async fn purge_stale_portal_tokens(&self) -> StoreResult<usize> {
-        let now = Utc::now();
+        let now = common_domain::clock::wall();
         let mut conn = self.get_conn().await?;
         PortalTokenRow::delete_stale(
             &mut conn,

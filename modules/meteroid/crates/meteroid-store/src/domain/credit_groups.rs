@@ -277,7 +277,7 @@ mod tests {
         scope: GrantScope,
         remaining: i64,
     ) -> CreditGrant {
-        let at = Utc::now();
+        let at = common_domain::clock::now();
         CreditGrant {
             id: CreditGrantId::new(),
             wallet_id: WalletId::new(),
@@ -363,7 +363,7 @@ mod tests {
         let pro = SubscriptionId::new();
         let basic = SubscriptionId::new();
         let plans: GrantPlans = [(pro, "Pro".to_owned()), (basic, "Basic".to_owned())].into();
-        let now = Utc::now();
+        let now = common_domain::clock::now();
         let soon = now + chrono::Duration::days(3);
         let later = now + chrono::Duration::days(30);
         let pro_pack = CreditGrant {
@@ -552,7 +552,7 @@ mod tests {
 
     #[test]
     fn credit_ending_with_its_subscription_never_rolls_over() {
-        let now = Utc::now();
+        let now = common_domain::clock::now();
         let ended = CreditGrant {
             expires_at: Some(now + chrono::Duration::days(10)),
             ends_at: Some(now + chrono::Duration::days(1)),

@@ -65,7 +65,7 @@ fn build_subscription_from_quote(
     detailed_quote: &DetailedQuote,
 ) -> StoreResult<CreateSubscriptionFromQuote> {
     let quote = &detailed_quote.quote;
-    let now = chrono::Utc::now().naive_utc().date();
+    let now = common_domain::clock::now().naive_utc().date();
 
     // If billing_start_date is not set, use today's date (dynamic start date)
     let start_date = quote.billing_start_date.unwrap_or(now);

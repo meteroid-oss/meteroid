@@ -35,7 +35,7 @@ pub async fn run_vat_revalidation_worker(
 }
 
 async fn run_once(store: &Arc<Store>) -> meteroid_store::StoreResult<()> {
-    let now = chrono::Utc::now().naive_utc();
+    let now = common_domain::clock::now().naive_utc();
 
     let candidates = store
         .list_vat_revalidation_candidates(

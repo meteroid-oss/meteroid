@@ -1099,7 +1099,7 @@ mod cost_tests {
     use common_domain::ids::{BaseId, WalletId};
 
     fn grant(amount_minor: i64, cost: Option<domain::CreditCost>) -> domain::CreditGrant {
-        let at = Utc::now();
+        let at = common_domain::clock::now();
         domain::CreditGrant {
             id: CreditGrantId::new(),
             wallet_id: WalletId::new(),
@@ -1164,7 +1164,7 @@ mod cost_tests {
             currency: "EUR".to_owned(),
             projected_minor: 3_800,
             estimated_unbilled_minor: 1_200,
-            as_of: Utc::now(),
+            as_of: common_domain::clock::now(),
             projected: true,
         });
         let shown = serde_json::to_value(&wallet).unwrap();

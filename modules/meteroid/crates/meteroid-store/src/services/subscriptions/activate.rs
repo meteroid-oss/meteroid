@@ -9,7 +9,7 @@ use crate::services::Services;
 use crate::services::subscriptions::start::{StartTransition, mark_subscription_started_tx};
 use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
-use chrono::{Days, Duration, NaiveDate, Utc};
+use chrono::{Days, Duration, NaiveDate};
 use common_domain::ids::{SubscriptionId, TenantId};
 use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
 use diesel_models::query::credit_inputs;
@@ -93,7 +93,7 @@ impl Services {
                         let new_period_start = subscription
                             .subscription
                             .current_period_end
-                            .unwrap_or_else(|| Utc::now().naive_utc().date());
+                            .unwrap_or_else(|| common_domain::clock::now().naive_utc().date());
                         let new_period_end = new_period_start
                             .checked_add_days(Days::new(u64::from(trial_duration)))
                             .unwrap_or_else(|| new_period_start + Duration::days(7));

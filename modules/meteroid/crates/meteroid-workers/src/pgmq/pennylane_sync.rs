@@ -931,10 +931,10 @@ impl Expiry<TenantId, Option<ConnectorAccessToken>> for OptConnectorAccessTokenE
         if let Some(token) = value {
             let expires_at = token
                 .expires_at
-                .unwrap_or(chrono::Utc::now() + chrono::Duration::seconds(86400));
+                .unwrap_or(common_domain::clock::now() + chrono::Duration::seconds(86400));
 
             expires_at
-                .signed_duration_since(chrono::Utc::now())
+                .signed_duration_since(common_domain::clock::now())
                 .to_std()
                 .ok()
                 .and_then(|x| x.checked_sub(Duration::from_secs(60))) // expire 1 minute earlier

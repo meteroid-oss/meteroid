@@ -376,7 +376,7 @@ impl CustomerEmailsService for CustomerEmailsServiceComponents {
                             enabled: Some(true),
                             ..Default::default()
                         },
-                        chrono::Utc::now().naive_utc(),
+                        common_domain::clock::now().naive_utc(),
                     )
                     .await
                     .map_err(Into::<CustomerEmailsApiError>::into)?;
@@ -828,7 +828,8 @@ impl CustomerEmailsService for CustomerEmailsServiceComponents {
         let attachments = mapping::parse_attachments(detail.email.attachments.as_ref());
         // Only mint a token when something is actually downloadable.
         let attachments_share_key = if attachments.iter().any(|a| !a.id.is_empty()) {
-            let exp = (chrono::Utc::now() + chrono::Duration::days(7)).timestamp() as usize;
+            let exp =
+                (common_domain::clock::wall() + chrono::Duration::days(7)).timestamp() as usize;
             Some(
                 generate_entity_share_key(
                     detail.email.id.as_uuid(),

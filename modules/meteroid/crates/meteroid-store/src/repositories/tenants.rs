@@ -402,7 +402,7 @@ impl TenantInterface for Store {
 
     async fn touch_tenant_activity(&self, tenant_id: TenantId) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         let stale_before = now - chrono::Duration::hours(1);
 
         TenantRow::touch_activity(&mut conn, tenant_id, now, stale_before)
@@ -413,7 +413,7 @@ impl TenantInterface for Store {
 
     async fn count_subscriptions_pending_catchup(&self, tenant_id: TenantId) -> StoreResult<u64> {
         let mut conn = self.get_conn().await?;
-        let today = chrono::Utc::now().naive_utc().date();
+        let today = common_domain::clock::now().naive_utc().date();
 
         diesel_models::subscriptions::SubscriptionRow::count_pending_billing_catchup(
             &mut conn, tenant_id, today,
@@ -485,7 +485,7 @@ impl TenantInterface for Store {
         let active = TenantRow::list_by_organization_id(&mut conn, organization_id).await?;
         let archives_org = !active.iter().any(|t| t.id != tenant_id);
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         drop(conn);
         self.transaction_bumping_tenant(tenant_id, |conn| {
             async move {
@@ -996,7 +996,7 @@ async fn set_tenant_status(
     tenant_id: TenantId,
     status: diesel_models::enums::TenantStatusEnum,
 ) -> StoreResult<()> {
-    let now = chrono::Utc::now().naive_utc();
+    let now = common_domain::clock::now().naive_utc();
     // The status decides whether the tenant's customers are evaluated at all.
     store
         .transaction_bumping_tenant(tenant_id, |conn| {

@@ -1,6 +1,5 @@
 use std::time::Instant;
 
-use chrono::Utc;
 use common_domain::ids::EventId;
 use egress_http::{EgressClient, EgressError, Url};
 use meteroid_store::services::webhooks::out::signing::build_headers;
@@ -74,7 +73,7 @@ pub async fn deliver(
     };
 
     let message_id = request.message_id.to_string();
-    let timestamp = Utc::now().timestamp();
+    let timestamp = common_domain::clock::wall().timestamp();
 
     let signing_headers = match build_headers(
         &request.secrets,

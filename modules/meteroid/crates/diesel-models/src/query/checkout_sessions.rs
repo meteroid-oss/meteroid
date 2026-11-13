@@ -16,7 +16,10 @@ impl CheckoutSessionRowNew {
     pub async fn insert_or_get(&self, conn: &mut PgConn) -> DbResult<CheckoutSessionRow> {
         use crate::schema::checkout_session::dsl as cs;
         diesel::insert_into(cs::checkout_session)
-            .values(self)
+            .values((
+                self,
+                crate::schema::checkout_session::created_at.eq(common_domain::clock::now()),
+            ))
             .on_conflict(cs::id)
             .do_nothing()
             .execute(conn)
@@ -29,7 +32,10 @@ impl CheckoutSessionRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<CheckoutSessionRow> {
         use crate::schema::checkout_session::dsl as cs_dsl;
 
-        let query = diesel::insert_into(cs_dsl::checkout_session).values(self);
+        let query = diesel::insert_into(cs_dsl::checkout_session).values((
+            self,
+            crate::schema::checkout_session::created_at.eq(common_domain::clock::now()),
+        ));
 
         crate::debug_sql(&query);
 
@@ -55,7 +61,7 @@ impl CheckoutSessionRow {
         )
         .set((
             cs::status.eq(CheckoutSessionStatusEnum::Completed),
-            cs::completed_at.eq(Utc::now()),
+            cs::completed_at.eq(common_domain::clock::now()),
         ))
         .execute(conn)
         .await

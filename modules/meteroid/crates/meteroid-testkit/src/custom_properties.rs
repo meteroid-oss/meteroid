@@ -49,7 +49,7 @@ pub async fn archive_custom_property_definition(
     tenant_id: TenantId,
     id: CustomPropertyDefinitionId,
 ) -> CustomPropertyDefinition {
-    let now = chrono::Utc::now().naive_utc();
+    let now = common_domain::clock::now().naive_utc();
 
     let mut conn = store.get_conn().await.expect("db connection");
     let row = diesel::update(cpd::table)

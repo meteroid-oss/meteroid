@@ -177,7 +177,12 @@ impl Services {
         self.transaction_reading_usage_first(&mut conn, |services, conn| {
             async move {
                 services
-                    .on_invoice_payment_settled_tx(conn, event, invoice_id, Utc::now())
+                    .on_invoice_payment_settled_tx(
+                        conn,
+                        event,
+                        invoice_id,
+                        common_domain::clock::now(),
+                    )
                     .await
             }
             .scope_boxed()
@@ -324,7 +329,7 @@ impl Services {
 
                     // Use current date instead of invoice_date: async payments
                     // (SEPA) can settle days later, after the billing period rolls over.
-                    let change_date = Utc::now().date_naive();
+                    let change_date = common_domain::clock::now().date_naive();
                     // A savepoint: a change that can no longer apply never rolls the payment back;
                     // the invoice it paid is credited to the customer's balance instead.
                     let legacy = &invoice;
@@ -413,7 +418,7 @@ impl Services {
                         let billing_start_date = subscription
                             .subscription
                             .billing_start_date
-                            .unwrap_or(chrono::Utc::now().date_naive());
+                            .unwrap_or(common_domain::clock::now().date_naive());
 
                         let current_period_start;
                         let current_period_end;
@@ -473,7 +478,7 @@ impl Services {
                             event.tenant_id,
                             session_id,
                             *subscription_id,
-                            Utc::now(),
+                            common_domain::clock::now(),
                         )
                         .await?;
                     }
@@ -610,7 +615,7 @@ impl Services {
                             recomputed.payment_status == InvoicePaymentStatus::Paid,
                             true,
                             ReopenedReminders::after_reversal(event.reversal_kind),
-                            chrono::Utc::now().naive_utc(),
+                            common_domain::clock::now().naive_utc(),
                         )
                         .await?;
 
@@ -976,7 +981,7 @@ impl Services {
                                 let billing_start_date = subscription
                                     .subscription
                                     .billing_start_date
-                                    .unwrap_or_else(|| Utc::now().date_naive());
+                                    .unwrap_or_else(|| common_domain::clock::now().date_naive());
 
                                 let is_paid_trial_flag = is_paid_trial(
                                     conn,
@@ -1041,7 +1046,7 @@ impl Services {
                             let today = match session.change_date {
                                 Some(d) if d >= current_period_start => d,
                                 other => {
-                                    let now = Utc::now().date_naive();
+                                    let now = common_domain::clock::now().date_naive();
                                     log::warn!(
                                         "Plan-change checkout {} priced at {other:?} but the period rolled over (starts {current_period_start}); applying at {now}",
                                         checkout_session_id
@@ -1291,7 +1296,7 @@ impl Services {
                         event.tenant_id,
                         checkout_session_id,
                         subscription_id,
-                        chrono::Utc::now(),
+                        common_domain::clock::now(),
                     )
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
@@ -1514,7 +1519,7 @@ impl Services {
                     invoice_id,
                     Some(crate::services::credit::collected_payment::Collection {
                         payment: transaction_id,
-                        at: processed_at.map_or_else(Utc::now, |at| at.and_utc()),
+                        at: processed_at.map_or_else(common_domain::clock::now, |at| at.and_utc()),
                     }),
                     crate::domain::wallet_events::CreditUnrecoveredCause::PaymentReversed,
                     None,
@@ -1551,5 +1556,7 @@ fn can_never_apply(error: &Report<StoreError>) -> bool {
 }
 
 fn collected_at(event: &PaymentTransactionEvent) -> chrono::DateTime<Utc> {
-    event.processed_at.map_or_else(Utc::now, |at| at.and_utc())
+    event
+        .processed_at
+        .map_or_else(common_domain::clock::now, |at| at.and_utc())
 }

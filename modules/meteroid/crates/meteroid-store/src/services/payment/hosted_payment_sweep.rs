@@ -361,7 +361,7 @@ mod tests {
     };
 
     fn method() -> CustomerPaymentMethod {
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         CustomerPaymentMethod {
             id: CustomerPaymentMethodId::new(),
             tenant_id: TenantId::new(),

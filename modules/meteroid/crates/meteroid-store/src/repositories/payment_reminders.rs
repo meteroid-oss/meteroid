@@ -1230,7 +1230,7 @@ impl PaymentRemindersInterface for Store {
                     conn,
                     invoice_id,
                     tenant_id,
-                    chrono::Utc::now().naive_utc(),
+                    common_domain::clock::now().naive_utc(),
                 )
                 .await
                 .map(|_| ())

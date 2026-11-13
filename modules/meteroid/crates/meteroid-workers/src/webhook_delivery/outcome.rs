@@ -161,7 +161,7 @@ mod tests {
         AUTO_DISABLE_CONSECUTIVE_FAILURES, MAX_ATTEMPTS, PROBE_THRESHOLD,
     };
 
-    fn now() -> NaiveDateTime {
+    fn fixed_now() -> NaiveDateTime {
         NaiveDate::from_ymd_opt(2026, 9, 19)
             .unwrap()
             .and_hms_opt(12, 0, 0)
@@ -173,14 +173,15 @@ mod tests {
             delivery_id: WebhookDeliveryId::new(),
             endpoint_id: WebhookEndpointId::new(),
             attempt_number,
-            lease_expires_at: now() + Duration::seconds(90),
+            lease_expires_at: fixed_now() + Duration::seconds(90),
             duration_ms: 42,
             health: EndpointHealth {
                 consecutive_failures,
-                failing_since: (consecutive_failures > 0).then(|| now() - Duration::minutes(1)),
+                failing_since: (consecutive_failures > 0)
+                    .then(|| fixed_now() - Duration::minutes(1)),
                 unreachable_streak: 0,
             },
-            now: now(),
+            now: fixed_now(),
             jitter: 0.0,
             auto_disable_after_hours: 120,
         }
@@ -213,7 +214,7 @@ mod tests {
             assert_eq!(outcome.final_status, WebhookDeliveryStatus::Pending);
             assert_eq!(
                 outcome.next_attempt_at,
-                Some(now() + Duration::seconds(5)),
+                Some(fixed_now() + Duration::seconds(5)),
                 "status {status}"
             );
             assert_eq!(outcome.response_status, Some(status as i16));
@@ -253,14 +254,14 @@ mod tests {
         assert_eq!(outcome.final_status, WebhookDeliveryStatus::Pending);
         assert_eq!(
             outcome.next_attempt_at,
-            Some(now() + Duration::seconds(300))
+            Some(fixed_now() + Duration::seconds(300))
         );
     }
 
     #[test]
     fn auto_disable_triggers_on_a_long_dead_endpoint() {
         let mut c = ctx(1, AUTO_DISABLE_CONSECUTIVE_FAILURES - 1);
-        c.health.failing_since = Some(now() - Duration::hours(121));
+        c.health.failing_since = Some(fixed_now() - Duration::hours(121));
 
         let outcome = decide_outcome(c, response(500));
         assert_eq!(
@@ -272,7 +273,7 @@ mod tests {
     #[test]
     fn a_short_failure_streak_keeps_the_endpoint_enabled() {
         let mut c = ctx(1, AUTO_DISABLE_CONSECUTIVE_FAILURES * 2);
-        c.health.failing_since = Some(now() - Duration::hours(10));
+        c.health.failing_since = Some(fixed_now() - Duration::hours(10));
 
         let outcome = decide_outcome(c, response(500));
         assert!(outcome.disable_endpoint.is_none());
@@ -281,7 +282,7 @@ mod tests {
     #[test]
     fn a_success_never_disables_even_with_a_dead_history() {
         let mut c = ctx(1, AUTO_DISABLE_CONSECUTIVE_FAILURES * 2);
-        c.health.failing_since = Some(now() - Duration::days(30));
+        c.health.failing_since = Some(fixed_now() - Duration::days(30));
 
         let outcome = decide_outcome(c, response(200));
         assert!(outcome.disable_endpoint.is_none());
@@ -291,7 +292,7 @@ mod tests {
     fn unreachable(streak: i32) -> AttemptContext {
         let mut c = ctx(3, streak);
         c.health.unreachable_streak = streak;
-        c.health.failing_since = Some(now() - Duration::seconds(10));
+        c.health.failing_since = Some(fixed_now() - Duration::seconds(10));
         c
     }
 
@@ -309,7 +310,10 @@ mod tests {
             unreachable(PROBE_THRESHOLD - 1),
             AttemptResult::Error("dns".to_string()),
         );
-        assert_eq!(at.pause_endpoint_until, Some(now() + Duration::seconds(30)));
+        assert_eq!(
+            at.pause_endpoint_until,
+            Some(fixed_now() + Duration::seconds(30))
+        );
         assert!(
             at.refund_attempt,
             "a paused endpoint's probe spends no budget"
@@ -322,12 +326,12 @@ mod tests {
     fn a_long_outage_is_never_probed_faster_than_it_has_lasted() {
         // A single event's own ladder (5s, 5m, 30m, 2h) reaches the threshold hours in.
         let mut c = unreachable(PROBE_THRESHOLD - 1);
-        c.health.failing_since = Some(now() - Duration::minutes(155));
+        c.health.failing_since = Some(fixed_now() - Duration::minutes(155));
 
         let outcome = decide_outcome(c, AttemptResult::Error("refused".to_string()));
         assert_eq!(
             outcome.pause_endpoint_until,
-            Some(now() + Duration::seconds(3_600))
+            Some(fixed_now() + Duration::seconds(3_600))
         );
     }
 
@@ -346,7 +350,7 @@ mod tests {
         assert!(!outcome.refund_attempt);
         assert_eq!(
             outcome.next_attempt_at,
-            Some(now() + Duration::seconds(1_800)),
+            Some(fixed_now() + Duration::seconds(1_800)),
             "its own retry ladder: the delay after a third attempt"
         );
     }

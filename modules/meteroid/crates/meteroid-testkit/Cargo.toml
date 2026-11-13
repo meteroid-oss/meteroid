@@ -17,7 +17,7 @@ bytes.workspace = true
 chrono = { workspace = true, features = ["clock"] }
 clickhouse = { workspace = true, features = ["chrono"] }
 common-config = { workspace = true }
-common-domain = { workspace = true, features = ["utoipa", "tonic"] }
+common-domain = { workspace = true, features = ["utoipa", "tonic", "test-clock"] }
 common-grpc = { workspace = true, features = ["server"] }
 common-logging = { workspace = true }
 diesel = { workspace = true, features = ["postgres"] }

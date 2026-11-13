@@ -441,7 +441,7 @@ impl BatchJobWorker {
 
                 if chunk.retry_count < chunk.max_retries {
                     let backoff = retry_backoff(chunk.retry_count);
-                    let retry_after = chrono::Utc::now().naive_utc()
+                    let retry_after = common_domain::clock::wall().naive_utc()
                         + chrono::Duration::from_std(backoff).unwrap();
 
                     match self

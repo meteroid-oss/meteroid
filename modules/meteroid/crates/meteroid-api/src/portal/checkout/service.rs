@@ -697,7 +697,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             _ => return Err(tonic::Status::invalid_argument("Not a slot component")),
         };
 
-        let now = chrono::Utc::now().date_naive();
+        let now = common_domain::clock::now().date_naive();
         let period_end = subscription_details
             .subscription
             .current_period_end
@@ -999,7 +999,7 @@ impl PortalCheckoutServiceComponents {
                         .map_err(Into::<PortalCheckoutApiError>::into)?
                 };
 
-                let now = chrono::Utc::now().date_naive();
+                let now = common_domain::clock::now().date_naive();
 
                 let mut sub_details = sub_details;
 
@@ -1023,11 +1023,11 @@ impl PortalCheckoutServiceComponents {
                             name: resolved.name,
                             period: resolved.period,
                             fee: resolved.fee,
-                            created_at: chrono::Utc::now().naive_utc(),
+                            created_at: common_domain::clock::now().naive_utc(),
                             product_id: resolved.product_id,
                             price_id: resolved.price_id,
                             quantity: cs_ao.quantity,
-                            effective_from: chrono::Utc::now().naive_utc().date(),
+                            effective_from: common_domain::clock::now().naive_utc().date(),
                             effective_to: None,
                             lineage_id: None,
                             added_by_amendment: false,

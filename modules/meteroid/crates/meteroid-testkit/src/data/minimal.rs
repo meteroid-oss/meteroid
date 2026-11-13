@@ -148,7 +148,7 @@ pub async fn run_minimal_seed(pool: &PgPool) {
                 "SEK": 10.074633,
                 "USD": 1
             }),
-                updated_at: chrono::Utc::now().naive_utc(),
+                updated_at: common_domain::clock::now().naive_utc(),
             },
             HistoricalRatesFromUsdRowNew {
                 id: ids::HISTORICAL_RATE_2010_01_01_ID,
@@ -170,7 +170,7 @@ pub async fn run_minimal_seed(pool: &PgPool) {
                 "SEK": 7.138645,
                 "USD": 1
             }),
-                updated_at: chrono::Utc::now().naive_utc(),
+                updated_at: common_domain::clock::now().naive_utc(),
             },
         ]).await?;
 

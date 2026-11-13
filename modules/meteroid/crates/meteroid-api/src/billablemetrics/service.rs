@@ -313,7 +313,7 @@ impl BillableMetricsService for BillableMetricsComponents {
             _ => TenantUsageGrain::Day,
         };
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         // Default span: 30 grains back from now.
         let default_span = match grain {
             TenantUsageGrain::Hour => chrono::Duration::hours(30),

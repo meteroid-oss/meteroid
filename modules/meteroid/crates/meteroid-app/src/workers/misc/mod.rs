@@ -1,7 +1,6 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use chrono::Utc;
 use croner::Cron;
 use distributed_lock::LeaderElection;
 
@@ -10,7 +9,7 @@ use crate::config::ParsedCron;
 /// Sleep until the next occurrence of a (UTC, wall-clock) cron schedule. Falls
 /// back to a 1-minute sleep if the schedule somehow yields no future time.
 pub async fn sleep_until_next(cron: &Cron) {
-    let now = Utc::now();
+    let now = common_domain::clock::wall();
     let dur = cron
         .find_next_occurrence(&now, false)
         .ok()

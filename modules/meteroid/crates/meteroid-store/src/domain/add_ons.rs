@@ -266,7 +266,7 @@ impl AddOnPatch {
             description: self.description,
             self_serviceable: self.self_serviceable,
             max_instances_per_subscription: self.max_instances_per_subscription,
-            updated_at: chrono::Utc::now().naive_utc(),
+            updated_at: common_domain::clock::now().naive_utc(),
         }
     }
 }

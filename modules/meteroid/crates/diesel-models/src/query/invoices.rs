@@ -35,7 +35,10 @@ impl InvoiceRowNew {
         use crate::schema::invoice::dsl::invoice;
         use diesel_async::RunQueryDsl;
 
-        let query = diesel::insert_into(invoice).values(self);
+        let query = diesel::insert_into(invoice).values((
+            self,
+            crate::schema::invoice::created_at.eq(common_domain::clock::now()),
+        ));
 
         crate::debug_sql(&query);
 
@@ -757,7 +760,17 @@ impl InvoiceRow {
         use crate::schema::invoice::dsl::invoice;
         use diesel_async::RunQueryDsl;
 
-        let query = diesel::insert_into(invoice).values(&invoices);
+        let query = diesel::insert_into(invoice).values(
+            invoices
+                .iter()
+                .map(|row| {
+                    (
+                        row,
+                        crate::schema::invoice::created_at.eq(common_domain::clock::now()),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
 
         crate::debug_sql(&query);
 
@@ -782,7 +795,7 @@ impl InvoiceRow {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
 
         let query = diesel::update(i_dsl::invoice)
             .filter(i_dsl::id.eq(id))
@@ -894,7 +907,7 @@ impl InvoiceRow {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         let paid_at = if payment_status == InvoicePaymentStatus::Paid {
             Some(tx_at.unwrap_or(now))
         } else {
@@ -928,7 +941,7 @@ impl InvoiceRow {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
 
         let query = diesel::update(i_dsl::invoice)
             .filter(i_dsl::id.eq(id))
@@ -1090,7 +1103,7 @@ impl InvoiceRow {
         use diesel_async::RunQueryDsl;
 
         let new_amount_due = Self::collections(conn, id, tenant_id).await?.amount_due();
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
 
         let query = diesel::update(i_dsl::invoice)
             .filter(i_dsl::id.eq(id))
@@ -1183,7 +1196,7 @@ impl InvoiceRow {
         let query = refreshable_drafts_filter(
             stale_after_hours,
             horizon_days,
-            chrono::Utc::now().naive_utc(),
+            common_domain::clock::now().naive_utc(),
         )
         .select(InvoiceRow::as_select())
         .cursor_paginate(pagination, "id");
@@ -1247,8 +1260,8 @@ impl InvoiceRow {
             .filter(i_dsl::status.eq(InvoiceStatusEnum::Finalized))
             .set((
                 i_dsl::status.eq(InvoiceStatusEnum::Void),
-                i_dsl::updated_at.eq(diesel::dsl::now),
-                i_dsl::voided_at.eq(diesel::dsl::now),
+                i_dsl::updated_at.eq(common_domain::clock::now().naive_utc()),
+                i_dsl::voided_at.eq(common_domain::clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -1278,7 +1291,7 @@ impl InvoiceRow {
             .filter(i_dsl::status.eq(InvoiceStatusEnum::Draft))
             .set((
                 i_dsl::status.eq(InvoiceStatusEnum::Closed),
-                i_dsl::updated_at.eq(diesel::dsl::now),
+                i_dsl::updated_at.eq(common_domain::clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -1313,8 +1326,8 @@ impl InvoiceRow {
             .filter(i_dsl::status.eq(InvoiceStatusEnum::Finalized))
             .set((
                 i_dsl::status.eq(InvoiceStatusEnum::Uncollectible),
-                i_dsl::updated_at.eq(diesel::dsl::now),
-                i_dsl::marked_as_uncollectible_at.eq(diesel::dsl::now),
+                i_dsl::updated_at.eq(common_domain::clock::now().naive_utc()),
+                i_dsl::marked_as_uncollectible_at.eq(common_domain::clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -1656,7 +1669,7 @@ impl InvoiceRow {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
 
         // Credits are recomputed once on the consolidated parent and deducted there; the child
         // never finalizes, so clear its draft-time applied_credits (and re-derive amount_due) to
@@ -2238,7 +2251,7 @@ impl InvoiceRowLinesPatch {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
 
         let query = diesel::update(i_dsl::invoice)
             .filter(i_dsl::id.eq(id).and(i_dsl::tenant_id.eq(tenant_id)))

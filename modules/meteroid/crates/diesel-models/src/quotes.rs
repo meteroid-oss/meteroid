@@ -199,7 +199,7 @@ impl From<QuoteRowNew> for QuoteRowReplace {
             create_subscription_on_acceptance: row.create_subscription_on_acceptance,
             payment_methods_config: row.payment_methods_config,
             custom_properties: row.custom_properties,
-            updated_at: Some(chrono::Utc::now().naive_utc()),
+            updated_at: Some(common_domain::clock::now().naive_utc()),
         }
     }
 }

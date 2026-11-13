@@ -35,7 +35,7 @@ pub async fn run_abandoned_purchase_cleanup_worker(
 }
 
 async fn cleanup(store: &Store) {
-    let older_than = (chrono::Utc::now() - ABANDONED_AFTER).naive_utc();
+    let older_than = (common_domain::clock::now() - ABANDONED_AFTER).naive_utc();
     let mut total = 0;
     loop {
         match store

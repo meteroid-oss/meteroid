@@ -445,3 +445,28 @@ async fn a_churn_booked_by_an_earlier_invoice_of_the_end_day_is_not_booked_again
     assert_eq!(churns, vec![-mrr], "the churn once");
     assert_eq!(env.get_subscription(id).await.mrr_cents, 0);
 }
+
+/// A regenerated invoice bills the period's charges under the ids the voided one gave them: a
+/// line is identified by its charge, not by when it was computed (R-075).
+#[tokio::test]
+async fn a_regenerated_invoice_bills_its_charges_under_the_same_line_ids() {
+    let env = test_env_with_seed(SeedLevel::PLANS).await;
+    let id = starter_with_voided_first_period(&env).await;
+    let voided = env.get_invoices(id).await[0].clone();
+    let ids = |invoice: &meteroid_store::domain::Invoice| {
+        invoice
+            .line_items
+            .iter()
+            .map(|line| line.local_id.clone())
+            .collect::<Vec<_>>()
+    };
+    assert!(!voided.line_items.is_empty());
+
+    let regenerated = env
+        .services()
+        .regenerate_invoice(Actor::System, TENANT_ID, voided.id)
+        .await
+        .expect("regenerate");
+
+    assert_eq!(ids(&regenerated.invoice), ids(&voided));
+}

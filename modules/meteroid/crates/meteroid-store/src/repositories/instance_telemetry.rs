@@ -73,7 +73,7 @@ impl InstanceTelemetryInterface for Store {
 
     async fn record_instance_telemetry_sent(&self) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
-        InstanceTelemetryRow::record_sent(&mut conn, chrono::Utc::now().naive_utc())
+        InstanceTelemetryRow::record_sent(&mut conn, common_domain::clock::now().naive_utc())
             .await
             .map_err(Into::into)
     }

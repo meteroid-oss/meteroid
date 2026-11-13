@@ -652,7 +652,7 @@ pub async fn apply_coupons(
         subscription_coupons,
         subscriptions,
         tenant_id,
-        chrono::Utc::now(),
+        common_domain::clock::now(),
     )
     .await
 }
@@ -695,7 +695,7 @@ pub async fn apply_coupons_without_validation(
         controls,
         subscription_coupons,
         tenant_id,
-        chrono::Utc::now(),
+        common_domain::clock::now(),
     )
     .await
 }
@@ -998,7 +998,7 @@ pub async fn calculate_coupons_discount(
                         .get_historical_rate(
                             currency,
                             subscription_currency,
-                            chrono::Utc::now().date_naive(),
+                            common_domain::clock::now().date_naive(),
                         )
                         .await?
                         .ok_or(StoreError::ValueNotFound(format!(

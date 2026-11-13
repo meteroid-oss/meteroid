@@ -2,7 +2,6 @@ use crate::crypt::{decrypt, encrypt};
 use crate::domain::connectors::ConnectorMeta;
 use crate::errors::StoreError;
 use crate::{StoreResult, json_value_serde};
-use chrono::Utc;
 use common_domain::ids::TenantId;
 use diesel_models::oauth_verifiers::OauthVerifierRow;
 use error_stack::ResultExt;
@@ -32,7 +31,7 @@ impl OauthVerifier {
             csrf_token: self.csrf_token.expose_secret().to_string(),
             pkce_verifier: Self::enc(crypt_key, self.pkce_verifier.expose_secret())?,
             data: Some((&self.data).try_into()?),
-            created_at: Utc::now().naive_utc(),
+            created_at: common_domain::clock::now().naive_utc(),
         })
     }
 

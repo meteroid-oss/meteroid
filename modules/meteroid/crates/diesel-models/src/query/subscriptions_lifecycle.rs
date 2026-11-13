@@ -1,5 +1,5 @@
 use crate::errors::IntoDbResult;
-use chrono::{Duration, NaiveDate, NaiveDateTime, Utc};
+use chrono::{Duration, NaiveDate, NaiveDateTime};
 
 use crate::lock::CustomerLock;
 use crate::subscriptions::{
@@ -43,7 +43,7 @@ impl SubscriptionRow {
             .filter(s_dsl::tenant_id.eq(tenant_id))
             .filter(s_dsl::activated_at.is_null())
             .set((
-                s_dsl::activated_at.eq(chrono::Utc::now().naive_utc()),
+                s_dsl::activated_at.eq(common_domain::clock::now().naive_utc()),
                 s_dsl::current_period_start.eq(current_period_start),
                 s_dsl::current_period_end.eq(current_period_end),
                 s_dsl::next_cycle_action.eq(next_cycle_action),
@@ -289,7 +289,7 @@ impl SubscriptionRow {
     ) -> DbResult<Vec<(SubscriptionId, common_domain::ids::CustomerId, TenantId)>> {
         use crate::schema::subscription::dsl;
 
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         let claim_timeout = now - Duration::minutes(CLAIM_TIMEOUT_MINUTES);
 
         // Paused/archived tenants get no scheduled lifecycle processing. `lifecycle_suspended`
@@ -374,7 +374,7 @@ impl SubscriptionRow {
     ) -> DbResult<Option<SubscriptionRow>> {
         use crate::schema::subscription::dsl;
 
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
 
         let active_statuses = SubscriptionStatusEnum::not_terminal();
 
@@ -412,7 +412,8 @@ impl SubscriptionRow {
     ) -> DbResult<Option<SubscriptionRow>> {
         use crate::schema::subscription::dsl;
 
-        let claim_timeout = Utc::now().naive_utc() - Duration::minutes(CLAIM_TIMEOUT_MINUTES);
+        let claim_timeout =
+            common_domain::clock::now().naive_utc() - Duration::minutes(CLAIM_TIMEOUT_MINUTES);
         let query = dsl::subscription
             .filter(dsl::id.eq(id))
             .filter(dsl::tenant_id.eq(tenant_id))

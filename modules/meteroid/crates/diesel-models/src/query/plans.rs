@@ -74,7 +74,7 @@ impl PlanRow {
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .set((
                 p_dsl::status.eq(PlanStatusEnum::Active),
-                p_dsl::updated_at.eq(diesel::dsl::now),
+                p_dsl::updated_at.eq(common_domain::clock::now().naive_utc()),
             ))
             .returning(PlanRow::as_select());
 
@@ -284,7 +284,7 @@ impl PlanRow {
         param_tenant_id: TenantId,
     ) -> DbResult<()> {
         use crate::schema::plan::dsl::{archived_at, id, plan, status, tenant_id, updated_at};
-        use chrono::Utc;
+
         use diesel_async::RunQueryDsl;
 
         let query = diesel::update(plan)
@@ -292,8 +292,8 @@ impl PlanRow {
             .filter(tenant_id.eq(param_tenant_id))
             .set((
                 status.eq(PlanStatusEnum::Archived),
-                archived_at.eq(Some(Utc::now().naive_utc())),
-                updated_at.eq(diesel::dsl::now),
+                archived_at.eq(Some(common_domain::clock::now().naive_utc())),
+                updated_at.eq(common_domain::clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -321,7 +321,7 @@ impl PlanRow {
             .set((
                 status.eq(PlanStatusEnum::Active),
                 archived_at.eq::<Option<chrono::NaiveDateTime>>(None),
-                updated_at.eq(diesel::dsl::now),
+                updated_at.eq(common_domain::clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);

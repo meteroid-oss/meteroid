@@ -27,7 +27,7 @@ use crate::services::invoice_lines::invoice_lines::{BilledSpan, MeteredFee};
 use crate::services::invoices::upcoming::upcoming_invoice_details_on;
 use crate::services::usage_grouping::{foldable, metric_dimensions};
 use crate::store::PgConn;
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Utc};
+use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use common_domain::ids::{BaseId, CustomerId, SubscriptionId, TenantId, WalletId};
 use diesel_models::customer_credit::CustomerCreditAccountRow;
 use diesel_models::query::credit_usage::{
@@ -579,7 +579,7 @@ impl ServicesEdge {
         &self,
         details: &SubscriptionDetails,
     ) -> StoreResult<RunningTotal> {
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         let computed_at = now.with_nanosecond(0).unwrap_or(now);
         let tenant_id = details.subscription.tenant_id;
         let customer_id = details.subscription.customer_id;
@@ -1191,7 +1191,7 @@ impl ServicesEdge {
         subscription_id: Option<SubscriptionId>,
         span: WalletUsageSpan,
     ) -> StoreResult<WalletDailyUsage> {
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         let today_ends = (now.date() + Duration::days(1)).and_time(NaiveTime::MIN);
         let (windows, pins) = {
             let mut conn = self.store.get_conn().await?;

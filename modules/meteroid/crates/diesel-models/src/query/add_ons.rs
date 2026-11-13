@@ -131,7 +131,7 @@ impl AddOnRow {
             .filter(ao_dsl::id.eq(id))
             .filter(ao_dsl::tenant_id.eq(tenant_id))
             .filter(ao_dsl::archived_at.is_null())
-            .set(ao_dsl::archived_at.eq(diesel::dsl::now));
+            .set(ao_dsl::archived_at.eq(common_domain::clock::now().naive_utc()));
 
         crate::debug_sql(&query);
 

@@ -26,7 +26,8 @@ const SHOWN: usize = 20;
 
 /// Each invariant: a name and a query over tenant `$1` returning one `message` per violation.
 /// `$2`/`$3` are the tenant's invoices and the source of their usage settlement excess returns,
-/// `$4`/`$5` its settlements and the source of their give-backs (computed in Rust, as UUIDv5).
+/// `$4`/`$5` its settlements and the source of their give-backs (computed in Rust, as UUIDv5),
+/// `$6` the present (`common_domain::clock::now`).
 const CHECKS: &[(&str, &str)] = &[
     (
         "I1 balance = sum of movements",
@@ -462,7 +463,7 @@ const CHECKS: &[(&str, &str)] = &[
            AND s.status IN ('CANCELLED', 'COMPLETED', 'ABORTED', 'SUPERSEDED')
            AND (g.expires_at IS NULL
                 OR g.expires_at >= LEAST(COALESCE(s.terminated_at, s.current_period_start::timestamp)
-                                           AT TIME ZONE 'UTC', now()))",
+                                           AT TIME ZONE 'UTC', $6))",
     ),
     (
         "I13 rollover",
@@ -659,6 +660,7 @@ async fn violations_in_snapshot(conn: &mut PgConn, tenant: Uuid) -> Vec<Invarian
             .bind::<Array<diesel::sql_types::Uuid>, _>(&excess)
             .bind::<Array<diesel::sql_types::Uuid>, _>(&settlements)
             .bind::<Array<diesel::sql_types::Uuid>, _>(&give_back)
+            .bind::<diesel::sql_types::Timestamptz, _>(common_domain::clock::now())
             .load(conn)
             .await
             .unwrap_or_else(|error| panic!("invariant query `{name}` failed: {error:?}"));

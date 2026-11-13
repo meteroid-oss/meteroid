@@ -51,6 +51,7 @@ impl CreditUsageSettlementRow {
                 row,
                 s::give_back_source_id.eq(give_back),
                 s::ordinal.eq(ordinal),
+                s::created_at.eq(common_domain::clock::now()),
             ))
             .on_conflict((
                 s::account_id,
@@ -141,7 +142,7 @@ impl CreditUsageSettlementRow {
                 .filter(s::invoice_id.is_null())
                 .filter(s::returned_at.is_null()),
         )
-        .set(s::returned_at.eq(diesel::dsl::now))
+        .set(s::returned_at.eq(common_domain::clock::now().naive_utc()))
         .returning(Self::as_returning())
         .get_result(conn)
         .await

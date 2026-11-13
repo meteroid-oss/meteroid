@@ -15,7 +15,7 @@ use crate::services::Services;
 use crate::services::orchestration::payment_transaction_failed::hard_declined_on;
 use crate::store::PgConn;
 use crate::utils::errors::format_error_chain;
-use chrono::{Duration, NaiveDateTime, Utc};
+use chrono::{Duration, NaiveDateTime};
 use common_domain::ids::BaseId;
 use diesel_async::AsyncConnection;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
@@ -338,7 +338,7 @@ impl Services {
                 conn,
                 invoice_id,
                 event.tenant_id,
-                Some(Utc::now().naive_utc()),
+                Some(common_domain::clock::now().naive_utc()),
             )
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
@@ -496,7 +496,7 @@ impl Services {
                         event.tenant_id,
                         sub.subscription.customer_id,
                         event.subscription_id,
-                        Utc::now().naive_utc(),
+                        common_domain::clock::now().naive_utc(),
                     )
                     .await?;
             }
@@ -674,7 +674,7 @@ impl Services {
                     }
                     details
                 }),
-                created_at: chrono::Utc::now().naive_utc(),
+                created_at: common_domain::clock::now().naive_utc(),
                 mrr_delta: None, // MRR delta computed below
                 bi_mrr_movement_log_id: None,
                 applies_to: apply_date,
@@ -993,7 +993,7 @@ impl Services {
                 subscription_id: event.subscription_id,
                 event_type: SubscriptionEventType::Switch,
                 details: Some(serde_json::json!({ "kind": "amendment", "mode": "end_of_period" })),
-                created_at: chrono::Utc::now().naive_utc(),
+                created_at: common_domain::clock::now().naive_utc(),
                 mrr_delta: None,
                 bi_mrr_movement_log_id: None,
                 applies_to: apply_date,
@@ -1234,7 +1234,9 @@ fn calculate_retry_time(retries: i32) -> NaiveDateTime {
     };
 
     let jitter = rand::random::<u64>() % 60; // up to 1 min
-    Utc::now().naive_utc() + Duration::minutes(delay_minutes) + Duration::seconds(jitter as i64)
+    common_domain::clock::now().naive_utc()
+        + Duration::minutes(delay_minutes)
+        + Duration::seconds(jitter as i64)
 }
 
 /// Who applies a scheduled change: the lifecycle, or a preview that rolls it back. A preview logs

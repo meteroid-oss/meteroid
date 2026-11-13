@@ -2023,7 +2023,7 @@ impl WebhookOutEventTypeEnum {
 #[cfg(test)]
 mod wallet_payload_tests {
     use super::*;
-    use chrono::Utc;
+
     use common_domain::ids::{TenantId, WalletId};
     use meteroid_store::domain::credit::GrantScope;
     use meteroid_store::domain::wallet_events::{
@@ -2040,7 +2040,7 @@ mod wallet_payload_tests {
             None,
             Some("rev".to_owned()),
             actor,
-            Utc::now(),
+            common_domain::clock::now(),
         );
         serde_json::to_value(WebhookOutAutoTopUpConsentChangedEventData::from(event)).unwrap()
             ["actor"]
@@ -2050,7 +2050,7 @@ mod wallet_payload_tests {
     #[test]
     fn a_consent_change_names_the_api_key_that_attested_it() {
         let key = uuid::Uuid::now_v7();
-        let at = Utc::now();
+        let at = common_domain::clock::now();
         let event = WalletAutoTopUpConsentChangedEvent::new(
             TenantId::new(),
             CustomerId::new(),

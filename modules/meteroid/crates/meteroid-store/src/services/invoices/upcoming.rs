@@ -33,7 +33,7 @@ pub fn upcoming_invoice_details(details: &SubscriptionDetails) -> (SubscriptionD
     let invoice_date = details
         .subscription
         .current_period_end
-        .unwrap_or_else(|| chrono::Utc::now().date_naive());
+        .unwrap_or_else(|| common_domain::clock::now().date_naive());
     (next, invoice_date)
 }
 

@@ -30,7 +30,7 @@ use crate::services::{InvoiceBillingMode, ServicesEdge};
 use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
 use chrono::Datelike;
-use chrono::{NaiveDate, Utc};
+use chrono::NaiveDate;
 use common_domain::ids::{
     AppliedCouponId, BaseId, CheckoutSessionId, CreditNoteId, CustomerConnectionId, CustomerId,
     CustomerPaymentMethodId, InvoiceId, PlanVersionId, SubscriptionId, TenantId,
@@ -461,7 +461,7 @@ impl ServicesEdge {
                         None,
                         crate::services::DefaultMethodAdoption::Paid {
                             on_session: true,
-                            started_at: chrono::Utc::now(),
+                            started_at: common_domain::clock::now(),
                         },
                         Some(checkout_session_id),
                     )
@@ -521,7 +521,7 @@ impl ServicesEdge {
                         payment: transaction.id,
                         at: transaction
                             .processed_at
-                            .map_or_else(Utc::now, |at| at.and_utc()),
+                            .map_or_else(common_domain::clock::now, |at| at.and_utc()),
                     }),
                     crate::domain::wallet_events::CreditUnrecoveredCause::PaymentReversed,
                     None,
@@ -2791,7 +2791,7 @@ impl ServicesEdge {
                     tenant_id,
                     checkout_session_id,
                     subscription_id,
-                    Utc::now(),
+                    common_domain::clock::now(),
                 )
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
@@ -2981,7 +2981,7 @@ impl ServicesEdge {
 
             let start_date = session
                 .billing_start_date
-                .unwrap_or_else(|| Utc::now().date_naive());
+                .unwrap_or_else(|| common_domain::clock::now().date_naive());
 
             let create_subscription = session.to_create_subscription(start_date, coupon_ids)?;
 
@@ -3151,7 +3151,7 @@ impl ServicesEdge {
                 tenant_id,
                 checkout_session_id,
                 created_subscription.id,
-                Utc::now(),
+                common_domain::clock::now(),
             )
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
@@ -3341,7 +3341,7 @@ impl ServicesEdge {
         };
         use crate::repositories::checkout_sessions::CheckoutSessionsInterface;
 
-        let today = Utc::now().date_naive();
+        let today = common_domain::clock::now().date_naive();
 
         let session = CreateCheckoutSession {
             tenant_id,
@@ -3438,7 +3438,7 @@ impl ServicesEdge {
 
             let addon_effective_from = session
                 .change_date
-                .unwrap_or_else(|| chrono::Utc::now().naive_utc().date());
+                .unwrap_or_else(|| common_domain::clock::now().naive_utc().date());
 
             resolve_and_insert_checkout_addons(
                 conn,
@@ -3482,7 +3482,7 @@ impl ServicesEdge {
                     &prices_by_id,
                     &units,
                     // Interactive: priced today, like the checkout preview.
-                    Utc::now().date_naive(),
+                    common_domain::clock::now().date_naive(),
                 )
                 .await?;
 
@@ -3540,7 +3540,7 @@ impl ServicesEdge {
                     tenant_id,
                     checkout_session_id,
                     subscription_id,
-                    Utc::now(),
+                    common_domain::clock::now(),
                 )
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
@@ -3606,7 +3606,7 @@ impl ServicesEdge {
                     tenant_id,
                     checkout_session_id,
                     subscription_id,
-                    Utc::now(),
+                    common_domain::clock::now(),
                 )
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
@@ -3749,7 +3749,7 @@ impl ServicesEdge {
                     tenant_id,
                     checkout_session_id,
                     subscription_id,
-                    Utc::now(),
+                    common_domain::clock::now(),
                 )
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
@@ -3917,7 +3917,7 @@ impl ServicesEdge {
                     tenant_id,
                     checkout_session_id,
                     subscription_id,
-                    Utc::now(),
+                    common_domain::clock::now(),
                 )
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
@@ -3972,7 +3972,7 @@ impl ServicesEdge {
                     tenant_id,
                     checkout_session_id,
                     subscription_id,
-                    Utc::now(),
+                    common_domain::clock::now(),
                 )
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
@@ -4043,7 +4043,7 @@ impl ServicesEdge {
                     None,
                     crate::services::DefaultMethodAdoption::Paid {
                             on_session: true,
-                            started_at: chrono::Utc::now(),
+                            started_at: common_domain::clock::now(),
                         },
                     Some(checkout_session_id),
                 )
@@ -4062,7 +4062,7 @@ impl ServicesEdge {
                 tenant_id,
                 checkout_session_id,
                 subscription_id,
-                Utc::now(),
+                common_domain::clock::now(),
             )
             .await
             .map_err(Into::<Report<StoreError>>::into)?;

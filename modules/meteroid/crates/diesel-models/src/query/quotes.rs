@@ -269,7 +269,7 @@ impl QuoteRow {
             .set((
                 pdf_document_id.eq(Some(pdf_id)),
                 sharing_key.eq(Some(param_sharing_key)),
-                updated_at.eq(chrono::Utc::now().naive_utc()),
+                updated_at.eq(common_domain::clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -296,7 +296,7 @@ impl QuoteRow {
         };
         use diesel_async::RunQueryDsl;
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
 
         // Only update if not already converted (converted_to_subscription_id IS NULL)
         let query = diesel::update(quote)
@@ -352,7 +352,7 @@ impl QuoteRow {
         use crate::schema::quote::dsl::{id, purchase_order, quote, status, tenant_id, updated_at};
         use diesel_async::RunQueryDsl;
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
 
         let query = diesel::update(quote)
             .filter(id.eq(param_quote_id))

@@ -299,7 +299,7 @@ impl RevenueStats for PgRevenueStats {
         let tables = self
             .fx_tables(rows.iter().map(|r| r.date), reporting_currency)
             .await?;
-        let year = chrono::Utc::now().date_naive().year();
+        let year = common_domain::clock::now().date_naive().year();
         let mut totals: HashMap<Uuid, (i64, i64)> = HashMap::new();
         for row in rows
             .iter()

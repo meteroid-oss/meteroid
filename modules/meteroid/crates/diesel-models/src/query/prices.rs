@@ -182,7 +182,7 @@ impl PriceRow {
         use crate::schema::price::dsl as p_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         let query = diesel::update(p_dsl::price)
             .filter(p_dsl::id.eq(id))
             .filter(p_dsl::tenant_id.eq(tenant_id))

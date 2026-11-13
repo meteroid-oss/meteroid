@@ -181,7 +181,7 @@ impl InstanceTelemetryService {
     }
 
     pub async fn build(&self, identity: &InstanceTelemetry) -> StoreResult<InstanceReport> {
-        let now = Utc::now();
+        let now = common_domain::clock::wall();
         let usage = self.store.instance_usage(now.date_naive()).await?;
         Ok(build_report(ReportInputs {
             identity,
@@ -227,7 +227,7 @@ impl InstanceTelemetryService {
             log::info!("telemetry report (METEROID_TELEMETRY_DEBUG, not sent):\n{json}");
             return Ok(());
         }
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
         let due = match identity.last_sent_at {
             Some(last) => now - last >= REPORT_EVERY,
             None => now - identity.installed_at >= FIRST_REPORT_AFTER,

@@ -151,7 +151,7 @@ async fn apply_final_state(app_state: &AppState, connector: &Connector, intent_i
             NormalizedWebhookEvent {
                 provider_event_id: format!("return:{intent_id}"),
                 provider_event_type: "hosted_return.changed".to_string(),
-                occurred_at: chrono::Utc::now(),
+                occurred_at: common_domain::clock::now(),
                 kind: NormalizedEventKind::ResourceChanged {
                     resource_ref: intent_id.to_string(),
                 },

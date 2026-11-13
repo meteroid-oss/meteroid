@@ -395,7 +395,7 @@ impl SubscriptionNewEnriched<'_> {
             billing_start_date: Some(self.billing_start_date),
             end_date: sub.end_date,
             plan_version_id: sub.plan_version_id,
-            created_at: chrono::Utc::now().naive_utc(),
+            created_at: common_domain::clock::now().naive_utc(),
             net_terms: self.net_terms as i32,
             invoice_memo: sub.invoice_memo.clone(),
             invoice_threshold: sub.invoice_threshold,

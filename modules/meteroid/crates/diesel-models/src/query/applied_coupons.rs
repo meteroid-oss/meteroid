@@ -16,7 +16,10 @@ impl AppliedCouponRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<AppliedCouponRow> {
         use crate::schema::applied_coupon::dsl as ac;
 
-        let query = diesel::insert_into(ac::applied_coupon).values(self);
+        let query = diesel::insert_into(ac::applied_coupon).values((
+            self,
+            crate::schema::applied_coupon::created_at.eq(common_domain::clock::now().naive_utc()),
+        ));
 
         crate::debug_sql(&query);
 
@@ -51,7 +54,18 @@ impl AppliedCouponRow {
     ) -> DbResult<Vec<AppliedCouponRow>> {
         use crate::schema::applied_coupon::dsl as ac_dsl;
 
-        let query = diesel::insert_into(ac_dsl::applied_coupon).values(batch);
+        let query = diesel::insert_into(ac_dsl::applied_coupon).values(
+            batch
+                .iter()
+                .map(|row| {
+                    (
+                        *row,
+                        crate::schema::applied_coupon::created_at
+                            .eq(common_domain::clock::now().naive_utc()),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
 
         crate::debug_sql(&query);
 
@@ -91,7 +105,7 @@ impl AppliedCouponRow {
             fn coalesce_numeric(x: diesel::sql_types::Nullable<diesel::sql_types::Numeric>, y: diesel::sql_types::Numeric) -> diesel::sql_types::Numeric;
         }
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         let amount_delta = amount_delta.unwrap_or(Decimal::ZERO);
 
         if amount_delta > Decimal::ZERO {

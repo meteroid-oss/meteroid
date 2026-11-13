@@ -1117,7 +1117,7 @@ impl Services {
     async fn settle_missed_endings(&self, kind: SettlingEnding, page: i64) -> StoreResult<usize> {
         use diesel_models::subscription_events::SubscriptionEventRow;
         use scoped_futures::ScopedFutureExt;
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         let mut issued = 0;
         let mut after = None;
         loop {
@@ -1182,7 +1182,7 @@ impl Services {
                                     kind,
                                     due.subscription_id,
                                     due.applies_to,
-                                    Utc::now().naive_utc(),
+                                    common_domain::clock::now().naive_utc(),
                                     due.invoices_changed,
                                 )
                                 .await?;
@@ -1214,7 +1214,7 @@ impl Services {
                             kind,
                             due.subscription_id,
                             due.applies_to,
-                            Utc::now().naive_utc(),
+                            common_domain::clock::now().naive_utc(),
                             false,
                         )
                         .await?;
@@ -1439,7 +1439,7 @@ impl Services {
             ..
         } = *scope;
         let at = ending.settle_at;
-        let now = Utc::now();
+        let now = common_domain::clock::now();
 
         // Usage is read before the grant locks; under the customer lock every caller holds, it is
         // served by a pass that ran before it (`transaction_reading_usage_first`).
@@ -1628,7 +1628,7 @@ impl Services {
                 &*self.store.hooks.credit,
                 tenant,
                 &touched,
-                Utc::now(),
+                common_domain::clock::now(),
             )
             .await?;
         }
@@ -1848,7 +1848,7 @@ impl Services {
                 &*self.store.hooks.credit,
                 tenant_id,
                 &touched,
-                Utc::now(),
+                common_domain::clock::now(),
             )
             .await?;
         }
@@ -1928,9 +1928,12 @@ impl Services {
     /// should the note's own event have been missed; returns how many notes were looked at.
     pub async fn credit_back_forgiven_late_packs_due(&self, limit: i64) -> StoreResult<usize> {
         let mut conn = self.store.get_conn().await?;
-        let notes =
-            CustomerCreditGrantRow::list_forgiven_purchase_notes(&mut conn, Utc::now(), limit)
-                .await?;
+        let notes = CustomerCreditGrantRow::list_forgiven_purchase_notes(
+            &mut conn,
+            common_domain::clock::now(),
+            limit,
+        )
+        .await?;
         drop(conn);
         for (tenant_id, credit_note_id) in &notes {
             if let Err(error) = self
@@ -2017,7 +2020,7 @@ mod tests {
             remaining,
             priority: 100,
             classification: classification.to_owned(),
-            effective_at: Utc::now(),
+            effective_at: common_domain::clock::now(),
             expires_at: None,
             source_kind: source::CREDIT_PURCHASE.to_owned(),
             source_id: uuid::Uuid::now_v7(),
@@ -2027,7 +2030,7 @@ mod tests {
             reason: "Credit purchased on a paid invoice".to_owned(),
             reference: None,
             created_by: None,
-            created_at: Utc::now(),
+            created_at: common_domain::clock::now(),
             cost_minor: cost,
             cost_currency: None,
             rollover: None,

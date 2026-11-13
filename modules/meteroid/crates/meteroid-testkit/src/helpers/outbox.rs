@@ -19,9 +19,9 @@ pub async fn publish_entitlement_limit_reached(conn: &mut PgConn, tenant_id: Ten
             threshold_pct: 100,
             used: rust_decimal::Decimal::from(1_000),
             limit: rust_decimal::Decimal::from(1_000),
-            window_start: chrono::Utc::now().naive_utc(),
+            window_start: common_domain::clock::now().naive_utc(),
             window_end: None,
-            as_of: chrono::Utc::now(),
+            as_of: common_domain::clock::now(),
         },
     )));
     let routing_key = event.routing_key();

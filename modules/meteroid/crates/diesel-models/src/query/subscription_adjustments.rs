@@ -86,7 +86,11 @@ impl SubscriptionAdjustmentRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<SubscriptionAdjustmentRow> {
         use crate::schema::subscription_adjustment::dsl as m_dsl;
 
-        let query = diesel::insert_into(m_dsl::subscription_adjustment).values(self);
+        let query = diesel::insert_into(m_dsl::subscription_adjustment).values((
+            self,
+            crate::schema::subscription_adjustment::created_at
+                .eq(common_domain::clock::now().naive_utc()),
+        ));
 
         crate::debug_sql(&query);
 
@@ -107,7 +111,18 @@ impl SubscriptionAdjustmentRowNew {
             return Ok(());
         }
 
-        let query = diesel::insert_into(m_dsl::subscription_adjustment).values(batch);
+        let query = diesel::insert_into(m_dsl::subscription_adjustment).values(
+            batch
+                .iter()
+                .map(|row| {
+                    (
+                        row,
+                        crate::schema::subscription_adjustment::created_at
+                            .eq(common_domain::clock::now().naive_utc()),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
 
         crate::debug_sql(&query);
 

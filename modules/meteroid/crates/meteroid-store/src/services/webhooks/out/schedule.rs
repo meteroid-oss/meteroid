@@ -93,7 +93,7 @@ mod tests {
         now - Duration::hours(hours_ago)
     }
 
-    fn now() -> NaiveDateTime {
+    fn fixed_now() -> NaiveDateTime {
         NaiveDate::from_ymd_opt(2026, 9, 20)
             .unwrap()
             .and_hms_opt(12, 0, 0)
@@ -144,7 +144,7 @@ mod tests {
 
     #[test]
     fn next_attempt_at_offsets_from_now() {
-        let now = now();
+        let now = fixed_now();
         assert_eq!(
             next_attempt_at(now, 2, 0.0).unwrap(),
             now + Duration::seconds(RETRY_DELAYS_SECS[1])
@@ -164,7 +164,7 @@ mod tests {
     fn health(consecutive_failures: i32, failing_hours: Option<i64>) -> EndpointHealth {
         EndpointHealth {
             consecutive_failures,
-            failing_since: failing_hours.map(|h| at(h, now())),
+            failing_since: failing_hours.map(|h| at(h, fixed_now())),
             unreachable_streak: 0,
         }
     }
@@ -173,21 +173,29 @@ mod tests {
     fn auto_disable_needs_twenty_consecutive_failures() {
         assert!(!should_auto_disable(
             &health(AUTO_DISABLE_CONSECUTIVE_FAILURES - 1, Some(1000)),
-            now(),
+            fixed_now(),
             120
         ));
         assert!(should_auto_disable(
             &health(AUTO_DISABLE_CONSECUTIVE_FAILURES, Some(1000)),
-            now(),
+            fixed_now(),
             120
         ));
     }
 
     #[test]
     fn the_window_counts_from_the_first_failure_of_the_streak() {
-        assert!(!should_auto_disable(&health(50, Some(119)), now(), 120));
-        assert!(should_auto_disable(&health(50, Some(121)), now(), 120));
-        assert!(!should_auto_disable(&health(50, None), now(), 120));
+        assert!(!should_auto_disable(
+            &health(50, Some(119)),
+            fixed_now(),
+            120
+        ));
+        assert!(should_auto_disable(
+            &health(50, Some(121)),
+            fixed_now(),
+            120
+        ));
+        assert!(!should_auto_disable(&health(50, None), fixed_now(), 120));
     }
 
     #[test]

@@ -883,7 +883,8 @@ impl PaymentTransactionInterface for Store {
                             .await?;
                     }
                     if failed > 0 {
-                        let moved = PaymentMovement::refund(parent.id, failed, chrono::Utc::now());
+                        let moved =
+                            PaymentMovement::refund(parent.id, failed, common_domain::clock::now());
                         crate::services::credit::collected_payment::follow_collected_payment_tx(
                             conn,
                             &*self.hooks.credit,
@@ -1065,7 +1066,7 @@ async fn restore_after_failed_refund_tx(
     let lock = InvoiceRow::select_for_update_by_id(conn, parent.tenant_id, invoice_id)
         .await?
         .lock;
-    let moved = PaymentMovement::refund(parent.id, failed_minor, chrono::Utc::now());
+    let moved = PaymentMovement::refund(parent.id, failed_minor, common_domain::clock::now());
     crate::services::credit::reconcile_purchased_credit_tx(
         conn,
         controls,
@@ -1113,7 +1114,7 @@ async fn patch_refund_row(
         } => PaymentTransactionRowPatch {
             id: refund.id,
             status: Some(DbStatus::Failed),
-            processed_at: Some(Some(chrono::Utc::now().naive_utc())),
+            processed_at: Some(Some(common_domain::clock::now().naive_utc())),
             provider_transaction_id: external_refund_id.clone().map(Some),
             error_type: Some(Some(error.clone())),
             ..Default::default()

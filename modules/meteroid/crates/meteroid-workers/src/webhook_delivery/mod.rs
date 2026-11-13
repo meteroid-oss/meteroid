@@ -4,7 +4,6 @@ pub mod outcome;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
 use common_logging::GLOBAL_METER;
 use egress_http::{EgressClient, EgressError};
 use meteroid_store::Store;
@@ -195,7 +194,7 @@ async fn run_retention(store: Arc<Store>, retention_days: i64) {
 }
 
 async fn purge_expired_messages(store: &Store, retention_days: i64) {
-    let cutoff = Utc::now().naive_utc() - chrono::Duration::days(retention_days);
+    let cutoff = common_domain::clock::wall().naive_utc() - chrono::Duration::days(retention_days);
     match store
         .purge_webhook_messages_older_than(cutoff, PURGE_CHUNK_SIZE)
         .await
@@ -329,7 +328,7 @@ async fn attempt_webhook_delivery(
                 failing_since: endpoint.endpoint.failing_since,
                 unreachable_streak: endpoint.endpoint.unreachable_streak,
             },
-            now: Utc::now().naive_utc(),
+            now: common_domain::clock::wall().naive_utc(),
             jitter,
             auto_disable_after_hours: DEFAULT_AUTO_DISABLE_AFTER_HOURS,
         },
@@ -373,8 +372,8 @@ async fn defer_for_egress(
     );
 
     let delay = EGRESS_RETRY_DELAY.mul_f64(1.0 + random_jitter(&mut rand::rng()));
-    let next_attempt_at =
-        Utc::now().naive_utc() + chrono::Duration::from_std(delay).unwrap_or_default();
+    let next_attempt_at = common_domain::clock::wall().naive_utc()
+        + chrono::Duration::from_std(delay).unwrap_or_default();
 
     if let Err(e) = store
         .defer_webhook_delivery(

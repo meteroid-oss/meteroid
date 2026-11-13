@@ -10,6 +10,8 @@ description = "Pure billing computations: no database, no clock, no network."
 [dependencies]
 chrono = { workspace = true }
 rust_decimal = { workspace = true }
+sha2 = { workspace = true }
+uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
 
 [dev-dependencies]

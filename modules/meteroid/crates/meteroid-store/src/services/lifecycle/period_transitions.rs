@@ -169,7 +169,7 @@ impl Services {
                 // A change dated inside the period (in retry backoff, or waiting on metering) applies
                 // first: renewed before it, the next period would be billed and never credited.
                 if let Some(next_attempt) = unapplied_change_of_period(conn, &subscription).await? {
-                    let now = Utc::now().naive_utc();
+                    let now = common_domain::clock::now().naive_utc();
                     let retry_at = next_attempt.filter(|at| *at > now).unwrap_or(now)
                         + Duration::minutes(1);
                     log::warn!(
@@ -282,7 +282,7 @@ impl Services {
                                 .churn_ended_subscription(
                                     conn,
                                     &subscription,
-                                    chrono::Utc::now().naive_utc().date(),
+                                    common_domain::clock::now().naive_utc().date(),
                                 )
                                 .await?;
                         }
@@ -336,7 +336,7 @@ impl Services {
         issued_at: DateTime<Utc>,
         delivery: InvoiceDelivery,
     ) -> StoreResult<Option<DetailedInvoice>> {
-        if issued_at > Utc::now() {
+        if issued_at > common_domain::clock::now() {
             return Err(Report::new(StoreError::InvalidArgument(
                 "a subscription period cannot be billed at a future moment".to_owned(),
             )));
@@ -615,7 +615,7 @@ impl Services {
                 &*self.store.hooks.credit,
                 subscription,
                 patch,
-                settle_at.unwrap_or_else(Utc::now),
+                settle_at.unwrap_or_else(common_domain::clock::now),
             )
             .await?;
 
@@ -656,7 +656,7 @@ impl Services {
                     subscription.tenant_id,
                     subscription.id,
                     completed_on.and_time(chrono::NaiveTime::MIN).and_utc(),
-                    Utc::now(),
+                    common_domain::clock::now(),
                 )
                 .await?;
             }
@@ -719,7 +719,7 @@ impl Services {
         if let Some(trial_duration) = subscription.trial_duration {
             let new_period_start = subscription
                 .current_period_end
-                .unwrap_or_else(|| Utc::now().naive_utc().date());
+                .unwrap_or_else(|| common_domain::clock::now().naive_utc().date());
             let trial_is_free = PlanRow::get_with_version(
                 conn,
                 subscription.plan_version_id,
@@ -793,7 +793,7 @@ impl Services {
             // Free plan: transition to Active with no billing
             let new_period_start = subscription
                 .current_period_end
-                .unwrap_or_else(|| Utc::now().naive_utc().date());
+                .unwrap_or_else(|| common_domain::clock::now().naive_utc().date());
 
             let period = calculate_advance_period_range(
                 new_period_start,
@@ -834,7 +834,7 @@ impl Services {
 
                 let new_period_start = subscription
                     .current_period_end
-                    .unwrap_or_else(|| Utc::now().naive_utc().date());
+                    .unwrap_or_else(|| common_domain::clock::now().naive_utc().date());
 
                 let period = calculate_advance_period_range(
                     new_period_start,
@@ -863,7 +863,7 @@ impl Services {
         // Calculate new period
         let new_period_start = subscription
             .current_period_end // cannot be null in this context
-            .unwrap_or_else(|| Utc::now().naive_utc().date());
+            .unwrap_or_else(|| common_domain::clock::now().naive_utc().date());
 
         let period = calculate_advance_period_range(
             new_period_start,
@@ -885,7 +885,7 @@ impl Services {
     fn end_subscription(&self, subscription: &SubscriptionRow) -> StoreResult<NextCycle> {
         let new_period_start = subscription
             .current_period_end // cannot be null in this context
-            .unwrap_or_else(|| Utc::now().naive_utc().date());
+            .unwrap_or_else(|| common_domain::clock::now().naive_utc().date());
 
         Ok(NextCycle {
             status: SubscriptionStatusEnum::Completed,
@@ -924,7 +924,7 @@ struct NextCycle {
 fn busy_customer_retry_time() -> NaiveDateTime {
     use rand::RngExt;
     let seconds = rand::rng().random_range(BUSY_CUSTOMER_RETRY_SECONDS);
-    Utc::now().naive_utc() + Duration::seconds(seconds)
+    common_domain::clock::now().naive_utc() + Duration::seconds(seconds)
 }
 
 const UNAPPLIED_CHANGE: &str = "a change dated in the current period has not applied yet";
@@ -965,5 +965,7 @@ fn calculate_retry_time(error_count: i32) -> NaiveDateTime {
     };
 
     let jitter = rand::random::<u64>() % 60; // up to 1 min
-    Utc::now().naive_utc() + Duration::minutes(delay_minutes) + Duration::seconds(jitter as i64)
+    common_domain::clock::now().naive_utc()
+        + Duration::minutes(delay_minutes)
+        + Duration::seconds(jitter as i64)
 }

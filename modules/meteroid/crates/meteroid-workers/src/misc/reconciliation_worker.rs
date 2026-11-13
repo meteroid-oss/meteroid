@@ -121,7 +121,7 @@ async fn sweep(
     // with millions of historical rows. Fresh-Pending transactions whose
     // webhook is still in flight are excluded, so the worker doesn't burn
     // provider rate limit polling them.
-    let now = chrono::Utc::now();
+    let now = common_domain::clock::now();
     let threshold = now - chrono::Duration::from_std(PENDING_AGE_THRESHOLD).unwrap();
 
     let rows = services

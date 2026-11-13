@@ -320,7 +320,7 @@ pub mod invoices {
                 invoice.id.as_uuid(),
                 invoice.tenant_id,
                 &jwt_secret,
-                (chrono::Utc::now() + chrono::Duration::days(7)).timestamp() as usize,
+                (common_domain::clock::wall() + chrono::Duration::days(7)).timestamp() as usize,
             )?;
             Some(encoded)
         } else {

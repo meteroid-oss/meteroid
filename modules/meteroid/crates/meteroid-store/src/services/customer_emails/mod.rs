@@ -21,7 +21,7 @@ use crate::services::customer_locale::{customer_default_locale, customer_locale_
 use crate::services::payment_reminders::sweep::reminder_send_guard;
 use crate::services::{Services, ServicesEdge};
 use crate::{Store, StoreResult};
-use chrono::{NaiveDate, Utc};
+use chrono::NaiveDate;
 use common_domain::ids::{
     BaseId, BudgetId, CustomerId, InvoiceId, PaymentReminderSequenceId, StoredDocumentId,
     SubscriptionId, TenantId,
@@ -810,7 +810,7 @@ impl Services {
                         }
                     }
                 };
-                let today = Utc::now()
+                let today = common_domain::clock::now()
                     .with_timezone(&settings.send_window().tz)
                     .date_naive();
                 let summary = invoice_summary(invoice, invoice.amount_due, None);
@@ -1159,7 +1159,7 @@ impl Services {
         whitelabel: bool,
         test_mode: bool,
     ) -> StoreResult<EmailRenderInput> {
-        let today = Utc::now().date_naive();
+        let today = common_domain::clock::now().date_naive();
         let due = today + chrono::Days::new(entity.net_terms.max(0) as u64);
         let number = "INV-2026-0042".to_string();
         let currency = entity.accounting_currency.clone();

@@ -222,7 +222,7 @@ impl CredentialOps for MollieConnector {
                 livemode: api_key.starts_with("live_"),
                 key_hint: Some(crate::adapters::payment::account::mask_secret(api_key)),
                 methods: mollie_methods(&methods),
-                checked_at: chrono::Utc::now().naive_utc(),
+                checked_at: common_domain::clock::now().naive_utc(),
             },
         })
     }
@@ -768,7 +768,7 @@ fn refund_outcome(refund: &MollieRefund) -> Result<RefundOutcome, Report<Connect
         RemoteRefundStatus::Succeeded => RefundOutcome::Succeeded(RefundReceipt {
             external_refund_id: refund.id.clone(),
             amount_refunded_minor: parse_amount(&refund.amount, &refund.id)?,
-            processed_at: Utc::now().naive_utc(),
+            processed_at: common_domain::clock::now().naive_utc(),
             provider_request_id: None,
         }),
         RemoteRefundStatus::Pending => RefundOutcome::Pending(RefundAcknowledged {
@@ -894,7 +894,7 @@ impl WebhookOps for MollieConnector {
         Ok(vec![NormalizedWebhookEvent {
             provider_event_id: format!("ping:{payment_id}"),
             provider_event_type: "payment.changed".to_string(),
-            occurred_at: Utc::now(),
+            occurred_at: common_domain::clock::now(),
             kind: NormalizedEventKind::ResourceChanged {
                 resource_ref: payment_id,
             },
@@ -979,7 +979,7 @@ fn mandate_detached_event(payment: &MolliePayment, mandate_id: &str) -> Normaliz
     NormalizedWebhookEvent {
         provider_event_id: format!("{}:mandate-invalid", payment.id),
         provider_event_type: "mandate.invalid".to_string(),
-        occurred_at: Utc::now(),
+        occurred_at: common_domain::clock::now(),
         kind: NormalizedEventKind::PaymentMethodDetached(
             super::events::PaymentMethodDetachedEvent {
                 external_payment_method_id: mandate_id.to_string(),
@@ -1327,7 +1327,7 @@ fn processed_at(payment: &MolliePayment) -> NaiveDateTime {
         .as_deref()
         .and_then(parse_datetime)
         .map(|dt| dt.naive_utc())
-        .unwrap_or_else(|| Utc::now().naive_utc())
+        .unwrap_or_else(|| common_domain::clock::now().naive_utc())
 }
 
 fn payment_to_outcome(payment: &MolliePayment) -> Result<ChargeOutcome, Report<ConnectorError>> {
@@ -1393,7 +1393,7 @@ fn acknowledged(payment_id: &str, reason: &'static str) -> NormalizedWebhookEven
     NormalizedWebhookEvent {
         provider_event_id: format!("{payment_id}:acknowledged"),
         provider_event_type: "payment.changed".to_string(),
-        occurred_at: Utc::now(),
+        occurred_at: common_domain::clock::now(),
         kind: NormalizedEventKind::Acknowledged { reason },
         owner_tenant_id: None,
     }
@@ -1426,7 +1426,7 @@ fn events_for_payment(
     let at = |raw: &Option<String>| {
         raw.as_deref()
             .and_then(parse_datetime)
-            .unwrap_or_else(Utc::now)
+            .unwrap_or_else(common_domain::clock::now)
     };
 
     let mut events = Vec::new();
@@ -1443,7 +1443,7 @@ fn events_for_payment(
             SetupState::Pending | SetupState::Failed if is_setup_only => {
                 events.push(event(
                     "setup",
-                    Utc::now(),
+                    common_domain::clock::now(),
                     NormalizedEventKind::Acknowledged {
                         reason: "mollie setup payment not completed",
                     },
@@ -1500,7 +1500,7 @@ fn events_for_payment(
         PaymentStatus::Failed => at(&payment.failed_at),
         PaymentStatus::Expired => at(&payment.expired_at),
         PaymentStatus::Canceled => at(&payment.canceled_at),
-        _ => Utc::now(),
+        _ => common_domain::clock::now(),
     };
     events.push(event("state", state_at, state));
 
@@ -1526,7 +1526,7 @@ fn events_for_payment(
     if refunded > 0 || !on_wire.is_empty() {
         reversals.push(event(
             "refunded",
-            Utc::now(),
+            common_domain::clock::now(),
             NormalizedEventKind::PaymentRefunded(PaymentRefundedEvent {
                 external_transaction_id: payment.id.clone(),
                 external_refund_id: format!("{}:refunds", payment.id),

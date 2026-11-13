@@ -460,7 +460,7 @@ mod tests {
 
         let mut connector = Connector {
             id: ConnectorId::new(),
-            created_at: chrono::Utc::now().naive_utc(),
+            created_at: common_domain::clock::now().naive_utc(),
             tenant_id: TenantId::new(),
             alias: "mollie eu".to_string(),
             config: ConnectorConfig::Payment(PaymentConnectorConfig::draft(

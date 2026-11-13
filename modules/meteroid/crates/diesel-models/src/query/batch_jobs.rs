@@ -1,4 +1,4 @@
-use chrono::{NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
@@ -206,7 +206,7 @@ impl BatchJobRow {
             batch_job, id, locked_at, status, total_items, updated_at,
         };
 
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
         let query = diesel::update(batch_job)
             .filter(id.eq(job_id))
             .filter(status.eq(BatchJobStatusEnum::Chunking))
@@ -234,7 +234,7 @@ impl BatchJobRow {
         job_id: BatchJobId,
         final_status: BatchJobStatusEnum,
     ) -> DbResult<usize> {
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
         let status_sql = match final_status {
             BatchJobStatusEnum::Completed => "COMPLETED",
             BatchJobStatusEnum::CompletedWithErrors => "COMPLETED_WITH_ERRORS",
@@ -281,7 +281,7 @@ impl BatchJobRow {
     ) -> DbResult<usize> {
         use crate::schema::batch_job::dsl;
 
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
         let query = diesel::update(dsl::batch_job)
             .filter(dsl::id.eq(job_id))
             .filter(dsl::error_output_key.is_null())
@@ -303,7 +303,7 @@ impl BatchJobRow {
     ) -> DbResult<usize> {
         use crate::schema::batch_job::dsl;
 
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
         let query = diesel::update(dsl::batch_job)
             .filter(dsl::id.eq(job_id))
             .filter(dsl::output_key.is_null())
@@ -326,7 +326,7 @@ impl BatchJobRow {
             batch_job, completed_at, error_message, id, locked_at, status, updated_at,
         };
 
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
         let query = diesel::update(batch_job)
             .filter(id.eq(job_id))
             .filter(
@@ -363,7 +363,7 @@ impl BatchJobRow {
             batch_job, completed_at, id, locked_at, status, tenant_id, updated_at,
         };
 
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
         let query = diesel::update(batch_job)
             .filter(id.eq(job_id))
             .filter(tenant_id.eq(tenant_id_param))
@@ -400,7 +400,7 @@ impl BatchJobRow {
             batch_job, completed_at, error_output_key, id, status, tenant_id, updated_at,
         };
 
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
         let query = diesel::update(batch_job)
             .filter(id.eq(job_id))
             .filter(tenant_id.eq(tenant_id_param))
@@ -428,7 +428,7 @@ impl BatchJobRow {
     /// Find PROCESSING jobs where all chunks are in terminal state and the job
     /// has been stale for at least 1 minute (avoids racing with normal finalization).
     pub async fn find_stalled_processing_jobs(conn: &mut PgConn) -> DbResult<Vec<BatchJobId>> {
-        let threshold = Utc::now().naive_utc() - chrono::Duration::minutes(1);
+        let threshold = common_domain::clock::wall().naive_utc() - chrono::Duration::minutes(1);
 
         let raw_sql = r#"
             SELECT j.id FROM batch_job j
@@ -463,7 +463,7 @@ impl BatchJobRow {
         conn: &mut PgConn,
         max_age: chrono::Duration,
     ) -> DbResult<Vec<BatchJobId>> {
-        let threshold = Utc::now().naive_utc() - max_age;
+        let threshold = common_domain::clock::wall().naive_utc() - max_age;
 
         // Skip all PENDING chunks for timed-out jobs
         let skip_sql = r#"
@@ -518,7 +518,7 @@ impl BatchJobRow {
     pub async fn reset_stuck_chunking_jobs(conn: &mut PgConn) -> DbResult<usize> {
         use crate::schema::batch_job::dsl::{batch_job, locked_at, status, updated_at};
 
-        let threshold = Utc::now().naive_utc() - chrono::Duration::minutes(5);
+        let threshold = common_domain::clock::wall().naive_utc() - chrono::Duration::minutes(5);
 
         let query = diesel::update(batch_job)
             .filter(status.eq(BatchJobStatusEnum::Chunking))
@@ -526,7 +526,7 @@ impl BatchJobRow {
             .set((
                 status.eq(BatchJobStatusEnum::Pending),
                 locked_at.eq(None::<chrono::NaiveDateTime>),
-                updated_at.eq(Utc::now().naive_utc()),
+                updated_at.eq(common_domain::clock::wall().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -820,7 +820,7 @@ impl BatchJobChunkRow {
             batch_job_chunk, job_id, locked_at, retry_count, status, tenant_id, updated_at,
         };
 
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
         let query = diesel::update(batch_job_chunk)
             .filter(job_id.eq(job_id_param))
             .filter(tenant_id.eq(tenant_id_param))
@@ -845,7 +845,7 @@ impl BatchJobChunkRow {
     /// Single atomic UPDATE: retryable chunks go to PENDING, exhausted chunks go to FAILED.
     /// Appends appropriate events (ERRORED+RETRYING for retryable, ERRORED+EXHAUSTED for exhausted).
     pub async fn reset_stuck_chunks(conn: &mut PgConn) -> DbResult<usize> {
-        let threshold = Utc::now().naive_utc() - chrono::Duration::minutes(5);
+        let threshold = common_domain::clock::wall().naive_utc() - chrono::Duration::minutes(5);
 
         let raw_sql = r#"
             UPDATE batch_job_chunk

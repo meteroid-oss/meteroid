@@ -10,7 +10,6 @@ use crate::repositories::SubscriptionInterface;
 use crate::services::Services;
 use crate::services::subscriptions::plan_change::calculate_components_mrr_with_slots;
 use crate::store::PgConn;
-use chrono::Utc;
 use common_domain::ids::{SubscriptionId, TenantId};
 use diesel_models::enums::SubscriptionEventType;
 use diesel_models::subscription_adjustments::{
@@ -152,7 +151,7 @@ impl Services {
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
     ) -> StoreResult<()> {
-        let today = Utc::now().date_naive();
+        let today = common_domain::clock::now().date_naive();
         let mut details = self
             .store
             .get_subscription_details_with_conn(conn, tenant_id, subscription_id)

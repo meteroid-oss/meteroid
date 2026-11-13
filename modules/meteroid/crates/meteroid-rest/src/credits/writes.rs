@@ -250,7 +250,7 @@ pub async fn create_top_up(
     }
     if request
         .expires_at
-        .is_some_and(|at| at <= chrono::Utc::now().into())
+        .is_some_and(|at| at <= common_domain::clock::now().into())
     {
         return Err(invalid("expires_at must be in the future"));
     }

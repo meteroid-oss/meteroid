@@ -611,7 +611,7 @@ impl BatchJobProcessor for SubscriptionCsvProcessor {
             return Ok(());
         }
 
-        let now = chrono::Utc::now().date_naive();
+        let now = common_domain::clock::now().date_naive();
         let from = now.checked_sub_days(chrono::Days::new(366)).unwrap_or(now);
 
         self.analytics

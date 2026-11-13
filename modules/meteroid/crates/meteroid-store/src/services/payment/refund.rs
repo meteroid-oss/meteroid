@@ -362,7 +362,7 @@ impl Services {
             .capabilities()
             .refund_replay_window
             .and_then(|window| chrono::Duration::from_std(window).ok())
-            .is_some_and(|window| chrono::Utc::now() - row.created_at < window);
+            .is_some_and(|window| common_domain::clock::now() - row.created_at < window);
         if !replayable {
             log::warn!(
                 "Refund {refund_id} was never confirmed and can no longer be replayed safely at \

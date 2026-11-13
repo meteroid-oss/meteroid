@@ -118,7 +118,15 @@ pub(super) async fn take_back_returned_credit_tx(
             "a credit note that took credit back cannot be voided; issue credit to the customer instead",
         ));
     }
-    credit::redraw_note_returns_tx(conn, controls, lock, note.id, &movements, Utc::now()).await?;
+    credit::redraw_note_returns_tx(
+        conn,
+        controls,
+        lock,
+        note.id,
+        &movements,
+        common_domain::clock::now(),
+    )
+    .await?;
     let returned = movements
         .iter()
         .filter(|entry| entry.kind == LedgerEntryKind::Fund.as_db_str())
@@ -137,7 +145,7 @@ pub(super) async fn take_back_returned_credit_tx(
             grant.id,
             grant.amount,
             note.id,
-            Utc::now(),
+            common_domain::clock::now(),
         )
         .await?;
     }
@@ -184,7 +192,7 @@ async fn take_back_retired_balance_credit_tx(
         grant.id,
         note.credited_amount_cents,
         note.id,
-        Utc::now(),
+        common_domain::clock::now(),
     )
     .await
 }
@@ -241,7 +249,7 @@ async fn return_credit_tx(
                 note.id,
                 GrantPool::Paid,
                 &request,
-                Utc::now(),
+                common_domain::clock::now(),
             )
             .await?;
             line_allocation::record_line_allocation_tx(
@@ -269,7 +277,7 @@ async fn return_credit_tx(
         return Ok(());
     }
     let cost = CreditCost::at_face(amount, &currency);
-    let now = Utc::now();
+    let now = common_domain::clock::now();
     let credited_at = credit_at.map_or(now, |at| at.min(now));
     credit::fund_tx(
         conn,
@@ -335,7 +343,7 @@ async fn return_promotional_credit_tx(
         note.id,
         GrantPool::Promotional,
         &request,
-        Utc::now(),
+        common_domain::clock::now(),
     )
     .await?;
     if given_back > 0 {
@@ -479,7 +487,7 @@ async fn reverse_purchased_credit_tx(
             grant.id,
             reversed,
             note.id,
-            Utc::now(),
+            common_domain::clock::now(),
         )
         .await?;
     }
@@ -502,7 +510,7 @@ async fn purchased_credit_reversals_tx(
     } else {
         HashMap::new()
     };
-    let now = Utc::now();
+    let now = common_domain::clock::now();
     let mut reversals = Vec::new();
     for PurchaseLine { grant, bonus } in lines {
         let Some(line_id) = grant.line_local_id.clone() else {
@@ -617,7 +625,16 @@ pub(crate) async fn reverse_missed_refund_credit_tx(
             amount.min(grant.remaining.max(0))
         };
         if take > 0 {
-            credit::reverse_tx(conn, controls, lock, grant.id, take, note.id, Utc::now()).await?;
+            credit::reverse_tx(
+                conn,
+                controls,
+                lock,
+                grant.id,
+                take,
+                note.id,
+                common_domain::clock::now(),
+            )
+            .await?;
         }
         let unrecovered = (amount - recorded - take).max(0);
         match wallets
@@ -804,10 +821,10 @@ pub(crate) async fn restore_invoice_credit_tx(
             amount_minor: amount,
             classification: GrantClassification::Paid,
             priority: credit::DEFAULT_PRIORITY,
-            effective_at: Utc::now(),
+            effective_at: common_domain::clock::now(),
             expires_at: None,
-            occurred_at: Utc::now(),
-            now: Utc::now(),
+            occurred_at: common_domain::clock::now(),
+            now: common_domain::clock::now(),
             source_kind: source::INVOICE_VOID_RESTORE,
             source_id: invoice.id.as_uuid(),
             cost: Some(CreditCost::at_face(amount, currency)),

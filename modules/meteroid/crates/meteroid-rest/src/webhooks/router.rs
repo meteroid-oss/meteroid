@@ -87,7 +87,7 @@ async fn handler(
     req: Request<Body>,
     app_state: AppState,
 ) -> Result<Response, Report<errors::AdapterWebhookError>> {
-    let received_at = chrono::Utc::now().naive_utc();
+    let received_at = common_domain::clock::now().naive_utc();
     let tenant_id = connector.tenant_id;
 
     // Disabled connectors keep receiving: payments already in flight must still settle.

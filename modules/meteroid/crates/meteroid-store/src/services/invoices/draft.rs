@@ -13,7 +13,7 @@ use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::services::Services;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use crate::store::PgConn;
-use chrono::{NaiveDate, NaiveTime, Utc};
+use chrono::{NaiveDate, NaiveTime};
 use common_domain::ids::{
     BaseId, InvoiceId, PriceId, ProductId, SubscriptionAddOnId, SubscriptionId, TenantId,
 };
@@ -424,7 +424,7 @@ impl Services {
                 buyer_reference: customer.buyer_reference.clone(),
                 email: customer.billing_email.clone(),
                 alias: customer.alias.clone(),
-                snapshot_at: chrono::Utc::now().naive_utc(),
+                snapshot_at: common_domain::clock::now().naive_utc(),
                 preferred_locales: customer.preferred_locales.clone(),
             },
             seller_details: InlineInvoicingEntity {
@@ -432,7 +432,7 @@ impl Services {
                 legal_name: invoicing_entity.legal_name.clone(),
                 vat_number: invoicing_entity.vat_number.clone(),
                 address: invoicing_entity.address(),
-                snapshot_at: chrono::Utc::now().naive_utc(),
+                snapshot_at: common_domain::clock::now().naive_utc(),
                 invoicing_language: invoicing_entity.invoicing_language.clone(),
                 legal_number: invoicing_entity.legal_number.clone(),
                 contact_name: invoicing_entity.contact_name.clone(),
@@ -553,7 +553,7 @@ impl Services {
             })
             .collect();
 
-        let invoice_date = Utc::now().date_naive();
+        let invoice_date = common_domain::clock::now().date_naive();
         let due_date = (invoice_date + chrono::Duration::days(i64::from(parent.net_terms)))
             .and_time(NaiveTime::MIN);
 
@@ -721,7 +721,7 @@ impl Services {
             invoice_id: None,
             subscription_id: Some(subscription.id),
             periods: Vec::new(),
-            at: chrono::Utc::now(),
+            at: common_domain::clock::now(),
             book: None,
         };
         self.take_promotional_estimate(conn, &scope, &mut invoice_lines)
@@ -747,30 +747,20 @@ impl Services {
             .await?;
         let (invoice_lines, tax_breakdown) = (taxed.lines, taxed.breakdown);
 
-        let subtotal: i64 = invoice_lines.iter().map(|l| l.amount_subtotal).sum();
-        let tax_amount: i64 = invoice_lines.iter().map(|l| l.tax_amount).sum();
-        let promotional_credits = crate::services::credit::promotional::net_total(&invoice_lines)?;
-        let total = subtotal - promotional_credits + tax_amount;
-
+        let totals = crate::services::invoice_lines::invoice_lines::totals_of(&invoice_lines, 0);
         let applied_credits = self
-            .preview_credit_for_lines(conn, &scope, &invoice_lines, total, 0)
+            .preview_credit_for_lines(conn, &scope, &invoice_lines, totals.total, 0)
             .await?;
-        let amount_due = std::cmp::max(0, total - applied_credits);
 
         Ok(AdjustmentInvoiceContent {
-            computed: ComputedInvoiceContent {
+            computed: ComputedInvoiceContent::of(
                 invoice_lines,
-                subtotal,
-                applied_coupons: vec![],
-                discount: 0,
+                totals,
+                vec![],
                 tax_breakdown,
+                0,
                 applied_credits,
-                promotional_credits,
-                total,
-                tax_amount,
-                amount_due,
-                subtotal_recurring: 0,
-            },
+            ),
             invoicing_entity: Some(invoicing_entity),
         })
     }
@@ -949,7 +939,7 @@ impl Services {
                     name: resolved.name,
                     period: resolved.period,
                     fee: resolved.fee,
-                    created_at: Utc::now().naive_utc(),
+                    created_at: common_domain::clock::now().naive_utc(),
                     product_id: resolved.product_id,
                     price_id: resolved.price_id,
                     quantity: cs_ao.quantity,

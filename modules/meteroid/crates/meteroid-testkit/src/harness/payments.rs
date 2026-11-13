@@ -347,7 +347,7 @@ pub fn mock_connector() -> Connector {
         credentials: CredentialState::Unverified,
         webhook_route: None,
         id: ids::MOCK_CONNECTOR_ID,
-        created_at: chrono::Utc::now().naive_utc(),
+        created_at: common_domain::clock::now().naive_utc(),
         tenant_id: ids::TENANT_ID,
         alias: "mock-payment-provider".to_string(),
         config: ConnectorConfig::Payment(PaymentConnectorConfig::configured(

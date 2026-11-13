@@ -21,7 +21,6 @@ use crate::errors::StoreError;
 use crate::repositories::TenantInterface;
 use crate::repositories::oauth::OauthInterface;
 use crate::{Store, StoreResult};
-use chrono::Utc;
 use common_domain::ids::{BaseId, ConnectorId, InvoicingEntityId, TenantId};
 use diesel_models::connectors::{ConnectorRow, ConnectorRowNew, ConnectorRowPatch};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
@@ -708,7 +707,7 @@ impl ConnectorsInterface for Store {
                     sensitive: None,
                     account: None,
                     alias: Some(alias.clone()),
-                    updated_at: Some(Utc::now().naive_utc()),
+                    updated_at: Some(common_domain::clock::now().naive_utc()),
                 }
                 .patch(conn, tenant_id)
                 .await
@@ -852,7 +851,7 @@ impl ConnectorsInterface for Store {
             sensitive: None,
             account: None,
             data: Some(Some(ProviderData::Hubspot(data).try_into()?)),
-            updated_at: Some(Utc::now().naive_utc()),
+            updated_at: Some(common_domain::clock::now().naive_utc()),
         };
 
         let row = patch
@@ -886,10 +885,9 @@ impl ConnectorsInterface for Store {
                 sensitive: Some(sensitive),
             } = connector.config
         {
-            let is_expired = sensitive
-                .expires_at
-                .as_ref()
-                .is_some_and(|exp| exp <= &(Utc::now() + chrono::Duration::minutes(30)));
+            let is_expired = sensitive.expires_at.as_ref().is_some_and(|exp| {
+                exp <= &(common_domain::clock::now() + chrono::Duration::minutes(30))
+            });
 
             let auth_token = if is_expired {
                 let tokens = self
@@ -917,7 +915,7 @@ impl ConnectorsInterface for Store {
                     data: None,
                     account: None,
                     sensitive: Some(Some(new_sensitive)),
-                    updated_at: Some(Utc::now().naive_utc()),
+                    updated_at: Some(common_domain::clock::now().naive_utc()),
                 };
 
                 let mut conn = self.get_conn().await?;
@@ -1075,7 +1073,7 @@ impl Store {
             data: Some(data),
             sensitive: Some(sensitive),
             account: Some(Some(account_json)),
-            updated_at: Some(Utc::now().naive_utc()),
+            updated_at: Some(common_domain::clock::now().naive_utc()),
         };
         let id = existing.id;
         let key = self.settings.crypt_key.clone();
@@ -1287,7 +1285,7 @@ impl Store {
             data: Some(Some(data)),
             sensitive: None,
             account: None,
-            updated_at: Some(Utc::now().naive_utc()),
+            updated_at: Some(common_domain::clock::now().naive_utc()),
         }
         .patch(&mut conn, connector.tenant_id)
         .await
@@ -1520,7 +1518,9 @@ async fn connect_pennylane(
             sensitive: Some(PennylaneSensitiveData {
                 refresh_token,
                 access_token: tokens.access_token,
-                expires_at: tokens.expires_in.map(|duration| Utc::now() + duration),
+                expires_at: tokens
+                    .expires_in
+                    .map(|duration| common_domain::clock::now() + duration),
             }),
         },
         status: ConnectorStatusEnum::Active,

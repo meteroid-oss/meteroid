@@ -72,7 +72,7 @@ impl ProofOfWork {
     pub fn create_challenge(&self, scope: &str) -> Challenge {
         use rand::RngExt;
         let salt_bytes: [u8; SALT_HEX_LENGTH / 2] = rand::random();
-        let expires = Utc::now().timestamp() + CHALLENGE_TTL_SECS;
+        let expires = common_domain::clock::wall().timestamp() + CHALLENGE_TTL_SECS;
         let salt = format!("{}?expires={expires}", hex::encode(salt_bytes));
         let number = rand::rng().random_range(0..=MAX_NUMBER);
         let challenge = hash(&salt, number);
@@ -113,7 +113,7 @@ impl ProofOfWork {
             return Err(PowError::Invalid);
         }
 
-        let now = Utc::now().timestamp();
+        let now = common_domain::clock::wall().timestamp();
         if expires < now {
             return Err(PowError::Expired);
         }
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn splicing_digits_into_the_salt_is_refused() {
         let pow = pow();
-        let expires = Utc::now().timestamp() + 300;
+        let expires = common_domain::clock::wall().timestamp() + 300;
         let salt = format!("{}?expires={expires}", "a".repeat(SALT_HEX_LENGTH));
         let genuine = signed(&pow, &salt, 12_345);
         assert!(pow.verify(&encode(&genuine), SCOPE).is_ok());
@@ -253,12 +253,18 @@ mod tests {
     fn expiry_must_be_close_and_in_the_future() {
         let pow = pow();
         let random = "b".repeat(SALT_HEX_LENGTH);
-        let past = format!("{random}?expires={}", Utc::now().timestamp() - 1);
+        let past = format!(
+            "{random}?expires={}",
+            common_domain::clock::wall().timestamp() - 1
+        );
         assert_eq!(
             pow.verify(&encode(&signed(&pow, &past, 7)), SCOPE),
             Err(PowError::Expired)
         );
-        let far = format!("{random}?expires={}", Utc::now().timestamp() + 86_400);
+        let far = format!(
+            "{random}?expires={}",
+            common_domain::clock::wall().timestamp() + 86_400
+        );
         assert_eq!(
             pow.verify(&encode(&signed(&pow, &far, 7)), SCOPE),
             Err(PowError::Invalid)
@@ -266,13 +272,16 @@ mod tests {
         let upper = format!(
             "{}?expires={}",
             "B".repeat(SALT_HEX_LENGTH),
-            Utc::now().timestamp() + 60
+            common_domain::clock::wall().timestamp() + 60
         );
         assert_eq!(
             pow.verify(&encode(&signed(&pow, &upper, 7)), SCOPE),
             Err(PowError::Invalid)
         );
-        let over = format!("{random}?expires={}", Utc::now().timestamp() + 60);
+        let over = format!(
+            "{random}?expires={}",
+            common_domain::clock::wall().timestamp() + 60
+        );
         assert_eq!(
             pow.verify(&encode(&signed(&pow, &over, MAX_NUMBER + 1)), SCOPE),
             Err(PowError::Invalid)

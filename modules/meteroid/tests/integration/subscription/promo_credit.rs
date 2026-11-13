@@ -683,8 +683,8 @@ async fn a_code_applied_by_two_settled_checkouts_funds_credit_once(#[future] tes
     for sub_id in [first, second] {
         diesel_async::RunQueryDsl::execute(
             diesel::sql_query(
-                "INSERT INTO applied_coupon (id, coupon_id, customer_id, subscription_id, is_active)
-                 VALUES ($1, $2, $3, $4, true)",
+                "INSERT INTO applied_coupon (id, coupon_id, customer_id, subscription_id, is_active, created_at)
+                 VALUES ($1, $2, $3, $4, true, now())",
             )
             .bind::<diesel::sql_types::Uuid, _>(uuid::Uuid::now_v7())
             .bind::<diesel::sql_types::Uuid, _>(coupon_id)
@@ -766,8 +766,8 @@ async fn concurrent_settlements_respect_the_redemption_limit(#[future] test_env:
                         diesel_async::RunQueryDsl::execute(
                             diesel::sql_query(
                                 "INSERT INTO applied_coupon
-                                   (id, coupon_id, customer_id, subscription_id, is_active)
-                                 VALUES ($1, $2, $3, $4, true)",
+                                   (id, coupon_id, customer_id, subscription_id, is_active, created_at)
+                                 VALUES ($1, $2, $3, $4, true, now())",
                             )
                             .bind::<diesel::sql_types::Uuid, _>(uuid::Uuid::now_v7())
                             .bind::<diesel::sql_types::Uuid, _>(coupon_id)

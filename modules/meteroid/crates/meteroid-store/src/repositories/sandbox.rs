@@ -172,7 +172,7 @@ impl SandboxInterface for Store {
                     status: PaymentStatusEnum::Failed,
                     payment_type: PaymentTypeEnum::Payment,
                     error_type: Some("card_declined".to_string()),
-                    processed_at: Some(chrono::Utc::now().naive_utc()),
+                    processed_at: Some(common_domain::clock::now().naive_utc()),
                     checkout_session_id: None,
                     pending_plan_version_id: None,
                     next_action: None,

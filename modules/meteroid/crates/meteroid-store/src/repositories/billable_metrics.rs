@@ -365,7 +365,7 @@ impl BillableMetricInterface for Store {
                 .transpose()?,
             unit_singular,
             unit_plural,
-            updated_at: Some(chrono::Utc::now().naive_utc()),
+            updated_at: Some(common_domain::clock::now().naive_utc()),
         };
 
         self.transaction_bumping_tenant(tenant_id, |conn| {

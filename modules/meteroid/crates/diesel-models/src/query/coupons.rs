@@ -121,7 +121,7 @@ impl CouponRow {
 
         let is_expired = c_dsl::expires_at
             .is_not_null()
-            .and(c_dsl::expires_at.lt(chrono::Utc::now().naive_utc()));
+            .and(c_dsl::expires_at.lt(common_domain::clock::now().naive_utc()));
 
         let is_exhausted = c_dsl::redemption_limit
             .is_not_null()

@@ -338,7 +338,7 @@ pub fn wallet(
     period_start: Option<DateTime<Utc>>,
 ) -> Result<server::Wallet, Status> {
     let credit_unit = wallet.credit_unit.is_some();
-    let now = Utc::now();
+    let now = common_domain::clock::now();
     Ok(server::Wallet {
         id: wallet.id.as_proto(),
         customer_id: wallet.customer_id.as_proto(),

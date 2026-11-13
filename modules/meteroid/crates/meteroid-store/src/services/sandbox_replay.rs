@@ -169,7 +169,7 @@ impl SandboxReplayInterface for ServicesEdge {
     ) -> StoreResult<Coupon> {
         let tenant_id = coupon.tenant_id;
         ensure_sandbox(&self.store, tenant_id).await?;
-        if at > Utc::now() {
+        if at > common_domain::clock::now() {
             return Err(Report::new(StoreError::InvalidArgument(
                 "a coupon cannot be created at a future moment".to_owned(),
             )));

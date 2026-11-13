@@ -204,7 +204,7 @@ impl ConnectorRow {
         use crate::schema::connector::dsl as c_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         let query = diesel::update(c_dsl::connector)
             .filter(c_dsl::id.eq(id))
             .filter(c_dsl::tenant_id.eq(tenant_uid))
@@ -228,7 +228,7 @@ impl ConnectorRow {
         use crate::schema::connector::dsl as c_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         let query = diesel::update(c_dsl::connector)
             .filter(c_dsl::id.eq(id))
             .filter(c_dsl::tenant_id.eq(tenant_uid))
@@ -283,7 +283,9 @@ impl ConnectorRow {
         use crate::schema::connector::dsl as c_dsl;
         use diesel_async::RunQueryDsl;
 
-        let at = error.as_ref().map(|_| chrono::Utc::now().naive_utc());
+        let at = error
+            .as_ref()
+            .map(|_| common_domain::clock::now().naive_utc());
         let query = diesel::update(c_dsl::connector)
             .filter(c_dsl::id.eq(id))
             .filter(c_dsl::tenant_id.eq(tenant_uid))

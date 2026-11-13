@@ -249,7 +249,7 @@ impl Services {
         let charge = self.load_unsent_charge(&mut conn, &row).await;
         drop(conn);
 
-        let age = chrono::Utc::now() - row.created_at;
+        let age = common_domain::clock::now() - row.created_at;
         let charge = match charge {
             Ok(charge) => charge,
             Err(e) if age >= longest_charge_replay_window() => {
@@ -722,7 +722,7 @@ impl Services {
         at: DateTime<Utc>,
         delivery: InvoiceDelivery,
     ) -> StoreResult<PaymentTransaction> {
-        if at > Utc::now() {
+        if at > common_domain::clock::now() {
             return Err(Report::new(StoreError::InvalidArgument(
                 "an invoice cannot be charged at a future moment".to_owned(),
             )));

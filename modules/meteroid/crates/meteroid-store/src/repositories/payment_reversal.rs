@@ -19,7 +19,7 @@ use crate::repositories::payment_transactions::{
 use crate::services::credit::collected_payment::Collection;
 use crate::services::payment_reminders::sweep::ReopenedReminders;
 use crate::store::{PgConn, Store};
-use chrono::{NaiveDateTime, SubsecRound, Utc};
+use chrono::{NaiveDateTime, SubsecRound};
 use common_domain::ids::PaymentTransactionId;
 use diesel_models::enums::{InvoicePaymentStatus, PaymentStatusEnum as DbStatus};
 use diesel_models::invoices::InvoiceRow;
@@ -494,7 +494,7 @@ impl Store {
             amount: applied,
             excess: -applied,
         };
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         let Some(moved) = record_movement_tx(
             conn,
             &lock,
@@ -623,7 +623,7 @@ impl Store {
                     was_paid,
                     true,
                     ReopenedReminders::after_reversal(Some(kind)),
-                    Utc::now().naive_utc(),
+                    common_domain::clock::now().naive_utc(),
                 )
                 .await?;
         }
@@ -659,7 +659,7 @@ async fn record_movement_tx(
     provider_ref: Option<String>,
     at: NaiveDateTime,
 ) -> StoreResult<Option<PaymentMovement>> {
-    let occurred_at = at.min(Utc::now().naive_utc());
+    let occurred_at = at.min(common_domain::clock::now().naive_utc());
     let row = PaymentReversalMovementRowNew {
         id: Uuid::now_v7(),
         tenant_id: transaction.tenant_id,

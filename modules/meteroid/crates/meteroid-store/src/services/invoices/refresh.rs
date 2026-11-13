@@ -127,7 +127,7 @@ impl Services {
         // A draft's estimate draws what the drafts finalizing before it leave.
         let earlier = match cover {
             CreditUnitCover::Estimate { .. } => {
-                self.books_before_draft(conn, invoice, chrono::Utc::now())
+                self.books_before_draft(conn, invoice, common_domain::clock::now())
                     .await?
             }
             CreditUnitCover::Draw { .. } | CreditUnitCover::DrawAsShown { .. } => None,
@@ -283,7 +283,7 @@ impl Services {
             let already_paid =
                 (invoice.total - invoice.amount_due - invoice.applied_credits).max(0);
             let at = match cover {
-                CreditUnitCover::Estimate { .. } => chrono::Utc::now(),
+                CreditUnitCover::Estimate { .. } => common_domain::clock::now(),
                 CreditUnitCover::Draw { at, .. } | CreditUnitCover::DrawAsShown { at, .. } => at.at,
             };
             self.estimate_stored_credit(conn, invoice, already_paid, at, book)

@@ -313,7 +313,7 @@ impl Services {
             .billing_start_date
             .unwrap_or(sub.subscription.start_date);
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
 
         // Validate: end_date must not be before start_date
         if let Some(end_date) = sub.subscription.end_date
@@ -831,7 +831,7 @@ impl Services {
             subscription_id: subscription.id,
             event_type: SubscriptionEventType::Created.into(),
             details: None,
-            created_at: chrono::Utc::now().naive_utc(),
+            created_at: common_domain::clock::now().naive_utc(),
             mrr_delta: Some(final_mrr),
             bi_mrr_movement_log_id: None,
             applies_to: subscription.start_date,

@@ -424,6 +424,7 @@ async fn renew_as_earlier_release(
     diesel::sql_query(
         "WITH kept AS (
              SELECT coalesce(jsonb_agg(li || jsonb_build_object(
+                        'local_id', gen_random_uuid()::text,
                         'start_date', $3::date, 'end_date', $4::date)), '[]'::jsonb) AS lines,
                     coalesce(sum(coalesce((li ->> 'amount_subtotal')::bigint,
                                           (li ->> 'subtotal')::bigint)), 0) AS subtotal,

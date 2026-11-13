@@ -388,7 +388,7 @@ impl EmailSender {
             None => None,
         };
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         match self
             .store
             .claim_email_send(tenant_id, &job.dedupe_key, now)

@@ -40,7 +40,7 @@ pub async fn run_credit_input_feed_worker(store: Arc<Store>, elector: Arc<dyn Le
     super::run_scheduled("credit input feed", schedule, elector, move || {
         let store = store.clone();
         async move {
-            let today = chrono::Utc::now().date_naive();
+            let today = common_domain::clock::now().date_naive();
             let outcome = store.maintain_credit_input_feed(today).await;
             PARTITIONS_AHEAD.record(outcome.days_ahead, &[]);
             if let Some(rows) = outcome.default_rows {

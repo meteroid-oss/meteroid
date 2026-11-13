@@ -96,8 +96,8 @@ impl CustomerPaymentMethodRow {
             .filter(cpm_dsl::tenant_id.eq(tenant_id_param))
             .filter(cpm_dsl::archived_at.is_null())
             .set((
-                cpm_dsl::archived_at.eq(diesel::dsl::now),
-                cpm_dsl::updated_at.eq(diesel::dsl::now),
+                cpm_dsl::archived_at.eq(common_domain::clock::now().naive_utc()),
+                cpm_dsl::updated_at.eq(common_domain::clock::now().naive_utc()),
             ));
         crate::debug_sql(&query);
 
@@ -260,13 +260,15 @@ impl CustomerPaymentMethodRow {
             cpm::card_last4.eq(last4),
             cpm::card_exp_month.eq(exp_month),
             cpm::card_exp_year.eq(exp_year),
-            cpm::updated_at.eq(diesel::dsl::now),
+            cpm::updated_at.eq(common_domain::clock::now().naive_utc()),
         );
 
         // Only a new number or expiry stamps the refresh; a brand-only change keeps the last one.
         let result = if refreshed {
-            let query = diesel::update(target)
-                .set((details, cpm::card_refreshed_at.eq(Some(chrono::Utc::now()))));
+            let query = diesel::update(target).set((
+                details,
+                cpm::card_refreshed_at.eq(Some(common_domain::clock::now())),
+            ));
             crate::debug_sql(&query);
             query.execute(conn).await
         } else {
@@ -300,7 +302,7 @@ impl CustomerPaymentMethodRow {
             .filter(cpm::tenant_id.eq(tenant_uid))
             .filter(cpm::id.eq(payment_method_id))
             .filter(not(exists(paid)))
-            .set(cpm::saved_for_payment_at.eq(diesel::dsl::now));
+            .set(cpm::saved_for_payment_at.eq(common_domain::clock::now().naive_utc()));
         crate::debug_sql(&query);
 
         query
@@ -360,7 +362,10 @@ impl CustomerPaymentMethodRowNew {
             .values(self)
             .on_conflict((cpm_dsl::connection_id, cpm_dsl::external_payment_method_id))
             .do_update()
-            .set((self, cpm_dsl::updated_at.eq(diesel::dsl::now)));
+            .set((
+                self,
+                cpm_dsl::updated_at.eq(common_domain::clock::now().naive_utc()),
+            ));
         crate::debug_sql(&query);
 
         query
@@ -389,7 +394,10 @@ impl CustomerPaymentMethodRowNew {
             ))
             .filter_target(cpm_dsl::archived_at.is_null())
             .do_update()
-            .set((self, cpm_dsl::updated_at.eq(diesel::dsl::now)));
+            .set((
+                self,
+                cpm_dsl::updated_at.eq(common_domain::clock::now().naive_utc()),
+            ));
         crate::debug_sql(&query);
 
         query

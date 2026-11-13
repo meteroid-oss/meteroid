@@ -1,6 +1,5 @@
 use crate::portal::quotes::PortalQuoteServiceComponents;
 use crate::portal::quotes::error::PortalQuoteApiError;
-use chrono::Utc;
 use common_domain::actor::Actor;
 use common_domain::ids::TenantId;
 use common_grpc::middleware::server::auth::RequestExt;
@@ -39,7 +38,7 @@ impl PortalQuoteService for PortalQuoteServiceComponents {
 
         // Check if quote is still valid
         if let Some(expires_at) = detailed_quote.quote.expires_at
-            && expires_at < Utc::now().naive_utc()
+            && expires_at < common_domain::clock::now().naive_utc()
         {
             return Err(PortalQuoteApiError::QuoteExpired.into());
         }
@@ -211,7 +210,7 @@ impl PortalQuoteService for PortalQuoteServiceComponents {
 
         // Check if quote has expired
         if let Some(expires_at) = quote.expires_at
-            && expires_at < Utc::now().naive_utc()
+            && expires_at < common_domain::clock::now().naive_utc()
         {
             return Err(PortalQuoteApiError::QuoteExpired.into());
         }

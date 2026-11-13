@@ -46,7 +46,7 @@ impl UserDeletionInterface for Store {
         user_id: UserId,
         request_context: SecurityRequestContext,
     ) -> StoreResult<DeletedUser> {
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
 
         let member_hooks = &*self.hooks.members;
         // The tenants it marks for deletion leave the evaluator's scope: bumped last.

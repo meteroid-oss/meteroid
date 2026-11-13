@@ -79,7 +79,7 @@ pub struct OrganizationInvite {
 
 impl OrganizationInvite {
     pub fn from_row_and_inviter(row: OrganizationInviteRow, inviter_email: String) -> Self {
-        let is_expired = row.expires_at < Utc::now();
+        let is_expired = row.expires_at < common_domain::clock::now();
         OrganizationInvite {
             id: row.id,
             organization_id: row.organization_id,

@@ -193,9 +193,9 @@ async fn usage_settled_at_a_bound_again_is_recorded_after_it_and_handed_to_its_i
     let rejected_zero = rejected(
         &setup,
         "INSERT INTO credit_usage_settlement (id, tenant_id, customer_id, account_id, subscription_id,
-            period_start, event_time_bound, amount, tax_minor, give_back_source_id)
+            period_start, event_time_bound, amount, tax_minor, give_back_source_id, created_at)
          SELECT gen_random_uuid(), tenant_id, customer_id, id, (SELECT id FROM subscription LIMIT 1),
-            '2026-08-01', now(), 0, 0, gen_random_uuid() FROM customer_credit_account WHERE id = $1",
+            '2026-08-01', now(), 0, 0, gen_random_uuid(), now() FROM customer_credit_account WHERE id = $1",
         account_id,
     )
     .await?;

@@ -21,7 +21,7 @@ pub async fn run_payment_reminder_sweeper(
 
 async fn run_once(services: &Arc<Services>) -> meteroid_store::StoreResult<()> {
     let stats = services
-        .run_payment_reminder_sweep(chrono::Utc::now().naive_utc())
+        .run_payment_reminder_sweep(common_domain::clock::now().naive_utc())
         .await?;
     if stats.did_work() {
         log::info!(

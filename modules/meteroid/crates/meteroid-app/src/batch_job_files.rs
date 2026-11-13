@@ -9,7 +9,7 @@ pub fn generate_input_file_token(
     tenant_id: common_domain::ids::TenantId,
     jwt_secret: &SecretString,
 ) -> Result<String, jsonwebtoken::errors::Error> {
-    let exp = (chrono::Utc::now() + chrono::Duration::days(7)).timestamp() as usize;
+    let exp = (common_domain::clock::wall() + chrono::Duration::days(7)).timestamp() as usize;
     let claims = ShareableEntityClaims {
         exp,
         sub: format!("input-{}", job_id),
@@ -28,7 +28,7 @@ pub fn generate_error_csv_token(
     tenant_id: common_domain::ids::TenantId,
     jwt_secret: &SecretString,
 ) -> Result<String, jsonwebtoken::errors::Error> {
-    let exp = (chrono::Utc::now() + chrono::Duration::days(7)).timestamp() as usize;
+    let exp = (common_domain::clock::wall() + chrono::Duration::days(7)).timestamp() as usize;
     let claims = ShareableEntityClaims {
         exp,
         sub: job_id.to_string(),
@@ -59,7 +59,7 @@ pub fn generate_output_token(
     tenant_id: common_domain::ids::TenantId,
     jwt_secret: &SecretString,
 ) -> Result<String, jsonwebtoken::errors::Error> {
-    let exp = (chrono::Utc::now() + chrono::Duration::days(7)).timestamp() as usize;
+    let exp = (common_domain::clock::wall() + chrono::Duration::days(7)).timestamp() as usize;
     let claims = ShareableEntityClaims {
         exp,
         sub: format!("output-{}", job_id),

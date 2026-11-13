@@ -18,7 +18,7 @@ diesel = { workspace = true, features = [
 ], optional = true }
 diesel-derive-newtype = { workspace = true, optional = true }
 utoipa = { workspace = true, optional = true }
-chrono = { workspace = true, features = ["alloc", "unstable-locales"] }
+chrono = { workspace = true, features = ["alloc", "clock", "unstable-locales"] }
 chrono-tz = { workspace = true }
 validator = { workspace = true, features = ["derive"] }
 sealed = { workspace = true }
@@ -33,4 +33,6 @@ serde_json = { workspace = true }
 diesel = ["dep:diesel", "dep:diesel-derive-newtype"]
 utoipa = ["dep:utoipa"]
 tonic = ["dep:tonic"]
+# Lets tests move `clock::now`; only the test harness enables it.
+test-clock = []
 default = []

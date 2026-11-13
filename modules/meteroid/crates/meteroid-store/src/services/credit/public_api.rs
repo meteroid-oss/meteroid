@@ -15,7 +15,6 @@ use crate::services::credit::purchase::{SellCustomerCredit, SoldCustomerCredit};
 use crate::services::credit::wallet_purchase::TopUpWalletReceipt;
 use crate::services::{Services, ServicesEdge};
 use crate::store::PgConn;
-use chrono::Utc;
 use common_domain::ids::{BaseId, CreditUnitId, CustomerId, TenantId, WalletId};
 use diesel_models::api_idempotency::{ApiIdempotencyKeyRow, ApiIdempotencyKeyRowNew};
 use diesel_models::connectors::ConnectorRow;
@@ -163,7 +162,7 @@ impl ServicesEdge {
     ) -> StoreResult<(Vec<CreditWalletSummary>, u64)> {
         let search = search.map(str::trim).filter(|term| !term.is_empty());
         let status = status.map(WalletStatus::as_db_str);
-        let now = Utc::now();
+        let now = common_domain::clock::now();
         let live = self.store.hooks.credit.available();
         let mut conn = self.store.get_conn().await?;
         let rows = CustomerCreditRosterRow::list(

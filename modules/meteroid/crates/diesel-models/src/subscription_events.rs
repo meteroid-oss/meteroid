@@ -115,7 +115,7 @@ impl SubscriptionEventRow {
             subscription_id,
             event_type: SubscriptionEventType::Ended,
             details: None,
-            created_at: chrono::Utc::now().naive_utc(),
+            created_at: common_domain::clock::now().naive_utc(),
             mrr_delta,
             bi_mrr_movement_log_id: None,
             applies_to,

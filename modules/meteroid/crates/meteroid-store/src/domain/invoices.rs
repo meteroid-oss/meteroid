@@ -6,7 +6,7 @@ use crate::domain::payment_transactions::PaymentTransaction;
 use crate::domain::{Address, CouponLineItem, Customer, InvoicingEntity, PlanVersionOverview};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::services::CustomerDetailsUpdate;
-use chrono::{NaiveDate, NaiveDateTime, Utc};
+use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
     BaseId, CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, StoredDocumentId,
     SubscriptionId, TenantId,
@@ -328,7 +328,7 @@ impl Invoice {
                 .filter(|at| at.date() == self.billing_period_start && self.created_at >= *at)
                 .map_or(opens, |at| at.max(opens));
             let issued_on = emission_anchor_from(
-                chrono::Utc::now().date_naive(),
+                common_domain::clock::now().date_naive(),
                 window_end,
                 auto_advance,
                 grace_period_hours,
@@ -646,7 +646,7 @@ impl From<Customer> for InlineCustomer {
             legal_number: value.legal_number.clone(),
             buyer_reference: value.buyer_reference.clone(),
             billing_address: value.billing_address.clone(),
-            snapshot_at: chrono::Utc::now().naive_utc(),
+            snapshot_at: common_domain::clock::now().naive_utc(),
             preferred_locales: value.preferred_locales.clone(),
         }
     }
@@ -685,7 +685,7 @@ impl From<InvoicingEntity> for InlineInvoicingEntity {
             legal_name: value.legal_name.clone(),
             vat_number: value.vat_number.clone(),
             address: value.address(),
-            snapshot_at: chrono::Utc::now().naive_utc(),
+            snapshot_at: common_domain::clock::now().naive_utc(),
             invoicing_language: value.invoicing_language.clone(),
             legal_number: value.legal_number.clone(),
             contact_name: value.contact_name.clone(),
@@ -760,7 +760,7 @@ impl From<InvoiceNew> for Invoice {
         Invoice {
             id: InvoiceId::new(),
             status: value.status,
-            created_at: Utc::now().naive_utc(),
+            created_at: common_domain::clock::now().naive_utc(),
             billing_period_start: value.billing_period_start,
             updated_at: None,
             tenant_id: value.tenant_id,

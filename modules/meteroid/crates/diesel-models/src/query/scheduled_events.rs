@@ -1,6 +1,6 @@
 //! Repository for scheduled events
 
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
@@ -272,7 +272,7 @@ impl ScheduledEventRow {
                       next_attempt_at
         "#;
 
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
 
         let query = diesel::sql_query(raw_sql)
             .bind::<sql_types::Timestamp, _>(now)
@@ -298,7 +298,7 @@ impl ScheduledEventRow {
             .filter(id.eq_any(event_id_param))
             .set((
                 status.eq(ScheduledEventStatus::Processing),
-                updated_at.eq(Utc::now().naive_utc()),
+                updated_at.eq(common_domain::clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -324,8 +324,8 @@ impl ScheduledEventRow {
             .filter(id.eq_any(event_id_param))
             .set((
                 status.eq(ScheduledEventStatus::Completed),
-                processed_at.eq(Some(Utc::now().naive_utc())),
-                updated_at.eq(Utc::now().naive_utc()),
+                processed_at.eq(Some(common_domain::clock::now().naive_utc())),
+                updated_at.eq(common_domain::clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -351,7 +351,7 @@ impl ScheduledEventRow {
             .set((
                 status.eq(ScheduledEventStatus::Failed),
                 error.eq(Some(error_message)),
-                updated_at.eq(Utc::now().naive_utc()),
+                updated_at.eq(common_domain::clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -371,7 +371,7 @@ impl ScheduledEventRow {
             error, last_retry_at, next_attempt_at, retries, scheduled_event, status, updated_at,
         };
 
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         let timeout_threshold = now.checked_sub_signed(chrono::Duration::minutes(5));
         if timeout_threshold.is_none() {
             return Ok(());
@@ -420,9 +420,9 @@ impl ScheduledEventRow {
                 status.eq(ScheduledEventStatus::Pending),
                 next_attempt_at.eq(Some(retry_time)),
                 retries.eq(retries + 1),
-                last_retry_at.eq(Some(Utc::now().naive_utc())),
+                last_retry_at.eq(Some(common_domain::clock::now().naive_utc())),
                 error.eq(Some(error_message)),
-                updated_at.eq(Utc::now().naive_utc()),
+                updated_at.eq(common_domain::clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -453,7 +453,7 @@ impl ScheduledEventRow {
                 status.eq(ScheduledEventStatus::Pending),
                 next_attempt_at.eq(Some(retry_time)),
                 error.eq(Some(error_message)),
-                updated_at.eq(Utc::now().naive_utc()),
+                updated_at.eq(common_domain::clock::now().naive_utc()),
             ))
             .execute(conn)
             .await
@@ -476,7 +476,7 @@ impl ScheduledEventRow {
             .set((
                 status.eq(ScheduledEventStatus::Canceled),
                 error.eq(Some(reason.to_string())),
-                updated_at.eq(Utc::now().naive_utc()),
+                updated_at.eq(common_domain::clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -515,7 +515,7 @@ impl ScheduledEventRow {
             .set((
                 status.eq(ScheduledEventStatus::Canceled),
                 error.eq(Some(reason.to_string())),
-                updated_at.eq(Utc::now().naive_utc()),
+                updated_at.eq(common_domain::clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -555,7 +555,7 @@ impl ScheduledEventRow {
             .set((
                 status.eq(ScheduledEventStatus::Canceled),
                 error.eq(Some(reason.to_string())),
-                updated_at.eq(Utc::now().naive_utc()),
+                updated_at.eq(common_domain::clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -575,7 +575,18 @@ impl ScheduledEventRowNew {
     ) -> DbResult<Vec<ScheduledEventRow>> {
         use crate::schema::scheduled_event::dsl::scheduled_event;
 
-        let query = diesel::insert_into(scheduled_event).values(events);
+        let query = diesel::insert_into(scheduled_event).values(
+            events
+                .iter()
+                .map(|row| {
+                    (
+                        row,
+                        crate::schema::scheduled_event::created_at
+                            .eq(common_domain::clock::now().naive_utc()),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
 
         crate::debug_sql(&query);
 

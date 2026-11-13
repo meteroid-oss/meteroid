@@ -46,7 +46,7 @@ impl ServicesEdge {
         self.store
             .transaction(|conn| {
                 async move {
-                    let now = Utc::now();
+                    let now = common_domain::clock::now();
                     lock_customer_attempts(conn, tenant_id, customer_id).await?;
                     let attempts = attempts_since(
                         conn,
@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn the_window_frees_a_try_when_its_oldest_counted_try_ages_out() {
-        let now = Utc::now();
+        let now = common_domain::clock::now();
         let tries = |ages_minutes: &[i64]| {
             ages_minutes
                 .iter()

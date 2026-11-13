@@ -158,7 +158,7 @@ impl CredentialOps for StancerConnector {
                     STANCER_CAPABILITIES.supported_payment_methods,
                     MethodState::Enabled,
                 ),
-                checked_at: chrono::Utc::now().naive_utc(),
+                checked_at: common_domain::clock::now().naive_utc(),
             },
         })
     }
@@ -829,7 +829,7 @@ fn payment_to_outcome(payment: StancerPayment, amount_minor: i64) -> ChargeOutco
             external_id: id,
             // No separate settled figure exists on the create response.
             amount_received_minor: amount_minor,
-            processed_at: chrono::Utc::now().naive_utc(),
+            processed_at: common_domain::clock::now().naive_utc(),
             provider_request_id: None,
         }),
         // `authorized` can still expire/cancel; `Unknown` is unmodeled — never
@@ -856,7 +856,7 @@ fn payment_to_outcome(payment: StancerPayment, amount_minor: i64) -> ChargeOutco
         Some(StancerPaymentStatus::Disputed) => ChargeOutcome::Succeeded(ChargeReceipt {
             external_id: id,
             amount_received_minor: amount_minor,
-            processed_at: chrono::Utc::now().naive_utc(),
+            processed_at: common_domain::clock::now().naive_utc(),
             provider_request_id: None,
         }),
         Some(
@@ -891,7 +891,7 @@ fn remote_status_from_payment(payment: StancerPayment) -> RemoteTransactionStatu
             RemoteTransactionStatus::Succeeded {
                 amount_received_minor: payment.amount,
                 currency: payment.currency,
-                processed_at: chrono::Utc::now().naive_utc(),
+                processed_at: common_domain::clock::now().naive_utc(),
             }
         }
         // Authorized by the bank: only the capture is left, nothing awaits the customer.
@@ -939,7 +939,7 @@ fn refund_outcome(refund: StancerRefund) -> RefundOutcome {
         RemoteRefundStatus::Succeeded => RefundOutcome::Succeeded(RefundReceipt {
             external_refund_id: refund.id,
             amount_refunded_minor: refund.amount,
-            processed_at: chrono::Utc::now().naive_utc(),
+            processed_at: common_domain::clock::now().naive_utc(),
             provider_request_id: None,
         }),
         RemoteRefundStatus::Pending => RefundOutcome::Pending(RefundAcknowledged {

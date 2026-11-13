@@ -879,7 +879,7 @@ impl InvoicesService for InvoiceServiceComponents {
                 payment_date: transaction
                     .processed_at
                     .as_proto()
-                    .unwrap_or_else(|| chrono::Utc::now().naive_utc().as_proto()),
+                    .unwrap_or_else(|| common_domain::clock::now().naive_utc().as_proto()),
             },
         ))
     }
@@ -940,7 +940,7 @@ impl InvoicesService for InvoiceServiceComponents {
             .parse_transaction_amount(tenant_id, transaction_id, &req.amount)
             .await?;
         let refund_date = chrono::NaiveDateTime::from_proto_opt(req.refund_date)?
-            .unwrap_or_else(|| chrono::Utc::now().naive_utc());
+            .unwrap_or_else(|| common_domain::clock::now().naive_utc());
 
         let refund = self
             .services
@@ -981,7 +981,7 @@ impl InvoicesService for InvoiceServiceComponents {
         let kind = mapping::transactions::reversal_kind_server_to_domain(req.kind)
             .ok_or_else(|| InvoiceApiError::InvalidArgument("unknown reversal kind".to_string()))?;
         let reversed_at = chrono::NaiveDateTime::from_proto_opt(req.reversed_at)?
-            .unwrap_or_else(|| chrono::Utc::now().naive_utc());
+            .unwrap_or_else(|| common_domain::clock::now().naive_utc());
 
         let reversed = self
             .services
@@ -1287,7 +1287,7 @@ async fn to_domain_invoice_new(
             id: customer_id,
             name: custom_details.name,
             billing_address,
-            snapshot_at: chrono::Utc::now().naive_utc(),
+            snapshot_at: common_domain::clock::now().naive_utc(),
             vat_number: custom_details.vat_number,
             legal_number: customer.legal_number.clone(),
             buyer_reference: customer.buyer_reference.clone(),
@@ -1453,7 +1453,7 @@ fn manual_payment_date(
     proto: Option<String>,
 ) -> Result<chrono::DateTime<chrono::FixedOffset>, Status> {
     let Some(value) = proto else {
-        return Ok(chrono::Utc::now().fixed_offset());
+        return Ok(common_domain::clock::now().fixed_offset());
     };
     chrono::DateTime::parse_from_rfc3339(&value)
         .or_else(|_| {

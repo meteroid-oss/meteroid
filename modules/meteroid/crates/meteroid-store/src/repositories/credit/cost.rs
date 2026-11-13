@@ -243,7 +243,6 @@ mod tests {
     }
 
     fn grant(amount: i64, remaining: i64, cost: Option<i64>) -> CustomerCreditGrantRow {
-        use chrono::Utc;
         use common_domain::ids::{BaseId, CreditGrantId, CustomerId, TenantId, WalletId};
         CustomerCreditGrantRow {
             id: CreditGrantId::new(),
@@ -254,7 +253,7 @@ mod tests {
             remaining,
             priority: 100,
             classification: "PROMOTIONAL".to_owned(),
-            effective_at: Utc::now(),
+            effective_at: common_domain::clock::now(),
             expires_at: None,
             source_kind: "INCLUDED_CREDIT".to_owned(),
             source_id: uuid::Uuid::nil(),
@@ -264,7 +263,7 @@ mod tests {
             reason: "included".to_owned(),
             reference: None,
             created_by: None,
-            created_at: Utc::now(),
+            created_at: common_domain::clock::now(),
             cost_minor: cost,
             cost_currency: cost.map(|_| "USD".to_owned()),
             rollover: None,

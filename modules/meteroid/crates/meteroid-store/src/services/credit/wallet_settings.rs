@@ -11,7 +11,6 @@ use crate::repositories::credit::CustomerCreditWalletsInterface;
 use crate::repositories::credit::customer_credit::lock_customer_tx;
 use crate::services::ServicesEdge;
 use crate::store::PgConn;
-use chrono::Utc;
 use common_domain::ids::{CustomerId, TenantId, WalletId};
 use diesel_models::customer_credit::CustomerCreditAccountRow;
 use diesel_models::customers::CustomerRow;
@@ -36,7 +35,7 @@ async fn apply_configure_credit_wallet_tx(
             }
         }
     }
-    let now = Utc::now();
+    let now = common_domain::clock::now();
     let lock = lock_customer_tx(conn, command.tenant_id, command.customer_id).await?;
     // Before the top-up's terms, so terms saved at the current price get the new one.
     let price_changed =

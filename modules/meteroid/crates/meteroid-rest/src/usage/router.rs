@@ -118,7 +118,8 @@ pub async fn get_unattributed_usage(
         .find_customer_by_id_or_alias(customer_id_or_alias, authorized_state.tenant_id)
         .await
         .map_err(RestApiError::from)?;
-    let (default_start, default_end) = unattributed_default_range(chrono::Utc::now().date_naive());
+    let (default_start, default_end) =
+        unattributed_default_range(common_domain::clock::now().date_naive());
     let period_start = query.start_date.unwrap_or(default_start);
     let period_end = query.end_date.unwrap_or(default_end);
 
@@ -226,7 +227,7 @@ pub async fn get_subscription_usage(
         details
             .subscription
             .current_period_end
-            .unwrap_or_else(|| chrono::Utc::now().date_naive() + chrono::Duration::days(1))
+            .unwrap_or_else(|| common_domain::clock::now().date_naive() + chrono::Duration::days(1))
     });
 
     // Filter subscription metrics by optional metric_id
@@ -405,7 +406,7 @@ async fn current_period_usage(
         end: details
             .subscription
             .current_period_end
-            .unwrap_or_else(|| chrono::Utc::now().date_naive() + chrono::Duration::days(1))
+            .unwrap_or_else(|| common_domain::clock::now().date_naive() + chrono::Duration::days(1))
             .and_time(chrono::NaiveTime::MIN),
     };
 

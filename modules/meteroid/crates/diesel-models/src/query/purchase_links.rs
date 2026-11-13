@@ -156,7 +156,7 @@ impl PurchaseLinkRow {
                 pl::require_billing_address.eq(update.require_billing_address),
                 pl::tax_id_collection.eq(update.tax_id_collection),
                 pl::only_buyer_type.eq(update.only_buyer_type),
-                pl::updated_at.eq(diesel::dsl::now),
+                pl::updated_at.eq(common_domain::clock::wall().naive_utc()),
             ))
             .returning(PurchaseLinkRow::as_returning())
             .get_result(conn)
@@ -178,7 +178,10 @@ impl PurchaseLinkRow {
             .filter(pl::id.eq(id))
             .filter(pl::tenant_id.eq(tenant_id))
             .filter(pl::archived_at.is_null())
-            .set((pl::token.eq(token), pl::updated_at.eq(diesel::dsl::now)))
+            .set((
+                pl::token.eq(token),
+                pl::updated_at.eq(common_domain::clock::wall().naive_utc()),
+            ))
             .returning(PurchaseLinkRow::as_returning())
             .get_result(conn)
             .await
@@ -200,8 +203,8 @@ impl PurchaseLinkRow {
             .filter(pl::tenant_id.eq(tenant_id))
             .filter(pl::archived_at.is_null())
             .set((
-                pl::archived_at.eq(diesel::dsl::now),
-                pl::updated_at.eq(diesel::dsl::now),
+                pl::archived_at.eq(common_domain::clock::wall().naive_utc()),
+                pl::updated_at.eq(common_domain::clock::wall().naive_utc()),
             ))
             .execute(conn)
             .await
@@ -280,11 +283,14 @@ impl PurchasePowSpentRowNew {
     pub async fn delete_expired(conn: &mut PgConn) -> DbResult<usize> {
         use crate::schema::purchase_pow_spent::dsl as ps;
 
-        diesel::delete(ps::purchase_pow_spent.filter(ps::expires_at.lt(diesel::dsl::now)))
-            .execute(conn)
-            .await
-            .attach("Error while purging spent proofs of work")
-            .into_db_result()
+        diesel::delete(
+            ps::purchase_pow_spent
+                .filter(ps::expires_at.lt(common_domain::clock::wall().naive_utc())),
+        )
+        .execute(conn)
+        .await
+        .attach("Error while purging spent proofs of work")
+        .into_db_result()
     }
 }
 
@@ -550,7 +556,7 @@ impl PurchaseLinkSessionRow {
         diesel::update(pls::purchase_link_session)
             .filter(pls::id.eq_any(ids))
             .filter(pls::cleaned_up_at.is_null())
-            .set(pls::cleaned_up_at.eq(diesel::dsl::now))
+            .set(pls::cleaned_up_at.eq(common_domain::clock::wall().naive_utc()))
             .execute(conn)
             .await
             .attach("Error while marking purchases cleaned up")

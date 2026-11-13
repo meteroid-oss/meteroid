@@ -240,7 +240,8 @@ impl TenantsService for TenantServiceComponents {
             },
             // Seeded before seeds were tracked.
             None => {
-                let seeding_grace = chrono::Utc::now().naive_utc() - chrono::Duration::minutes(3);
+                let seeding_grace =
+                    common_domain::clock::wall().naive_utc() - chrono::Duration::minutes(3);
                 (
                     pending > 0 || tenant.created_at > seeding_grace,
                     false,

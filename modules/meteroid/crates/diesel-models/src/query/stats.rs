@@ -17,17 +17,18 @@ impl NewSignupsTrend90DaysRow {
         WITH signup_counts AS (SELECT DATE(created_at) AS signup_date, COUNT(*) AS daily_signups
                        FROM customer
                        WHERE tenant_id = $1
-                         AND created_at >= CURRENT_DATE - INTERVAL '180 days'
+                         AND created_at >= $2::date - INTERVAL '180 days'
                        GROUP BY signup_date)
-        SELECT COALESCE(SUM(daily_signups) FILTER (WHERE signup_date > CURRENT_DATE - INTERVAL '90 days'),
+        SELECT COALESCE(SUM(daily_signups) FILTER (WHERE signup_date > $2::date - INTERVAL '90 days'),
                         0)::bigint  AS total_last_90_days,
-               COALESCE(SUM(daily_signups) FILTER (WHERE signup_date <= CURRENT_DATE - INTERVAL '90 days' AND
-                        signup_date > CURRENT_DATE - INTERVAL '180 days'), 0)::bigint  AS total_previous_90_days
+               COALESCE(SUM(daily_signups) FILTER (WHERE signup_date <= $2::date - INTERVAL '90 days' AND
+                        signup_date > $2::date - INTERVAL '180 days'), 0)::bigint  AS total_previous_90_days
         FROM signup_counts;
         ";
 
         diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)
+            .bind::<sql_types::Date, _>(common_domain::clock::now().date_naive())
             .get_result::<NewSignupsTrend90DaysRow>(conn)
             .await
             .attach("Error while fetching revenue trend")
@@ -72,7 +73,7 @@ impl DailyNewSignups90DaysRow {
                               COUNT(*)         AS daily_signups
                        FROM customer
                        WHERE tenant_id = $1
-                         AND created_at >= CURRENT_DATE - INTERVAL '90 days'
+                         AND created_at >= $2::date - INTERVAL '90 days'
                        GROUP BY signup_date)
         SELECT ds.date                                                                        as signup_date,
                COALESCE(d.daily_signups, 0)                                                   AS daily_signups,
@@ -84,6 +85,7 @@ impl DailyNewSignups90DaysRow {
 
         diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)
+            .bind::<sql_types::Date, _>(common_domain::clock::now().date_naive())
             .get_results::<DailyNewSignups90DaysRow>(conn)
             .await
             .attach("Error while fetching daily new signups 90 days")

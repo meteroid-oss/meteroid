@@ -362,7 +362,7 @@ impl Services {
             return Ok(vec![]);
         }
 
-        let now = Utc::now();
+        let now = common_domain::clock::now();
 
         let metric_ids: Vec<BillableMetricId> = resolved
             .iter()
@@ -741,7 +741,7 @@ mod tests {
 
     #[test]
     fn build_remaining_is_limit_minus_consumed() {
-        let period_start = Utc::now().naive_utc();
+        let period_start = common_domain::clock::now().naive_utc();
         let ent = build_metered_entitlement(meta(Some(100.0), period_start), Decimal::from(40));
         let EffectiveEntitlementValue::Metered { usage, .. } = ent.value else {
             panic!("expected Metered");
@@ -752,7 +752,7 @@ mod tests {
 
     #[test]
     fn build_remaining_clamped_at_zero_when_over_limit() {
-        let period_start = Utc::now().naive_utc();
+        let period_start = common_domain::clock::now().naive_utc();
         let ent = build_metered_entitlement(meta(Some(50.0), period_start), Decimal::from(80));
         let EffectiveEntitlementValue::Metered { usage, .. } = ent.value else {
             panic!("expected Metered");
@@ -762,7 +762,7 @@ mod tests {
 
     #[test]
     fn build_enabled_false_when_consumed_equals_limit() {
-        let period_start = Utc::now().naive_utc();
+        let period_start = common_domain::clock::now().naive_utc();
         let ent = build_metered_entitlement(meta(Some(100.0), period_start), Decimal::from(100));
         let EffectiveEntitlementValue::Metered { enabled, .. } = ent.value else {
             panic!("expected Metered");
@@ -772,7 +772,7 @@ mod tests {
 
     #[test]
     fn build_enabled_false_when_consumed_over_limit() {
-        let period_start = Utc::now().naive_utc();
+        let period_start = common_domain::clock::now().naive_utc();
         let ent = build_metered_entitlement(meta(Some(100.0), period_start), Decimal::from(150));
         let EffectiveEntitlementValue::Metered { enabled, .. } = ent.value else {
             panic!("expected Metered");
@@ -782,7 +782,7 @@ mod tests {
 
     #[test]
     fn build_enabled_true_when_under_limit() {
-        let period_start = Utc::now().naive_utc();
+        let period_start = common_domain::clock::now().naive_utc();
         let ent = build_metered_entitlement(meta(Some(100.0), period_start), Decimal::from(99));
         let EffectiveEntitlementValue::Metered { enabled, .. } = ent.value else {
             panic!("expected Metered");
@@ -792,7 +792,7 @@ mod tests {
 
     #[test]
     fn build_enabled_true_when_no_limit() {
-        let period_start = Utc::now().naive_utc();
+        let period_start = common_domain::clock::now().naive_utc();
         let ent = build_metered_entitlement(meta(None, period_start), Decimal::from(999));
         let EffectiveEntitlementValue::Metered { enabled, .. } = ent.value else {
             panic!("expected Metered");
@@ -802,7 +802,7 @@ mod tests {
 
     #[test]
     fn build_enabled_false_propagates_when_already_disabled() {
-        let period_start = Utc::now().naive_utc();
+        let period_start = common_domain::clock::now().naive_utc();
         let mut m = meta(Some(100.0), period_start);
         m.enabled = false;
         let ent = build_metered_entitlement(m, Decimal::from(10));
@@ -827,10 +827,10 @@ mod tests {
 
     #[test]
     fn an_allowing_limit_stays_enabled_past_the_limit() {
-        let mut m = meta(Some(100.0), Utc::now().naive_utc());
+        let mut m = meta(Some(100.0), common_domain::clock::now().naive_utc());
         m.overage_behavior = OverageBehavior::Allow;
         assert_eq!(enabled_and_reached(m, 130), (true, false));
-        let mut zero = meta(Some(0.0), Utc::now().naive_utc());
+        let mut zero = meta(Some(0.0), common_domain::clock::now().naive_utc());
         zero.overage_behavior = OverageBehavior::Allow;
         assert_eq!(enabled_and_reached(zero, 5), (true, false));
     }
@@ -838,7 +838,7 @@ mod tests {
     #[test]
     fn a_blocking_limit_disables_only_once_its_grace_is_used() {
         let with_grace = || {
-            let mut m = meta(Some(100.0), Utc::now().naive_utc());
+            let mut m = meta(Some(100.0), common_domain::clock::now().naive_utc());
             m.overage_behavior = OverageBehavior::Block {
                 grace_period_pct: Some(10),
             };
@@ -847,28 +847,31 @@ mod tests {
         assert_eq!(enabled_and_reached(with_grace(), 105), (true, false));
         assert_eq!(enabled_and_reached(with_grace(), 110), (false, true));
         assert_eq!(
-            enabled_and_reached(meta(Some(100.0), Utc::now().naive_utc()), 100),
+            enabled_and_reached(
+                meta(Some(100.0), common_domain::clock::now().naive_utc()),
+                100
+            ),
             (false, true)
         );
     }
 
     #[test]
     fn a_switched_off_entitlement_is_not_reported_as_reached() {
-        let mut m = meta(Some(100.0), Utc::now().naive_utc());
+        let mut m = meta(Some(100.0), common_domain::clock::now().naive_utc());
         m.enabled = false;
         assert_eq!(enabled_and_reached(m, 500), (false, false));
     }
 
     #[test]
     fn one_group_at_its_ceiling_does_not_disable_a_grouped_entitlement() {
-        let mut m = meta(Some(100.0), Utc::now().naive_utc());
+        let mut m = meta(Some(100.0), common_domain::clock::now().naive_utc());
         m.group_by = Some("user_id".to_owned());
         assert_eq!(enabled_and_reached(m, 150), (true, false));
     }
 
     #[test]
     fn a_sliding_window_has_no_reset_moment() {
-        let end = Some(Utc::now().naive_utc());
+        let end = Some(common_domain::clock::now().naive_utc());
         let sliding = ResetPeriod::SlidingWindow {
             unit: crate::domain::entitlements::PeriodUnit::Hour,
             interval: 5,
@@ -879,7 +882,7 @@ mod tests {
 
     #[test]
     fn build_remaining_none_when_no_limit() {
-        let period_start = Utc::now().naive_utc();
+        let period_start = common_domain::clock::now().naive_utc();
         let ent = build_metered_entitlement(meta(None, period_start), Decimal::from(999));
         let EffectiveEntitlementValue::Metered { usage, .. } = ent.value else {
             panic!("expected Metered");

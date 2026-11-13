@@ -1149,7 +1149,7 @@ impl ServicesEdge {
     ) -> StoreResult<UpcomingInvoiceForecast> {
         let mut conn = self.store.get_conn().await?;
         self.services
-            .forecast_upcoming_invoice(&mut conn, details, Utc::now())
+            .forecast_upcoming_invoice(&mut conn, details, common_domain::clock::now())
             .await
     }
 }

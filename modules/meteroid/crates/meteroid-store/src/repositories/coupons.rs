@@ -492,7 +492,7 @@ mod tests {
     use common_domain::ids::BaseId;
 
     fn row(code: &str) -> CouponRow {
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         CouponRow {
             id: CouponId::new(),
             code: code.to_owned(),

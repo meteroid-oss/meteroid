@@ -41,7 +41,7 @@ async fn update_currency_rates(
 
     // we skip if it was updated in the past hour
     if let Some(latest_timestamp) = latest_timestamp {
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         let expected = now - chrono::Duration::hours(1);
         if latest_timestamp > expected {
             // we return the time to wait

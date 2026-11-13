@@ -335,7 +335,7 @@ impl CredentialOps for MockConnector {
                 livemode: false,
                 key_hint: None,
                 methods,
-                checked_at: chrono::Utc::now().naive_utc(),
+                checked_at: common_domain::clock::now().naive_utc(),
             },
             public: PaymentConnectorPublicData::Mock(config),
         })
@@ -527,7 +527,7 @@ impl PaymentOps for MockConnector {
             MockChargeBehavior::Succeeded => ChargeOutcome::Succeeded(ChargeReceipt {
                 external_id,
                 amount_received_minor: request.amount_minor,
-                processed_at: chrono::Utc::now().naive_utc(),
+                processed_at: common_domain::clock::now().naive_utc(),
                 provider_request_id: None,
             }),
         };
@@ -606,7 +606,7 @@ impl WalletOps for MockConnector {
             return Ok(ChargeOutcome::Succeeded(ChargeReceipt {
                 external_id,
                 amount_received_minor: transaction.amount,
-                processed_at: chrono::Utc::now().naive_utc(),
+                processed_at: common_domain::clock::now().naive_utc(),
                 provider_request_id: None,
             }));
         }
@@ -689,7 +689,7 @@ impl WalletOps for MockConnector {
                 MockChargeBehavior::Succeeded => ChargeOutcome::Succeeded(ChargeReceipt {
                     external_id: external_id.clone(),
                     amount_received_minor: transaction.amount,
-                    processed_at: chrono::Utc::now().naive_utc(),
+                    processed_at: common_domain::clock::now().naive_utc(),
                     provider_request_id: None,
                 }),
             }
@@ -787,7 +787,7 @@ impl RefundOps for MockConnector {
             Some(MockRefundBehavior::Succeeded) | None => RefundOutcome::Succeeded(RefundReceipt {
                 external_refund_id,
                 amount_refunded_minor: request.amount_minor,
-                processed_at: chrono::Utc::now().naive_utc(),
+                processed_at: common_domain::clock::now().naive_utc(),
                 provider_request_id: None,
             }),
         })
@@ -834,7 +834,7 @@ impl ReconcileOps for MockConnector {
                     Some(intent) => RemoteTransactionStatus::Succeeded {
                         amount_received_minor: intent.amount_minor,
                         currency: intent.currency,
-                        processed_at: chrono::Utc::now().naive_utc(),
+                        processed_at: common_domain::clock::now().naive_utc(),
                     },
                     None => RemoteTransactionStatus::Unknown,
                 }
@@ -1048,7 +1048,7 @@ impl WebhookOps for MockConnector {
             provider_event_type: e.kind,
             // Tests pin `occurred_at` to exercise ordering/redelivery guards;
             // a real provider always stamps the event's own creation time.
-            occurred_at: e.occurred_at.unwrap_or_else(chrono::Utc::now),
+            occurred_at: e.occurred_at.unwrap_or_else(common_domain::clock::now),
             kind,
             owner_tenant_id: None,
         }))

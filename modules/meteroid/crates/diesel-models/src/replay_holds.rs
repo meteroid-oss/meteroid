@@ -18,7 +18,7 @@ pub async fn hold_invoice_delivery(
             .filter(i::id.eq(invoice_id))
             .filter(i::delivery_held_at.is_null()),
     )
-    .set(i::delivery_held_at.eq(diesel::dsl::now))
+    .set(i::delivery_held_at.eq(common_domain::clock::wall().naive_utc()))
     .execute(conn)
     .await
     .map(|_| ())

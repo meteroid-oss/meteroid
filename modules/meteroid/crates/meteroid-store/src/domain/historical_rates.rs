@@ -51,7 +51,7 @@ impl TryInto<HistoricalRatesFromUsdRowNew> for HistoricalRatesFromUsdNew {
         Ok(HistoricalRatesFromUsdRowNew {
             id: Uuid::now_v7(),
             date: self.date,
-            updated_at: chrono::Utc::now().naive_utc(),
+            updated_at: common_domain::clock::now().naive_utc(),
             rates: serde_json::to_value::<BTreeMap<String, f64>>(self.rates).map_err(|e| {
                 StoreError::SerdeError("Failed to serialize currency rates".to_string(), e)
             })?,

@@ -181,13 +181,13 @@ impl BillableMetricRow {
         param_tenant_id: TenantId,
     ) -> DbResult<()> {
         use crate::schema::billable_metric::dsl::{archived_at, billable_metric, id, tenant_id};
-        use chrono::Utc;
+
         use diesel_async::RunQueryDsl;
 
         let query = diesel::update(billable_metric)
             .filter(id.eq(param_billable_metric_id))
             .filter(tenant_id.eq(param_tenant_id))
-            .set(archived_at.eq(Some(Utc::now().naive_utc())));
+            .set(archived_at.eq(Some(common_domain::clock::now().naive_utc())));
 
         crate::debug_sql(&query);
 

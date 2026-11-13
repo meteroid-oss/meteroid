@@ -614,7 +614,7 @@ impl Services {
         sale: &UnitSale,
         credits_minor: i64,
     ) -> StoreResult<TopUpWalletQuote> {
-        let date = chrono::Utc::now().date_naive();
+        let date = common_domain::clock::now().date_naive();
         let line = sale.line(
             CreditPurchaseLineName::Purchase.stored_name(),
             credits_minor,
@@ -837,7 +837,7 @@ mod tests {
             tenant_id: TenantId::new(),
             customer_id: CustomerId::new(),
             currency: "HALYARD".to_owned(),
-            created_at: chrono::Utc::now(),
+            created_at: common_domain::clock::now(),
             low_balance_thresholds_minor: vec![],
             credit_unit_id: Some(CreditUnitId::new()),
             unit_price: Some(dec!(0.0008)),

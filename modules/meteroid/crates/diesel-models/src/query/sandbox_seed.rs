@@ -22,7 +22,7 @@ impl SandboxSeedRow {
             .set((
                 s::status.eq(SandboxSeedStatusEnum::InProgress),
                 s::failure_reason.eq(None::<String>),
-                s::started_at.eq(diesel::dsl::now),
+                s::started_at.eq(common_domain::clock::wall().naive_utc()),
                 s::finished_at.eq(None::<chrono::NaiveDateTime>),
             ));
         crate::debug_sql(&query);
@@ -54,7 +54,7 @@ impl SandboxSeedRow {
             .set((
                 s::status.eq(status),
                 s::failure_reason.eq(failure_reason),
-                s::finished_at.eq(diesel::dsl::now),
+                s::finished_at.eq(common_domain::clock::wall().naive_utc()),
             ));
         crate::debug_sql(&query);
         query
@@ -72,15 +72,17 @@ impl SandboxSeedRow {
         failure_reason: &str,
     ) -> DbResult<Vec<TenantId>> {
         use crate::schema::sandbox_seed::dsl as s;
-        use diesel::dsl::IntervalDsl;
 
         let query = diesel::update(s::sandbox_seed)
             .filter(s::status.eq(SandboxSeedStatusEnum::InProgress))
-            .filter(s::started_at.lt(diesel::dsl::now - 1.hour()))
+            .filter(
+                s::started_at
+                    .lt(common_domain::clock::wall().naive_utc() - chrono::Duration::hours(1)),
+            )
             .set((
                 s::status.eq(SandboxSeedStatusEnum::Failed),
                 s::failure_reason.eq(failure_reason),
-                s::finished_at.eq(diesel::dsl::now),
+                s::finished_at.eq(common_domain::clock::wall().naive_utc()),
             ))
             .returning(s::tenant_id);
         crate::debug_sql(&query);

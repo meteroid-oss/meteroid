@@ -465,7 +465,7 @@ impl Services {
         tenant_id: TenantId,
         amendment: SubscriptionAmendment,
     ) -> StoreResult<ImmediateAmendmentResult> {
-        let today = chrono::Utc::now().naive_utc().date();
+        let today = common_domain::clock::now().naive_utc().date();
         self.apply_amendment_immediate_at(actor, subscription_id, tenant_id, amendment, today)
             .await
     }
@@ -975,10 +975,13 @@ impl Services {
             return Ok(None);
         }
 
-        let sum = |amount: fn(&LineItem) -> i64| lines.iter().map(amount).sum::<i64>();
-        let subtotal = sum(|l| l.amount_subtotal);
-        let tax_amount = sum(|l| l.tax_amount);
         let promotional_credits = crate::services::credit::promotional::net_total(&lines)?;
+        let discount = lines
+            .iter()
+            .map(|l| l.amount_subtotal - l.taxable_amount)
+            .sum::<i64>()
+            - promotional_credits;
+        let totals = crate::services::invoice_lines::invoice_lines::totals_of(&lines, discount);
         // The note states the tax position of the invoices it corrects, in their words.
         let mut tax_breakdown = crate::repositories::invoices::compute_tax_breakdown(&lines);
         crate::repositories::invoices::carry_over_tax_findings(
@@ -989,17 +992,8 @@ impl Services {
             &mut tax_breakdown,
         );
         Ok(Some(ComputedInvoiceContent {
-            discount: sum(|l| l.amount_subtotal - l.taxable_amount) - promotional_credits,
-            tax_breakdown,
-            total: sum(|l| l.amount_total),
-            invoice_lines: lines,
-            subtotal,
-            applied_coupons: vec![],
-            applied_credits: 0,
-            promotional_credits,
-            tax_amount,
             amount_due: 0,
-            subtotal_recurring: 0,
+            ..ComputedInvoiceContent::of(lines, totals, vec![], tax_breakdown, 0, 0)
         }))
     }
 
@@ -1278,7 +1272,7 @@ impl Services {
             subscription_id,
             event_type: diesel_models::enums::SubscriptionEventType::Switch,
             details: Some(serde_json::json!({ "kind": "amendment", "mode": "immediate" })),
-            created_at: chrono::Utc::now().naive_utc(),
+            created_at: common_domain::clock::now().naive_utc(),
             mrr_delta: None,
             bi_mrr_movement_log_id: None,
             applies_to: change_date,
@@ -1485,7 +1479,7 @@ fn is_free_trial(sub_details: &SubscriptionDetails) -> bool {
 
 fn amendment_effective_date(sub_details: &SubscriptionDetails, is_immediate: bool) -> NaiveDate {
     if is_immediate {
-        chrono::Utc::now().naive_utc().date()
+        common_domain::clock::now().naive_utc().date()
     } else {
         sub_details
             .subscription
@@ -1559,7 +1553,7 @@ async fn resolve_live_slot_count(
             tenant_id,
             subscription_id,
             unit.clone(),
-            chrono::Utc::now().naive_utc(),
+            common_domain::clock::now().naive_utc(),
         )
         .await
         .map(|slots| slots.unwrap_or(0) as u32)
@@ -1643,10 +1637,9 @@ pub(in crate::services) fn build_amendment_credit_lines(
 
 /// Credit-matching context spanning every invoice that advance-billed part of the
 /// current period (the recurring invoice + any in-period adjustment invoices). The
-/// per-line maps are merged across invoices — line `local_id`s are unique UUIDs, so
-/// there are no collisions — and `line_to_invoice` records which invoice each line
-/// belongs to, so matched credits can be grouped back into a credit note per source
-/// invoice.
+/// per-line maps are merged across invoices by `local_id`, which a charge keeps on every
+/// document billing it (R-075): two invoices sharing one fail the gathering rather than merge.
+/// `line_to_invoice` groups matched credits back into a credit note per source invoice.
 pub(in crate::services) struct PeriodCreditContext {
     pub invoices: Vec<Invoice>,
     pub all_lines: Vec<LineItem>,
@@ -1712,6 +1705,18 @@ pub(in crate::services) async fn gather_period_credit_context(
             });
         }
 
+        if let Some(line) = invoice
+            .line_items
+            .iter()
+            .find(|line| ctx.line_to_invoice.contains_key(&line.local_id))
+        {
+            return Err(
+                Report::new(StoreError::InvoiceComputationError).attach(format!(
+                    "line {} is billed by two invoices of the period being credited",
+                    line.local_id
+                )),
+            );
+        }
         let (line_lineage, already_credited, returned) =
             load_credit_matching_context(conn, tenant_id, &invoice).await?;
         ctx.line_lineage.extend(line_lineage);
@@ -1867,7 +1872,7 @@ fn pending_addon_to_subscription(
         name: insert.name.clone(),
         period: insert.period,
         fee: insert.fee.clone(),
-        created_at: chrono::Utc::now().naive_utc(),
+        created_at: common_domain::clock::now().naive_utc(),
         product_id: Some(insert.product_id),
         price_id: insert.price_id,
         quantity: insert.quantity,

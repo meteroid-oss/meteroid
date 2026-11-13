@@ -405,12 +405,13 @@ impl PaymentReminderSequenceRow {
     ) -> DbResult<Vec<CustomerId>> {
         let customers = locked_customers(conn, locked);
         let rows: Vec<CustomerIdRow> = diesel::sql_query(
-            "UPDATE customer SET payment_reminder_sequence_id = NULL, updated_at = CURRENT_TIMESTAMP \
+            "UPDATE customer SET payment_reminder_sequence_id = NULL, updated_at = $4 \
              WHERE tenant_id = $1 AND payment_reminder_sequence_id = $2 AND id = ANY($3) RETURNING id",
         )
         .bind::<sql_types::Uuid, _>(tenant_id.as_uuid())
         .bind::<sql_types::Uuid, _>(id.as_uuid())
         .bind::<sql_types::Array<sql_types::Uuid>, _>(customers)
+        .bind::<sql_types::Timestamp, _>(common_domain::clock::now().naive_utc())
         .get_results(conn)
         .await
         .attach("Error while clearing customer reminder overrides")

@@ -280,13 +280,16 @@ impl FeatureRow {
         new_status: FeatureStatusEnum,
     ) -> DbResult<()> {
         use crate::schema::feature::dsl::{feature, id, status, tenant_id, updated_at};
-        use chrono::Utc;
+
         use diesel_async::RunQueryDsl;
 
         let query = diesel::update(feature)
             .filter(id.eq(param_id))
             .filter(tenant_id.eq(param_tenant_id))
-            .set((status.eq(new_status), updated_at.eq(Utc::now())));
+            .set((
+                status.eq(new_status),
+                updated_at.eq(common_domain::clock::now()),
+            ));
         crate::debug_sql(&query);
 
         query

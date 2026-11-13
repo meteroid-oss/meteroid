@@ -44,7 +44,7 @@ impl OrganizationInviteRow {
         email: &str,
     ) -> DbResult<Option<OrganizationInviteRow>> {
         use crate::schema::organization_invite::dsl as oi_dsl;
-        let now = Utc::now();
+        let now = common_domain::clock::wall();
         // emails are normalized to lowercase on insert, so plain eq() suffices
         let query = oi_dsl::organization_invite
             .filter(oi_dsl::organization_id.eq(org_id))
@@ -141,7 +141,7 @@ impl OrganizationInviteRow {
         email: &str,
     ) -> DbResult<()> {
         use crate::schema::organization_invite::dsl as oi_dsl;
-        let now = Utc::now();
+        let now = common_domain::clock::wall();
         let query = diesel::update(oi_dsl::organization_invite)
             .filter(oi_dsl::organization_id.eq(org_id))
             .filter(oi_dsl::invited_email.eq(email.to_lowercase()))

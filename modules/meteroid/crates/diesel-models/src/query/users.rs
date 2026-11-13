@@ -244,7 +244,7 @@ impl UserRow {
             .set((
                 u_dsl::totp_enabled.eq(true),
                 u_dsl::totp_recovery_codes.eq(recovery_code_hashes),
-                u_dsl::totp_enrolled_at.eq(diesel::dsl::now),
+                u_dsl::totp_enrolled_at.eq(common_domain::clock::wall().naive_utc()),
             ))
             .execute(conn)
             .await
@@ -329,7 +329,7 @@ impl UserRow {
                 u_dsl::totp_recovery_codes.eq::<Vec<String>>(vec![]),
                 u_dsl::totp_enrolled_at.eq::<Option<chrono::NaiveDateTime>>(None),
                 u_dsl::preferences.eq(serde_json::json!({})),
-                u_dsl::archived_at.eq(diesel::dsl::now),
+                u_dsl::archived_at.eq(common_domain::clock::wall().naive_utc()),
             ))
             .execute(conn)
             .await

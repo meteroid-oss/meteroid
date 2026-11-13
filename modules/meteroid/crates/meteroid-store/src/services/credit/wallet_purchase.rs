@@ -457,7 +457,10 @@ impl Services {
         command: TopUpWallet,
         quote: Option<TopUpWalletQuote>,
     ) -> StoreResult<TopUpWalletReceipt> {
-        if command.expires_at.is_some_and(|at| at <= Utc::now()) {
+        if command
+            .expires_at
+            .is_some_and(|at| at <= common_domain::clock::now())
+        {
             return Err(invalid("top-up credit expiry must be in the future"));
         }
         self.create_top_up_checkout(
@@ -684,7 +687,7 @@ impl Services {
             command.tenant_id,
             command.customer_id,
             MANUAL_TOP_UP_NAMESPACE,
-            Utc::now() - Duration::hours(ROLLING_LIMIT_HOURS),
+            common_domain::clock::now() - Duration::hours(ROLLING_LIMIT_HOURS),
         )
         .await?;
         // Counted per charge attempt too: retrying a declined key must not test card after card.
@@ -692,7 +695,7 @@ impl Services {
             conn,
             command.tenant_id,
             command.customer_id,
-            Utc::now() - Duration::hours(ROLLING_LIMIT_HOURS),
+            common_domain::clock::now() - Duration::hours(ROLLING_LIMIT_HOURS),
         )
         .await?;
         if opened > MAX_TOP_UPS_PER_ROLLING_DAY || attempted >= MAX_TOP_UPS_PER_ROLLING_DAY {
@@ -836,7 +839,8 @@ impl Services {
             PaymentStatusEnum::Pending
                 if payment.next_action.is_some()
                     && payment.created_at
-                        < Utc::now() - Duration::hours(ABANDONED_AUTHENTICATION_HOURS) =>
+                        < common_domain::clock::now()
+                            - Duration::hours(ABANDONED_AUTHENTICATION_HOURS) =>
             {
                 InFlight::Dead(
                     "the payment authentication was not completed within 24 hours".to_owned(),
@@ -890,7 +894,7 @@ impl Services {
                 lock,
                 origin,
                 &customer,
-                Utc::now().date_naive(),
+                common_domain::clock::now().date_naive(),
                 account,
                 operation.amount_minor,
                 sale.as_ref(),
@@ -1156,7 +1160,7 @@ impl Services {
             operation,
             reason,
             decline_kind,
-            Utc::now(),
+            common_domain::clock::now(),
             false,
         )
         .await
@@ -1260,7 +1264,12 @@ impl Services {
                 InvoiceRow::void(conn, invoice_id, tenant_id).await?;
                 self.store
                     .internal
-                    .end_reminders_best_effort(conn, tenant_id, invoice_id, Utc::now().naive_utc())
+                    .end_reminders_best_effort(
+                        conn,
+                        tenant_id,
+                        invoice_id,
+                        common_domain::clock::now().naive_utc(),
+                    )
                     .await;
                 let voided: Invoice = InvoiceRow::find_by_id(conn, tenant_id, invoice_id)
                     .await?
@@ -1479,7 +1488,8 @@ impl Services {
     /// Attempts left in flight: an unanswered charge is resent under the SAME pinned payment, one
     /// already captured is settled instead of authorized again, a dead one is ended.
     async fn claim_stuck_purchases(&self) -> StoreResult<Vec<StuckPurchase>> {
-        let stuck_before = Utc::now() - Duration::minutes(STUCK_PROCESSING_MINUTES);
+        let stuck_before =
+            common_domain::clock::now() - Duration::minutes(STUCK_PROCESSING_MINUTES);
         let listed = {
             let mut conn = self.store.get_conn().await?;
             CustomerCreditOperationRow::list_stuck(
@@ -1628,7 +1638,7 @@ impl Services {
                 .try_into()?;
         let invoice_date = payment
             .processed_at
-            .unwrap_or_else(|| Utc::now().naive_utc())
+            .unwrap_or_else(|| common_domain::clock::now().naive_utc())
             .date();
         let invoice = self
             .draft_purchase_invoice(
@@ -1827,7 +1837,7 @@ impl Services {
         at: DateTime<Utc>,
         delivery: crate::services::InvoiceDelivery,
     ) -> StoreResult<ReplayedTopUp> {
-        if at > Utc::now() {
+        if at > common_domain::clock::now() {
             return Err(invalid("a top-up cannot be charged at a future moment"));
         }
         if amount_minor <= 0 {

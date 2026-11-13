@@ -8,7 +8,6 @@ use crate::errors::StoreError;
 use crate::hooks::MemberHooks;
 use crate::repositories::org_security_audit_log::SecurityAuditInterface;
 use crate::store::{PgConn, Store};
-use chrono::Utc;
 use common_domain::actor::Actor;
 use common_domain::ids::{BaseId, OrganizationId, OrganizationInviteId, RoleId, TenantId, UserId};
 use common_eventbus::Event;
@@ -407,7 +406,7 @@ impl OrganizationsInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         let ttl_days = self.settings.invite_ttl_days;
-        let expires_at = Utc::now() + chrono::Duration::days(ttl_days as i64);
+        let expires_at = common_domain::clock::now() + chrono::Duration::days(ttl_days as i64);
 
         let row_new = OrganizationInviteRowNew {
             id: OrganizationInviteId::new(),
@@ -494,7 +493,7 @@ impl OrganizationsInterface for Store {
         if invite.revoked_at.is_some() {
             return Err(StoreError::InvalidArgument("Invite is revoked".to_string()).into());
         }
-        if invite.expires_at < Utc::now() {
+        if invite.expires_at < common_domain::clock::now() {
             return Err(StoreError::InvalidArgument(
                 "Invite is expired. Revoke it and create a new one.".to_string(),
             )
@@ -502,7 +501,7 @@ impl OrganizationsInterface for Store {
         }
 
         let ttl_days = self.settings.invite_ttl_days;
-        let new_expires_at = Utc::now() + chrono::Duration::days(ttl_days as i64);
+        let new_expires_at = common_domain::clock::now() + chrono::Duration::days(ttl_days as i64);
 
         OrganizationInviteRow::update_expires_at(&mut conn, invite_id, new_expires_at)
             .await
@@ -572,7 +571,7 @@ impl OrganizationsInterface for Store {
             return Err(StoreError::InvalidArgument("Invite already revoked".to_string()).into());
         }
 
-        OrganizationInviteRow::set_revoked_at(&mut conn, invite_id, Utc::now())
+        OrganizationInviteRow::set_revoked_at(&mut conn, invite_id, common_domain::clock::now())
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -628,7 +627,7 @@ impl OrganizationsInterface for Store {
 
         if invite.revoked_at.is_some()
             || invite.accepted_at.is_some()
-            || invite.expires_at < Utc::now()
+            || invite.expires_at < common_domain::clock::now()
         {
             return Err(
                 StoreError::InvalidArgument("Invalid or expired invite link".to_string()).into(),
@@ -678,7 +677,9 @@ impl OrganizationsInterface for Store {
                         )
                         .into());
                     }
-                    if invite.revoked_at.is_some() || invite.expires_at < Utc::now() {
+                    if invite.revoked_at.is_some()
+                        || invite.expires_at < common_domain::clock::now()
+                    {
                         return Err(StoreError::InvalidArgument(
                             "Invalid or expired invite link".to_string(),
                         )
@@ -724,9 +725,13 @@ impl OrganizationsInterface for Store {
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
-                    OrganizationInviteRow::set_accepted_at(conn, invite_id, Utc::now())
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
+                    OrganizationInviteRow::set_accepted_at(
+                        conn,
+                        invite_id,
+                        common_domain::clock::now(),
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                     let org = OrganizationRow::get_by_id(conn, invite.organization_id)
                         .await
@@ -1039,7 +1044,7 @@ impl OrganizationsInterface for Store {
     ) -> StoreResult<()> {
         // Admin authorization is enforced at the gRPC layer (require_admin).
 
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         let tenant_ids = self
             .transaction_bumping_tenants(|conn| {
                 async move {

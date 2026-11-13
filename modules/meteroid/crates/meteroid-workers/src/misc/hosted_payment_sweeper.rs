@@ -157,7 +157,7 @@ async fn sweep(
     services: &Arc<Services>,
     rotation: &mut SweepRotation,
 ) -> Result<SweepCounts, Box<dyn std::error::Error + Send + Sync>> {
-    let now = chrono::Utc::now();
+    let now = common_domain::clock::now();
     let older_than = now - chrono::Duration::from_std(AWAITING_GRACE).unwrap();
     let abandoned_before = now - chrono::Duration::from_std(ABANDONED_MAX_AGE).unwrap();
 
@@ -236,7 +236,7 @@ mod tests {
     use common_domain::ids::BaseId;
 
     fn key(id: PaymentTransactionId) -> (DateTime<Utc>, PaymentTransactionId) {
-        (Utc::now(), id)
+        (common_domain::clock::now(), id)
     }
 
     /// A full batch advances past its last row; a short batch wraps back to

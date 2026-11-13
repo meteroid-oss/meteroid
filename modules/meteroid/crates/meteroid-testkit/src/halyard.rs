@@ -396,7 +396,7 @@ impl Halyard {
             scenario,
             ORGANIZATION_ID,
             Some("Halyard scenarios".to_owned()),
-            Utc::now().naive_utc(),
+            common_domain::clock::now().naive_utc(),
         )
         .await
         .expect("the Halyard catalog")

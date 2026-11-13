@@ -268,7 +268,7 @@ impl Services {
                     &refreshed,
                     &mut merged,
                     refreshed.iter().all(|m| m.tax_inclusive),
-                    chrono::Utc::now(),
+                    common_domain::clock::now(),
                 )
                 .await?;
             let Merged {
@@ -282,7 +282,7 @@ impl Services {
                 discount,
                 promotional_credits,
             } = merged;
-            let amount_due = std::cmp::max(0, total - applied_credits);
+            let amount_due = billing_core::amount_due(total, 0, applied_credits);
 
             // The parent spans several plans, so it has no subscription_id/plan_version and
             // process_mrr is a no-op for it (members already logged their MRR at draft time).
@@ -407,29 +407,27 @@ struct Merged {
 }
 
 fn merge_members(members: &[Invoice]) -> Merged {
-    let mut merged = Merged {
-        line_items: Vec::new(),
-        coupons: Vec::new(),
-        tax_breakdown: Vec::new(),
-        subtotal: 0,
-        subtotal_recurring: 0,
-        tax_amount: 0,
-        total: 0,
-        discount: 0,
-        promotional_credits: 0,
-    };
+    let mut line_items = Vec::new();
+    let mut coupons = Vec::new();
+    let mut tax_breakdown = Vec::new();
     for m in members {
-        merged.line_items.extend(m.line_items.iter().cloned());
-        merged.coupons.extend(m.coupons.iter().cloned());
-        merge_tax_breakdown(&mut merged.tax_breakdown, &m.tax_breakdown);
-        merged.subtotal += m.subtotal;
-        merged.subtotal_recurring += m.subtotal_recurring;
-        merged.tax_amount += m.tax_amount;
-        merged.total += m.total;
-        merged.discount += m.discount;
-        merged.promotional_credits += m.promotional_credits;
+        line_items.extend(m.line_items.iter().cloned());
+        coupons.extend(m.coupons.iter().cloned());
+        merge_tax_breakdown(&mut tax_breakdown, &m.tax_breakdown);
     }
-    merged
+    let discount = members.iter().map(|m| m.discount).sum();
+    let totals = crate::services::invoice_lines::invoice_lines::totals_of(&line_items, discount);
+    Merged {
+        line_items,
+        coupons,
+        tax_breakdown,
+        subtotal: totals.subtotal,
+        subtotal_recurring: totals.subtotal_recurring,
+        tax_amount: totals.tax,
+        total: totals.total,
+        discount: totals.discount,
+        promotional_credits: totals.promotional,
+    }
 }
 
 impl Services {
@@ -632,7 +630,7 @@ impl Services {
             promotional_credits: merged.promotional_credits,
             total: merged.total,
             tax_amount: merged.tax_amount,
-            amount_due: (merged.total - applied_credits).max(0),
+            amount_due: billing_core::amount_due(merged.total, 0, applied_credits),
             subtotal_recurring: merged.subtotal_recurring,
         })
     }

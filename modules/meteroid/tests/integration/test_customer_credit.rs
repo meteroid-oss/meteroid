@@ -1897,12 +1897,12 @@ async fn voiding_a_pre_ledger_note_takes_back_the_carried_balance() -> TestResul
                         VALUES (gen_random_uuid(), '{tenant}', '{customer}', 'EUR') RETURNING id),
                   g AS (INSERT INTO customer_credit_grant (id, application, tenant_id, customer_id, account_id, amount, remaining,
                                                            priority, classification, effective_at, source_kind,
-                                                           source_id, reason)
+                                                           source_id, reason, created_at)
                         SELECT gen_random_uuid(), 'INVOICE', '{tenant}', '{customer}', a.id, 5000, 5000, 100, 'PAID', now(),
-                               'CUSTOMER_BALANCE', '{customer}', 'Customer balance carried over'
+                               'CUSTOMER_BALANCE', '{customer}', 'Customer balance carried over', now()
                         FROM a RETURNING id)
-             INSERT INTO customer_credit_entry (id, tenant_id, customer_id, grant_id, kind, amount, source_id)
-             SELECT gen_random_uuid(), '{tenant}', '{customer}', g.id, 'FUND', 5000, '{customer}' FROM g;"
+             INSERT INTO customer_credit_entry (id, tenant_id, customer_id, grant_id, kind, amount, source_id, created_at)
+             SELECT gen_random_uuid(), '{tenant}', '{customer}', g.id, 'FUND', 5000, '{customer}', now() FROM g;"
         ),
     )
     .await?;

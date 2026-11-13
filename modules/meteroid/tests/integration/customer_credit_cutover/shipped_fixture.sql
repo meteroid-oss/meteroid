@@ -21,11 +21,11 @@ $$
 INSERT INTO invoice (id, tenant_id, customer_id, currency, line_items, invoice_date, total, net_terms,
                      invoice_number, tax_amount, subtotal_recurring, customer_details, amount_due, subtotal,
                      seller_details, invoicing_entity_id, billing_period_start, status, payment_status,
-                     invoice_type)
+                     invoice_type, created_at)
 VALUES (id, '00000000-0000-0000-0000-00000000a001', customer, currency, lines, '2026-06-01', amount, 0,
         'INV-' || id::text, 0, 0, '{}', CASE WHEN payment = 'PAID' THEN 0 ELSE amount END, amount,
         '{}', '00000000-0000-0000-0000-00000000a003', '2026-06-01', status::"InvoiceStatusEnum",
-        payment::"InvoicePaymentStatus", 'ONE_OFF')
+        payment::"InvoicePaymentStatus", 'ONE_OFF', now())
 $$;
 
 CREATE FUNCTION pg_temp.credit_note(id UUID, invoice UUID, customer UUID, status TEXT, kind TEXT, line jsonb,
@@ -34,10 +34,10 @@ CREATE FUNCTION pg_temp.credit_note(id UUID, invoice UUID, customer UUID, status
 $$
 INSERT INTO credit_note (id, credit_note_number, status, tenant_id, customer_id, invoice_id, invoice_number,
                          currency, subtotal, tax_amount, total, customer_details, seller_details,
-                         invoicing_entity_id, credit_type, line_items)
+                         invoicing_entity_id, credit_type, line_items, created_at)
 VALUES (id, 'CN-' || id::text, status::"CreditNoteStatus", '00000000-0000-0000-0000-00000000a001',
         customer, invoice, 'INV', 'USD', -amount, 0, -amount, '{}', '{}',
-        '00000000-0000-0000-0000-00000000a003', kind::"CreditTypeEnum", jsonb_build_array(line))
+        '00000000-0000-0000-0000-00000000a003', kind::"CreditTypeEnum", jsonb_build_array(line), now())
 $$;
 
 INSERT INTO organization (id, trade_name, slug, default_country)

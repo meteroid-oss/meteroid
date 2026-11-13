@@ -20,7 +20,11 @@ impl PaymentReversalMovementRowNew {
         use crate::schema::payment_reversal_movement::dsl as m;
         lock.covers(conn, self.tenant_id, self.customer_id)?;
         diesel::insert_into(m::payment_reversal_movement)
-            .values(self)
+            .values((
+                self,
+                crate::schema::payment_reversal_movement::created_at
+                    .eq(common_domain::clock::now().naive_utc()),
+            ))
             .on_conflict_do_nothing()
             .returning(PaymentReversalMovementRow::as_returning())
             .get_result(conn)

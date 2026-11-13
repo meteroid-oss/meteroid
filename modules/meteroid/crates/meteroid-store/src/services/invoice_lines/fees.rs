@@ -2,7 +2,6 @@ use crate::StoreResult;
 use crate::domain::{Period, SubLineAttributes, SubLineItem, TierRow, UsagePricingModel};
 use crate::errors::StoreError;
 use crate::services::invoice_lines::component::InvoiceLineInner;
-use crate::utils::local_id::LocalId;
 use common_domain::ids::BillableMetricId;
 use common_utils::decimals::ToSubunit;
 use common_utils::integers::ToNonNegativeU64;
@@ -145,7 +144,7 @@ pub fn compute_volume_price(
         custom_line_name: None,
         is_prorated: false,
         sublines: vec![SubLineItem {
-            local_id: LocalId::no_prefix(),
+            local_id: String::new(),
             name: "Volume".to_string(),
             total,
             quantity: usage_units,
@@ -173,7 +172,7 @@ pub fn compute_tier_price(
     for charge in &charges {
         subtotal += charge.amount;
         sub_lines.push(SubLineItem {
-            local_id: LocalId::no_prefix(),
+            local_id: String::new(),
             name: format!(
                 "{}-{} tier",
                 charge.first_unit,

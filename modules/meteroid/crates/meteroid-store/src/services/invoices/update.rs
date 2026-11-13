@@ -164,7 +164,8 @@ impl Services {
                     })
                 })
                 .transpose()?,
-            manually_edited_at: billing_content_edited.then(|| chrono::Utc::now().naive_utc()),
+            manually_edited_at: billing_content_edited
+                .then(|| common_domain::clock::now().naive_utc()),
             customer_details_overridden_at,
         };
 
@@ -255,14 +256,14 @@ impl Services {
                 }
                 details.billing_address = billing_address;
                 details.vat_number = vat_number;
-                details.snapshot_at = chrono::Utc::now().naive_utc();
+                details.snapshot_at = common_domain::clock::now().naive_utc();
                 invoice.customer_details = details;
 
                 // An override exists only where the result actually diverges from the customer
                 // record; echoing back the displayed values must leave the draft tracking.
                 match &live_customer {
                     Some(live) if invoice.customer_details.matches_record(live) => Some(None),
-                    _ => Some(Some(chrono::Utc::now().naive_utc())),
+                    _ => Some(Some(common_domain::clock::now().naive_utc())),
                 }
             }
         };
@@ -426,8 +427,8 @@ impl Services {
 
         let mut subtotal: i64 = lines.iter().map(|line| line.amount_subtotal).sum();
         let mut total_tax_amount: i64 = lines.iter().map(|line| line.tax_amount).sum();
-        let total_taxable: i64 = lines.iter().map(|line| line.taxable_amount).sum();
-        let mut total = total_taxable + total_tax_amount;
+        let mut total =
+            crate::services::invoice_lines::invoice_lines::totals_of(&lines, discount).total;
 
         let currency_code = invoice.currency.clone();
         let scope = crate::services::credit::value_application::EstimateContext {
@@ -440,7 +441,7 @@ impl Services {
                 invoice.subscription_id,
                 &lines,
             ),
-            at: chrono::Utc::now(),
+            at: common_domain::clock::now(),
             book: None,
         };
         let mut promotional_credits = 0;
@@ -462,22 +463,18 @@ impl Services {
         )
         .await?;
 
-        let already_paid = invoice.total - invoice.amount_due;
-        let amount_due = total - already_paid;
-
-        let subtotal_recurring = lines
-            .iter()
-            .filter(|x| x.metric_id.is_none())
-            .fold(0, |acc, x| acc + x.amount_subtotal);
+        // Paid and credited so far, both carried by the stored amount due.
+        let settled = invoice.total - invoice.amount_due;
+        let totals = crate::services::invoice_lines::invoice_lines::totals_of(&lines, discount);
 
         invoice.line_items = lines;
-        invoice.subtotal = subtotal;
-        invoice.subtotal_recurring = subtotal_recurring;
-        invoice.tax_amount = total_tax_amount;
-        invoice.total = total;
-        invoice.amount_due = amount_due;
-        invoice.discount = discount;
-        invoice.promotional_credits = promotional_credits;
+        invoice.subtotal = totals.subtotal;
+        invoice.subtotal_recurring = totals.subtotal_recurring;
+        invoice.tax_amount = totals.tax;
+        invoice.total = totals.total;
+        invoice.amount_due = totals.amount_due(settled, 0);
+        invoice.discount = totals.discount;
+        invoice.promotional_credits = totals.promotional;
         invoice.tax_breakdown = tax_breakdown;
 
         if let Some(annexes) = params.annexes {

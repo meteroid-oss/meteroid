@@ -324,7 +324,10 @@ impl CustomerCreditGrantRow {
     ) -> DbResult<Option<Self>> {
         use crate::schema::customer_credit_grant::dsl as g;
         diesel::insert_into(g::customer_credit_grant)
-            .values(row)
+            .values((
+                row,
+                crate::schema::customer_credit_grant::created_at.eq(common_domain::clock::now()),
+            ))
             .on_conflict((g::tenant_id, g::source_kind, g::source_id))
             .do_nothing()
             .returning(Self::as_returning())
@@ -617,7 +620,7 @@ impl CustomerCreditGrantRow {
                     OR g.expires_at >= LEAST(
                         COALESCE(s.terminated_at, s.current_period_start::timestamp)
                             AT TIME ZONE 'UTC',
-                        now()))
+                        $4))
                AND ($2::uuid IS NULL OR (g.tenant_id, g.subscription_id) > ($2, $3))
              ORDER BY g.tenant_id, g.subscription_id
              LIMIT $1",
@@ -625,6 +628,7 @@ impl CustomerCreditGrantRow {
         .bind::<sql_types::BigInt, _>(limit)
         .bind::<sql_types::Nullable<sql_types::Uuid>, _>(after_tenant)
         .bind::<sql_types::Nullable<sql_types::Uuid>, _>(after_subscription)
+        .bind::<sql_types::Timestamptz, _>(common_domain::clock::now())
         .load(conn)
         .await
         .attach("Error while listing the credit of ended subscriptions")
@@ -970,7 +974,10 @@ impl CustomerCreditEntryRow {
     ) -> DbResult<Option<Self>> {
         use crate::schema::customer_credit_entry::dsl as e;
         diesel::insert_into(e::customer_credit_entry)
-            .values(row)
+            .values((
+                row,
+                crate::schema::customer_credit_entry::created_at.eq(common_domain::clock::now()),
+            ))
             .on_conflict((e::grant_id, e::kind, e::source_id))
             .do_nothing()
             .returning(Self::as_returning())
@@ -1248,7 +1255,17 @@ impl CreditLineAllocationRowNew {
             return Ok(());
         }
         diesel::insert_into(a::customer_credit_line_allocation)
-            .values(rows)
+            .values(
+                rows.iter()
+                    .map(|row| {
+                        (
+                            row,
+                            crate::schema::customer_credit_line_allocation::created_at
+                                .eq(common_domain::clock::now()),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            )
             .execute(conn)
             .await
             .attach("Error while recording a credit line allocation")
@@ -1260,8 +1277,14 @@ impl CreditLineAllocationRowNew {
 impl CreditPurchaseRow {
     pub async fn insert(conn: &mut PgConn, row: &CreditPurchaseRowNew) -> DbResult<Self> {
         use crate::schema::customer_credit_purchase::dsl as p;
+        let row = CreditPurchaseRowNew {
+            created_at: row
+                .created_at
+                .or_else(|| Some(common_domain::clock::now().naive_utc())),
+            ..row.clone()
+        };
         diesel::insert_into(p::customer_credit_purchase)
-            .values(row)
+            .values(&row)
             .returning(Self::as_returning())
             .get_result(conn)
             .await
@@ -1811,7 +1834,7 @@ impl CreditUnrecoveredRow {
             .set((
                 u::reported.eq(self.reported),
                 u::notices.eq(self.notices),
-                u::updated_at.eq(diesel::dsl::now),
+                u::updated_at.eq(common_domain::clock::now().naive_utc()),
             ))
             .execute(conn)
             .await

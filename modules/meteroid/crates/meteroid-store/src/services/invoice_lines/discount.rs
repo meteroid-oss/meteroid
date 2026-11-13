@@ -183,7 +183,7 @@ mod tests {
     use rust_decimal::Decimal;
 
     fn applied_coupon(code: &str, discount: CouponDiscount) -> AppliedCouponDetailed {
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         let coupon_id = CouponId::new();
         AppliedCouponDetailed {
             coupon: Coupon {

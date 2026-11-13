@@ -180,7 +180,7 @@ impl TestEnv {
                 CouponStatusPatch {
                     id: coupon_id,
                     tenant_id: TENANT_ID,
-                    archived_at: Some(Some(chrono::Utc::now().naive_utc())),
+                    archived_at: Some(Some(common_domain::clock::now().naive_utc())),
                     disabled: None,
                 },
             )

@@ -1379,7 +1379,7 @@ pub mod upcoming {
         let invoice_date = details
             .subscription
             .current_period_end
-            .unwrap_or_else(|| chrono::Utc::now().date_naive());
+            .unwrap_or_else(|| common_domain::clock::now().date_naive());
         let period = (details.subscription.current_period_start, invoice_date);
         computed_content_to_dated_proto(content, details, invoice_date, period)
     }

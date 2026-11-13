@@ -602,7 +602,7 @@ impl QuotesInterface for Store {
         self.transaction(|conn| {
             let actor = &actor;
             async move {
-                let now = chrono::Utc::now().naive_utc();
+                let now = common_domain::clock::now().naive_utc();
 
                 // Update quote status
                 let update = QuoteRowUpdate {
@@ -687,7 +687,7 @@ impl QuotesInterface for Store {
         self.transaction(|conn| {
             let actor = &actor;
             async move {
-                let now = chrono::Utc::now().naive_utc();
+                let now = common_domain::clock::now().naive_utc();
 
                 let update = QuoteRowUpdate {
                     status: Some(diesel_models::enums::QuoteStatusEnum::Declined),
@@ -730,7 +730,7 @@ impl QuotesInterface for Store {
         self.transaction(|conn| {
             let actor = &actor;
             async move {
-                let now = chrono::Utc::now().naive_utc();
+                let now = common_domain::clock::now().naive_utc();
 
                 let update = QuoteRowUpdate {
                     status: Some(diesel_models::enums::QuoteStatusEnum::Pending),
@@ -1121,7 +1121,7 @@ impl QuotesInterface for Store {
                     }
                 }
 
-                let now = chrono::Utc::now().naive_utc();
+                let now = common_domain::clock::now().naive_utc();
 
                 let update = QuoteRowUpdate {
                     status: Some(diesel_models::enums::QuoteStatusEnum::Cancelled),
@@ -1173,7 +1173,7 @@ impl QuotesInterface for Store {
                 match quote.status {
                     diesel_models::enums::QuoteStatusEnum::Draft => {
                         // Publish the quote (transition to Pending)
-                        let now = chrono::Utc::now().naive_utc();
+                        let now = common_domain::clock::now().naive_utc();
                         let update = QuoteRowUpdate {
                             status: Some(diesel_models::enums::QuoteStatusEnum::Pending),
                             updated_at: Some(now),

@@ -333,7 +333,7 @@ impl Services {
         let immediate_allowed = ctx.immediate_allowed();
 
         let effective_date = if is_immediate {
-            chrono::Utc::now().naive_utc().date()
+            common_domain::clock::now().naive_utc().date()
         } else {
             ctx.subscription_details
                 .subscription
@@ -579,7 +579,7 @@ impl Services {
         new_plan_version_id: PlanVersionId,
         component_params: Vec<ComponentParameterization>,
     ) -> StoreResult<ImmediatePlanChangeResult> {
-        let today = chrono::Utc::now().naive_utc().date();
+        let today = common_domain::clock::now().naive_utc().date();
         self.apply_plan_change_immediate_at(
             typed_actor,
             subscription_id,
@@ -1000,7 +1000,7 @@ impl Services {
                 tenant_id,
                 prepared.subscription_details.subscription.customer_id,
                 subscription_id,
-                chrono::Utc::now().naive_utc(),
+                common_domain::clock::now().naive_utc(),
             )
             .await?;
 
@@ -1153,7 +1153,7 @@ impl Services {
                     "mode": "immediate",
                 })
             }),
-            created_at: chrono::Utc::now().naive_utc(),
+            created_at: common_domain::clock::now().naive_utc(),
             mrr_delta: None,
             bi_mrr_movement_log_id: None,
             applies_to: change_date,
@@ -2326,7 +2326,7 @@ async fn resolve_preview_slot_counts(
             tenant_id,
             subscription_id,
             unit.clone(),
-            chrono::Utc::now().naive_utc(),
+            common_domain::clock::now().naive_utc(),
         )
         .await
         .map(|slots| slots.unwrap_or(0) as u32)
@@ -2386,7 +2386,7 @@ pub(crate) async fn calculate_components_mrr_with_slots(
                 tenant_id,
                 subscription_id,
                 unit.clone(),
-                chrono::Utc::now().naive_utc(),
+                common_domain::clock::now().naive_utc(),
             )
             .await
             .map(|slots| i64::from(slots.unwrap_or(0)))
@@ -2520,7 +2520,7 @@ mod tests {
                 rate: rust_decimal::Decimal::TEN,
             },
             tenant_id: TenantId::new(),
-            created_at: chrono::Utc::now().naive_utc(),
+            created_at: common_domain::clock::now().naive_utc(),
             archived_at: None,
             catalog: true,
             credit_unit: None,

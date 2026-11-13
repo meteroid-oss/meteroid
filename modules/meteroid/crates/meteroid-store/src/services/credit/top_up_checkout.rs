@@ -409,7 +409,7 @@ impl Services {
             add_ons: None,
             coupon_code: None,
             coupon_ids: vec![],
-            expires_at: Some(Utc::now() + Duration::hours(24)),
+            expires_at: Some(common_domain::clock::now() + Duration::hours(24)),
             metadata: Some(metadata.clone()),
             checkout_type: diesel_models::enums::CheckoutTypeEnum::TopUp,
             subscription_id: None,

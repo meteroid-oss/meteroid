@@ -105,6 +105,43 @@ impl TestEnv {
     }
 
     /// Process all pending cycle transitions and due events.
+    /// Moves the present to `at` (see `common_domain::clock`); time keeps passing from there.
+    pub fn set_now(&self, at: chrono::DateTime<chrono::Utc>) {
+        common_domain::clock::test::set(at);
+    }
+
+    /// Moves the present forward by `by`.
+    pub fn advance(&self, by: chrono::Duration) {
+        common_domain::clock::test::advance(by);
+    }
+
+    /// Lives through every day until `until`, as the workers would: each day the clock is moved
+    /// to it, then due cycles, scheduled events and their outbox work run until nothing is left.
+    pub async fn run_until(&self, until: chrono::NaiveDate) {
+        let mut day = common_domain::clock::now().date_naive();
+        while day < until {
+            day = day.succ_opt().expect("a next day");
+            self.set_now(day.and_hms_opt(1, 0, 0).expect("1:00").and_utc());
+            for _ in 0..50 {
+                let cycles = self
+                    .services()
+                    .get_and_process_cycle_transitions()
+                    .await
+                    .expect("Failed to process cycle transitions")
+                    .processed;
+                let events = self
+                    .services()
+                    .get_and_process_due_events()
+                    .await
+                    .expect("Failed to process due events");
+                self.run_outbox_and_orchestration().await;
+                if cycles == 0 && events == 0 {
+                    break;
+                }
+            }
+        }
+    }
+
     pub async fn process_cycles(&self) {
         self.services()
             .get_and_process_cycle_transitions()

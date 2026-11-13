@@ -52,7 +52,7 @@ impl StatsService for StatsServiceComponents {
             .map_err(|e| Status::internal(format!("Failed to resolve reporting currency: {e}")))?;
         let code = reporting.code;
 
-        let today = chrono::Utc::now().naive_utc().date();
+        let today = common_domain::clock::now().naive_utc().date();
         // The trend needs YTD plus two trailing comparison windows in one series.
         let trend_from = meteroid_store::utils::datetime::start_of_year(today)
             .min(today - chrono::Days::new(2 * REVENUE_TREND_DAYS as u64));
@@ -112,7 +112,7 @@ impl StatsService for StatsServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let now = chrono::Utc::now().naive_utc().date();
+        let now = common_domain::clock::now().naive_utc().date();
         let start_date = req
             .start_date
             .and_then(shared::mapping::date::chrono_from_proto)
@@ -202,7 +202,7 @@ impl StatsService for StatsServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let now = chrono::Utc::now().naive_utc().date();
+        let now = common_domain::clock::now().naive_utc().date();
         let start_date = req
             .start_date
             .and_then(shared::mapping::date::chrono_from_proto)
@@ -255,7 +255,7 @@ impl StatsService for StatsServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let now = chrono::Utc::now().naive_utc().date();
+        let now = common_domain::clock::now().naive_utc().date();
         let start_date = req
             .start_date
             .and_then(shared::mapping::date::chrono_from_proto)

@@ -74,7 +74,8 @@ impl ActivityService for ActivityServiceComponents {
         // Only mint a token when something is actually downloadable (old rows
         // recorded filenames without an object id).
         let attachments_share_key = if attachments.iter().any(|a| !a.id.is_empty()) {
-            let exp = (chrono::Utc::now() + chrono::Duration::days(7)).timestamp() as usize;
+            let exp =
+                (common_domain::clock::wall() + chrono::Duration::days(7)).timestamp() as usize;
             Some(
                 generate_entity_share_key(email.id.as_uuid(), tenant_id, &self.jwt_secret, exp)
                     .map_err(Into::<ActivityApiError>::into)?,

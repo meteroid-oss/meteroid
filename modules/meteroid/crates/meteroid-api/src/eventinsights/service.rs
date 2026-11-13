@@ -460,7 +460,7 @@ impl EventInsightsService for EventInsightsServiceComponents {
         let customer_id = CustomerId::from_proto(&req.customer_id)?;
 
         let to = match req.to.as_str() {
-            "" => chrono::Utc::now().naive_utc().date(),
+            "" => common_domain::clock::now().naive_utc().date(),
             s => parse_date(s, "to")?,
         };
         let from = match req.from.as_str() {

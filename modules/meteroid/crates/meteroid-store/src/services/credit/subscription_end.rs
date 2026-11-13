@@ -107,7 +107,7 @@ pub(crate) async fn end_credit_of_ended_subscriptions(
                             row.tenant_id,
                             row.subscription_id,
                             ended_at,
-                            Utc::now(),
+                            common_domain::clock::now(),
                         )
                         .await
                     }

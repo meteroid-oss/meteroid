@@ -153,7 +153,7 @@ impl PortalTokenRow {
                 .filter(d::resource_id.eq(resource_id))
                 .filter(d::revoked_at.is_null()),
         )
-        .set(d::revoked_at.eq(Utc::now()));
+        .set(d::revoked_at.eq(common_domain::clock::wall()));
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query

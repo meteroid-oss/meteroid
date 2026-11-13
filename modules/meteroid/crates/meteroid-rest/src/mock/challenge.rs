@@ -156,7 +156,7 @@ pub async fn handle(
     let event = NormalizedWebhookEvent {
         provider_event_id: format!("mock_3ds_{}", q.intent),
         provider_event_type: "mock.challenge_completed".to_string(),
-        occurred_at: chrono::Utc::now(),
+        occurred_at: common_domain::clock::now(),
         kind,
         owner_tenant_id: Some(tenant_id.as_base62()),
     };

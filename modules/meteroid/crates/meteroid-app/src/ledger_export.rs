@@ -62,7 +62,8 @@ pub fn sign(
 ) -> Result<String, jsonwebtoken::errors::Error> {
     let claims = LedgerExportClaims {
         sub: SUBJECT.to_owned(),
-        exp: (chrono::Utc::now() + chrono::Duration::minutes(LINK_MINUTES)).timestamp() as usize,
+        exp: (common_domain::clock::wall() + chrono::Duration::minutes(LINK_MINUTES)).timestamp()
+            as usize,
         scope,
     };
     meteroid_store::jwt::encode(

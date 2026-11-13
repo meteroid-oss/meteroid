@@ -154,7 +154,7 @@ GROUP BY lc.prev_active_slots;
             lock.covers(conn, tenant, customer)?;
         }
         let tenant_id = lock.tenant_id();
-        let at_ts = at_ts.unwrap_or_else(|| chrono::Utc::now().naive_utc());
+        let at_ts = at_ts.unwrap_or_else(|| common_domain::clock::now().naive_utc());
 
         let raw_sql = r"
 WITH LatestCheckpoint AS (
@@ -319,7 +319,7 @@ impl SlotTransactionRow {
         use diesel::prelude::*;
         use diesel_async::RunQueryDsl;
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
 
         let query = diesel::delete(
             slot_transaction::table

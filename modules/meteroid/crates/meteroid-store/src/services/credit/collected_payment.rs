@@ -51,7 +51,7 @@ pub(crate) async fn keep_collected_payment_tx(
     {
         return Ok(());
     }
-    let now = Utc::now();
+    let now = common_domain::clock::now();
     credit::fund_tx(
         conn,
         controls,
@@ -162,7 +162,7 @@ pub(crate) async fn follow_collected_payment_tx(
     } else {
         (taken - target).min(grant.amount - grant.remaining)
     };
-    let now = Utc::now();
+    let now = common_domain::clock::now();
     if delta != 0 {
         let follow_up = match moved {
             None => dispute_follow_up_tx(conn, tenant_id, None, Some(payment), now).await?,
@@ -295,7 +295,7 @@ pub(crate) async fn reconcile_overpayment_tx(
     }
     let net: i64 = kept.iter().map(|(grant, taken)| grant.amount - taken).sum();
     let mut diff = target - net;
-    let now = Utc::now();
+    let now = common_domain::clock::now();
     let follow_up = match moved {
         None if diff != 0 => {
             dispute_follow_up_tx(conn, tenant_id, Some(invoice_id), None, now).await?

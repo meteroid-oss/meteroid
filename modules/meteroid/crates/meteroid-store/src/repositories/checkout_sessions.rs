@@ -2,7 +2,7 @@ use crate::domain::checkout_sessions::CheckoutSessionStatus;
 use crate::domain::{CheckoutSession, CreateCheckoutSession};
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
-use chrono::{Duration, Utc};
+use chrono::Duration;
 use common_domain::ids::{CheckoutSessionId, CustomerId, SubscriptionId, TenantId};
 use diesel_models::checkout_sessions::{CheckoutSessionRow, CheckoutSessionRowNew};
 use diesel_models::coupons::CouponRow;
@@ -151,7 +151,7 @@ impl CheckoutSessionsInterface for Store {
     async fn expire_sessions(&self) -> StoreResult<usize> {
         let mut conn = self.get_conn().await?;
 
-        let now = Utc::now();
+        let now = common_domain::clock::now();
 
         let expired = CheckoutSessionRow::mark_expired_batch(&mut conn, now)
             .await
@@ -168,7 +168,7 @@ impl CheckoutSessionsInterface for Store {
     async fn cleanup_old_sessions(&self, older_than_days: u32) -> StoreResult<usize> {
         let mut conn = self.get_conn().await?;
 
-        let older_than = Utc::now() - Duration::days(older_than_days as i64);
+        let older_than = common_domain::clock::now() - Duration::days(older_than_days as i64);
 
         CheckoutSessionRow::delete_old(&mut conn, older_than)
             .await

@@ -40,8 +40,14 @@ impl Services {
         invoice_id: InvoiceId,
         paid_at: Option<NaiveDateTime>,
     ) -> StoreResult<Invoice> {
-        self.apply_invoice_paid_at_tx(conn, tenant_id, invoice_id, paid_at, Utc::now())
-            .await
+        self.apply_invoice_paid_at_tx(
+            conn,
+            tenant_id,
+            invoice_id,
+            paid_at,
+            common_domain::clock::now(),
+        )
+        .await
     }
 
     /// `now` is the present the funded balance is judged at: the clock, or a replay's moment.

@@ -84,7 +84,7 @@ mod tests {
                     .and_hms_opt(0, 0, 0)
                     .unwrap(),
                 window_end: None,
-                as_of: chrono::Utc::now(),
+                as_of: common_domain::clock::now(),
             },
         ))
     }

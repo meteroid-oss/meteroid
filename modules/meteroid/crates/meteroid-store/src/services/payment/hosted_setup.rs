@@ -1441,7 +1441,7 @@ mod tests {
     /// single charge on this path.
     #[test]
     fn captured_payment_resolution_table() {
-        let processed_at = chrono::Utc::now().naive_utc();
+        let processed_at = common_domain::clock::now().naive_utc();
         assert_eq!(
             resolve_captured_payment(
                 RemoteTransactionStatus::Succeeded {
@@ -1491,7 +1491,7 @@ mod tests {
     /// currency comparison is case-insensitive so a match is never falsely held.
     #[test]
     fn captured_payment_amount_currency_mismatch_is_held() {
-        let processed_at = chrono::Utc::now().naive_utc();
+        let processed_at = common_domain::clock::now().naive_utc();
         // Amount differs.
         assert_eq!(
             resolve_captured_payment(

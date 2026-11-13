@@ -908,7 +908,9 @@ impl TryFrom<OAuthTokens> for PennylaneSensitiveData {
             refresh_token: value
                 .refresh_token
                 .ok_or_else(|| StoreError::OauthError("missing refresh_token".into()))?,
-            expires_at: value.expires_in.map(|duration| Utc::now() + duration),
+            expires_at: value
+                .expires_in
+                .map(|duration| common_domain::clock::now() + duration),
         })
     }
 }

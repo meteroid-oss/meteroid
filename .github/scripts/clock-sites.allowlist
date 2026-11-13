@@ -1,0 +1,9 @@
+# SQL that may read the database's clock: <path> | <fragment of the line> | reason.
+# Only for times compared with other database times or never decided on; billing binds clock::now.
+
+modules/meteroid/crates/diesel-models/src/query/credit_usage.rs | clock_timestamp() | recompute marks, compared only with marks the database stamped
+modules/meteroid/crates/diesel-models/src/query/credit_inputs.rs | dropped_at = now() | change-feed retention bookkeeping
+modules/meteroid/crates/diesel-models/src/query/instance_telemetry.rs | now() | instance telemetry counts real time
+modules/meteroid/crates/meteroid-store/src/repositories/filter_resolution.rs | now() | the balance shown in a customer list filter
+modules/meteroid/crates/diesel-models/src/query/payment_reminders.rs | "now()" | the test that keeps the reminder scans free of the session clock
+modules/meteroid/crates/diesel-models/src/query/invoices.rs | contains("CURRENT_TIMESTAMP") | the test that keeps the scan free of the session clock

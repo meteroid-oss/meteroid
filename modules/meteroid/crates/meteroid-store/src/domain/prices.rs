@@ -828,7 +828,7 @@ mod tests {
     }
 
     fn credits_unit() -> crate::domain::credit_units::CreditUnit {
-        let now = chrono::Utc::now();
+        let now = common_domain::clock::now();
         crate::domain::credit_units::CreditUnit {
             id: CreditUnitId::new(),
             tenant_id: TenantId::new(),

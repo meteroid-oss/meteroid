@@ -16,7 +16,6 @@ use crate::domain::entity_list_views::{
 use crate::domain::enums::EntityListType;
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
-use chrono::Utc;
 use common_domain::ids::{BaseId, EntityListViewId, TenantId, UserId};
 use diesel_models::PgConn;
 use diesel_models::entity_list_views::{
@@ -275,7 +274,7 @@ impl EntityListViewsInterface for Store {
                             name,
                             config: patch.config,
                             shared: sharing_change,
-                            updated_at: Some(Utc::now().naive_utc()),
+                            updated_at: Some(common_domain::clock::now().naive_utc()),
                         },
                     )
                     .await

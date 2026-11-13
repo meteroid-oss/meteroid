@@ -24,7 +24,6 @@ use crate::repositories::organizations::ensure_org_member;
 use crate::repositories::pgmq::PgmqInterface;
 use crate::services::orchestration::payment_transaction_failed::rearm_hard_declined_retries;
 use crate::store::{PgConn, Store, StoreInternal};
-use chrono::Utc;
 use common_domain::ids::{AliasOr, BaseId, ConnectorId, CustomerId, TenantId, UserId};
 use common_domain::lifecycle::{LifecycleSignals, derive_lifecycle_state};
 use common_eventbus::Event;
@@ -812,7 +811,11 @@ impl CustomersInterface for Store {
                             if currency_patched {
                                 self.hooks
                                     .credit
-                                    .wallet_price_changed(conn, &[&lock], Utc::now())
+                                    .wallet_price_changed(
+                                        conn,
+                                        &[&lock],
+                                        common_domain::clock::now(),
+                                    )
                                     .await?;
                             }
                             credit_inputs::bump_customer(conn, &lock).await?;
@@ -1045,7 +1048,7 @@ impl CustomersInterface for Store {
                     if updated.currency != previous_currency {
                         self.hooks
                             .credit
-                            .wallet_price_changed(conn, &[&lock], Utc::now())
+                            .wallet_price_changed(conn, &[&lock], common_domain::clock::now())
                             .await?;
                     }
                     credit_inputs::bump_customer(conn, &lock).await?;
@@ -1606,7 +1609,7 @@ async fn bump_written_customers(
     let locks: Vec<&CustomerLock> = locks.iter().collect();
     // An upsert may change existing customers' currency.
     controls
-        .wallet_price_changed(conn, &locks, Utc::now())
+        .wallet_price_changed(conn, &locks, common_domain::clock::now())
         .await?;
     Ok(credit_inputs::bump_customers(conn, &locks).await?)
 }

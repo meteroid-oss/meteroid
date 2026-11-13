@@ -90,7 +90,7 @@ impl Services {
         tenant_id: TenantId,
         customer_id: CustomerId,
     ) -> StoreResult<Vec<CreditPaidFeature>> {
-        let now = Utc::now();
+        let now = common_domain::clock::now();
         let mut conn = self.store.get_conn().await?;
         let accounts =
             CustomerCreditAccountRow::list_for_customer(&mut conn, tenant_id, customer_id)

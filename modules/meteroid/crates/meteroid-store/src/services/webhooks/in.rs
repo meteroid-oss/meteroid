@@ -65,7 +65,7 @@ impl ServicesEdge {
         error: Option<String>,
     ) -> StoreResult<()> {
         let mut conn = self.store.get_conn().await?;
-        let processed_at = chrono::Utc::now().naive_utc();
+        let processed_at = common_domain::clock::now().naive_utc();
 
         WebhookInEventRow::mark_processed(&mut conn, event_uid, processed_at, error)
             .await

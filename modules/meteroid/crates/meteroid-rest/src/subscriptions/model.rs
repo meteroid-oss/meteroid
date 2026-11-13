@@ -841,7 +841,7 @@ impl From<UsagePricingModel> for meteroid_store::domain::price_components::Usage
 #[ghosts(
     is_override: {@.price_component_id.is_some()},
     price_id: {None},
-    effective_from: {chrono::Utc::now().naive_utc().date()},
+    effective_from: {common_domain::clock::now().naive_utc().date()},
 )]
 pub struct SubscriptionComponent {
     #[serde(default, with = "string_serde_opt")]

@@ -985,7 +985,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
 
         let (effective_date, scheduled_event_id) = match cancel_event {
             Some(e) => (e.scheduled_date.as_proto(), Some(e.id.to_string())),
-            None => (chrono::Utc::now().date_naive().as_proto(), None),
+            None => (common_domain::clock::now().date_naive().as_proto(), None),
         };
 
         Ok(Response::new(CancelSubscriptionResponse {
@@ -1755,7 +1755,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
 
             Ok(Response::new(UpdateSeatsResponse {
                 status: AdjustmentStatus::AdjustmentCompleted.into(),
-                effective_date: Some(chrono::Utc::now().date_naive().as_proto()),
+                effective_date: Some(common_domain::clock::now().date_naive().as_proto()),
                 checkout_token: None,
                 scheduled_event_id: None,
             }))
@@ -1776,7 +1776,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             let effective_date = details
                 .subscription
                 .current_period_end
-                .unwrap_or_else(|| chrono::Utc::now().date_naive());
+                .unwrap_or_else(|| common_domain::clock::now().date_naive());
 
             Ok(Response::new(UpdateSeatsResponse {
                 status: AdjustmentStatus::AdjustmentScheduled.into(),
@@ -1859,7 +1859,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                     removed: vec![],
                 },
             };
-            (amendment, true, chrono::Utc::now().date_naive())
+            (amendment, true, common_domain::clock::now().date_naive())
         } else {
             let add_on_changes = if target == 0 {
                 AddOnChanges {
@@ -1883,7 +1883,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                 component_changes: ComponentChanges::default(),
                 add_on_changes,
             };
-            let eff = period_end.unwrap_or_else(|| chrono::Utc::now().date_naive());
+            let eff = period_end.unwrap_or_else(|| common_domain::clock::now().date_naive());
             (amendment, false, eff)
         };
 
@@ -2162,7 +2162,7 @@ impl PortalSubscriptionServiceComponents {
             metadata: None,
             checkout_type: DomainCheckoutType::AddonPurchase,
             subscription_id: Some(subscription_id),
-            change_date: Some(chrono::Utc::now().date_naive()),
+            change_date: Some(common_domain::clock::now().date_naive()),
             success_url: None,
             cancel_url: None,
         };
@@ -2331,7 +2331,7 @@ impl PortalSubscriptionServiceComponents {
                 new_plan_version_id,
                 details.subscription.customer_id,
                 details.subscription.payment_methods_config.clone(),
-                chrono::Utc::now().date_naive(),
+                common_domain::clock::now().date_naive(),
             )
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
@@ -2342,7 +2342,7 @@ impl PortalSubscriptionServiceComponents {
             .await
             .map_err(Into::<PortalSubscriptionApiError>::into)?;
 
-        let today = chrono::Utc::now().date_naive();
+        let today = common_domain::clock::now().date_naive();
 
         Ok(Response::new(ConfirmPlanChangeResponse {
             effective_date: today.as_proto(),

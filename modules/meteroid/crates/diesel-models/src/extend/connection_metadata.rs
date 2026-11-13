@@ -15,7 +15,7 @@ pub async fn upsert(
     external_id: &str,
     external_company_id: &str,
 ) -> DbResult<usize> {
-    let sync_at = serde_json::to_string(&chrono::Utc::now())
+    let sync_at = serde_json::to_string(&common_domain::clock::now())
         .map_err(|_| DatabaseError::Others("sync_at serialization failure".into()))?
         .trim_matches('"')
         .to_string();

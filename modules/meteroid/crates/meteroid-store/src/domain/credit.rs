@@ -1571,7 +1571,7 @@ mod tests {
             maximum_minor: Some(20_000),
             daily_cap_minor: Some(50_000),
             consecutive_failures: 2,
-            suspended_at: Some(Utc::now()),
+            suspended_at: Some(common_domain::clock::now()),
             ..AutomaticTopUpConfig::new(
                 AutomaticTopUpMethod::Fixed,
                 1_000,
@@ -1602,7 +1602,7 @@ mod tests {
             last_error: Some("card_declined".to_owned()),
             ..stored.clone()
         };
-        let attempted = Utc::now();
+        let attempted = common_domain::clock::now();
         let running = AutomaticTopUpConfig {
             last_attempted_at: Some(attempted),
             ..running

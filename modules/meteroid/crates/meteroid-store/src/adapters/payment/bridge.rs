@@ -138,7 +138,7 @@ pub fn payment_intent_from_event(
             status: PaymentStatusEnum::Settled,
             last_payment_error: None,
             decline_kind: None,
-            processed_at: Some(chrono::Utc::now().naive_utc()),
+            processed_at: Some(common_domain::clock::now().naive_utc()),
         }),
         NormalizedEventKind::PaymentFailed(e) => Some(PaymentIntent {
             external_id: e.external_transaction_id.clone(),

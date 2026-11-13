@@ -13,7 +13,6 @@ use crate::repositories::credit::customer_credit::{
     report_unrecovered_credit_tx, source,
 };
 use crate::store::PgConn;
-use chrono::Utc;
 use common_domain::ids::{BaseId, CreditGrantId, InvoiceId, TenantId};
 use diesel_models::customer_credit::{
     CustomerCreditEntryRow, CustomerCreditGrantRow, CustomerCreditOperationRow,
@@ -144,7 +143,13 @@ async fn follow_purchase_money_tx(
         // went back to.
         let reversed = reversed_payment_tx(conn, tenant_id, moved).await?;
         controls
-            .purchase_payment_reversed(conn, lock, &operation, reversed, Utc::now())
+            .purchase_payment_reversed(
+                conn,
+                lock,
+                &operation,
+                reversed,
+                common_domain::clock::now(),
+            )
             .await?;
     }
 
@@ -173,7 +178,7 @@ async fn follow_purchase_money_tx(
         .await?;
     }
     let mut touched = Vec::new();
-    let now = Utc::now();
+    let now = common_domain::clock::now();
     let follow_up = match moved {
         None if plan.movements.iter().any(|movement| *movement != 0) => {
             dispute_follow_up_tx(conn, tenant_id, Some(invoice_id), None, now).await?
@@ -265,7 +270,13 @@ pub(crate) async fn suspend_top_up_of_refunded_purchase_tx(
         amount_minor: refunded_minor,
     };
     controls
-        .purchase_payment_reversed(conn, lock, &operation, refunded, Utc::now())
+        .purchase_payment_reversed(
+            conn,
+            lock,
+            &operation,
+            refunded,
+            common_domain::clock::now(),
+        )
         .await
 }
 

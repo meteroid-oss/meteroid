@@ -91,7 +91,7 @@ impl Services {
 
                 let slot = services.extract_slot(&subscription_details, price_component_id)?;
 
-                let now = at_ts.unwrap_or(chrono::Utc::now().naive_utc());
+                let now = at_ts.unwrap_or(common_domain::clock::now().naive_utc());
                 let now_date = now.date();
 
                 let unit_rate = slot.unit_rate;
@@ -421,7 +421,7 @@ impl Services {
                     subscription_id,
                     event_type: SubscriptionEventType::Switch,
                     details: Some(serde_json::json!({ "kind": "slots", "mode": "immediate" })),
-                    created_at: chrono::Utc::now().naive_utc(),
+                    created_at: common_domain::clock::now().naive_utc(),
                     mrr_delta: None,
                     bi_mrr_movement_log_id: None,
                     applies_to: start_date,
@@ -866,7 +866,7 @@ impl Services {
 
         let slot = self.extract_slot(&subscription_details, price_component_id)?;
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         let now_date = now.date();
 
         let mut conn = self.store.get_conn().await?;
@@ -990,7 +990,7 @@ impl Services {
                     )
                     .await?;
 
-                    let now = at_ts.unwrap_or(chrono::Utc::now().naive_utc());
+                    let now = at_ts.unwrap_or(common_domain::clock::now().naive_utc());
                     let now_date = now.date();
                     let period_end = subscription_details.subscription.current_period_end.ok_or(
                         StoreError::InvalidArgument(

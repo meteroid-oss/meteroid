@@ -273,7 +273,7 @@ impl Services {
         }) {
             return Err(invalid("an invoice bills a single customer"));
         }
-        let now = Utc::now();
+        let now = common_domain::clock::now();
         let unit_ids: Vec<CreditUnitId> = demands.iter().map(|demand| demand.unit_id).collect();
         let plan_version_ids: Vec<PlanVersionId> = targets
             .iter()

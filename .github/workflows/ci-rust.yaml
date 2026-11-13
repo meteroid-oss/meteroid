@@ -225,6 +225,8 @@ jobs:
         run: ./ee/modules/billing-rules/check-rule-ids.sh
       - name: Credit input tokens are written only by their bump functions
         run: ./.github/scripts/check-credit-bumps.sh
+      - name: Billing code reads the present through common_domain::clock
+        run: ./.github/scripts/check-clock-sites.sh
 
   lock-sites:
     name: Row lock sites

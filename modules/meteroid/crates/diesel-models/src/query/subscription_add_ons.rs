@@ -45,7 +45,18 @@ impl SubscriptionAddOnRow {
     ) -> DbResult<Vec<SubscriptionAddOnRow>> {
         use crate::schema::subscription_add_on::dsl as sao_dsl;
 
-        let query = diesel::insert_into(sao_dsl::subscription_add_on).values(batch);
+        let query = diesel::insert_into(sao_dsl::subscription_add_on).values(
+            batch
+                .iter()
+                .map(|row| {
+                    (
+                        *row,
+                        crate::schema::subscription_add_on::created_at
+                            .eq(common_domain::clock::now().naive_utc()),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
 
         crate::debug_sql(&query);
 

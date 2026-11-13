@@ -198,7 +198,7 @@ impl Services {
             // Still in flight at the provider: nothing to record.
             RemoteRefundStatus::Pending => return Ok(()),
             RemoteRefundStatus::Succeeded => RefundSettlementStatus::Settled {
-                processed_at: chrono::Utc::now().naive_utc(),
+                processed_at: common_domain::clock::now().naive_utc(),
                 external_refund_id,
             },
             RemoteRefundStatus::Failed { message, .. } => RefundSettlementStatus::Failed {
@@ -318,7 +318,7 @@ mod tests {
     use diesel_models::payments::PaymentTransactionRow;
 
     fn pending_row_with_provider_id() -> PaymentTransactionRow {
-        let now = chrono::Utc::now();
+        let now = common_domain::clock::now();
         PaymentTransactionRow {
             id: PaymentTransactionId::new(),
             tenant_id: TenantId::new(),
@@ -392,7 +392,7 @@ mod tests {
     #[test]
     fn succeeded_settles_with_received_amount() {
         let row = pending_row_with_provider_id();
-        let processed_at = chrono::Utc::now().naive_utc();
+        let processed_at = common_domain::clock::now().naive_utc();
         let intent = payment_intent_from_remote_status(
             RemoteTransactionStatus::Succeeded {
                 amount_received_minor: 3500,

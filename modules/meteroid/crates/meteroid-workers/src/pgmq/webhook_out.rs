@@ -774,7 +774,7 @@ mod fan_out_tests {
             consecutive_failures: 0,
             last_success_at: None,
             last_failure_at: None,
-            created_at: chrono::Utc::now().naive_utc(),
+            created_at: common_domain::clock::wall().naive_utc(),
             updated_at: None,
             archived_at: None,
             max_in_flight: 10,

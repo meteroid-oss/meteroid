@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono::{Duration, NaiveDate, NaiveTime, Utc};
+use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
 use common_domain::ids::{
     BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId, SubscriptionId,
 };
@@ -127,11 +127,17 @@ async fn invoice_cycles(env: &TestEnv, id: SubscriptionId) -> Vec<Option<i32>> {
         .unwrap()
 }
 
-/// Created to start in ten days, then moved to start on 2024-01-01 so the lifecycle activates it.
+/// 1:00 on that day, when the daily workers have run.
+fn at(y: i32, m: u32, d: u32) -> DateTime<Utc> {
+    day(y, m, d).and_hms_opt(1, 0, 0).unwrap().and_utc()
+}
+
+/// Created on Dec 20, 2023 to start on Jan 1, 2024, so the lifecycle activates it.
 async fn lifecycle_activated(env: &TestEnv, version: PlanVersionId) -> SubscriptionId {
+    env.set_now(day(2023, 12, 20).and_hms_opt(9, 0, 0).unwrap().and_utc());
     let id = subscription()
         .plan_version(version)
-        .start_date(Utc::now().date_naive() + Duration::days(10))
+        .start_date(day(2024, 1, 1))
         .on_start()
         .no_trial()
         .create(env.services())
@@ -143,7 +149,6 @@ async fn lifecycle_activated(env: &TestEnv, version: PlanVersionId) -> Subscript
         env.get_invoices(id).await.is_empty(),
         "nothing is invoiced before the start date"
     );
-    move_start_back(env, id).await;
     id
 }
 
@@ -174,11 +179,12 @@ async fn a_lifecycle_activated_subscription_renews_into_cycle_one() {
     let version = plan(&env).await;
     let id = lifecycle_activated(&env, version).await;
 
+    env.set_now(at(2024, 1, 1));
     env.process_cycles().await;
     assert_eq!(env.get_subscription(id).await.cycle_index, Some(0));
     assert_eq!(totals(&env, id).await, vec![RATE_CENTS + SETUP_CENTS]);
 
-    env.process_cycles().await;
+    env.run_until(day(2024, 2, 1)).await;
     assert_eq!(env.get_subscription(id).await.cycle_index, Some(1));
     assert_eq!(
         totals(&env, id).await,
@@ -194,9 +200,10 @@ async fn a_lifecycle_activated_subscription_renews_into_cycle_one() {
 #[tokio::test]
 async fn a_paid_trial_starting_later_bills_its_period_and_ends_on_schedule() {
     let env = env().await;
+    env.set_now(day(2023, 12, 20).and_hms_opt(9, 0, 0).unwrap().and_utc());
     let id = subscription()
         .plan_version(PLAN_VERSION_PAID_TRIAL_ID)
-        .start_date(Utc::now().date_naive() + Duration::days(10))
+        .start_date(day(2024, 1, 1))
         .on_start()
         .trial_days(7)
         .no_auto_charge()
@@ -207,9 +214,8 @@ async fn a_paid_trial_starting_later_bills_its_period_and_ends_on_schedule() {
         SubscriptionStatusEnum::PendingActivation
     );
     assert!(env.get_invoices(id).await.is_empty());
-    move_start_back(&env, id).await;
 
-    env.process_cycles().await;
+    env.run_until(day(2024, 1, 9)).await;
     let started = env.get_subscription(id).await;
     assert_eq!(
         (
@@ -226,7 +232,7 @@ async fn a_paid_trial_starting_later_bills_its_period_and_ends_on_schedule() {
     );
     assert_eq!(totals(&env, id).await, vec![9_900]);
 
-    env.process_cycles().await;
+    env.run_until(day(2024, 2, 1)).await;
     assert_eq!(env.get_subscription(id).await.cycle_index, Some(1));
     assert_eq!(totals(&env, id).await, vec![9_900, 9_900]);
 }
@@ -440,16 +446,8 @@ async fn a_usage_only_minimum_starting_later_is_booked_at_its_start() {
 
     let id = lifecycle_activated(&env, version).await;
     assert_eq!(env.get_subscription(id).await.mrr_cents, 0);
-    sql(
-        &env,
-        &format!(
-            "UPDATE subscription_event SET applies_to = '2024-01-01'
-             WHERE subscription_id = '{}' AND event_type = 'CREATED'",
-            id.as_uuid()
-        ),
-    )
-    .await;
 
+    env.set_now(at(2024, 1, 1));
     env.process_cycles().await;
     assert_eq!(env.get_subscription(id).await.cycle_index, Some(0));
     assert!(env.get_invoices(id).await.is_empty());

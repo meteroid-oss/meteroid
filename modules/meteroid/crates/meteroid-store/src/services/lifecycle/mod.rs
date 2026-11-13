@@ -15,5 +15,5 @@ pub(super) fn waits_on_metering(error: &error_stack::Report<crate::errors::Store
 
 /// When work waiting on the metering service is tried again.
 pub(super) fn metering_retry_time() -> chrono::NaiveDateTime {
-    chrono::Utc::now().naive_utc() + chrono::Duration::minutes(5)
+    common_domain::clock::now().naive_utc() + chrono::Duration::minutes(5)
 }

@@ -930,13 +930,13 @@ async fn apply_credit_note_to_invoice_tx(
         .await
         .map_err(Into::<Report<StoreError>>::into)?
         .and_then(|payment| payment.processed_at)
-        .map_or_else(Utc::now, |at| at.and_utc());
+        .map_or_else(common_domain::clock::now, |at| at.and_utc());
         crate::services::credit::mint::mint_purchased_credit_tx(
             conn,
             &*store.hooks.credit,
             &invoice,
             paid_at,
-            Utc::now(),
+            common_domain::clock::now(),
         )
         .await?;
         let event = InvoiceEvent {
@@ -1158,7 +1158,7 @@ async fn clamp_refund_to_unspent_purchased_credit(
     line_items_to_credit: &[LineItem],
     resolved: &mut HashMap<String, ResolvedCredit>,
 ) -> StoreResult<()> {
-    let now = Utc::now();
+    let now = common_domain::clock::now();
     let lines = financial::purchase_lines_tx(conn, lock, invoice).await?;
     let finalized = if lines.iter().any(|line| line.bonus.is_some()) {
         crate::services::credit::mint::credited_by_finalized_notes_tx(conn, invoice, None).await?
@@ -1535,7 +1535,7 @@ async fn finalize_credit_note_decision_tx(
     let credit_note_number = format_document_number(
         credit_note_number_value,
         &invoicing_entity.credit_note_number_pattern,
-        chrono::Utc::now().date_naive(),
+        common_domain::clock::now().date_naive(),
     );
 
     CreditNoteRow::finalize_with_number(conn, credit_note_id, tenant_id, &credit_note_number)
@@ -1895,12 +1895,21 @@ pub(crate) async fn create_credit_note_tx(
         params.from_proration,
     );
 
-    // 6. Calculate totals from negated line items (will be negative)
-    let subtotal =
-        credit_note_effects::sum(negated_line_items.iter().map(|item| item.amount_subtotal))?;
-    let tax_amount =
-        credit_note_effects::sum(negated_line_items.iter().map(|item| item.tax_amount))?;
-    let total = credit_note_effects::sum(negated_line_items.iter().map(|item| item.amount_total))?;
+    // 6. Totals of the negated line items (negative), as an invoice's (R-076).
+    let promotional = credit_note_effects::sum(negated_line_items.iter().map(
+        crate::services::credit::promotional::net_share,
+    ))?;
+    let discount = credit_note_effects::sum(
+        negated_line_items
+            .iter()
+            .map(|item| item.amount_subtotal - item.taxable_amount),
+    )? - promotional;
+    let billing_core::Totals {
+        subtotal,
+        tax: tax_amount,
+        total,
+        ..
+    } = crate::services::invoice_lines::invoice_lines::totals_of(&negated_line_items, discount);
     if total > 0 {
         bail!(StoreError::InvalidArgument(
             "a credit note cannot increase the invoice charge".into()
@@ -2252,7 +2261,7 @@ impl CreditNoteInterface for Store {
                         was_paid,
                         was_paid,
                         ReopenedReminders::Restart,
-                        chrono::Utc::now().naive_utc(),
+                        common_domain::clock::now().naive_utc(),
                     )
                     .await?;
 

@@ -76,7 +76,7 @@ pub fn detailed_domain_to_server(
                 detailed.credit_note.id.as_uuid(),
                 detailed.credit_note.tenant_id,
                 jwt_secret,
-                (chrono::Utc::now() + chrono::Duration::days(7)).timestamp() as usize,
+                (common_domain::clock::wall() + chrono::Duration::days(7)).timestamp() as usize,
             )
             .map_err(|e| tonic::Status::internal(e.to_string()))?,
         )

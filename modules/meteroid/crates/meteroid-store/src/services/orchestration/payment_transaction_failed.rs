@@ -12,7 +12,6 @@ use crate::repositories::subscriptions::SubscriptionInterface;
 use crate::services::Services;
 use crate::services::payment_reminders::sweep::ReopenedReminders;
 use crate::store::{PgConn, Store};
-use chrono::Utc;
 use common_domain::ids::{
     CustomerId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, SubscriptionId, TenantId,
 };
@@ -310,7 +309,7 @@ impl Services {
                             false,
                             true,
                             ReopenedReminders::Restart,
-                            Utc::now().naive_utc(),
+                            common_domain::clock::now().naive_utc(),
                         )
                         .await
                 }
@@ -359,7 +358,8 @@ impl Services {
             return Ok(());
         }
 
-        let scheduled_time = (Utc::now() + chrono::Duration::days(*delay_days)).naive_utc();
+        let scheduled_time =
+            (common_domain::clock::now() + chrono::Duration::days(*delay_days)).naive_utc();
 
         self.store
             .schedule_events(
@@ -525,7 +525,7 @@ async fn rearm_retries_where(
         retries.push(ScheduledEventNew {
             subscription_id,
             tenant_id,
-            scheduled_time: Utc::now().naive_utc(),
+            scheduled_time: common_domain::clock::now().naive_utc(),
             event_data: ScheduledEventData::RetryPayment { invoice_id },
             source: "dunning".to_string(),
             created_by: Actor::System,

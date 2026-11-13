@@ -87,7 +87,7 @@ impl ApiTokensInterface for Store {
     async fn report_api_token_usage(&self, id: &ApiTokenId) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        ApiTokenRow::record_usage(&mut conn, id, chrono::Utc::now().naive_utc())
+        ApiTokenRow::record_usage(&mut conn, id, common_domain::clock::now().naive_utc())
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
@@ -240,7 +240,7 @@ async fn insert_api_token_row(
     let insertable_entity = ApiTokenRowNew {
         id,
         name: entity.name,
-        created_at: chrono::Utc::now().naive_utc(),
+        created_at: common_domain::clock::now().naive_utc(),
         tenant_id: entity.tenant_id,
         hash: api_key_hash,
         hint,

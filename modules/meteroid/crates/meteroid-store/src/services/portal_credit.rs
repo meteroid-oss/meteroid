@@ -397,7 +397,7 @@ impl ServicesEdge {
         tenant_id: TenantId,
         customer_id: CustomerId,
     ) -> StoreResult<ActiveSubscriptions> {
-        let today = Utc::now().date_naive();
+        let today = common_domain::clock::now().date_naive();
         let mut subscriptions = self
             .store
             .list_subscriptions(
@@ -505,7 +505,7 @@ impl ServicesEdge {
         Vec<SubscriptionId>,
         Vec<CreditOutlook>,
     )> {
-        let now = Utc::now();
+        let now = common_domain::clock::now();
         let mut conn = self.store.get_conn().await?;
         let forecast = self
             .services
@@ -577,7 +577,7 @@ impl ServicesEdge {
         tenant_id: TenantId,
         customer_id: CustomerId,
     ) -> StoreResult<PortalCreditOverview> {
-        let now = Utc::now();
+        let now = common_domain::clock::now();
         let capabilities: PortalCreditCapabilities = self
             .portal_credit_capabilities(tenant_id, customer_id)
             .await?;
@@ -948,7 +948,7 @@ impl ServicesEdge {
         tenant_id: TenantId,
         customer_id: CustomerId,
     ) -> StoreResult<Vec<PortalUsageLimit>> {
-        let now = Utc::now();
+        let now = common_domain::clock::now();
         let subscription_ids = self
             .portal_active_subscriptions(tenant_id, customer_id)
             .await?
@@ -1212,7 +1212,7 @@ impl ServicesEdge {
         tenant_id: TenantId,
         subscription_ids: &[SubscriptionId],
     ) -> StoreResult<PortalPlanInputsBySubscription> {
-        let now = Utc::now();
+        let now = common_domain::clock::now();
         let today = now.date_naive();
         let (components, minimums, seats) = {
             let mut conn = self.store.get_conn().await?;

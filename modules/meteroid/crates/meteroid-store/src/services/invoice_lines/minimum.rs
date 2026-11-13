@@ -10,7 +10,6 @@
 use std::collections::HashMap;
 
 use chrono::NaiveDate;
-use nanoid::nanoid;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use rust_decimal::{Decimal, RoundingStrategy};
 
@@ -691,8 +690,8 @@ fn shortfall_line(
     end_date: NaiveDate,
     subscription_id: SubscriptionId,
 ) -> LineItem {
-    LineItem {
-        local_id: nanoid!(),
+    let line = LineItem {
+        local_id: String::new(),
         name,
         charge_type: Some(ChargeType::Recurring),
         amount_subtotal: amount,
@@ -726,7 +725,8 @@ fn shortfall_line(
         promotional_credit: None,
         subscription_id: Some(subscription_id),
         usage_ends_at: None,
-    }
+    };
+    super::charges::identified(line, &super::charges::Lineages::none())
 }
 
 /// How a shortfall is billed: one product-less line for an all-components minimum (the default

@@ -202,7 +202,7 @@ impl Services {
                     tenant_id,
                     subscription_id,
                     ended_at,
-                    chrono::Utc::now(),
+                    common_domain::clock::now(),
                 )
                 .await?;
             }
@@ -477,7 +477,7 @@ impl Services {
                     id: Uuid::now_v7(),
                     mrr_delta: None,
                     event_type: SubscriptionEventType::Ended,
-                    created_at: chrono::Utc::now().naive_utc(),
+                    created_at: common_domain::clock::now().naive_utc(),
                     applies_to: completion_date,
                     subscription_id,
                     bi_mrr_movement_log_id: None,

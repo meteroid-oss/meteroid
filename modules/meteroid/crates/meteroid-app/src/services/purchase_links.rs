@@ -1,7 +1,6 @@
 //! Purchases started from public purchase links: input checks, a proof of work, rate limits,
 //! then a customer and a SelfServe checkout session. The buyer finishes on the checkout page.
 
-use chrono::Utc;
 use common_domain::actor::Actor;
 use common_domain::country::CountryCode;
 use common_domain::ids::{AliasOr, BaseId, CheckoutSessionId, CustomerId, ProductId, TenantId};
@@ -863,8 +862,8 @@ fn verify_license_request(request: &str) -> Result<(InstanceId, String), Purchas
     if request.len() > MAX_LICENSE_REQUEST_LENGTH {
         return Err(invalid());
     }
-    let verified =
-        PurchaseRequest::verify(request, Utc::now().timestamp()).map_err(|_| invalid())?;
+    let verified = PurchaseRequest::verify(request, common_domain::clock::wall().timestamp())
+        .map_err(|_| invalid())?;
     let instance_id = InstanceId::parse(&verified.instance_id).map_err(|_| invalid())?;
     Ok((instance_id, verified.instance_public_key))
 }

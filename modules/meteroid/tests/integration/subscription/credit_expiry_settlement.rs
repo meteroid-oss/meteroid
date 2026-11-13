@@ -247,13 +247,8 @@ impl Scenario {
             .collect()
     }
 
-    async fn age_settlements(&self, days: i64) {
-        self.execute(&format!(
-            "SET session_replication_role = replica;
-             UPDATE credit_usage_settlement SET created_at = now() - interval '{days} days';
-             SET session_replication_role = origin;"
-        ))
-        .await;
+    fn age_settlements(&self, days: i64) {
+        self.env.advance(chrono::Duration::days(days));
     }
 
     async fn finalize(&self) -> meteroid_store::domain::Invoice {
@@ -1341,7 +1336,7 @@ async fn a_settlement_whose_period_bills_nothing_is_given_back() {
         "the invoice of the period may still be on its way"
     );
 
-    s.age_settlements(2).await;
+    s.age_settlements(2);
     s.sweep().await;
     assert!(
         s.settlements().await.is_empty(),
@@ -1920,17 +1915,7 @@ impl Consolidated {
     }
 
     async fn age_settlements_and_sweep(&self) {
-        use diesel_async::SimpleAsyncConnection;
-        self.env
-            .conn()
-            .await
-            .batch_execute(
-                "SET session_replication_role = replica;
-                 UPDATE credit_usage_settlement SET created_at = now() - interval '2 days';
-                 SET session_replication_role = origin;",
-            )
-            .await
-            .expect("age the settlements");
+        self.env.advance(chrono::Duration::days(2));
         self.sweep().await;
     }
 

@@ -127,7 +127,7 @@ pub async fn render(conn: &mut meteroid_store::store::PgConn, tenant: Uuid) -> S
         }
         out.push('\n');
     }
-    relative_to(&out, chrono::Utc::now().date_naive())
+    relative_to(&out, common_domain::clock::now().date_naive())
 }
 
 /// Writes dates near `today` as `today+N`, without their time of day: a test that cannot set the

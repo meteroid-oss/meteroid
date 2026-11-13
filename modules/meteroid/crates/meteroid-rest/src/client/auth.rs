@@ -4,7 +4,6 @@ use axum::Json;
 use axum::extract::State;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use chrono::Utc;
 use common_domain::auth::PortalScope;
 use common_domain::ids::TenantId;
 use common_grpc::middleware::common::auth::BEARER_AUTH_HEADER;
@@ -90,7 +89,7 @@ async fn stored_token(token: &str, app_state: &AppState) -> Result<TokenGrant, R
         })?
         .ok_or(Rejection::unauthorized("Invalid token"))?;
 
-    match portal_token.status(Utc::now()) {
+    match portal_token.status(common_domain::clock::wall()) {
         PortalTokenStatus::Active => {}
         PortalTokenStatus::Expired => return Err(Rejection::expired()),
         PortalTokenStatus::Revoked => return Err(Rejection::unauthorized("Invalid token")),

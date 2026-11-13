@@ -31,6 +31,7 @@ use crate::services::invoice_lines::discount::calculate_coupons_discount;
 use crate::services::invoice_lines::tax_inputs::customer_for_tax;
 use crate::store::PgConn;
 use crate::utils::periods::calculate_component_period_for_invoice_date;
+use billing_core::{LineAmounts, Totals};
 use common_utils::integers::ToNonNegativeU64;
 use diesel_models::billable_metrics::BillableMetricRow;
 use error_stack::{Report, ResultExt};
@@ -168,7 +169,44 @@ pub struct ComputedInvoiceContent {
     pub subtotal_recurring: i64,
 }
 
+/// The totals of a document's lines under its `discount` (R-076).
+pub(crate) fn totals_of(lines: &[LineItem], discount: i64) -> Totals {
+    Totals::of(
+        lines.iter().map(|line| LineAmounts {
+            subtotal: line.amount_subtotal,
+            tax: line.tax_amount,
+            promotional: promotional::net_share(line),
+            recurring: line.metric_id.is_none(),
+        }),
+        discount,
+    )
+}
+
 impl ComputedInvoiceContent {
+    /// A document's content: its lines, their totals, and what is already settled against them.
+    pub(crate) fn of(
+        invoice_lines: Vec<LineItem>,
+        totals: Totals,
+        applied_coupons: Vec<CouponLineItem>,
+        tax_breakdown: Vec<TaxBreakdownItem>,
+        already_paid: i64,
+        applied_credits: i64,
+    ) -> Self {
+        Self {
+            invoice_lines,
+            subtotal: totals.subtotal,
+            applied_coupons,
+            discount: totals.discount,
+            tax_breakdown,
+            applied_credits,
+            promotional_credits: totals.promotional,
+            total: totals.total,
+            amount_due: totals.amount_due(already_paid, applied_credits),
+            subtotal_recurring: totals.subtotal_recurring,
+            tax_amount: totals.tax,
+        }
+    }
+
     /// An invoice that bills nothing.
     pub fn empty() -> Self {
         Self {
@@ -434,7 +472,7 @@ impl Services {
         )
         .await?;
         let credit_at = match cover {
-            CreditUnitCover::Estimate { .. } => Utc::now(),
+            CreditUnitCover::Estimate { .. } => common_domain::clock::now(),
             CreditUnitCover::Draw { at, .. } | CreditUnitCover::DrawAsShown { at, .. } => at.at,
         };
         self.finish_invoice_content(conn, subscription_details, priced, credit_at, book)
@@ -516,7 +554,13 @@ impl Services {
             // Reused lines still estimate the customer credit they would draw.
             let already_paid = prepaid_amount.unwrap_or(0) as i64;
             let content = self
-                .estimate_stored_credit(conn, invoice, already_paid, Utc::now(), book)
+                .estimate_stored_credit(
+                    conn,
+                    invoice,
+                    already_paid,
+                    common_domain::clock::now(),
+                    book,
+                )
                 .await?;
             return Ok(PricedInvoice::Stored(content));
         }
@@ -681,6 +725,10 @@ impl Services {
         // Append date range to line item names when a temporal split occurred
         // (multiple sub_component_ids for the same price_component_id)
         apply_temporal_date_range_to_names(&mut invoice_lines);
+        super::charges::disambiguate(
+            &mut invoice_lines,
+            &super::charges::Lineages::of(subscription_details),
+        );
 
         let true_up = if invoice_type == InvoiceType::Recurring {
             super::minimum::load_period_true_up(
@@ -753,22 +801,18 @@ impl Services {
             },
         )
         .await?;
+        let totals = totals_of(&lines, invoice.discount);
         let applied_credits = self
-            .preview_credit_for_lines(conn, &scope, &lines, total, already_paid)
+            .preview_credit_for_lines(conn, &scope, &lines, totals.total, already_paid)
             .await?;
-        Ok(ComputedInvoiceContent {
-            invoice_lines: lines,
-            subtotal,
-            applied_coupons: invoice.coupons.clone(),
-            discount: invoice.discount,
+        Ok(ComputedInvoiceContent::of(
+            lines,
+            totals,
+            invoice.coupons.clone(),
             tax_breakdown,
+            already_paid,
             applied_credits,
-            promotional_credits,
-            total,
-            amount_due: (total - already_paid - applied_credits).max(0),
-            subtotal_recurring,
-            tax_amount,
-        })
+        ))
     }
 
     /// Discounts, minimum, tax and totals of priced (and covered) lines.
@@ -803,6 +847,10 @@ impl Services {
             invoice_date,
             true_up.as_ref(),
         )?;
+        super::charges::disambiguate(
+            &mut invoice_lines,
+            &super::charges::Lineages::of(subscription_details),
+        );
 
         let subtotal = invoice_lines
             .iter()
@@ -846,21 +894,14 @@ impl Services {
         let discount_total = taxed.net_discount(discount_total as i64, &mut applied_coupons)?;
         let (mut invoice_lines, mut breakdown) = (taxed.lines, taxed.breakdown);
 
-        // Signed throughout so credit/proration lines net correctly (W4); only the
-        // final amount_due is clamped (a customer never owes a negative amount).
-        let mut subtotal: i64 = invoice_lines
-            .iter()
-            .fold(0, |acc, x| acc + x.amount_subtotal);
-
-        let mut promotional_credits = promotional::net_total(&invoice_lines)?;
-        let subtotal_with_discounts = subtotal - discount_total - promotional_credits;
-        let mut tax_amount: i64 = invoice_lines.iter().fold(0, |acc, x| acc + x.tax_amount);
-
-        let mut total = subtotal_with_discounts + tax_amount;
-        let mut subtotal_recurring: i64 = invoice_lines
-            .iter()
-            .filter(|x| x.metric_id.is_none())
-            .fold(0, |acc, x| acc + x.amount_subtotal);
+        let Totals {
+            mut subtotal,
+            mut subtotal_recurring,
+            promotional: mut promotional_credits,
+            tax: mut tax_amount,
+            mut total,
+            ..
+        } = totals_of(&invoice_lines, discount_total);
         // Paid settlements of the periods were placed at face value before tax; placed again by
         // the usage lines' rates, as finalizing places them.
         let taxed_usage = invoice_lines
@@ -884,25 +925,20 @@ impl Services {
             )
             .await?;
         }
+        let totals = totals_of(&invoice_lines, discount_total);
         let already_paid = prepaid_amount.unwrap_or(0) as i64;
         let applied_credits = self
-            .preview_credit_for_lines(conn, &scope, &invoice_lines, total, already_paid)
+            .preview_credit_for_lines(conn, &scope, &invoice_lines, totals.total, already_paid)
             .await?;
-        let amount_due = (total - already_paid - applied_credits).max(0);
 
-        Ok(ComputedInvoiceContent {
+        Ok(ComputedInvoiceContent::of(
             invoice_lines,
-            subtotal,
+            totals,
             applied_coupons,
-            discount: discount_total,
-            tax_breakdown: breakdown,
+            breakdown,
+            already_paid,
             applied_credits,
-            promotional_credits,
-            total,
-            amount_due,
-            subtotal_recurring,
-            tax_amount,
-        })
+        ))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -931,7 +967,7 @@ impl Services {
             invoice_id: None,
             subscription_id: None,
             periods: Vec::new(),
-            at: Utc::now(),
+            at: common_domain::clock::now(),
             book: None,
         };
         self.take_promotional_estimate(conn, &scope, &mut invoice_lines)
@@ -952,38 +988,20 @@ impl Services {
         let discount_total = taxed.net_discount(discount_total as i64, &mut [])?;
         let (line_items, breakdown) = (taxed.lines, taxed.breakdown);
 
-        // Signed throughout so credit/proration lines net correctly (W4); only the
-        // final amount_due is clamped (a customer never owes a negative amount).
-        let subtotal: i64 = line_items.iter().fold(0, |acc, x| acc + x.amount_subtotal);
-
-        let promotional_credits = promotional::net_total(&line_items)?;
-        let subtotal_with_discounts = subtotal - discount_total - promotional_credits;
-        let tax_amount: i64 = line_items.iter().fold(0, |acc, x| acc + x.tax_amount);
-
-        let total = subtotal_with_discounts + tax_amount;
+        let totals = totals_of(&line_items, discount_total);
         let already_paid = prepaid_amount.unwrap_or(0) as i64;
         let applied_credits = self
-            .preview_credit_for_lines(conn, &scope, &line_items, total, already_paid)
+            .preview_credit_for_lines(conn, &scope, &line_items, totals.total, already_paid)
             .await?;
-        let amount_due = (total - already_paid - applied_credits).max(0);
-        let subtotal_recurring: i64 = line_items
-            .iter()
-            .filter(|x| x.metric_id.is_none())
-            .fold(0, |acc, x| acc + x.amount_subtotal);
 
-        Ok(ComputedInvoiceContent {
-            invoice_lines: line_items,
-            subtotal,
-            applied_coupons: Vec::new(),
-            discount: discount_total,
-            tax_breakdown: breakdown,
+        Ok(ComputedInvoiceContent::of(
+            line_items,
+            totals,
+            Vec::new(),
+            breakdown,
+            already_paid,
             applied_credits,
-            promotional_credits,
-            total,
-            amount_due,
-            subtotal_recurring,
-            tax_amount,
-        })
+        ))
     }
 
     pub(in crate::services) async fn process_invoice_lines_taxes(

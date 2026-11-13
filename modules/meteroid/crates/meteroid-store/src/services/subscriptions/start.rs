@@ -48,7 +48,7 @@ pub(crate) async fn mark_subscription_started_tx(
         tenant_id,
         subscription_id,
         transition,
-        Utc::now(),
+        common_domain::clock::now(),
     )
     .await
 }
@@ -154,7 +154,7 @@ impl crate::services::ServicesEdge {
         crate::domain::CreatedSubscription,
         Option<crate::domain::DetailedInvoice>,
     )> {
-        if start > Utc::now() {
+        if start > common_domain::clock::now() {
             return Err(Report::new(StoreError::InvalidArgument(
                 "a subscription cannot be started at a future moment".to_owned(),
             )));

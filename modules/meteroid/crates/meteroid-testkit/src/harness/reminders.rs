@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use bytes::Bytes;
-use chrono::{NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use common_domain::ids::{
     CustomerId, InvoiceId, InvoicingEntityId, PaymentReminderSequenceId, PlanVersionId,
     SubscriptionId,
@@ -212,7 +212,7 @@ impl TestEnv {
         let entity_id = invoicing_entity.id;
         let now = fixture
             .finalized_at
-            .unwrap_or_else(|| Utc::now().naive_utc());
+            .unwrap_or_else(|| common_domain::clock::now().naive_utc());
         let today = now.date();
         let due = fixture.due_at.unwrap_or_else(|| {
             (today + chrono::Days::new(30))
@@ -383,7 +383,8 @@ impl TestEnv {
         &self,
         patch: PaymentReminderSequencePatch,
     ) -> PaymentReminderSequence {
-        self.patch_sequence_at(patch, Utc::now().naive_utc()).await
+        self.patch_sequence_at(patch, common_domain::clock::now().naive_utc())
+            .await
     }
 
     /// `now` drives the re-arm of frozen invoices.
@@ -414,7 +415,7 @@ impl TestEnv {
                     opt_out,
                     sequence_id,
                 },
-                Utc::now().naive_utc(),
+                common_domain::clock::now().naive_utc(),
             )
             .await
             .expect("set preference");
@@ -467,7 +468,7 @@ impl TestEnv {
         sequence_id: PaymentReminderSequenceId,
     ) -> InvoicePaymentReminderRow {
         let mut conn = self.conn().await;
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
         InvoiceReminderUpdates::enroll(
             &mut conn,
             invoice_id,

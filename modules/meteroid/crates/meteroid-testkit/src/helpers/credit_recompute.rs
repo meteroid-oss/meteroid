@@ -354,7 +354,7 @@ pub fn metric_component(
 }
 
 pub fn started_on() -> chrono::NaiveDate {
-    Utc::now().date_naive() - Days::new(3)
+    common_domain::clock::now().date_naive() - Days::new(3)
 }
 
 pub async fn subscribe(
@@ -534,7 +534,7 @@ async fn build_fixture(over_events: bool, modules: Modules) -> Fixture {
 /// Up to eleven minutes ahead of the clock: a calendar window may already be the next one.
 pub fn steady_now() -> DateTime<Utc> {
     let grid = 600;
-    let floored = Utc::now().timestamp().div_euclid(grid) * grid;
+    let floored = common_domain::clock::now().timestamp().div_euclid(grid) * grid;
     DateTime::from_timestamp(floored + grid + 60, 0).unwrap()
 }
 
@@ -711,7 +711,7 @@ pub fn later(now: DateTime<Utc>, seconds: i64) -> DateTime<Utc> {
 /// Waits past midnight UTC when fewer than `margin_secs` remain before it, so a test reading
 /// daily windows never straddles two days.
 pub async fn clear_of_midnight(margin_secs: i64) {
-    let now = Utc::now();
+    let now = common_domain::clock::now();
     let midnight = (now.date_naive() + Days::new(1))
         .and_time(NaiveTime::MIN)
         .and_utc();

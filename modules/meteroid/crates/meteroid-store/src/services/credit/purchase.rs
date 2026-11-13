@@ -82,8 +82,8 @@ impl Services {
         conn: &mut PgConn,
         req: CreditPurchase,
     ) -> StoreResult<DetailedInvoice> {
-        let recorded_at = req.at.unwrap_or_else(chrono::Utc::now);
-        if req.at.is_some_and(|at| at > chrono::Utc::now()) {
+        let recorded_at = req.at.unwrap_or_else(common_domain::clock::now);
+        if req.at.is_some_and(|at| at > common_domain::clock::now()) {
             return Err(invalid("credit cannot be purchased at a future moment"));
         }
         if req.expires_at.is_some_and(|at| at <= recorded_at) {

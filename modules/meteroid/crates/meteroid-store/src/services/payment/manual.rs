@@ -56,7 +56,7 @@ impl Services {
                             "Payment amount must be positive".to_string(),
                         )));
                     }
-                    check_payment_date(payment_date, Utc::now())?;
+                    check_payment_date(payment_date, common_domain::clock::now())?;
 
                     let currency = meteroid_money::iso::find(&invoice.invoice.currency)
                         .ok_or_else(|| {
@@ -167,7 +167,7 @@ impl Services {
                         )));
                     }
 
-                    check_payment_date(payment_date, Utc::now())?;
+                    check_payment_date(payment_date, common_domain::clock::now())?;
 
                     let currency = meteroid_money::iso::find(&invoice.invoice.currency)
                         .ok_or_else(|| {
@@ -282,7 +282,7 @@ impl Services {
         reference: Option<String>,
         delivery: InvoiceDelivery,
     ) -> StoreResult<crate::domain::DetailedInvoice> {
-        if paid_at > Utc::now() {
+        if paid_at > common_domain::clock::now() {
             return Err(Report::new(StoreError::InvalidArgument(
                 "a payment cannot be received at a future moment".to_string(),
             )));
@@ -311,7 +311,7 @@ impl Services {
                             "The invoice has nothing left to pay".to_string(),
                         )));
                     }
-                    check_payment_date(paid_at.fixed_offset(), Utc::now())?;
+                    check_payment_date(paid_at.fixed_offset(), common_domain::clock::now())?;
                     if PaymentTransactionRow::exists_live_for_invoice(conn, invoice_id, tenant_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?

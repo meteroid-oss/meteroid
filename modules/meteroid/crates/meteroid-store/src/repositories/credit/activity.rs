@@ -132,7 +132,7 @@ impl CustomerCreditActivityInterface for Store {
     ) -> StoreResult<Vec<WalletActivity>> {
         let wallets = self.customer_credit_wallets(tenant_id, customer_id).await?;
         let mut conn = self.get_conn().await?;
-        let now = Utc::now();
+        let now = common_domain::clock::now();
         let account_ids = wallets.iter().map(|wallet| wallet.id).collect::<Vec<_>>();
         let rolling = rolling_tx(&mut conn, &account_ids, now).await?;
         let totals: HashMap<WalletId, CreditAccountActivityRow> =
@@ -263,7 +263,7 @@ impl CustomerCreditActivityInterface for Store {
             .map(|account| account.id)
             .collect::<Vec<_>>();
         let units = credit_units(&mut conn, tenant_id, &accounts).await?;
-        let now = Utc::now();
+        let now = common_domain::clock::now();
         let rolling = rolling_tx(&mut conn, &account_ids, now).await?;
         let rows = CustomerCreditLabelledStatementRow::list_for_accounts(
             &mut conn,

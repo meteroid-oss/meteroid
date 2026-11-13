@@ -207,7 +207,7 @@ impl CredentialOps for GoCardlessConnector {
                             GOCARDLESS_CAPABILITIES.supported_payment_methods,
                             MethodState::Enabled,
                         ),
-                        checked_at: chrono::Utc::now().naive_utc(),
+                        checked_at: common_domain::clock::now().naive_utc(),
                     },
                     public,
                 });
@@ -246,7 +246,7 @@ impl CredentialOps for GoCardlessConnector {
                 livemode,
                 key_hint: Some(mask_secret(secrecy::ExposeSecret::expose_secret(&token))),
                 methods: gocardless_methods(&schemes),
-                checked_at: chrono::Utc::now().naive_utc(),
+                checked_at: common_domain::clock::now().naive_utc(),
             },
             public,
         })
@@ -803,7 +803,7 @@ fn refund_outcome(refund: GcRefund) -> RefundOutcome {
         RemoteRefundStatus::Succeeded => RefundOutcome::Succeeded(RefundReceipt {
             external_refund_id: refund.id,
             amount_refunded_minor: refund.amount,
-            processed_at: chrono::Utc::now().naive_utc(),
+            processed_at: common_domain::clock::now().naive_utc(),
             provider_request_id: None,
         }),
         RemoteRefundStatus::Pending => RefundOutcome::Pending(RefundAcknowledged {
@@ -1017,7 +1017,7 @@ fn payment_to_outcome(id: String, status: PaymentStatus, amount_minor: i64) -> C
                 // The initial POST carries no settled amount; the requested
                 // amount is the best figure until `paid_out` reconciles fees.
                 amount_received_minor: amount_minor,
-                processed_at: chrono::Utc::now().naive_utc(),
+                processed_at: common_domain::clock::now().naive_utc(),
                 provider_request_id: None,
             })
         }
@@ -1066,7 +1066,7 @@ fn remote_status_from_payment(
         PaymentStatus::Confirmed | PaymentStatus::PaidOut => RemoteTransactionStatus::Succeeded {
             amount_received_minor: amount,
             currency,
-            processed_at: chrono::Utc::now().naive_utc(),
+            processed_at: common_domain::clock::now().naive_utc(),
         },
         PaymentStatus::PendingSubmission | PaymentStatus::Submitted => {
             RemoteTransactionStatus::Processing
@@ -1195,7 +1195,7 @@ fn normalize_event(event: gocardless_client::webhook::Event) -> Option<Normalize
     let occurred_at = chrono::DateTime::parse_from_rfc3339(&event.created_at)
         .ok()
         .map(|dt| dt.with_timezone(&chrono::Utc))
-        .unwrap_or_else(chrono::Utc::now);
+        .unwrap_or_else(common_domain::clock::now);
 
     // Only payment events echo `meteroid.tenant_id`; mandate/BR events don't
     // (the 3-property metadata cap has no room), so they get None and fall

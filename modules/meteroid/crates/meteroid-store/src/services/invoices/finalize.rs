@@ -412,7 +412,7 @@ impl Services {
                 invoice.invoice_date,
                 invoice.manual,
                 backdate_invoices,
-                Utc::now(),
+                common_domain::clock::now(),
             )?;
 
             if refresh_invoice_lines && let Some(subscription_id) = invoice.subscription_id {
@@ -646,7 +646,7 @@ impl Services {
         document.reprice(&shares)?;
 
         patch.applied_credits = 0;
-        patch.amount_due = patch.total.saturating_sub(already_paid).max(0);
+        patch.amount_due = billing_core::amount_due(patch.total, already_paid, 0);
         let (request, of_line) = value_application::credit_request_of_lines(
             &patch.line_items,
             &owners,
@@ -891,7 +891,7 @@ impl Services {
                 conn,
                 &details,
                 &mut windows,
-                Utc::now(),
+                common_domain::clock::now(),
             )
             .await?;
         }
@@ -1147,7 +1147,7 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
 
-    fn now() -> DateTime<Utc> {
+    fn fixed_now() -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 10, 8, 9, 15, 0).unwrap()
     }
 
@@ -1157,42 +1157,42 @@ mod tests {
 
     #[test]
     fn a_live_finalization_issues_today_and_draws_now() {
-        let issue = Issue::resolve(IssueAt::Now, day(1), false, false, now()).unwrap();
+        let issue = Issue::resolve(IssueAt::Now, day(1), false, false, fixed_now()).unwrap();
         assert_eq!(issue.issued_on, Some(day(8)));
-        assert_eq!(issue.finalized_at, now().naive_utc());
-        assert_eq!(issue.credit_at, now());
+        assert_eq!(issue.finalized_at, fixed_now().naive_utc());
+        assert_eq!(issue.credit_at, fixed_now());
     }
 
     #[test]
     fn stored_dates_survive_and_a_backdated_invoice_draws_at_its_date() {
-        let manual = Issue::resolve(IssueAt::Now, day(1), true, false, now()).unwrap();
+        let manual = Issue::resolve(IssueAt::Now, day(1), true, false, fixed_now()).unwrap();
         assert_eq!(manual.issued_on, None);
-        assert_eq!(manual.credit_at, now());
+        assert_eq!(manual.credit_at, fixed_now());
 
-        let backdated = Issue::resolve(IssueAt::Now, day(1), false, true, now()).unwrap();
+        let backdated = Issue::resolve(IssueAt::Now, day(1), false, true, fixed_now()).unwrap();
         let noon = Utc.with_ymd_and_hms(2026, 10, 1, 12, 0, 0).unwrap();
         assert_eq!(backdated.issued_on, None);
         assert_eq!(backdated.finalized_at, noon.naive_utc());
         assert_eq!(backdated.credit_at, noon);
 
         // Dated today, before noon: the credit is never read ahead of the clock.
-        let today = Issue::resolve(IssueAt::Now, day(8), false, true, now()).unwrap();
-        assert_eq!(today.credit_at, now());
+        let today = Issue::resolve(IssueAt::Now, day(8), false, true, fixed_now()).unwrap();
+        assert_eq!(today.credit_at, fixed_now());
     }
 
     #[test]
     fn an_explicit_moment_dates_the_invoice_and_its_credit() {
         let at = Utc.with_ymd_and_hms(2026, 9, 3, 18, 30, 0).unwrap();
-        let issue = Issue::resolve(IssueAt::At(at), day(1), false, true, now()).unwrap();
+        let issue = Issue::resolve(IssueAt::At(at), day(1), false, true, fixed_now()).unwrap();
         assert_eq!(issue.issued_on, Some(at.date_naive()));
         assert_eq!(issue.finalized_at, at.naive_utc());
         assert_eq!(issue.credit_at, at);
 
-        let manual = Issue::resolve(IssueAt::At(at), day(1), true, false, now()).unwrap();
+        let manual = Issue::resolve(IssueAt::At(at), day(1), true, false, fixed_now()).unwrap();
         assert_eq!(manual.issued_on, None);
         assert_eq!(manual.credit_at, at);
 
-        let future = now() + chrono::Duration::seconds(1);
-        assert!(Issue::resolve(IssueAt::At(future), day(1), false, false, now()).is_err());
+        let future = fixed_now() + chrono::Duration::seconds(1);
+        assert!(Issue::resolve(IssueAt::At(future), day(1), false, false, fixed_now()).is_err());
     }
 }

@@ -237,7 +237,7 @@ pub async fn archive_coupon(
             CouponStatusPatch {
                 id: coupon_id,
                 tenant_id: authorized_state.tenant_id,
-                archived_at: Some(Some(chrono::Utc::now().naive_utc())),
+                archived_at: Some(Some(common_domain::clock::now().naive_utc())),
                 disabled: None,
             },
         )

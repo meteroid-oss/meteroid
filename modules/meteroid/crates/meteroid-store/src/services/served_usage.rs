@@ -21,6 +21,26 @@ use scoped_futures::{ScopedBoxFuture, ScopedFutureExt};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+/// The passes a transaction reading metering took, by its call site: work whose usage is planned
+/// before the transaction takes one.
+static USAGE_PASSES: std::sync::LazyLock<opentelemetry::metrics::Counter<u64>> =
+    std::sync::LazyLock::new(|| {
+        common_logging::GLOBAL_METER
+            .u64_counter("billing_usage_passes")
+            .with_description("Transactions reading metering, by call site and passes taken")
+            .build()
+    });
+
+fn record_passes(entry: &std::panic::Location<'static>, passes: usize) {
+    USAGE_PASSES.add(
+        1,
+        &[
+            common_logging::KeyValue::new("entry", format!("{}:{}", entry.file(), entry.line())),
+            common_logging::KeyValue::new("passes", passes as i64),
+        ],
+    );
+}
+
 /// Passes before giving up on work that keeps asking for metering it has not read.
 const MAX_USAGE_PASSES: usize = 3;
 
@@ -322,11 +342,12 @@ impl Services {
     /// A transaction on `conn` whose work reads metering before taking its row locks (see the
     /// module). Nested in a caller's transaction it stays correct, but its reads then run under
     /// the caller's locks: it belongs where the transaction is the outermost.
-    pub(in crate::services) async fn transaction_reading_usage_first<'a, R, F>(
-        &self,
-        conn: &mut PgConn,
+    #[track_caller]
+    pub(in crate::services) fn transaction_reading_usage_first<'s, 'c, 'a, R, F>(
+        &'s self,
+        conn: &'c mut PgConn,
         work: F,
-    ) -> StoreResult<R>
+    ) -> impl Future<Output = StoreResult<R>> + use<'s, 'c, 'a, R, F>
     where
         R: Send + 'a,
         F: for<'r> Fn(&'r Services, &'r mut PgConn) -> ScopedBoxFuture<'a, 'r, StoreResult<R>>
@@ -334,18 +355,18 @@ impl Services {
             + Sync
             + 'a,
     {
-        self.transaction_keeping_usage_reads(conn, work)
-            .await
-            .map(|(result, _)| result)?
+        let passes = self.transaction_keeping_usage_reads(conn, work);
+        async move { passes.await.map(|(result, _)| result)? }
     }
 
     /// [`Self::transaction_reading_usage_first`], also returning the metering its last pass was
     /// served, for later work under locks to be served the same (see [`Self::served_only`]).
-    pub(in crate::services) async fn transaction_keeping_usage_reads<'a, R, F>(
-        &self,
-        conn: &mut PgConn,
+    #[track_caller]
+    pub(in crate::services) fn transaction_keeping_usage_reads<'s, 'c, 'a, R, F>(
+        &'s self,
+        conn: &'c mut PgConn,
         work: F,
-    ) -> StoreResult<(StoreResult<R>, UsageReads)>
+    ) -> impl Future<Output = StoreResult<(StoreResult<R>, UsageReads)>> + use<'s, 'c, 'a, R, F>
     where
         R: Send + 'a,
         F: for<'r> Fn(&'r Services, &'r mut PgConn) -> ScopedBoxFuture<'a, 'r, StoreResult<R>>
@@ -353,29 +374,33 @@ impl Services {
             + Sync
             + 'a,
     {
-        let mut passes = UsagePasses::default();
-        loop {
-            let usage = passes.next_pass()?;
-            let services = Services {
-                served: Some(usage.clone()),
-                ..self.reading_usage(usage.clone())
-            };
-            let result = self
-                .store
-                .transaction_with(conn, |conn| {
-                    let (work, services, usage) = (&work, &services, &usage);
-                    async move {
-                        let done = work(services, conn).await;
-                        usage.ensure_served()?;
-                        done
-                    }
-                    .scope_boxed()
-                })
-                .await;
-            if passes.served(self.usage_client.as_ref(), &usage).await? {
-                return Ok((result, passes.reads));
+        let entry = std::panic::Location::caller();
+        Box::pin(async move {
+            let mut passes = UsagePasses::default();
+            loop {
+                let usage = passes.next_pass()?;
+                let services = Services {
+                    served: Some(usage.clone()),
+                    ..self.reading_usage(usage.clone())
+                };
+                let result = self
+                    .store
+                    .transaction_with(conn, |conn| {
+                        let (work, services, usage) = (&work, &services, &usage);
+                        async move {
+                            let done = work(services, conn).await;
+                            usage.ensure_served()?;
+                            done
+                        }
+                        .scope_boxed()
+                    })
+                    .await;
+                if passes.served(self.usage_client.as_ref(), &usage).await? {
+                    record_passes(entry, passes.passes);
+                    return Ok((result, passes.reads));
+                }
             }
-        }
+        })
     }
 
     /// Services whose metering is only `reads`, made before the caller's locks: a read they do

@@ -196,7 +196,7 @@ impl CredentialOps for StripeConnector {
                 livemode: secret.starts_with("sk_live_") || secret.starts_with("rk_live_"),
                 key_hint: Some(mask_secret(secret)),
                 methods: stripe_methods(&account.capabilities, configuration.as_ref()),
-                checked_at: chrono::Utc::now().naive_utc(),
+                checked_at: common_domain::clock::now().naive_utc(),
             },
             public: PaymentConnectorPublicData::Stripe(StripePublicData {
                 api_publishable_key: publishable.expose_secret().to_string(),
@@ -574,7 +574,7 @@ fn remote_status_from_intent(intent: StripePaymentIntent) -> RemoteTransactionSt
             currency: intent.currency.clone(),
             // `StripePaymentIntent` doesn't carry Stripe's `created` timestamp
             // (stripe-client crate); wall-clock is a stand-in until it's added.
-            processed_at: chrono::Utc::now().naive_utc(),
+            processed_at: common_domain::clock::now().naive_utc(),
         },
         StripePaymentStatus::RequiresPaymentMethod | StripePaymentStatus::RequiresConfirmation
             if intent.last_payment_error.is_some() =>
@@ -849,7 +849,7 @@ fn intent_to_outcome(intent: StripePaymentIntent, publishable_key: &str) -> Char
             amount_received_minor: intent.amount_received.unwrap_or(intent.amount),
             // Same caveat as `remote_status_from_intent`: no provider timestamp
             // available on `StripePaymentIntent` yet, so this uses wall-clock.
-            processed_at: chrono::Utc::now().naive_utc(),
+            processed_at: common_domain::clock::now().naive_utc(),
             provider_request_id: None,
         }),
         StripePaymentStatus::Pending | StripePaymentStatus::Processing => {
@@ -1019,7 +1019,7 @@ fn refund_processed_at(refund: &StripeRefund) -> chrono::NaiveDateTime {
     refund
         .created
         .and_then(|ts| DateTime::from_timestamp(ts, 0))
-        .unwrap_or_else(chrono::Utc::now)
+        .unwrap_or_else(common_domain::clock::now)
         .naive_utc()
 }
 
@@ -1151,7 +1151,7 @@ fn normalize_event(parsed: Event) -> Option<NormalizedWebhookEvent> {
     let occurred_at = parsed
         .created
         .and_then(|ts| DateTime::from_timestamp(ts, 0))
-        .unwrap_or_else(chrono::Utc::now);
+        .unwrap_or_else(common_domain::clock::now);
     let event_type = parsed.event_type.clone();
     let id = parsed.id.clone();
 
@@ -1644,7 +1644,7 @@ mod tests {
         let sig = sign_payload(
             std::str::from_utf8(payload).unwrap(),
             TEST_WEBHOOK_SECRET,
-            chrono::Utc::now().timestamp(),
+            common_domain::clock::now().timestamp(),
         );
         let headers = header_with_signature(&sig);
         let secret = SecretString::from(TEST_WEBHOOK_SECRET.to_string());
@@ -1662,7 +1662,7 @@ mod tests {
         let sig = sign_payload(
             std::str::from_utf8(payload).unwrap(),
             "whsec_wrong_secret",
-            chrono::Utc::now().timestamp(),
+            common_domain::clock::now().timestamp(),
         );
         let headers = header_with_signature(&sig);
         let secret = SecretString::from(TEST_WEBHOOK_SECRET.to_string());
@@ -1677,7 +1677,7 @@ mod tests {
     fn verify_signature_rejects_stale_timestamp() {
         let adapter = test_adapter();
         let payload = br#"{"id":"evt_3","type":"x"}"#;
-        let one_hour_ago = chrono::Utc::now().timestamp() - 3600;
+        let one_hour_ago = common_domain::clock::now().timestamp() - 3600;
         let sig = sign_payload(
             std::str::from_utf8(payload).unwrap(),
             TEST_WEBHOOK_SECRET,

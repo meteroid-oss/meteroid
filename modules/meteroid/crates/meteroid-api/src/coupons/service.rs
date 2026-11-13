@@ -220,7 +220,7 @@ impl CouponsService for CouponsServiceComponents {
 
         let (archived_at, disabled) = match req.action() {
             CouponAction::Archive => {
-                let now = chrono::Utc::now().naive_utc();
+                let now = common_domain::clock::now().naive_utc();
                 (Some(Some(now)), None)
             }
             CouponAction::Disable => (None, Some(true)),

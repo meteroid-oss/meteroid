@@ -81,7 +81,7 @@ impl VatValidation {
             return Ok(true);
         }
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = common_domain::clock::now().naive_utc();
 
         // Run a qualified check on behalf of the customer's invoicing entity when
         // it has a usable VAT number, so VIES returns a consultation number

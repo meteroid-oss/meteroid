@@ -1,4 +1,4 @@
-use chrono::{Duration, NaiveDateTime, Utc};
+use chrono::{Duration, NaiveDateTime};
 use common_domain::ids::{
     BaseId, EventId, TenantId, WebhookAttemptId, WebhookDeliveryId, WebhookEndpointId,
 };
@@ -361,7 +361,7 @@ impl WebhookOutInterface for Store {
         tenant_id: TenantId,
         endpoint: ImportedSvixWebhookEndpoint,
     ) -> StoreResult<SvixWebhookEndpointImport> {
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
 
         let (headers, headers_json, sensitive_header_values) =
             self.store_headers(endpoint.headers, &SensitiveHeaderValues::new())?;
@@ -421,7 +421,7 @@ impl WebhookOutInterface for Store {
         tenant_id: TenantId,
         patch: WebhookEndpointPatch,
     ) -> StoreResult<WebhookEndpoint> {
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
         let endpoint_id = patch.id;
 
         let existing = {
@@ -494,7 +494,7 @@ impl WebhookOutInterface for Store {
         tenant_id: TenantId,
         id: WebhookEndpointId,
     ) -> StoreResult<()> {
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
 
         self.transaction(|conn| {
             async move {
@@ -540,7 +540,7 @@ impl WebhookOutInterface for Store {
     ) -> StoreResult<SecretString> {
         let secret = generate_secret();
         let encrypted = self.encrypt_webhook_secret(&secret)?;
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
 
         let mut conn = self.get_conn().await?;
 
@@ -584,7 +584,7 @@ impl WebhookOutInterface for Store {
             return Ok(());
         }
 
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
         let message_id = message.id;
         let tenant_id = message.tenant_id;
 
@@ -631,7 +631,7 @@ impl WebhookOutInterface for Store {
 
         WebhookOutDeliveryRow::reclaim_expired(
             &mut conn,
-            Utc::now().naive_utc(),
+            common_domain::clock::wall().naive_utc(),
             MAX_ATTEMPTS,
             &RETRY_DELAYS_SECS,
         )
@@ -654,7 +654,7 @@ impl WebhookOutInterface for Store {
             &mut conn,
             limit,
             lease_secs,
-            Utc::now().naive_utc(),
+            common_domain::clock::wall().naive_utc(),
             PROBE_THRESHOLD,
         )
         .await
@@ -679,7 +679,9 @@ impl WebhookOutInterface for Store {
         let secret = self.decrypt_webhook_secret(&row.secret)?;
 
         let previous_secret = match (&row.previous_secret, row.previous_secret_expires_at) {
-            (Some(previous), Some(expires_at)) if expires_at > Utc::now().naive_utc() => {
+            (Some(previous), Some(expires_at))
+                if expires_at > common_domain::clock::wall().naive_utc() =>
+            {
                 Some(self.decrypt_webhook_secret(previous)?)
             }
             _ => None,
@@ -719,7 +721,7 @@ impl WebhookOutInterface for Store {
     }
 
     async fn record_webhook_attempt(&self, outcome: WebhookAttemptOutcome) -> StoreResult<()> {
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
 
         let completed_at = outcome.final_status.is_terminal().then_some(now);
 
@@ -813,7 +815,7 @@ impl WebhookOutInterface for Store {
             Some(reason),
             None,
             true,
-            Utc::now().naive_utc(),
+            common_domain::clock::wall().naive_utc(),
         )
         .await
         .map(|_| ())
@@ -916,7 +918,7 @@ impl WebhookOutInterface for Store {
         tenant_id: TenantId,
         id: WebhookDeliveryId,
     ) -> StoreResult<WebhookDelivery> {
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
 
         self.transaction(|conn| {
             async move {
@@ -971,7 +973,7 @@ impl WebhookOutInterface for Store {
         endpoint_id: WebhookEndpointId,
         message: WebhookOutMessageNew,
     ) -> StoreResult<WebhookDelivery> {
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
         let message_id = message.id;
 
         let message_row = WebhookOutMessageRowNew {
@@ -1023,7 +1025,7 @@ impl WebhookOutInterface for Store {
         tenant_id: TenantId,
         id: WebhookEndpointId,
     ) -> StoreResult<WebhookEndpoint> {
-        let now = Utc::now().naive_utc();
+        let now = common_domain::clock::wall().naive_utc();
         let mut conn = self.get_conn().await?;
 
         let row = WebhookOutEndpointRowPatch {

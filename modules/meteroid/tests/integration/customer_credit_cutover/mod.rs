@@ -255,8 +255,8 @@ async fn shipped_balances_land_exactly_once() -> TestResult {
     client
         .batch_execute(&format!(
             "UPDATE customer_credit_grant SET remaining = remaining - 1000 WHERE customer_id = '{C1}';
-             INSERT INTO customer_credit_entry (id, tenant_id, customer_id, grant_id, kind, amount, source_id, source_kind)
-             SELECT gen_random_uuid(), tenant_id, customer_id, id, 'DRAW', -1000, gen_random_uuid(), 'INVOICE'
+             INSERT INTO customer_credit_entry (id, tenant_id, customer_id, grant_id, kind, amount, source_id, source_kind, created_at)
+             SELECT gen_random_uuid(), tenant_id, customer_id, id, 'DRAW', -1000, gen_random_uuid(), 'INVOICE', now()
              FROM customer_credit_grant WHERE customer_id = '{C1}';"
         ))
         .await?;
@@ -328,9 +328,9 @@ async fn rollback_refuses_credit_that_would_lose_its_terms() -> TestResult {
                  DELETE FROM customer_credit_grant WHERE reason = 'rollback probe';
                  INSERT INTO customer_credit_grant (id, application, tenant_id, customer_id, account_id, amount,
                                                     remaining, priority, classification, effective_at, expires_at,
-                                                    source_kind, source_id, reason)
+                                                    source_kind, source_id, reason, created_at)
                  SELECT gen_random_uuid(), 'INVOICE', a.tenant_id, a.customer_id, a.id, 100, 100, 100, '{classification}',
-                        {effective}, {expires}, 'MANUAL', gen_random_uuid(), 'rollback probe'
+                        {effective}, {expires}, 'MANUAL', gen_random_uuid(), 'rollback probe', now()
                  FROM customer_credit_account a
                  WHERE a.customer_id = '{C1}' AND a.currency = 'USD'"
             ))
@@ -365,9 +365,9 @@ async fn rollback_refuses_credit_the_scalar_cannot_hold() -> TestResult {
             "WITH a AS (INSERT INTO customer_credit_account (id, tenant_id, customer_id, currency)
                         VALUES (gen_random_uuid(), '{TENANT}', '{C1}', 'EUR') RETURNING id)
              INSERT INTO customer_credit_grant (id, application, tenant_id, customer_id, account_id, amount, remaining, priority,
-                                                classification, effective_at, source_kind, source_id, reason)
+                                                classification, effective_at, source_kind, source_id, reason, created_at)
              SELECT gen_random_uuid(), 'INVOICE', '{TENANT}', '{C1}', a.id, 100, 100, 100, 'PAID', now(), 'MANUAL',
-                    gen_random_uuid(), 'foreign credit' FROM a;"
+                    gen_random_uuid(), 'foreign credit', now() FROM a;"
         ))
         .await?;
     let error = revert_through(&url, LEDGER_MIGRATION)
@@ -394,9 +394,9 @@ async fn rollback_refuses_product_restricted_credit() -> TestResult {
                      '00000000-0000-0000-0000-0000000000f1', 'RATE', '{{}}', true, now());
              WITH g AS (INSERT INTO customer_credit_grant (id, application, tenant_id, customer_id, account_id, amount,
                                                            remaining, priority, classification, effective_at,
-                                                           source_kind, source_id, reason)
+                                                           source_kind, source_id, reason, created_at)
                         SELECT gen_random_uuid(), 'INVOICE', a.tenant_id, a.customer_id, a.id, 100, 100, 100, 'PAID',
-                               now(), 'MANUAL', gen_random_uuid(), 'seats only'
+                               now(), 'MANUAL', gen_random_uuid(), 'seats only', now()
                         FROM customer_credit_account a
                         WHERE a.customer_id = '{C1}' AND a.currency = 'USD'
                         RETURNING id, tenant_id)
@@ -426,9 +426,9 @@ async fn rollback_refuses_credit_purchases() -> TestResult {
     migrate(&url, LEDGER_MIGRATION, None).await?;
     client
         .batch_execute(&format!(
-            "INSERT INTO customer_credit_purchase (id, amount_cents, invoice_id, tenant_id, customer_id, created_by)
+            "INSERT INTO customer_credit_purchase (id, amount_cents, invoice_id, tenant_id, customer_id, created_by, created_at)
              VALUES (gen_random_uuid(), 700, '00000000-0000-0000-0000-000000000101', '{TENANT}', '{C1}',
-                     '00000000-0000-0000-0000-00000000a004')"
+                     '00000000-0000-0000-0000-00000000a004', now())"
         ))
         .await?;
     let error = revert_through(&url, LEDGER_MIGRATION)
@@ -626,9 +626,9 @@ async fn preflight_lists_purchases_and_live_overpaid_invoices() -> TestResult {
             "INSERT INTO customer_balance_pending_tx (id, amount_cents, invoice_id, tenant_id, customer_id, created_by)
              VALUES (gen_random_uuid(), 5000, '00000000-0000-0000-0000-000000000101', '{TENANT}', '{C1}',
                      '00000000-0000-0000-0000-00000000a004');
-             INSERT INTO payment_transaction (id, tenant_id, invoice_id, amount, currency, status, payment_type)
+             INSERT INTO payment_transaction (id, tenant_id, invoice_id, amount, currency, status, payment_type, created_at)
              VALUES (gen_random_uuid(), '{TENANT}', '00000000-0000-0000-0000-000000000101', 5500, 'USD',
-                     'SETTLED', 'PAYMENT');"
+                     'SETTLED', 'PAYMENT', now());"
         ))
         .await?;
     assert_eq!(
@@ -676,14 +676,14 @@ async fn rollback_refuses_credit_units_and_rollover() -> TestResult {
         .batch_execute(&format!(
             "WITH g AS (INSERT INTO customer_credit_grant (id, application, tenant_id, customer_id, account_id, amount,
                                                            remaining, priority, classification, effective_at, expires_at,
-                                                           source_kind, source_id, reason)
+                                                           source_kind, source_id, reason, created_at)
                         SELECT gen_random_uuid(), 'INVOICE', a.tenant_id, a.customer_id, a.id, 100, 0, 100, 'PAID',
                                now() - interval '2 days', now() - interval '1 day', 'ROLLOVER', gen_random_uuid(),
-                               'rolled over'
+                               'rolled over', now()
                         FROM customer_credit_account a WHERE a.customer_id = '{C1}'
                         RETURNING id, tenant_id, customer_id)
-             INSERT INTO customer_credit_entry (id, tenant_id, customer_id, grant_id, kind, amount, source_id)
-             SELECT gen_random_uuid(), tenant_id, customer_id, id, 'FUND', 100, gen_random_uuid() FROM g"
+             INSERT INTO customer_credit_entry (id, tenant_id, customer_id, grant_id, kind, amount, source_id, created_at)
+             SELECT gen_random_uuid(), tenant_id, customer_id, id, 'FUND', 100, gen_random_uuid(), now() FROM g"
         ))
         .await?;
     let error = revert_through(&url, LEDGER_MIGRATION)

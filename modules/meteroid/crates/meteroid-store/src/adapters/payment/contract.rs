@@ -200,7 +200,7 @@ fn make_test_customer(connector: &Connector) -> crate::domain::Customer {
         preferred_locales: Vec::new(),
         billing_address: None,
         shipping_address: None,
-        created_at: chrono::Utc::now().naive_utc(),
+        created_at: common_domain::clock::now().naive_utc(),
         updated_at: None,
         archived_at: None,
         invoicing_entity_id: InvoicingEntityId::new(),
