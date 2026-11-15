@@ -1,7 +1,5 @@
-use common_domain::actor::Actor;
 use common_domain::rbac::{ResolvedPermissions, RolePermissions};
 use common_grpc::meteroid::common::v1::{Pagination, PaginationResponse};
-use common_grpc::middleware::server::auth::RequestExt;
 use tonic::{Request, Status};
 
 pub mod uuid_gen {
@@ -52,15 +50,13 @@ pub fn parse_uuid_opt(
 }
 
 /// The caller's permissions as the auth middleware resolved them, for in-handler data
-/// scoping. API tokens are not RBAC-restricted; anything unresolved gets no permission.
+/// scoping. Anything unresolved gets no permission.
 pub fn caller_permissions<T>(request: &Request<T>) -> RolePermissions {
-    if let Some(ResolvedPermissions(permissions)) = request.extensions().get() {
-        return permissions.clone();
-    }
-    match request.actor_typed() {
-        Ok(Actor::ApiToken { .. } | Actor::OAuthApp { .. }) => RolePermissions::All,
-        _ => RolePermissions::none(),
-    }
+    request
+        .extensions()
+        .get::<ResolvedPermissions>()
+        .map(|ResolvedPermissions(permissions)| permissions.clone())
+        .unwrap_or_else(RolePermissions::none)
 }
 
 pub trait PaginationExt {

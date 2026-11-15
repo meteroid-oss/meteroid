@@ -39,11 +39,12 @@ pub fn enforce(sm: &GrpcServiceMethod, permissions: &RolePermissions) -> Result<
     enforce_with(sm, permissions, &[])
 }
 
-/// What a module requires of the callers of a service whose proto it owns (full service name).
+/// What a module requires of the callers of a service whose proto it owns (full service name),
+/// per method.
 #[derive(Debug, Clone, Copy)]
 pub struct RoutePolicy {
     pub service: &'static str,
-    pub auth: RouteAuth,
+    pub auth: fn(method: &str) -> RouteAuth,
 }
 
 /// [`enforce`], with the policies of the edition's modules for the services core does not know.
@@ -56,7 +57,7 @@ pub fn enforce_with(
         module_policies
             .iter()
             .find(|policy| policy.service == sm.service)
-            .map(|policy| policy.auth)
+            .map(|policy| (policy.auth)(sm.method.as_str()))
     });
     match auth {
         Some(RouteAuth::Requires(permission)) => {
@@ -306,8 +307,12 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
             _ => rw(method, SubscriptionsRead, SubscriptionsManage),
         },
 
-        // The instance license governs every organization on the instance.
-        "LicensingService" => RouteAuth::Requires(OrganizationManage),
+        // The instance license governs every organization on the instance. Every member sees its
+        // status, so the settings tab can say who manages it.
+        "LicensingService" => match method {
+            "GetLicenseStatus" => RouteAuth::Authenticated,
+            _ => RouteAuth::Requires(OrganizationManage),
+        },
 
         "InstanceService" => match method {
             "GetInstance" | "GetInviteDetails" | "GetCountries" => RouteAuth::Public,
@@ -746,7 +751,7 @@ mod tests {
         );
         let policies = [RoutePolicy {
             service: "meteroid.admin.platform.v1.PlatformAdminService",
-            auth: RouteAuth::Authenticated,
+            auth: |_| RouteAuth::Authenticated,
         }];
         assert!(enforce(&sm, &RolePermissions::member_default()).is_err());
         assert!(enforce_with(&sm, &RolePermissions::member_default(), &policies).is_ok());

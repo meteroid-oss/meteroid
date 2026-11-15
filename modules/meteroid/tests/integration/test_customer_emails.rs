@@ -7,10 +7,9 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use chrono::Utc;
-use http::{HeaderMap, HeaderName, HeaderValue};
+use http::HeaderMap;
 use rstest::rstest;
 use tonic::Code;
-use tower_http::set_header::SetRequestHeaderLayer;
 
 use common_domain::country::CountryCode;
 use common_domain::ids::{
@@ -19,7 +18,6 @@ use common_domain::ids::{
 };
 use common_domain::pgmq::{MessageReadQty, MessageReadVtSec};
 use common_domain::rbac::Permission;
-use common_grpc::middleware::common::auth::API_KEY_HEADER;
 use diesel_models::email_send_claim::EmailSendClaimRow;
 use diesel_models::entity_activity::EntityActivityRow;
 use diesel_models::enums::{
@@ -1842,37 +1840,6 @@ async fn send_test_goes_to_actor_without_audit_row(#[future] test_env: TestEnv) 
     assert!(captured[0].attachments.is_empty());
     assert!(sent_rows(&env).await.is_empty());
     assert!(queued_email_messages(&env).await.is_empty());
-
-    // An API key has no mailbox to send to.
-    let api_key = all
-        .api_tokens
-        .clone()
-        .create_api_token(
-            meteroid_grpc::meteroid::api::apitokens::v1::CreateApiTokenRequest {
-                name: "emails".to_string(),
-            },
-        )
-        .await
-        .expect("api token")
-        .into_inner()
-        .api_key;
-    let svc = tower::ServiceBuilder::new()
-        .layer(SetRequestHeaderLayer::if_not_present(
-            HeaderName::from_str(API_KEY_HEADER).unwrap(),
-            HeaderValue::from_str(&api_key).unwrap(),
-        ))
-        .service(env.setup.channel.clone());
-    let err = CustomerEmailsServiceClient::new(svc)
-        .send_test_email(api::SendTestEmailRequest {
-            invoicing_entity_id: INVOICING_ENTITY_ID.as_proto(),
-            kind: api::EmailKind::InvoiceReady as i32,
-            locale: None,
-            draft: None,
-            offset_days: None,
-        })
-        .await
-        .expect_err("api key actor");
-    assert_eq!(err.code(), Code::FailedPrecondition, "{err}");
 }
 
 #[rstest]

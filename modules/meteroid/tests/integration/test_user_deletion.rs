@@ -1,19 +1,14 @@
 use common_domain::ids::UserId;
-use common_grpc::middleware::common::auth::API_KEY_HEADER;
 use diesel_models::enums::TenantStatusEnum;
 use diesel_models::organizations::OrganizationRow;
 use diesel_models::tenants::TenantRow;
 use diesel_models::users::UserRow;
-use http::{HeaderName, HeaderValue};
 use meteroid_grpc::meteroid::api;
-use meteroid_grpc::meteroid::api::customers::v1::customers_service_client::CustomersServiceClient;
 use meteroid_store::domain::org_security_audit_log::SecurityRequestContext;
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::user_deletion::UserDeletionInterface;
 use std::str::FromStr;
 use tonic::Code;
-use tonic::transport::Channel;
-use tower_http::set_header::{SetRequestHeader, SetRequestHeaderLayer};
 
 use crate::data::ids::{ORGANIZATION_ID, TENANT_ID};
 use crate::meteroid_it::clients::AllClients;
@@ -209,19 +204,16 @@ async fn test_delete_user() {
     assert_eq!(tenant.status, TenantStatusEnum::PendingDeletion);
 
     // API keys of a tenant pending deletion stop working.
-    let customers = CustomersServiceClient::new(api_key_svc(&setup.channel, &api_key))
-        .list_customers(api::customers::v1::ListCustomerRequest::default())
-        .await;
-    assert_eq!(customers.unwrap_err().code(), Code::Unauthenticated);
-}
-
-fn api_key_svc(channel: &Channel, api_key: &str) -> SetRequestHeader<Channel, HeaderValue> {
-    tower::ServiceBuilder::new()
-        .layer(SetRequestHeaderLayer::if_not_present(
-            HeaderName::from_str(API_KEY_HEADER).unwrap(),
-            HeaderValue::from_str(api_key).unwrap(),
+    let customers = http_client_tracing::client()
+        .get(format!(
+            "{}/api/v1/customers",
+            setup.config.rest_api_external_url
         ))
-        .service(channel.clone())
+        .bearer_auth(&api_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(customers.status(), reqwest::StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

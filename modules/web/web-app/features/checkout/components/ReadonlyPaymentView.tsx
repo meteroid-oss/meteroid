@@ -12,6 +12,7 @@ interface ReadonlyPaymentViewProps {
     | 'draft_invoice'
     | 'closed'
     | 'pending_payment'
+    | 'view_only'
   title?: string
   message?: string
   children?: React.ReactNode
@@ -107,6 +108,12 @@ function getReasonConfig(reason: ReadonlyPaymentViewProps['reason']) {
       title: 'Invoice Closed',
       message:
         'This billing period settled with nothing to bill, so no payment is required.',
+    },
+    view_only: {
+      icon: <Info className="h-6 w-6" />,
+      iconColor: 'text-gray-500',
+      title: 'View Only',
+      message: 'This link can show the invoice but not pay it.',
     },
     pending_payment: {
       icon: <Clock className="h-6 w-6" />,

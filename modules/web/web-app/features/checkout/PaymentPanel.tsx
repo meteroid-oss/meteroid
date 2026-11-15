@@ -20,6 +20,7 @@ import {
 import { CardBrandLogo } from './components/CardBrandLogo'
 import { MockPaymentFields } from './components/MockPaymentFields'
 import { PaymentForm } from './components/PaymentForm'
+import { ReadonlyPaymentView } from './components/ReadonlyPaymentView'
 import { buildStripeAppearance } from './stripeAppearance'
 import { getStripePromise } from './stripeClient'
 import { PaymentMethodSelection, PaymentPanelProps, PaymentState } from './types'
@@ -716,6 +717,15 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
 
     if (setupIntentQuery.isLoading) {
       return <div className="w-full p-6 lg:p-10 text-center">Loading payment options...</div>
+    }
+
+    // A view-only link (a portal token without the manage scope) may open an invoice but not pay it.
+    if (
+      props.invoiceId &&
+      setupIntentQuery.error instanceof ConnectError &&
+      setupIntentQuery.error.code === Code.PermissionDenied
+    ) {
+      return <ReadonlyPaymentView reason="view_only" />
     }
 
     // `intentSecret` can be empty: for providers collecting the invoice on their hosted page, the

@@ -44,9 +44,29 @@ pub(crate) struct DeclinedCheckoutCharge {
 /// Declined charges a checkout session tolerates before it is cancelled (card testing).
 pub const MAX_DECLINED_CHECKOUT_ATTEMPTS: i64 = 5;
 
+/// Marks a charge refused because its payment method can't be used: unknown, archived, or
+/// held by another customer. Retrying the same charge can't succeed.
+#[derive(Debug, Clone, Copy)]
+struct PaymentMethodUnusable;
+
+/// Unknown, foreign and archived methods get the same answer, so ids can't be probed.
+pub(crate) fn payment_method_not_found() -> Report<StoreError> {
+    Report::new(StoreError::InvalidArgument(
+        "Payment method not found".to_string(),
+    ))
+    .attach_opaque(PaymentMethodUnusable)
+}
+
+/// True when the charge was refused because of its payment method, not because of a failure
+/// that a retry could get past.
+pub fn is_payment_method_unusable(error: &Report<StoreError>) -> bool {
+    error
+        .frames()
+        .any(|frame| frame.downcast_ref::<PaymentMethodUnusable>().is_some())
+}
+
 impl Services {
-    /// A checkout only charges methods held by its own customer. Unknown and foreign
-    /// methods get the same answer, so ids can't be probed.
+    /// A customer is only charged on a live payment method of their own.
     pub(crate) async fn ensure_payment_method_of_customer(
         &self,
         conn: &mut PgConn,
@@ -59,9 +79,7 @@ impl Services {
             .ok();
         match method {
             Some(m) if m.customer_id == customer_id && m.archived_at.is_none() => Ok(()),
-            _ => Err(Report::new(StoreError::InvalidArgument(
-                "Payment method not found".to_string(),
-            ))),
+            _ => Err(payment_method_not_found()),
         }
     }
 

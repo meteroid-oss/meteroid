@@ -18,8 +18,8 @@ use meteroid_store::repositories::{
     OrganizationsInterface, RolesInterface, TenantInterface, UserDeletionInterface,
 };
 
-use crate::server::auth::SharedSupportGrantReader;
 use crate::server::auth::rbac;
+use crate::server::auth::{SharedSupportGrantReader, honours_support_grants};
 use secrecy::{ExposeSecret, SecretString};
 use tonic::Status;
 use uuid::Uuid;
@@ -258,10 +258,10 @@ async fn resolve_support_access(
     let reader = support?;
     let admin_org = store.settings.admin_organization?;
 
-    if get_member_access_cached(store, user_id, admin_org)
+    let admin_access = get_member_access_cached(store, user_id, admin_org)
         .await
-        .is_err()
-    {
+        .ok()?;
+    if !honours_support_grants(&admin_access) {
         return None;
     }
     let mode = reader.grant_mode(*user_id, org_id).await?;

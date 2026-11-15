@@ -12,6 +12,7 @@ use crate::errors::StoreError;
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::services::InvoiceDelivery;
 use crate::services::Services;
+use crate::services::checkout_completion::payment_method_not_found;
 use crate::store::PgConn;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use common_domain::ids::{
@@ -406,6 +407,16 @@ impl Services {
             ));
         }
 
+        // Every caller charges a method of the invoice's own customer, whoever chose it.
+        let method_archived =
+            CustomerPaymentMethodRow::get_by_id(conn, &tenant_id, &payment_method_id)
+                .await
+                .ok()
+                .filter(|method| method.customer_id == invoice.invoice.customer_id)
+                .ok_or_else(payment_method_not_found)?
+                .archived_at
+                .is_some();
+
         // Calculate total of active payments (pending/ready/settled) to prevent over-payment.
         // This check, combined with SELECT FOR UPDATE on the invoice, ensures atomicity
         // in a distributed environment. Involuntary claw-backs are netted out (mirroring
@@ -471,6 +482,12 @@ impl Services {
             return Ok(InvoiceChargeClaim::Recorded(
                 existing.transaction.clone().into(),
             ));
+        }
+
+        // Checked only now: an attempt already recorded is returned even if its method was
+        // archived since. A new charge never goes to an archived method.
+        if method_archived {
+            return Err(payment_method_not_found());
         }
 
         let attempt = ChargeAttempt {

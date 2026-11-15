@@ -10,17 +10,12 @@ use diesel_async::RunQueryDsl;
 use diesel_models::enums::OrganizationUserRole as DbOrganizationUserRole;
 use diesel_models::organization_members::OrganizationMemberRow;
 use diesel_models::users::UserRowNew;
-use http::{HeaderName, HeaderValue};
 use rstest::rstest;
 use serde_json::json;
 use tonic::Code;
-use tonic::transport::Channel;
-use tower_http::set_header::{SetRequestHeader, SetRequestHeaderLayer};
 
-use common_grpc::middleware::common::auth::API_KEY_HEADER;
 use meteroid_grpc::meteroid::api::listviews::v1 as grpc;
 use meteroid_grpc::meteroid::api::listviews::v1::EntityListType as ProtoEntityType;
-use meteroid_grpc::meteroid::api::listviews::v1::list_views_service_client::ListViewsServiceClient;
 use meteroid_store::StoreResult;
 use meteroid_store::domain::entity_list_views::{
     EntityListView, EntityListViewNew, EntityListViewPatch,
@@ -882,44 +877,4 @@ async fn test_list_views_grpc_roundtrip(#[future] test_env_minimal: TestEnv) {
         .await
         .unwrap_err();
     assert_eq!(missing.code(), Code::NotFound);
-}
-
-fn api_key_svc(channel: &Channel, api_key: &str) -> SetRequestHeader<Channel, HeaderValue> {
-    tower::ServiceBuilder::new()
-        .layer(SetRequestHeaderLayer::if_not_present(
-            HeaderName::from_str(API_KEY_HEADER).unwrap(),
-            HeaderValue::from_str(api_key).unwrap(),
-        ))
-        .service(channel.clone())
-}
-
-#[rstest]
-#[tokio::test]
-async fn test_list_views_rejects_api_keys(#[future] test_env_minimal: TestEnv) {
-    let env = test_env_minimal.await;
-    let channel = env.setup.channel.clone();
-
-    let api_key = crate::test_auth_api_key::generate_api_key(&channel)
-        .await
-        .api_key;
-    let mut svc = ListViewsServiceClient::new(api_key_svc(&channel, &api_key));
-
-    let list = svc
-        .list_views(grpc::ListViewsRequest {
-            entity_type: ProtoEntityType::Customer as i32,
-        })
-        .await
-        .expect_err("API keys must not reach saved views");
-    assert_eq!(list.code(), Code::Unauthenticated, "{list:?}");
-
-    let create = svc
-        .create_view(grpc::CreateViewRequest {
-            entity_type: ProtoEntityType::Customer as i32,
-            name: "From API key".to_string(),
-            config: "{}".to_string(),
-            shared: true,
-        })
-        .await
-        .expect_err("API keys must not create views");
-    assert_eq!(create.code(), Code::Unauthenticated, "{create:?}");
 }

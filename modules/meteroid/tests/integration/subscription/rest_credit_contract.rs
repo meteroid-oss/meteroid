@@ -464,6 +464,7 @@ async fn delegated_and_express_credentials_cannot_reach_customer_money_routes() 
             .expect("a stored portal token")
             .delegated
     };
+    let mut express_session = None;
     for (rest, delegated_session) in [(&express, true), (&Rest::new(&env).await, false)] {
         let (status, created) = rest
             .post(
@@ -481,32 +482,18 @@ async fn delegated_and_express_credentials_cannot_reach_customer_money_routes() 
             .await;
         assert_eq!(status, StatusCode::OK, "{token}");
         let issued = token["token"].as_str().expect("a portal token").to_owned();
-        assert_eq!(delegated(issued).await, delegated_session, "{token}");
+        assert_eq!(
+            delegated(issued.clone()).await,
+            delegated_session,
+            "{token}"
+        );
+        if delegated_session {
+            express_session = Some(issued);
+        }
     }
 
-    // The gRPC mint inherits it too, and the session it opens cannot top up.
-    let (_, created) = express
-        .post(
-            "/api/v1/customers",
-            json!({ "name": "Portal customer", "currency": "EUR" }),
-        )
-        .await;
-    let mut customers = meteroid_grpc::meteroid::api::customers::v1::customers_service_client::CustomersServiceClient::new(env.setup.channel.clone());
-    let mut request = tonic::Request::new(
-        meteroid_grpc::meteroid::api::customers::v1::GenerateCustomerPortalTokenRequest {
-            customer_id: created["id"].as_str().expect("a customer id").to_owned(),
-        },
-    );
-    request
-        .metadata_mut()
-        .insert("x-api-key", express_key.parse().unwrap());
-    let token = customers
-        .generate_customer_portal_token(request)
-        .await
-        .expect("an express key mints a portal token")
-        .into_inner()
-        .token;
-    assert!(delegated(token.clone()).await);
+    // The session the express key opened cannot top up.
+    let token = express_session.expect("the express key's portal token");
     let mut wallets = meteroid_grpc::meteroid::portal::wallets::v1::portal_wallets_service_client::PortalWalletsServiceClient::new(env.setup.channel.clone());
     let mut request = tonic::Request::new(
         meteroid_grpc::meteroid::portal::wallets::v1::TopUpWalletRequest {

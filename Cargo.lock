@@ -4768,6 +4768,7 @@ dependencies = [
  "meteroid-invoicing",
  "meteroid-kit",
  "meteroid-mailer",
+ "meteroid-middleware",
  "meteroid-oauth",
  "meteroid-rest",
  "meteroid-rest-common",

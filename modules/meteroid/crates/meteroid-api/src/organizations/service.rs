@@ -8,7 +8,7 @@ use meteroid_grpc::meteroid::api::organizations::v1::{
     ListOrganizationsRequest, ListOrganizationsResponse, Organization,
     organizations_service_server::OrganizationsService,
 };
-use meteroid_middleware::server::auth::SupportGrantMode;
+use meteroid_middleware::server::auth::{SupportGrantMode, honours_support_grants};
 use meteroid_store::Store;
 use meteroid_store::domain::{
     InvoicingEntityNew, OrganizationNew, Tenant, TenantEnvironmentEnum, TenantNew,
@@ -68,12 +68,12 @@ impl OrganizationsServiceComponents {
     ) -> Option<SupportGrantMode> {
         let support_grants = self.support_grants.as_ref()?;
         let admin_org = self.store.settings.admin_organization?;
-        if self
+        let admin_access = self
             .store
             .resolve_member_access(user_id, admin_org)
             .await
-            .is_err()
-        {
+            .ok()?;
+        if !honours_support_grants(&admin_access) {
             return None;
         }
         support_grants.grant_mode(user_id, organization_id).await

@@ -23,7 +23,7 @@ pub mod utils;
 
 mod annexes;
 mod checkout_completion;
-pub use checkout_completion::MAX_DECLINED_CHECKOUT_ATTEMPTS;
+pub use checkout_completion::{MAX_DECLINED_CHECKOUT_ATTEMPTS, is_payment_method_unusable};
 mod checkout_preview;
 pub mod clients;
 pub(crate) mod credit;

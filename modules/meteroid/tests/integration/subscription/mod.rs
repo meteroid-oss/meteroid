@@ -28,6 +28,7 @@ mod metering_before_locks;
 mod migration;
 mod payment_double_charge;
 mod payment_hard_decline;
+mod payment_method_binding;
 mod payment_methods_config;
 mod payment_reconciliation;
 mod payment_refunds;

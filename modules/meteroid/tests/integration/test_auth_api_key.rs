@@ -15,8 +15,7 @@ use meteroid_grpc::meteroid::api::customers::v1::customers_service_client::Custo
 use meteroid_grpc::meteroid::api::users::v1::users_service_client::UsersServiceClient;
 
 #[tokio::test]
-async fn test_api_key() {
-    // Generic setup
+async fn api_keys_work_with_the_rest_api_only() {
     helpers::init::logging();
     let postgres_connection_string =
         meteroid_it::container::create_seeded_test_database(SeedLevel::MINIMAL).await;
@@ -24,45 +23,29 @@ async fn test_api_key() {
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
 
-    // Try to access with fake api-key
-    let svc = build_tower_svc(&setup.channel, "fake-api-key");
-    let customers_svc = CustomersServiceClient::new(svc.clone());
-    let customers_response = list_customers(customers_svc).await;
+    let api_key = generate_api_key(&setup.channel).await.api_key;
 
-    assert!(customers_response.is_err());
-    assert_eq!(
-        customers_response.map_err(|e| e.code()).unwrap_err(),
-        Code::Unauthenticated
-    );
+    let rest = http_client_tracing::client()
+        .get(format!(
+            "{}/api/v1/customers",
+            setup.config.rest_api_external_url
+        ))
+        .bearer_auth(&api_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rest.status(), reqwest::StatusCode::OK);
 
-    // try to access with valid but outdated api-key
-    let svc = build_tower_svc(
+    // The gRPC API serves the app and the portals, never API keys.
+    let grpc = list_customers(CustomersServiceClient::new(build_tower_svc(
         &setup.channel,
-        "pv_sand_5ldOh21Ipns1OpHzYbeAjvA87x3v/2vIOgNg2ElyLMxWAPn6Xz",
-    );
-    let customers_svc = CustomersServiceClient::new(svc.clone());
-    let customers_response = list_customers(customers_svc).await;
-
-    assert!(customers_response.is_err());
+        &api_key,
+    )))
+    .await;
     assert_eq!(
-        customers_response.map_err(|e| e.code()).unwrap_err(),
+        grpc.map_err(|e| e.code()).unwrap_err(),
         Code::Unauthenticated
     );
-
-    // generate API Key
-    let api_token_response = generate_api_key(&setup.channel).await;
-
-    // access with valid API Key
-    let svc = build_tower_svc(&setup.channel, api_token_response.api_key.as_str());
-    let customers_svc = CustomersServiceClient::new(svc.clone());
-
-    let customers_response = list_customers(customers_svc).await;
-
-    assert!(customers_response.is_ok());
-    assert_eq!(customers_response.unwrap().into_inner().customers.len(), 0);
-
-    // teardown
-    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await;
 }
 
 pub(crate) async fn generate_api_key(channel: &Channel) -> CreateApiTokenResponse {

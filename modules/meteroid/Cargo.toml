@@ -88,6 +88,7 @@ backon = { workspace = true }
 diesel-models.workspace = true
 meteroid-mailer = { workspace = true }
 meteroid-store = { workspace = true }
+meteroid-middleware = { workspace = true, features = ["server"] }
 insta = { workspace = true, features = ["json"] }
 
 [build-dependencies]

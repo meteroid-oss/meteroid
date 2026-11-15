@@ -3,7 +3,9 @@ use secrecy::SecretString;
 pub use api_layer::ApiAuthLayer;
 pub use api_layer::ApiAuthMiddleware;
 use meteroid_store::Store;
-pub use support::{SharedSupportGrantReader, SupportGrantMode, SupportGrantReader};
+pub use support::{
+    SharedSupportGrantReader, SupportGrantMode, SupportGrantReader, honours_support_grants,
+};
 
 mod api_layer;
 pub mod rbac;

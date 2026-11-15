@@ -45,6 +45,9 @@ pub struct PortalJwtClaims {
     /// actions those credentials are denied.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub delegated: bool,
+    /// Random, so two tokens for the same resource never match, even when minted in the same
+    /// second. Absent on tokens minted before it was introduced.
+    pub jti: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -86,6 +89,7 @@ impl PortalJwtClaims {
             resource,
             scopes,
             delegated: false,
+            jti: Some(hex::encode(rand::random::<[u8; 16]>())),
         })
     }
 
@@ -184,6 +188,7 @@ mod tests {
         let raw = payload(&token);
         assert_eq!(raw["scopes"], json!(["read", "manage"]));
         assert_eq!(raw["aud"], json!("meteroid:portal"));
+        assert_eq!(raw["jti"].as_str().map(str::len), Some(32));
 
         let claims = PortalJwtClaims::decode(&token, &secret()).unwrap();
         assert_eq!(claims.scopes, Some(PortalScope::ALL.to_vec()));

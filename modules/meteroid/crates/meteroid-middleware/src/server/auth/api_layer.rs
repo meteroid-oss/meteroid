@@ -5,7 +5,6 @@ use secrecy::SecretString;
 
 use crate::server::auth::SharedSupportGrantReader;
 use crate::server::auth::rbac::RoutePolicy;
-use crate::server::auth::strategies::api_key_strategy::validate_api_key;
 use crate::server::auth::strategies::jwt_strategy::{
     authorize_user, is_user_active_cached, validate_jwt,
 };
@@ -16,14 +15,10 @@ use cached::proc_macro::cached;
 use common_domain::ids::{OrganizationId, UserId};
 use common_domain::rbac::ResolvedPermissions;
 use common_grpc::GrpcServiceMethod;
-use common_grpc::middleware::common::auth::{
-    API_KEY_HEADER, BEARER_AUTH_HEADER, PORTAL_KEY_HEADER,
-};
+use common_grpc::middleware::common::auth::{BEARER_AUTH_HEADER, PORTAL_KEY_HEADER};
 use common_grpc::middleware::common::filters::Filter;
 use common_grpc::middleware::server::AuthorizedState;
-use common_grpc::middleware::server::auth::{
-    AuthenticatedState, AuthorizedAsTenant, DelegatedCredentials, TenantActor,
-};
+use common_grpc::middleware::server::auth::{AuthenticatedState, DelegatedCredentials};
 use futures_util::TryFutureExt;
 use futures_util::future::BoxFuture;
 use http::StatusCode;
@@ -243,11 +238,8 @@ where
         let module_policies = self.module_policies.clone();
 
         let future = async move {
-            let authenticated_state = if metadata.contains_key(API_KEY_HEADER) {
-                validate_api_key(&metadata, &store, &sm)
-                    .await
-                    .map_err(|e| BoxError::from(e) as BoxError)
-            } else if metadata.contains_key(PORTAL_KEY_HEADER) {
+            // API keys authenticate with the REST API only: this API serves the app and portals.
+            let authenticated_state = if metadata.contains_key(PORTAL_KEY_HEADER) {
                 validate_portal_token(&metadata, jwt_secret, &store)
                     .await
                     .map_err(|e| BoxError::from(e) as BoxError)
@@ -260,17 +252,9 @@ where
             let sm_for_express = sm.clone();
             let mut permissions = None;
             let authorized_state = match authenticated_state {
-                AuthenticatedState::ApiKey {
-                    tenant_id,
-                    id,
-                    organization_id,
-                    tenant_env,
-                } => Ok(AuthorizedState::Tenant(AuthorizedAsTenant {
-                    tenant_id,
-                    organization_id,
-                    actor: TenantActor::ApiKey(id),
-                    tenant_env,
-                })),
+                AuthenticatedState::ApiKey { .. } => Err(BoxError::from(Status::unauthenticated(
+                    "API keys authenticate with the REST API",
+                ))),
                 AuthenticatedState::User { id } => {
                     ensure_user_active(&store, id)
                         .await

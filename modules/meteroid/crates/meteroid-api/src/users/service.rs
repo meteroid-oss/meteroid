@@ -16,6 +16,7 @@ use meteroid_grpc::meteroid::api::users::v1::{
     UpdateUserPreferencesResponse, VerifyMfaRequest, VerifyMfaResponse,
     users_service_server::UsersService,
 };
+use meteroid_middleware::server::auth::strategies::jwt_strategy::invalidate_member_access_cache;
 use meteroid_store::domain::users::{
     LoginUserRequest, LoginUserResponse, RegisterUserRequest, UpdateUser,
 };
@@ -620,6 +621,8 @@ impl UsersService for UsersServiceComponents {
             .leave_organization(actor, org_id, request_context)
             .await
             .map_err(Into::<UserApiError>::into)?;
+        // Their next request is denied, not served from the cached membership.
+        invalidate_member_access_cache(actor, org_id).await;
 
         Ok(Response::new(LeaveOrganizationResponse {}))
     }
@@ -640,6 +643,7 @@ impl UsersService for UsersServiceComponents {
             .remove_member(actor, target_user_id, org_id, request_context)
             .await
             .map_err(Into::<UserApiError>::into)?;
+        invalidate_member_access_cache(target_user_id, org_id).await;
 
         Ok(Response::new(RemoveMemberResponse {}))
     }

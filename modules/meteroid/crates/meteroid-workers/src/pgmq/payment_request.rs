@@ -4,6 +4,7 @@ use crate::pgmq::processor::{HandleResult, PgmqHandler};
 use common_domain::pgmq::{MessageId, ReadCt};
 use meteroid_store::domain::pgmq::{PaymentRequestEvent, PgmqMessage};
 use meteroid_store::errors::StoreError;
+use meteroid_store::services::is_payment_method_unusable;
 use meteroid_store::{Services, StoreResult};
 use std::sync::Arc;
 
@@ -82,9 +83,13 @@ impl PaymentRequest {
                 );
                 Ok(())
             }
-            // The connector was disabled or deleted after the charge was queued: retrying
-            // can't help. The customer gets the invoice with a payment link instead.
-            Err(err) if matches!(err.current_context(), StoreError::ConnectorNotActive(_)) => {
+            // The connector was disabled or deleted, or the payment method removed, after the
+            // charge was queued: retrying can't help. The customer gets the invoice with a
+            // payment link instead.
+            Err(err)
+                if matches!(err.current_context(), StoreError::ConnectorNotActive(_))
+                    || is_payment_method_unusable(&err) =>
+            {
                 log::warn!(
                     "Auto-charge of invoice {} skipped: {}",
                     event.invoice_id,

@@ -192,8 +192,9 @@ impl Services {
             .await
     }
 
-    /// A queued auto-charge that can no longer run (its connector was disabled or deleted):
-    /// send the invoice with its payment link instead, as if it had never been auto-charged.
+    /// A queued auto-charge that can no longer run (its connector was disabled or deleted, or
+    /// its payment method removed): send the invoice with its payment link instead, as if it
+    /// had never been auto-charged.
     pub async fn fall_back_to_manual_payment(
         &self,
         tenant_id: TenantId,

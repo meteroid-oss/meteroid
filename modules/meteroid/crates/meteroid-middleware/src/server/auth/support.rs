@@ -31,6 +31,12 @@ impl SupportGrantMode {
     }
 }
 
+/// Only an Admin of the admin organization uses support grants: a platform admin demoted to
+/// Member or a custom role keeps their membership but loses the grants they issued.
+pub fn honours_support_grants(admin_org_access: &MemberAccess) -> bool {
+    admin_org_access.role == OrganizationUserRole::Admin
+}
+
 /// Reads platform-admin "support access" grants. Implemented in the application
 /// crate (Redis-backed); kept as a trait here so this middleware stays decoupled
 /// from Redis. A grant lets a platform admin reach an organization they are not a
