@@ -169,6 +169,7 @@ pub struct WebhookOutMetricEventData {
     #[from(~.map(Into::into))]
     pub segmentation_matrix: Option<MetricSegmentationMatrix>,
     pub usage_group_key: Option<String>,
+    pub usage_breakdown_key: Option<String>,
     /// What one unit of the metric is called, e.g. `token`.
     pub unit_singular: Option<String>,
     /// What several units of the metric are called, e.g. `tokens`.

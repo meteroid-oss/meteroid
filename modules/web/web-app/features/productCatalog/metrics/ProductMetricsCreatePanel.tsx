@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { Slot, hasSlot } from '@/edition'
 import { AggregationSection } from '@/features/productCatalog/metrics/AggregationSection'
 import { EventCodeFormField } from '@/features/productCatalog/metrics/EventCodeFormField'
 import { MetricBuilderShell } from '@/features/productCatalog/metrics/MetricBuilderShell'
@@ -22,6 +23,7 @@ import { SegmentationMatrixSection } from '@/features/productCatalog/metrics/Seg
 import { UnitConversionSection } from '@/features/productCatalog/metrics/UnitConversionSection'
 import { UnitLabelSection } from '@/features/productCatalog/metrics/UnitLabelSection'
 import { UsageGroupKeySection } from '@/features/productCatalog/metrics/UsageGroupKeySection'
+import { copiedBreakdownKey } from '@/features/productCatalog/metrics/breakdownKey'
 import {
   SettingsFieldGrid,
   SettingsSection,
@@ -222,6 +224,10 @@ export const ProductMetricsCreatePanel = ({
           values: f.values,
         })),
         usageGroupKey: metric.usageGroupKey || undefined,
+        usageBreakdownKey: copiedBreakdownKey(
+          metric.usageBreakdownKey,
+          hasSlot('metricForm.usageBreakdownKey')
+        ),
         unitSingular: metric.unitLabel?.singular ?? '',
         unitPlural: metric.unitLabel?.plural ?? '',
       })
@@ -269,6 +275,7 @@ export const ProductMetricsCreatePanel = ({
           segmentationMatrix: toSegmentationMatrixInit(input.segmentationMatrix),
           filters: toFilterInit(input.filters),
           usageGroupKey: input.usageGroupKey ?? undefined,
+          usageBreakdownKey: input.usageBreakdownKey ?? undefined,
           familyLocalId: input.productFamilyId,
           unitLabel:
             input.unitSingular && input.unitPlural
@@ -393,6 +400,12 @@ export const ProductMetricsCreatePanel = ({
             <UnitConversionSection methods={methods} />
             <UnitLabelSection control={methods.control} />
             <UsageGroupKeySection methods={methods} />
+            <Slot
+              name="metricForm.usageBreakdownKey"
+              control={methods.control}
+              eventCode={previewCode ?? ''}
+              mode="create"
+            />
             <SegmentationMatrixSection methods={methods} />
             <MetricFiltersSection control={methods.control} />
           </>

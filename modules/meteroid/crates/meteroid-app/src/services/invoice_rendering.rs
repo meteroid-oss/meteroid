@@ -1129,6 +1129,26 @@ mod mapper {
                         .map(|share| meteroid_money::Money::from_minor(share, currency)),
                     credit,
                     prepaid_credit: line.states_prepaid_credit(),
+                    usage_breakdown: line.usage_breakdown_parts().map(|(key, parts)| {
+                        invoicing_model::LineUsageBreakdown {
+                            key: key.to_owned(),
+                            items: parts
+                                .into_iter()
+                                .map(|part| invoicing_model::LineUsageBreakdownItem {
+                                    value: part.value,
+                                    others: part.others,
+                                    quantity: part.quantity,
+                                    subtotal: meteroid_money::Money::from_minor(
+                                        part.amount_subtotal,
+                                        currency,
+                                    ),
+                                    quoted_subtotal: part.quoted_subtotal.map(|quoted| {
+                                        meteroid_money::Money::from_minor(quoted, currency)
+                                    }),
+                                })
+                                .collect(),
+                        }
+                    }),
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;

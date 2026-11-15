@@ -173,6 +173,7 @@ mod tests {
             promotional_credit: None,
             subscription_id: Some(SubscriptionId::new()),
             usage_ends_at: None,
+            usage_breakdown: None,
         }
     }
 

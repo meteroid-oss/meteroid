@@ -19,6 +19,7 @@ import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { ValuesTagInput } from '@/components/form'
+import { Slot } from '@/edition'
 import { MetricBuilderShell } from '@/features/productCatalog/metrics/MetricBuilderShell'
 import { MetricFiltersSection } from '@/features/productCatalog/metrics/MetricFiltersSection'
 import { MetricPreview } from '@/features/productCatalog/metrics/MetricPreview'
@@ -92,6 +93,7 @@ const editMetricSchema = z
         { message: 'All dimension keys must be unique' }
       ),
     filters: z.array(metricFilterSchema).optional(),
+    usageBreakdownKey: z.string().optional(),
     ...unitLabelFields,
   })
   .superRefine(refineUnitLabel)
@@ -415,6 +417,7 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
         })),
         unitSingular: metric.unitLabel?.singular ?? '',
         unitPlural: metric.unitLabel?.plural ?? '',
+        usageBreakdownKey: metric.usageBreakdownKey ?? '',
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -498,8 +501,13 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
         unitSingular !== (metric?.unitLabel?.singular ?? '') ||
         unitPlural !== (metric?.unitLabel?.plural ?? '')
 
+      // Absent = untouched; blank = remove the breakdown key.
+      const usageBreakdownKey = data.usageBreakdownKey?.trim() ?? ''
+      const usageBreakdownKeyChanged = usageBreakdownKey !== (metric?.usageBreakdownKey ?? '')
+
       await updateBillableMetricMut.mutateAsync({
         id: metricId,
+        usageBreakdownKey: usageBreakdownKeyChanged ? usageBreakdownKey : undefined,
         name: data.name,
         description: data.description || undefined,
         unitConversion: data.unitConversionFactor
@@ -631,6 +639,13 @@ export const ProductMetricsEditView = ({ metricId }: ProductMetricsEditViewProps
                     )}
 
                   <UnitLabelSection control={methods.control} />
+
+                  <Slot
+                    name="metricForm.usageBreakdownKey"
+                    control={methods.control}
+                    eventCode={metric?.code ?? ''}
+                    mode="edit"
+                  />
 
                   {/* Segmentation Matrix Values */}
                   {matrixType !== 'NONE' && (

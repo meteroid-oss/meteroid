@@ -1292,6 +1292,7 @@ fn every_component_maps_to_an_engine_valid_price() {
         segmentation_matrix: spec.segmentation_matrix.clone(),
         filters: None,
         usage_group_key: None,
+        usage_breakdown_key: None,
         unit_singular: spec
             .unit_label
             .as_ref()

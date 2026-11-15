@@ -406,6 +406,7 @@ pub(super) fn credit_purchase_line(
         promotional_credit: None,
         subscription_id: None,
         usage_ends_at: None,
+        usage_breakdown: None,
     }
 }
 

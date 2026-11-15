@@ -10,6 +10,10 @@ use meteroid_store::errors;
 #[derive(Debug, Error, ErrorAsTonic)]
 #[allow(clippy::enum_variant_names)]
 pub enum BillableMetricApiError {
+    #[error("Invalid argument: {0}")]
+    #[code(InvalidArgument)]
+    InvalidArgument(String),
+
     #[error("Mapping error: {0}")]
     #[code(Internal)]
     MappingError(String, #[source] prost::DecodeError),
@@ -21,9 +25,12 @@ pub enum BillableMetricApiError {
 
 impl From<Report<StoreError>> for BillableMetricApiError {
     fn from(err: Report<StoreError>) -> Self {
-        Self::StoreError(
-            "Error in billable metric service".to_string(),
-            Box::new(err.into_error()),
-        )
+        match err.current_context() {
+            StoreError::InvalidArgument(msg) => Self::InvalidArgument(msg.clone()),
+            _ => Self::StoreError(
+                "Error in billable metric service".to_string(),
+                Box::new(err.into_error()),
+            ),
+        }
     }
 }

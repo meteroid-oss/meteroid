@@ -351,6 +351,7 @@ async fn seed_sandbox_data(
                     segmentation_matrix: metric.segmentation_matrix,
                     filters: None,
                     usage_group_key: metric.usage_group_key,
+                    usage_breakdown_key: None,
                     unit_label,
                     description: None,
                     product_family_id: product_family.id,

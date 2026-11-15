@@ -39,6 +39,7 @@ pub fn metric_to_rest(metric: domain::BillableMetric) -> Metric {
         segmentation_matrix: metric.segmentation_matrix.map(Into::into),
         filters: domain_filters_to_rest(metric.filters),
         usage_group_key: metric.usage_group_key,
+        usage_breakdown_key: metric.usage_breakdown_key,
         unit_singular: metric.unit_singular,
         unit_plural: metric.unit_plural,
         product_family_id: metric.product_family_id,

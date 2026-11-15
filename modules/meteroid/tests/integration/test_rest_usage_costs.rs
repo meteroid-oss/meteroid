@@ -4,8 +4,10 @@
 use crate::data::ids::{
     CUST_COMODO_ID, CUST_SPOTIFY_ID, CUST_UBER_ID, INVOICING_ENTITY_ID, METRIC_BANDWIDTH,
     METRIC_DATABASE_SIZE, PLAN_VERSION_1_LEETCODE_ID, PLAN_VERSION_PAID_FREE_TRIAL_ID,
-    PLAN_VERSION_USAGE_ALPHA_ID, PLAN_VERSION_USAGE_BETA_ID, PRODUCT_FAMILY_ID, TENANT_ID,
+    PLAN_VERSION_USAGE_ALPHA_ID, PLAN_VERSION_USAGE_BETA_ID, PLAN_VERSION_USAGE_ID,
+    PRODUCT_FAMILY_ID, TENANT_ID,
 };
+use crate::harness::{subscription, test_env_with_seed_and_usage};
 use crate::helpers::credit_recompute::{
     metric_component, started_on, subscribe, subscribe_filtered, subscribe_from, subscribe_on,
 };
@@ -24,15 +26,15 @@ use meteroid_store::clients::usage::{
     UsageSeriesPoint, WindowedUsageData,
 };
 use meteroid_store::domain::credit_units::{CreditUnitNew, PriceCreditUnit};
-use meteroid_store::domain::enums::BillingMetricAggregateEnum;
 use meteroid_store::domain::enums::TaxResolverEnum;
+use meteroid_store::domain::enums::{BillingMetricAggregateEnum, InvoiceType};
 use meteroid_store::domain::price_components::{
     MatrixDimension, MatrixRow, PriceEntry, TierRow, UsagePricingModel,
 };
 use meteroid_store::domain::subscription_components::ExtraComponent;
 use meteroid_store::domain::{
-    BillableMetric, BillableMetricNew, Dimension, InvoicingEntityPatch, SegmentationMatrix,
-    UsageFilter, UsagePeriod,
+    BillableMetric, BillableMetricNew, BillableMetricUpdate, Dimension, InvoicingEntityPatch,
+    LineItem, SegmentationMatrix, UsageFilter, UsagePeriod,
 };
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::SubscriptionInterface;
@@ -458,6 +460,7 @@ impl Api {
                     segmentation_matrix,
                     filters: None,
                     usage_group_key: usage_group_key.map(str::to_owned),
+                    usage_breakdown_key: None,
                     unit_label: None,
                     tenant_id: TENANT_ID,
                     product_family_id: PRODUCT_FAMILY_ID,
@@ -1937,4 +1940,88 @@ async fn test_a_zero_decimal_currency_is_reported_in_whole_units() {
         "{body}"
     );
     assert_eq!(api.invoiced_minor(subscription, |_| true).await, 6_600);
+}
+
+/// A breakdown key breaks the renewal's usage line down by region, read under the billing
+/// transaction's row locks, while the line bills what its whole usage bills.
+#[tokio::test]
+async fn a_breakdown_key_breaks_the_renewal_line_down_without_repricing_it() {
+    let stream = EventStream::default();
+    let env = test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(stream.clone())).await;
+    env.store()
+        .update_billable_metric(
+            Actor::System,
+            METRIC_BANDWIDTH,
+            TENANT_ID,
+            BillableMetricUpdate {
+                name: None,
+                description: None,
+                unit_conversion_factor: None,
+                unit_conversion_rounding: None,
+                segmentation_matrix: None,
+                filters: None,
+                unit_label: None,
+                usage_breakdown_key: Some(Some("region".to_owned())),
+            },
+        )
+        .await
+        .unwrap();
+
+    let january = |day: u32| {
+        NaiveDate::from_ymd_opt(2024, 1, day)
+            .unwrap()
+            .and_hms_opt(10, 0, 0)
+            .unwrap()
+    };
+    stream.add(CUST_UBER_ID, "bandwidth", january(5), "eu", 300);
+    stream.add(CUST_UBER_ID, "bandwidth", january(9), "us", 100);
+    stream.add(CUST_UBER_ID, "bandwidth", january(20), "eu", 33);
+
+    let subscription_id = subscription()
+        .plan_version(PLAN_VERSION_USAGE_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .no_auto_advance()
+        .create(env.services())
+        .await;
+    env.process_cycles().await;
+
+    let renewal = env
+        .get_invoices(subscription_id)
+        .await
+        .into_iter()
+        .find(|invoice| {
+            invoice.invoice_type == InvoiceType::Recurring
+                && invoice.billing_period_start == NaiveDate::from_ymd_opt(2024, 2, 1).unwrap()
+        })
+        .expect("the Feb 1 renewal draft");
+    let assert_breakdown = |lines: &[LineItem]| {
+        let line = lines
+            .iter()
+            .find(|line| line.metric_id == Some(METRIC_BANDWIDTH))
+            .expect("January's bandwidth line");
+        assert_eq!(line.amount_subtotal, 4_330, "433 GB at 0.10");
+        let (key, parts) = line.usage_breakdown_parts().expect("a breakdown line");
+        assert_eq!(key, "region");
+        let parts = parts
+            .into_iter()
+            .map(|part| (part.value, part.quantity, part.amount_subtotal))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            parts,
+            vec![
+                (Some("eu".to_owned()), dec!(333), 3_330),
+                (Some("us".to_owned()), dec!(100), 1_000),
+            ]
+        );
+    };
+    assert_breakdown(&renewal.line_items);
+
+    let refreshed = env
+        .services()
+        .refresh_invoice_data(renewal.id, TENANT_ID)
+        .await
+        .unwrap();
+    assert_breakdown(&refreshed.invoice.line_items);
 }

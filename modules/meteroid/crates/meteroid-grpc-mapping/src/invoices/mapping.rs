@@ -161,6 +161,24 @@ pub mod invoices {
         line_items
             .into_iter()
             .map(|line| LineItem {
+                usage_breakdown: line.usage_breakdown_parts().map(|(key, parts)| {
+                    meteroid_grpc::meteroid::api::invoices::v1::line_item::UsageBreakdown {
+                        key: key.to_owned(),
+                        items: parts
+                            .into_iter()
+                            .map(|part| {
+                                meteroid_grpc::meteroid::api::invoices::v1::line_item::usage_breakdown::Item {
+                                    value: part.value,
+                                    others: part.others,
+                                    quantity: part.quantity.as_proto(),
+                                    subtotal: part.amount_subtotal,
+                                    quoted_subtotal: part.quoted_subtotal,
+                                    credits_consumed: part.credits_consumed,
+                                }
+                            })
+                            .collect(),
+                    }
+                }),
                 id: line.local_id,
                 name: line.name,
                 tax_rate: line.tax_rate.as_proto(),

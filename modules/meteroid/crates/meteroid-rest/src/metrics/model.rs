@@ -183,8 +183,14 @@ pub struct Metric {
     pub segmentation_matrix: Option<MetricSegmentationMatrix>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub filters: Vec<MetricFilter>,
+    /// Event property, e.g. `cluster_id`, whose values are billed as separate invoice lines, each
+    /// priced on its own usage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage_group_key: Option<String>,
+    /// Event property, e.g. `project_id`, that breaks each invoice line down by value. The line is
+    /// still priced on its total usage, and each value shows its quantity and share of the amount.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage_breakdown_key: Option<String>,
     /// What one unit of the metric is called, e.g. `token`. Set together with `unit_plural`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unit_singular: Option<String>,
@@ -252,7 +258,14 @@ pub struct CreateMetricRequest {
     /// Pre-aggregation property filters. Optional and backward-compatible; omit for none.
     #[serde(default)]
     pub filters: Option<Vec<MetricFilter>>,
+    /// Event property, e.g. `cluster_id`, whose values are billed as separate invoice lines, each
+    /// priced on its own usage.
+    #[schema(example = "cluster_id")]
     pub usage_group_key: Option<String>,
+    /// Event property, e.g. `project_id`, that breaks each invoice line down by value. The line is
+    /// still priced on its total usage, and each value shows its quantity and share of the amount.
+    #[schema(example = "project_id")]
+    pub usage_breakdown_key: Option<String>,
     /// What one unit of the metric is called, e.g. `token`, used to label quantities and
     /// prices ("$12.00 per 1M tokens"). Set both `unit_singular` and `unit_plural`, or neither.
     /// Trimmed; at most 32 characters.
@@ -286,6 +299,10 @@ pub struct UpdateMetricRequest {
     /// What several units of the metric are called, e.g. `tokens`. See `unit_singular`.
     #[schema(example = "tokens")]
     pub unit_plural: Option<String>,
+    /// Omit to leave the breakdown key unchanged; send `null` to remove it.
+    #[serde(default, with = "::serde_with::rust::double_option")]
+    #[schema(value_type = Option<String>, example = "project_id")]
+    pub usage_breakdown_key: Option<Option<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Validate, IntoParams)]
@@ -306,4 +323,24 @@ pub struct MetricListRequest {
 pub struct MetricListResponse {
     pub data: Vec<MetricSummary>,
     pub pagination_meta: PaginationResponse,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UpdateMetricRequest;
+
+    fn breakdown_key(body: &str) -> Option<Option<String>> {
+        serde_json::from_str::<UpdateMetricRequest>(body)
+            .unwrap()
+            .usage_breakdown_key
+    }
+
+    #[test]
+    fn an_update_keeps_the_breakdown_key_unless_it_is_sent() {
+        assert_eq!(breakdown_key("{}"), None);
+        assert_eq!(
+            breakdown_key(r#"{"usage_breakdown_key": null}"#),
+            Some(None)
+        );
+    }
 }

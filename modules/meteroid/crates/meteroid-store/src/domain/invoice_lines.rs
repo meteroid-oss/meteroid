@@ -148,6 +148,42 @@ pub struct LineItem {
     /// bills its last day's usage up to the cancellation instant.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_ends_at: Option<chrono::DateTime<chrono::Utc>>,
+
+    /// The usage of the line broken down by its metric's breakdown key; it bills nothing apart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_breakdown: Option<UsageBreakdown>,
+}
+
+/// A usage line's usage by the values of its metric's breakdown key. The line is priced on its
+/// whole usage; each value gets the share of its amount its `weight` stands for.
+#[derive(PartialEq, Debug, Deserialize, Serialize, Eq, Clone)]
+pub struct UsageBreakdown {
+    pub key: String,
+    pub items: Vec<UsageBreakdownItem>,
+}
+
+#[derive(PartialEq, Debug, Deserialize, Serialize, Eq, Clone)]
+pub struct UsageBreakdownItem {
+    /// Absent for the usage of events without the property, and for `others`.
+    pub value: Option<String>,
+    pub quantity: Decimal,
+    /// The item's usage valued at the line's prices, or its quantity where they are uniform.
+    pub weight: Decimal,
+    /// The values past those listed one by one, summed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub others: bool,
+}
+
+impl UsageBreakdown {
+    /// `total` minor units shared out by weight, in the order of `items`.
+    pub fn allocate(&self, total: i64) -> Vec<i64> {
+        let weights = self
+            .items
+            .iter()
+            .map(|item| item.weight)
+            .collect::<Vec<_>>();
+        billing_core::split(total, &weights)
+    }
 }
 
 /// The credit side of a line priced in a credit unit. Covered credits were paid by the unit
@@ -210,7 +246,49 @@ pub fn quoted_discount(lines: &[LineItem]) -> i64 {
         .max(0)
 }
 
+/// One value of a line's usage breakdown with its share of the line's figures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UsageBreakdownPart {
+    pub value: Option<String>,
+    pub others: bool,
+    pub quantity: Decimal,
+    /// Of `amount_subtotal`.
+    pub amount_subtotal: i64,
+    /// Of the tax-included subtotal the line was quoted, on a tax-inclusive line.
+    pub quoted_subtotal: Option<i64>,
+    /// Of the credits a line priced in a credit unit consumed.
+    pub credits_consumed: Option<i64>,
+}
+
 impl LineItem {
+    /// The line's usage breakdown, each value with its share of the line's current figures.
+    pub fn usage_breakdown_parts(&self) -> Option<(&str, Vec<UsageBreakdownPart>)> {
+        let breakdown = self.usage_breakdown.as_ref()?;
+        let subtotals = breakdown.allocate(self.amount_subtotal);
+        let quoted = self
+            .tax_inclusive_quote
+            .as_ref()
+            .map(|quote| breakdown.allocate(quote.amount_subtotal));
+        let credits = self
+            .credit_unit
+            .as_ref()
+            .map(|credit| breakdown.allocate(credit.consumed));
+        let parts = breakdown
+            .items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| UsageBreakdownPart {
+                value: item.value.clone(),
+                others: item.others,
+                quantity: item.quantity,
+                amount_subtotal: subtotals[index],
+                quoted_subtotal: quoted.as_ref().map(|parts| parts[index]),
+                credits_consumed: credits.as_ref().map(|parts| parts[index]),
+            })
+            .collect();
+        Some((breakdown.key.as_str(), parts))
+    }
+
     /// The end of the dates its usage was consumed in: only credit effective before it pays it.
     pub fn usage_dated_before(&self) -> chrono::DateTime<chrono::Utc> {
         self.usage_ends_at
@@ -525,5 +603,69 @@ mod minimum_shortfall_tests {
         let taxable: i64 = lines.iter().map(|l| l.taxable_amount).sum();
         assert_eq!(taxable, 450_000);
         assert_eq!(minimum_shortfall(&lines[..2]), 0);
+    }
+}
+
+#[cfg(test)]
+mod usage_breakdown_tests {
+    use super::LineItem;
+
+    #[test]
+    fn each_figure_of_an_edited_line_is_shared_out_on_its_own() {
+        // A draft line breaking 3,000 requests down 2:1, then edited from $30.00 down to $20.00.
+        // It was quoted $36.00 tax included and consumed 3,000 credit minor units.
+        let mut line: LineItem = serde_json::from_value(serde_json::json!({
+            "local_id": "api",
+            "name": "API Requests",
+            "amount_subtotal": 3_000,
+            "taxable_amount": 3_000,
+            "amount_total": 3_000,
+            "quantity": "3000",
+            "unit_price": "0.01",
+            "start_date": "2026-10-01",
+            "end_date": "2026-11-01",
+            "sub_lines": [],
+            "is_prorated": false,
+            "kind": "Regular",
+            "tax_inclusive_quote": {"amount_subtotal": 3_600, "unit_price": "0.012", "sub_lines": []},
+            "credit_unit": {
+                "unit_id": "00000000-0000-0000-0000-000000000001",
+                "code": "CREDITS",
+                "precision": 2,
+                "rate": "0.01",
+                "unit_price": "1",
+                "consumed": 3_000,
+                "covered": 0
+            },
+            "usage_breakdown": {
+                "key": "project_id",
+                "items": [
+                    {"value": "prod", "quantity": "2000", "weight": "2000"},
+                    {"value": null, "quantity": "1000", "weight": "1000"}
+                ]
+            }
+        }))
+        .unwrap();
+        line.amount_subtotal = 2_000;
+
+        let (key, parts) = line.usage_breakdown_parts().unwrap();
+        assert_eq!(key, "project_id");
+        let figures = parts
+            .iter()
+            .map(|part| {
+                (
+                    part.amount_subtotal,
+                    part.quoted_subtotal,
+                    part.credits_consumed,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            figures,
+            vec![
+                (1_333, Some(2_400), Some(2_000)),
+                (667, Some(1_200), Some(1_000)),
+            ]
+        );
     }
 }

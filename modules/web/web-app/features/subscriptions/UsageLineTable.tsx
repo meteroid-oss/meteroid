@@ -7,9 +7,11 @@ import { formatPerUnit, formatRawQuantity, unitPlural } from '@/features/billing
 import { formatWalletAmount } from '@/features/credit/format'
 import { UsageBarChart } from '@/features/subscriptions/UsageBarChart'
 import { creditUnitNames } from '@/features/subscriptions/subscriptionPrice'
+import { usageBreakdownRows } from '@/features/subscriptions/usageBreakdownRows'
 import { formatCurrency, formatCurrencyNoRounding } from '@/lib/utils/numbers'
 
 import type { MetricUnit } from '@/features/billing/metrics/units'
+import type { LineBreakdownItem } from '@/features/invoices/invoiceSummary'
 import type { CreditUnitNames } from '@/features/subscriptions/subscriptionPrice'
 import type { LineItem, SubLineItem } from '@/rpc/api/invoices/v1/models_pb'
 
@@ -57,6 +59,67 @@ const bareNumber = (value: string) => {
   } catch {
     return value
   }
+}
+
+/** The line's usage by its metric's breakdown key; long lists fold like the line's own rows. */
+const BreakdownTable = ({
+  breakdown,
+  quantityHeader,
+  amountHeader,
+  quantity,
+  amount,
+}: {
+  breakdown: { key: string; items: LineBreakdownItem[] }
+  quantityHeader: string
+  amountHeader: string
+  quantity: (value: string) => string
+  amount: (minor: bigint) => string
+}) => {
+  const collapsible = breakdown.items.length > INLINE_USAGE_ROWS
+  const [expanded, setExpanded] = useState(!collapsible)
+  const rowsId = useId()
+  const num = 'text-right tabular-nums'
+
+  return (
+    <>
+      {collapsible && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={rowsId}
+          className="flex w-fit items-center gap-1 text-xs text-brand hover:underline"
+          onClick={() => setExpanded(!expanded)}
+        >
+          <ChevronDown className={`h-3 w-3 transition-transform ${expanded ? '' : '-rotate-90'}`} />
+          By {breakdown.key} ({breakdown.items.length})
+        </button>
+      )}
+      {expanded && (
+        <Table id={rowsId}>
+          <TableHeader className="border-t-0 bg-transparent">
+            <TableRow className="hover:bg-transparent">
+              <TableHead className="h-8 pl-0">By {breakdown.key}</TableHead>
+              <TableHead className="h-8 text-right">{quantityHeader}</TableHead>
+              <TableHead className="h-8 pr-0 text-right">{amountHeader}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {breakdown.items.map((item, index) => (
+              <TableRow key={index} className="hover:bg-transparent">
+                <TableCell
+                  className={`max-w-0 truncate py-1.5 pl-0 ${item.noValue ? 'text-muted-foreground' : 'text-foreground'}`}
+                >
+                  {item.label}
+                </TableCell>
+                <TableCell className={`py-1.5 ${num}`}>{quantity(item.quantity)}</TableCell>
+                <TableCell className={`py-1.5 ${num} pr-0`}>{amount(item.amount)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </>
+  )
 }
 
 /** A usage line's breakdown inside the next invoice; credit-unit amounts are bare credits. */
@@ -112,6 +175,7 @@ export const UsageLineTable = ({
             total: credit ? credit.consumed : line.subtotal,
           },
         ]
+  const breakdown = usageBreakdownRows(line)
   const num = 'text-right tabular-nums'
   const header = subs.length > 0 ? breakdownHeader(subs) : 'Item'
   const per = unit ? formatPerUnit(unit) : 'per unit'
@@ -157,6 +221,15 @@ export const UsageLineTable = ({
             ))}
           </TableBody>
         </Table>
+      )}
+      {breakdown && (
+        <BreakdownTable
+          breakdown={breakdown}
+          quantityHeader={unit ? capitalize(unitPlural(unit)) : 'Quantity'}
+          amountHeader={credit ? 'Credits' : 'Amount'}
+          quantity={q => formatQuantity(q, unit)}
+          amount={amount}
+        />
       )}
       {line.metricId && (
         <div>

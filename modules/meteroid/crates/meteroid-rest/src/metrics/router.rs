@@ -14,6 +14,7 @@ use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use crate::metrics::mapping;
 use crate::metrics::model::*;
 use meteroid_app::errors::RestApiError;
+use meteroid_app::features::ensure_usage_breakdown_allowed;
 use meteroid_rest_common::QueryParams;
 use meteroid_rest_common::error::RestErrorResponse;
 use meteroid_rest_common::model::{PaginationExt, validate_order_by};
@@ -120,6 +121,7 @@ pub async fn get_metric(
         (status = 201, description = "Metric created", body = Metric),
         (status = 400, description = "Bad request", body = RestErrorResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 403, description = "Usage breakdowns are not enabled for this organization: setting a breakdown key is refused", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -142,6 +144,13 @@ pub async fn create_metric(
         payload.unit_plural.as_deref(),
     )
     .map_err(RestApiError::InvalidInput)?;
+    ensure_usage_breakdown_allowed(
+        app_state.feature_resolver.as_ref(),
+        authorized_state.organization_id,
+        payload.usage_breakdown_key.as_deref(),
+        None,
+    )
+    .await?;
 
     let metric = app_state
         .store
@@ -158,6 +167,7 @@ pub async fn create_metric(
                 segmentation_matrix: payload.segmentation_matrix.map(Into::into),
                 filters: mapping::rest_filters_to_domain(filters),
                 usage_group_key: payload.usage_group_key,
+                usage_breakdown_key: payload.usage_breakdown_key,
                 unit_label,
                 tenant_id: authorized_state.tenant_id,
                 product_family_id: payload.product_family_id,
@@ -188,6 +198,7 @@ pub async fn create_metric(
         (status = 200, description = "Metric updated", body = Metric),
         (status = 400, description = "Bad request", body = RestErrorResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 403, description = "Usage breakdowns are not enabled for this organization: setting or changing a breakdown key is refused", body = RestErrorResponse),
         (status = 404, description = "Metric not found", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
@@ -230,6 +241,21 @@ pub async fn update_metric(
         }
     };
 
+    if let Some(Some(requested)) = &payload.usage_breakdown_key {
+        let stored = app_state
+            .store
+            .find_billable_metric_by_id(metric_id, authorized_state.tenant_id)
+            .await
+            .map_err(RestApiError::from)?;
+        ensure_usage_breakdown_allowed(
+            app_state.feature_resolver.as_ref(),
+            authorized_state.organization_id,
+            Some(requested),
+            stored.usage_breakdown_key.as_deref(),
+        )
+        .await?;
+    }
+
     let metric = app_state
         .store
         .update_billable_metric(
@@ -244,6 +270,7 @@ pub async fn update_metric(
                 segmentation_matrix: payload.segmentation_matrix.map(|opt| opt.map(Into::into)),
                 filters,
                 unit_label,
+                usage_breakdown_key: payload.usage_breakdown_key,
             },
         )
         .await

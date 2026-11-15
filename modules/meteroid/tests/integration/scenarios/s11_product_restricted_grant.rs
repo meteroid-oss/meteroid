@@ -42,6 +42,7 @@ async fn fine_tuning(h: &Halyard) -> ProductId {
                 segmentation_matrix: None,
                 filters: None,
                 usage_group_key: None,
+                usage_breakdown_key: None,
                 unit_label: None,
                 tenant_id: h.tenant,
                 product_family_id: family.id,

@@ -1,5 +1,6 @@
 use common_domain::ids::{OrganizationId, TenantId};
 use meteroid_store::Store;
+use meteroid_store::domain::billable_metrics::normalize_usage_breakdown_key;
 use meteroid_store::domain::enums::TenantEnvironmentEnum;
 use meteroid_store::domain::env_policy::environment_flag;
 use rust_decimal::Decimal;
@@ -103,6 +104,9 @@ pub mod gates {
     pub const SCOPED_CREDIT: FeatureCode = FeatureCode::new("scoped_credit");
     /// The usage cost reads and the running total of a subscription's current period.
     pub const USAGE_COSTS: FeatureCode = FeatureCode::new("usage_costs");
+    /// Setting a billable metric's usage breakdown key (the usage-breakdown module). Invoices
+    /// keep breaking down by a key already stored.
+    pub const USAGE_BREAKDOWN: FeatureCode = FeatureCode::new("usage_breakdown");
     /// Plan, add-on, seat and promo code changes from the customer portal.
     pub const PORTAL_SELF_SERVICE: FeatureCode = FeatureCode::new("portal_self_service");
     /// Embedding the customer portal.
@@ -567,6 +571,28 @@ pub const EMAIL_CUSTOMIZATION_NOT_IN_PLAN: &str =
     "Customizing customer emails is not enabled for this organization.";
 pub const QUOTE_PURCHASE_ORDERS_NOT_IN_PLAN: &str =
     "Purchase orders on quotes are not enabled for this organization.";
+pub const USAGE_BREAKDOWN_NOT_IN_PLAN: &str =
+    "Usage breakdowns are not enabled for this organization.";
+
+/// Refuses setting a metric's breakdown key without the gate, unless it is the key `stored`.
+/// Keeping or removing the key stays open, so a metric stays editable after a downgrade.
+pub async fn ensure_usage_breakdown_allowed(
+    resolver: &dyn Entitlements,
+    org_id: OrganizationId,
+    requested: Option<&str>,
+    stored: Option<&str>,
+) -> Result<(), tonic::Status> {
+    let requested = normalize_usage_breakdown_key(requested.map(str::to_owned));
+    let changes = requested.is_some() && requested.as_deref() != stored;
+    ensure_change_allowed(
+        resolver,
+        org_id,
+        gates::USAGE_BREAKDOWN,
+        changes,
+        USAGE_BREAKDOWN_NOT_IN_PLAN,
+    )
+    .await
+}
 
 pub async fn ensure_credit_pricing_allowed(
     resolver: &dyn Entitlements,

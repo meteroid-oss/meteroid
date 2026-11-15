@@ -196,6 +196,7 @@ fn create_test_invoice() -> Invoice {
                 credit: None,
                 promotional_credit: None,
                 prepaid_credit: false,
+                usage_breakdown: None,
             },
             InvoiceLine {
                 name: "Software License".to_string(),
@@ -214,6 +215,7 @@ fn create_test_invoice() -> Invoice {
                 credit: None,
                 promotional_credit: None,
                 prepaid_credit: false,
+                usage_breakdown: None,
             },
         ],
         coupons: vec![

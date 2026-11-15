@@ -671,6 +671,7 @@ diesel::table! {
         filters -> Nullable<Jsonb>,
         unit_singular -> Nullable<Text>,
         unit_plural -> Nullable<Text>,
+        usage_breakdown_key -> Nullable<Text>,
     }
 }
 

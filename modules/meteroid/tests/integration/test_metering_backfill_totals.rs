@@ -103,6 +103,7 @@ fn segmented_metric(name: &str, aggregation_type: BillingMetricAggregateEnum) ->
         })),
         filters: None,
         usage_group_key: None,
+        usage_breakdown_key: None,
         unit_label: None,
         tenant_id: TENANT_ID,
         product_family_id: PRODUCT_FAMILY_ID,

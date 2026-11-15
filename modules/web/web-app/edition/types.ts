@@ -292,6 +292,16 @@ export interface MinimumCommitmentFieldContext {
   allowPending: boolean
 }
 
+/** A billable metric's breakdown key field, bound to the metric's create or edit form. */
+export interface MetricBreakdownKeyContext {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  control: Control<any>
+  /** The event code whose properties the key is picked from. */
+  eventCode: string
+  /** `create` also covers a duplicated metric, whose key is copied from its source. */
+  mode: 'create' | 'edit'
+}
+
 export interface PortalCreditSettingsContext {
   control: Control<PortalCreditValues>
   /** No invoicing entity is loaded yet. */
@@ -381,6 +391,8 @@ export interface ComponentSlots {
   'subscriptionDetail.usageLimitsAside': SubscriptionDetailContext
   /** In the Status column of the Wallets list, after the wallet's status. */
   'walletList.statusBadges': { wallet: WalletSummary }
+  /** The breakdown key field of the metric create and edit forms; without one, the metric detail still shows a stored key. */
+  'metricForm.usageBreakdownKey': MetricBreakdownKeyContext
   /** The "When credit runs out" field of a draft plan version; without one, the stored rule is shown read-only. */
   'planEdit.creditRule': PlanCreditRuleContext
   /** The plan version's minimum, in its Contract terms; without one, a stored minimum shows read-only. */

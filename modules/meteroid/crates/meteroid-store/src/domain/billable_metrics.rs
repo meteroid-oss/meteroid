@@ -27,6 +27,8 @@ pub struct BillableMetric {
     #[map(~.map(| x | x.try_into()).transpose()?)]
     pub filters: Option<MetricFilters>,
     pub usage_group_key: Option<String>,
+    /// A property whose values break the metric's invoice lines down, leaving what they bill unchanged.
+    pub usage_breakdown_key: Option<String>,
     pub unit_singular: Option<String>,
     pub unit_plural: Option<String>,
     pub created_at: NaiveDateTime,
@@ -111,6 +113,49 @@ pub enum SegmentationMatrix {
 
 json_value_serde!(SegmentationMatrix);
 
+impl SegmentationMatrix {
+    pub fn keys(&self) -> Vec<&str> {
+        match self {
+            SegmentationMatrix::Single(dimension) => vec![dimension.key.as_str()],
+            SegmentationMatrix::Double {
+                dimension1,
+                dimension2,
+            } => vec![dimension1.key.as_str(), dimension2.key.as_str()],
+            SegmentationMatrix::Linked {
+                dimension1_key,
+                dimension2_key,
+                ..
+            } => vec![dimension1_key.as_str(), dimension2_key.as_str()],
+        }
+    }
+}
+
+/// A blank breakdown key is no breakdown key.
+pub fn normalize_usage_breakdown_key(key: Option<String>) -> Option<String> {
+    key.map(|key| key.trim().to_owned())
+        .filter(|key| !key.is_empty())
+}
+
+/// Breaking down by a property the metric already prices apart would only repeat its lines.
+pub fn validate_usage_breakdown_key(
+    usage_breakdown_key: Option<&str>,
+    usage_group_key: Option<&str>,
+    segmentation_matrix: Option<&SegmentationMatrix>,
+) -> Result<(), String> {
+    let Some(breakdown_key) = usage_breakdown_key else {
+        return Ok(());
+    };
+    if usage_group_key == Some(breakdown_key) {
+        return Err("the breakdown key cannot be the metric's group key".to_owned());
+    }
+    if segmentation_matrix.is_some_and(|matrix| matrix.keys().contains(&breakdown_key)) {
+        return Err(
+            "the breakdown key cannot be a segmentation dimension of the metric".to_owned(),
+        );
+    }
+    Ok(())
+}
+
 /// UI-facing operator of a [`MetricFilter`]. `Equal`/`NotEqual` are the single-value
 /// forms of `In`/`NotIn`; all four collapse to In/NotIn at the query-engine boundary.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -157,6 +202,7 @@ pub struct BillableMetricNew {
     pub segmentation_matrix: Option<SegmentationMatrix>,
     pub filters: Option<MetricFilters>,
     pub usage_group_key: Option<String>,
+    pub usage_breakdown_key: Option<String>,
     pub unit_label: Option<MetricUnitLabel>,
     pub tenant_id: TenantId,
     pub product_family_id: ProductFamilyId,
@@ -172,6 +218,7 @@ pub struct BillableMetricUpdate {
     pub segmentation_matrix: Option<Option<SegmentationMatrix>>,
     pub filters: Option<Option<MetricFilters>>,
     pub unit_label: Option<Option<MetricUnitLabel>>,
+    pub usage_breakdown_key: Option<Option<String>>,
 }
 
 #[derive(Clone, Debug, o2o)]

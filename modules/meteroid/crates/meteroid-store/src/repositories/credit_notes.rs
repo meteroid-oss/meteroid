@@ -542,6 +542,7 @@ fn negate_line_items(
                         promotional_credit: None,
                         subscription_id: item.subscription_id,
                         usage_ends_at: None,
+                        usage_breakdown: None,
                     };
                 }
 
@@ -655,6 +656,7 @@ fn negate_line_items(
                     promotional_credit: prorated_promotional,
                     subscription_id: item.subscription_id,
                     usage_ends_at: None,
+                    usage_breakdown: None,
                 }
             } else {
                 // Full credit: negate the amounts, keep original quantity and positive
@@ -712,6 +714,7 @@ fn negate_line_items(
                     promotional_credit: item.promotional_credit.and_then(i64::checked_neg),
                     subscription_id: item.subscription_id,
                     usage_ends_at: None,
+                    usage_breakdown: None,
                 }
             }
         })
@@ -2617,6 +2620,7 @@ mod tests {
             promotional_credit: None,
             subscription_id: None,
             usage_ends_at: None,
+            usage_breakdown: None,
         }
     }
 

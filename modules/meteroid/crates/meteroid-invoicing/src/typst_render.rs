@@ -172,6 +172,25 @@ typst_dict_struct! {
         pub sub_lines: Vec<TypstInvoiceSubLine>,
         pub group_label: Option<String>,
         pub credit: Option<TypstLineCredit>,
+        pub usage_breakdown: Option<TypstUsageBreakdown>,
+    }
+}
+
+typst_dict_struct! {
+    #[derive(Debug, Clone)]
+    pub struct TypstUsageBreakdown {
+        pub key: String,
+        pub items: Vec<TypstUsageBreakdownItem>,
+    }
+}
+
+typst_dict_struct! {
+    #[derive(Debug, Clone)]
+    pub struct TypstUsageBreakdownItem {
+        pub value: Option<String>,
+        pub others: bool,
+        pub quantity: f64,
+        pub subtotal: TypstDecimal,
     }
 }
 
@@ -218,6 +237,32 @@ impl TryFrom<&InvoiceLine> for TypstInvoiceLine {
                 consumed: credit.quantity(credit.consumed),
                 covered: credit.quantity(credit.covered),
             }),
+            usage_breakdown: line
+                .usage_breakdown
+                .as_ref()
+                .map(|breakdown| {
+                    let items = breakdown
+                        .items
+                        .iter()
+                        .map(|item| {
+                            let subtotal = match (&line.quoted, &item.quoted_subtotal) {
+                                (Some(_), Some(quoted)) => quoted,
+                                _ => &item.subtotal,
+                            };
+                            Ok(TypstUsageBreakdownItem {
+                                value: item.value.clone(),
+                                others: item.others,
+                                quantity: item.quantity.to_f64().unwrap_or(0.0),
+                                subtotal: format::money(subtotal)?,
+                            })
+                        })
+                        .collect::<InvoicingResult<Vec<_>>>()?;
+                    Ok::<_, InvoicingError>(TypstUsageBreakdown {
+                        key: breakdown.key.clone(),
+                        items,
+                    })
+                })
+                .transpose()?,
         })
     }
 }
@@ -716,6 +761,8 @@ impl TryFrom<&Invoice> for TypstInvoiceContent {
             "prorated" => invoice_l10n.prorated().into_value(),
             "credits_used" => invoice_l10n.credits_used().into_value(),
             "credits_covered" => invoice_l10n.credits_covered().into_value(),
+            "usage_breakdown_others" => invoice_l10n.usage_breakdown_others().into_value(),
+            "usage_breakdown_by" => invoice_l10n.usage_breakdown_by().into_value(),
             "tax_rate" => invoice_l10n.tax_rate().into_value(),
             "tax" => invoice_l10n.tax().into_value(),
             "amount" => invoice_l10n.amount().into_value(),

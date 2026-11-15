@@ -102,19 +102,10 @@ fn bucket_ceil(ts: NaiveDateTime, granularity: CostGranularity) -> NaiveDateTime
 }
 
 fn segmentation_keys(metric: &BillableMetric) -> Vec<&str> {
-    match &metric.segmentation_matrix {
-        Some(SegmentationMatrix::Single(dimension)) => vec![dimension.key.as_str()],
-        Some(SegmentationMatrix::Double {
-            dimension1,
-            dimension2,
-        }) => vec![dimension1.key.as_str(), dimension2.key.as_str()],
-        Some(SegmentationMatrix::Linked {
-            dimension1_key,
-            dimension2_key,
-            ..
-        }) => vec![dimension1_key.as_str(), dimension2_key.as_str()],
-        None => vec![],
-    }
+    metric
+        .segmentation_matrix
+        .as_ref()
+        .map_or_else(Vec::new, SegmentationMatrix::keys)
 }
 
 /// Whether the metric's segmentation lets an event with these properties through, as the
@@ -1542,6 +1533,7 @@ mod tests {
             segmentation_matrix: None,
             filters: None,
             usage_group_key: None,
+            usage_breakdown_key: None,
             unit_singular: None,
             unit_plural: None,
             created_at: NaiveDateTime::default(),

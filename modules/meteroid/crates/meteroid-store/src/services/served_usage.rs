@@ -52,6 +52,7 @@ struct UsageRead {
     metric_updated_at: Option<NaiveDateTime>,
     scope: UsageScope,
     period: UsagePeriod,
+    group_by: Option<String>,
 }
 
 impl UsageRead {
@@ -60,6 +61,7 @@ impl UsageRead {
         customer_id: &CustomerId,
         metric: &BillableMetric,
         period: &UsagePeriod,
+        group_by: Option<&str>,
     ) -> Self {
         Self {
             tenant_id: *tenant_id,
@@ -68,6 +70,7 @@ impl UsageRead {
             metric_updated_at: metric.updated_at,
             scope: metric.usage_scope.clone(),
             period: period.clone(),
+            group_by: group_by.map(str::to_owned),
         }
     }
 }
@@ -92,14 +95,29 @@ impl UsageReads {
                     if self.usage.contains_key(&read) {
                         continue;
                     }
-                    let data = client
-                        .fetch_usage(
-                            &read.tenant_id,
-                            &read.customer_id,
-                            &metric,
-                            read.period.clone(),
-                        )
-                        .await?;
+                    let data = match &read.group_by {
+                        None => {
+                            client
+                                .fetch_usage(
+                                    &read.tenant_id,
+                                    &read.customer_id,
+                                    &metric,
+                                    read.period.clone(),
+                                )
+                                .await?
+                        }
+                        Some(group_by) => {
+                            client
+                                .fetch_usage_grouped_by(
+                                    &read.tenant_id,
+                                    &read.customer_id,
+                                    &metric,
+                                    group_by,
+                                    read.period.clone(),
+                                )
+                                .await?
+                        }
+                    };
                     self.usage.insert(read, data);
                 }
                 Missed::Events(tenant_id, mut options) => {
@@ -175,6 +193,18 @@ impl ServedUsage {
         }))
     }
 
+    fn serve(&self, read: UsageRead, metric: &BillableMetric) -> StoreResult<UsageData> {
+        if let Some(data) = self.reads.usage.get(&read) {
+            return Ok(data.clone());
+        }
+        let period = read.period.clone();
+        self.record(Missed::Usage(read, Box::new(metric.clone())))?;
+        Ok(UsageData {
+            data: Vec::new(),
+            period,
+        })
+    }
+
     fn take_missed(&self) -> StoreResult<Vec<Missed>> {
         self.missed
             .lock()
@@ -212,26 +242,24 @@ impl UsageClient for ServedUsage {
         metric: &BillableMetric,
         period: UsagePeriod,
     ) -> StoreResult<UsageData> {
-        let read = UsageRead::of(tenant_id, customer_id, metric, &period);
-        if let Some(data) = self.reads.usage.get(&read) {
-            return Ok(data.clone());
-        }
-        self.record(Missed::Usage(read, Box::new(metric.clone())))?;
-        Ok(UsageData {
-            data: Vec::new(),
-            period,
-        })
+        self.serve(
+            UsageRead::of(tenant_id, customer_id, metric, &period, None),
+            metric,
+        )
     }
 
     async fn fetch_usage_grouped_by(
         &self,
-        _tenant_id: &TenantId,
-        _customer_id: &CustomerId,
-        _metric: &BillableMetric,
-        _group_by: &str,
-        _period: UsagePeriod,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
+        metric: &BillableMetric,
+        group_by: &str,
+        period: UsagePeriod,
     ) -> StoreResult<UsageData> {
-        Err(unserved())
+        self.serve(
+            UsageRead::of(tenant_id, customer_id, metric, &period, Some(group_by)),
+            metric,
+        )
     }
 
     async fn fetch_total_usage(

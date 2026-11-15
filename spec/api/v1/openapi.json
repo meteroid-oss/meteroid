@@ -6022,6 +6022,16 @@
               }
             }
           },
+          "403": {
+            "description": "Usage breakdowns are not enabled for this organization: setting a breakdown key is refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Too many requests",
             "content": {
@@ -6157,6 +6167,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Usage breakdowns are not enabled for this organization: setting or changing a breakdown key is refused",
             "content": {
               "application/json": {
                 "schema": {
@@ -12796,11 +12816,21 @@
             "description": "What one unit of the metric is called, e.g. `token`, used to label quantities and\nprices (\"$12.00 per 1M tokens\"). Set both `unit_singular` and `unit_plural`, or neither.\nTrimmed; at most 32 characters.",
             "example": "token"
           },
+          "usage_breakdown_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Event property, e.g. `project_id`, that breaks each invoice line down by value. The line is\nstill priced on its total usage, and each value shows its quantity and share of the amount.",
+            "example": "project_id"
+          },
           "usage_group_key": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Event property, e.g. `cluster_id`, whose values are billed as separate invoice lines, each\npriced on its own usage.",
+            "example": "cluster_id"
           }
         }
       },
@@ -16968,6 +16998,83 @@
           "unit_price": {
             "type": "string",
             "format": "decimal"
+          },
+          "usage_breakdown": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/InvoiceLineUsageBreakdown",
+                "description": "The line broken down by its metric's `usage_breakdown_key`: each value's quantity and its\npart of the line's amount. Together they add up to the line's quantity and amount."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "InvoiceLineUsageBreakdown": {
+        "type": "object",
+        "required": [
+          "key",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceLineUsageBreakdownItem"
+            },
+            "description": "Largest amount first. Past 99 values, the rest are summed in one last item flagged `others`."
+          },
+          "key": {
+            "type": "string",
+            "description": "The event property the usage is broken down by, e.g. `project_id`."
+          }
+        }
+      },
+      "InvoiceLineUsageBreakdownItem": {
+        "type": "object",
+        "required": [
+          "quantity",
+          "amount_subtotal"
+        ],
+        "properties": {
+          "amount_subtotal": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Its part of the line's amount before discounts and tax, in minor units."
+          },
+          "credits_consumed": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Its part of `credit_unit.consumed`, on a line priced in a credit unit."
+          },
+          "others": {
+            "type": "boolean",
+            "description": "Set on the last item when there are more than 99 values: it sums the rest."
+          },
+          "quantity": {
+            "type": "string",
+            "format": "decimal",
+            "description": "Usage of this value, in the units the line is priced in."
+          },
+          "quoted_amount_subtotal": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Its part of the tax-included amount quoted, on a line billed from tax-inclusive prices."
+          },
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The property's value; absent for events without it, and for `others`."
           }
         }
       },
@@ -17747,11 +17854,19 @@
             ],
             "description": "What one unit of the metric is called, e.g. `token`. Set together with `unit_plural`."
           },
+          "usage_breakdown_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Event property, e.g. `project_id`, that breaks each invoice line down by value. The line is\nstill priced on its total usage, and each value shows its quantity and share of the amount."
+          },
           "usage_group_key": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Event property, e.g. `cluster_id`, whose values are billed as separate invoice lines, each\npriced on its own usage."
           }
         }
       },
@@ -17892,6 +18007,12 @@
               "null"
             ],
             "description": "What one unit of the metric is called, e.g. `token`."
+          },
+          "usage_breakdown_key": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "usage_group_key": {
             "type": [
@@ -22111,6 +22232,14 @@
             ],
             "description": "What one unit of the metric is called, e.g. `token`. Send `unit_singular` and\n`unit_plural` together; omit both to leave the label unchanged, or send both as empty\nstrings to remove it. Trimmed; at most 32 characters.",
             "example": "token"
+          },
+          "usage_breakdown_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Omit to leave the breakdown key unchanged; send `null` to remove it.",
+            "example": "project_id"
           }
         }
       },

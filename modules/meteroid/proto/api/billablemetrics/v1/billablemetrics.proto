@@ -11,12 +11,17 @@ message CreateBillableMetricRequest {
   optional string description = 3;
   Aggregation aggregation = 4;
   SegmentationMatrix segmentation_matrix = 5;
+  // Event property, e.g. `cluster_id`, whose values are billed as separate invoice lines, each
+  // priced on its own usage.
   optional string usage_group_key = 6;
   string family_local_id = 7;
   optional string product_id = 8;
   repeated MetricFilter filters = 9;
   // Both labels or neither; blank labels mean none.
   MetricUnitLabel unit_label = 10;
+  // Event property, e.g. `project_id`, that breaks each invoice line down by value. The line is
+  // still priced on its total usage, and each value shows its quantity and share of the amount.
+  optional string usage_breakdown_key = 11;
 }
 
 message CreateBillableMetricResponse {
@@ -68,6 +73,8 @@ message UpdateBillableMetricRequest {
   optional MetricFilterList filters = 6;
   // Absent = leave the label untouched; both labels blank = remove it.
   optional MetricUnitLabel unit_label = 7;
+  // Absent = keep the breakdown key; blank = remove it.
+  optional string usage_breakdown_key = 8;
 }
 
 message UpdateBillableMetricResponse {

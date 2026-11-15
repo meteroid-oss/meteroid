@@ -372,6 +372,7 @@ impl Services {
                     // An edit never changes which subscription the line bills.
                     subscription_id: existing_line.and_then(|l| l.subscription_id),
                     usage_ends_at: None,
+                    usage_breakdown: existing_line.and_then(|l| l.usage_breakdown.clone()),
                 };
 
                 lines.push(item);

@@ -56,6 +56,7 @@ import { PaymentStatusBadge } from '@/features/invoices/PaymentStatusBadge'
 import { TransactionList } from '@/features/invoices/TransactionList'
 import {
   invoiceSummary,
+  lineShownBreakdown,
   lineShownSubLines,
   lineShownSubtotal,
   lineShownUnitPrice,
@@ -1494,7 +1495,9 @@ const InvoiceLineItemCard: React.FC<{
   const [isExpanded, setIsExpanded] = useState(false)
   // A tax-inclusive line is shown as quoted, like the PDF and the summary.
   const subLines = lineShownSubLines(line_item)
+  const breakdown = lineShownBreakdown(line_item)
   const hasSubItems = subLines.length > 0
+  const expandable = hasSubItems || !!breakdown
   const unitPrice = lineShownUnitPrice(line_item)
   const subtotal = lineShownSubtotal(line_item)
   const packText = packCreditText(line_item, invoice.currency, units)
@@ -1502,12 +1505,12 @@ const InvoiceLineItemCard: React.FC<{
   return (
     <div className="py-2">
       <div
-        className={cn('flex justify-between items-start gap-2', hasSubItems && 'cursor-pointer')}
-        onClick={() => hasSubItems && setIsExpanded(!isExpanded)}
+        className={cn('flex justify-between items-start gap-2', expandable && 'cursor-pointer')}
+        onClick={() => expandable && setIsExpanded(!isExpanded)}
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-start gap-2">
-            {hasSubItems && (
+            {expandable && (
               <ChevronDown
                 size={12}
                 className={cn(
@@ -1558,6 +1561,30 @@ const InvoiceLineItemCard: React.FC<{
             <div key={subItem.id} className="flex justify-between items-center py-1">
               <span className="text-[11px] text-muted-foreground">{subItem.name}</span>
               <span className="text-[11px]">{formatCurrency(subItem.total, invoice.currency)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {isExpanded && breakdown && (
+        <div className="mt-2 ml-4 pt-2 border-t space-y-1">
+          <div className="text-[11px] text-muted-foreground italic">By {breakdown.key}</div>
+          {breakdown.items.map((item, index) => (
+            <div key={index} className="flex justify-between items-center gap-2 py-1">
+              <span
+                className={cn(
+                  'text-[11px] text-muted-foreground truncate',
+                  item.noValue && 'opacity-50'
+                )}
+              >
+                {item.label}
+              </span>
+              <span className="text-[11px] whitespace-nowrap">
+                <span className="text-muted-foreground mr-2">
+                  {formatUsage(parseFloat(item.quantity))}
+                </span>
+                {formatCurrency(item.amount, invoice.currency)}
+              </span>
             </div>
           ))}
         </div>

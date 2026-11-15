@@ -144,6 +144,7 @@ async fn test_metering_ingestion() {
                 ))
             }),
             usage_group_key: Some("usage".to_string()),
+            usage_breakdown_key: None,
             unit_label: None,
             family_local_id: family.local_id.clone(),
             product_id: None,
@@ -510,6 +511,7 @@ async fn test_metering_ingestion() {
         description: None,
         unit_conversion: None,
         segmentation_matrix_values: None,
+        usage_breakdown_key: None,
         filters: Some(MetricFilterList {
             filters: vec![MetricFilter {
                 property: "model".to_string(),

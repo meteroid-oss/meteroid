@@ -333,6 +333,12 @@ export const ProductMetricDetail = () => {
           </DetailSection>
         )}
 
+        {data.usageBreakdownKey && (
+          <DetailSection title="Usage Breakdown">
+            <DetailRow label="Breakdown Key" value={data.usageBreakdownKey} />
+          </DetailSection>
+        )}
+
         {data.segmentationMatrix && data.segmentationMatrix.matrix && (
           <DetailSection title="Segmentation">
             <DetailRow

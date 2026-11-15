@@ -197,6 +197,7 @@ pub async fn start_api_server_with_incoming(
         .add_service(api::billablemetrics::service(
             store.clone(),
             services.usage_clients(),
+            feature_resolver.clone(),
         ))
         .add_service(api::bankaccounts::service(store.clone()))
         .add_service(api::customproperties::service(store.clone()))

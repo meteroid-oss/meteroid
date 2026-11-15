@@ -775,6 +775,7 @@ impl Modify for WebhooksAddon {
                             unit_conversion_rounding: None,
                             segmentation_matrix: None,
                             usage_group_key: None,
+                            usage_breakdown_key: None,
                             unit_singular: None,
                             unit_plural: None,
                             created_at: Default::default(),

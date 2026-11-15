@@ -195,6 +195,7 @@ impl Engine {
                     segmentation_matrix: None,
                     filters: None,
                     usage_group_key: None,
+                    usage_breakdown_key: None,
                     unit_label: None,
                     tenant_id: tenant,
                     product_family_id: family,

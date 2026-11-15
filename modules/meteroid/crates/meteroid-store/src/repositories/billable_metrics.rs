@@ -1,3 +1,6 @@
+use crate::domain::billable_metrics::{
+    normalize_usage_breakdown_key, validate_usage_breakdown_key,
+};
 use crate::domain::entity_activity::Actor;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
@@ -154,6 +157,14 @@ impl BillableMetricInterface for Store {
     ) -> StoreResult<BillableMetric> {
         validate_code(&billable_metric.code)
             .map_err(|e| Report::new(StoreError::InvalidArgument(e.to_string())))?;
+        let usage_breakdown_key =
+            normalize_usage_breakdown_key(billable_metric.usage_breakdown_key);
+        validate_usage_breakdown_key(
+            usage_breakdown_key.as_deref(),
+            billable_metric.usage_group_key.as_deref(),
+            billable_metric.segmentation_matrix.as_ref(),
+        )
+        .map_err(|e| Report::new(StoreError::InvalidArgument(e)))?;
 
         let mut conn = self.get_conn().await?;
 
@@ -200,6 +211,7 @@ impl BillableMetricInterface for Store {
                 })
                 .transpose()?,
             usage_group_key: billable_metric.usage_group_key,
+            usage_breakdown_key,
             unit_singular,
             unit_plural,
             tenant_id: billable_metric.tenant_id,
@@ -365,6 +377,9 @@ impl BillableMetricInterface for Store {
                 .transpose()?,
             unit_singular,
             unit_plural,
+            usage_breakdown_key: update
+                .usage_breakdown_key
+                .map(normalize_usage_breakdown_key),
             updated_at: Some(common_domain::clock::now().naive_utc()),
         };
 
@@ -375,6 +390,12 @@ impl BillableMetricInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)
                     .and_then(TryInto::try_into)?;
+                validate_usage_breakdown_key(
+                    metric.usage_breakdown_key.as_deref(),
+                    metric.usage_group_key.as_deref(),
+                    metric.segmentation_matrix.as_ref(),
+                )
+                .map_err(|e| Report::new(StoreError::InvalidArgument(e)))?;
 
                 self.internal
                     .record_outbox_batch_tx(

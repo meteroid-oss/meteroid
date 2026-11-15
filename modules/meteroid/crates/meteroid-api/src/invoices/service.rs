@@ -1244,6 +1244,7 @@ async fn to_domain_invoice_new(
             promotional_credit: None,
             subscription_id: None,
             usage_ends_at: None,
+            usage_breakdown: None,
         };
 
         lines.push(item);

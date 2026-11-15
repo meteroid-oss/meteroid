@@ -910,6 +910,7 @@ pub struct BillableMetricEvent {
     pub unit_conversion_rounding: Option<UnitConversionRoundingEnum>,
     pub segmentation_matrix: Option<SegmentationMatrix>,
     pub usage_group_key: Option<String>,
+    pub usage_breakdown_key: Option<String>,
     pub unit_singular: Option<String>,
     pub unit_plural: Option<String>,
     pub created_at: NaiveDateTime,

@@ -18,7 +18,7 @@ export const UsageGroupKeySection = ({ methods }: UsageGroupKeyProps) => {
   return (
     <SettingsSection
       title="Usage Grouping"
-      description="Optional. Group usage by a dynamic event property (e.g. cluster ID, project ID) so each unique value is tracked separately."
+      description="Optional. Bill each value of an event property (e.g. cluster ID) as a separate invoice line, priced on its own usage."
     >
       <SettingsFieldGrid>
         <PropertyKeyFormField

@@ -4,7 +4,7 @@ use rust_decimal::{Decimal, RoundingStrategy};
 
 use crate::domain::credit_units::FeeCreditUnit;
 use crate::domain::enums::{BillingType, UnitConversionRoundingEnum};
-use crate::domain::invoice_lines::LineCreditUnit;
+use crate::domain::invoice_lines::{LineCreditUnit, UsageBreakdown, UsageBreakdownItem};
 use crate::domain::price_components::MatrixRow;
 use crate::domain::{
     BillableMetric, ComponentPeriods, LineItem, Period, SubLineAttributes, SubLineItem,
@@ -20,7 +20,9 @@ use crate::services::Services;
 use crate::services::clients::usage::{GroupedUsageData, UsageData};
 use crate::store::PgConn;
 use common_domain::ids::{BillableMetricId, SubscriptionAddOnId, SubscriptionPriceComponentId};
-use common_utils::decimals::{ToSubunit, round_billable_quantity, round_quantity};
+use common_utils::decimals::{
+    MAX_QUANTITY_SCALE, ToSubunit, round_billable_quantity, round_quantity,
+};
 use common_utils::integers::{ToNonNegativeU64, only_positive, only_positive_decimal};
 use error_stack::{Report, ResultExt};
 use std::collections::{HashMap, HashSet};
@@ -206,6 +208,7 @@ impl Services {
                         sublines: Vec::new(),
                         metric_id: None,
                         group_by_dimensions: None,
+                        usage_breakdown: None,
                     });
                 }
             }
@@ -322,7 +325,7 @@ impl Services {
                         .fetch_usage(arrear_period.clone(), *metric_id, subscription_details)
                         .await?;
 
-                    lines.extend(usage_lines(
+                    let mut metered = usage_lines(
                         model,
                         *metric_id,
                         &usage.data,
@@ -341,7 +344,20 @@ impl Services {
                                 pinned_unit_price(existing_line, credit_unit.as_ref())
                             })
                         },
-                    )?);
+                    )?;
+                    let matrix_rates = match model {
+                        UsagePricingModel::Matrix { rates } => Some(rates.as_slice()),
+                        _ => None,
+                    };
+                    self.breakdown_usage(
+                        &mut metered,
+                        arrear_period,
+                        *metric_id,
+                        matrix_rates,
+                        subscription_details,
+                    )
+                    .await?;
+                    lines.extend(metered);
                 }
             }
         }
@@ -517,6 +533,7 @@ impl Services {
                     promotional_credit: None,
                     subscription_id: Some(subscription_details.subscription.id),
                     usage_ends_at,
+                    usage_breakdown: line.usage_breakdown,
                 })
             })
             .collect::<StoreResult<Vec<LineItem>>>()
@@ -535,14 +552,52 @@ impl Services {
         metric_id: BillableMetricId,
         subscription_details: &SubscriptionDetails,
     ) -> StoreResult<UsageData> {
-        let metric = subscription_details
-            .metrics
-            .iter()
-            .find(|metric| metric.id == metric_id)
-            .ok_or(StoreError::ValueNotFound(format!(
-                "metric with id {metric_id}"
-            )))?;
+        let metric = subscription_metric(subscription_details, metric_id)?;
+        let usage = self
+            .read_usage(period, metric, None, subscription_details)
+            .await?;
+        Ok(convert_usage_units(metric, usage))
+    }
 
+    /// Breaks the metric's usage `lines` down by its breakdown key, read apart from the usage they
+    /// are priced on so that no aggregation is ever recombined across the key's values.
+    async fn breakdown_usage(
+        &self,
+        lines: &mut [InvoiceLineInner],
+        period: Period,
+        metric_id: BillableMetricId,
+        matrix_rates: Option<&[MatrixRow]>,
+        subscription_details: &SubscriptionDetails,
+    ) -> StoreResult<()> {
+        let metric = subscription_metric(subscription_details, metric_id)?;
+        let Some(breakdown_key) = metric.usage_breakdown_key.as_deref() else {
+            return Ok(());
+        };
+        if lines.is_empty() {
+            return Ok(());
+        }
+        // The breakdown bills nothing: an invoice it cannot be read for goes out without it.
+        match self
+            .read_usage(period, metric, Some(breakdown_key), subscription_details)
+            .await
+        {
+            Ok(usage) => breakdown_lines(lines, metric, breakdown_key, matrix_rates, &usage.data),
+            Err(error) => log::warn!(
+                "Billing metric {} without its usage breakdown: {error:?}",
+                metric.id
+            ),
+        }
+        Ok(())
+    }
+
+    /// The metric's usage over the window the period bills, before unit conversion.
+    async fn read_usage(
+        &self,
+        period: Period,
+        metric: &BillableMetric,
+        breakdown_by: Option<&str>,
+        subscription_details: &SubscriptionDetails,
+    ) -> StoreResult<UsageData> {
         let usage_period = usage_window(subscription_details, period);
 
         // A settled period with no usable window has nothing to query, and the metering client
@@ -556,17 +611,20 @@ impl Services {
             });
         }
 
-        let usage = self
-            .usage_client
-            .fetch_usage(
-                &subscription_details.subscription.tenant_id,
-                &subscription_details.subscription.customer_id,
-                metric,
-                usage_period,
-            )
-            .await?;
-
-        Ok(convert_usage_units(metric, usage))
+        let tenant_id = &subscription_details.subscription.tenant_id;
+        let customer_id = &subscription_details.subscription.customer_id;
+        match breakdown_by {
+            None => {
+                self.usage_client
+                    .fetch_usage(tenant_id, customer_id, metric, usage_period)
+                    .await
+            }
+            Some(key) => {
+                self.usage_client
+                    .fetch_usage_grouped_by(tenant_id, customer_id, metric, key, usage_period)
+                    .await
+            }
+        }
     }
 
     async fn fetch_slots(
@@ -591,6 +649,132 @@ impl Services {
 
         Ok(u64::from(quantity))
     }
+}
+
+fn subscription_metric(
+    subscription_details: &SubscriptionDetails,
+    metric_id: BillableMetricId,
+) -> StoreResult<&BillableMetric> {
+    subscription_details
+        .metrics
+        .iter()
+        .find(|metric| metric.id == metric_id)
+        .ok_or_else(|| {
+            Report::new(StoreError::ValueNotFound(format!(
+                "metric with id {metric_id}"
+            )))
+        })
+}
+
+/// Values of a breakdown key an invoice line lists one by one; the rest are summed as others.
+const MAX_BREAKDOWN_ITEMS: usize = 100;
+
+/// Attaches to each line the usage of `usage`, read grouped by `breakdown_key` too, that the line
+/// priced. A matrix line weighs each item by its cells' prices; any other line by its quantity.
+pub(crate) fn breakdown_lines(
+    lines: &mut [InvoiceLineInner],
+    metric: &BillableMetric,
+    breakdown_key: &str,
+    matrix_rates: Option<&[MatrixRow]>,
+    usage: &[GroupedUsageData],
+) {
+    let matrix_keys = matrix_dimension_keys(matrix_rates.unwrap_or_default());
+    let line_of: HashMap<Vec<(&str, &str)>, usize> = lines
+        .iter()
+        .enumerate()
+        .map(|(index, line)| {
+            let dimensions = line
+                .group_by_dimensions
+                .iter()
+                .flatten()
+                .map(|(key, value)| (key.as_str(), value.as_str()));
+            (sorted_dimensions(dimensions), index)
+        })
+        .collect();
+
+    let mut totals: Vec<HashMap<Option<&str>, (Decimal, Decimal)>> =
+        vec![HashMap::new(); lines.len()];
+    for row in usage {
+        let quantity = unrounded_units(metric.unit_conversion_factor, row.value);
+        if quantity <= Decimal::ZERO {
+            continue;
+        }
+        let weight = match matrix_rates {
+            Some(rates) => {
+                match rates
+                    .iter()
+                    .find(|rate| matrix_cell_matches(rate, &row.dimensions))
+                {
+                    Some(rate) => quantity * rate.per_unit_price,
+                    None => continue,
+                }
+            }
+            None => quantity,
+        };
+        let line_dimensions = sorted_dimensions(
+            row.dimensions
+                .iter()
+                .map(|(key, value)| (key.as_str(), value.as_str()))
+                .filter(|(key, _)| *key != breakdown_key && !matrix_keys.contains(key)),
+        );
+        let Some(index) = line_of.get(&line_dimensions) else {
+            continue;
+        };
+        // A blank value counts as no value, so both land in the same item.
+        let value = row
+            .dimensions
+            .get(breakdown_key)
+            .map(String::as_str)
+            .filter(|value| !value.trim().is_empty());
+        let total = totals[*index].entry(value).or_default();
+        total.0 += quantity;
+        total.1 += weight;
+    }
+
+    for (line, totals) in lines.iter_mut().zip(totals) {
+        if totals.is_empty() {
+            continue;
+        }
+        let mut items = totals
+            .into_iter()
+            .map(|(value, (quantity, weight))| UsageBreakdownItem {
+                value: value.map(str::to_owned),
+                quantity,
+                weight,
+                others: false,
+            })
+            .collect::<Vec<_>>();
+        items.sort_by(|a, b| {
+            b.weight
+                .cmp(&a.weight)
+                .then_with(|| b.quantity.cmp(&a.quantity))
+                .then_with(|| a.value.cmp(&b.value))
+        });
+        if items.len() > MAX_BREAKDOWN_ITEMS {
+            let rest = items.split_off(MAX_BREAKDOWN_ITEMS - 1);
+            items.push(UsageBreakdownItem {
+                value: None,
+                quantity: rest.iter().map(|item| item.quantity).sum(),
+                weight: rest.iter().map(|item| item.weight).sum(),
+                others: true,
+            });
+        }
+        for item in &mut items {
+            item.quantity = round_quantity(item.quantity, MAX_QUANTITY_SCALE);
+        }
+        line.usage_breakdown = Some(UsageBreakdown {
+            key: breakdown_key.to_owned(),
+            items,
+        });
+    }
+}
+
+fn sorted_dimensions<'a>(
+    dimensions: impl Iterator<Item = (&'a str, &'a str)>,
+) -> Vec<(&'a str, &'a str)> {
+    let mut dimensions = dimensions.collect::<Vec<_>>();
+    dimensions.sort_unstable();
+    dimensions
 }
 
 /// A metric's unit conversion, applied to each group's period total after aggregation and before
@@ -662,6 +846,17 @@ pub(crate) fn rounds_converted_units(metric: &BillableMetric) -> bool {
         )
 }
 
+/// The properties a matrix prices by; a matrix line stands for the usage of all their values.
+fn matrix_dimension_keys(rates: &[MatrixRow]) -> HashSet<&str> {
+    rates
+        .iter()
+        .flat_map(|rate| {
+            std::iter::once(rate.dimension1.key.as_str())
+                .chain(rate.dimension2.as_ref().map(|d| d.key.as_str()))
+        })
+        .collect()
+}
+
 /// Whether usage carrying `dimensions` falls in the matrix cell `rate` prices.
 pub(crate) fn matrix_cell_matches(rate: &MatrixRow, dimensions: &HashMap<String, String>) -> bool {
     dimensions.get(&rate.dimension1.key) == Some(&rate.dimension1.value)
@@ -685,14 +880,7 @@ pub(crate) fn usage_lines(
     let mut lines: Vec<InvoiceLineInner> = vec![];
     match model {
         UsagePricingModel::Matrix { rates } => {
-            // First, identify matrix dimension keys
-            let mut matrix_dimension_keys = HashSet::new();
-            for rate in rates {
-                matrix_dimension_keys.insert(&rate.dimension1.key);
-                if let Some(dimension2) = &rate.dimension2 {
-                    matrix_dimension_keys.insert(&dimension2.key);
-                }
-            }
+            let matrix_keys = matrix_dimension_keys(rates);
 
             // Group usage data by non-matrix dimensions (usage_group_key dimensions)
             let mut groups: HashMap<String, (HashMap<String, String>, Vec<&GroupedUsageData>)> =
@@ -702,7 +890,7 @@ pub(crate) fn usage_lines(
                 let group_dimensions: HashMap<String, String> = grouped_usage
                     .dimensions
                     .iter()
-                    .filter(|(key, _)| !matrix_dimension_keys.contains(key))
+                    .filter(|(key, _)| !matrix_keys.contains(key.as_str()))
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
 
@@ -951,6 +1139,7 @@ pub(crate) fn capacity_overage_lines(
                 }],
                 metric_id: Some(metric_id),
                 group_by_dimensions: Some(usage_data.dimensions.clone()),
+                usage_breakdown: None,
             });
         }
     }
@@ -967,6 +1156,7 @@ pub struct InvoiceLineInner {
     pub sublines: Vec<SubLineItem>,
     pub metric_id: Option<BillableMetricId>,
     pub group_by_dimensions: Option<HashMap<String, String>>,
+    pub usage_breakdown: Option<UsageBreakdown>,
 }
 
 impl InvoiceLineInner {
@@ -1013,6 +1203,7 @@ impl InvoiceLineInner {
             sublines: Vec::new(),
             metric_id,
             group_by_dimensions: None,
+            usage_breakdown: None,
         })
     }
 
@@ -1064,6 +1255,7 @@ impl InvoiceLineInner {
             sublines,
             metric_id: Some(metric_id),
             group_by_dimensions: None,
+            usage_breakdown: None,
         })
     }
 }
@@ -1418,6 +1610,7 @@ mod credit_unit_pin_tests {
             promotional_credit: None,
             subscription_id: None,
             usage_ends_at: None,
+            usage_breakdown: None,
         }
     }
 
@@ -1650,6 +1843,7 @@ mod unit_conversion_tests {
             segmentation_matrix: None,
             filters: None,
             usage_group_key: None,
+            usage_breakdown_key: None,
             created_at: NaiveDateTime::default(),
             updated_at: None,
             archived_at: None,
@@ -1732,5 +1926,269 @@ mod unit_conversion_tests {
             }
             assert_eq!(projected_minor, invoice_minor);
         }
+    }
+
+    fn breakdown_metric() -> BillableMetric {
+        BillableMetric {
+            unit_conversion_factor: None,
+            unit_conversion_rounding: None,
+            usage_breakdown_key: Some("project".to_owned()),
+            ..tokens(UnitConversionRoundingEnum::None)
+        }
+    }
+
+    fn row(value: Decimal, dimensions: &[(&str, &str)]) -> GroupedUsageData {
+        GroupedUsageData {
+            value,
+            dimensions: dimensions
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+                .collect(),
+        }
+    }
+
+    fn june() -> Period {
+        Period {
+            start: NaiveDate::from_ymd_opt(2026, 6, 1).unwrap(),
+            end: NaiveDate::from_ymd_opt(2026, 7, 1).unwrap(),
+        }
+    }
+
+    fn items(line: &InvoiceLineInner) -> Vec<(Option<&str>, Decimal, i64)> {
+        let breakdown = line.usage_breakdown.as_ref().expect("a breakdown line");
+        breakdown
+            .items
+            .iter()
+            .zip(breakdown.allocate(line.total as i64))
+            .map(|(item, amount)| (item.value.as_deref(), item.quantity, amount))
+            .collect()
+    }
+
+    #[test]
+    fn a_breakdown_shares_the_package_price_of_the_whole_usage() {
+        let metric = breakdown_metric();
+        let model = UsagePricingModel::Package {
+            block_size: 100,
+            rate: dec!(10),
+        };
+        let mut lines = usage_lines(
+            &model,
+            metric.id,
+            &[row(dec!(150), &[])],
+            &june(),
+            2,
+            |_| None,
+        )
+        .unwrap();
+        breakdown_lines(
+            &mut lines,
+            &metric,
+            "project",
+            None,
+            &[
+                row(dec!(120), &[("project", "alpha")]),
+                row(dec!(30), &[("project", "beta")]),
+            ],
+        );
+
+        // Billed apart, 120 and 30 would take three packages; together they take two.
+        assert_eq!(lines[0].total, 2_000);
+        assert_eq!(
+            items(&lines[0]),
+            vec![
+                (Some("alpha"), dec!(120), 1_600),
+                (Some("beta"), dec!(30), 400)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_blank_value_counts_as_no_value() {
+        let metric = breakdown_metric();
+        let model = UsagePricingModel::PerUnit { rate: dec!(1) };
+        let mut lines = usage_lines(&model, metric.id, &[row(dec!(10), &[])], &june(), 2, |_| {
+            None
+        })
+        .unwrap();
+        breakdown_lines(
+            &mut lines,
+            &metric,
+            "project",
+            None,
+            &[
+                row(dec!(6), &[("project", "alpha")]),
+                row(dec!(2), &[]),
+                row(dec!(1), &[("project", "")]),
+                row(dec!(1), &[("project", "  ")]),
+            ],
+        );
+
+        assert_eq!(
+            items(&lines[0]),
+            vec![(Some("alpha"), dec!(6), 600), (None, dec!(4), 400)]
+        );
+    }
+
+    #[test]
+    fn a_breakdown_breaks_down_each_group_line_on_its_own() {
+        let metric = BillableMetric {
+            usage_group_key: Some("region".to_owned()),
+            ..breakdown_metric()
+        };
+        let model = UsagePricingModel::PerUnit { rate: dec!(1) };
+        let mut lines = usage_lines(
+            &model,
+            metric.id,
+            &[
+                row(dec!(10), &[("region", "eu")]),
+                row(dec!(5), &[("region", "us")]),
+            ],
+            &june(),
+            2,
+            |_| None,
+        )
+        .unwrap();
+        breakdown_lines(
+            &mut lines,
+            &metric,
+            "project",
+            None,
+            &[
+                row(dec!(7), &[("region", "eu"), ("project", "alpha")]),
+                row(dec!(3), &[("region", "eu")]),
+                row(dec!(5), &[("region", "us"), ("project", "alpha")]),
+            ],
+        );
+
+        let line = |region: &str| {
+            lines
+                .iter()
+                .find(|line| line.group_by_dimensions.as_ref().unwrap()["region"] == region)
+                .unwrap()
+        };
+        assert_eq!(
+            items(line("eu")),
+            vec![(Some("alpha"), dec!(7), 700), (None, dec!(3), 300)]
+        );
+        assert_eq!(items(line("us")), vec![(Some("alpha"), dec!(5), 500)]);
+    }
+
+    #[test]
+    fn a_matrix_breakdown_weighs_each_value_by_its_cells_prices() {
+        let metric = breakdown_metric();
+        let cell = |model: &str, price: Decimal| MatrixRow {
+            dimension1: crate::domain::price_components::MatrixDimension {
+                key: "model".to_owned(),
+                value: model.to_owned(),
+            },
+            dimension2: None,
+            per_unit_price: price,
+        };
+        let rates = vec![cell("large", dec!(10)), cell("small", dec!(1))];
+        let model = UsagePricingModel::Matrix {
+            rates: rates.clone(),
+        };
+        let mut lines = usage_lines(
+            &model,
+            metric.id,
+            &[
+                row(dec!(1), &[("model", "large")]),
+                row(dec!(10), &[("model", "small")]),
+            ],
+            &june(),
+            2,
+            |_| None,
+        )
+        .unwrap();
+        breakdown_lines(
+            &mut lines,
+            &metric,
+            "project",
+            Some(&rates),
+            &[
+                row(dec!(1), &[("model", "large"), ("project", "alpha")]),
+                row(dec!(10), &[("model", "small"), ("project", "beta")]),
+            ],
+        );
+
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].total, 2_000);
+        let mut by_value = items(&lines[0]);
+        by_value.sort();
+        assert_eq!(
+            by_value,
+            vec![
+                (Some("alpha"), dec!(1), 1_000),
+                (Some("beta"), dec!(10), 1_000)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_breakdown_past_its_listed_values_sums_the_rest_as_others() {
+        let metric = breakdown_metric();
+        let model = UsagePricingModel::PerUnit { rate: dec!(1) };
+        let mut lines = usage_lines(
+            &model,
+            metric.id,
+            &[row(dec!(150), &[])],
+            &june(),
+            2,
+            |_| None,
+        )
+        .unwrap();
+        let values = (0..150).map(|i| format!("p{i:03}")).collect::<Vec<_>>();
+        let usage = values
+            .iter()
+            .map(|value| row(Decimal::ONE, &[("project", value.as_str())]))
+            .collect::<Vec<_>>();
+        breakdown_lines(&mut lines, &metric, "project", None, &usage);
+
+        let breakdown = lines[0].usage_breakdown.as_ref().unwrap();
+        assert_eq!(breakdown.items.len(), MAX_BREAKDOWN_ITEMS);
+        let others = breakdown.items.last().unwrap();
+        assert!(others.others && others.value.is_none());
+        assert_eq!(others.quantity, dec!(51));
+        assert_eq!(breakdown.allocate(15_000).iter().sum::<i64>(), 15_000);
+    }
+
+    #[test]
+    fn breakdown_quantities_are_converted_without_rounding() {
+        let metric = BillableMetric {
+            usage_breakdown_key: Some("project".to_owned()),
+            ..tokens(UnitConversionRoundingEnum::Up)
+        };
+        let model = UsagePricingModel::PerUnit { rate: dec!(12) };
+        let usage = convert_usage_units(
+            &metric,
+            UsageData {
+                data: vec![row(dec!(1_500_000), &[])],
+                period: UsagePeriod {
+                    start: june().start.and_time(NaiveTime::MIN),
+                    end: june().end.and_time(NaiveTime::MIN),
+                },
+            },
+        );
+        let mut lines = usage_lines(&model, metric.id, &usage.data, &june(), 2, |_| None).unwrap();
+        breakdown_lines(
+            &mut lines,
+            &metric,
+            "project",
+            None,
+            &[
+                row(dec!(1_000_000), &[("project", "alpha")]),
+                row(dec!(500_000), &[("project", "beta")]),
+            ],
+        );
+
+        // Two million tokens billed, rounded up from 1.5M: the items keep the usage they carry.
+        assert_eq!(lines[0].total, 2_400);
+        assert_eq!(
+            items(&lines[0]),
+            vec![
+                (Some("alpha"), dec!(1), 1_600),
+                (Some("beta"), dec!(0.5), 800)
+            ]
+        );
     }
 }

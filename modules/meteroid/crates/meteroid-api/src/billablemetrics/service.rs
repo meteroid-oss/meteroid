@@ -6,6 +6,7 @@ use common_domain::identifiers::validate_code;
 use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId};
 use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::Report;
+use meteroid_app::features::ensure_usage_breakdown_allowed;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::{
     ArchiveBillableMetricRequest, ArchiveBillableMetricResponse, BillableMetricMeta,
     CreateBillableMetricRequest, CreateBillableMetricResponse, GetBillableMetricRequest,
@@ -54,10 +55,18 @@ impl BillableMetricsService for BillableMetricsComponents {
         request: Request<CreateBillableMetricRequest>,
     ) -> Result<Response<CreateBillableMetricResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let organization_id = request.organization()?;
         let actor_typed = request.actor_typed()?;
         let inner = request.into_inner();
 
         validate_code(&inner.code).map_err(|e| Status::invalid_argument(e.to_string()))?;
+        ensure_usage_breakdown_allowed(
+            self.feature_resolver.as_ref(),
+            organization_id,
+            inner.usage_breakdown_key.as_deref(),
+            None,
+        )
+        .await?;
         validate_metric_filters(&inner.filters)?;
         let unit_label = mapping::metric::unit_label_from_server(inner.unit_label.as_ref())?;
         let segmentation_matrix =
@@ -95,6 +104,7 @@ impl BillableMetricsService for BillableMetricsComponents {
                     segmentation_matrix,
                     filters: mapping::metric::map_filters_from_server(inner.filters),
                     usage_group_key: inner.usage_group_key,
+                    usage_breakdown_key: inner.usage_breakdown_key,
                     unit_label,
                     tenant_id,
                     product_family_id: ProductFamilyId::from_proto(inner.family_local_id)?,
@@ -220,10 +230,26 @@ impl BillableMetricsService for BillableMetricsComponents {
         request: Request<UpdateBillableMetricRequest>,
     ) -> Result<Response<UpdateBillableMetricResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let organization_id = request.organization()?;
         let actor = request.actor_typed()?;
         let inner = request.into_inner();
 
         let billable_metric_id = BillableMetricId::from_proto(&inner.id)?;
+
+        if inner.usage_breakdown_key.is_some() {
+            let stored = self
+                .store
+                .find_billable_metric_by_id(billable_metric_id, tenant_id)
+                .await
+                .map_err(Into::<BillableMetricApiError>::into)?;
+            ensure_usage_breakdown_allowed(
+                self.feature_resolver.as_ref(),
+                organization_id,
+                inner.usage_breakdown_key.as_deref(),
+                stored.usage_breakdown_key.as_deref(),
+            )
+            .await?;
+        }
 
         let unit_conversion = inner.unit_conversion;
 
@@ -271,6 +297,7 @@ impl BillableMetricsService for BillableMetricsComponents {
             segmentation_matrix,
             filters,
             unit_label,
+            usage_breakdown_key: inner.usage_breakdown_key.map(Some),
         };
 
         let domain_billable_metric = self

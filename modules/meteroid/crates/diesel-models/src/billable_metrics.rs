@@ -28,6 +28,7 @@ pub struct BillableMetricRow {
     pub filters: Option<serde_json::Value>,
     pub unit_singular: Option<String>,
     pub unit_plural: Option<String>,
+    pub usage_breakdown_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -45,6 +46,7 @@ pub struct BillableMetricRowNew {
     pub segmentation_matrix: Option<serde_json::Value>,
     pub filters: Option<serde_json::Value>,
     pub usage_group_key: Option<String>,
+    pub usage_breakdown_key: Option<String>,
     pub unit_singular: Option<String>,
     pub unit_plural: Option<String>,
     pub tenant_id: TenantId,
@@ -83,5 +85,6 @@ pub struct BillableMetricRowPatch {
     pub filters: Option<Option<serde_json::Value>>,
     pub unit_singular: Option<Option<String>>,
     pub unit_plural: Option<Option<String>>,
+    pub usage_breakdown_key: Option<Option<String>>,
     pub updated_at: Option<NaiveDateTime>,
 }

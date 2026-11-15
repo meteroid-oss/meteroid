@@ -275,6 +275,24 @@ pub struct InvoiceLine {
     pub promotional_credit: Option<Price>,
     /// Currency credit sold, taxed when it is used: stated under its own breakdown row.
     pub prepaid_credit: bool,
+    /// The line's usage by the values of its metric's breakdown key. Display only: it bills nothing.
+    pub usage_breakdown: Option<LineUsageBreakdown>,
+}
+
+pub struct LineUsageBreakdown {
+    pub key: String,
+    pub items: Vec<LineUsageBreakdownItem>,
+}
+
+pub struct LineUsageBreakdownItem {
+    /// Absent for usage without the property, and for `others`.
+    pub value: Option<String>,
+    /// The values past those listed, summed.
+    pub others: bool,
+    pub quantity: Decimal,
+    /// Its part of the line's `subtotal`, and of the quoted one on a tax-inclusive line.
+    pub subtotal: Price,
+    pub quoted_subtotal: Option<Price>,
 }
 
 pub struct LineCredit {

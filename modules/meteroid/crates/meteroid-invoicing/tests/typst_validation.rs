@@ -12,7 +12,7 @@ use meteroid_invoicing::typst_render::{TypstInvoiceContent, TypstInvoiceRenderer
 use meteroid_invoicing::{
     model::{
         Address, Customer, Invoice, InvoiceLine, InvoiceMetadata, InvoiceSubLine, LineCredit,
-        Organization, Transaction,
+        LineUsageBreakdown, LineUsageBreakdownItem, Organization, Transaction,
     },
     pdf::TypstPdfGenerator,
     typst_render::document_text,
@@ -209,6 +209,23 @@ fn rendered_text(document: &PagedDocument) -> String {
     out
 }
 
+/// The text of one laid-out page, in frame order.
+fn page_text(document: &PagedDocument, page: usize) -> String {
+    fn walk(frame: &Frame, out: &mut String) {
+        for (_, item) in frame.items() {
+            match item {
+                FrameItem::Text(text) => out.push_str(&text.text),
+                FrameItem::Group(group) => walk(&group.frame, out),
+                _ => {}
+            }
+        }
+    }
+
+    let mut out = String::new();
+    walk(&document.pages[page].frame, &mut out);
+    out
+}
+
 /// A usage invoice whose quantities, unit prices and totals multiply out, so the rendered
 /// figures can be read as a coherent invoice: 8 x 0.005 + 4000 x 0.0025 = 10.04.
 fn create_sub_cent_invoice() -> Invoice {
@@ -256,6 +273,7 @@ fn create_sub_cent_invoice() -> Invoice {
             credit: None,
             promotional_credit: None,
             prepaid_credit: false,
+            usage_breakdown: None,
         },
     ];
 
@@ -446,6 +464,65 @@ fn usage_priced_in_a_credit_unit_prints_the_units_name_at_its_precision() {
         .join(" ");
     assert!(text.contains("480.00 Halyard credits"), "{text}");
     assert!(text.contains("1.00 Halyard credit "), "{text}");
+}
+
+#[test]
+fn a_usage_breakdown_lists_each_value_with_its_share_of_the_line() {
+    let eur = iso::find("EUR").unwrap();
+    let item =
+        |value: Option<&str>, others: bool, quantity: i64, minor: i64| LineUsageBreakdownItem {
+            value: value.map(str::to_owned),
+            others,
+            quantity: Decimal::from(quantity),
+            subtotal: Money::from_minor(minor, eur),
+            quoted_subtotal: None,
+        };
+    let mut invoice = create_minimal_invoice();
+    invoice.lines[0].usage_breakdown = Some(LineUsageBreakdown {
+        key: "project_id".to_owned(),
+        items: vec![
+            item(Some("apollo"), false, 120, 1_600),
+            item(None, false, 20, 300),
+            item(None, true, 10, 100),
+        ],
+    });
+    let text = render_text(&invoice);
+    assert!(
+        text.contains("By project_id apollo120€\u{a0}16.00"),
+        "{text}"
+    );
+    assert!(text.contains("—20€\u{a0}3.00"), "{text}");
+    assert!(text.contains("Other10€\u{a0}1.00"), "{text}");
+}
+
+/// A long breakdown runs onto the next pages instead of pushing its whole line off the first one.
+#[test]
+fn a_long_usage_breakdown_starts_on_the_first_page_and_runs_onto_the_next() {
+    let eur = iso::find("EUR").unwrap();
+    let mut invoice = create_minimal_invoice();
+    invoice.lines[0].usage_breakdown = Some(LineUsageBreakdown {
+        key: "project_id".to_owned(),
+        items: (1..=100)
+            .map(|n| LineUsageBreakdownItem {
+                value: Some(format!("tenant-{n:03}")),
+                others: false,
+                quantity: Decimal::from(1_000 - n),
+                subtotal: Money::from_minor(100, eur),
+                quoted_subtotal: None,
+            })
+            .collect(),
+    });
+    let renderer = TypstInvoiceRenderer::new().expect("Failed to create TypstInvoiceRenderer");
+    let document = renderer
+        .render_invoice(&invoice)
+        .expect("Failed to render invoice");
+
+    let first_page = page_text(&document, 0);
+    assert!(document.pages.len() > 1, "{first_page}");
+    assert!(first_page.contains(&invoice.lines[0].name), "{first_page}");
+    assert!(first_page.contains("By project_id"), "{first_page}");
+    assert!(first_page.contains("tenant-010"), "{first_page}");
+    assert!(!first_page.contains("tenant-100"), "{first_page}");
 }
 
 #[test]
@@ -1165,6 +1242,7 @@ fn invoice_with_lines(count: usize) -> Invoice {
             credit: None,
             promotional_credit: None,
             prepaid_credit: false,
+            usage_breakdown: None,
         })
         .collect();
     invoice
@@ -1306,6 +1384,7 @@ fn create_minimal_invoice() -> Invoice {
             credit: None,
             promotional_credit: None,
             prepaid_credit: false,
+            usage_breakdown: None,
         }],
         coupons: vec![],
         payment_status: Some(PaymentStatus::Unpaid),
@@ -1442,6 +1521,7 @@ fn create_full_invoice() -> Invoice {
                 credit: None,
                 promotional_credit: None,
                 prepaid_credit: false,
+                usage_breakdown: None,
             },
             InvoiceLine {
                 name: "Support Package".to_string(),
@@ -1460,6 +1540,7 @@ fn create_full_invoice() -> Invoice {
                 credit: None,
                 promotional_credit: None,
                 prepaid_credit: false,
+                usage_breakdown: None,
             },
         ],
         coupons: vec![Coupon {

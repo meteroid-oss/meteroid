@@ -298,6 +298,7 @@ async fn test_event_insights_read_usage_like_billing() {
                     values: vec!["eu".to_owned()],
                 }])),
                 usage_group_key: None,
+                usage_breakdown_key: None,
                 unit_label: None,
                 tenant_id: TENANT_ID,
                 product_family_id: PRODUCT_FAMILY_ID,

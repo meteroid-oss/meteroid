@@ -105,6 +105,7 @@ fn domestic_invoice() -> Invoice {
             credit: None,
             promotional_credit: None,
             prepaid_credit: false,
+            usage_breakdown: None,
         }],
         coupons: vec![],
         payment_status: None,

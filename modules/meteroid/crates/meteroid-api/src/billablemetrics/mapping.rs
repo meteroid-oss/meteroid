@@ -76,6 +76,7 @@ pub mod metric {
                 archived_at: value.archived_at.map(chrono_to_timestamp),
                 created_at: Some(chrono_to_timestamp(value.created_at)),
                 usage_group_key: value.usage_group_key,
+                usage_breakdown_key: value.usage_breakdown_key,
                 product_id: value.product_id.map(|x| x.as_proto()),
                 family_local_id: value.product_family_id.as_proto(),
                 filters: map_filters_to_server(value.filters),

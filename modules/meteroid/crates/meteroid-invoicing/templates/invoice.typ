@@ -60,6 +60,7 @@
     border: rgb(230, 230, 230),
     light_border: rgb(240, 240, 240),
     footer_text: rgb(120, 120, 120),
+    muted: rgb(160, 160, 160),
     date_text: rgb(130, 130, 130),
     button: rgb(50, 125, 230),
     white: rgb(255, 255, 255),
@@ -313,6 +314,20 @@
       v(3pt)
     }
 
+    let breakdown = item.at("usage_breakdown", default: none)
+    let breakdown_row(entry) = grid(
+      columns: (3.6fr, 0.85fr, 1.5fr, 0.8fr, 1.25fr),
+      column-gutter: 6pt,
+      [
+        #box(width: 12pt, [])
+        #if entry.others { text(size: 8.5pt, fill: color.accent, translations.usage_breakdown_others) } else if entry.value == none { text(size: 8.5pt, fill: color.muted, "—") } else { text(size: 8.5pt, fill: color.accent, entry.value) }
+      ],
+      align(center, text(size: 8.5pt, fill: color.accent, str(entry.quantity))),
+      [],
+      [],
+      align(right, text(size: 8.5pt, fill: color.accent, format_amount(entry.subtotal))),
+    )
+
     block(breakable: false, width: 100%, [
       #grid(
         columns: (3.6fr, 0.85fr, 1.5fr, 0.8fr, 1.25fr),
@@ -377,12 +392,46 @@
         )
       }
 
-      // Add minimal spacing between items
-      #if index < lines.len() - 1 {
-        v(3pt)
-        line(length: 100%, stroke: 0.75pt + color.light_border)
+      // The breakdown's heading and first rows stay with the line; the rest may run onto the next page.
+      #if breakdown != none {
+        block(
+          width: 100%,
+          inset: (x: 3pt, top: 2pt),
+          [
+            #grid(
+              columns: (3.6fr, 0.85fr, 1.5fr, 0.8fr, 1.25fr),
+              column-gutter: 6pt,
+              [
+                #box(width: 12pt, [])
+                #text(size: 8pt, style: "italic", fill: color.accent, translations.usage_breakdown_by + " " + breakdown.key)
+              ],
+              [], [], [], [],
+            )
+            #for entry in breakdown.items.slice(0, calc.min(3, breakdown.items.len())) {
+              breakdown_row(entry)
+            }
+          ]
+        )
       }
     ])
+
+    if breakdown != none and breakdown.items.len() > 3 {
+      block(
+        width: 100%,
+        inset: (x: 3pt, bottom: 2pt),
+        [
+          #for entry in breakdown.items.slice(3) {
+            breakdown_row(entry)
+          }
+        ]
+      )
+    }
+
+    // Add minimal spacing between items
+    if index < lines.len() - 1 {
+      v(3pt)
+      line(length: 100%, stroke: 0.75pt + color.light_border)
+    }
 
     if index < lines.len() - 1 {
       v(3pt)

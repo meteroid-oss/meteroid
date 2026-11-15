@@ -118,6 +118,39 @@ pub struct InvoiceLineItem {
     /// customer's balance in that unit did not cover, billed at `rate`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub credit_unit: Option<InvoiceLineCreditUnit>,
+    /// The line broken down by its metric's `usage_breakdown_key`: each value's quantity and its
+    /// part of the line's amount. Together they add up to the line's quantity and amount.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub usage_breakdown: Option<InvoiceLineUsageBreakdown>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct InvoiceLineUsageBreakdown {
+    /// The event property the usage is broken down by, e.g. `project_id`.
+    pub key: String,
+    /// Largest amount first. Past 99 values, the rest are summed in one last item flagged `others`.
+    pub items: Vec<InvoiceLineUsageBreakdownItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct InvoiceLineUsageBreakdownItem {
+    /// The property's value; absent for events without it, and for `others`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub value: Option<String>,
+    /// Set on the last item when there are more than 99 values: it sums the rest.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub others: bool,
+    /// Usage of this value, in the units the line is priced in.
+    #[schema(value_type = String, format = "decimal")]
+    pub quantity: rust_decimal::Decimal,
+    /// Its part of the line's amount before discounts and tax, in minor units.
+    pub amount_subtotal: i64,
+    /// Its part of the tax-included amount quoted, on a line billed from tax-inclusive prices.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub quoted_amount_subtotal: Option<i64>,
+    /// Its part of `credit_unit.consumed`, on a line priced in a credit unit.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub credits_consumed: Option<i64>,
 }
 
 /// How a usage line priced in a credit unit was paid: the credits it consumed, those the

@@ -641,6 +641,7 @@ impl Services {
             promotional_credit: None,
             subscription_id: Some(subscription.id),
             usage_ends_at: None,
+            usage_breakdown: None,
         };
 
         let customer = self

@@ -136,9 +136,28 @@ export const createBillableMetricSchema = z
           O.filter(s => !S.isEmpty(s))
         )
       ),
+    usageBreakdownKey: z
+      .string()
+      .optional()
+      .nullable()
+      .transform(
+        flow(
+          O.map(S.trim),
+          O.filter(s => !S.isEmpty(s))
+        )
+      ),
     ...unitLabelFields,
   })
   .superRefine(refineUnitLabel)
+  .superRefine((data, ctx) => {
+    if (data.usageBreakdownKey && data.usageBreakdownKey === data.usageGroupKey) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['usageBreakdownKey'],
+        message: 'The breakdown key cannot be the grouping key',
+      })
+    }
+  })
 export type CreateBillableMetricSchema = typeof createBillableMetricSchema
 export type CreateBillableMetricFormData = z.infer<CreateBillableMetricSchema>
 

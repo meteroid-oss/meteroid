@@ -232,7 +232,26 @@ fn map_invoice_type_to_rest(invoice_type: domain::enums::InvoiceType) -> Invoice
 pub fn map_line_item_to_rest(
     li: domain::invoice_lines::LineItem,
 ) -> crate::invoices::model::InvoiceLineItem {
+    let usage_breakdown = li.usage_breakdown_parts().map(|(key, parts)| {
+        crate::invoices::model::InvoiceLineUsageBreakdown {
+            key: key.to_owned(),
+            items: parts
+                .into_iter()
+                .map(
+                    |part| crate::invoices::model::InvoiceLineUsageBreakdownItem {
+                        value: part.value,
+                        others: part.others,
+                        quantity: part.quantity,
+                        amount_subtotal: part.amount_subtotal,
+                        quoted_amount_subtotal: part.quoted_subtotal,
+                        credits_consumed: part.credits_consumed,
+                    },
+                )
+                .collect(),
+        }
+    });
     crate::invoices::model::InvoiceLineItem {
+        usage_breakdown,
         name: li.name,
         description: li.description,
         quantity: li.quantity,

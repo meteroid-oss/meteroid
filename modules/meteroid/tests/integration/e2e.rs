@@ -347,6 +347,7 @@ async fn test_metering_e2e() {
                 })),
             }),
             usage_group_key: None,
+            usage_breakdown_key: None,
             unit_label: None,
             family_local_id: "default".to_string(),
             product_id: None,

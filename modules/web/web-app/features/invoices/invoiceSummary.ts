@@ -44,6 +44,28 @@ export const lineShownSubLines = (line: Pick<LineItem, 'subLineItems' | 'taxIncl
     ? line.taxInclusiveQuote.subLineItems
     : line.subLineItems
 
+export interface LineBreakdownItem {
+  label: string
+  /** The usage of events without the property, shown as a muted dash. */
+  noValue: boolean
+  quantity: string
+  amount: bigint
+}
+
+/** A line's usage breakdown, each value with its part of the amount the line shows. */
+export const lineShownBreakdown = (
+  line: Pick<LineItem, 'usageBreakdown' | 'taxInclusiveQuote'>
+): { key: string; items: LineBreakdownItem[] } | undefined =>
+  line.usageBreakdown && {
+    key: line.usageBreakdown.key,
+    items: line.usageBreakdown.items.map(item => ({
+      label: item.others ? 'Other' : (item.value ?? '—'),
+      noValue: !item.others && item.value === undefined,
+      quantity: item.quantity,
+      amount: (line.taxInclusiveQuote && item.quotedSubtotal) ?? item.subtotal,
+    })),
+  }
+
 export const invoiceSummary = (invoice: SummaryInvoice): InvoiceSummary => {
   const reductions: InvoiceSummaryRow[] = []
   if (!invoice.taxInclusive) {

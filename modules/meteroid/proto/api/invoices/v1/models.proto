@@ -327,6 +327,29 @@ message LineItem {
   optional CreditGrantUnit credit_grant_unit = 23;
   // Tax on `taxable_amount`.
   int64 tax_amount = 24;
+  // The line broken down by its metric's `usage_breakdown_key`: each value's quantity and its part
+  // of the line's amount. Together they add up to the line's quantity and amount.
+  optional UsageBreakdown usage_breakdown = 25;
+
+  message UsageBreakdown {
+    string key = 1;
+    // Largest amount first. Past 99 values, the rest are summed in one last item flagged `others`.
+    repeated Item items = 2;
+
+    message Item {
+      // Absent for events without the property, and for `others`.
+      optional string value = 1;
+      // Set on the last item when there are more than 99 values: it sums the rest.
+      bool others = 2;
+      string quantity = 3;
+      // Part of `subtotal`.
+      int64 subtotal = 4;
+      // Part of `tax_inclusive_quote.subtotal`.
+      optional int64 quoted_subtotal = 5;
+      // Part of `credit_unit.consumed`.
+      optional int64 credits_consumed = 6;
+    }
+  }
 
   message CreditGrantUnit {
     string credit_unit_id = 1;

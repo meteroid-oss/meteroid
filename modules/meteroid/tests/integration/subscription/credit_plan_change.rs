@@ -1617,6 +1617,7 @@ async fn legacy_pending_adjustment(
         promotional_credit: None,
         subscription_id: None,
         usage_ends_at: None,
+        usage_breakdown: None,
     };
     let customer = env.get_customer(CUST_UBER_ID).await;
     let entity = env

@@ -153,6 +153,7 @@ pub fn compute_volume_price(
         }],
         metric_id: Some(metric_id),
         group_by_dimensions: None,
+        usage_breakdown: None,
     })
 }
 
@@ -208,6 +209,7 @@ pub fn compute_tier_price(
         sublines: sub_lines,
         metric_id: Some(metric_id),
         group_by_dimensions: None,
+        usage_breakdown: None,
     })
 }
 

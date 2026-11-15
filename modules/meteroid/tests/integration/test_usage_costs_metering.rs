@@ -138,6 +138,7 @@ async fn test_usage_series_and_event_paging_over_clickhouse() {
                 segmentation_matrix: None,
                 filters: None,
                 usage_group_key: None,
+                usage_breakdown_key: None,
                 unit_label: None,
                 tenant_id: TENANT_ID,
                 product_family_id: PRODUCT_FAMILY_ID,

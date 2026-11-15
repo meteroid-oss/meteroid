@@ -126,6 +126,8 @@ message BillableMetric {
   optional string description = 4;
   Aggregation aggregation = 5;
   SegmentationMatrix segmentation_matrix = 6;
+  // Event property, e.g. `cluster_id`, whose values are billed as separate invoice lines, each
+  // priced on its own usage.
   optional string usage_group_key = 7;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp archived_at = 9;
@@ -134,6 +136,9 @@ message BillableMetric {
   string family_local_id = 12;
   repeated MetricFilter filters = 13;
   MetricUnitLabel unit_label = 14;
+  // Event property, e.g. `project_id`, that breaks each invoice line down by value. The line is
+  // still priced on its total usage, and each value shows its quantity and share of the amount.
+  optional string usage_breakdown_key = 15;
 }
 
 message BillableMetricMeta {
