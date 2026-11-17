@@ -329,11 +329,13 @@ impl CheckoutSessionRow {
     /// Stays `AwaitingPayment` while any transaction is non-terminal (a retry is in flight).
     /// Checkouts whose payment is still settling and that hold `coupon_id`, optionally of one
     /// customer: the redemption they will make once it settles.
+    /// `except` is the checkout asking: its own reservation does not count against it.
     pub async fn count_awaiting_payment_with_coupon(
         conn: &mut PgConn,
         tenant_id: TenantId,
         coupon_id: common_domain::ids::CouponId,
         customer_id: Option<CustomerId>,
+        except: Option<CheckoutSessionId>,
     ) -> DbResult<i64> {
         use crate::schema::checkout_session::dsl as cs_dsl;
         use diesel::PgArrayExpressionMethods;
@@ -345,6 +347,9 @@ impl CheckoutSessionRow {
             .into_boxed();
         if let Some(customer_id) = customer_id {
             query = query.filter(cs_dsl::customer_id.eq(customer_id));
+        }
+        if let Some(except) = except {
+            query = query.filter(cs_dsl::id.ne(except));
         }
         let query = query.count();
 

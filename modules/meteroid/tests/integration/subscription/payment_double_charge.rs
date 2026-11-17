@@ -638,3 +638,362 @@ async fn test_cancelled_checkout_charge_is_recorded(#[future] test_env: TestEnv)
         diesel_models::enums::PaymentStatusEnum::Cancelled
     );
 }
+
+/// A checkout charge whose answer never came back was committed before it was sent: a re-click
+/// is fenced instead of charging again, and the re-send under its key completes the checkout.
+#[rstest]
+#[tokio::test]
+async fn test_checkout_charge_without_an_answer_is_resent_not_charged_again(
+    #[future] test_env: TestEnv,
+) {
+    use meteroid_store::domain::checkout_sessions::CheckoutSessionStatus;
+
+    let env = test_env.await;
+    env.seed_payments().await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Unknown)
+        .await;
+
+    let session = env
+        .store()
+        .create_checkout_session(self_serve_session(CUST_UBER_ID))
+        .await
+        .expect("create checkout session");
+    let complete = || {
+        env.services().complete_checkout(
+            TENANT_ID,
+            session.id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            3500,
+            "EUR".to_string(),
+            None,
+        )
+    };
+
+    let CheckoutCompletionResult::AwaitingPayment { transaction, .. } = complete()
+        .await
+        .expect("an unanswered charge is in flight, not an error")
+    else {
+        panic!("an unanswered charge leaves the checkout awaiting its payment")
+    };
+    assert_eq!(transaction.status, PaymentStatusEnum::Pending);
+    assert!(transaction.provider_transaction_id.is_none());
+
+    // The provider would now take a second charge: the re-click must not send one.
+    env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
+        .await;
+    let CheckoutCompletionResult::AwaitingPayment {
+        transaction: again, ..
+    } = complete().await.expect("re-completion is fenced")
+    else {
+        panic!("re-completion must wait for the unanswered charge")
+    };
+    assert_eq!(again.id, transaction.id);
+    let rows = session_transactions(&env, session.id).await;
+    assert_eq!(rows.len(), 1);
+    assert!(
+        rows[0].provider_transaction_id.is_none(),
+        "nothing was sent again"
+    );
+
+    env.services()
+        .resume_unsent_charge(transaction.id, TENANT_ID)
+        .await
+        .expect("resume the unsent charge");
+    env.run_outbox_and_orchestration().await;
+
+    let rows = session_transactions(&env, session.id).await;
+    assert_eq!(rows.len(), 1, "the re-send is the same attempt");
+    assert_eq!(
+        rows[0].status,
+        diesel_models::enums::PaymentStatusEnum::Settled
+    );
+    let invoice_id = rows[0]
+        .invoice_id
+        .expect("the settled charge pays an invoice");
+    assert_eq!(
+        env.get_detailed_invoice(invoice_id)
+            .await
+            .invoice
+            .amount_due,
+        0
+    );
+
+    let session = env
+        .store()
+        .get_checkout_session(TENANT_ID, session.id)
+        .await
+        .expect("session");
+    assert_eq!(session.status, CheckoutSessionStatus::Completed);
+    assert!(session.subscription_id.is_some());
+}
+
+/// A decline is recorded on the attempt committed before it was sent, and the session reopens
+/// for another one.
+#[rstest]
+#[tokio::test]
+async fn test_declined_checkout_charge_is_recorded_on_its_attempt(#[future] test_env: TestEnv) {
+    use meteroid_store::domain::checkout_sessions::CheckoutSessionStatus;
+
+    let env = test_env.await;
+    env.seed_payments().await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Failed)
+        .await;
+
+    let session = env
+        .store()
+        .create_checkout_session(self_serve_session(CUST_UBER_ID))
+        .await
+        .expect("create checkout session");
+    let complete = || {
+        env.services().complete_checkout(
+            TENANT_ID,
+            session.id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            3500,
+            "EUR".to_string(),
+            None,
+        )
+    };
+
+    let err = complete().await.expect_err("a declined charge errors");
+    assert!(matches!(
+        err.current_context(),
+        meteroid_store::errors::StoreError::PaymentError(_)
+    ));
+    let rows = session_transactions(&env, session.id).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0].status,
+        diesel_models::enums::PaymentStatusEnum::Failed
+    );
+    assert!(rows[0].provider_transaction_id.is_some());
+    let reopened = env
+        .store()
+        .get_checkout_session(TENANT_ID, session.id)
+        .await
+        .expect("session");
+    assert_eq!(reopened.status, CheckoutSessionStatus::Created);
+
+    env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
+        .await;
+    let CheckoutCompletionResult::Completed { .. } =
+        complete().await.expect("a new attempt after the decline")
+    else {
+        panic!("a captured charge completes the checkout")
+    };
+    let mut statuses: Vec<_> = session_transactions(&env, session.id)
+        .await
+        .into_iter()
+        .map(|row| row.status)
+        .collect();
+    statuses.sort_by_key(|status| format!("{status:?}"));
+    assert_eq!(
+        statuses,
+        vec![
+            diesel_models::enums::PaymentStatusEnum::Failed,
+            diesel_models::enums::PaymentStatusEnum::Settled
+        ]
+    );
+}
+
+/// An activation checkout's charge with no answer back is fenced the same way, and its re-send
+/// activates the subscription with a paid invoice.
+#[rstest]
+#[tokio::test]
+async fn test_activation_charge_without_an_answer_activates_once_resent(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    env.seed_payments().await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Unknown)
+        .await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap())
+        .on_checkout()
+        .no_trial()
+        .auto_charge()
+        .create(env.services())
+        .await;
+    let session = env
+        .store()
+        .get_checkout_session_by_subscription(TENANT_ID, sub_id)
+        .await
+        .expect("activation checkout session");
+    let complete = || {
+        env.services().complete_checkout(
+            TENANT_ID,
+            session.id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            3500,
+            "EUR".to_string(),
+            None,
+        )
+    };
+
+    let CheckoutCompletionResult::AwaitingPayment { transaction, .. } =
+        complete().await.expect("an unanswered charge is in flight")
+    else {
+        panic!("an unanswered charge leaves the activation awaiting its payment")
+    };
+    env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
+        .await;
+    let CheckoutCompletionResult::AwaitingPayment {
+        transaction: again, ..
+    } = complete().await.expect("re-completion is fenced")
+    else {
+        panic!("re-completion must wait for the unanswered charge")
+    };
+    assert_eq!(again.id, transaction.id);
+    assert!(env.get_subscription(sub_id).await.activated_at.is_none());
+
+    env.services()
+        .resume_unsent_charge(transaction.id, TENANT_ID)
+        .await
+        .expect("resume the unsent charge");
+    env.run_outbox_and_orchestration().await;
+
+    let rows = session_transactions(&env, session.id).await;
+    assert_eq!(rows.len(), 1, "the re-send is the same attempt");
+    assert_eq!(
+        rows[0].status,
+        diesel_models::enums::PaymentStatusEnum::Settled
+    );
+    assert!(env.get_subscription(sub_id).await.activated_at.is_some());
+    let invoice_id = rows[0]
+        .invoice_id
+        .expect("the settled charge pays an invoice");
+    assert_eq!(
+        env.get_detailed_invoice(invoice_id)
+            .await
+            .invoice
+            .amount_due,
+        0
+    );
+}
+
+/// A capture settling for a checkout another charge already completed pays no invoice: it is kept
+/// as the customer's credit, never lost.
+#[rstest]
+#[tokio::test]
+async fn test_capture_for_a_completed_checkout_is_kept_as_credit(#[future] test_env: TestEnv) {
+    use common_domain::ids::BaseId;
+
+    let env = test_env.await;
+    env.seed_payments().await;
+    env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
+        .await;
+
+    let session = env
+        .store()
+        .create_checkout_session(self_serve_session(CUST_UBER_ID))
+        .await
+        .expect("create checkout session");
+    let CheckoutCompletionResult::Completed { .. } = env
+        .services()
+        .complete_checkout(
+            TENANT_ID,
+            session.id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            3500,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("completion")
+    else {
+        panic!("a captured charge completes the checkout")
+    };
+
+    // A second charge of the session, committed and captured, that no run recorded.
+    let orphan = common_domain::ids::PaymentTransactionId::new();
+    {
+        let mut conn = env.conn().await;
+        diesel_models::payments::PaymentTransactionRowNew {
+            id: orphan,
+            tenant_id: TENANT_ID,
+            invoice_id: None,
+            provider_transaction_id: None,
+            amount: 3500,
+            currency: "EUR".to_string(),
+            payment_method_id: Some(CUST_UBER_PAYMENT_METHOD_ID),
+            status: diesel_models::enums::PaymentStatusEnum::Pending,
+            payment_type: diesel_models::enums::PaymentTypeEnum::Payment,
+            error_type: None,
+            processed_at: None,
+            checkout_session_id: Some(session.id),
+            pending_plan_version_id: None,
+            next_action: None,
+            initiated_by_customer_id: Some(CUST_UBER_ID),
+            pending_provider_intent_id: None,
+            pending_connection_id: None,
+            parent_transaction_id: None,
+            credit_note_id: None,
+            refund_mode: None,
+            reversal_reason: None,
+        }
+        .insert(&mut conn)
+        .await
+        .expect("orphan charge");
+    }
+    env.deliver_mock_webhook(
+        format!(
+            r#"{{"id":"evt_ok_{tx}","kind":"payment_succeeded","transaction_id":"{tx}","external_id":"pi_{tx}","amount":3500,"currency":"EUR"}}"#,
+            tx = orphan.as_base62(),
+        )
+        .as_bytes(),
+    )
+    .await;
+
+    let kept: Vec<_> = super::credit_plan_change::grant_rows(&env, CUST_UBER_ID)
+        .await
+        .into_iter()
+        .filter(|g| g.source_kind == "OVERPAYMENT" && g.source_id == orphan.as_uuid())
+        .collect();
+    assert_eq!(kept.len(), 1, "the capture is kept as credit");
+    assert_eq!(kept[0].amount, 3500);
+}
+
+/// A charge the provider refused before creating anything is undone: no attempt is left and the
+/// session reopens.
+#[rstest]
+#[tokio::test]
+async fn test_refused_checkout_charge_is_undone(#[future] test_env: TestEnv) {
+    use meteroid_store::domain::checkout_sessions::CheckoutSessionStatus;
+
+    let env = test_env.await;
+    env.seed_payments().await;
+    env.set_mock_charge_behavior(MockChargeBehavior::RejectedCredentials)
+        .await;
+
+    let session = env
+        .store()
+        .create_checkout_session(self_serve_session(CUST_UBER_ID))
+        .await
+        .expect("create checkout session");
+    let err = env
+        .services()
+        .complete_checkout(
+            TENANT_ID,
+            session.id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            3500,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect_err("a refused charge errors");
+    assert!(matches!(
+        err.current_context(),
+        meteroid_store::errors::StoreError::PaymentProviderError
+    ));
+
+    assert!(session_transactions(&env, session.id).await.is_empty());
+    let session = env
+        .store()
+        .get_checkout_session(TENANT_ID, session.id)
+        .await
+        .expect("session");
+    assert_eq!(session.status, CheckoutSessionStatus::Created);
+}

@@ -27,9 +27,9 @@
 //! ([`Services::replay_unconfirmed_refund`]): they never left `Ready`, so they hold the credit
 //! note's remainder and the payment's refundable amount hostage until something resolves them.
 //!
-//! A fourth pass does the same for invoice charges committed before they were sent
-//! ([`Services::resume_unsent_invoice_charge`]): they stay `Pending` with no provider id and
-//! block the invoice's next payment until resolved.
+//! A fourth pass does the same for charges committed before they were sent
+//! ([`Services::resume_unsent_charge`]): they stay `Pending` with no provider id and
+//! block the invoice's next payment, or the checkout, until resolved.
 
 use distributed_lock::LeaderElection;
 use meteroid_store::Services;
@@ -194,18 +194,15 @@ async fn sweep(
         }
     }
 
-    // Invoice charges committed before sending whose answer never came back: re-sent under the
+    // Charges committed before sending whose answer never came back: re-sent under the
     // key they were committed with, or failed once the provider may have forgotten it.
     let unsent = services
-        .claim_unsent_invoice_charges(threshold, BATCH_SIZE)
+        .claim_unsent_charges(threshold, BATCH_SIZE)
         .await
         .map_err(|err| Box::new(err.into_error()) as Box<dyn std::error::Error + Send + Sync>)?;
 
     for row in unsent {
-        match services
-            .resume_unsent_invoice_charge(row.id, row.tenant_id)
-            .await
-        {
+        match services.resume_unsent_charge(row.id, row.tenant_id).await {
             Ok(()) => count += 1,
             Err(e) => {
                 log::warn!(

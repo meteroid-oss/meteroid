@@ -708,21 +708,46 @@ impl Services {
                     // amount — not on webhook day. A debit that settles days later must
                     // reproduce the same dated subscription/invoice, or the amount guard
                     // trips with the money already collected.
-                    let priced_on = PaymentTransactionRow::get_by_id(
+                    let payment = PaymentTransactionRow::get_by_id(
                         conn,
                         event.payment_transaction_id,
                         event.tenant_id,
                     )
                     .await
-                    .map_err(Into::<Report<StoreError>>::into)?
-                    .created_at
-                    .date_naive();
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                    let priced_on = payment.created_at.date_naive();
 
                     if session.is_completed() {
-                        log::warn!(
-                            "Checkout session {} already completed, ignoring duplicate webhook",
-                            checkout_session_id
-                        );
+                        // Completed by this payment, it pays an invoice. A capture that pays none
+                        // (the checkout completed without it) is kept as credit, never lost.
+                        if payment.invoice_id.is_none()
+                            && payment.payment_type == diesel_models::enums::PaymentTypeEnum::Payment
+                            && matches!(phase, CheckoutPaymentPhase::Settled)
+                        {
+                            log::error!(
+                                "Payment {} settled for checkout session {checkout_session_id}, \
+                                 completed without it: kept as credit",
+                                event.payment_transaction_id
+                            );
+                            keep_collected_payment_tx(
+                                conn,
+                                &*services.store.hooks.credit,
+                                event.tenant_id,
+                                session.customer_id,
+                                event.payment_transaction_id,
+                                None,
+                                event.amount,
+                                &event.currency,
+                                collected_at(event),
+                                "Payment for a checkout completed without it",
+                            )
+                            .await?;
+                        } else {
+                            log::warn!(
+                                "Checkout session {} already completed, ignoring duplicate webhook",
+                                checkout_session_id
+                            );
+                        }
                         return Ok(());
                     }
 
@@ -966,6 +991,15 @@ impl Services {
                                     == crate::domain::enums::SubscriptionActivationCondition::OnCheckout;
 
                             if should_activate {
+                                apply_priced_coupons_tx(
+                                    conn,
+                                    &*services.store.hooks.credit,
+                                    event.tenant_id,
+                                    checkout_session_id,
+                                    subscription_id,
+                                    session.customer_id,
+                                )
+                                .await?;
                                 services.bill_subscription_with_data_tx(
                                     conn,
                                     &Actor::Customer {
@@ -1560,4 +1594,58 @@ fn collected_at(event: &PaymentTransactionEvent) -> chrono::DateTime<Utc> {
     event
         .processed_at
         .map_or_else(common_domain::clock::now, |at| at.and_utc())
+}
+
+/// The coupons an activation's charge was priced with, kept on the session when the charge was
+/// committed: a charge the checkout could not record itself is billed with them.
+async fn apply_priced_coupons_tx(
+    conn: &mut crate::store::PgConn,
+    credit: &dyn crate::hooks::CreditControlHooks,
+    tenant_id: common_domain::ids::TenantId,
+    checkout_session_id: common_domain::ids::CheckoutSessionId,
+    subscription_id: common_domain::ids::SubscriptionId,
+    customer_id: common_domain::ids::CustomerId,
+) -> StoreResult<()> {
+    use diesel_models::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRowNew};
+
+    let session = CheckoutSessionRow::get_by_id(conn, tenant_id, checkout_session_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    if session.pre_payment_coupon_ids.is_none() {
+        return Ok(());
+    }
+    let applied = AppliedCouponDetailedRow::list_by_subscription_id(conn, &subscription_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    let missing: Vec<AppliedCouponRowNew> = session
+        .coupon_ids
+        .into_iter()
+        .flatten()
+        .filter(|coupon_id| {
+            !applied
+                .iter()
+                .any(|row| row.applied_coupon.coupon_id == *coupon_id)
+        })
+        .map(|coupon_id| AppliedCouponRowNew {
+            id: common_domain::ids::AppliedCouponId::new(),
+            subscription_id,
+            coupon_id,
+            customer_id,
+            is_active: true,
+            applied_amount: None,
+            applied_count: None,
+            last_applied_at: None,
+        })
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    crate::services::subscriptions::utils::apply_coupons_without_validation(
+        conn,
+        credit,
+        &missing.iter().collect::<Vec<_>>(),
+        tenant_id,
+    )
+    .await?;
+    Ok(())
 }

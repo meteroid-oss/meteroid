@@ -28,6 +28,7 @@ pub enum InvoiceBillingMode {
         payment_method_id: CustomerPaymentMethodId,
         total_amount_confirmation: u64,
         currency_confirmation: String,
+        charge: crate::services::checkout_completion::InvoiceCheckoutCharge,
     },
     /// Subscription renewal or terminated. If grace period, we schedule finalization. Else, we immediately finalize
     AwaitGracePeriodIfApplicable,
@@ -318,6 +319,7 @@ impl Services {
                 currency_confirmation,
                 total_amount_confirmation,
                 payment_method_id,
+                charge,
             } => {
                 if draft_invoice.currency != currency_confirmation {
                     return Err(Report::new(StoreError::CheckoutError)
@@ -388,19 +390,45 @@ impl Services {
                 // Carry next_action on the transaction so the on-session caller
                 // can surface 3DS; the invoice is finalized via the webhook once
                 // payment settles.
-                let (mut res, next_action) = self
-                    .process_invoice_payment_tx(
-                        conn,
-                        tenant_id,
-                        draft_invoice.id,
-                        payment_method_id,
-                        // FinalizeAfterPayment is only constructed by checkout
-                        // completion: customer-initiated and on-session.
-                        true,
-                        true,
-                        None,
-                    )
-                    .await?;
+                use crate::services::checkout_completion::{
+                    ChargeNeeded, InvoiceCheckoutCharge, charge_needed_error,
+                };
+                let (mut res, next_action) = match charge {
+                    InvoiceCheckoutCharge::InTransaction => {
+                        self.process_invoice_payment_tx(
+                            conn,
+                            tenant_id,
+                            draft_invoice.id,
+                            payment_method_id,
+                            // FinalizeAfterPayment is only constructed by checkout
+                            // completion: customer-initiated and on-session.
+                            true,
+                            true,
+                            None,
+                        )
+                        .await?
+                    }
+                    InvoiceCheckoutCharge::Price(coupons) => {
+                        return Err(charge_needed_error(ChargeNeeded {
+                            payment_method_id,
+                            amount: draft_invoice.amount_due,
+                            currency: draft_invoice.currency.clone(),
+                            coupons,
+                        }));
+                    }
+                    InvoiceCheckoutCharge::Answered(answer) => {
+                        self.record_checkout_charge_on_invoice_tx(
+                            conn,
+                            tenant_id,
+                            draft_invoice.id,
+                            draft_invoice.amount_due,
+                            &draft_invoice.currency,
+                            payment_method_id,
+                            &answer,
+                        )
+                        .await?
+                    }
+                };
                 res.next_action = next_action;
 
                 transactions.push(res.clone());
@@ -589,9 +617,7 @@ impl Services {
                         tenant_id,
                         draft_invoice.id,
                         &charge_result,
-                        None,
                         crate::services::DefaultMethodAdoption::Replace,
-                        None,
                     )
                     .await?
                 };

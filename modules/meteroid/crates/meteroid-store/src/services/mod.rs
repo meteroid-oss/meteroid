@@ -509,6 +509,7 @@ impl Services {
         subscription_currency: &str,
         plan_version_id: Option<common_domain::ids::PlanVersionId>,
         subscription_id: Option<SubscriptionId>,
+        checkout_session_id: Option<common_domain::ids::CheckoutSessionId>,
     ) -> StoreResult<Vec<Coupon>> {
         if coupon_ids.is_empty() {
             return Ok(vec![]);
@@ -613,6 +614,7 @@ impl Services {
                     tenant_id,
                     coupon.id,
                     Some(customer_id),
+                    checkout_session_id,
                 )
                 .await?
                     > 0
@@ -625,7 +627,11 @@ impl Services {
             if let Some(limit) = coupon.redemption_limit
                 && i64::from(coupon.redemption_count)
                     + CheckoutSessionRow::count_awaiting_payment_with_coupon(
-                        conn, tenant_id, coupon.id, None,
+                        conn,
+                        tenant_id,
+                        coupon.id,
+                        None,
+                        checkout_session_id,
                     )
                     .await?
                     >= i64::from(limit)

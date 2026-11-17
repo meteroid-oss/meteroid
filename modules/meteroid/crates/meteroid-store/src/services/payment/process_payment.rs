@@ -3,6 +3,7 @@ use crate::adapters::payment::bridge::payment_intent_from_outcome;
 use crate::adapters::payment::error::{AdoptedCharge, ConnectorError};
 use crate::adapters::payment::model::{ChargeRequest, IdempotencyKey, PaymentDescriptor};
 use crate::adapters::payment::{PaymentConnector, initialize_payment_connector};
+use crate::domain::CheckoutSession;
 use crate::domain::connectors::Connector;
 use crate::domain::entity_activity::Actor;
 use crate::domain::outbox_event::PaymentTransactionEvent;
@@ -12,12 +13,13 @@ use crate::errors::StoreError;
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::services::InvoiceDelivery;
 use crate::services::Services;
-use crate::services::checkout_completion::payment_method_not_found;
+use crate::services::checkout_completion::{ChargeNeeded, PaymentCoupons};
 use crate::store::PgConn;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use common_domain::ids::{
-    BaseId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, TenantId,
+    BaseId, CheckoutSessionId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, TenantId,
 };
+use diesel_models::checkout_sessions::CheckoutSessionRow;
 use diesel_models::customer_connection::CustomerConnectionDetailsRow;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
 use diesel_models::enums::{InvoicePaymentStatus, PaymentStatusEnum, PaymentTypeEnum};
@@ -34,13 +36,15 @@ use std::time::Duration;
 /// This is a safety net in addition to the HTTP client timeout.
 pub(in crate::services) const PAYMENT_PROVIDER_TIMEOUT: Duration = Duration::from_secs(45);
 
-/// The provider request of an invoice charge, committed with its Pending row before it is sent,
-/// so a re-send after a lost answer is byte-identical under the same idempotency key.
+/// The provider request of a charge, committed with its Pending row before it is sent, so a
+/// re-send after a lost answer is byte-identical under the same idempotency key.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(in crate::services) struct ChargeAttempt {
     idempotency_key: String,
     on_session: bool,
-    merchant_name: String,
+    /// None for a checkout's charge, which is sent with no descriptor.
+    #[serde(default)]
+    merchant_name: Option<String>,
     invoice_number: Option<String>,
 }
 
@@ -77,6 +81,19 @@ pub(in crate::services) enum ChargeAnswer {
     Unconfirmed,
     /// No answer (timeout, transport): the money may have moved, so the row stays Pending.
     Unknown(Report<StoreError>),
+}
+
+#[allow(clippy::large_enum_variant)]
+pub(in crate::services) enum CheckoutChargeClaim {
+    /// A charge of the session is already in flight or settled.
+    InFlight(PaymentTransaction, Option<PaymentNextAction>),
+    Claimed(Box<InvoiceCharge>),
+}
+
+impl InvoiceCharge {
+    pub(in crate::services) fn transaction(&self) -> &PaymentTransactionRow {
+        &self.transaction
+    }
 }
 
 pub enum InvoiceChargeResult {
@@ -178,7 +195,7 @@ impl Services {
     /// Charges a committed invoice without holding a connection across the provider call: the
     /// Pending row (and its exact request) is committed first, the charge is sent, then its
     /// answer is recorded. An answer that never comes back leaves the row Pending for
-    /// [`Self::resume_unsent_invoice_charge`] to re-send under the same key.
+    /// [`Self::resume_unsent_charge`] to re-send under the same key.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::services) async fn charge_invoice(
         &self,
@@ -226,11 +243,11 @@ impl Services {
         Ok(InvoiceChargeResult::Charged(tx, next_action))
     }
 
-    /// Re-sends an invoice charge whose provider answer never came back, under the idempotency
+    /// Re-sends a charge whose provider answer never came back, under the idempotency
     /// key it was committed with, so a provider that already took it answers with the original.
     /// When that is no longer safe (see [`ChargeAnswer::Unconfirmed`]) the attempt is failed
     /// without dunning; a late success webhook still settles it (Failed → Settled is honoured).
-    pub(in crate::services) async fn resume_unsent_invoice_charge(
+    pub(in crate::services) async fn resume_unsent_charge(
         &self,
         transaction_id: PaymentTransactionId,
         tenant_id: TenantId,
@@ -242,7 +259,7 @@ impl Services {
         let unsent = row.status == PaymentStatusEnum::Pending
             && row.payment_type == PaymentTypeEnum::Payment
             && row.provider_transaction_id.is_none()
-            && row.invoice_id.is_some()
+            && (row.invoice_id.is_some() || row.checkout_session_id.is_some())
             && row.charge_attempt.is_some();
         if !unsent {
             return Ok(());
@@ -317,27 +334,38 @@ impl Services {
     }
 
     /// The claim's gates, re-run before a re-send: the invoice may have been paid by other means
-    /// or voided, or the connector disabled, since the attempt was committed.
+    /// or voided, the checkout expired or cancelled, or the connector disabled, since the attempt
+    /// was committed.
     async fn still_chargeable(&self, charge: &InvoiceCharge) -> StoreResult<bool> {
-        let Some(invoice_id) = charge.transaction.invoice_id else {
-            return Ok(true);
-        };
         let tenant_id = charge.transaction.tenant_id;
         let connector = &charge.connector;
+        let (invoice_id, checkout_session_id) = (
+            charge.transaction.invoice_id,
+            charge.transaction.checkout_session_id,
+        );
         self.store
             .transaction(|conn| {
                 async move {
-                    let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?
-                        .invoice;
-                    let payable = invoice.consolidated_into_invoice_id.is_none()
-                        && matches!(
-                            invoice.status,
-                            diesel_models::enums::InvoiceStatusEnum::Draft
-                                | diesel_models::enums::InvoiceStatusEnum::Finalized
-                        )
-                        && invoice.amount_due > 0;
+                    let payable = match (invoice_id, checkout_session_id) {
+                        (Some(invoice_id), _) => {
+                            invoice_payable(conn, tenant_id, invoice_id).await?
+                        }
+                        (None, Some(session_id)) => {
+                            let (_lock, session) = CheckoutSessionRow::get_by_id_for_update(
+                                conn, tenant_id, session_id,
+                            )
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+                            // Not its expiry: a charge the provider may hold is re-sent, and its
+                            // settlement completes the checkout past its expiry.
+                            matches!(
+                                CheckoutSession::from(session).status,
+                                crate::domain::checkout_sessions::CheckoutSessionStatus::Created
+                                    | crate::domain::checkout_sessions::CheckoutSessionStatus::AwaitingPayment
+                            )
+                        }
+                        (None, None) => true,
+                    };
                     if !payable {
                         return Ok(false);
                     }
@@ -350,6 +378,138 @@ impl Services {
                         }
                         Err(e) => Err(e),
                     }
+                }
+                .scope_boxed()
+            })
+            .await
+    }
+
+    /// Commits a checkout's Pending charge and its exact request behind the session's lock, and
+    /// marks the session awaiting payment: a lost answer is re-sent under the same key, and a
+    /// retry of the checkout finds the charge in flight instead of charging again.
+    pub(in crate::services) async fn claim_checkout_charge(
+        &self,
+        tenant_id: TenantId,
+        checkout_session_id: CheckoutSessionId,
+        needed: &ChargeNeeded,
+    ) -> StoreResult<CheckoutChargeClaim> {
+        let ChargeNeeded {
+            payment_method_id,
+            amount,
+            currency,
+            coupons,
+        } = needed.clone();
+        if amount <= 0 {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "Amount must be positive".to_string(),
+            )));
+        }
+        self.store
+            .transaction(|conn| {
+                async move {
+                    let (_lock, session) = CheckoutSessionRow::get_by_id_for_update(
+                        conn,
+                        tenant_id,
+                        checkout_session_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                    let session = CheckoutSession::from(session);
+                    if !session.can_complete() {
+                        return Err(Report::new(StoreError::InvalidArgument(
+                            "Checkout session is not in a valid state for completion".to_string(),
+                        )));
+                    }
+                    if let Some((transaction, next_action)) = self
+                        .find_active_checkout_transaction(conn, tenant_id, checkout_session_id)
+                        .await?
+                    {
+                        return Ok(CheckoutChargeClaim::InFlight(transaction, next_action));
+                    }
+
+                    let (method, external_customer_id, connector, connector_impl) = self
+                        .load_charge_context(conn, &tenant_id, &payment_method_id)
+                        .await?;
+                    connector.ensure_active_locked(conn).await?;
+
+                    let transaction_id = PaymentTransactionId::new();
+                    let attempt = ChargeAttempt {
+                        idempotency_key: format!("charge:{}", transaction_id.as_base62()),
+                        // Checkout is always customer-present, so 3DS can be completed inline.
+                        on_session: true,
+                        merchant_name: None,
+                        invoice_number: None,
+                    };
+                    PaymentTransactionRowNew {
+                        id: transaction_id,
+                        tenant_id,
+                        invoice_id: None,
+                        provider_transaction_id: None,
+                        amount,
+                        currency,
+                        payment_method_id: Some(payment_method_id),
+                        status: PaymentStatusEnum::Pending,
+                        payment_type: PaymentTypeEnum::Payment,
+                        error_type: None,
+                        processed_at: None,
+                        checkout_session_id: Some(checkout_session_id),
+                        pending_plan_version_id: None,
+                        next_action: None,
+                        initiated_by_customer_id: Some(session.customer_id),
+                        pending_provider_intent_id: None,
+                        pending_connection_id: None,
+                        parent_transaction_id: None,
+                        credit_note_id: None,
+                        refund_mode: None,
+                        reversal_reason: None,
+                    }
+                    .insert(conn)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                    let transaction = PaymentTransactionRowPatch {
+                        id: transaction_id,
+                        charge_attempt: Some(Some(serde_json::to_value(&attempt).map_err(
+                            |e| {
+                                StoreError::SerdeError(
+                                    "Failed to serialize charge attempt".to_string(),
+                                    e,
+                                )
+                            },
+                        )?)),
+                        ..Default::default()
+                    }
+                    .patch(conn, tenant_id, transaction_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                    CheckoutSessionRow::mark_awaiting_payment(
+                        conn,
+                        tenant_id,
+                        checkout_session_id,
+                        session.subscription_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                    if let Some(PaymentCoupons { code, ids }) = coupons {
+                        CheckoutSessionRow::set_payment_coupons(
+                            conn,
+                            tenant_id,
+                            checkout_session_id,
+                            code,
+                            ids,
+                        )
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                    }
+
+                    Ok(CheckoutChargeClaim::Claimed(Box::new(InvoiceCharge {
+                        transaction,
+                        method,
+                        external_customer_id,
+                        connector,
+                        connector_impl,
+                        attempt,
+                    })))
                 }
                 .scope_boxed()
             })
@@ -496,13 +656,15 @@ impl Services {
                 .to_string(),
             on_session,
             // The seller as snapshotted on the invoice.
-            merchant_name: invoice
-                .invoice
-                .seller_details
-                .get("legal_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
+            merchant_name: Some(
+                invoice
+                    .invoice
+                    .seller_details
+                    .get("legal_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+            ),
             invoice_number: Some(invoice.invoice.invoice_number.clone()),
         };
 
@@ -583,7 +745,10 @@ impl Services {
     }
 
     /// Sends the committed request. Holds no connection: the answer is recorded afterwards.
-    async fn send_invoice_charge(&self, charge: &InvoiceCharge) -> ChargeAnswer {
+    pub(in crate::services) async fn send_invoice_charge(
+        &self,
+        charge: &InvoiceCharge,
+    ) -> ChargeAnswer {
         let row = &charge.transaction;
         let request = ChargeRequest {
             transaction_id: row.id,
@@ -594,9 +759,11 @@ impl Services {
             currency: &row.currency,
             idempotency_key: IdempotencyKey::new(charge.attempt.idempotency_key.clone()),
             on_session: charge.attempt.on_session,
-            descriptor: Some(PaymentDescriptor {
-                merchant_name: charge.attempt.merchant_name.clone(),
-                invoice_number: charge.attempt.invoice_number.clone(),
+            descriptor: charge.attempt.merchant_name.clone().map(|merchant_name| {
+                PaymentDescriptor {
+                    merchant_name,
+                    invoice_number: charge.attempt.invoice_number.clone(),
+                }
             }),
             webhook_url: crate::adapters::payment::model::connector_webhook_url(
                 self.store.settings.webhook_base_url(),
@@ -651,7 +818,7 @@ impl Services {
 
     /// Records the provider's answer on the committed row. A refusal removes the attempt (and is
     /// returned), an unknown answer leaves it Pending (and is returned), an expired one fails it.
-    async fn settle_invoice_charge(
+    pub(in crate::services) async fn settle_invoice_charge(
         &self,
         charge: &InvoiceCharge,
         answer: ChargeAnswer,
@@ -661,7 +828,7 @@ impl Services {
             .await
     }
 
-    async fn settle_charge_row(
+    pub(in crate::services) async fn settle_charge_row(
         &self,
         row: &PaymentTransactionRow,
         answer: ChargeAnswer,
@@ -787,6 +954,24 @@ impl Services {
     }
 }
 
+async fn invoice_payable(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    invoice_id: InvoiceId,
+) -> StoreResult<bool> {
+    let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .invoice;
+    Ok(invoice.consolidated_into_invoice_id.is_none()
+        && matches!(
+            invoice.status,
+            diesel_models::enums::InvoiceStatusEnum::Draft
+                | diesel_models::enums::InvoiceStatusEnum::Finalized
+        )
+        && invoice.amount_due > 0)
+}
+
 /// The payment the provider already holds under this key, when its amount differs from ours.
 fn adopted_charge(error: &Report<ConnectorError>) -> Option<AdoptedCharge> {
     error
@@ -876,6 +1061,26 @@ pub(in crate::services) fn transaction_id_from_seed(seed: &str) -> PaymentTransa
 #[cfg(test)]
 mod tests {
     use super::transaction_id_from_seed;
+
+    #[test]
+    fn an_attempt_committed_before_the_descriptor_was_optional_resends_the_same_descriptor() {
+        let legacy: super::ChargeAttempt = serde_json::from_value(serde_json::json!({
+            "idempotency_key": "charge:k",
+            "on_session": false,
+            "merchant_name": "Acme",
+            "invoice_number": "INV-1",
+        }))
+        .expect("a legacy attempt");
+        assert_eq!(legacy.merchant_name.as_deref(), Some("Acme"));
+        let checkout: super::ChargeAttempt = serde_json::from_value(serde_json::json!({
+            "idempotency_key": "charge:k",
+            "on_session": true,
+            "merchant_name": null,
+            "invoice_number": null,
+        }))
+        .expect("a checkout attempt");
+        assert!(checkout.merchant_name.is_none());
+    }
     use crate::adapters::payment::model::IdempotencyKey;
     use crate::adapters::payment::{
         ConnectorRef, GoCardlessConnector, MollieConnector, PaymentConnector, StancerConnector,

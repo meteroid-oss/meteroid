@@ -4,17 +4,20 @@ use crate::domain::payment_transactions::{PaymentIntent, PaymentNextAction, Paym
 use crate::errors::StoreError;
 use crate::repositories::purchase_links::checkout_accepts_coupon_codes_tx;
 use crate::services::Services;
+use crate::services::payment::process_payment::{ChargeAnswer, CheckoutChargeClaim};
 use crate::store::PgConn;
 use common_domain::ids::{
-    BaseId, CheckoutSessionId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId,
+    CheckoutSessionId, CouponId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId,
     InvoiceId, PaymentTransactionId, TenantId,
 };
 use diesel_models::checkout_sessions::CheckoutSessionRow;
-use diesel_models::customer_connection::{CustomerConnectionDetailsRow, CustomerConnectionRow};
+use diesel_models::customer_connection::CustomerConnectionRow;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
-use diesel_models::enums::{PaymentStatusEnum, PaymentTypeEnum};
-use diesel_models::payments::{PaymentTransactionRowNew, PaymentTransactionRowPatch};
-use error_stack::{Report, ResultExt};
+use diesel_models::enums::PaymentStatusEnum;
+use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionRowPatch};
+use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Result of charging a payment method directly (before invoice/subscription creation)
 #[derive(Debug, Clone)]
@@ -33,12 +36,115 @@ pub struct DirectChargeResult {
 pub(crate) struct DeclinedCheckoutCharge {
     pub transaction_id: PaymentTransactionId,
     pub provider_transaction_id: Option<String>,
-    pub payment_method_id: CustomerPaymentMethodId,
-    pub amount: i64,
-    pub currency: String,
     pub error_message: String,
     pub processed_at: Option<chrono::NaiveDateTime>,
     pub status: PaymentStatusEnum,
+}
+
+/// What a checkout charges, found by its first run, which stops there: the charge is committed
+/// and sent outside the checkout's transaction (a provider holding the money never outlives the
+/// row that records it), then the checkout runs again with the answer.
+#[derive(Debug, Clone)]
+pub(crate) struct ChargeNeeded {
+    pub payment_method_id: CustomerPaymentMethodId,
+    pub amount: i64,
+    pub currency: String,
+    /// The coupons the charge is priced with, kept on the session for a deferred completion.
+    pub coupons: Option<PaymentCoupons>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PaymentCoupons {
+    pub code: Option<String>,
+    pub ids: Vec<Option<CouponId>>,
+}
+
+/// How an invoice billed after payment is charged: in the caller's transaction, or as a run of a
+/// checkout (see [`CheckoutCharge`]).
+#[allow(clippy::large_enum_variant)]
+pub enum InvoiceCheckoutCharge {
+    InTransaction,
+    Price(Option<PaymentCoupons>),
+    Answered(DirectChargeResult),
+}
+
+/// How a run of a checkout meets its charge (see [`ChargeNeeded`]).
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum CheckoutCharge {
+    Price,
+    /// `used` is set once the run recorded the answer.
+    Answered {
+        result: DirectChargeResult,
+        used: AtomicBool,
+    },
+}
+
+impl CheckoutCharge {
+    pub(crate) fn answer(result: DirectChargeResult) -> Self {
+        Self::Answered {
+            result,
+            used: AtomicBool::new(false),
+        }
+    }
+
+    pub(crate) fn mark_used(&self) {
+        if let Self::Answered { used, .. } = self {
+            used.store(true, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn answered(&self) -> Option<&DirectChargeResult> {
+        match self {
+            Self::Price => None,
+            Self::Answered { result, .. } => Some(result),
+        }
+    }
+
+    pub(crate) fn used(&self) -> bool {
+        match self {
+            Self::Price => false,
+            Self::Answered { used, .. } => used.load(Ordering::Relaxed),
+        }
+    }
+}
+
+pub(crate) fn charge_needed_error(needed: ChargeNeeded) -> Report<StoreError> {
+    Report::new(StoreError::CheckoutError)
+        .attach("The checkout stops at its charge")
+        .attach_opaque(needed)
+}
+
+/// The answer is to the charge this run asks for, within the confirmation's one minor unit.
+fn ensure_answer_of(
+    answer: &DirectChargeResult,
+    payment_method_id: CustomerPaymentMethodId,
+    amount: i64,
+    currency: &str,
+) -> StoreResult<()> {
+    if answer.payment_method_id != payment_method_id
+        || answer.currency != currency
+        || (answer.amount - amount).abs() > 1
+    {
+        return Err(Report::new(StoreError::CheckoutError).attach(format!(
+            "The checkout now charges {amount} {currency}; its payment took {} {}",
+            answer.amount, answer.currency
+        )));
+    }
+    Ok(())
+}
+
+pub(crate) fn charge_needed(error: &Report<StoreError>) -> Option<ChargeNeeded> {
+    error
+        .frames()
+        .find_map(|f| f.downcast_ref::<ChargeNeeded>())
+        .cloned()
+}
+
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum CheckoutChargeSent {
+    /// A charge of the session already in flight, or this one with no answer back yet.
+    InFlight(PaymentTransaction, Option<PaymentNextAction>),
+    Answered(DirectChargeResult),
 }
 
 /// Declined charges a checkout session tolerates before it is cancelled (card testing).
@@ -171,181 +277,190 @@ impl Services {
         }
     }
 
-    /// Charges a payment method directly without an existing invoice.
-    /// This is used in the self-serve checkout flow to charge the customer
-    pub(crate) async fn charge_payment_method_directly(
+    /// The charge a run of a checkout makes: on the first run none, the run stops there with
+    /// [`ChargeNeeded`] and rolls back; on the second, the provider's answer to that charge.
+    pub(crate) fn take_checkout_charge(
         &self,
-        conn: &mut PgConn,
-        tenant_id: TenantId,
+        charge: &CheckoutCharge,
         payment_method_id: CustomerPaymentMethodId,
         amount: i64,
         currency: String,
+        coupons: Option<PaymentCoupons>,
     ) -> StoreResult<DirectChargeResult> {
-        use crate::adapters::payment::bridge::payment_intent_from_outcome;
-        use crate::adapters::payment::initialize_payment_connector;
-        use crate::adapters::payment::model::{ChargeRequest, IdempotencyKey};
-        use crate::domain::connectors::Connector;
-
-        if amount <= 0 {
-            return Err(Report::new(StoreError::InvalidArgument(
-                "Amount must be positive".to_string(),
-            )));
-        }
-
-        let method = CustomerPaymentMethodRow::get_by_id(conn, &tenant_id, &payment_method_id)
-            .await
-            .map_err(|err| StoreError::DatabaseError(err.error))?;
-
-        let connection =
-            CustomerConnectionDetailsRow::get_by_id(conn, &tenant_id, &method.connection_id)
-                .await
-                .map_err(|err| StoreError::DatabaseError(err.error))?;
-
-        let connector = Connector::from_row(&self.store.settings.crypt_key, connection.connector)?;
-        connector.ensure_active_locked(conn).await?;
-
-        let connector_impl = initialize_payment_connector(&connector)
-            .change_context(StoreError::PaymentProviderError)?;
-
-        let transaction_id = PaymentTransactionId::new();
-
-        let request = ChargeRequest {
-            transaction_id,
-            customer_external_id: &connection.external_customer_id,
-            payment_method_external_id: &method.external_payment_method_id,
-            payment_method_type: method.payment_method_type.clone().into(),
-            amount_minor: amount,
-            currency: &currency,
-            idempotency_key: IdempotencyKey::new(format!("charge:{}", transaction_id.as_base62())),
-            // Checkout is always customer-present, so 3DS can be completed inline.
-            on_session: true,
-            descriptor: None,
-            webhook_url: crate::adapters::payment::model::connector_webhook_url(
-                self.store.settings.webhook_base_url(),
-                &connector,
-            ),
-        };
-
-        let outcome = tokio::time::timeout(
-            crate::services::payment::process_payment::PAYMENT_PROVIDER_TIMEOUT,
-            connector_impl.charge_off_session(request),
-        )
-        .await
-        .map_err(|_| {
-            Report::new(StoreError::PaymentProviderError)
-                .attach("Payment provider request timed out")
-        })?;
-        self.store
-            .note_rejected_credentials(&connector, &outcome)
-            .await;
-        let outcome = outcome.change_context_lazy(|| StoreError::PaymentProviderError)?;
-
-        let payment_intent = payment_intent_from_outcome(
-            outcome,
-            transaction_id,
-            tenant_id,
-            amount,
-            currency.clone(),
-        );
-
-        match payment_intent.status {
-            crate::domain::PaymentStatusEnum::Settled
-            | crate::domain::PaymentStatusEnum::Pending => Ok(DirectChargeResult {
-                payment_intent,
-                transaction_id,
+        match charge {
+            CheckoutCharge::Price => Err(charge_needed_error(ChargeNeeded {
+                payment_method_id,
                 amount,
                 currency,
-                payment_method_id,
-            }),
-            status @ (crate::domain::PaymentStatusEnum::Failed
-            | crate::domain::PaymentStatusEnum::Cancelled) => {
-                let cancelled = status == crate::domain::PaymentStatusEnum::Cancelled;
-                let error_message =
-                    payment_intent
-                        .last_payment_error
-                        .clone()
-                        .unwrap_or_else(|| {
-                            if cancelled {
-                                "Payment was cancelled"
-                            } else {
-                                "Payment failed"
-                            }
-                            .to_string()
-                        });
-                // Decline facts travel on the error; recorded after the tx unwinds.
-                Err(
-                    Report::new(StoreError::PaymentError(error_message.clone())).attach_opaque(
-                        DeclinedCheckoutCharge {
-                            transaction_id,
-                            provider_transaction_id: Some(payment_intent.external_id.clone())
-                                .filter(|id| !id.is_empty()),
-                            payment_method_id,
-                            amount,
-                            currency: currency.clone(),
-                            error_message,
-                            processed_at: payment_intent.processed_at,
-                            status: if cancelled {
-                                PaymentStatusEnum::Cancelled
-                            } else {
-                                PaymentStatusEnum::Failed
-                            },
-                        },
-                    ),
-                )
-            }
-            crate::domain::PaymentStatusEnum::Ready
-            | crate::domain::PaymentStatusEnum::Refunded => {
-                // A fresh charge is never Ready or already-Refunded; treat as unexpected.
-                Err(Report::new(StoreError::PaymentError(
-                    "Payment intent in unexpected state".to_string(),
-                )))
+                coupons,
+            })),
+            CheckoutCharge::Answered { result, used } => {
+                ensure_answer_of(result, payment_method_id, amount, &currency)?;
+                used.store(true, Ordering::Relaxed);
+                Ok(result.clone())
             }
         }
     }
 
-    /// Creates a transaction record for a direct charge result and links it to an invoice.
+    /// Records a checkout charge's answer on its committed row, linked to the invoice it pays,
+    /// through the same pipeline as an invoice charge answered in its transaction.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn record_checkout_charge_on_invoice_tx(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        amount_due: i64,
+        currency: &str,
+        payment_method_id: CustomerPaymentMethodId,
+        answer: &DirectChargeResult,
+    ) -> StoreResult<(PaymentTransaction, Option<PaymentNextAction>)> {
+        use crate::repositories::payment_transactions::PaymentTransactionInterface;
+
+        ensure_answer_of(answer, payment_method_id, amount_due, currency)?;
+        let row = PaymentTransactionRowPatch {
+            id: answer.transaction_id,
+            invoice_id: Some(Some(invoice_id)),
+            ..Default::default()
+        }
+        .patch_unsent(conn, tenant_id, answer.transaction_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .ok_or_else(|| {
+            Report::new(StoreError::CheckoutError).attach(format!(
+                "Checkout charge {} is no longer awaiting its answer",
+                answer.transaction_id
+            ))
+        })?;
+        let transaction = self
+            .store
+            .consolidate_intent_and_transaction_tx(
+                conn,
+                &crate::domain::entity_activity::Actor::System,
+                row.into(),
+                answer.payment_intent.clone(),
+            )
+            .await?;
+        Ok((transaction, answer.payment_intent.next_action.clone()))
+    }
+
+    /// Commits a checkout's charge, then sends it with no connection held. A decline errors with
+    /// [`DeclinedCheckoutCharge`]; an answer that never came back leaves the charge in flight,
+    /// for the reconciliation worker to re-send under the same key.
+    pub(crate) async fn send_checkout_charge(
+        &self,
+        tenant_id: TenantId,
+        checkout_session_id: CheckoutSessionId,
+        needed: &ChargeNeeded,
+    ) -> StoreResult<CheckoutChargeSent> {
+        let charge = match self
+            .claim_checkout_charge(tenant_id, checkout_session_id, needed)
+            .await?
+        {
+            CheckoutChargeClaim::InFlight(transaction, next_action) => {
+                return Ok(CheckoutChargeSent::InFlight(transaction, next_action));
+            }
+            CheckoutChargeClaim::Claimed(charge) => charge,
+        };
+        let row = charge.transaction().clone();
+
+        match self.send_invoice_charge(&charge).await {
+            ChargeAnswer::Outcome { intent, amount } => direct_charge_result(
+                *intent,
+                row.id,
+                amount,
+                row.currency.clone(),
+                needed.payment_method_id,
+            )
+            .map(CheckoutChargeSent::Answered),
+            ChargeAnswer::Refused(error) => {
+                // Nothing was created at the provider: the attempt is undone.
+                if let Err(e) = self
+                    .undo_refused_checkout_charge(tenant_id, checkout_session_id, row.id)
+                    .await
+                {
+                    log::error!("Could not undo refused checkout charge {}: {e:?}", row.id);
+                }
+                Err(error)
+            }
+            // A fresh key is never past its replay window: an unconfirmed answer is no answer.
+            ChargeAnswer::Unknown(error) => {
+                log::warn!(
+                    "Checkout charge {} for session {checkout_session_id} got no answer; left in \
+                     flight for reconciliation: {error:?}",
+                    row.id
+                );
+                Ok(CheckoutChargeSent::InFlight(row.into(), None))
+            }
+            ChargeAnswer::Unconfirmed => Ok(CheckoutChargeSent::InFlight(row.into(), None)),
+        }
+    }
+
+    async fn undo_refused_checkout_charge(
+        &self,
+        tenant_id: TenantId,
+        checkout_session_id: CheckoutSessionId,
+        transaction_id: PaymentTransactionId,
+    ) -> StoreResult<()> {
+        self.store
+            .transaction(|conn| {
+                async move {
+                    PaymentTransactionRow::delete_unsent_charge(conn, transaction_id, tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                    CheckoutSessionRow::reopen_after_failed_payment(
+                        conn,
+                        tenant_id,
+                        checkout_session_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                    Ok(())
+                }
+                .scope_boxed()
+            })
+            .await
+    }
+
+    /// Records the answer of a checkout charge that the checkout's second run did not record (it
+    /// failed, or no longer charged), through the settlement pipeline: a settlement then
+    /// completes the checkout from its session, as an asynchronous payment does.
+    pub(crate) async fn settle_unrecorded_checkout_charge(
+        &self,
+        tenant_id: TenantId,
+        result: &DirectChargeResult,
+    ) -> StoreResult<(PaymentTransaction, Option<PaymentNextAction>)> {
+        let row = {
+            let mut conn = self.store.get_conn().await?;
+            PaymentTransactionRow::get_by_id(&mut conn, result.transaction_id, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+        };
+        self.settle_charge_row(
+            &row,
+            ChargeAnswer::Outcome {
+                intent: Box::new(result.payment_intent.clone()),
+                amount: result.amount,
+            },
+            false,
+        )
+        .await
+    }
+
+    /// Records a checkout charge's answer on its committed row, linked to the invoice it paid.
     pub(crate) async fn create_transaction_for_direct_charge(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
         invoice_id: InvoiceId,
         charge_result: &DirectChargeResult,
-        pending_plan_version_id: Option<common_domain::ids::PlanVersionId>,
         // How a settled charge's method becomes the default.
         adoption: crate::services::DefaultMethodAdoption,
-        checkout_session_id: Option<CheckoutSessionId>,
     ) -> StoreResult<PaymentTransaction> {
         let status: PaymentStatusEnum = charge_result.payment_intent.status.clone().into();
         let settled = status == PaymentStatusEnum::Settled;
-
-        let transaction = PaymentTransactionRowNew {
-            id: charge_result.transaction_id,
-            tenant_id,
-            invoice_id: Some(invoice_id),
-            provider_transaction_id: Some(charge_result.payment_intent.external_id.clone()),
-            amount: charge_result.amount,
-            currency: charge_result.currency.clone(),
-            payment_method_id: Some(charge_result.payment_method_id),
-            status,
-            payment_type: PaymentTypeEnum::Payment,
-            error_type: charge_result.payment_intent.last_payment_error.clone(),
-            processed_at: charge_result.payment_intent.processed_at,
-            checkout_session_id,
-            pending_plan_version_id,
-            next_action: None,
-            initiated_by_customer_id: None,
-            pending_provider_intent_id: None,
-            pending_connection_id: None,
-            parent_transaction_id: None,
-            credit_note_id: None,
-            refund_mode: None,
-            reversal_reason: None,
-        };
-
-        let inserted = transaction
-            .insert(conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let inserted =
+            record_checkout_answer(conn, tenant_id, Some(invoice_id), charge_result).await?;
 
         // A checkout charge is paid by the customer on-session and records no settlement event:
         // its method is adopted here.
@@ -374,56 +489,16 @@ impl Services {
         Ok(inserted.into())
     }
 
-    /// Creates a transaction record for a checkout payment (no invoice yet).
+    /// Records a checkout charge's answer on its committed row (no invoice yet).
     pub(crate) async fn create_transaction_for_checkout(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
-        checkout_session_id: CheckoutSessionId,
         charge_result: &DirectChargeResult,
     ) -> StoreResult<PaymentTransaction> {
-        let status: PaymentStatusEnum = charge_result.payment_intent.status.clone().into();
-
-        // Persist the 3DS/redirect action so a re-completion's idempotency guard
-        // (find_active_checkout_transaction) can re-hydrate it. The client_secret
-        // is #[serde(skip)]'d, so only the non-secret identity is stored; the
-        // portal re-fetches the secret from the provider to resume.
-        let next_action = charge_result
-            .payment_intent
-            .next_action
-            .as_ref()
-            .and_then(|a| serde_json::to_value(a).ok());
-
-        let transaction = PaymentTransactionRowNew {
-            id: charge_result.transaction_id,
-            tenant_id,
-            invoice_id: None,
-            provider_transaction_id: Some(charge_result.payment_intent.external_id.clone()),
-            amount: charge_result.amount,
-            currency: charge_result.currency.clone(),
-            payment_method_id: Some(charge_result.payment_method_id),
-            status,
-            payment_type: PaymentTypeEnum::Payment,
-            error_type: charge_result.payment_intent.last_payment_error.clone(),
-            processed_at: charge_result.payment_intent.processed_at,
-            checkout_session_id: Some(checkout_session_id),
-            pending_plan_version_id: None,
-            next_action,
-            initiated_by_customer_id: None,
-            pending_provider_intent_id: None,
-            pending_connection_id: None,
-            parent_transaction_id: None,
-            credit_note_id: None,
-            refund_mode: None,
-            reversal_reason: None,
-        };
-
-        let inserted = transaction
-            .insert(conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        Ok(inserted.into())
+        Ok(record_checkout_answer(conn, tenant_id, None, charge_result)
+            .await?
+            .into())
     }
 
     /// Returns the existing Pending/Ready/Settled transaction for a checkout session,
@@ -464,9 +539,9 @@ impl Services {
         Ok(Some((transaction, next_action)))
     }
 
-    /// Persist a declined checkout charge (from the error's [`DeclinedCheckoutCharge`]
-    /// attachment) as a committed `Failed` row. Call ONLY after the checkout tx has
-    /// returned: the failed attempt is kept whatever the checkout's transaction does.
+    /// Records a declined checkout charge (from the error's [`DeclinedCheckoutCharge`]
+    /// attachment) on its committed row, and reopens the session for another attempt. Call ONLY
+    /// after the checkout tx has returned.
     pub(crate) async fn persist_declined_checkout_charge(
         &self,
         tenant_id: TenantId,
@@ -480,43 +555,42 @@ impl Services {
             return;
         };
 
-        let row = PaymentTransactionRowNew {
+        let answer = PaymentTransactionRowPatch {
             id: declined.transaction_id,
-            tenant_id,
-            invoice_id: None,
-            provider_transaction_id: declined.provider_transaction_id.clone(),
-            amount: declined.amount,
-            currency: declined.currency.clone(),
-            payment_method_id: Some(declined.payment_method_id),
-            status: declined.status.clone(),
-            payment_type: PaymentTypeEnum::Payment,
-            error_type: Some(declined.error_message.clone()),
-            processed_at: declined.processed_at,
-            checkout_session_id: Some(checkout_session_id),
-            pending_plan_version_id: None,
-            next_action: None,
-            initiated_by_customer_id: None,
-            pending_provider_intent_id: None,
-            pending_connection_id: None,
-            parent_transaction_id: None,
-            credit_note_id: None,
-            refund_mode: None,
-            reversal_reason: None,
+            provider_transaction_id: Some(declined.provider_transaction_id.clone()),
+            status: Some(declined.status.clone()),
+            error_type: Some(Some(declined.error_message.clone())),
+            processed_at: Some(declined.processed_at),
+            ..Default::default()
         };
 
-        match self.store.get_conn().await {
-            Ok(mut conn) => {
-                if let Err(e) = row.insert(&mut conn).await {
-                    log::error!(
-                        "Failed to persist declined checkout charge {}: {e:?}",
-                        declined.transaction_id
-                    );
+        // A webhook may have recorded the decline first; either way the session reopens.
+        let answer = &answer;
+        let recorded = self
+            .store
+            .transaction(|conn| {
+                async move {
+                    answer
+                        .patch_unsent(conn, tenant_id, declined.transaction_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+                    CheckoutSessionRow::reopen_after_failed_payment(
+                        conn,
+                        tenant_id,
+                        checkout_session_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                    Ok::<_, Report<StoreError>>(())
                 }
-            }
-            Err(e) => log::error!(
-                "Could not acquire a connection to persist declined checkout charge {}: {e:?}",
+                .scope_boxed()
+            })
+            .await;
+        if let Err(e) = recorded {
+            log::error!(
+                "Failed to persist declined checkout charge {}: {e:?}",
                 declined.transaction_id
-            ),
+            );
         }
     }
 
@@ -536,5 +610,103 @@ impl Services {
         .map_err(Into::<Report<StoreError>>::into)?;
 
         Ok(updated.into())
+    }
+}
+
+/// The answer on the committed row; the checkout's lock keeps any other writer off it.
+async fn record_checkout_answer(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    invoice_id: Option<InvoiceId>,
+    charge_result: &DirectChargeResult,
+) -> StoreResult<PaymentTransactionRow> {
+    // Persist the 3DS/redirect action so a re-completion's idempotency guard
+    // (find_active_checkout_transaction) can re-hydrate it. The client_secret
+    // is #[serde(skip)]'d, so only the non-secret identity is stored; the
+    // portal re-fetches the secret from the provider to resume.
+    let next_action = charge_result
+        .payment_intent
+        .next_action
+        .as_ref()
+        .and_then(|a| serde_json::to_value(a).ok());
+    PaymentTransactionRowPatch {
+        id: charge_result.transaction_id,
+        invoice_id: invoice_id.map(Some),
+        provider_transaction_id: Some(Some(charge_result.payment_intent.external_id.clone())),
+        amount: Some(charge_result.amount),
+        status: Some(charge_result.payment_intent.status.clone().into()),
+        error_type: Some(charge_result.payment_intent.last_payment_error.clone()),
+        processed_at: Some(charge_result.payment_intent.processed_at),
+        next_action: Some(next_action),
+        ..Default::default()
+    }
+    .patch_unsent(conn, tenant_id, charge_result.transaction_id)
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?
+    .ok_or_else(|| {
+        Report::new(StoreError::CheckoutError).attach(format!(
+            "Checkout charge {} is no longer awaiting its answer",
+            charge_result.transaction_id
+        ))
+    })
+}
+
+/// A captured or pending answer as the checkout records it; a decline errors with the facts
+/// [`Services::persist_declined_checkout_charge`] records.
+fn direct_charge_result(
+    payment_intent: PaymentIntent,
+    transaction_id: PaymentTransactionId,
+    amount: i64,
+    currency: String,
+    payment_method_id: CustomerPaymentMethodId,
+) -> StoreResult<DirectChargeResult> {
+    match payment_intent.status {
+        crate::domain::PaymentStatusEnum::Settled | crate::domain::PaymentStatusEnum::Pending => {
+            Ok(DirectChargeResult {
+                payment_intent,
+                transaction_id,
+                amount,
+                currency,
+                payment_method_id,
+            })
+        }
+        status @ (crate::domain::PaymentStatusEnum::Failed
+        | crate::domain::PaymentStatusEnum::Cancelled) => {
+            let cancelled = status == crate::domain::PaymentStatusEnum::Cancelled;
+            let error_message = payment_intent
+                .last_payment_error
+                .clone()
+                .unwrap_or_else(|| {
+                    if cancelled {
+                        "Payment was cancelled"
+                    } else {
+                        "Payment failed"
+                    }
+                    .to_string()
+                });
+            // Decline facts travel on the error; recorded after the tx unwinds.
+            Err(
+                Report::new(StoreError::PaymentError(error_message.clone())).attach_opaque(
+                    DeclinedCheckoutCharge {
+                        transaction_id,
+                        provider_transaction_id: Some(payment_intent.external_id.clone())
+                            .filter(|id| !id.is_empty()),
+                        error_message,
+                        processed_at: payment_intent.processed_at,
+                        status: if cancelled {
+                            PaymentStatusEnum::Cancelled
+                        } else {
+                            PaymentStatusEnum::Failed
+                        },
+                    },
+                ),
+            )
+        }
+        crate::domain::PaymentStatusEnum::Ready | crate::domain::PaymentStatusEnum::Refunded => {
+            // A fresh charge is never Ready or already-Refunded; treat as unexpected.
+            Err(Report::new(StoreError::PaymentError(
+                "Payment intent in unexpected state".to_string(),
+            )))
+        }
     }
 }

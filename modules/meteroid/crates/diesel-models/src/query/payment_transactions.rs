@@ -565,7 +565,7 @@ impl PaymentTransactionRow {
             .into_db_result()
     }
 
-    /// Invoice charges committed before sending whose provider answer never came back (no
+    /// Charges (an invoice's or a checkout's) committed before sending whose provider answer never came back (no
     /// provider id yet), stamped like [`Self::claim_pending_for_reconcile`] so a row the
     /// provider keeps refusing is retried with the same backoff. Run it in a transaction: the
     /// row locks are what keep a concurrent sweeper off the same rows.
@@ -1052,6 +1052,38 @@ impl PaymentTransactionRowPatch {
             .get_result(conn)
             .await
             .attach("Error while patching transaction")
+            .into_db_result()
+    }
+
+    /// Records the provider's answer on a charge committed before it was sent, unless an answer
+    /// (a webhook, the reconciliation re-send) already moved it on: `None` then.
+    pub async fn patch_unsent(
+        &self,
+        conn: &mut PgConn,
+        tenant_uid: TenantId,
+        tx_id: PaymentTransactionId,
+    ) -> DbResult<Option<PaymentTransactionRow>> {
+        use crate::schema::payment_transaction::dsl::{
+            id, payment_transaction, provider_transaction_id, status, tenant_id,
+        };
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(
+            payment_transaction
+                .filter(id.eq(tx_id))
+                .filter(tenant_id.eq(tenant_uid))
+                .filter(status.eq(PaymentStatusEnum::Pending))
+                .filter(provider_transaction_id.is_null()),
+        )
+        .set(self);
+
+        crate::debug_sql(&query);
+
+        query
+            .get_result(conn)
+            .await
+            .optional()
+            .attach("Error while recording an unsent charge's answer")
             .into_db_result()
     }
 }

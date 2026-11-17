@@ -280,18 +280,13 @@ impl Model {
         if plan.billing == Billing::Advance {
             lines.push((fee_line(0), plan.fee));
         }
-        self.issue(lines);
+        self.issue(lines, false);
     }
 
     /// The period's usage, billed whole at its end: usage is never prorated (R-002); the line is
     /// units × rate rounded once to the minor unit (R-001).
     fn usage_line(&self, plan: usize, from: At, until: At) -> (String, i64) {
-        let units: i64 = self
-            .usage
-            .iter()
-            .filter(|(at, _)| from <= *at && *at < until)
-            .map(|(_, units)| units)
-            .sum();
+        let units = self.units(from, until);
         let rate = self.catalog().plans[plan].rate;
         (
             units_line(plan),
@@ -299,9 +294,18 @@ impl Model {
         )
     }
 
+    fn units(&self, from: At, until: At) -> i64 {
+        self.usage
+            .iter()
+            .filter(|(at, _)| from <= *at && *at < until)
+            .map(|(_, units)| units)
+            .sum()
+    }
+
     fn advance(&mut self, at: At) {
         let sub = self.sub().clone();
         let elapsed = self.catalog().plans[sub.plan];
+        let used = self.units(midnight(sub.period_start), at) > 0;
         // R-011: the invoice at a period end bills the elapsed period's arrears, the fixed fee
         // whole as the period ran to its end (R-002) and its usage.
         let mut lines = vec![self.usage_line(sub.plan, midnight(sub.period_start), at)];
@@ -333,13 +337,14 @@ impl Model {
                 s.period_end = period_end(s.start, s.cycle);
             }
         }
-        self.issue(lines);
+        self.issue(lines, used);
     }
 
-    /// An invoice of `lines`; one that bills nothing is no document.
-    fn issue(&mut self, lines: Vec<(String, i64)>) {
+    /// An invoice of `lines`; one that bills nothing is no document, unless it bills usage that
+    /// rounds to nothing: issued at a zero total, as Stripe and Lago do.
+    fn issue(&mut self, lines: Vec<(String, i64)>, used: bool) {
         let mut lines: Vec<(String, i64)> = lines.into_iter().filter(|(_, a)| *a != 0).collect();
-        if lines.is_empty() {
+        if lines.is_empty() && !used {
             return;
         }
         lines.sort();

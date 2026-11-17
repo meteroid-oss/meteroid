@@ -237,7 +237,7 @@ async fn test_uncertain_charge_is_not_recorded_as_a_decline(#[future] test_env: 
     env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
         .await;
     env.services()
-        .resume_unsent_invoice_charge(unsent.id, TENANT_ID)
+        .resume_unsent_charge(unsent.id, TENANT_ID)
         .await
         .expect("resume the unsent charge");
     env.run_outbox_and_orchestration().await;
@@ -309,7 +309,7 @@ async fn test_unsent_charge_past_its_replay_window_is_failed(#[future] test_env:
 
     let claimed = env
         .services()
-        .claim_unsent_invoice_charges(chrono::Utc::now(), 10)
+        .claim_unsent_charges(chrono::Utc::now(), 10)
         .await
         .expect("claim unsent charges");
     assert!(claimed.iter().any(|r| r.id == unsent.id));
@@ -317,7 +317,7 @@ async fn test_unsent_charge_past_its_replay_window_is_failed(#[future] test_env:
     env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
         .await;
     env.services()
-        .resume_unsent_invoice_charge(unsent.id, TENANT_ID)
+        .resume_unsent_charge(unsent.id, TENANT_ID)
         .await
         .expect("resume");
 
@@ -379,7 +379,7 @@ async fn test_unsent_charge_is_not_resent_once_the_invoice_is_settled(#[future] 
     env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
         .await;
     env.services()
-        .resume_unsent_invoice_charge(unsent.id, TENANT_ID)
+        .resume_unsent_charge(unsent.id, TENANT_ID)
         .await
         .expect("resume");
 
@@ -427,7 +427,7 @@ async fn test_refused_resend_keeps_the_attempt(#[future] test_env: TestEnv) {
     env.set_mock_charge_behavior(MockChargeBehavior::RejectedCredentials)
         .await;
     env.services()
-        .resume_unsent_invoice_charge(unsent.id, TENANT_ID)
+        .resume_unsent_charge(unsent.id, TENANT_ID)
         .await
         .expect("resume");
 
