@@ -331,14 +331,9 @@ async fn open_periods_of(
                     .await?,
             ),
         };
-        let cycle_index = draft
-            .cycle_index
-            .and_then(|cycle| u32::try_from(cycle).ok())
-            .or(subscription.subscription.cycle_index)
-            .unwrap_or(0);
         let invoice_type: crate::domain::enums::InvoiceType = draft.invoice_type.clone().into();
         let span = BilledSpan::of(&invoice_type);
-        let mut draft_windows = windows_at(conn, subscription, draft.anchor, cycle_index, span)
+        let mut draft_windows = windows_at(conn, subscription, draft.anchor, span)
             .await?
             .into_iter()
             .filter(|window| !planned.contains(&(window.subscription_id, window.period.start)))

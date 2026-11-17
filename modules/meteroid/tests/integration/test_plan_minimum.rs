@@ -1152,6 +1152,7 @@ async fn test_minimum_skipped_during_active_trial() {
     sub_details.trial_config = Some(meteroid_store::domain::TrialConfig {
         duration_days: 31,
         is_free: false,
+        ends_on: None,
         trialing_plan_id: None,
         trialing_plan_name: None,
     });

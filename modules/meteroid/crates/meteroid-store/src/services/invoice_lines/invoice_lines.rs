@@ -1,6 +1,6 @@
 use crate::StoreResult;
 use crate::constants::{Currencies, Currency};
-use crate::domain::enums::{InvoiceType, SubscriptionStatusEnum};
+use crate::domain::enums::InvoiceType;
 use crate::domain::{
     ComponentPeriods, CouponLineItem, Customer, Invoice, InvoicingEntity, LineItem, Period,
     SubscriptionAddOn, SubscriptionComponent, SubscriptionDetails, SubscriptionFee,
@@ -30,7 +30,6 @@ use crate::services::invoice_lines::credit_units::{CoverTarget, CreditUnitCover}
 use crate::services::invoice_lines::discount::calculate_coupons_discount;
 use crate::services::invoice_lines::tax_inputs::customer_for_tax;
 use crate::store::PgConn;
-use crate::utils::periods::calculate_component_period_for_invoice_date;
 use billing_core::{LineAmounts, Totals};
 use common_utils::integers::ToNonNegativeU64;
 use diesel_models::billable_metrics::BillableMetricRow;
@@ -235,7 +234,6 @@ pub(in crate::services) enum PricedInvoice {
 pub(in crate::services) struct PricedLines {
     pub lines: Vec<LineItem>,
     pub invoice_date: NaiveDate,
-    pub cycle_index: u32,
     pub currency_precision: u8,
     pub tax_inclusive: bool,
     pub invoice_type: InvoiceType,
@@ -253,7 +251,6 @@ impl PricedLines {
         CoverTarget {
             details,
             invoice_date: self.invoice_date,
-            cycle_index: self.cycle_index,
             span: self.span,
             currency_precision: self.currency_precision,
             lines: &mut self.lines,
@@ -304,16 +301,11 @@ impl Services {
     /// subscription accrues arrears from its currently-active components, or when a *closed*
     /// pure-arrears component/add-on still bills a segment on this invoice (the mid-period plan
     /// change away from usage).
-    ///
-    /// `cycle_index` must be the cycle the invoice's lines are computed for — the invoice's pinned
-    /// cycle on a refresh, the subscription's current one at draft creation — so the probe gates
-    /// segments exactly like the biller will.
     pub(in crate::services) async fn can_accrue_arrears_in_period(
         &self,
         conn: &mut PgConn,
         subscription_details: &SubscriptionDetails,
         invoice_date: NaiveDate,
-        cycle_index: u32,
     ) -> StoreResult<bool> {
         if subscription_details.can_accrue_arrears() {
             return Ok(true);
@@ -354,7 +346,6 @@ impl Services {
             subscription_details,
             &closed_components,
             invoice_date,
-            cycle_index,
             &runs,
         ) {
             return Ok(true);
@@ -383,7 +374,6 @@ impl Services {
             subscription_details,
             &closed_add_ons,
             invoice_date,
-            cycle_index,
             &runs,
         ))
     }
@@ -543,12 +533,7 @@ impl Services {
             && (!invoice_type.bills_subscription_usage()
                 || (!invoice.line_items.iter().any(is_usage_based_line)
                     && !self
-                        .can_accrue_arrears_in_period(
-                            conn,
-                            subscription_details,
-                            *invoice_date,
-                            cycle_index,
-                        )
+                        .can_accrue_arrears_in_period(conn, subscription_details, *invoice_date)
                         .await?))
         {
             // Reused lines still estimate the customer credit they would draw.
@@ -617,6 +602,14 @@ impl Services {
         let runs =
             super::cadence::load_cadence_runs(conn, subscription_details, invoice_date, true)
                 .await?;
+        #[cfg(feature = "timeline-shadow")]
+        crate::services::timeline_shadow::check_origins(
+            conn,
+            subscription_details,
+            invoice_date,
+            &runs,
+        )
+        .await?;
         let price_components_lines = self
             .process_fee_records(
                 conn,
@@ -746,7 +739,6 @@ impl Services {
         Ok(PricedInvoice::Lines(PricedLines {
             lines: invoice_lines,
             invoice_date,
-            cycle_index,
             currency_precision: currency.precision,
             tax_inclusive,
             invoice_type,
@@ -1370,7 +1362,6 @@ impl Services {
             recurring_records,
             invoice_date,
             billing_start_or_resume_date,
-            cycle_index,
             runs,
             span,
         );
@@ -1659,57 +1650,72 @@ pub(crate) async fn load_closed_arrears(
     })
 }
 
-/// The periods each group of same-cadence recurring fees bills on `invoice_date`; groups the
-/// invoice has nothing to bill for are dropped. Shared by the invoice and the live usage windows.
-/// The periods each record bills on `invoice_date`'s invoice. A record runs on the grid of the
-/// latest change of cadence before it ended (`runs`, latest first), so what a change closed settles
-/// on the grid it ran on; before any change, on the billing start's grid.
+/// The periods each record bills on `invoice_date`'s invoice, on its grid (R-084): the latest
+/// change of cadence before it ended (`runs`, latest first), so what a change closed settles on the
+/// grid it ran on; before any change, the billing start's grid of its own cadence. Shared by the
+/// invoice and the live usage windows.
 pub(crate) fn fee_periods<'a, T: SubscriptionFeeInterface>(
     subscription_details: &SubscriptionDetails,
     recurring_records: Vec<&'a T>,
     invoice_date: NaiveDate,
     billing_start_or_resume_date: NaiveDate,
-    cycle_index: u32,
     runs: &[crate::utils::periods::CadenceRun],
     span: BilledSpan,
 ) -> Vec<(ComponentPeriods, Vec<&'a T>)> {
-    let governing = |record: &T| {
-        runs.iter()
-            .find(|run| record.effective_to().is_none_or(|to| to > run.switched_on))
-    };
-    let (in_run, before_run): (Vec<&T>, Vec<&T>) = recurring_records
-        .into_iter()
-        .partition(|record| governing(record).is_some());
-    let mut groups = fee_period_groups(
-        subscription_details,
-        before_run,
-        invoice_date,
-        billing_start_or_resume_date,
-        cycle_index,
-        !runs.is_empty(),
-    );
+    use crate::utils::periods::{FeeRun, component_periods_on};
     let sub = &subscription_details.subscription;
+    let anchor = u32::from(sub.billing_day_anchor);
     let is_completed = sub.current_period_end.is_none() && !sub.pending_checkout;
-    for record in in_run {
-        let Some(run) = governing(record) else {
+    let billing_from = billing_from(subscription_details, billing_start_or_resume_date);
+    let mut groups = Vec::new();
+    for record in &recurring_records {
+        let Some(months) = record
+            .period_ref()
+            .as_billing_period_opt()
+            .map(|period| period.as_months())
+        else {
             continue;
         };
-        for periods in crate::utils::periods::component_periods_in_run(
-            run,
+        let run = match runs
+            .iter()
+            .find(|run| record.effective_to().is_none_or(|to| to > run.switched_on))
+        {
+            Some(run) => FeeRun::of_cadence_run(run, months, anchor),
+            None => FeeRun::from_start(
+                (billing_start_or_resume_date, billing_from),
+                anchor,
+                months,
+                invoice_date,
+            ),
+        };
+        let Some(run) = run else {
+            continue;
+        };
+        for periods in component_periods_on(
+            &run,
             invoice_date,
-            record.period_ref(),
-            u32::from(sub.billing_day_anchor),
             record.effective_from(),
             record.effective_to(),
             is_completed,
         ) {
-            groups.push((periods, vec![record]));
+            groups.push((periods, vec![*record]));
         }
     }
     match span {
         BilledSpan::Period => groups,
         BilledSpan::Final => final_window(groups, invoice_date),
     }
+}
+
+/// Where the subscription's fees start billing (R-084): its billing start, or the end of its free
+/// trial, which bills nothing.
+pub(crate) fn billing_from(details: &SubscriptionDetails, billing_start: NaiveDate) -> NaiveDate {
+    details
+        .trial_config
+        .as_ref()
+        .filter(|trial| trial.is_free)
+        .and_then(|trial| trial.ends_on)
+        .map_or(billing_start, |end| end.max(billing_start))
 }
 
 /// What an invoice bills of its subscription's period.
@@ -1793,52 +1799,6 @@ pub(crate) async fn details_for_span(
     Ok(Some(period_only))
 }
 
-/// With `own_cadence`, a component is gated on its own cadence, not the subscription's: what a
-/// change of cadence closed settles on the grid it ran on.
-fn fee_period_groups<'a, T: SubscriptionFeeInterface>(
-    subscription_details: &SubscriptionDetails,
-    recurring_records: Vec<&'a T>,
-    invoice_date: NaiveDate,
-    billing_start_or_resume_date: NaiveDate,
-    cycle_index: u32,
-    own_cadence: bool,
-) -> Vec<(ComponentPeriods, Vec<&'a T>)> {
-    recurring_records
-        .into_iter()
-        .into_group_map_by(|c| c.period_ref())
-        .into_iter()
-        .filter_map(|(billing_period, components)| {
-            let is_completed = subscription_details
-                .subscription
-                .current_period_end
-                .is_none()
-                && !subscription_details.subscription.pending_checkout;
-
-            let is_cancellation =
-                subscription_details.subscription.status == SubscriptionStatusEnum::Cancelled;
-
-            // we calculate the periods range, for each billing_period. There can be advance, arrears, or both
-            let subscription_period = billing_period
-                .as_billing_period_opt()
-                .filter(|_| own_cadence)
-                .unwrap_or(subscription_details.subscription.period);
-            let period = calculate_component_period_for_invoice_date(
-                invoice_date,
-                &subscription_period,
-                billing_period,
-                billing_start_or_resume_date,
-                cycle_index,
-                u32::from(subscription_details.subscription.billing_day_anchor),
-                is_completed,
-                is_cancellation,
-            );
-
-            // if period is None - the components are not relevant for this invoice
-            period.map(|period| (period, components))
-        })
-        .collect()
-}
-
 /// What a metered fee bills a window of usage.
 #[derive(Debug, Clone)]
 pub enum MeteredFee {
@@ -1890,7 +1850,6 @@ pub(crate) fn metered_windows<T: SubscriptionFeeInterface>(
     records: &[T],
     invoice_date: NaiveDate,
     billing_start_or_resume_date: NaiveDate,
-    cycle_index: u32,
     runs: &[crate::utils::periods::CadenceRun],
     span: BilledSpan,
 ) -> Vec<MeteredWindow> {
@@ -1903,7 +1862,6 @@ pub(crate) fn metered_windows<T: SubscriptionFeeInterface>(
         recurring,
         invoice_date,
         billing_start_or_resume_date,
-        cycle_index,
         runs,
         span,
     )
@@ -1974,7 +1932,6 @@ fn bills_arrears_segment<T: SubscriptionFeeInterface>(
     subscription_details: &SubscriptionDetails,
     records: &[T],
     invoice_date: NaiveDate,
-    cycle_index: u32,
     runs: &[crate::utils::periods::CadenceRun],
 ) -> bool {
     let Some(billing_start_date) = subscription_details.subscription.billing_start_date else {
@@ -1985,7 +1942,6 @@ fn bills_arrears_segment<T: SubscriptionFeeInterface>(
         records.iter().collect(),
         invoice_date,
         billing_start_date,
-        cycle_index,
         runs,
         BilledSpan::Period,
     )
@@ -2009,7 +1965,7 @@ fn bills_closed_arrears(fee: &SubscriptionFee) -> bool {
         || matches!(fee, SubscriptionFee::Capacity { overage_rate, .. } if *overage_rate > Decimal::ZERO)
 }
 
-fn restrict_arrear_period_by_temporal_bounds(
+pub(crate) fn restrict_arrear_period_by_temporal_bounds(
     mut periods: ComponentPeriods,
     effective_from: Option<NaiveDate>,
     effective_to: Option<NaiveDate>,

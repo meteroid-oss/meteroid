@@ -427,15 +427,30 @@ impl SubscriptionInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?
             .into();
 
-        // Fetch trial config from plan version
+        // The trial of the plan version the subscription started on: a plan change ends it.
         let trial_config = {
-            let plan_with_version =
-                PlanRow::get_with_version(conn, subscription.plan_version_id, tenant_id)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+            let first_switch =
+                diesel_models::subscription_events::SubscriptionEventRow::first_plan_switch(
+                    conn,
+                    subscription.id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+            let trial_version = first_switch
+                .map(|(version, _)| version)
+                .unwrap_or(subscription.plan_version_id);
+            let plan_with_version = PlanRow::get_with_version(conn, trial_version, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
             if let Some(version) = plan_with_version.version {
-                if let Some(duration_days) = version.trial_duration_days {
+                // The subscription's own trial length, else its plan's.
+                if let Some(duration_days) = subscription
+                    .trial_duration
+                    .filter(|days| *days > 0)
+                    .and_then(|days| i32::try_from(days).ok())
+                    .or(version.trial_duration_days)
+                {
                     if duration_days > 0 {
                         // If there's a trialing_plan_id, fetch its name
                         let trialing_plan_name =
@@ -448,9 +463,22 @@ impl SubscriptionInterface for Store {
                                 None
                             };
 
+                        let ends_on = subscription
+                            .trial_duration
+                            .filter(|days| *days > 0)
+                            .and_then(|days| {
+                                subscription
+                                    .billing_start_date
+                                    .unwrap_or(subscription.start_date)
+                                    .checked_add_signed(chrono::Duration::days(i64::from(days)))
+                            })
+                            .map(|end| {
+                                first_switch.map_or(end, |(_, switched_on)| end.min(switched_on))
+                            });
                         Some(TrialConfig {
                             duration_days: duration_days as u32,
                             is_free: version.trial_is_free,
+                            ends_on,
                             trialing_plan_id: version.trialing_plan_id,
                             trialing_plan_name,
                         })

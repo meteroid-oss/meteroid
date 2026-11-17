@@ -25,7 +25,7 @@ pub fn take_mismatches() -> Vec<String> {
 fn grid_of<T: SubscriptionFeeInterface>(
     record: &T,
     runs: &[CadenceRun],
-    billing_start: NaiveDate,
+    (billing_start, billing_from): (NaiveDate, NaiveDate),
     anchor: u32,
 ) -> Option<Grid> {
     let months = record.period_ref().as_billing_period_opt()?.as_months();
@@ -34,7 +34,7 @@ fn grid_of<T: SubscriptionFeeInterface>(
         .find(|run| record.effective_to().is_none_or(|to| to > run.switched_on))
     {
         Some(run) => Grid::from_origin(run.origin, anchor, months),
-        None => Grid::from_start(billing_start, anchor, months),
+        None => crate::utils::periods::base_grid(billing_start, billing_from, anchor, months),
     }
 }
 
@@ -51,7 +51,9 @@ pub(crate) fn check<T: SubscriptionFeeInterface>(
 ) {
     let sub = &details.subscription;
     let anchor = u32::from(sub.billing_day_anchor);
-    let Some(grid) = grid_of(record, runs, billing_start, anchor) else {
+    let billing_from =
+        crate::services::invoice_lines::invoice_lines::billing_from(details, billing_start);
+    let Some(grid) = grid_of(record, runs, (billing_start, billing_from), anchor) else {
         return;
     };
     let completed = sub.current_period_end.is_none() && !sub.pending_checkout;
@@ -97,4 +99,53 @@ pub(crate) fn check<T: SubscriptionFeeInterface>(
             found.push(difference);
         }
     }
+}
+
+/// Checks that each change of cadence's grid starts where the rule (R-084) puts it from the switches
+/// alone, as the renewals issued around it placed it.
+pub(crate) async fn check_origins(
+    conn: &mut crate::store::PgConn,
+    details: &SubscriptionDetails,
+    invoice_date: NaiveDate,
+    runs: &[CadenceRun],
+) -> crate::StoreResult<()> {
+    let sub = &details.subscription;
+    let switches: Vec<billing_core::timeline::CadenceSwitch> =
+        crate::services::invoice_lines::cadence::cadence_switches(conn, sub.id, invoice_date)
+            .await?
+            .into_iter()
+            .map(|switch| billing_core::timeline::CadenceSwitch {
+                on: switch.on,
+                before: switch.before,
+                after: switch.after,
+                recorded: switch.recorded.filter(|origin| *origin <= invoice_date),
+            })
+            .collect();
+    let billing_from = crate::services::subscriptions::billing_from_tx(conn, sub).await?;
+    let origins = billing_core::timeline::cadence_origins(
+        billing_from,
+        u32::from(sub.billing_day_anchor),
+        &switches,
+    );
+    for run in runs {
+        let by_rule = origins
+            .iter()
+            .find(|(on, _)| *on == run.switched_on)
+            .map(|(_, origin)| (*origin).min(invoice_date.max(run.switched_on)));
+        if by_rule != Some(run.origin) {
+            let difference = format!(
+                "{} switched on {} runs from {} on the invoice of {invoice_date}, the rule says {by_rule:?} ({switches:?}, period {}..{:?})",
+                sub.id,
+                run.switched_on,
+                run.origin,
+                sub.current_period_start,
+                sub.current_period_end
+            );
+            log::warn!("timeline shadow: {difference}");
+            if let Ok(mut found) = MISMATCHES.lock() {
+                found.push(difference);
+            }
+        }
+    }
+    Ok(())
 }

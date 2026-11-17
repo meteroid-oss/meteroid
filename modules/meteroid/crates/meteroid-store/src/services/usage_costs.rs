@@ -678,8 +678,7 @@ impl ServicesEdge {
                 (billed, invoice_date, BilledSpan::Period)
             }
         };
-        let cycle_index = billed.subscription.cycle_index.unwrap_or(0);
-        windows_at(conn, &billed, invoice_date, cycle_index, span).await
+        windows_at(conn, &billed, invoice_date, span).await
     }
 
     /// The usage windows of the customer's upcoming invoices and of its recurring invoices dated
@@ -721,13 +720,14 @@ impl ServicesEdge {
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
         for cycle in cycles {
-            // Invoices that do not pin their cycle cannot be replayed without guessing it.
-            let Some(cycle_index) = cycle
+            // Only invoices that pin their cycle are replayed.
+            if cycle
                 .cycle_index
                 .and_then(|index| u32::try_from(index).ok())
-            else {
+                .is_none()
+            {
                 continue;
-            };
+            }
             if let Entry::Vacant(slot) = details.entry(cycle.subscription_id) {
                 slot.insert(
                     self.store
@@ -742,7 +742,6 @@ impl ServicesEdge {
                     conn,
                     subscription_details,
                     cycle.anchor,
-                    cycle_index,
                     BilledSpan::of(&invoice_type),
                 )
                 .await?,
@@ -1332,11 +1331,11 @@ impl ServicesEdge {
                 .map_err(Into::<Report<StoreError>>::into)?;
                 let mut windows = Vec::new();
                 for subscription in &active {
-                    let Some(cycle_index) =
-                        opening_cycle(&cycles, subscription.id, subscription.current_period_start)
-                    else {
+                    if opening_cycle(&cycles, subscription.id, subscription.current_period_start)
+                        .is_none()
+                    {
                         continue;
-                    };
+                    }
                     let details = self
                         .store
                         .get_subscription_details_with_conn(conn, tenant_id, subscription.id)
@@ -1346,7 +1345,6 @@ impl ServicesEdge {
                             conn,
                             &details,
                             subscription.current_period_start,
-                            cycle_index,
                             BilledSpan::Period,
                         )
                         .await?,

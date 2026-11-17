@@ -1048,3 +1048,98 @@ async fn a_free_trial_set_on_the_subscription_cancelled_records_no_credit(
     );
     env.get_invoices(sub_id).await.assert().has_count(0);
 }
+
+/// Lines of the subscription's invoices for its fee, as (start, end, subtotal), by start.
+async fn fee_lines(
+    env: &TestEnv,
+    sub_id: common_domain::ids::SubscriptionId,
+) -> Vec<(NaiveDate, NaiveDate, i64)> {
+    let mut lines: Vec<(NaiveDate, NaiveDate, i64)> = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .flat_map(|invoice| invoice.line_items)
+        .filter(|line| line.amount_subtotal > 0)
+        .map(|line| (line.start_date, line.end_date, line.amount_subtotal))
+        .collect();
+    lines.sort();
+    lines
+}
+
+fn day(y: i32, m: u32, d: u32) -> NaiveDate {
+    NaiveDate::from_ymd_opt(y, m, d).unwrap()
+}
+
+/// Renewing on the 20th, a 14-day free trial from January 20 ends February 3: the first period
+/// runs a whole month on to March 20, then every period runs from the 20th (R-084), nothing billed
+/// twice nor skipped.
+#[rstest]
+#[tokio::test]
+async fn a_free_trial_ending_before_the_anchor_day_bills_each_period_once(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    env.set_now(day(2024, 1, 20).and_hms_opt(1, 0, 0).unwrap().and_utc());
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID)
+        .start_date(day(2024, 1, 20))
+        .billing_day_anchor(20)
+        .trial_days(14)
+        .on_start()
+        .create(env.services())
+        .await;
+    env.run_until(day(2024, 4, 21)).await;
+
+    let periods: Vec<(NaiveDate, NaiveDate)> = fee_lines(&env, sub_id)
+        .await
+        .into_iter()
+        .map(|(start, end, _)| (start, end))
+        .collect();
+    assert_eq!(
+        periods,
+        vec![
+            (day(2024, 2, 3), day(2024, 3, 20)),
+            (day(2024, 3, 20), day(2024, 4, 20)),
+            (day(2024, 4, 20), day(2024, 5, 20)),
+        ]
+    );
+    assert_eq!(
+        env.get_subscription(sub_id).await.current_period_end,
+        Some(day(2024, 5, 20))
+    );
+}
+
+/// Quarterly, renewing on the 1st, a 30-day free trial from January 10 ends February 9: the first
+/// period runs to May 1, the next to August 1, on the grid from the trial's end (R-084).
+#[rstest]
+#[tokio::test]
+async fn a_quarterly_free_trial_renews_on_the_grid_from_its_end(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.set_now(day(2024, 1, 10).and_hms_opt(1, 0, 0).unwrap().and_utc());
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_LEETCODE_QUARTERLY_ID)
+        .start_date(day(2024, 1, 10))
+        .billing_day_anchor(1)
+        .trial_days(30)
+        .on_start()
+        .create(env.services())
+        .await;
+    env.run_until(day(2024, 5, 2)).await;
+
+    let periods: Vec<(NaiveDate, NaiveDate)> = fee_lines(&env, sub_id)
+        .await
+        .into_iter()
+        .map(|(start, end, _)| (start, end))
+        .collect();
+    assert_eq!(
+        periods,
+        vec![
+            (day(2024, 2, 9), day(2024, 5, 1)),
+            (day(2024, 5, 1), day(2024, 8, 1)),
+        ]
+    );
+    assert_eq!(
+        env.get_subscription(sub_id).await.current_period_end,
+        Some(day(2024, 8, 1))
+    );
+}

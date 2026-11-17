@@ -252,12 +252,7 @@ impl Services {
                     || subscription.status.settles_period_early();
                 settles_elapsed_period
                     && self
-                        .can_accrue_arrears_in_period(
-                            conn,
-                            subscription_details,
-                            invoice_date,
-                            subscription.cycle_index.unwrap_or(0),
-                        )
+                        .can_accrue_arrears_in_period(conn, subscription_details, invoice_date)
                         .await?
             };
             if !anchor_for_late_usage {

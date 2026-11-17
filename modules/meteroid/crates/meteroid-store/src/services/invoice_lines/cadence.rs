@@ -86,6 +86,9 @@ pub(crate) async fn load_cadence_run(
     )
 }
 
+/// The cadence runs up to `invoice_date`, latest first: each from its recorded origin, else where
+/// the renewals issued around it place it. Origins by rule (R-084) take over once every switch's
+/// origin is recorded.
 pub(crate) async fn cadence_runs_of(
     conn: &mut PgConn,
     subject: CadenceSubject,
@@ -290,6 +293,46 @@ async fn bills_new_cadence_on(
     Ok(false)
 }
 
+/// A plan switch that changed the cadence, in months, with the origin recorded for it.
+#[cfg(feature = "timeline-shadow")]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CadenceSwitch {
+    pub on: NaiveDate,
+    pub before: u32,
+    pub after: u32,
+    pub recorded: Option<NaiveDate>,
+}
+
+/// The plan switches up to `up_to` that changed the cadence, earliest first.
+#[cfg(feature = "timeline-shadow")]
+pub(crate) async fn cadence_switches(
+    conn: &mut PgConn,
+    subscription_id: SubscriptionId,
+    up_to: NaiveDate,
+) -> StoreResult<Vec<CadenceSwitch>> {
+    let mut switches = Vec::new();
+    for on in SubscriptionEventRow::list_plan_switch_dates(conn, subscription_id, up_to)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .rev()
+    {
+        let Some((before, after)) = cadences_around(conn, subscription_id, on).await? else {
+            continue;
+        };
+        let recorded = SubscriptionEventRow::cadence_origin(conn, subscription_id, on)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        switches.push(CadenceSwitch {
+            on,
+            before,
+            after,
+            recorded,
+        });
+    }
+    Ok(switches)
+}
+
 /// The shortest cadence of the components the switch on `on` opened, in months, when it differs
 /// from the shortest of those it closed.
 async fn new_cadence(
@@ -297,6 +340,18 @@ async fn new_cadence(
     subscription_id: SubscriptionId,
     on: NaiveDate,
 ) -> StoreResult<Option<u32>> {
+    Ok(cadences_around(conn, subscription_id, on)
+        .await?
+        .map(|(_, after)| after))
+}
+
+/// The shortest cadences, in months, of the components the switch on `on` closed and opened,
+/// when they differ.
+async fn cadences_around(
+    conn: &mut PgConn,
+    subscription_id: SubscriptionId,
+    on: NaiveDate,
+) -> StoreResult<Option<(u32, u32)>> {
     let rows = SubscriptionComponentRow::list_component_history_for_period(
         conn,
         &subscription_id,
@@ -328,7 +383,7 @@ async fn new_cadence(
         }
     }
     Ok(match (closed, opened) {
-        (Some(before), Some(after)) if before != after => Some(after),
+        (Some(before), Some(after)) if before != after => Some((before, after)),
         _ => None,
     })
 }

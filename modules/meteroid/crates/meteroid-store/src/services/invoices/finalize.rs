@@ -702,7 +702,6 @@ impl Services {
             Some(subscription_id) => vec![BilledInvoice {
                 subscription_id,
                 anchor: invoice.billing_period_start,
-                cycle_index: invoice.cycle_index,
                 span: BilledSpan::of(&invoice.invoice_type),
                 lines: &patch.line_items,
             }],
@@ -721,7 +720,6 @@ impl Services {
                         Some(BilledInvoice {
                             subscription_id: child.subscription_id?,
                             anchor: child.billing_period_start,
-                            cycle_index: child.cycle_index,
                             span: BilledSpan::of(&child.invoice_type),
                             lines: &child.line_items,
                         })
@@ -873,17 +871,12 @@ impl Services {
             .store
             .get_subscription_details_with_conn(conn, tenant_id, billed.subscription_id)
             .await?;
-        let cycle_index = billed
-            .cycle_index
-            .or(details.subscription.cycle_index)
-            .unwrap_or(0);
         let currency = credit::normalized_currency(currency);
-        let mut windows =
-            billing_windows::windows_at(conn, &details, billed.anchor, cycle_index, billed.span)
-                .await?
-                .into_iter()
-                .filter(|window| window.bills_money_in(&currency))
-                .collect::<Vec<_>>();
+        let mut windows = billing_windows::windows_at(conn, &details, billed.anchor, billed.span)
+            .await?
+            .into_iter()
+            .filter(|window| window.bills_money_in(&currency))
+            .collect::<Vec<_>>();
         // Expired paid credit settles the usage with its tax, as the invoice will bill it.
         if with_taxes {
             billing_windows::resolve_window_taxes(
@@ -1137,7 +1130,6 @@ enum CreditBilling {
 struct BilledInvoice<'a> {
     subscription_id: SubscriptionId,
     anchor: NaiveDate,
-    cycle_index: Option<u32>,
     span: BilledSpan,
     lines: &'a [LineItem],
 }

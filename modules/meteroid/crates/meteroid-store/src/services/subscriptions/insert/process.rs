@@ -477,19 +477,27 @@ impl Services {
                             scheduled_events.push(scheduled_event);
                         }
                     } else {
-                        // Trial has ended (or no trial) - calculate current period based on today
-                        let elapsed = calculate_elapsed_cycles(
+                        // Trial has ended (or no trial): the current period on the grid its fees
+                        // bill on, from the billing start or the free trial's end (R-084).
+                        let grid = crate::utils::periods::base_grid(
+                            billing_start_date,
                             effective_billing_start,
-                            now.date(),
-                            &period,
                             u32::from(billing_day_anchor),
-                        );
-                        let current = find_period_containing_date(
-                            effective_billing_start,
-                            now.date(),
-                            &period,
-                            u32::from(billing_day_anchor),
-                        );
+                            period.as_months(),
+                        )
+                        .ok_or_else(|| {
+                            Report::new(StoreError::InvalidArgument(
+                                "no billing period from the start date".to_string(),
+                            ))
+                        })?;
+                        let on = |at| {
+                            crate::utils::periods::cycle_on(&grid, at).ok_or_else(|| {
+                                Report::new(StoreError::InvalidArgument(
+                                    "no billing period on the date".to_string(),
+                                ))
+                            })
+                        };
+                        let (current, elapsed) = on(now.date())?;
 
                         status = SubscriptionStatusEnum::Active;
 
@@ -498,12 +506,7 @@ impl Services {
                         // This lets the automation pick it up and create the invoice for the
                         // completed period.
                         if current.start == now.date() && elapsed > 0 {
-                            let prev = find_period_containing_date(
-                                effective_billing_start,
-                                now.date() - chrono::Duration::days(1),
-                                &period,
-                                u32::from(billing_day_anchor),
-                            );
+                            let (prev, _) = on(now.date() - chrono::Duration::days(1))?;
                             cycle_index = Some(elapsed - 1);
                             current_period_start = prev.start;
                             current_period_end = Some(prev.end);

@@ -519,12 +519,13 @@ impl Services {
                 }
             }
 
-            // A renewal after a change of cadence ends on the new cadence's grid, from the first
-            // renewal on it: a switch applied just now, or one an earlier release ended off grid.
-            // The end date then cuts the realigned period, not the one computed before the switch.
+            // A renewal ends where the subscription's grid ends the period it opens (R-084): a
+            // change of cadence's grid from its origin, else the billing start's. The end date then
+            // cuts that period.
             if matches!(next_action, CycleActionEnum::RenewSubscription)
                 && next_cycle.new_period_end.is_some()
-                && let Some(run) = crate::services::invoice_lines::cadence::cadence_runs_of(
+            {
+                let run = crate::services::invoice_lines::cadence::cadence_runs_of(
                     conn,
                     crate::services::invoice_lines::cadence::CadenceSubject::of_row(subscription),
                     next_cycle.new_period_start,
@@ -532,23 +533,29 @@ impl Services {
                 )
                 .await?
                 .into_iter()
-                .next()
-            {
-                let cadence: crate::domain::enums::BillingPeriodEnum =
-                    SubscriptionRow::get_subscription_by_id(
-                        conn,
-                        &subscription.tenant_id,
-                        subscription.id,
-                    )
-                    .await?
-                    .subscription
-                    .period
-                    .into();
-                if let Some(end) = run.period_end_after(
+                .next();
+                let current: crate::domain::Subscription = SubscriptionRow::get_subscription_by_id(
+                    conn,
+                    &subscription.tenant_id,
+                    subscription.id,
+                )
+                .await?
+                .try_into()?;
+                let billing_from =
+                    crate::services::subscriptions::billing_from_tx(conn, &current).await?;
+                let renewed = crate::utils::periods::renewal_end(
+                    run.as_ref(),
+                    (
+                        current
+                            .billing_start_date
+                            .unwrap_or(current.current_period_start),
+                        billing_from,
+                    ),
+                    u32::from(current.billing_day_anchor),
+                    &current.period,
                     next_cycle.new_period_start,
-                    cadence.as_months(),
-                    subscription.billing_day_anchor as u32,
-                ) {
+                );
+                if let Some(end) = renewed {
                     match subscription.end_date.filter(|end_date| *end_date <= end) {
                         Some(end_date) => {
                             next_cycle.next_cycle_action = Some(CycleActionEnum::EndSubscription);
@@ -729,10 +736,11 @@ impl Services {
             .version
             .is_none_or(|version| version.trial_is_free);
             if !trial_is_free {
+                // As an OnStart trial's end opens it: a whole cadence on to the anchor (R-084).
                 let period = calculate_advance_period_range(
                     new_period_start,
                     subscription.billing_day_anchor as u32,
-                    true,
+                    false,
                     &(subscription.period.clone().into()),
                 );
                 return Ok((

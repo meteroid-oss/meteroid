@@ -49,6 +49,18 @@ impl Grid {
         })
     }
 
+    /// The grid of a subscription billing from the end of a free trial on `start`: its first period
+    /// runs a full cadence on to the anchor day, then full periods (R-084).
+    pub fn from_trial_end(start: NaiveDate, anchor: u32, months: u32) -> Option<Self> {
+        Some(Grid {
+            origin: start,
+            first_end: months_after(start, months, anchor)?,
+            months: months.max(1),
+            anchor,
+            backwards: false,
+        })
+    }
+
     /// A grid of full periods from `origin`, before it as after it: a cadence changed there.
     pub fn from_origin(origin: NaiveDate, anchor: u32, months: u32) -> Option<Self> {
         Some(Grid {
@@ -62,6 +74,15 @@ impl Grid {
 
     pub fn months(&self) -> u32 {
         self.months
+    }
+
+    pub fn origin(&self) -> NaiveDate {
+        self.origin
+    }
+
+    /// Whether it runs before its origin: a change of cadence's grid.
+    pub fn runs_backwards(&self) -> bool {
+        self.backwards
     }
 
     /// The `n`-th boundary: the origin for 0, before it for a negative `n` (a backwards grid).
@@ -112,12 +133,65 @@ impl Grid {
         Some((self.boundary(n)?, self.boundary(n + 1)?))
     }
 
+    /// The full period `period` is priced over: a grid's first period when it is a stub ends
+    /// where a full one from the anchor would, else itself.
+    pub fn nominal(&self, period: (NaiveDate, NaiveDate)) -> (NaiveDate, NaiveDate) {
+        if !self.backwards
+            && period == (self.origin, self.first_end)
+            && let Some(start) = months_before(self.first_end, self.months, self.anchor)
+            && start < self.origin
+        {
+            return (start, self.first_end);
+        }
+        period
+    }
+
     /// Whether a period starts on `at`.
     pub fn is_boundary(&self, at: NaiveDate) -> bool {
         self.period_containing(at)
             .is_some_and(|(start, _)| start == at)
             && (self.backwards || at >= self.origin)
     }
+}
+
+/// A change of the subscription's cadence, from `before` to `after` months, on `on`; `recorded`
+/// is the origin an earlier release's renewals fixed, when one was recorded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CadenceSwitch {
+    pub on: NaiveDate,
+    pub before: u32,
+    pub after: u32,
+    pub recorded: Option<NaiveDate>,
+}
+
+/// Where each change of cadence's grid starts, earliest first: its recorded origin, else the
+/// first boundary on or after the change of the grid in force before it.
+pub fn cadence_origins(
+    billing_start: NaiveDate,
+    anchor: u32,
+    switches: &[CadenceSwitch],
+) -> Vec<(NaiveDate, NaiveDate)> {
+    let mut origins = Vec::new();
+    let mut previous: Option<(NaiveDate, u32)> = None;
+    for switch in switches {
+        let grid = match previous {
+            Some((origin, months)) => Grid::from_origin(origin, anchor, months),
+            None => Grid::from_start(billing_start, anchor, switch.before),
+        };
+        let origin = switch.recorded.or_else(|| {
+            let grid = grid?;
+            if grid.is_boundary(switch.on) {
+                Some(switch.on)
+            } else {
+                grid.period_containing(switch.on).map(|(_, end)| end)
+            }
+        });
+        if let Some(origin) = origin {
+            origins.push((switch.on, origin));
+            previous = Some((origin, switch.after));
+        }
+    }
+    origins
 }
 
 /// A part of a grid period a fee lives through.
@@ -236,6 +310,48 @@ mod tests {
         );
         assert!(grid.is_boundary(d(2023, 10, 15)));
         assert!(!grid.is_boundary(d(2024, 5, 15)));
+    }
+
+    #[test]
+    fn a_first_stub_is_priced_over_the_full_period_ending_with_it() {
+        let grid = Grid::from_start(d(2024, 1, 10), 15, 3).unwrap();
+        assert_eq!(
+            grid.nominal((d(2024, 1, 10), d(2024, 1, 15))),
+            (d(2023, 10, 15), d(2024, 1, 15))
+        );
+        assert_eq!(
+            grid.nominal((d(2024, 1, 15), d(2024, 4, 15))),
+            (d(2024, 1, 15), d(2024, 4, 15))
+        );
+        let full = Grid::from_start(d(2024, 1, 15), 15, 1).unwrap();
+        assert_eq!(
+            full.nominal((d(2024, 1, 15), d(2024, 2, 15))),
+            (d(2024, 1, 15), d(2024, 2, 15))
+        );
+    }
+
+    /// A free trial ending on February 3 of a subscription renewing on the 20th: the first period
+    /// runs to March 20 unprorated; one ending February 25 runs to March 20 as 23 of 28 days.
+    #[test]
+    fn after_a_free_trial_the_first_period_runs_a_full_cadence_on_to_the_anchor() {
+        let early = Grid::from_trial_end(d(2024, 2, 3), 20, 1).unwrap();
+        assert_eq!(
+            early.period_containing(d(2024, 2, 3)),
+            Some((d(2024, 2, 3), d(2024, 3, 20)))
+        );
+        assert_eq!(
+            early.nominal((d(2024, 2, 3), d(2024, 3, 20))),
+            (d(2024, 2, 3), d(2024, 3, 20))
+        );
+        assert_eq!(
+            early.period_containing(d(2024, 3, 20)),
+            Some((d(2024, 3, 20), d(2024, 4, 20)))
+        );
+        let late = Grid::from_trial_end(d(2024, 2, 25), 20, 1).unwrap();
+        assert_eq!(
+            late.nominal((d(2024, 2, 25), d(2024, 3, 20))),
+            (d(2024, 2, 20), d(2024, 3, 20))
+        );
     }
 
     /// A fee added on the 10th and removed on the 20th of the second month lives through a part

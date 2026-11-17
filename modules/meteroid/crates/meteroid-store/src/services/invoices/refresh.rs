@@ -327,10 +327,6 @@ impl Services {
             &mut [CoverTarget {
                 details,
                 invoice_date: invoice.billing_period_start,
-                cycle_index: invoice
-                    .cycle_index
-                    .or(details.subscription.cycle_index)
-                    .unwrap_or(0),
                 span: BilledSpan::of(&invoice.invoice_type),
                 currency_precision,
                 lines: &mut lines,

@@ -467,6 +467,9 @@ pub struct CreateSubscriptionFromQuote {
 pub struct TrialConfig {
     pub duration_days: u32,
     pub is_free: bool,
+    /// When the subscription's trial ended or ends: its length after the billing start, or the
+    /// plan change that ended it earlier.
+    pub ends_on: Option<chrono::NaiveDate>,
     pub trialing_plan_id: Option<PlanId>,
     pub trialing_plan_name: Option<String>,
 }

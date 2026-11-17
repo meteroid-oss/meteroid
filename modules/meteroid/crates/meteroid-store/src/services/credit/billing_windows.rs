@@ -235,15 +235,7 @@ pub async fn subscription_windows(
         }
     }
     let (upcoming, invoice_date) = upcoming_invoice_details(details);
-    let cycle_index = upcoming.subscription.cycle_index.unwrap_or(0);
-    windows_at(
-        conn,
-        &upcoming,
-        invoice_date,
-        cycle_index,
-        BilledSpan::Period,
-    )
-    .await
+    windows_at(conn, &upcoming, invoice_date, BilledSpan::Period).await
 }
 
 /// The windows the invoice of `cycle_index`, dated `invoice_date`, bills for the subscription:
@@ -252,25 +244,16 @@ pub(crate) async fn windows_at(
     conn: &mut PgConn,
     upcoming: &SubscriptionDetails,
     invoice_date: NaiveDate,
-    cycle_index: u32,
     span: BilledSpan,
 ) -> StoreResult<Vec<PlannedWindow>> {
     // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
-    Box::pin(windows_at_unboxed(
-        conn,
-        upcoming,
-        invoice_date,
-        cycle_index,
-        span,
-    ))
-    .await
+    Box::pin(windows_at_unboxed(conn, upcoming, invoice_date, span)).await
 }
 
 async fn windows_at_unboxed(
     conn: &mut PgConn,
     upcoming: &SubscriptionDetails,
     invoice_date: NaiveDate,
-    cycle_index: u32,
     span: BilledSpan,
 ) -> StoreResult<Vec<PlannedWindow>> {
     let reading = details_for_span(conn, upcoming, span).await?;
@@ -384,7 +367,6 @@ async fn windows_at_unboxed(
             &upcoming.price_components,
             invoice_date,
             billing_start_date,
-            cycle_index,
             &runs,
             span,
         ),
@@ -396,7 +378,6 @@ async fn windows_at_unboxed(
             &upcoming.add_ons,
             invoice_date,
             billing_start_date,
-            cycle_index,
             &runs,
             span,
         ),
@@ -408,7 +389,6 @@ async fn windows_at_unboxed(
             &closed.components,
             invoice_date,
             billing_start_date,
-            cycle_index,
             &runs,
             span,
         ),
@@ -420,7 +400,6 @@ async fn windows_at_unboxed(
             &closed.add_ons,
             invoice_date,
             billing_start_date,
-            cycle_index,
             &runs,
             span,
         ),

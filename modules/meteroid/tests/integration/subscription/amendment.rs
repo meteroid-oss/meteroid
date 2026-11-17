@@ -3172,3 +3172,51 @@ async fn removing_a_one_time_fee_gives_nothing_back(#[future] test_env: TestEnv)
 
     assert_eq!(credited(&env, sub_id, "").await, Vec::<i64>::new());
 }
+
+/// A subscription starting January 10 that renews on the 1st bills its first period, January 10
+/// to February 1, as 22 of 31 days: a fixed fee billed in arrears too (R-084), as its advance fees
+/// are. Before the timeline it billed that fee's whole month.
+#[rstest]
+#[tokio::test]
+async fn a_first_partial_period_prorates_a_fixed_arrears_fee(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(january(10))
+        .billing_day_anchor(1)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    amend(
+        &env,
+        sub_id,
+        amendment_add_component(
+            PlanChangeMode::Immediate,
+            extra_arrears_component("Overage Fee", 3100),
+        ),
+        january(10),
+    )
+    .await;
+    env.process_cycles().await;
+
+    let arrears = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .flat_map(|invoice| invoice.line_items)
+        .find(|line| line.name.contains("Overage Fee"))
+        .expect("the arrears fee is billed at the first renewal");
+    assert_eq!(
+        (
+            arrears.start_date,
+            arrears.end_date,
+            arrears.amount_subtotal
+        ),
+        (
+            january(10),
+            NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
+            2200
+        )
+    );
+}

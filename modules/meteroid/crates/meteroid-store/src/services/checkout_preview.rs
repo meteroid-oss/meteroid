@@ -195,6 +195,8 @@ impl Services {
             Some(TrialConfig {
                 duration_days: trial_days,
                 is_free: plan_version.trial_is_free,
+                // The preview prices the plan from the billing start, as it bills after the trial.
+                ends_on: None,
                 trialing_plan_id: plan_version.trialing_plan_id,
                 trialing_plan_name,
             })

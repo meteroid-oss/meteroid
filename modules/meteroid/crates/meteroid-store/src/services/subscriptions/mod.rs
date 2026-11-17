@@ -20,18 +20,60 @@ pub mod utils;
 
 pub use activate::PaymentActivationParams;
 
-/// Whether the subscription's trial is free, as activation decides it: by its plan version, a
-/// trial length set on the subscription alone included; free when the version is gone.
+/// The plan version the subscription's trial was on: the one it started on, which its first plan
+/// switch left (a plan change ends a trial), else its own.
+pub(crate) async fn trial_plan_version_tx(
+    conn: &mut crate::store::PgConn,
+    subscription: &crate::domain::Subscription,
+) -> crate::StoreResult<common_domain::ids::PlanVersionId> {
+    Ok(
+        diesel_models::subscription_events::SubscriptionEventRow::starting_plan_version(
+            conn,
+            subscription.id,
+        )
+        .await?
+        .unwrap_or(subscription.plan_version_id),
+    )
+}
+
+/// Where the subscription's fees start billing (R-084): its billing start, or the end of its free
+/// trial, which a plan change ending it earlier moves to that change; as its trial config reads it.
+pub(crate) async fn billing_from_tx(
+    conn: &mut crate::store::PgConn,
+    subscription: &crate::domain::Subscription,
+) -> crate::StoreResult<chrono::NaiveDate> {
+    let billing_start = subscription
+        .billing_start_date
+        .unwrap_or(subscription.current_period_start);
+    let Some(days) = subscription.trial_duration.filter(|days| *days > 0) else {
+        return Ok(billing_start);
+    };
+    if !trial_is_free_tx(conn, subscription).await? {
+        return Ok(billing_start);
+    }
+    let first_switch = diesel_models::subscription_events::SubscriptionEventRow::first_plan_switch(
+        conn,
+        subscription.id,
+    )
+    .await?;
+    Ok(billing_start
+        .checked_add_signed(chrono::Duration::days(i64::from(days)))
+        .map(|end| first_switch.map_or(end, |(_, switched_on)| end.min(switched_on)))
+        .map_or(billing_start, |end| end.max(billing_start)))
+}
+
+/// Whether the subscription's trial is free, as activation decided it: by the plan version it
+/// started on, a trial length set on the subscription alone included; free when the version is
+/// gone.
 pub(crate) async fn trial_is_free_tx(
     conn: &mut crate::store::PgConn,
     subscription: &crate::domain::Subscription,
 ) -> crate::StoreResult<bool> {
-    Ok(diesel_models::plans::PlanRow::get_with_version(
-        conn,
-        subscription.plan_version_id,
-        subscription.tenant_id,
+    let version = trial_plan_version_tx(conn, subscription).await?;
+    Ok(
+        diesel_models::plans::PlanRow::get_with_version(conn, version, subscription.tenant_id)
+            .await?
+            .version
+            .is_none_or(|version| version.trial_is_free),
     )
-    .await?
-    .version
-    .is_none_or(|version| version.trial_is_free))
 }

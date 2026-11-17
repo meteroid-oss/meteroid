@@ -28,6 +28,7 @@ pub struct SubscriptionBuilder {
     end_date: Option<NaiveDate>,
     net_terms: Option<u32>,
     auto_advance_invoices: bool,
+    billing_day_anchor: Option<u16>,
 }
 
 impl Default for SubscriptionBuilder {
@@ -46,6 +47,7 @@ impl Default for SubscriptionBuilder {
             end_date: None,
             net_terms: None,
             auto_advance_invoices: true,
+            billing_day_anchor: None,
         }
     }
 }
@@ -177,6 +179,12 @@ impl SubscriptionBuilder {
         self
     }
 
+    /// Set the day of the month its periods renew on.
+    pub fn billing_day_anchor(mut self, day: u16) -> Self {
+        self.billing_day_anchor = Some(day);
+        self
+    }
+
     /// Create the subscription using the provided services.
     pub async fn create(self, services: &Services) -> SubscriptionId {
         services
@@ -212,7 +220,7 @@ impl SubscriptionBuilder {
                 billing_start_date: None,
                 activation_condition: self.activation_condition,
                 trial_duration: self.trial_duration,
-                billing_day_anchor: None,
+                billing_day_anchor: self.billing_day_anchor,
                 payment_methods_config: self.payment_methods_config,
                 auto_advance_invoices: self.auto_advance_invoices,
                 charge_automatically: self.charge_automatically,

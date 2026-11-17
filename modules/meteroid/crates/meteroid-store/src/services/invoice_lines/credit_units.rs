@@ -44,7 +44,6 @@ pub(crate) enum CreditUnitCover {
 pub(crate) struct CoverTarget<'a> {
     pub details: &'a SubscriptionDetails,
     pub invoice_date: NaiveDate,
-    pub cycle_index: u32,
     pub span: super::invoice_lines::BilledSpan,
     pub currency_precision: u8,
     pub lines: &'a mut Vec<LineItem>,
@@ -473,17 +472,12 @@ impl Services {
         let mut periods = demand.periods(targets);
         let mut pinned = PinnedPrices::default();
         for target in targets {
-            let unit_windows = billing_windows::windows_at(
-                conn,
-                target.details,
-                target.invoice_date,
-                target.cycle_index,
-                target.span,
-            )
-            .await?
-            .into_iter()
-            .filter(|window| window.currency == demand.code)
-            .collect::<Vec<_>>();
+            let unit_windows =
+                billing_windows::windows_at(conn, target.details, target.invoice_date, target.span)
+                    .await?
+                    .into_iter()
+                    .filter(|window| window.currency == demand.code)
+                    .collect::<Vec<_>>();
             periods.extend(
                 unit_windows
                     .iter()
