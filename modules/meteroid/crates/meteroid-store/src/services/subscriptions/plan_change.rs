@@ -40,12 +40,13 @@ use diesel_models::price_components::PriceComponentRow;
 use diesel_models::prices::PriceRow;
 use diesel_models::products::ProductRow;
 use diesel_models::query::credit_inputs;
-use diesel_models::scheduled_events::ScheduledEventRow;
 use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
+use diesel_models::subscription_changes::SubscriptionChangeRow;
 use diesel_models::subscription_components::{
     SubscriptionComponentRow, SubscriptionComponentRowNew,
 };
+use diesel_models::subscription_facts::SubscriptionEndingRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
 use scoped_futures::ScopedFutureExt;
@@ -233,15 +234,6 @@ impl Services {
                     .await?;
                     let customer_id = ctx.subscription_details.subscription.customer_id;
 
-                    ScheduledEventRow::cancel_pending_plan_changes(
-                        conn,
-                        subscription_id,
-                        &tenant_id,
-                        "Replaced by new plan change",
-                    )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-
                     let component_mappings = build_component_mappings(
                         &ctx.subscription_details.price_components,
                         &ctx.target_components,
@@ -268,7 +260,7 @@ impl Services {
                         conn,
                         tenant_id,
                         subscription_id,
-                        &[diesel_models::enums::ScheduledEventTypeEnum::ApplyPlanChange],
+                        &[diesel_models::enums::SubscriptionChangeKindEnum::PlanChange],
                         "Replaced by new plan change",
                     )
                     .await?;
@@ -459,20 +451,16 @@ impl Services {
                         .await?;
                     credit_inputs::bump_customer(conn, &lock).await?;
 
-                    let pending_events = ScheduledEventRow::get_pending_events_for_subscription(
+                    let pending_changes = SubscriptionChangeRow::list_pending(
                         conn,
-                        subscription_id,
                         &tenant_id,
+                        subscription_id,
+                        &[diesel_models::enums::SubscriptionChangeKindEnum::PlanChange],
                     )
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                    let plan_change_event = pending_events.iter().find(|e| {
-                        e.event_type
-                            == diesel_models::enums::ScheduledEventTypeEnum::ApplyPlanChange
-                    });
-
-                    let event = plan_change_event.ok_or_else(|| {
+                    let event = pending_changes.first().ok_or_else(|| {
                         Report::new(StoreError::ValueNotFound(
                             "No pending plan change found for this subscription".to_string(),
                         ))
@@ -527,78 +515,84 @@ impl Services {
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
                     credit_inputs::bump_customer(conn, &lock).await?;
-                    let event = ScheduledEventRow::get_by_id(conn, event_id, &tenant_id)
+                    let change = SubscriptionChangeRow::find_by_id(conn, event_id, &tenant_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
-
-                    if event.subscription_id != subscription_id {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "Event does not belong to the specified subscription".to_string(),
-                        )));
-                    }
-
-                    let still_pending = match event.status {
-                        diesel_models::enums::ScheduledEventStatus::Pending => true,
-                        diesel_models::enums::ScheduledEventStatus::Migrated => {
-                            !diesel_models::subscription_events::SubscriptionEventRow::change_applied(
+                    let activity_type = match change {
+                        Some(change) => {
+                            if change.subscription_id != subscription_id {
+                                return Err(Report::new(StoreError::InvalidArgument(
+                                    "Event does not belong to the specified subscription"
+                                        .to_string(),
+                                )));
+                            }
+                            // Customers may only cancel changes they themselves scheduled.
+                            if actor.is_customer() && !change.created_by_customer {
+                                return Err(Report::new(StoreError::InvalidArgument(
+                                    "This scheduled change can only be modified by your account manager"
+                                        .to_string(),
+                                )));
+                            }
+                            if !self
+                                .cancel_pending_change_tx(conn, actor, &change, "Cancelled by user")
+                                .await?
+                            {
+                                return Err(Report::new(StoreError::InvalidArgument(
+                                    "Only pending events can be cancelled".to_string(),
+                                )));
+                            }
+                            match change.kind {
+                                diesel_models::enums::SubscriptionChangeKindEnum::PlanChange => {
+                                    ActivityType::SubscriptionPlanChangeCancelled
+                                }
+                                diesel_models::enums::SubscriptionChangeKindEnum::Amendment => {
+                                    ActivityType::SubscriptionAmendmentCancelled
+                                }
+                            }
+                        }
+                        // Not a change: the subscription's cancellation, named by its ending.
+                        None => {
+                            let cancellation = SubscriptionEndingRow::find_pending_cancellation(
                                 conn,
-                                subscription_id,
-                                event_id,
+                                tenant_id,
+                                event_id.as_uuid(),
                             )
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?
+                            .ok_or_else(|| {
+                                Report::new(StoreError::InvalidArgument(
+                                    "Only pending events can be cancelled".to_string(),
+                                ))
+                            })?;
+                            if cancellation.subscription_id != subscription_id {
+                                return Err(Report::new(StoreError::InvalidArgument(
+                                    "Event does not belong to the specified subscription"
+                                        .to_string(),
+                                )));
+                            }
+                            if actor.is_customer()
+                                && cancellation.actor_type
+                                    != diesel_models::enums::ActorTypeEnum::Customer
+                            {
+                                return Err(Report::new(StoreError::InvalidArgument(
+                                    "This scheduled change can only be modified by your account manager"
+                                        .to_string(),
+                                )));
+                            }
+                            crate::services::facts::withdraw_cancellation_tx(conn, subscription_id)
+                                .await?;
+                            self.derive_state_tx(
+                                conn,
+                                actor,
+                                tenant_id,
+                                subscription_id,
+                                common_clock::now(),
+                            )
+                            .await?;
+                            ActivityType::SubscriptionCancellationUndone
                         }
-                        _ => false,
                     };
-                    if !still_pending {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "Only pending events can be cancelled".to_string(),
-                        )));
-                    }
-
-                    if !matches!(
-                        event.event_type,
-                        diesel_models::enums::ScheduledEventTypeEnum::ApplyPlanChange
-                            | diesel_models::enums::ScheduledEventTypeEnum::CancelSubscription
-                            | diesel_models::enums::ScheduledEventTypeEnum::PauseSubscription
-                            | diesel_models::enums::ScheduledEventTypeEnum::ApplyAmendment
-                    ) {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "This event type cannot be cancelled".to_string(),
-                        )));
-                    }
-
-                    // Customers may only cancel events they themselves scheduled.
-                    // Admin/User/ApiToken/System actors may cancel anything.
-                    if actor.is_customer() && !event.created_by_customer {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "This scheduled change can only be modified by your account manager"
-                                .to_string(),
-                        )));
-                    }
-
-                    // PauseSubscription has no dedicated "undo" variant; skip the audit row.
-                    let activity_type = match event.event_type {
-                        diesel_models::enums::ScheduledEventTypeEnum::ApplyPlanChange => {
-                            Some(ActivityType::SubscriptionPlanChangeCancelled)
-                        }
-                        diesel_models::enums::ScheduledEventTypeEnum::CancelSubscription => {
-                            Some(ActivityType::SubscriptionCancellationUndone)
-                        }
-                        diesel_models::enums::ScheduledEventTypeEnum::ApplyAmendment => {
-                            Some(ActivityType::SubscriptionAmendmentCancelled)
-                        }
-                        _ => None,
-                    };
-
-                    if !self
-                        .cancel_pending_change_tx(conn, actor, &event, "Cancelled by user")
-                        .await?
-                    {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "Only pending events can be cancelled".to_string(),
-                        )));
-                    }
+                    let activity_type = Some(activity_type);
 
                     if let Some(activity_type) = activity_type {
                         let customer_id =
@@ -624,25 +618,17 @@ impl Services {
             .await
     }
 
-    /// Cancels a pending change: its event, or, written as facts, its rows from its date; the
-    /// state is derived again. False when it was no longer pending.
+    /// Cancels a change before its date: its rows from its date go; the state is derived again.
+    /// False when it was no longer pending.
     pub(in crate::services) async fn cancel_pending_change_tx(
         &self,
         conn: &mut PgConn,
         actor: &Actor,
-        event: &ScheduledEventRow,
+        event: &SubscriptionChangeRow,
         reason: &str,
     ) -> StoreResult<bool> {
-        let cancelled = if matches!(
-            event.status,
-            diesel_models::enums::ScheduledEventStatus::Migrated
-        ) {
-            crate::services::facts::pending::withdraw_pending_tx(conn, event, reason).await?
-        } else {
-            ScheduledEventRow::cancel_event(conn, &event.id, reason)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-        };
+        let cancelled =
+            crate::services::facts::pending::withdraw_pending_tx(conn, event, reason).await?;
         if cancelled {
             self.derive_state_tx(
                 conn,
@@ -690,7 +676,7 @@ impl Services {
             let actor = &actor;
             let component_params = &component_params;
             async move {
-                let prepared = services
+                let mut prepared = services
                     .prepare_plan_change_tx(
                         conn,
                         subscription_id,
@@ -700,6 +686,7 @@ impl Services {
                         change_date,
                     )
                     .await?;
+                prepared.hold_documents = services.is_held(conn, tenant_id).await?;
                 refuse_while_a_paid_change_is_pending(conn, tenant_id, subscription_id, None)
                     .await?;
                 refuse_after_a_cancellation(conn, tenant_id, subscription_id, change_date).await?;
@@ -719,7 +706,7 @@ impl Services {
                 let adjustment_invoice_id = adjustment.map(|invoice| invoice.id);
 
                 // Free trial: create first invoice at new plan rate (optimistic)
-                let first_invoice_id = if is_free_trial {
+                let first_invoice_id = if is_free_trial && !prepared.hold_documents {
                     use crate::services::InvoiceBillingMode;
 
                     let invoice = services
@@ -789,6 +776,17 @@ impl Services {
         if prepared.is_free_trial() {
             return Ok((None, notes));
         }
+        if prepared.hold_documents {
+            crate::services::lifecycle::release::leave_to_controller(
+                conn,
+                subscription.tenant_id,
+                subscription.id,
+                change_date,
+                diesel_models::enums::SubscriptionChangeKindEnum::PlanChange,
+            )
+            .await?;
+            return Ok((None, notes));
+        }
         let bills = self
             .plan_change_bills(conn, subscription, change_date)
             .await?;
@@ -814,11 +812,16 @@ impl Services {
         on: NaiveDate,
     ) -> StoreResult<Vec<crate::domain::LineItem>> {
         let change = Change::of_rows(on, GiveBack::Unused, "plan change");
-        Ok(
-            change_documents(conn, subscription.tenant_id, subscription.id, &change, None)
-                .await?
-                .bills,
+        Ok(change_documents(
+            conn,
+            subscription.tenant_id,
+            subscription.id,
+            &change,
+            None,
+            Some(self.usage_client.as_ref()),
         )
+        .await?
+        .bills)
     }
 
     /// Prepare phase: validates, loads data, calculates proration.
@@ -988,6 +991,7 @@ impl Services {
             new_component_ids,
             carried,
             settle_outgoing: true,
+            hold_documents: false,
             preview,
             period,
             change_date,
@@ -1016,14 +1020,6 @@ impl Services {
         // Free trials settle nothing: no money changed hands.
         let settles_outgoing = !prepared.is_free_trial() && prepared.settle_outgoing;
 
-        ScheduledEventRow::cancel_pending_plan_changes(
-            conn,
-            subscription_id,
-            &tenant_id,
-            "Replaced by immediate plan change",
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
         // A change written for a later date holds the rows this one closes: it goes first.
         crate::services::facts::pending::withdraw_pending_of_tx(
             conn,
@@ -1185,7 +1181,7 @@ impl Services {
             );
         }
 
-        crate::services::facts::record_plan_change_tx(
+        let renews_on = crate::services::facts::record_plan_change_tx(
             conn,
             tenant_id,
             subscription_id,
@@ -1199,7 +1195,8 @@ impl Services {
         .await?;
 
         // The old plan's give-backs read the facts just written.
-        let credit_note_ids = if settles_outgoing {
+        // Held, the give-back is the controller's, on release: the Switch below still marks it.
+        let credit_note_ids = if settles_outgoing && !prepared.hold_documents {
             self.settle_outgoing_components_tx(conn, actor, prepared, change_date)
                 .await?
         } else {
@@ -1239,7 +1236,6 @@ impl Services {
 
         // Trial → Active transition
         if prepared.is_trial() {
-            use diesel_models::enums::CycleActionEnum;
             use diesel_models::subscriptions::SubscriptionCycleRowPatch;
 
             if prepared.is_free_trial() {
@@ -1247,10 +1243,7 @@ impl Services {
                 // Reset billing_start_date and anchor to the change_date so the
                 // invoice computation aligns with the new period.
                 let new_anchor = change_date.day();
-                let billing_period: crate::domain::enums::BillingPeriodEnum = new_period
-                    .clone()
-                    .map(Into::into)
-                    .unwrap_or(prepared.subscription_details.subscription.period);
+                let billing_period: crate::domain::enums::BillingPeriodEnum = renews_on.into();
                 let period_range =
                     calculate_advance_period_range(change_date, new_anchor, true, &billing_period);
 
@@ -1258,12 +1251,9 @@ impl Services {
                     id: subscription_id,
                     tenant_id,
                     status: Some(SubscriptionStatusEnum::Active.into()),
-                    cycle_index: Some(0),
-                    next_cycle_action: Some(Some(CycleActionEnum::RenewSubscription)),
                     current_period_start: Some(change_date),
                     current_period_end: Some(Some(period_range.end)),
                     pending_checkout: None,
-                    processing_started_at: None,
                     billing_start_date: Some(change_date),
                     billing_day_anchor: Some(new_anchor as i16),
                     terminated_at: None,
@@ -1278,26 +1268,13 @@ impl Services {
                 );
             } else {
                 // Paid trial: keep billing period (already being billed), just transition status.
-                // Cancel the EndTrial scheduled event (this IS a real event for paid trials).
-                ScheduledEventRow::cancel_pending_trial_end_and_plan_changes(
-                    conn,
-                    subscription_id,
-                    &tenant_id,
-                    "Plan change during paid trial",
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
                 let patch = SubscriptionCycleRowPatch {
                     id: subscription_id,
                     tenant_id,
                     status: Some(SubscriptionStatusEnum::Active.into()),
-                    cycle_index: None,
-                    next_cycle_action: None,
                     current_period_start: None,
                     current_period_end: None,
                     pending_checkout: None,
-                    processing_started_at: None,
                     billing_start_date: None,
                     billing_day_anchor: None,
                     terminated_at: None,
@@ -1313,12 +1290,13 @@ impl Services {
 
         // The plan, its cadence and the period it cuts, the MRR and the outbox: the writer's,
         // from the facts just written, read at the change's instant.
-        self.derive_state_tx(
+        self.derive_state_unless_held_tx(
             conn,
             actor,
             tenant_id,
             subscription_id,
             crate::services::evaluate::bill::midnight(change_date),
+            prepared.hold_documents,
         )
         .await?;
 
@@ -1342,6 +1320,9 @@ pub struct PreparedPlanChange {
     pub(crate) carried: HashMap<PriceComponentId, SubscriptionPriceComponentId>,
     /// False when an earlier release already netted the old plan's credits on the adjustment.
     settle_outgoing: bool,
+    /// The tenant's billing is held (R-123): the change writes its facts and state, its notes and
+    /// adjustment invoice left to the controller.
+    hold_documents: bool,
     preview: PlanChangePreview,
     /// The period the change lands in and the share of it left from its day.
     period: (NaiveDate, NaiveDate, DayFraction),
@@ -1416,6 +1397,11 @@ impl PreparedPlanChange {
         let mut pack_changes = incoming;
         pack_changes.extend(outgoing.packs.iter().flat_map(|pack| pack.changes()));
         ProrationSummary {
+            document: if self.free_trial {
+                crate::domain::subscription_changes::ChangeDocument::OpeningInvoice
+            } else {
+                crate::domain::subscription_changes::ChangeDocument::Adjustment
+            },
             credits_total_cents,
             charges_total_cents: charged,
             net_amount_cents: charged + credits_total_cents,
@@ -1589,18 +1575,18 @@ async fn refuse_after_a_cancellation(
     subscription_id: SubscriptionId,
     effective_date: NaiveDate,
 ) -> StoreResult<()> {
-    let cancellations = ScheduledEventRow::list_pending_cancellations_for_subscriptions(
-        conn,
-        &[subscription_id],
-        &tenant_id,
-    )
-    .await
-    .map_err(Into::<Report<StoreError>>::into)?;
-    match cancellations
-        .first()
-        .filter(|(_, at)| at.date() <= effective_date)
-    {
-        Some((_, cancels_at)) => Err(Report::new(StoreError::InvalidArgument(format!(
+    let cancels_at = SubscriptionEndingRow::list_of(conn, subscription_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .filter(|ending| {
+            ending.tenant_id == tenant_id
+                && ending.kind == diesel_models::subscription_facts::ENDING_CANCEL
+        })
+        .map(|ending| ending.at)
+        .min();
+    match cancels_at.filter(|at| at.date() <= effective_date) {
+        Some(cancels_at) => Err(Report::new(StoreError::InvalidArgument(format!(
             "The subscription is cancelled on {}, before this plan change would take effect on \
              {effective_date}",
             cancels_at.date()

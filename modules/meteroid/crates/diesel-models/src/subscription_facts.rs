@@ -98,4 +98,13 @@ pub struct SubscriptionEndingRow {
     pub actor_uuid: Option<Uuid>,
     pub actor_alias: Option<String>,
     pub created_at: NaiveDateTime,
+    /// When the ending was decided, which its row's writing need not be.
+    pub requested_at: NaiveDateTime,
+}
+
+impl SubscriptionEndingRow {
+    /// A cancellation requested after the day it ends.
+    pub fn is_backdated_cancellation(&self) -> bool {
+        self.kind == ENDING_CANCEL && self.requested_at.date() > self.at.date()
+    }
 }

@@ -1992,12 +1992,13 @@ pub fn candidate(scoped: &ScopedGrantRow) -> StoreResult<GrantCandidate> {
     })
 }
 
-/// What a give-back returns to its grant: draws it paid (a void, a note, a returned settlement),
-/// or funding a payment reversal took back. Restored funding lapses as the funding itself does: at
-/// the sweep for expired credit, which settles the period's usage from it first.
+/// What a give-back returns to its grant: draws it paid (a note, a returned settlement), a void's
+/// draws, or funding a payment reversal took back. Restored funding lapses as the funding itself
+/// does: at the sweep for expired credit, which settles the period's usage from it first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GivenBack {
     Draws,
+    Voided,
     Funding,
 }
 
@@ -2017,7 +2018,7 @@ async fn lapse_given_back_tx(
     let ended = crate::services::credit::mint::grant_ended_at_tx(conn, &grant).await?;
     let ended_on_grant = grant.ends_at.filter(|_| ended_first(&grant));
     let lapses_at = match given_back {
-        GivenBack::Draws => grant.lapses_at,
+        GivenBack::Draws | GivenBack::Voided => grant.lapses_at,
         GivenBack::Funding => ended_on_grant,
     };
     let Some(lapsed) = [lapses_at, ended]
@@ -2034,6 +2035,10 @@ async fn lapse_given_back_tx(
     }
     let amount = amount.min(grant.remaining);
     if lapses_at.is_some_and(|lapses| lapses <= now) {
+        // A void settles the usage before the lapse from it, then lapses it (R10, R-088).
+        if given_back == GivenBack::Voided && lapses_at == Some(lapsed) {
+            return Ok(grant);
+        }
         return expire_value_tx(conn, &grant, amount).await;
     }
     // Ended by a plan change read from its line (`grant_ended_at_tx`), not recorded on the grant.
@@ -2935,6 +2940,7 @@ fn is_note_return(entry: &CustomerCreditEntryRow, note_source: Uuid) -> bool {
 }
 
 /// Moves `amount` back into a grant the caller locked, as an invoice's credit given back.
+#[allow(clippy::too_many_arguments)]
 async fn give_back_tx(
     conn: &mut PgConn,
     grant_id: CreditGrantId,
@@ -2943,6 +2949,7 @@ async fn give_back_tx(
     draw_source: DrawSource,
     invoice_id: InvoiceId,
     credit_note_id: Option<CreditNoteId>,
+    given_back: GivenBack,
     now: DateTime<Utc>,
 ) -> StoreResult<CustomerCreditGrantRow> {
     // Never before the draw it returns, as a draw is never before the grant's latest movement.
@@ -2962,7 +2969,7 @@ async fn give_back_tx(
         .paying(draw_source),
     )
     .await?;
-    lapse_given_back_tx(conn, grant, amount, GivenBack::Draws, now).await
+    lapse_given_back_tx(conn, grant, amount, given_back, now).await
 }
 
 /// Returns the credit a voided invoice still holds to the grants it came from, credit units
@@ -3038,6 +3045,7 @@ pub(crate) async fn reverse_invoice_draws_tx(
                 draw_source,
                 invoice_id,
                 None,
+                GivenBack::Voided,
                 now,
             )
             .await?
@@ -3178,6 +3186,7 @@ pub(crate) async fn return_draws_for_note_tx(
             draw_source,
             invoice_id,
             Some(credit_note_id),
+            GivenBack::Draws,
             now,
         )
         .await?;

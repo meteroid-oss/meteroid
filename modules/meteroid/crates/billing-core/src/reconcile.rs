@@ -120,7 +120,8 @@ pub fn reconcile(
         }
         lines.sort_by(|a, b| b.from.cmp(&a.from).then_with(|| b.id.cmp(&a.id)));
         // A voided line gives back as if it stood, its void's own note aside; what falls on it
-        // is forgiven with it, owed back to no one.
+        // is forgiven with it, owed back to no one. The split is read from before the engine's own
+        // take-backs, so a later pass finds it made, a line's unused time never taken twice.
         let left: Vec<i64> = lines
             .iter()
             .map(|line| {
@@ -133,37 +134,48 @@ pub fn reconcile(
             })
             .collect();
         let mut owed = -delta;
-        let mut taken = vec![0; lines.len()];
-        if let TakeBack::Unused(at) = take_back {
-            let unused: Vec<i64> = lines
+        let taken = {
+            let before: Vec<i64> = lines
                 .iter()
-                .zip(&left)
-                .map(|(line, left)| {
-                    if line.from <= at && at < line.until {
-                        DayFraction::remaining(line.from, line.until, at).prorate(*left)
+                .map(|line| {
+                    let credited = if line.voided {
+                        line.corrected
                     } else {
+                        line.already_credited - line.corrected
+                    };
+                    line.quoted_of((line.subtotal - credited).max(0))
+                })
+                .collect();
+            let earlier: Vec<i64> = lines
+                .iter()
+                .map(|line| {
+                    if line.voided {
                         0
+                    } else {
+                        line.quoted_of(line.corrected)
                     }
                 })
                 .collect();
-            let total: i64 = unused.iter().sum();
-            if total > 0 {
-                let share = owed.min(total);
-                let exact: Vec<Decimal> = unused
-                    .iter()
-                    .map(|unused| {
-                        Decimal::from(share) * Decimal::from(*unused) / Decimal::from(total)
-                    })
-                    .collect();
-                taken = largest_remainder(&exact);
-                owed -= taken.iter().sum::<i64>();
+            let shares = split(
+                &lines,
+                &before,
+                owed + earlier.iter().sum::<i64>(),
+                take_back,
+            );
+            let mut taken = vec![0; lines.len()];
+            for (i, line) in lines.iter().enumerate() {
+                let rest = (shares[i] - earlier[i]).min(left[i]).max(0);
+                let more = if line.voided { shares[i] } else { rest }.min(owed);
+                taken[i] = more;
+                owed -= more;
             }
-        }
-        for (taken, left) in taken.iter_mut().zip(&left) {
-            let more = owed.min(left - *taken).max(0);
-            *taken += more;
-            owed -= more;
-        }
+            for (i, _) in lines.iter().enumerate().filter(|(_, line)| !line.voided) {
+                let more = owed.min(left[i] - taken[i]).max(0);
+                taken[i] += more;
+                owed -= more;
+            }
+            taken
+        };
         for (line, amount) in lines.iter().zip(taken) {
             if amount > 0 && !line.voided {
                 adjustments.push(Adjustment::Credit {
@@ -180,6 +192,41 @@ pub fn reconcile(
         }
     }
     adjustments
+}
+
+/// `owed` split over `lines` (latest first), never more than a line's `left`: by each line's
+/// time left past the date for an ending, the rest latest first.
+fn split(lines: &[&IssuedLine], left: &[i64], mut owed: i64, take_back: TakeBack) -> Vec<i64> {
+    let mut taken = vec![0; lines.len()];
+    if let TakeBack::Unused(at) = take_back {
+        let unused: Vec<i64> = lines
+            .iter()
+            .zip(left)
+            .map(|(line, left)| {
+                if line.from <= at && at < line.until {
+                    DayFraction::remaining(line.from, line.until, at).prorate(*left)
+                } else {
+                    0
+                }
+            })
+            .collect();
+        let total: i64 = unused.iter().sum();
+        if total > 0 {
+            let share = owed.min(total);
+            let exact: Vec<Decimal> = unused
+                .iter()
+                .map(|unused| Decimal::from(share) * Decimal::from(*unused) / Decimal::from(total))
+                .collect();
+            taken = largest_remainder(&exact);
+            owed -= taken.iter().sum::<i64>();
+        }
+    }
+    for (taken, left) in taken.iter_mut().zip(left) {
+        let more = owed.min(left - *taken).max(0);
+        *taken += more;
+        owed -= more;
+    }
+    taken
 }
 
 /// The signed total of `adjustments` for each fee: billed positive, taken back negative.
@@ -458,6 +505,39 @@ mod tests {
         }
     }
 
+    /// 0.04 billed on day 0, raised to 0.10 the same day (0.06 more, voided), ended on day 4: the
+    /// charge owes 10 × 4/31 = 1, so 9 comes back as if the void stood: 3 of the live line's
+    /// unused time, the voided line's 5 and the 1 left on it forgiven. Once the 3 is credited, a
+    /// second pass takes nothing more, where it split the 6 again and took 1 more.
+    /// Rules: R-096, R-080
+    #[test]
+    fn a_take_back_beside_a_void_is_made_once() {
+        let owed = expected(None, &[term(10, 0, 4)]);
+        assert_eq!(owed[0].amount, 1);
+        let first = issued("first", &owed[0].key, 0, 4);
+        let raised = IssuedLine {
+            voided: true,
+            ..issued("raised", &owed[0].key, 0, 6)
+        };
+        assert_eq!(
+            reconcile(
+                &owed,
+                &[first.clone(), raised.clone()],
+                TakeBack::Unused(day(4))
+            ),
+            vec![Adjustment::Credit {
+                line: "first".to_owned(),
+                amount: 3
+            }]
+        );
+        let credited = IssuedLine {
+            already_credited: 3,
+            corrected: 3,
+            ..first
+        };
+        assert!(reconcile(&owed, &[credited, raised], TakeBack::Unused(day(4))).is_empty());
+    }
+
     /// 10 seats billed for 310.00 on day 0, 10 more on day 10 for 210.00 (21 of 31 days), all
     /// ending on day 16: each line gives back its own 15 days, never the newest line whole.
     #[test]
@@ -479,6 +559,29 @@ mod tests {
                     amount: 15_000
                 }
             ]
+        );
+    }
+
+    /// The same ending reconciled as each line is issued: the first line's note took its own 15
+    /// days, 15000, so the step issued after gives back its own 15000, where its pass split the
+    /// rest again over the first line's 16000 left, 9894 and 5106, the first line giving back
+    /// days it had used.
+    /// Rules: R-096, R-077
+    #[test]
+    fn a_line_whose_unused_time_a_note_took_gives_nothing_more() {
+        let expected = expected(None, &[term(31_000, 0, 10), term(62_000, 10, 16)]);
+        let first = IssuedLine {
+            already_credited: 15_000,
+            corrected: 15_000,
+            ..issued("first", &expected[0].key, 0, 31_000)
+        };
+        let added = issued("added", &expected[0].key, 10, 21_000);
+        assert_eq!(
+            reconcile(&expected, &[first, added], TakeBack::Unused(day(16))),
+            vec![Adjustment::Credit {
+                line: "added".to_owned(),
+                amount: 15_000
+            }]
         );
     }
 

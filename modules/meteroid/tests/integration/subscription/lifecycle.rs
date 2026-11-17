@@ -28,7 +28,7 @@ use crate::harness::{
 };
 use crate::meteroid_it::container::SeedLevel;
 use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
-use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
+use diesel_models::enums::SubscriptionStatusEnum;
 
 // =============================================================================
 // BASIC RENEWAL TESTS
@@ -145,10 +145,8 @@ async fn test_renewal_after_free_trial_with_checkout_during_trial(#[future] test
 
     // === Phase 1: TrialActive ===
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .is_trial_active()
-        .has_pending_checkout(true)
-        .has_cycle_index(0);
+    sub.assert().is_trial_active().has_pending_checkout(true);
+    assert_eq!(env.billed_cycle(sub_id).await, 0);
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().assert_empty();
@@ -181,11 +179,11 @@ async fn test_renewal_after_free_trial_with_checkout_during_trial(#[future] test
         .has_resolved_payment_method(&env, true)
         .await;
 
-    // === Phase 3: Process trial end → TrialExpired (OnCheckout waits for payment) ===
+    // === Phase 3: Process trial end → Active: its checkout settled the start during the trial ===
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert().is_trial_expired().has_pending_checkout(false);
+    sub.assert().is_active().has_pending_checkout(false);
 
     // Invoice created but payment not yet processed
     let invoices = env.get_invoices(sub_id).await;
@@ -198,9 +196,9 @@ async fn test_renewal_after_free_trial_with_checkout_during_trial(#[future] test
     sub.assert()
         .is_active()
         .has_pending_checkout(false)
-        .has_cycle_index(0)
         .has_resolved_payment_method(&env, true)
         .await;
+    assert_eq!(env.billed_cycle(sub_id).await, 0);
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(1);
@@ -215,7 +213,8 @@ async fn test_renewal_after_free_trial_with_checkout_during_trial(#[future] test
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert().is_active().has_cycle_index(1);
+    sub.assert().is_active();
+    assert_eq!(env.billed_cycle(sub_id).await, 1);
     assert_eq!(
         sub.current_period_start, period_end_0,
         "Period start should advance to previous period end"
@@ -231,7 +230,8 @@ async fn test_renewal_after_free_trial_with_checkout_during_trial(#[future] test
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert().is_active().has_cycle_index(2);
+    sub.assert().is_active();
+    assert_eq!(env.billed_cycle(sub_id).await, 2);
     assert_eq!(
         Some(sub.current_period_start),
         period_end_1,
@@ -312,7 +312,6 @@ async fn test_renewal_after_paid_trial(#[future] test_env: TestEnv) {
     sub.assert()
         .with_context("Phase 2: After checkout")
         .is_trial_active()
-        .has_next_action(Some(CycleActionEnum::RenewSubscription)) // Paid trial = normal billing
         .has_pending_checkout(false)
         .has_cycle_index(0)
         .has_resolved_payment_method(&env, true)
@@ -470,9 +469,9 @@ async fn test_renewal_after_trial_expired_reactivation(#[future] test_env: TestE
     sub.assert()
         .is_active()
         .has_pending_checkout(false)
-        .has_cycle_index(0)
         .has_resolved_payment_method(&env, true)
         .await;
+    assert_eq!(env.billed_cycle(sub_id).await, 0);
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(1);
@@ -483,7 +482,8 @@ async fn test_renewal_after_trial_expired_reactivation(#[future] test_env: TestE
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert().is_active().has_cycle_index(1);
+    sub.assert().is_active();
+    assert_eq!(env.billed_cycle(sub_id).await, 1);
     assert_eq!(
         Some(sub.current_period_start),
         period_end_0,
@@ -499,7 +499,8 @@ async fn test_renewal_after_trial_expired_reactivation(#[future] test_env: TestE
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert().is_active().has_cycle_index(2);
+    sub.assert().is_active();
+    assert_eq!(env.billed_cycle(sub_id).await, 2);
     assert_eq!(
         Some(sub.current_period_start),
         period_end_1,
@@ -534,10 +535,8 @@ async fn test_onstart_free_trial_auto_charge_renewal(#[future] test_env: TestEnv
 
     // Trial state
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .is_trial_active()
-        .has_pending_checkout(false)
-        .has_cycle_index(0);
+    sub.assert().is_trial_active().has_pending_checkout(false);
+    assert_eq!(env.billed_cycle(sub_id).await, 0);
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().assert_empty();
@@ -546,7 +545,8 @@ async fn test_onstart_free_trial_auto_charge_renewal(#[future] test_env: TestEnv
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert().is_active().has_cycle_index(0);
+    sub.assert().is_active();
+    assert_eq!(env.billed_cycle(sub_id).await, 0);
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(1);
@@ -558,7 +558,8 @@ async fn test_onstart_free_trial_auto_charge_renewal(#[future] test_env: TestEnv
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert().is_active().has_cycle_index(1);
+    sub.assert().is_active();
+    assert_eq!(env.billed_cycle(sub_id).await, 1);
     assert_eq!(
         Some(sub.current_period_start),
         period_end_0,
@@ -574,7 +575,8 @@ async fn test_onstart_free_trial_auto_charge_renewal(#[future] test_env: TestEnv
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert().is_active().has_cycle_index(2);
+    sub.assert().is_active();
+    assert_eq!(env.billed_cycle(sub_id).await, 2);
     assert_eq!(
         Some(sub.current_period_start),
         period_end_1,
@@ -766,7 +768,7 @@ async fn test_onstart_free_trial_no_auto_charge(#[future] test_env: TestEnv) {
 ///
 /// Key behavior:
 /// - Paid trial bills immediately using normal billing cycles (RenewSubscription)
-/// - Trial status change (TrialActive → Active) happens via scheduled EndTrial event
+/// - Trial status change (TrialActive → Active) is derived from the trial fact at its end
 /// - Trial end does NOT create an invoice - only billing cycle renewal does
 ///
 /// Expected timeline for 7-day trial with monthly billing:
@@ -794,7 +796,6 @@ async fn test_onstart_paid_trial(#[future] test_env: TestEnv) {
     sub.assert()
         .with_context("Initial state")
         .is_trial_active()
-        .has_next_action(Some(CycleActionEnum::RenewSubscription)) // Paid trial = normal billing
         .has_pending_checkout(false)
         .has_trial_duration(Some(7))
         .has_cycle_index(0);
@@ -992,7 +993,6 @@ async fn test_lifecycle_end_date_billing_terminates(#[future] test_env: TestEnv)
         .with_context("Phase 2: After first process_cycles")
         // Active + EndSubscription (not RenewSubscription) because end_date is within this period
         .has_status(SubscriptionStatusEnum::Active)
-        .has_next_action(Some(CycleActionEnum::EndSubscription))
         .has_cycle_index(1)
         .has_period_start(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap())
         .has_period_end(end_date);
@@ -1022,8 +1022,7 @@ async fn test_lifecycle_end_date_billing_terminates(#[future] test_env: TestEnv)
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
         .with_context("Phase 3: After second process_cycles")
-        .has_status(SubscriptionStatusEnum::Completed)
-        .has_next_action(None);
+        .has_status(SubscriptionStatusEnum::Completed);
 
     // No Invoice 3: when EndSubscription fires, current_period_end=None in the DB,
     // so the billing layer treats the subscription as completed and skips advance billing.
@@ -1087,7 +1086,6 @@ async fn test_fixed_term_ending_on_a_boundary_bills_whole_periods(#[future] test
     env.get_subscription(sub_id)
         .await
         .assert()
-        .has_next_action(Some(CycleActionEnum::EndSubscription))
         .has_period_end(day(3, 1));
     env.process_cycles().await;
     env.get_subscription(sub_id)
@@ -1128,7 +1126,6 @@ async fn test_fixed_term_ending_in_the_first_period_bills_up_to_its_end(
     env.get_subscription(sub_id)
         .await
         .assert()
-        .has_next_action(Some(CycleActionEnum::EndSubscription))
         .has_period_end(day(1, 20));
     env.process_cycles().await;
     env.get_subscription(sub_id)
@@ -1295,7 +1292,6 @@ async fn test_fixed_term_ending_mid_year_bills_its_share_of_the_year(#[future] t
     env.get_subscription(sub_id)
         .await
         .assert()
-        .has_next_action(Some(CycleActionEnum::EndSubscription))
         .has_period_end(day(2025, 4, 1));
     env.process_cycles().await;
     env.get_subscription(sub_id)

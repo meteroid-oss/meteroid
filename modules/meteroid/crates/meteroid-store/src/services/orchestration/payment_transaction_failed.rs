@@ -1,14 +1,11 @@
 use crate::StoreResult;
 use crate::domain::customer_emails::{EmailContext, EmailKind};
-use crate::domain::entity_activity::Actor;
 use crate::domain::enums::DeclineKind;
 use crate::domain::outbox_event::PaymentTransactionEvent;
-use crate::domain::scheduled_events::{ScheduledEventData, ScheduledEventNew};
 use crate::errors::StoreError;
 use crate::repositories::customer_emails::CustomerEmailsInterface;
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::repositories::payment_transactions::recompute_invoice_payment_state;
-use crate::repositories::subscriptions::SubscriptionInterface;
 use crate::services::Services;
 use crate::services::payment_reminders::sweep::ReopenedReminders;
 use crate::store::{PgConn, Store};
@@ -20,7 +17,6 @@ use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
 use diesel_models::enums::{InvoicePaymentStatus, InvoiceStatusEnum};
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::payments::PaymentTransactionRow;
-use diesel_models::scheduled_events::ScheduledEventRow;
 use error_stack::Report;
 use scoped_futures::ScopedFutureExt;
 
@@ -318,11 +314,10 @@ impl Services {
             .await
     }
 
-    /// Schedules the next automatic retry, if the invoice still has budget left.
+    /// Sets the invoice's next automatic payment attempt, if it still has budget left.
     ///
-    /// The attempt number is derived from the invoice's own failed attempts rather than
-    /// carried on the event, so a redelivered webhook re-derives the same position in the
-    /// ladder instead of advancing it.
+    /// The attempt number is derived from the invoice's own failed attempts, so a redelivered
+    /// webhook re-derives the same position in the ladder instead of advancing it.
     async fn schedule_next_dunning_attempt(
         &self,
         conn: &mut PgConn,
@@ -330,11 +325,11 @@ impl Services {
         invoice_id: InvoiceId,
         subscription_id: Option<SubscriptionId>,
     ) -> StoreResult<()> {
-        // Retries are driven by scheduled events, which hang off a subscription. A one-off
-        // invoice has nowhere to attach one; it stays Errored and is collected manually.
-        let Some(subscription_id) = subscription_id else {
+        // A retry charges the subscription's method: a one-off invoice stays Errored and is
+        // collected manually.
+        if subscription_id.is_none() {
             return Ok(());
-        };
+        }
 
         let failed_attempts =
             PaymentTransactionRow::count_failed_for_invoice(conn, invoice_id, tenant_id).await?;
@@ -352,28 +347,17 @@ impl Services {
             return Ok(());
         };
 
-        // Idempotency: a redelivered failure re-derives the same attempt number, and a
-        // pending retry for this invoice already covers it.
-        if has_pending_retry_event(conn, tenant_id, subscription_id, invoice_id).await? {
+        // Idempotency: a redelivered failure re-derives the same attempt number, and an attempt
+        // already set covers it.
+        let invoice = InvoiceRow::find_by_id(conn, tenant_id, invoice_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        if invoice.next_payment_attempt_at.is_some() {
             return Ok(());
         }
 
-        let scheduled_time =
-            (common_clock::now() + chrono::Duration::days(*delay_days)).naive_utc();
-
-        self.store
-            .schedule_events(
-                conn,
-                vec![ScheduledEventNew {
-                    subscription_id,
-                    tenant_id,
-                    scheduled_time,
-                    event_data: ScheduledEventData::RetryPayment { invoice_id },
-                    source: "dunning".to_string(),
-                    created_by: Actor::System,
-                }],
-            )
-            .await?;
+        let attempt_at = common_clock::now() + chrono::Duration::days(*delay_days);
+        set_payment_attempt(conn, tenant_id, invoice.customer_id, invoice_id, attempt_at).await?;
 
         log::info!(
             "Scheduled dunning retry {} for invoice {} in {} days",
@@ -409,25 +393,25 @@ impl Services {
     }
 }
 
-/// True when a retry for this invoice is already queued, so a redelivered failure
-/// doesn't stack duplicate attempts on the ladder.
-async fn has_pending_retry_event(
+/// The invoice's next payment attempt at `at`, its customer's controller woken for it.
+async fn set_payment_attempt(
     conn: &mut PgConn,
     tenant_id: TenantId,
-    subscription_id: SubscriptionId,
+    customer_id: CustomerId,
     invoice_id: InvoiceId,
-) -> StoreResult<bool> {
-    let pending =
-        ScheduledEventRow::get_pending_events_for_subscription(conn, subscription_id, &tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-    Ok(pending.into_iter().any(|row| {
-        matches!(
-            serde_json::from_value::<ScheduledEventData>(row.event_data),
-            Ok(ScheduledEventData::RetryPayment { invoice_id: queued }) if queued == invoice_id
-        )
-    }))
+    at: chrono::DateTime<chrono::Utc>,
+) -> StoreResult<()> {
+    InvoiceRow::set_next_payment_attempt_at(conn, tenant_id, invoice_id, Some(at.naive_utc()))
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    diesel_models::billing_controller::BillingControllerRow::wake_by(
+        conn,
+        tenant_id,
+        customer_id,
+        at,
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)
 }
 
 fn is_hard_decline(failed: &PaymentTransactionRow) -> bool {
@@ -464,13 +448,13 @@ fn is_card_expired(failed: &PaymentTransactionRow) -> bool {
 /// A new default payment method revives the retries a hard decline stopped, since that
 /// decline was on the previous instrument.
 pub(crate) async fn rearm_hard_declined_retries(
-    store: &Store,
+    _store: &Store,
     conn: &mut PgConn,
     tenant_id: TenantId,
     customer_id: CustomerId,
     payment_method_id: CustomerPaymentMethodId,
 ) -> StoreResult<()> {
-    rearm_retries_where(store, conn, tenant_id, customer_id, |failed| {
+    rearm_retries_where(conn, tenant_id, customer_id, |failed| {
         failed
             .payment_method_id
             .is_some_and(|declined| declined != payment_method_id)
@@ -480,22 +464,21 @@ pub(crate) async fn rearm_hard_declined_retries(
 
 /// New card details on a method revive the retries an expired-card decline on it stopped.
 pub(crate) async fn rearm_refreshed_card_retries(
-    store: &Store,
+    _store: &Store,
     conn: &mut PgConn,
     tenant_id: TenantId,
     customer_id: CustomerId,
     payment_method_id: CustomerPaymentMethodId,
 ) -> StoreResult<()> {
-    rearm_retries_where(store, conn, tenant_id, customer_id, |failed| {
+    rearm_retries_where(conn, tenant_id, customer_id, |failed| {
         failed.payment_method_id == Some(payment_method_id) && is_card_expired(failed)
     })
     .await
 }
 
-/// Schedules a retry now for each errored invoice of the customer whose latest attempt was a
-/// hard decline that `revived` lifts, unless a charge or retry is already on its way.
+/// Sets a payment attempt now on each errored invoice of the customer whose latest attempt was
+/// a hard decline that `revived` lifts, unless a charge or an attempt is already on its way.
 async fn rearm_retries_where(
-    store: &Store,
     conn: &mut PgConn,
     tenant_id: TenantId,
     customer_id: CustomerId,
@@ -509,31 +492,30 @@ async fn rearm_retries_where(
     .await
     .map_err(Into::<Report<StoreError>>::into)?;
 
-    let mut retries = vec![];
-    for (subscription_id, failed) in latest_failures {
+    for (_, failed) in latest_failures {
         let Some(invoice_id) = failed.invoice_id else {
             continue;
         };
         if !is_hard_decline(&failed) || !revived(&failed) {
             continue;
         }
-        if PaymentTransactionRow::exists_live_for_invoice(conn, invoice_id, tenant_id).await?
-            || has_pending_retry_event(conn, tenant_id, subscription_id, invoice_id).await?
-        {
+        if PaymentTransactionRow::exists_live_for_invoice(conn, invoice_id, tenant_id).await? {
             continue;
         }
-        retries.push(ScheduledEventNew {
-            subscription_id,
+        let invoice = InvoiceRow::find_by_id(conn, tenant_id, invoice_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        if invoice.next_payment_attempt_at.is_some() {
+            continue;
+        }
+        set_payment_attempt(
+            conn,
             tenant_id,
-            scheduled_time: common_clock::now().naive_utc(),
-            event_data: ScheduledEventData::RetryPayment { invoice_id },
-            source: "dunning".to_string(),
-            created_by: Actor::System,
-        });
-    }
-
-    if !retries.is_empty() {
-        store.schedule_events(conn, retries).await?;
+            customer_id,
+            invoice_id,
+            common_clock::now(),
+        )
+        .await?;
     }
     Ok(())
 }

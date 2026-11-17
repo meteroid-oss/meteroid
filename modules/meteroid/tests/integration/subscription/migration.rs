@@ -12,8 +12,10 @@ use chrono::{Datelike, NaiveDate};
 use rstest::rstest;
 
 use crate::data::ids::*;
-use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
-use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
+use crate::harness::{
+    InvoicesAssertExt, SubscriptionAssertExt, TestEnv, derived_cycle_index, subscription, test_env,
+};
+use diesel_models::enums::SubscriptionStatusEnum;
 
 // =============================================================================
 // BASIC MIGRATION TESTS
@@ -45,9 +47,9 @@ async fn test_migration_no_trial_is_active_without_invoices(#[future] test_env: 
 
     // cycle_index should be > 0 (start is 2024-01-01, now is 2026+)
     assert!(
-        sub.cycle_index.unwrap_or(0) > 0,
+        derived_cycle_index(&sub).unwrap_or(0) > 0,
         "Expected cycle_index > 0 for migrated subscription, got {:?}",
-        sub.cycle_index
+        derived_cycle_index(&sub)
     );
 
     // Current period should contain or end on today
@@ -92,14 +94,14 @@ async fn test_migration_no_premature_renewal(#[future] test_env: TestEnv) {
 
     let sub = env.get_subscription(sub_id).await;
     sub.assert().is_active().is_imported();
-    let initial_cycle = sub.cycle_index;
+    let initial_cycle = derived_cycle_index(&sub);
 
     // Process cycles — since current_period_end is in the future,
     // this should NOT trigger renewal yet (no-op).
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    assert_eq!(sub.cycle_index, initial_cycle);
+    assert_eq!(derived_cycle_index(&sub), initial_cycle);
 
     // Still no invoices — past ones were skipped, current period not yet ended
     let invoices = env.get_invoices(sub_id).await;
@@ -108,8 +110,7 @@ async fn test_migration_no_premature_renewal(#[future] test_env: TestEnv) {
 
 /// Migration: subscription is wired up correctly for the renewal system.
 /// We can't fast-forward time, but we verify all the invariants the renewal
-/// worker depends on: status=Active, next_cycle_action=RenewSubscription,
-/// current_period_end is set and in the future.
+/// worker depends on: status=Active, current_period_end is set and in the future.
 /// Uses a mid-period billing day to guarantee deterministic assertions.
 #[rstest]
 #[tokio::test]
@@ -132,16 +133,13 @@ async fn test_migration_ready_for_renewal(#[future] test_env: TestEnv) {
     let sub = env.get_subscription(sub_id).await;
 
     // All the invariants the cycle transition worker needs
-    sub.assert()
-        .is_active()
-        .has_next_action(Some(CycleActionEnum::RenewSubscription))
-        .is_imported();
+    sub.assert().is_active().is_imported();
 
     // cycle_index must be set (> 0 for past subscriptions)
     assert!(
-        sub.cycle_index.is_some() && sub.cycle_index.unwrap() > 0,
+        derived_cycle_index(&sub).is_some() && derived_cycle_index(&sub).unwrap() > 0,
         "Expected cycle_index > 0, got {:?}",
-        sub.cycle_index
+        derived_cycle_index(&sub)
     );
 
     // Mid-period: current_period_end must be in the future
@@ -211,7 +209,7 @@ async fn test_migration_one_year_ago_monthly(#[future] test_env: TestEnv) {
     sub.assert().is_active().is_imported();
 
     // ~12 cycles: exactly 12 if billing_day < today.day(), 11 if billing_day > today.day().
-    let cycle = sub.cycle_index.unwrap();
+    let cycle = derived_cycle_index(&sub).unwrap();
     let expected = if billing_day < today.day() { 12 } else { 11 };
     assert_eq!(
         cycle, expected,
@@ -419,7 +417,7 @@ async fn test_migration_free_trial_already_ended(#[future] test_env: TestEnv) {
 
     // cycle_index > 0 (months since trial ended on 2024-01-15)
     assert!(
-        sub.cycle_index.unwrap_or(0) > 0,
+        derived_cycle_index(&sub).unwrap_or(0) > 0,
         "Expected cycle_index > 0 for post-trial migration"
     );
 
@@ -458,12 +456,11 @@ async fn test_migration_free_trial_still_active(#[future] test_env: TestEnv) {
     sub.assert()
         .is_trial_active()
         .is_imported()
-        .has_trial_duration(Some(30))
-        .has_next_action(Some(CycleActionEnum::EndTrial));
+        .has_trial_duration(Some(30));
 
     // cycle_index should be 0 during trial
     assert_eq!(
-        sub.cycle_index,
+        derived_cycle_index(&sub),
         Some(0),
         "Expected cycle_index=0 during active trial"
     );
@@ -517,7 +514,7 @@ async fn test_migration_paid_trial_already_ended(#[future] test_env: TestEnv) {
     // For paid trials, billing starts immediately (start_date=2024-01-01).
     // cycle_index should be calculated from start_date, not trial end.
     // Since now is 2026+, we expect cycle_index > 20 (24+ months elapsed).
-    let cycle = sub.cycle_index.unwrap();
+    let cycle = derived_cycle_index(&sub).unwrap();
     assert!(
         cycle > 20,
         "Expected cycle_index > 20 for paid trial migration (billing from start_date), got {}",
@@ -649,7 +646,7 @@ async fn test_migration_mid_period_no_renewal(#[future] test_env: TestEnv) {
 
     // Subscription should be unchanged.
     let sub_after = env.get_subscription(sub_id).await;
-    assert_eq!(sub_after.cycle_index, sub.cycle_index);
+    assert_eq!(derived_cycle_index(&sub_after), derived_cycle_index(&sub));
 }
 
 /// Migration with a paid trial that is still ongoing.
@@ -683,7 +680,7 @@ async fn test_migration_paid_trial_still_active(#[future] test_env: TestEnv) {
 
     // cycle_index should be 0 (we're in the first billing period)
     assert_eq!(
-        sub.cycle_index,
+        derived_cycle_index(&sub),
         Some(0),
         "Expected cycle_index=0 during active paid trial"
     );
@@ -698,8 +695,8 @@ async fn test_migration_paid_trial_still_active(#[future] test_env: TestEnv) {
 // =============================================================================
 
 /// Migration with end_date before today.
-/// At creation the subscription is positioned at the last period containing end_date
-/// with next_cycle_action = EndSubscription. A single process_cycles call completes it
+/// At creation the subscription is positioned at the last period containing end_date, cut
+/// there. A single process_cycles call completes it
 /// with no invoice ever created (end_date is before any new period would start).
 #[rstest]
 #[tokio::test]
@@ -727,8 +724,7 @@ async fn test_migration_end_date_before_today(#[future] test_env: TestEnv) {
     // current_period is the last period that contained end_date, truncated to end_date.
     sub.assert()
         .has_status(SubscriptionStatusEnum::Completed)
-        .is_imported()
-        .has_next_action(None);
+        .is_imported();
     assert_eq!(
         sub.current_period_end,
         Some(end_date),
@@ -743,10 +739,132 @@ async fn test_migration_end_date_before_today(#[future] test_env: TestEnv) {
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .has_status(SubscriptionStatusEnum::Completed)
-        .has_next_action(None);
+    sub.assert().has_status(SubscriptionStatusEnum::Completed);
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().assert_empty();
+}
+
+// =============================================================================
+// AN IMPORT'S CURRENT PERIOD
+// =============================================================================
+
+/// Imported on Jan 10 into [Jan 1, Feb 1): January's 20.00 advance was billed elsewhere, its
+/// 1000 units at 0.10 were not. Feb 1 bills February's fee and January's usage, 2000 + 10000.
+/// Rules: R-094
+#[tokio::test]
+async fn a_usage_import_bills_its_import_periods_usage_at_renewal() {
+    use chrono::{NaiveTime, TimeZone, Utc};
+    use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId};
+    use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
+    use meteroid_store::clients::usage::{
+        GroupedUsageData, MockUsageDataParams, MutableMockUsageClient, UsageData,
+    };
+    use meteroid_store::domain::{UsagePeriod, UsagePricingModel};
+    use rust_decimal::Decimal;
+    use rust_decimal_macros::dec;
+
+    let usage = MutableMockUsageClient::new();
+    let env = crate::harness::test_env_with_seed_and_usage(
+        crate::meteroid_it::container::SeedLevel::PLANS,
+        std::sync::Arc::new(usage.clone()),
+    )
+    .await;
+    let (from, to) = (
+        NaiveDate::from_ymd_opt(2024, 1, 1)
+            .unwrap()
+            .and_time(NaiveTime::MIN),
+        NaiveDate::from_ymd_opt(2024, 2, 1)
+            .unwrap()
+            .and_time(NaiveTime::MIN),
+    );
+    usage.set_usage(
+        MockUsageDataParams {
+            metric_id: METRIC_BANDWIDTH,
+            period_start: from,
+            period_end: to,
+        },
+        UsageData {
+            data: vec![GroupedUsageData {
+                value: Decimal::from(1000),
+                dimensions: std::collections::HashMap::new(),
+            }],
+            period: UsagePeriod {
+                start: from,
+                end: to,
+            },
+        },
+    );
+    let version = PlanVersionId::new();
+    crate::data::plans::PlanSeed::new(PlanId::new(), "Fee and usage", version)
+        .components(vec![
+            crate::data::plans::SeedComp::rate(
+                PriceComponentId::new(),
+                "Platform Fee",
+                PRODUCT_PLATFORM_FEE_ID,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Monthly,
+                dec!(20),
+            ),
+            crate::data::plans::SeedComp::usage(
+                PriceComponentId::new(),
+                "Bandwidth",
+                PRODUCT_BANDWIDTH_ID,
+                METRIC_BANDWIDTH,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Monthly,
+                UsagePricingModel::PerUnit { rate: dec!(0.10) },
+            ),
+        ])
+        .seed(&mut env.conn().await)
+        .await
+        .expect("a plan");
+    env.set_now(Utc.with_ymd_and_hms(2024, 1, 10, 12, 0, 0).unwrap());
+    let sub_id = subscription()
+        .plan_version(version)
+        .on_start()
+        .no_trial()
+        .start_date(NaiveDate::from_ymd_opt(2023, 12, 1).unwrap())
+        .skip_past_invoices()
+        .create(env.services())
+        .await;
+    env.process_cycles().await;
+    env.get_invoices(sub_id).await.assert().assert_empty();
+
+    env.set_now(Utc.with_ymd_and_hms(2024, 2, 1, 13, 0, 0).unwrap());
+    for _ in 0..5 {
+        env.process_cycles().await;
+    }
+    let billed: Vec<(NaiveDate, i64)> = env
+        .get_invoices(sub_id)
+        .await
+        .iter()
+        .map(|invoice| (invoice.billing_period_start, invoice.total))
+        .collect();
+    assert_eq!(
+        billed,
+        vec![(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(), 12_000)]
+    );
+}
+
+/// A paid trial imported while it runs was billed elsewhere for its first period: nothing is
+/// billed before that period ends.
+/// Rules: R-094
+#[rstest]
+#[tokio::test]
+async fn a_paid_trial_import_bills_nothing_before_its_period_ends(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let today = chrono::Utc::now().naive_utc().date();
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_TRIAL_ID)
+        .on_start()
+        .start_date(today - chrono::Duration::days(3))
+        .trial_days(30)
+        .skip_past_invoices()
+        .create(env.services())
+        .await;
+    for _ in 0..5 {
+        env.process_cycles().await;
+    }
+    env.get_invoices(sub_id).await.assert().assert_empty();
 }

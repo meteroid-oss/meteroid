@@ -375,8 +375,15 @@ async fn open_periods_of(
             ),
         };
         let invoice_type: crate::domain::enums::InvoiceType = draft.invoice_type.clone().into();
-        let span = BilledSpan::of(&invoice_type);
-        let mut draft_windows = windows_at(conn, subscription, draft.anchor, span)
+        let (anchor, span) = crate::services::invoice_lines::invoice_lines::billed_at(
+            conn,
+            tenant_id,
+            draft.subscription_id,
+            BilledSpan::of(&invoice_type),
+            draft.anchor,
+        )
+        .await?;
+        let mut draft_windows = windows_at(conn, subscription, anchor, span)
             .await?
             .into_iter()
             .filter(|window| !planned.contains(&(window.subscription_id, window.period.start)))

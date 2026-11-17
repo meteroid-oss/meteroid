@@ -1,7 +1,81 @@
--- A subscription's lifecycle recorded as dated facts, written by the paths that act
--- next to the events and state that still drive billing. Nothing bills from them yet; the
--- backfills below are checked by design/pre-release-checks.sql (checks 9 to 14).
+-- The release billing from dated facts, its additions and backfills: nothing here is undone by a
+-- later migration. The changes still pending as scheduled events are written as facts after it,
+-- and `billing_legacy_dropped` retires what the facts replace; the migrations run all three in one
+-- transaction, under one lock of the tables the backfills read.
 SET LOCAL lock_timeout = '5s';
+
+-- ── Paused subscriptions of live tenants ─────────────────────────────────────────────────────
+-- No fact gives PAUSED or SUSPENDED: `billing_legacy_dropped` makes an activated one ACTIVE, billed
+-- again. A live tenant's (ACTIVE, in PRODUCTION or DEVELOPMENT) is never resumed by a deploy: the
+-- release fails, listing them, to be cancelled or resumed first.
+DO $$
+DECLARE
+    paused TEXT;
+BEGIN
+    SELECT string_agg(s.id::text || ' (tenant ' || s.tenant_id || ', ' || s.status || ')', ', '
+                      ORDER BY s.tenant_id, s.id)
+    INTO paused
+    FROM subscription s
+    JOIN tenant t ON t.id = s.tenant_id
+    WHERE s.status IN ('PAUSED', 'SUSPENDED')
+      AND t.status = 'ACTIVE' AND t.environment IN ('PRODUCTION', 'DEVELOPMENT');
+    IF paused IS NOT NULL THEN
+        RAISE EXCEPTION 'Paused or suspended subscriptions of live tenants (active, in production or development) would be resumed by this version: %. Nothing was changed: on your previous version, cancel or resume each of them, then upgrade again', paused;
+    END IF;
+END $$;
+
+-- ── Credit note origin: corrections ──────────────────────────────────────────────────────────
+-- An operator's credit note that corrects what was billed (days refunded by hand): reconcile counts
+-- it like the engine's, so a later change in the period never refunds those days again.
+ALTER TYPE "CreditNoteOriginEnum" ADD VALUE IF NOT EXISTS 'CORRECTION';
+
+-- ── Billing controller ───────────────────────────────────────────────────────────────────────
+-- One writer per customer: the controller runs a customer's billing steps when its
+-- next wake is due or an input changed (dirty), under a lease so replicas never run it twice.
+CREATE TABLE billing_controller (
+    tenant_id    UUID        NOT NULL REFERENCES tenant (id) ON DELETE CASCADE,
+    customer_id  UUID        NOT NULL REFERENCES customer (id) ON DELETE CASCADE,
+    next_wake_at TIMESTAMPTZ,
+    dirty_since  TIMESTAMPTZ,
+    lease_until  TIMESTAMPTZ,
+    attempts     INTEGER     NOT NULL DEFAULT 0,
+    last_error   TEXT,
+    -- The first and the latest of the failed runs in a row, cleared with them.
+    first_failed_at TIMESTAMPTZ,
+    last_failed_at  TIMESTAMPTZ,
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, customer_id)
+);
+
+CREATE INDEX billing_controller_wake ON billing_controller (next_wake_at)
+    WHERE next_wake_at IS NOT NULL;
+CREATE INDEX billing_controller_dirty ON billing_controller (dirty_since)
+    WHERE dirty_since IS NOT NULL;
+CREATE INDEX billing_controller_customer ON billing_controller (customer_id);
+CREATE INDEX billing_controller_due ON billing_controller (LEAST(next_wake_at, dirty_since));
+
+-- Tenants the billing controller runs when the release is held to an allowlist
+-- (BILLING_CONTROLLER_RELEASE=allowlist): a row with no tenant releases every tenant. Unused in
+-- the default mode, where every tenant runs.
+CREATE TABLE billing_controller_release (
+    tenant_id   UUID UNIQUE REFERENCES tenant (id) ON DELETE CASCADE,
+    released_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    released_by TEXT
+);
+CREATE UNIQUE INDEX billing_controller_release_all ON billing_controller_release ((1))
+    WHERE tenant_id IS NULL;
+
+-- Every customer with a subscription or credit still holding value runs once, which computes its
+-- first wake.
+INSERT INTO billing_controller (tenant_id, customer_id, dirty_since)
+SELECT tenant_id, customer_id, now() FROM subscription
+UNION
+SELECT tenant_id, customer_id, now() FROM customer_credit_grant WHERE remaining > 0
+ON CONFLICT DO NOTHING;
+
+-- ── Subscription facts ───────────────────────────────────────────────────────────────────────
+-- A subscription's lifecycle recorded as dated facts, written by the paths that act
+-- next to the events and state that still drive billing. Nothing bills from them yet.
 
 -- ── Trials ────────────────────────────────────────────────────────────────────────────────────
 CREATE TABLE subscription_trial (
@@ -149,31 +223,37 @@ CREATE TABLE subscription_ending (
     actor_uuid      UUID,
     actor_alias     TEXT,
     created_at      TIMESTAMP        NOT NULL,
+    -- When the ending was decided: a cancellation requested after its day is backdated (R-016),
+    -- whenever its row was written.
+    requested_at    TIMESTAMP        NOT NULL,
     PRIMARY KEY (subscription_id, kind),
     CONSTRAINT subscription_ending_kind CHECK (kind IN ('CANCEL', 'COMPLETE'))
 );
 
--- The cancellation still to apply, else the one a cancelled subscription ended by.
+-- The cancellation still to apply (pending, on a live subscription), else the one a cancelled
+-- subscription ended by. A failed or cancelled event was dead on the previous release: no ending.
+-- Requested when its event was created (never null on main), never when this migration runs.
 INSERT INTO subscription_ending (subscription_id, tenant_id, kind, at, reason, actor_type,
-                                 actor_uuid, actor_alias, created_at)
+                                 actor_uuid, actor_alias, created_at, requested_at)
 SELECT DISTINCT ON (e.subscription_id)
        e.subscription_id, e.tenant_id, 'CANCEL',
        COALESCE((e.event_data -> 'CancelSubscription' ->> 'usage_cutoff')::timestamp,
                 e.scheduled_time),
        e.event_data -> 'CancelSubscription' ->> 'reason',
        e.actor_type, e.actor_uuid, e.actor_alias,
-       now() AT TIME ZONE 'UTC'
+       now() AT TIME ZONE 'UTC', e.created_at
 FROM scheduled_event e
 JOIN subscription s ON s.id = e.subscription_id
 WHERE e.event_type = 'CANCEL_SUBSCRIPTION'
-  AND (e.status IN ('PENDING', 'PROCESSING', 'FAILED')
+  AND ((e.status IN ('PENDING', 'PROCESSING')
+        AND s.status::text NOT IN ('CANCELLED', 'COMPLETED', 'ABORTED', 'SUPERSEDED'))
        OR (e.status = 'COMPLETED' AND s.status = 'CANCELLED'))
 ORDER BY e.subscription_id, (e.status <> 'COMPLETED') DESC, e.created_at DESC;
 
 INSERT INTO subscription_ending (subscription_id, tenant_id, kind, at, reason, actor_type,
-                                 actor_uuid, actor_alias, created_at)
+                                 actor_uuid, actor_alias, created_at, requested_at)
 SELECT s.id, s.tenant_id, 'COMPLETE', s.end_date::timestamp, NULL, 'SYSTEM', NULL, NULL,
-       now() AT TIME ZONE 'UTC'
+       now() AT TIME ZONE 'UTC', LEAST(s.created_at, s.end_date::timestamp)
 FROM subscription s
 WHERE s.end_date IS NOT NULL;
 
@@ -366,7 +446,9 @@ CREATE TRIGGER trg_subscription_adjustment_component_of_open_minimum
     EXECUTE FUNCTION subscription_adjustment_component_of_open_minimum();
 
 -- ── Invoice deadlines ─────────────────────────────────────────────────────────────────────────
--- Written next to the FinalizeInvoice and RetryPayment events they replace; nothing reads them yet.
+-- The FinalizeInvoice and RetryPayment events still pending, carried by their invoice while it
+-- still waits for them: a draft its grace, an unpaid finalized invoice its attempt. A failed,
+-- completed or cancelled event was dead on the previous release and stays so.
 ALTER TABLE invoice
     ADD COLUMN finalize_after          TIMESTAMP,
     ADD COLUMN next_payment_attempt_at TIMESTAMP;
@@ -375,18 +457,205 @@ UPDATE invoice i
 SET finalize_after = e.scheduled_time
 FROM (SELECT DISTINCT ON ((event_data -> 'FinalizeInvoice' ->> 'invoice_id')::uuid)
              (event_data -> 'FinalizeInvoice' ->> 'invoice_id')::uuid AS invoice_id,
-             scheduled_time
+             COALESCE(next_attempt_at, scheduled_time) AS scheduled_time
       FROM scheduled_event
-      WHERE event_type = 'FINALIZE_INVOICE' AND status IN ('PENDING', 'PROCESSING', 'FAILED')
+      WHERE event_type = 'FINALIZE_INVOICE' AND status IN ('PENDING', 'PROCESSING')
       ORDER BY (event_data -> 'FinalizeInvoice' ->> 'invoice_id')::uuid, scheduled_time DESC) e
-WHERE i.id = e.invoice_id;
+WHERE i.id = e.invoice_id AND i.status = 'DRAFT';
 
 UPDATE invoice i
 SET next_payment_attempt_at = e.scheduled_time
 FROM (SELECT DISTINCT ON ((event_data -> 'RetryPayment' ->> 'invoice_id')::uuid)
              (event_data -> 'RetryPayment' ->> 'invoice_id')::uuid AS invoice_id,
-             scheduled_time
+             COALESCE(next_attempt_at, scheduled_time) AS scheduled_time
       FROM scheduled_event
-      WHERE event_type = 'RETRY_PAYMENT' AND status IN ('PENDING', 'PROCESSING', 'FAILED')
+      WHERE event_type = 'RETRY_PAYMENT' AND status IN ('PENDING', 'PROCESSING')
       ORDER BY (event_data -> 'RetryPayment' ->> 'invoice_id')::uuid, scheduled_time DESC) e
-WHERE i.id = e.invoice_id;
+WHERE i.id = e.invoice_id AND i.status = 'FINALIZED' AND i.payment_status <> 'PAID';
+
+-- ── Reconcile watermark ──────────────────────────────────────────────────────────────────────
+-- The reconcile watermark. A period ending on or before `reconcile_from` was settled by the
+-- per-operation code: billing from facts never evaluates it again, and an issued line starting
+-- before it is never billed against. NULL: every period is billed from facts.
+
+ALTER TABLE subscription ADD COLUMN reconcile_from DATE;
+
+-- The start of the latest period whose recurring invoice is issued with no draft before it: every
+-- period ending by then was billed on an issued invoice. A draft still open is billed from facts.
+-- A consolidated child is issued with its parent, and is no draft once merged.
+UPDATE subscription s
+SET reconcile_from = w.settled
+FROM (SELECT i.subscription_id, max(i.billing_period_start) AS settled
+      FROM invoice i
+      LEFT JOIN invoice p ON p.id = i.consolidated_into_invoice_id
+      WHERE i.invoice_type = 'RECURRING'
+        AND i.subscription_id IS NOT NULL
+        AND CASE WHEN i.consolidated_into_invoice_id IS NULL
+                 THEN i.status IN ('FINALIZED', 'UNCOLLECTIBLE')
+                 ELSE p.status IN ('FINALIZED', 'UNCOLLECTIBLE') END
+        AND NOT EXISTS (SELECT 1 FROM invoice d
+                        WHERE d.subscription_id = i.subscription_id
+                          AND d.invoice_type = 'RECURRING'
+                          AND d.status = 'DRAFT'
+                          AND d.consolidated_into_invoice_id IS NULL
+                          AND d.billing_period_start <= i.billing_period_start)
+      GROUP BY i.subscription_id) w
+WHERE w.subscription_id = s.id;
+
+-- ── Price lineage ────────────────────────────────────────────────────────────────────────────
+-- A price's rates change only from a date, as a successor in its lineage (R-097): the row a
+-- component, add-on or subscription references is the lineage's root, never rewritten; each
+-- successor names it and the day its rates take over.
+
+ALTER TABLE price
+    ADD COLUMN effective_from DATE,
+    ADD COLUMN supersedes     UUID REFERENCES price (id) ON DELETE CASCADE,
+    ADD CONSTRAINT price_successor_is_dated CHECK ((supersedes IS NULL) = (effective_from IS NULL));
+
+CREATE INDEX price_supersedes_idx ON price (supersedes) WHERE supersedes IS NOT NULL;
+
+-- Every writer goes through a successor: a rate rewritten in place would re-rate every day billed
+-- from that price, issued ones included, so the database refuses it.
+CREATE FUNCTION price_rates_are_dated() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'price % rates cannot be edited in place: add a new price effective from a date instead', OLD.id
+        USING ERRCODE = 'check_violation';
+END $$;
+
+CREATE TRIGGER trg_price_rates_are_dated
+    BEFORE UPDATE OF pricing, cadence, currency, credit_unit_id, credit_unit_rate ON price
+    FOR EACH ROW
+    WHEN (OLD.pricing IS DISTINCT FROM NEW.pricing
+          OR OLD.cadence IS DISTINCT FROM NEW.cadence
+          OR OLD.currency IS DISTINCT FROM NEW.currency
+          OR OLD.credit_unit_id IS DISTINCT FROM NEW.credit_unit_id
+          OR OLD.credit_unit_rate IS DISTINCT FROM NEW.credit_unit_rate)
+    EXECUTE FUNCTION price_rates_are_dated();
+
+-- ── Next wake ────────────────────────────────────────────────────────────────────────────────
+-- When the facts next change a subscription's derived state (a plan window
+-- opening, a boundary, a trial end, an ending), written by `lifecycle::derived::derive_state_tx`.
+-- The billing controller wakes the customer then. NULL: nothing to derive until a fact changes.
+
+ALTER TABLE subscription ADD COLUMN next_wake_at TIMESTAMPTZ;
+
+CREATE INDEX subscription_next_wake_at_idx ON subscription (tenant_id, customer_id, next_wake_at)
+    WHERE next_wake_at IS NOT NULL;
+
+-- ── Imports' watermark ───────────────────────────────────────────────────────────────────────
+-- An import was billed elsewhere up to its import period, that period's advance included, and
+-- owes that period's arrears and usage at its first renewal. `reconcile_arrears_from` is the
+-- watermark of what a period bills at its end, earlier than `reconcile_from` for an import.
+-- An import with no issued recurring invoice settles through its current period, or through
+-- its first renewal's period when that is still a draft; one renewed on main keeps the
+-- watermark of its issued invoices.
+
+ALTER TABLE subscription ADD COLUMN reconcile_arrears_from DATE;
+
+-- ── Billing failures ─────────────────────────────────────────────────────────────────────────
+-- A subscription whose billing step fails, backed off on its own (its customer's other work goes
+-- on): the failures in a row, the first and the latest, the latest error and the retry. Cleared
+-- by the next step that takes. Never a status: billing is retried forever.
+ALTER TABLE subscription
+    ADD COLUMN billing_failures        INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN billing_first_failed_at TIMESTAMPTZ,
+    ADD COLUMN billing_last_failed_at  TIMESTAMPTZ,
+    ADD COLUMN billing_last_error      TEXT,
+    ADD COLUMN billing_retry_at        TIMESTAMPTZ;
+
+CREATE INDEX subscription_billing_failing_idx ON subscription (tenant_id, billing_last_failed_at)
+    WHERE billing_failures > 0;
+
+UPDATE subscription s
+SET reconcile_from         = COALESCE(d.first_renewal, s.current_period_end),
+    reconcile_arrears_from = CASE WHEN d.first_renewal IS NULL THEN s.current_period_start
+                                  ELSE (s.imported_at - interval '1 day')::date END
+FROM (SELECT s2.id,
+             (SELECT min(i.billing_period_start) FROM invoice i
+              WHERE i.subscription_id = s2.id AND i.invoice_type = 'RECURRING'
+                AND i.status <> 'VOID') AS first_renewal
+      FROM subscription s2
+      WHERE s2.imported_at IS NOT NULL AND s2.reconcile_from IS NULL) d
+WHERE d.id = s.id
+  AND (d.first_renewal IS NOT NULL OR s.current_period_end IS NOT NULL);
+
+-- ── Seat upgrade lines ───────────────────────────────────────────────────────────────────────
+-- Seat purchases the previous release invoiced name their price component but no fee row, so
+-- reconcile reads their seats as unbilled. In periods still open, each such line names the seat
+-- row of its subscription in force on its start.
+WITH attached AS (
+    SELECT DISTINCT ON (i.id, e.ord) i.id AS invoice_id, e.ord, c.id AS component_id
+    FROM invoice i
+    CROSS JOIN LATERAL jsonb_array_elements(i.line_items) WITH ORDINALITY AS e(l, ord)
+    JOIN subscription_component c
+      ON c.subscription_id = coalesce((e.l ->> 'subscription_id')::uuid, i.subscription_id)
+     AND c.price_component_id = (e.l ->> 'price_component_id')::uuid
+     AND c.effective_from <= (e.l ->> 'start_date')::date
+     AND (c.effective_to IS NULL OR c.effective_to > (e.l ->> 'start_date')::date)
+    JOIN product p ON p.id = c.product_id AND p.fee_type = 'SLOT'
+    WHERE e.l ->> 'sub_component_id' IS NULL
+      AND e.l ->> 'sub_add_on_id' IS NULL
+      AND coalesce(e.l ->> 'kind', 'Regular') = 'Regular'
+      AND (e.l ->> 'end_date')::date >= CURRENT_DATE
+    ORDER BY i.id, e.ord, c.effective_from DESC
+)
+UPDATE invoice i
+SET line_items = (SELECT jsonb_agg(CASE WHEN a.component_id IS NULL THEN e.l
+                                        ELSE e.l || jsonb_build_object('sub_component_id', a.component_id)
+                                   END ORDER BY e.ord)
+                  FROM jsonb_array_elements(i.line_items) WITH ORDINALITY AS e(l, ord)
+                  LEFT JOIN attached a ON a.invoice_id = i.id AND a.ord = e.ord)
+WHERE i.id IN (SELECT invoice_id FROM attached);
+
+-- ── Checkout session coupons before a payment ────────────────────────────────────────────────
+-- Named for what they hold: a session's coupons before a payment attempt changed them. A pod of the
+-- release before reads and writes the session by the old names, so its checkout fails at its
+-- first read of the session, before charging a card for a subscription it could no longer record.
+ALTER TABLE checkout_session RENAME COLUMN pre_payment_coupon_code TO coupon_code_before_payment;
+ALTER TABLE checkout_session RENAME COLUMN pre_payment_coupon_ids TO coupon_ids_before_payment;
+
+-- ── Subscription changes ─────────────────────────────────────────────────────────────────────
+-- A plan change or amendment still to come: its identity (the API withdraws it by id), its
+-- request and the rows it wrote as facts (withdrawing it removes them; a Switch row naming it marks
+-- it applied). The changes the previous release left pending are written here, ids kept.
+CREATE TYPE "SubscriptionChangeKindEnum" AS ENUM ('PLAN_CHANGE', 'AMENDMENT');
+
+CREATE TABLE subscription_change (
+    id                  UUID                         PRIMARY KEY,
+    tenant_id           UUID                         NOT NULL REFERENCES tenant (id) ON DELETE CASCADE,
+    subscription_id     UUID                         NOT NULL REFERENCES subscription (id) ON DELETE CASCADE,
+    kind                "SubscriptionChangeKindEnum" NOT NULL,
+    effective_at        TIMESTAMP                    NOT NULL,
+    -- The request, in its ScheduledEventData form ({"ApplyPlanChange": ...}).
+    change              JSONB                        NOT NULL,
+    -- The rows it wrote as facts (`facts::pending::WrittenFacts`).
+    written_facts       JSONB,
+    withdrawn_at        TIMESTAMP,
+    withdrawn_reason    TEXT,
+    source              TEXT                         NOT NULL,
+    created_by_customer BOOLEAN                      NOT NULL DEFAULT FALSE,
+    actor_type          "ActorTypeEnum"              NOT NULL DEFAULT 'SYSTEM',
+    actor_uuid          UUID,
+    actor_alias         TEXT,
+    created_at          TIMESTAMP                    NOT NULL,
+    updated_at          TIMESTAMP                    NOT NULL
+);
+CREATE INDEX idx_subscription_change_subscription_id ON subscription_change (subscription_id);
+CREATE INDEX idx_subscription_change_tenant_id ON subscription_change (tenant_id);
+
+-- A change whose facts are written and whose documents are not: the billing controller settles
+-- it (its adjustment invoice and notes) when the facts make that day's adjustment due, then
+-- deletes the row. Written for a change the previous release left pending inside a period.
+CREATE TABLE subscription_settlement_due (
+    subscription_id UUID                         NOT NULL REFERENCES subscription (id) ON DELETE CASCADE,
+    effective_on    DATE                         NOT NULL,
+    tenant_id       UUID                         NOT NULL REFERENCES tenant (id) ON DELETE CASCADE,
+    kind            "SubscriptionChangeKindEnum" NOT NULL,
+    created_at      TIMESTAMPTZ                  NOT NULL DEFAULT now(),
+    PRIMARY KEY (subscription_id, effective_on)
+);
+CREATE INDEX idx_subscription_settlement_due_tenant_id ON subscription_settlement_due (tenant_id);
+
+-- A pending cancellation has an identity of its own.
+ALTER TABLE subscription_ending ADD COLUMN id UUID NOT NULL DEFAULT gen_random_uuid();
+ALTER TABLE subscription_ending ADD CONSTRAINT subscription_ending_id_key UNIQUE (id);

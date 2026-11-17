@@ -22,7 +22,6 @@ use common_domain::ids::CouponId;
 use common_domain::ids::{
     CustomerId, InvoicingEntityId, PlanId, PlanVersionId, QuoteId, SubscriptionId, TenantId,
 };
-use diesel_models::enums::CycleActionEnum;
 use diesel_models::subscriptions::SubscriptionRowNew;
 use diesel_models::subscriptions::{SubscriptionForDisplayRow, SubscriptionRow};
 use o2o::o2o;
@@ -224,10 +223,33 @@ pub enum CyclePosition {
     End,
 }
 
+/// Billing failures in a row past which a failure shows in the API and alerts.
+pub const BILLING_FAILURES_SHOWN: i32 = 5;
+
+/// The subscription's billing failures in a row once they reach the alert's threshold, else 0.
+fn shown_failures(row: &SubscriptionRow) -> i32 {
+    if row.billing_failures >= BILLING_FAILURES_SHOWN {
+        row.billing_failures
+    } else {
+        0
+    }
+}
+
 impl TryFrom<SubscriptionForDisplayRow> for Subscription {
     type Error = StoreErrorReport;
 
     fn try_from(val: SubscriptionForDisplayRow) -> Result<Self, Self::Error> {
+        let failures = shown_failures(&val.subscription);
+        let period: BillingPeriodEnum = val.subscription.period.into();
+        // Whole periods since billing started: what the invoice code reads as its cycle.
+        let cycle_index = val.subscription.billing_start_date.map(|billing_start| {
+            crate::utils::periods::calculate_elapsed_cycles(
+                billing_start,
+                val.subscription.current_period_start,
+                &period,
+                u32::from(val.subscription.billing_day_anchor.unsigned_abs()),
+            )
+        });
         Ok(Subscription {
             id: val.subscription.id,
             customer_id: val.subscription.customer_id,
@@ -252,7 +274,7 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
             invoice_threshold: val.subscription.invoice_threshold,
             activated_at: val.subscription.activated_at,
             mrr_cents: val.subscription.mrr_cents as u64,
-            period: val.subscription.period.into(),
+            period,
             pending_checkout: val.subscription.pending_checkout,
             activation_condition: val.subscription.activation_condition.into(),
             current_period_start: val.subscription.current_period_start,
@@ -262,14 +284,20 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
                 .conn_meta
                 .map(TryInto::try_into)
                 .transpose()?,
-            cycle_index: val.subscription.cycle_index.map(|x| x as u32),
+            cycle_index,
             status: val.subscription.status.into(),
             charge_automatically: val.subscription.charge_automatically,
             auto_advance_invoices: val.subscription.auto_advance_invoices,
             purchase_order: val.subscription.purchase_order,
-            error_count: val.subscription.error_count,
-            last_error: val.subscription.last_error,
-            next_retry: val.subscription.next_retry,
+            // A billing failure shows once it repeats: the first ones retry within the hour.
+            error_count: failures,
+            last_error: (failures > 0)
+                .then_some(val.subscription.billing_last_error)
+                .flatten(),
+            next_retry: (failures > 0)
+                .then_some(val.subscription.billing_retry_at)
+                .flatten()
+                .map(|at| at.naive_utc()),
             quote_id: val.subscription.quote_id,
             payment_methods_config: val
                 .subscription
@@ -351,10 +379,8 @@ pub struct SubscriptionNewEnriched<'a> {
     pub status: SubscriptionStatusEnum,
     pub current_period_start: NaiveDate,
     pub current_period_end: Option<NaiveDate>,
-    pub next_cycle_action: Option<CycleActionEnum>,
     pub activated_at: Option<NaiveDateTime>,
     pub net_terms: u32,
-    pub cycle_index: Option<u32>,
     pub quote_id: Option<QuoteId>,
     /// Effective trial duration: uses request override if provided, otherwise plan's trial_duration_days
     pub effective_trial_duration: Option<u32>,
@@ -408,8 +434,6 @@ impl SubscriptionNewEnriched<'_> {
             status: self.status.clone().into(),
             current_period_start: self.current_period_start,
             current_period_end: self.current_period_end,
-            next_cycle_action: self.next_cycle_action.clone(),
-            cycle_index: self.cycle_index.map(|i| i as i32),
             charge_automatically: sub.charge_automatically,
             auto_advance_invoices: sub.auto_advance_invoices,
             purchase_order: sub.purchase_order.clone(),

@@ -161,6 +161,53 @@ async fn a_void_at_a_past_moment_lapses_only_credit_due_by_then() {
     h.check().await;
 }
 
+/// Scale's welcome credit, lapsing Nov 30, paid 5000 of October's renewal; a 10000 top-up was paid
+/// on Nov 5 and 12000 of usage came on Nov 10. Voided after the lapse, the renewal gives the 5000
+/// back, which settles that usage at its lapse with the top-up's 7000 (R10, D3, R-088).
+#[tokio::test]
+async fn a_void_giving_back_lapsed_credit_settles_the_usage_before_its_lapse() {
+    let h = Halyard::new().await;
+    let customer = h.customer("Untaxed", Tax::Untaxed).await;
+    let (sub, _) = h.subscribe(customer, h.scale, day(9, 1)).await;
+    h.tokens(customer, at_time(9, 10, 10, 0, 0), STANDARD, 6 * M);
+    let october = h.renew(sub, at(10, 1)).await.expect("INV-2");
+    assert_eq!(money(&october), (57_200, 0, 5_000, 0, 52_200, 0, 52_200));
+    h.renew(sub, at(11, 1)).await.expect("INV-3");
+    let top_up = credit_sale(&h, customer, 10_000, at(11, 5)).await;
+    h.pay(top_up.id, at(11, 5)).await;
+    h.tokens(customer, at_time(11, 10, 10, 0, 0), STANDARD, 10 * M);
+    h.sweep(customer, at_time(11, 30, 1, 0, 0)).await;
+
+    h.store()
+        .void_invoice_at(
+            Actor::System,
+            october.id,
+            h.tenant,
+            at_time(11, 30, 14, 0, 0),
+        )
+        .await
+        .expect("voided");
+    let grants = h.grants(customer).await;
+    assert_eq!(
+        expiring(&grants, "INCLUDED_CREDIT", at(11, 30)).remaining,
+        0
+    );
+    assert_eq!(
+        grant(&grants, "CREDIT_PURCHASE", "PAID", 10_000).remaining,
+        3_000,
+        "{:?}",
+        summary(&grants)
+    );
+    let december = h.renew(sub, at(12, 1)).await.expect("INV-4");
+    assert_eq!(
+        money(&december),
+        (62_000, 0, 5_000, 0, 57_000, 7_000, 50_000),
+        "{:?}",
+        lines(&december)
+    );
+    h.check().await;
+}
+
 /// A refund note dates its reversal when it is made (now), so the renewal's draw on the same
 /// top-up is dated then too; a void at a past business moment gives that draw back no earlier
 /// than it, so the top-up's running balance never exceeds its face.
@@ -264,19 +311,20 @@ async fn a_late_pack_is_credited_back_what_credit_spent_on_an_earlier_period_cou
     let top_up = credit_sale(&h, customer, 5_000, at_time(9, 19, 14, 0, 0)).await;
     h.pay(top_up.id, at_time(9, 19, 14, 0, 0)).await;
     h.services()
-        .cancel_subscription(
+        .cancel_subscription_at(
             Actor::System,
             sub,
             h.tenant,
             None,
             CancellationEffectiveAt::Date(day(10, 16)),
+            at_time(9, 19, 15, 0, 0),
         )
         .await
         .expect("cancelled at the period end");
     // The final invoice bills September's usage; the credit paid it.
     h.renew(sub, at(10, 16)).await;
     h.services()
-        .get_and_process_due_events()
+        .run_invoice_deadlines()
         .await
         .expect("due events");
 

@@ -10,7 +10,7 @@ use rstest::rstest;
 
 use crate::data::ids::*;
 use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
-use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
+use diesel_models::enums::SubscriptionStatusEnum;
 use meteroid_store::domain::subscription_trial::EffectivePlanSource;
 
 // =============================================================================
@@ -251,7 +251,7 @@ async fn test_oncheckout_free_trial_auto_charge_no_payment_method_expires(
 ///
 /// Key insight: Paid trials decouple billing from trial status.
 /// - Billing: normal monthly cycle (RenewSubscription)
-/// - Trial status: handled by scheduled EndTrial event
+/// - Trial status: derived from the trial fact at its end
 ///
 /// Timeline for 7-day paid trial with monthly billing starting Jan 1:
 /// - Day 0 (Jan 1): Invoice 1 created, status = TrialActive
@@ -280,7 +280,6 @@ async fn test_onstart_paid_trial_billing_cycle(#[future] test_env: TestEnv) {
     sub.assert()
         .with_context("Initial state")
         .is_trial_active()
-        .has_next_action(Some(CycleActionEnum::RenewSubscription)) // Paid trial uses normal billing
         .has_trial_duration(Some(7))
         .has_cycle_index(0);
 
@@ -606,9 +605,6 @@ async fn test_oncheckout_trial_with_payment_method_becomes_active(#[future] test
 ///
 /// The trial spans approximately 3 billing periods. After 4 process_cycles calls,
 /// we should have 4 invoices total.
-///
-/// BUG: Currently one invoice is missing because EndTrial incorrectly sets
-/// should_bill=false for paid trials, skipping the invoice at trial end.
 #[rstest]
 #[tokio::test]
 async fn test_paid_trial_90_days_generates_all_invoices(#[future] test_env: TestEnv) {
@@ -630,13 +626,12 @@ async fn test_paid_trial_90_days_generates_all_invoices(#[future] test_env: Test
 
     // === Initial state: TrialActive with 1 invoice ===
     // Paid trial bills immediately at creation
-    // Note: Paid trials use RenewSubscription (not EndTrial) for billing cycles
+    // Note: A paid trial bills its periods from its start, as without a trial
     // Trial end is handled via scheduled event, not cycle action
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
         .with_context("Initial state")
         .has_status(SubscriptionStatusEnum::TrialActive)
-        .has_next_action(Some(CycleActionEnum::RenewSubscription)) // Paid trial uses normal renewal
         .has_trial_duration(Some(90))
         .has_cycle_index(0);
 
@@ -738,9 +733,9 @@ async fn test_paid_free_trial_90_days_generates_all_invoices(#[future] test_env:
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
         .with_context("Initial state")
-        .is_trial_active() // Free trial uses EndTrial action
-        .has_trial_duration(Some(90))
-        .has_cycle_index(0);
+        .is_trial_active() // a free trial bills nothing until its end
+        .has_trial_duration(Some(90));
+    assert_eq!(env.billed_cycle(sub_id).await, 0);
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(0); // No invoice during free trial
@@ -749,10 +744,8 @@ async fn test_paid_free_trial_90_days_generates_all_invoices(#[future] test_env:
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert()
-        .with_context("After trial ends")
-        .is_active()
-        .has_cycle_index(0);
+    sub.assert().with_context("After trial ends").is_active();
+    assert_eq!(env.billed_cycle(sub_id).await, 0);
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(1);

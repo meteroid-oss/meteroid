@@ -12,7 +12,6 @@ use rstest::rstest;
 
 use crate::data::ids::*;
 use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
-use diesel_models::enums::CycleActionEnum;
 use meteroid_store::domain::connectors::MockChargeBehavior;
 use meteroid_store::domain::enums::{InvoiceStatusEnum, PaymentStatusEnum};
 
@@ -168,11 +167,11 @@ async fn test_free_trial_with_checkout_auto_charges_at_trial_end(#[future] test_
         .has_resolved_payment_method(&env, true)
         .await;
 
-    // Process trial end → TrialExpired (OnCheckout waits for payment success)
+    // Process trial end → Active: its checkout settled the start during the trial
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert().is_trial_expired().has_pending_checkout(false);
+    sub.assert().is_active().has_pending_checkout(false);
 
     // Invoice created, now process payment
     let invoices = env.get_invoices(sub_id).await;
@@ -308,7 +307,6 @@ async fn test_oncheckout_paid_trial_full_flow(#[future] test_env: TestEnv) {
     sub.assert()
         .with_context("Phase 2: After checkout")
         .is_trial_active()
-        .has_next_action(Some(CycleActionEnum::RenewSubscription)) // Paid trial = normal billing
         .has_pending_checkout(false)
         .has_trial_duration(Some(7))
         .has_cycle_index(0);

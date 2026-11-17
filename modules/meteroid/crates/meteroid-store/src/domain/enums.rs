@@ -697,34 +697,24 @@ pub enum StoredObjectKindEnum {
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[map_owned(diesel_enums::SubscriptionStatusEnum)]
 pub enum SubscriptionStatusEnum {
-    PendingActivation, // before trial
-    PendingCharge,     // after billing start date, while awaiting payment
+    PendingActivation, // before its start, or awaiting a checkout start
     TrialActive,
     Active,
-    TrialExpired, // trial ended on paid plan without payment method
-    Paused,
-    Suspended, // due to non-payment
+    TrialExpired, // free trial ended with its checkout start not settled
     Cancelled,
     Aborted, // cancelled before ever activating
     Completed,
-    Superseded, // upgrade/downgrade
-    Errored,    // failed to process after max retries
 }
 impl SubscriptionStatusEnum {
     pub fn as_screaming_snake_case(&self) -> String {
         match self {
             SubscriptionStatusEnum::PendingActivation => "PENDING_ACTIVATION",
-            SubscriptionStatusEnum::PendingCharge => "PENDING_CHARGE",
             SubscriptionStatusEnum::TrialActive => "TRIAL_ACTIVE",
             SubscriptionStatusEnum::Active => "ACTIVE",
             SubscriptionStatusEnum::TrialExpired => "TRIAL_EXPIRED",
-            SubscriptionStatusEnum::Paused => "PAUSED",
-            SubscriptionStatusEnum::Suspended => "SUSPENDED",
             SubscriptionStatusEnum::Cancelled => "CANCELLED",
             SubscriptionStatusEnum::Aborted => "ABORTED",
             SubscriptionStatusEnum::Completed => "COMPLETED",
-            SubscriptionStatusEnum::Superseded => "SUPERSEDED",
-            SubscriptionStatusEnum::Errored => "ERRORED",
         }
         .to_string()
     }
@@ -736,45 +726,31 @@ impl SubscriptionStatusEnum {
             SubscriptionStatusEnum::Cancelled
                 | SubscriptionStatusEnum::Aborted
                 | SubscriptionStatusEnum::Completed
-                | SubscriptionStatusEnum::Superseded
-                | SubscriptionStatusEnum::Errored
         )
     }
 
-    /// True while the subscription settles its current period early instead of renewing: every
-    /// status `terminate_subscription` applies — the terminal states plus `Paused`. Such a period
-    /// has elapsed, so an empty arrears invoice for it is still a valid finalization anchor.
-    /// Keep in sync with the states passed to `terminate_subscription`.
-    ///
-    /// `Paused` is the one non-terminal state here, and it is only safe while there is no resume
-    /// path: a Closed anchor is terminal and `invoice_subscription_recurring_period_unique` admits
-    /// it, so resuming onto the same date could not re-bill that period. Revisit when resume lands.
+    /// True once the subscription ended its current period early instead of renewing: that
+    /// period has elapsed, so an empty arrears invoice for it is still a valid finalization anchor.
     pub fn settles_period_early(&self) -> bool {
-        self.is_terminal() || matches!(self, SubscriptionStatusEnum::Paused)
+        self.is_terminal()
     }
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[map_owned(diesel_enums::ScheduledEventTypeEnum)]
+/// What a subscription has pending: a change written ahead as facts, or its cancellation.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum ScheduledEventTypeEnum {
-    FinalizeInvoice,
-    RetryPayment,
     ApplyPlanChange,
     CancelSubscription,
-    PauseSubscription,
-    EndTrial,
     ApplyAmendment,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[map_owned(diesel_enums::ScheduledEventStatus)]
-pub enum ScheduledEventStatus {
-    Pending,
-    Processing,
-    Completed,
-    Failed,
-    Canceled,
-    Migrated,
+impl From<diesel_enums::SubscriptionChangeKindEnum> for ScheduledEventTypeEnum {
+    fn from(kind: diesel_enums::SubscriptionChangeKindEnum) -> Self {
+        match kind {
+            diesel_enums::SubscriptionChangeKindEnum::PlanChange => Self::ApplyPlanChange,
+            diesel_enums::SubscriptionChangeKindEnum::Amendment => Self::ApplyAmendment,
+        }
+    }
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
@@ -945,19 +921,11 @@ mod tests {
         }
     }
 
-    /// Must cover every status `terminate_subscription` applies — terminal states AND `Paused` —
-    /// or a paused/cancelled first period silently loses late usage. Guards against a future
-    /// "simplification" back to `is_terminal()` alone.
+    /// Every ending status settles its period early, or a cancelled first period silently loses
+    /// late usage.
     #[test]
-    fn settles_period_early_covers_terminal_and_paused() {
-        for status in [
-            S::Cancelled,
-            S::Completed,
-            S::Aborted,
-            S::Superseded,
-            S::Errored,
-            S::Paused,
-        ] {
+    fn settles_period_early_covers_every_ending() {
+        for status in [S::Cancelled, S::Completed, S::Aborted] {
             assert!(
                 status.settles_period_early(),
                 "{status:?} ends its current period early and must anchor an empty arrears period"
@@ -966,7 +934,6 @@ mod tests {
 
         for status in [
             S::PendingActivation,
-            S::PendingCharge,
             S::TrialActive,
             S::Active,
             S::TrialExpired,

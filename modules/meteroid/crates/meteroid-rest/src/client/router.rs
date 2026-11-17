@@ -14,15 +14,12 @@ use meteroid_store::domain::enums::SubscriptionStatusEnum;
 use meteroid_store::repositories::SubscriptionInterface;
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 
-/// Terminal subscriptions (cancelled, completed, superseded…) are left out.
-const CURRENT_SUBSCRIPTION_STATUSES: [SubscriptionStatusEnum; 7] = [
+/// Terminal subscriptions (cancelled, completed, aborted) are left out.
+const CURRENT_SUBSCRIPTION_STATUSES: [SubscriptionStatusEnum; 4] = [
     SubscriptionStatusEnum::PendingActivation,
-    SubscriptionStatusEnum::PendingCharge,
     SubscriptionStatusEnum::TrialActive,
     SubscriptionStatusEnum::Active,
     SubscriptionStatusEnum::TrialExpired,
-    SubscriptionStatusEnum::Paused,
-    SubscriptionStatusEnum::Suspended,
 ];
 
 const MAX_SUBSCRIPTIONS: u32 = 100;

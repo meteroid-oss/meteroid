@@ -2186,6 +2186,8 @@ async fn test_immediate_cancellation_bills_only_partial_current_period() {
     let env =
         test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(MockUsageClient { data })).await;
     let mut conn = env.conn().await;
+    // The cancellation is requested on the day it ends from.
+    env.set_now(feb16.and_hms_opt(9, 0, 0).unwrap().and_utc());
 
     diesel::insert_into(diesel_models::schema::plan_version_adjustment::table)
         .values(&PlanVersionAdjustmentRowNew {
@@ -2385,6 +2387,8 @@ async fn test_immediate_cancellation_holds_prorated_minimum(#[future] test_env: 
     let start_date = NaiveDate::from_ymd_opt(2024, 4, 1).unwrap();
     let cancel_date = NaiveDate::from_ymd_opt(2024, 4, 16).unwrap(); // 15 of 30 days served
     let prorated_minimum = minimum_subunit / 2;
+    // The cancellation is requested on the day it ends from.
+    env.set_now(cancel_date.and_hms_opt(9, 0, 0).unwrap().and_utc());
 
     let sub_id = subscription()
         .plan_version(PLAN_VERSION_STARTER_ID)

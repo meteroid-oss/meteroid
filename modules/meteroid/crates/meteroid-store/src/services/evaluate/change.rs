@@ -6,7 +6,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use billing_core::charge::{ChargeKey, ChargeKind, Fee};
 use billing_core::evaluate::{Charge, DocumentSlot, Evaluation, evaluate};
-use billing_core::facts::{Billing, Facts, FeeFact, SeatStep};
+use billing_core::facts::{Billing, DatedFact, Facts, FeeFact, SeatStep};
 use billing_core::issued::IssuedLine;
 use billing_core::reconcile::{Adjustment, Expected, TakeBack, reconcile};
 use chrono::{DateTime, NaiveDate, Utc};
@@ -18,7 +18,7 @@ use error_stack::Report;
 use rust_decimal::Decimal;
 
 use super::bill::{Decision, as_written, decide, lineages_of, midnight, render, row_of};
-use super::issued::{Issued, load_billed};
+use super::issued::{Issued, load_billed, noted_from};
 use super::load::{Overlay, load_facts_with};
 use super::pricer::{StoreFee, StorePricer};
 use crate::StoreResult;
@@ -194,12 +194,12 @@ fn touched(facts: &Facts<StoreFee>, change: &Change) -> BTreeSet<Fee> {
                     .map(|step| step.lineage.clone()),
             )
             .collect(),
-        // An ending reaches every fee in force from its day on: one a later change opened,
-        // already billed when the ending is backdated before it, too.
+        // A one-time row a change closed on its day lives that day (R-093); an ending reaches
+        // every fee from its day on, one a later change opened too, when backdated before it.
         Touched::Ended => facts
             .fees
             .iter()
-            .filter(|row| row.to.is_none_or(|to| to > on))
+            .filter(|row| row.window().contains(on) || row.from > on)
             .map(|row| row.lineage.clone())
             .collect(),
     }
@@ -222,9 +222,14 @@ pub(in crate::services) struct Hypothesis {
 
 /// `facts` with `bought` held from `on`, on top of the seats its fee holds that day.
 fn with_bought(facts: &mut Facts<StoreFee>, bought: &Bought, on: NaiveDate) {
-    let held = facts
-        .seats_on(&bought.lineage, on)
-        .map_or(0, |step| step.quantity);
+    let (held, removed_at_renewal) = facts.seats_on(&bought.lineage, on).map_or((0, 0), |step| {
+        let today = if step.at == on {
+            step.removed_at_renewal
+        } else {
+            0
+        };
+        (step.quantity, today)
+    });
     facts
         .seats
         .retain(|step| !(step.lineage == bought.lineage && step.at == on));
@@ -233,6 +238,7 @@ fn with_bought(facts: &mut Facts<StoreFee>, bought: &Bought, on: NaiveDate) {
         lineage: bought.lineage.clone(),
         at: on,
         quantity: held.saturating_add(bought.seats),
+        removed_at_renewal,
     });
 }
 
@@ -270,6 +276,7 @@ struct Planned {
 /// Each fixed charge of the `touched` fees from the change on, against the lines billing it: owed,
 /// on the change's `own` documents up to what it puts there; owed back, from the lines, a pack's
 /// left to its credit's settlement (OQ1). A period the change ends entirely owes nothing (R-080).
+#[allow(clippy::too_many_arguments)]
 fn plan(
     evaluation: &Evaluation,
     issued: &[IssuedLine],
@@ -277,7 +284,10 @@ fn plan(
     change: &Change,
     own: &[DocumentSlot],
     watermark: Option<NaiveDate>,
+    noted: &HashMap<String, Vec<(NaiveDate, i64)>>,
     read: &[UsagePeriod],
+    drafts: &BTreeSet<String>,
+    ending: Option<NaiveDate>,
 ) -> Planned {
     let on = change.on;
     // A line of a period the watermark settled is no charge's, whatever longer period holds it.
@@ -306,13 +316,19 @@ fn plan(
     let renewal_bills = |charge: &Charge| {
         !change.documents && change.touched == Touched::Changed && charge.window.0 >= on
     };
+    // The usage a change reads is what it ends on its day's invoice, written before it (R-011).
+    let riding_usage = |charge: &Charge| {
+        change.touched == Touched::Changed
+            && matches!(charge.key.kind, ChargeKind::Usage { .. })
+            && charge.document == DocumentSlot::Recurring { period_start: on }
+    };
     for charge in &evaluation.charges {
         let key = &charge.key;
         if !touched.contains(&key.fee)
-            || !fixed(&key.kind)
+            || !(fixed(&key.kind) || riding_usage(charge))
             || renewal_bills(charge)
             || charge.is_commitment()
-            || (key.from < on && key.until <= on)
+            || (key.from < on && key.until <= on && !riding_usage(charge))
         {
             continue;
         }
@@ -333,7 +349,10 @@ fn plan(
             .charges
             .iter()
             .any(|charge| charge.key == line.key);
+        // A one-time fee's line, keyed on its day, is given back by an ending alone (R-093, R-016).
+        let one_time = line.key.from == line.key.until && change.touched == Touched::Changed;
         let unowed = !line.voided
+            && !one_time
             && touched.contains(&line.key.fee)
             && line.key.kind == ChargeKind::Fee
             && (line.key.from >= on || orphan)
@@ -421,7 +440,12 @@ fn plan(
             && let Decision::Bill(owed) = decide(
                 charge,
                 &lines,
-                watermark.map(|w| (w, owed_since(evaluation, &charge.key, w))),
+                watermark.map(|w| {
+                    (
+                        w,
+                        owed_since(evaluation, &charge.key, w) + noted_from(noted, &lines, w),
+                    )
+                }),
                 false,
             )
         {
@@ -434,13 +458,33 @@ fn plan(
         if charge.key.kind == ChargeKind::Credit {
             continue;
         }
-        // Usage billed past a cutoff has no unused time: it comes back from the latest lines.
+        // Usage billed past a cutoff has no unused time: it comes back from the latest lines. A
+        // fee an ending cut gives back its unused days past it whichever change settles it, so a
+        // void's share stays the one the ending forgave (R-096).
         let take_back = match charge.key.kind {
             ChargeKind::Usage { .. } => TakeBack::LatestFirst,
-            _ => take_back,
+            _ => match ending.filter(|end| {
+                change.touched == Touched::Changed
+                    && charge.key.from < *end
+                    && *end < charge.key.until
+                    && evaluation
+                        .charges
+                        .iter()
+                        .any(|c| c.key == charge.key && c.window.1 == *end)
+            }) {
+                Some(end) => TakeBack::Unused(end),
+                None => take_back,
+            },
         };
-        for adjustment in reconcile(std::slice::from_ref(charge), &lines, take_back) {
+        let adjustments = reconcile(std::slice::from_ref(charge), &lines, take_back);
+        // A share falling on a draft's line waits for that draft to be issued (R-078): the
+        // charge's other lines wait with it, as their share is split against the draft's.
+        let waits = adjustments.iter().any(|adjustment| {
+            matches!(adjustment, Adjustment::Credit { line, .. } if drafts.contains(line))
+        });
+        for adjustment in adjustments {
             match adjustment {
+                Adjustment::Credit { .. } if waits => {}
                 Adjustment::Credit { line, amount } => planned.credits.push((line, amount)),
                 Adjustment::Short { key, amount } => planned.short.push((key, amount)),
                 Adjustment::Bill { .. } => {}
@@ -554,8 +598,10 @@ async fn with_usage_past_the_cutoff(
         .filter(|need| past.iter().any(|period| within(period, need)))
         .cloned()
         .collect();
+    // With no window left to read, each period is read whole: one wholly past the ending owes
+    // nothing, and its usage comes back.
     if needs.is_empty() {
-        return Ok((evaluation, Vec::new()));
+        return Ok((evaluation, past));
     }
     let reads = super::usage::read_usage(client, loaded, &needs).await?;
     let evaluation =
@@ -570,6 +616,42 @@ async fn with_usage_past_the_cutoff(
         })
         .collect();
     Ok((evaluation, read))
+}
+
+/// `evaluation` with the usage a change ends that its day's recurring invoice, written before it,
+/// did not bill: arrears of a fee off its own grid, which the change's adjustment bills (R-011).
+async fn with_usage_riding_on_its_day(
+    client: &dyn UsageClient,
+    loaded: &super::load::LoadedFacts,
+    evaluation: Evaluation,
+    issued: &[IssuedLine],
+    own: &[DocumentSlot],
+    change: &Change,
+) -> StoreResult<Evaluation> {
+    let its_day = DocumentSlot::Recurring {
+        period_start: change.on,
+    };
+    let billed_to_its_day = |fee: &Fee| {
+        issued.iter().any(|line| {
+            !line.voided
+                && line.key.fee == *fee
+                && matches!(line.key.kind, ChargeKind::Usage { .. })
+                && line.until == change.on
+        })
+    };
+    let needs: Vec<_> = evaluation
+        .usage_needed
+        .iter()
+        .filter(|need| {
+            need.document == its_day && own.contains(&its_day) && !billed_to_its_day(&need.fee)
+        })
+        .cloned()
+        .collect();
+    if needs.is_empty() {
+        return Ok(evaluation);
+    }
+    let reads = super::usage::read_usage(client, loaded, &needs).await?;
+    evaluate(&loaded.facts, change.at, Some(&reads), &StorePricer).map_err(pricing_error)
 }
 
 /// A change evaluated against what was issued.
@@ -624,13 +706,27 @@ async fn evaluated(
         billed.lines.retain(|on| !pending.contains(&on.invoice));
     }
     let issued: Vec<IssuedLine> = billed.lines.iter().map(|on| on.line.clone()).collect();
-    let mut read = Vec::new();
-    if let (Some(client), Touched::Ended) = (usage, change.touched) {
-        (evaluation, read) =
-            with_usage_past_the_cutoff(client, &loaded, evaluation, &issued, &touched, change)
-                .await?;
-    }
     let own = own_documents(conn, tenant_id, subscription_id, change).await?;
+    let mut read = Vec::new();
+    match (usage, change.touched) {
+        (Some(client), Touched::Ended) => {
+            (evaluation, read) =
+                with_usage_past_the_cutoff(client, &loaded, evaluation, &issued, &touched, change)
+                    .await?;
+        }
+        (Some(client), Touched::Changed) => {
+            evaluation =
+                with_usage_riding_on_its_day(client, &loaded, evaluation, &issued, &own, change)
+                    .await?;
+        }
+        (None, _) => {}
+    }
+    let drafts: BTreeSet<String> = billed
+        .lines
+        .iter()
+        .filter(|on| on.draft)
+        .map(|on| on.line.id.clone())
+        .collect();
     let planned = plan(
         &evaluation,
         &issued,
@@ -638,7 +734,10 @@ async fn evaluated(
         change,
         &own,
         loaded.facts.reconcile_from,
+        &billed.noted,
         &read,
+        &drafts,
+        loaded.facts.ending.map(|ending| ending.on()),
     );
     for (key, amount) in &planned.short {
         log::warn!(
@@ -848,6 +947,7 @@ pub(in crate::services) async fn change_documents(
     subscription_id: SubscriptionId,
     change: &Change,
     overlay: Option<&Overlay>,
+    usage: Option<&dyn UsageClient>,
 ) -> StoreResult<ChangeDocuments> {
     documents_of(
         conn,
@@ -856,6 +956,7 @@ pub(in crate::services) async fn change_documents(
         change,
         &Hypothesis::default(),
         overlay,
+        usage,
     )
     .await
 }
@@ -867,6 +968,7 @@ async fn documents_of(
     change: &Change,
     hypothesis: &Hypothesis,
     overlay: Option<&Overlay>,
+    usage: Option<&dyn UsageClient>,
 ) -> StoreResult<ChangeDocuments> {
     let Some(evaluated) = evaluated(
         conn,
@@ -875,7 +977,7 @@ async fn documents_of(
         change,
         hypothesis,
         overlay,
-        None,
+        usage,
     )
     .await?
     else {
@@ -960,6 +1062,33 @@ pub(in crate::services) async fn seat_purchase(
     ))
 }
 
+/// The period of `lineage` on its own grid holding `on`, as the facts bill it: a run carried
+/// through a change of the subscription's cadence keeps its own (R-084). None when no charge of
+/// the fee holds `on` (a free trial).
+pub(in crate::services) async fn fee_period_on(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    on: NaiveDate,
+    lineage: &Fee,
+) -> StoreResult<Option<(NaiveDate, NaiveDate)>> {
+    let mut loaded = load_facts_with(conn, tenant_id, subscription_id, on, None, None).await?;
+    as_written(&mut loaded.facts, midnight(on));
+    let evaluation =
+        evaluate(&loaded.facts, midnight(on), None, &StorePricer).map_err(pricing_error)?;
+    Ok(evaluation
+        .charges
+        .iter()
+        .filter(|charge| {
+            charge.key.fee == *lineage
+                && charge.key.kind == ChargeKind::Fee
+                && charge.key.from <= on
+                && on < charge.key.until
+        })
+        .map(|charge| (charge.key.from, charge.key.until))
+        .max())
+}
+
 /// What the add-ons `overlay` opens bill on its day's documents: the stubs of their own fees from
 /// the facts with their rows laid over (R-079, R-080), in the figures they are priced in, neither
 /// taxed nor covered. The rows are not written yet.
@@ -986,6 +1115,7 @@ pub(in crate::services) async fn add_on_purchase(
         &change,
         &hypothesis,
         Some(overlay),
+        None,
     )
     .await
 }
@@ -1170,9 +1300,15 @@ impl Services {
     ) -> StoreResult<(Option<InvoiceId>, Vec<common_domain::ids::CreditNoteId>)> {
         // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
         Box::pin(async move {
-            let documents =
-                change_documents(conn, subscription.tenant_id, subscription.id, change, None)
-                    .await?;
+            let documents = change_documents(
+                conn,
+                subscription.tenant_id,
+                subscription.id,
+                change,
+                None,
+                Some(self.usage_client.as_ref()),
+            )
+            .await?;
             let mut invoices: Vec<InvoiceId> =
                 documents.credits.iter().map(|(id, _)| *id).collect();
             invoices.sort_by_key(|id| id.as_uuid());
@@ -1288,6 +1424,7 @@ mod tests {
             start: Start {
                 date: start,
                 settled: Some(midnight(start)),
+                checkout: false,
             },
             trial: None,
             plan_windows: vec![PlanWindow {
@@ -1304,6 +1441,9 @@ mod tests {
             ending,
             end_date: None,
             reconcile_from: None,
+            arrears_from: None,
+            ending_recorded: None,
+            ending_day_invoiced: false,
         }
     }
 
@@ -1352,7 +1492,10 @@ mod tests {
             change,
             own,
             facts.reconcile_from,
+            &HashMap::new(),
             &[],
+            &BTreeSet::new(),
+            facts.ending.map(|ending| ending.on()),
         )
     }
 
@@ -1544,6 +1687,7 @@ mod tests {
             lineage: lineage(n),
             at,
             quantity,
+            removed_at_renewal: 0,
         }
     }
 
@@ -1564,8 +1708,66 @@ mod tests {
         let change = Change::of_rows(on, GiveBack::LatestFirst, "seats");
         let evaluation = evaluate(&facts, change.at, None, &StorePricer).unwrap();
         let touched = BTreeSet::from([bought.lineage.clone()]);
-        let planned = plan(&evaluation, lines, &touched, &change, own, None, &[]);
+        let planned = plan(
+            &evaluation,
+            lines,
+            &touched,
+            &change,
+            own,
+            None,
+            &HashMap::new(),
+            &[],
+            &BTreeSet::new(),
+            None,
+        );
         purchase_of(&evaluation, own, &planned, &bought.lineage)
+    }
+
+    /// A fee of 31.00 a month ended on Jan 20 by a plan change, billed by a finalized line of
+    /// 3100 and a draft's line of 1000 from Jan 10: what the change gives back is split between
+    /// the two, so while the draft waits for its issue the finalized line waits with it. A share
+    /// taken from the finalized line alone was split again at every pass, each one issuing a
+    /// note more.
+    /// Rules: R-077, R-078
+    #[test]
+    fn a_give_back_split_with_a_drafts_line_waits_for_the_draft() {
+        let facts = facts(d(1, 1), vec![row(1, 10, 31, d(1, 1), Some(d(1, 20)))], None);
+        let change = Change::of_rows(d(1, 20), GiveBack::Unused, "plan change");
+        let evaluation = evaluate(&facts, change.at, None, &StorePricer).unwrap();
+        let touched = BTreeSet::from([lineage(1)]);
+        let mut january = issued("january", 1, d(1, 1), d(2, 1), 3100);
+        let extra = issued("draft", 1, d(1, 10), d(2, 1), 1000);
+        let plan_with = |january: &IssuedLine, drafts: &BTreeSet<String>| {
+            plan(
+                &evaluation,
+                &[january.clone(), extra.clone()],
+                &touched,
+                &change,
+                &[],
+                None,
+                &HashMap::new(),
+                &[],
+                drafts,
+                None,
+            )
+            .credits
+        };
+        let issued_all = plan_with(&january, &BTreeSet::new());
+        assert_eq!(
+            issued_all.iter().map(|(_, amount)| amount).sum::<i64>(),
+            2200
+        );
+        let drafts = BTreeSet::from(["draft".to_owned()]);
+        assert_eq!(plan_with(&january, &drafts), vec![]);
+        // As if the finalized line's share had been issued: nothing more is ever split onto it.
+        let share = issued_all
+            .iter()
+            .find(|(line, _)| line == "january")
+            .map(|(_, amount)| *amount)
+            .expect("a share of January");
+        january.corrected = share;
+        january.already_credited = share;
+        assert_eq!(plan_with(&january, &drafts), vec![]);
     }
 
     /// One 10.00 seat to a term ending Feb 15, 2024, two more from Feb 8, of February's 29 days:

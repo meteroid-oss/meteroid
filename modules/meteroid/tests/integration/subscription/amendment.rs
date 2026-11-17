@@ -1014,6 +1014,9 @@ async fn test_mid_period_cancel_prorates_fixed_arrears(#[future] test_env: TestE
     let jan1 = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
     let jan16 = NaiveDate::from_ymd_opt(2024, 1, 16).unwrap();
 
+    // The cancellation is requested on the day it ends from.
+    env.set_now(jan16.and_hms_opt(9, 0, 0).unwrap().and_utc());
+
     let sub_id = subscription()
         .plan_version(PLAN_VERSION_STARTER_ID)
         .start_date(jan1)
@@ -1049,16 +1052,14 @@ async fn test_mid_period_cancel_prorates_fixed_arrears(#[future] test_env: TestE
         .await
         .expect("cancel_subscription failed");
 
-    env.process_due_events().await;
-
     let sub = env.get_subscription(sub_id).await;
     assert_eq!(sub.status, SubscriptionStatusEnum::Cancelled);
 
     let invoices = env.get_invoices(sub_id).await;
     let terminal = invoices
         .iter()
-        .find(|i| i.invoice_date == jan16 && i.invoice_type == InvoiceType::Recurring)
-        .expect("a terminal recurring invoice dated at the cancellation");
+        .find(|i| i.billing_period_start == jan16 && i.invoice_type == InvoiceType::Recurring)
+        .expect("a terminal recurring invoice of the cancellation's day");
 
     let arrears_line = terminal
         .line_items
@@ -1090,6 +1091,9 @@ async fn test_add_then_cancel_mid_period_composes_arrears_proration(#[future] te
     let jan1 = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
     let jan10 = NaiveDate::from_ymd_opt(2024, 1, 10).unwrap();
     let jan20 = NaiveDate::from_ymd_opt(2024, 1, 20).unwrap();
+
+    // The cancellation is requested on the day it ends from.
+    env.set_now(jan20.and_hms_opt(9, 0, 0).unwrap().and_utc());
 
     let sub_id = subscription()
         .plan_version(PLAN_VERSION_STARTER_ID)
@@ -1126,13 +1130,11 @@ async fn test_add_then_cancel_mid_period_composes_arrears_proration(#[future] te
         .await
         .expect("cancel_subscription failed");
 
-    env.process_due_events().await;
-
     let invoices = env.get_invoices(sub_id).await;
     let terminal = invoices
         .iter()
-        .find(|i| i.invoice_date == jan20 && i.invoice_type == InvoiceType::Recurring)
-        .expect("a terminal recurring invoice dated at the cancellation");
+        .find(|i| i.billing_period_start == jan20 && i.invoice_type == InvoiceType::Recurring)
+        .expect("a terminal recurring invoice of the cancellation's day");
 
     let arrears_line = terminal
         .line_items
@@ -3231,6 +3233,255 @@ async fn removing_a_one_time_fee_gives_nothing_back(#[future] test_env: TestEnv)
     assert_eq!(credited(&env, sub_id, "").await, Vec::<i64>::new());
 }
 
+/// A one-time fee of 200.00 added on Jan 5 during a free trial to Jan 15 bills on the trial's
+/// end, beside the plan's 49.00; a plan change to Pro that same day ends its row on the day it
+/// bills and gives none of it back (it gave back all 20000).
+/// Rules: R-093
+#[rstest]
+#[tokio::test]
+async fn a_plan_change_on_the_day_a_one_time_fee_bills_gives_nothing_of_it_back(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    env.set_now(january(1).and_hms_opt(1, 0, 0).unwrap().and_utc());
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID)
+        .start_date(january(1))
+        .on_start()
+        .trial_days(14)
+        .no_auto_charge()
+        .create(env.services())
+        .await;
+    env.run_until(january(5)).await;
+    amend(
+        &env,
+        sub_id,
+        amendment_add_component(
+            PlanChangeMode::Immediate,
+            extra_onetime_component("Setup", 20_000),
+        ),
+        january(5),
+    )
+    .await;
+    env.run_until(january(15)).await;
+    env.services()
+        .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+            january(15),
+        )
+        .await
+        .expect("the plan change");
+    env.run_until(january(16)).await;
+
+    let billed: Vec<(String, NaiveDate, i64)> = env
+        .get_invoices(sub_id)
+        .await
+        .iter()
+        .flat_map(|invoice| &invoice.line_items)
+        .filter(|line| line.name.starts_with("Setup"))
+        .map(|line| (line.name.clone(), line.start_date, line.amount_subtotal))
+        .collect();
+    assert_eq!(billed, vec![("Setup".to_owned(), january(15), 20_000)]);
+    assert_eq!(credited(&env, sub_id, "Setup").await, Vec::<i64>::new());
+}
+
+/// A one-time fee of 99.00 added on Jan 1 during a free trial to Jan 15, the subscription then
+/// cancelled at its period's end, the trial's: the fee lived before the ending and bills 9900 on
+/// Jan 15, where no window was left to bill it and nothing was billed.
+/// Rules: R-093, R-016
+#[rstest]
+#[tokio::test]
+async fn a_one_time_fee_added_in_a_free_trial_cancelled_at_its_end_bills(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    env.set_now(january(1).and_hms_opt(1, 0, 0).unwrap().and_utc());
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID)
+        .start_date(january(1))
+        .on_start()
+        .trial_days(14)
+        .no_auto_charge()
+        .create(env.services())
+        .await;
+    amend(
+        &env,
+        sub_id,
+        amendment_add_component(
+            PlanChangeMode::Immediate,
+            extra_onetime_component("Setup", 9_900),
+        ),
+        january(1),
+    )
+    .await;
+    env.services()
+        .cancel_subscription(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::EndOfBillingPeriod,
+        )
+        .await
+        .expect("the cancellation");
+    env.run_until(january(16)).await;
+
+    let billed: Vec<(String, NaiveDate, i64)> = env
+        .get_invoices(sub_id)
+        .await
+        .iter()
+        .flat_map(|invoice| &invoice.line_items)
+        .map(|line| (line.name.clone(), line.start_date, line.amount_subtotal))
+        .collect();
+    assert_eq!(billed, vec![("Setup".to_owned(), january(15), 9_900)]);
+    assert_eq!(
+        env.get_subscription(sub_id).await.status,
+        SubscriptionStatusEnum::Cancelled
+    );
+}
+
+/// A one-time fee of 99.00 added on Jan 1 during a free trial to Jan 15, then a plan change to
+/// Pro on Jan 4 ending the trial: the fee bills 9900 on the change's opening invoice, where the
+/// change ended its row before billing started and nothing billed it.
+/// Rules: R-093, R-011
+#[rstest]
+#[tokio::test]
+async fn a_one_time_fee_added_in_a_free_trial_a_change_ends_bills_on_its_opening_invoice(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    env.set_now(january(1).and_hms_opt(1, 0, 0).unwrap().and_utc());
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID)
+        .start_date(january(1))
+        .on_start()
+        .trial_days(14)
+        .no_auto_charge()
+        .create(env.services())
+        .await;
+    amend(
+        &env,
+        sub_id,
+        amendment_add_component(
+            PlanChangeMode::Immediate,
+            extra_onetime_component("Setup", 9_900),
+        ),
+        january(1),
+    )
+    .await;
+    env.run_until(january(4)).await;
+    env.services()
+        .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+            january(4),
+        )
+        .await
+        .expect("the plan change");
+    env.run_until(january(5)).await;
+
+    let billed: Vec<(String, NaiveDate, i64)> = env
+        .get_invoices(sub_id)
+        .await
+        .iter()
+        .flat_map(|invoice| &invoice.line_items)
+        .filter(|line| line.name.starts_with("Setup"))
+        .map(|line| (line.name.clone(), line.start_date, line.amount_subtotal))
+        .collect();
+    assert_eq!(billed, vec![("Setup".to_owned(), january(4), 9_900)]);
+}
+
+/// A yearly 120.00 plan with a free trial to Jan 15, an end-of-period amendment adding a monthly
+/// 30.00 support fee scheduled on Jan 5, in the trial: it takes effect at the trial's end, on an
+/// active subscription, which renews on the shortest cadence of its fees, Jan 15 to Feb 15,
+/// where it renewed yearly to Jan 15, 2025.
+/// Rules: R-084
+#[rstest]
+#[tokio::test]
+async fn an_amendment_scheduled_in_a_free_trial_realigns_the_period_at_its_end(
+    #[future] test_env: TestEnv,
+) {
+    use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId};
+    use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
+    let env = test_env.await;
+    let (plan_id, version_id) = (PlanId::new(), PlanVersionId::new());
+    crate::data::plans::PlanSeed::new(plan_id, "Yearly trial", version_id)
+        .trial(14, plan_id, true)
+        .components(vec![crate::data::plans::SeedComp::rate(
+            PriceComponentId::new(),
+            "Yearly Rate",
+            PRODUCT_PLATFORM_FEE_ID,
+            PriceId::new(),
+            DieselBillingPeriodEnum::Annual,
+            Decimal::new(12_000, 2),
+        )])
+        .seed(&mut env.conn().await)
+        .await
+        .expect("the plan");
+    env.set_now(january(1).and_hms_opt(1, 0, 0).unwrap().and_utc());
+    let sub_id = subscription()
+        .plan_version(version_id)
+        .start_date(january(1))
+        .on_start()
+        .trial_days(14)
+        .no_auto_charge()
+        .create(env.services())
+        .await;
+    env.run_until(january(5)).await;
+    env.services()
+        .schedule_amendment(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            amendment_add_component(
+                PlanChangeMode::EndOfPeriod,
+                extra_rate_component("Support", 3_000),
+            ),
+        )
+        .await
+        .expect("the amendment scheduled");
+    env.run_until(january(16)).await;
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(
+        (sub.current_period_start, sub.current_period_end),
+        (
+            january(15),
+            Some(NaiveDate::from_ymd_opt(2024, 2, 15).unwrap())
+        )
+    );
+    let billed: Vec<(String, NaiveDate, NaiveDate, i64)> = env
+        .get_invoices(sub_id)
+        .await
+        .iter()
+        .flat_map(|invoice| &invoice.line_items)
+        .map(|line| {
+            (
+                line.name.clone(),
+                line.start_date,
+                line.end_date,
+                line.amount_subtotal,
+            )
+        })
+        .collect();
+    assert!(
+        billed.contains(&(
+            "Support".to_owned(),
+            january(15),
+            NaiveDate::from_ymd_opt(2024, 2, 15).unwrap(),
+            3_000
+        )),
+        "{billed:?}"
+    );
+}
+
 /// A subscription starting January 10 that renews on the 1st bills its first period, January 10
 /// to February 1, as 22 of 31 days: a fixed fee billed in arrears too (R-084), as its advance fees
 /// are. Before the timeline it billed that fee's whole month.
@@ -3397,6 +3648,152 @@ async fn an_increase_after_the_watermark_on_a_charge_billed_before_it_is_billed(
     assert!(raised.credit_note_ids.is_empty());
 }
 
+/// Starter monthly from Jan 1, 2023 with a 365.00 yearly add-on bought that day, the watermark on
+/// Feb 1. Lowered on Feb 1 to 255.50 (10020 back from Jan 1's line) and raised at 01:00 to 293.82:
+/// the note dated from the watermark counts there, so the raise bills 3832 × 334/365 = 3507 (R-094).
+#[rstest]
+#[tokio::test]
+async fn a_raise_after_a_lowering_past_the_watermark_bills_what_the_note_took_back(
+    #[future] test_env: TestEnv,
+) {
+    use chrono::{TimeZone, Utc};
+    use diesel::{ExpressionMethods, QueryDsl};
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::subscription::dsl as s;
+
+    let env = test_env.await;
+    let day = |m, d| NaiveDate::from_ymd_opt(2023, m, d).unwrap();
+    let year_end = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    env.set_now(Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap());
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(day(1, 1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let annual = |cents: i64| {
+        PriceEntry::New(PriceInput {
+            cadence: BillingPeriodEnum::Annual,
+            currency: "EUR".to_string(),
+            pricing: Pricing::Rate {
+                rate: Decimal::new(cents, 2),
+            },
+            credit_unit: None,
+        })
+    };
+    let yearly = env
+        .store()
+        .create_add_on_from_ref(
+            "Yearly Support".to_string(),
+            ProductRef::New {
+                name: "Yearly Support Product".to_string(),
+                fee_type: FeeTypeEnum::Rate,
+                fee_structure: FeeStructure::Rate {},
+            },
+            annual(36_500),
+            None,
+            true,
+            Some(10),
+            TENANT_ID,
+            PRODUCT_FAMILY_ID,
+            vec![],
+        )
+        .await
+        .expect("a yearly add-on")
+        .id;
+    env.services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            add_addon_amendment(PlanChangeMode::Immediate, yearly, 1),
+            day(1, 1),
+        )
+        .await
+        .expect("the yearly add-on");
+    env.set_now(Utc.with_ymd_and_hms(2023, 2, 1, 0, 0, 0).unwrap());
+    env.process_cycles().await;
+    diesel::update(s::subscription.filter(s::id.eq(sub_id)))
+        .set(s::reconcile_from.eq(Some(day(2, 1))))
+        .execute(&mut env.conn().await)
+        .await
+        .expect("the watermark");
+    let reprice = |cents: i64, hour: u32| {
+        let env = &env;
+        async move {
+            env.set_now(Utc.with_ymd_and_hms(2023, 2, 1, hour, 0, 0).unwrap());
+            let add_on = {
+                let mut conn = env.conn().await;
+                SubscriptionAddOnRow::list_by_subscription_id_active(
+                    &mut conn, &TENANT_ID, &sub_id, None,
+                )
+                .await
+                .expect("active add-ons")[0]
+                    .id
+            };
+            env.services()
+                .apply_amendment_immediate(
+                    common_domain::actor::Actor::System,
+                    sub_id,
+                    TENANT_ID,
+                    SubscriptionAmendment {
+                        apply_mode: PlanChangeMode::Immediate,
+                        component_changes: ComponentChanges::default(),
+                        add_on_changes: AddOnChanges {
+                            added: vec![],
+                            edited: vec![EditSubscriptionAddOn {
+                                subscription_add_on_id: add_on,
+                                quantity: None,
+                                customization: Some(
+                                    SubscriptionAddOnCustomization::PriceOverride {
+                                        name: None,
+                                        price_entry: annual(cents),
+                                    },
+                                ),
+                            }],
+                            removed: vec![],
+                        },
+                    },
+                )
+                .await
+                .expect("the reprice")
+        }
+    };
+
+    let lowered = reprice(25_550, 0).await;
+    let notes: Vec<i64> = {
+        let mut totals = Vec::new();
+        for id in &lowered.credit_note_ids {
+            totals.push(
+                env.store()
+                    .get_credit_note_by_id(TENANT_ID, *id)
+                    .await
+                    .expect("the note")
+                    .subtotal,
+            );
+        }
+        totals
+    };
+    assert_eq!(notes, vec![-10_020]);
+    let raised = reprice(29_382, 1).await;
+    let adjustment = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .find(|invoice| Some(invoice.id) == raised.adjustment_invoice_id)
+        .expect("an adjustment invoice");
+    assert_eq!(
+        adjustment
+            .line_items
+            .iter()
+            .map(|line| (line.start_date, line.end_date, line.amount_subtotal))
+            .collect::<Vec<_>>(),
+        vec![(day(2, 1), year_end, 3_507)]
+    );
+    assert!(raised.credit_note_ids.is_empty());
+}
+
 /// Starter from Jan 1, 2024, its first invoice voided at 17:00, then a one-time 99.00 added at
 /// 18:00 the same day: the void forgave January, never the fee added after it. Jan 1 bills 9900.
 /// Rules: R-096, R-093
@@ -3453,5 +3850,184 @@ async fn a_one_time_fee_added_after_a_void_on_its_day_is_billed(#[future] test_e
             "note: Seats 2024-01-01..2024-02-01 -1000",
             "Adjustment 2024-01-01: Setup (one-time) 2024-01-01..2024-01-01 9900",
         ]
+    );
+}
+
+/// Starter from Jan 1, 2024 with a 366.00 yearly support fee in arrears, cancelled at 15:00 on
+/// Feb 1 from that day, after Feb 1's renewal was written: the year's 31 days the ending cuts,
+/// 36600 × 31/366 = 3100, go on a final invoice issued that day, and the renewal keeps its lines.
+/// Rules: R-016
+#[rstest]
+#[tokio::test]
+async fn a_cancellation_decided_on_its_renewal_day_bills_what_it_cuts_on_a_final_invoice(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    env.set_now(january(1).and_hms_opt(1, 0, 0).unwrap().and_utc());
+    let sub_id = starter_from_january(&env).await;
+    let mut support = extra_arrears_component("Annual Support", 36_600);
+    if let PriceEntry::New(price) = &mut support.price_entry {
+        price.cadence = BillingPeriodEnum::Annual;
+    }
+    amend(
+        &env,
+        sub_id,
+        amendment_add_component(PlanChangeMode::Immediate, support),
+        january(1),
+    )
+    .await;
+    let feb1 = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+    env.run_until(feb1).await;
+    let documents = |invoices: Vec<meteroid_store::domain::Invoice>| {
+        invoices
+            .into_iter()
+            .map(|invoice| {
+                let lines: Vec<(String, NaiveDate, NaiveDate, i64)> = invoice
+                    .line_items
+                    .iter()
+                    .map(|line| {
+                        (
+                            line.name.clone(),
+                            line.start_date,
+                            line.end_date,
+                            line.amount_subtotal,
+                        )
+                    })
+                    .collect();
+                (
+                    invoice.id,
+                    invoice.invoice_type,
+                    invoice.invoice_date,
+                    lines,
+                    invoice.total,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let before = documents(env.get_invoices(sub_id).await);
+    assert!(
+        before
+            .iter()
+            .any(|doc| doc.1 == InvoiceType::Recurring && doc.2 == feb1),
+        "Feb 1's renewal written in the morning: {before:?}"
+    );
+
+    env.set_now(feb1.and_hms_opt(15, 0, 0).unwrap().and_utc());
+    env.services()
+        .cancel_subscription(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::Date(feb1),
+        )
+        .await
+        .expect("the cancellation");
+    env.process_cycles().await;
+
+    let after = documents(env.get_invoices(sub_id).await);
+    let (kept, written): (Vec<_>, Vec<_>) = after
+        .into_iter()
+        .partition(|doc| before.iter().any(|earlier| earlier.0 == doc.0));
+    assert_eq!(
+        kept, before,
+        "the documents written before keep their lines"
+    );
+    assert_eq!(
+        written
+            .iter()
+            .map(|doc| (doc.1.clone(), doc.2, doc.3.clone(), doc.4))
+            .collect::<Vec<_>>(),
+        vec![(
+            InvoiceType::Final,
+            feb1,
+            vec![("Annual Support".to_owned(), january(1), feb1, 3_100)],
+            3_100
+        )]
+    );
+    assert!(
+        !before
+            .iter()
+            .flat_map(|doc| &doc.3)
+            .any(|line| line.0.starts_with("Annual Support")),
+        "no document billed the fee before: {before:?}"
+    );
+    assert_eq!(
+        credited(&env, sub_id, "Annual Support").await,
+        Vec::<i64>::new()
+    );
+}
+
+/// The yearly 120.00 plan with a free trial to Jan 15, previewed at 10:00 on Jan 15 before the
+/// trial's end is stepped, with an immediate amendment adding a monthly 30.00 support fee: the
+/// preview renews monthly, Jan 15 to Feb 15, as applying it does, where it read the stored
+/// trial and kept the year.
+/// Rules: R-084
+#[rstest]
+#[tokio::test]
+async fn an_immediate_amendment_previewed_at_a_free_trial_s_end_realigns_the_period(
+    #[future] test_env: TestEnv,
+) {
+    use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId};
+    use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
+    let env = test_env.await;
+    let (plan_id, version_id) = (PlanId::new(), PlanVersionId::new());
+    crate::data::plans::PlanSeed::new(plan_id, "Yearly trial", version_id)
+        .trial(14, plan_id, true)
+        .components(vec![crate::data::plans::SeedComp::rate(
+            PriceComponentId::new(),
+            "Yearly Rate",
+            PRODUCT_PLATFORM_FEE_ID,
+            PriceId::new(),
+            DieselBillingPeriodEnum::Annual,
+            Decimal::new(12_000, 2),
+        )])
+        .seed(&mut env.conn().await)
+        .await
+        .expect("the plan");
+    env.set_now(january(1).and_hms_opt(1, 0, 0).unwrap().and_utc());
+    let sub_id = subscription()
+        .plan_version(version_id)
+        .start_date(january(1))
+        .on_start()
+        .trial_days(14)
+        .no_auto_charge()
+        .create(env.services())
+        .await;
+    env.run_until(january(14)).await;
+    env.set_now(january(15).and_hms_opt(10, 0, 0).unwrap().and_utc());
+    assert_eq!(
+        env.get_subscription(sub_id).await.status,
+        SubscriptionStatusEnum::TrialActive,
+        "the trial's end is not stepped yet"
+    );
+    let support = || {
+        amendment_add_component(
+            PlanChangeMode::Immediate,
+            extra_rate_component("Support", 3_000),
+        )
+    };
+    let previewed = env
+        .services()
+        .preview_amendment(sub_id, TENANT_ID, support())
+        .await
+        .expect("the preview")
+        .subscription_after;
+    let feb15 = NaiveDate::from_ymd_opt(2024, 2, 15).unwrap();
+    assert_eq!(
+        (
+            previewed.period,
+            previewed.current_period_start,
+            previewed.current_period_end
+        ),
+        (BillingPeriodEnum::Monthly, january(15), Some(feb15))
+    );
+
+    amend(&env, sub_id, support(), january(15)).await;
+    env.process_cycles().await;
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(
+        (sub.current_period_start, sub.current_period_end),
+        (january(15), Some(feb15))
     );
 }

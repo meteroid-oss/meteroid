@@ -153,6 +153,53 @@ pub fn calculate_coupons_discount(
     applied
 }
 
+/// The uses left of a subscription's coupons, handed out to its period invoices oldest period
+/// first, whatever order they are issued in (R-089): `left[i]` for `coupons[i]`, none when it
+/// lasts every invoice.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Uses {
+    left: Vec<Option<u32>>,
+}
+
+impl Uses {
+    pub fn new(left: Vec<Option<u32>>) -> Self {
+        Self { left }
+    }
+
+    /// What `coupons[i]` has left.
+    pub fn left(&self, i: usize) -> Option<u32> {
+        self.left.get(i).copied().flatten()
+    }
+
+    /// The coupons the next invoice in period order takes off `subtotal`, their uses taken: each
+    /// with a use left, applied as R-020 applies them.
+    pub fn take(&mut self, coupons: &[Coupon], subtotal: i64, currency: &str) -> Vec<usize> {
+        let open: Vec<usize> = (0..coupons.len())
+            .filter(|i| {
+                self.left
+                    .get(*i)
+                    .is_some_and(|left| left.is_none_or(|n| n > 0))
+            })
+            .collect();
+        let inputs: Vec<Coupon> = open.iter().map(|i| coupons[*i].clone()).collect();
+        let taken: Vec<usize> = calculate_coupons_discount(subtotal, currency, &inputs)
+            .iter()
+            .map(|applied| open[applied.coupon])
+            .collect();
+        self.took(&taken);
+        taken
+    }
+
+    /// Takes a use of each of `taken`: an invoice whose coupons are known.
+    pub fn took(&mut self, taken: &[usize]) {
+        for i in taken {
+            if let Some(Some(n)) = self.left.get_mut(*i) {
+                *n = n.saturating_sub(1);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,6 +225,38 @@ mod tests {
             .iter()
             .map(|d| d.value)
             .sum()
+    }
+
+    /// A 10 % coupon for two invoices, three drafts open: the two oldest periods take it, the
+    /// third none, whichever is issued first; a draft of nothing to discount takes no use.
+    /// Rules: R-089
+    #[test]
+    fn a_coupons_uses_go_to_the_oldest_periods_first() {
+        let ten = [coupon(1, CouponValue::Percentage(Decimal::from(10)))];
+        let mut uses = Uses::new(vec![Some(2)]);
+        assert_eq!(uses.take(&ten, 2_500, "USD"), vec![0]);
+        assert_eq!(uses.take(&ten, 0, "USD"), Vec::<usize>::new());
+        assert_eq!(uses.take(&ten, 49_597, "USD"), vec![0]);
+        assert_eq!(uses.take(&ten, 50_000, "USD"), Vec::<usize>::new());
+        assert_eq!(uses.left(0), Some(0));
+
+        let mut forever = Uses::new(vec![None]);
+        assert_eq!(forever.take(&ten, 1, "USD"), vec![0]);
+        assert_eq!(forever.left(0), None);
+    }
+
+    /// A fixed coupon after a 100 % one finds nothing left: the next period takes its use.
+    /// Rules: R-089, R-020
+    #[test]
+    fn a_coupon_that_finds_nothing_left_keeps_its_use() {
+        let coupons = [
+            coupon(1, CouponValue::Percentage(Decimal::from(100))),
+            coupon(2, usd(Decimal::from(5))),
+        ];
+        let mut uses = Uses::new(vec![Some(1), Some(1)]);
+        assert_eq!(uses.take(&coupons, 1_000, "USD"), vec![0]);
+        assert_eq!(uses.take(&coupons, 1_000, "USD"), vec![1]);
+        assert_eq!(uses.take(&coupons, 1_000, "USD"), Vec::<usize>::new());
     }
 
     #[test]

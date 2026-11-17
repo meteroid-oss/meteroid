@@ -12,10 +12,8 @@ use common_domain::ids::{InvoiceId, SubscriptionId};
 use meteroid_store::domain::connectors::MockChargeBehavior;
 use meteroid_store::domain::entity_activity::Actor;
 use meteroid_store::domain::enums::{DeclineKind, InvoicePaymentStatus};
-use meteroid_store::domain::scheduled_events::{ScheduledEventData, ScheduledEventNew};
 use meteroid_store::domain::{CustomerPatch, PaymentStatusEnum};
 use meteroid_store::repositories::CustomersInterface;
-use meteroid_store::repositories::SubscriptionInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
 
@@ -208,21 +206,16 @@ async fn test_queued_retry_skips_a_hard_declined_method(#[future] test_env: Test
     let (sub_id, invoice_id) = hard_declined_invoice(&env).await;
 
     // A retry queued before the hard decline landed.
-    let mut conn = env.conn().await;
-    env.store()
-        .schedule_events(
-            &mut conn,
-            vec![ScheduledEventNew {
-                subscription_id: sub_id,
-                tenant_id: TENANT_ID,
-                scheduled_time: Utc::now().naive_utc(),
-                event_data: ScheduledEventData::RetryPayment { invoice_id },
-                source: "dunning".to_string(),
-                created_by: Actor::System,
-            }],
-        )
-        .await
-        .expect("schedule retry");
+    {
+        use diesel::{ExpressionMethods, QueryDsl};
+        use diesel_async::RunQueryDsl;
+        use diesel_models::schema::invoice::dsl as i;
+        diesel::update(i::invoice.filter(i::id.eq(invoice_id)))
+            .set(i::next_payment_attempt_at.eq(Some(Utc::now().naive_utc())))
+            .execute(&mut env.conn().await)
+            .await
+            .expect("schedule retry");
+    }
 
     env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
         .await;

@@ -2,6 +2,7 @@
 //! document it goes on, the state the facts put it in and when to look again (R-084, R-079,
 //! R-016, R-011).
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Months, NaiveDate, Utc};
@@ -10,7 +11,8 @@ use rust_decimal::Decimal;
 
 use crate::charge::{ChargeKey, ChargeKind, Denomination, Fee};
 use crate::facts::{
-    Billing, DatedFact, Ending, EndingKind, FactRef, Facts, FeeFact, MinimumScope, midnight,
+    Billing, DatedFact, Ending, EndingKind, FactKind, FactRef, Facts, FeeFact, MinimumScope,
+    SeatStep, midnight,
 };
 use crate::issued::IssuedLine;
 use crate::pricer::{
@@ -84,6 +86,7 @@ pub struct DerivedState {
     pub current_period: Option<(NaiveDate, Option<NaiveDate>)>,
     pub plan_version: Option<PlanVersionId>,
     pub cadence: Option<u32>,
+    /// The start not settled while a checkout session of it is not completed.
     pub pending_checkout: bool,
     /// The first period billed: its opening invoice bills no arrears and never trues up a
     /// minimum (R-011, R-022).
@@ -127,7 +130,8 @@ impl Evaluation {
     }
 
     /// Whether `line` bills a period the watermark settled (R-094): one holds it, and no charge
-    /// computed bills it over a period as narrow, as a run of another cadence nested in it does.
+    /// computed that starts on its first day bills it over a period as narrow, as a run of another
+    /// cadence nested in it does.
     pub fn settles(&self, line: &IssuedLine) -> bool {
         let days = |(from, until): (NaiveDate, NaiveDate)| (until - from).num_days();
         let Some(settled) = self
@@ -140,14 +144,16 @@ impl Evaluation {
             return false;
         };
         !self.charges.iter().any(|charge| {
-            line.bills(&charge.key) && days((charge.key.from, charge.key.until)) <= settled
+            line.bills(&charge.key)
+                && charge.window.0 == line.from
+                && days((charge.key.from, charge.key.until)) <= settled
         })
     }
 }
 
 /// The key of `keys` that `line` counts for (R-080): of those holding it, one a charge of
-/// `charges` bills some of its days under first, then the narrowest, as runs of other cadences
-/// nest in a lineage's periods.
+/// `charges` starts on the line's first day under, then one billing some of its days, then the
+/// narrowest, as runs of other cadences nest in a lineage's periods.
 pub fn owner<'k>(
     line: &IssuedLine,
     keys: impl IntoIterator<Item = &'k ChargeKey>,
@@ -162,9 +168,20 @@ pub fn owner<'k>(
             charge.key == *key && window.0 < until && from < window.1
         })
     };
+    let starts = |key: &ChargeKey| {
+        charges
+            .iter()
+            .any(|charge| charge.key == *key && charge.window.0 == line.from)
+    };
     keys.into_iter()
         .filter(|key| line.bills(key))
-        .min_by_key(|key| (!overlaps(key), (key.until - key.from).num_days()))
+        .min_by_key(|key| {
+            (
+                !starts(key),
+                !overlaps(key),
+                (key.until - key.from).num_days(),
+            )
+        })
 }
 
 /// Every charge due by `now`: fees on their own grids cut to their life, the trial and the ending
@@ -179,6 +196,42 @@ pub fn evaluate<F>(
 ) -> Result<Evaluation, PricingError> {
     let run = Run::new(facts, now, usage, pricer);
     run.evaluate()
+}
+
+/// The subscription's first renewal on or after `day` as its facts stand at `now`: the start of
+/// one of its periods; None when it ends first (R-106).
+pub fn renewal_on_or_after<F>(
+    facts: &Facts<F>,
+    day: NaiveDate,
+    now: DateTime<Utc>,
+) -> Option<NaiveDate> {
+    let run = Run::new(facts, now, None, &Unpriced);
+    run.boundaries
+        .iter()
+        .copied()
+        .find(|boundary| *boundary >= day)
+}
+
+/// Prices nothing: for the questions on the facts' periods alone.
+struct Unpriced;
+
+impl<F> Pricer<F> for Unpriced {
+    fn metrics(&self, _: &F) -> Vec<common_domain::ids::BillableMetricId> {
+        Vec::new()
+    }
+
+    fn rates(&self, _: &Segment<'_, F>) -> Result<Vec<Rate>, PricingError> {
+        Ok(Vec::new())
+    }
+
+    fn usage(
+        &self,
+        _: &Segment<'_, F>,
+        _: &UsageWindow,
+        _: &UsageReads,
+    ) -> Result<Vec<Rate>, PricingError> {
+        Ok(Vec::new())
+    }
 }
 
 /// A plan window's part of time, the grid its fees renew on.
@@ -237,6 +290,9 @@ struct Run<'a, F, P> {
     spans: Vec<PlanSpan>,
     boundaries: Vec<NaiveDate>,
     lineages: Vec<Fee>,
+    /// The seat steps as billed: a removal for a period's end counted from the renewal it
+    /// waits for.
+    seats: Cow<'a, [SeatStep]>,
 }
 
 #[derive(Default)]
@@ -326,9 +382,174 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
             spans,
             boundaries: Vec::new(),
             lineages,
+            seats: Cow::Borrowed(&facts.seats),
         };
         run.boundaries = run.subscription_boundaries();
+        if let Some(seats) = run.seats_at_renewal() {
+            let mut cuts: Vec<NaiveDate> = facts
+                .dated()
+                .filter(|fact| fact.reference().kind != FactKind::Seat)
+                .flat_map(|fact| fact.cuts())
+                .chain(seats.iter().map(|step| step.at))
+                .chain(billing_start)
+                .chain(end)
+                .collect();
+            cuts.sort();
+            cuts.dedup();
+            run.cuts = cuts;
+            run.seats = Cow::Owned(seats);
+        }
         run
+    }
+
+    /// The seats of `lineage` on `at`: the latest step on or before it.
+    fn seats_on(&self, lineage: &Fee, at: NaiveDate) -> Option<&SeatStep> {
+        self.seats
+            .iter()
+            .filter(|step| step.lineage == *lineage && step.at <= at)
+            .max_by_key(|step| (step.at, step.id))
+    }
+
+    /// The seat steps with each removal scheduled for a period's end counted from the first
+    /// renewal of its fee on or after its day, its seats billed until then (R-108); None when
+    /// every such removal falls on a renewal.
+    fn seats_at_renewal(&self) -> Option<Vec<SeatStep>> {
+        let mut lineages: Vec<&Fee> = self
+            .facts
+            .seats
+            .iter()
+            .filter(|step| step.removed_at_renewal > 0)
+            .map(|step| &step.lineage)
+            .collect();
+        if lineages.is_empty() {
+            return None;
+        }
+        lineages.sort();
+        lineages.dedup();
+        let mut moved = false;
+        let mut seats: Vec<SeatStep> = self
+            .facts
+            .seats
+            .iter()
+            .filter(|step| !lineages.contains(&&step.lineage))
+            .cloned()
+            .collect();
+        for lineage in lineages {
+            let runs = self.renewals(lineage);
+            let mut raw: Vec<&SeatStep> = self
+                .facts
+                .seats
+                .iter()
+                .filter(|step| step.lineage == *lineage)
+                .collect();
+            raw.sort_by_key(|step| (step.at, step.id));
+            // Each removal with the renewal it waits for: the first of the run billing its day, else
+            // that run's end. Outside any run, the count is the next step's to set.
+            let waits: Vec<(&SeatStep, NaiveDate)> = raw
+                .iter()
+                .filter(|step| step.removed_at_renewal > 0)
+                .map(|step| {
+                    let renewal = runs
+                        .iter()
+                        .find(|(from, until, _)| *from <= step.at && step.at < *until)
+                        .map_or(step.at, |(_, until, renewals)| {
+                            renewals
+                                .iter()
+                                .copied()
+                                .find(|day| *day >= step.at)
+                                .unwrap_or(*until)
+                        });
+                    moved |= renewal != step.at;
+                    (*step, renewal)
+                })
+                .collect();
+            let mut days: Vec<(NaiveDate, &SeatStep)> = raw
+                .iter()
+                .map(|step| (step.at, *step))
+                .chain(waits.iter().map(|(step, renewal)| (*renewal, *step)))
+                .collect();
+            days.sort_by_key(|(day, step)| (*day, step.at != *day, step.id));
+            days.dedup_by_key(|(day, _)| *day);
+            let mut last: Option<u64> = None;
+            for (day, step) in days {
+                let Some(latest) = raw.iter().rev().find(|step| step.at <= day) else {
+                    continue;
+                };
+                let waiting: u64 = waits
+                    .iter()
+                    .filter(|(step, renewal)| step.at <= day && day < *renewal)
+                    .map(|(step, _)| step.removed_at_renewal)
+                    .sum();
+                let quantity = latest.quantity.saturating_add(waiting);
+                if last == Some(quantity) {
+                    continue;
+                }
+                last = Some(quantity);
+                seats.push(SeatStep {
+                    at: day,
+                    quantity,
+                    removed_at_renewal: 0,
+                    ..step.clone()
+                });
+            }
+        }
+        moved.then_some(seats)
+    }
+
+    /// Each run of `lineage` billing by period, `[from, until)`, with the days it renews on: each
+    /// window of it opening its period.
+    fn renewals(&self, lineage: &Fee) -> Vec<(NaiveDate, NaiveDate, Vec<NaiveDate>)> {
+        let intervals = self.intervals(lineage);
+        self.runs(&intervals)
+            .into_iter()
+            .filter(|(rows, _)| rows[0].row.billing != Billing::OneTime)
+            .filter_map(|(_, billed)| {
+                let (first, last) = (billed.first()?, billed.last()?);
+                let renewals = billed
+                    .iter()
+                    .map(|billed| billed.window)
+                    .filter(|window| window.from == window.period.0)
+                    .map(|window| window.from)
+                    .collect();
+                Some((first.window.from, last.window.until, renewals))
+            })
+            .collect()
+    }
+
+    /// `intervals` in runs of rows billing alike, each with the windows it bills (R-084).
+    fn runs<'b>(
+        &self,
+        intervals: &'b [Interval<'a, F>],
+    ) -> Vec<(&'b [Interval<'a, F>], Vec<Billed>)> {
+        let mut runs: Vec<(usize, usize)> = Vec::new();
+        for (i, interval) in intervals.iter().enumerate() {
+            match runs.last_mut() {
+                Some((_, end))
+                    if intervals[*end].to == Some(interval.from)
+                        && intervals[*end].row.billing == interval.row.billing
+                        && intervals[*end].row.cadence == interval.row.cadence =>
+                {
+                    *end = i;
+                }
+                _ => runs.push((i, i)),
+            }
+        }
+        let mut previous: Option<Billed> = None;
+        runs.into_iter()
+            .map(|(first, last)| {
+                let rows = &intervals[first..=last];
+                let billing = rows[0].row.billing;
+                let life = (rows[0].from, rows[rows.len() - 1].to);
+                let months = (billing != Billing::OneTime).then_some(rows[0].row.cadence.max(1));
+                // A run of another cadence on the lineage bills on its own grid, keyed on its
+                // own periods (R-084).
+                let before =
+                    previous.filter(|last| months.is_none_or(|months| last.cadence == months));
+                let billed = self.billed(life, months, before);
+                previous = billed.last().copied().or(previous);
+                (rows, billed)
+            })
+            .collect()
     }
 
     fn evaluate(&self) -> Result<Evaluation, PricingError> {
@@ -371,6 +592,11 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                 for charge in &mut charges {
                     if charge.document == DocumentSlot::Final {
                         charge.document = opening;
+                    }
+                }
+                for need in &mut needed {
+                    if need.document == DocumentSlot::Final {
+                        need.document = opening;
                     }
                 }
             }
@@ -465,13 +691,27 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         self.ending.is_some_and(|ending| ending.at <= self.now)
     }
 
+    /// A cancellation requested after the day it ends: no document is dated before it was requested.
+    fn backdated(&self) -> bool {
+        self.ending
+            .is_some_and(|ending| ending.kind == EndingKind::Cancel)
+            && self
+                .end
+                .zip(self.facts.ending_recorded)
+                .is_some_and(|(end, recorded)| recorded > end)
+    }
+
     /// The document of the last charges of an ending: a final invoice of its own when the period
-    /// opened that day was invoiced, else the recurring invoice opened on its date (R-016).
+    /// opened that day was invoiced before it (an immediate cancellation, or one decided after
+    /// that invoice was written) or the cancellation is backdated, else the recurring invoice
+    /// opened on its date (R-016, R-102).
     fn ending_slot(&self) -> DocumentSlot {
         let (Some(ending), Some(end)) = (self.ending, self.end) else {
             return DocumentSlot::Adjustment { on: self.today };
         };
-        if self.is_boundary(end) && ending.at > midnight(end) {
+        let after_its_invoice = ending.at > midnight(end)
+            || (ending.kind == EndingKind::Cancel && self.facts.ending_day_invoiced);
+        if self.backdated() || (self.is_boundary(end) && after_its_invoice) {
             DocumentSlot::Final
         } else {
             DocumentSlot::Recurring { period_start: end }
@@ -481,8 +721,25 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
     /// A charge due on a boundary goes on that period's recurring invoice; one `riding` between
     /// two boundaries (its fee's own grid, arrears ended with their fee) the next renewal's, the
     /// first past the watermark when that one was issued before it (R-094), as the store bills
-    /// them; an advance due at a change mid-period on an adjustment invoice.
+    /// them; an advance due at a change mid-period on an adjustment invoice. A backdated
+    /// cancellation closes the recurring drafts from its ending: what they would bill, the last
+    /// period's arrears included, goes on its final invoice; one it keeps keeps its lines (R-016).
     fn document(&self, due: DateTime<Utc>, riding: bool, cut: bool) -> DocumentSlot {
+        match self.slot(due, riding, cut) {
+            DocumentSlot::Recurring { period_start }
+                if self.backdated()
+                    && self.end.is_some_and(|end| {
+                        period_start > end
+                            || (period_start == end && !self.facts.ending_day_invoiced)
+                    }) =>
+            {
+                DocumentSlot::Final
+            }
+            slot => slot,
+        }
+    }
+
+    fn slot(&self, due: DateTime<Utc>, riding: bool, cut: bool) -> DocumentSlot {
         if cut {
             return self.ending_slot();
         }
@@ -501,8 +758,7 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                 self.boundaries.get(i).copied()
             };
             let past_watermark = self
-                .facts
-                .reconcile_from
+                .arrears_watermark()
                 .filter(|watermark| *watermark > on)
                 .and_then(next);
             if let Some(next) = past_watermark.or_else(|| next(on)) {
@@ -648,6 +904,22 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
             .is_some_and(|watermark| period.1 <= watermark)
     }
 
+    /// The watermark of what a period bills at its end: never later than the watermark.
+    fn arrears_watermark(&self) -> Option<NaiveDate> {
+        let watermark = self.facts.reconcile_from?;
+        Some(
+            self.facts
+                .arrears_from
+                .map_or(watermark, |from| from.min(watermark)),
+        )
+    }
+
+    /// As [`Self::behind_watermark`], for what `period` bills at its end.
+    fn arrears_behind_watermark(&self, period: (NaiveDate, NaiveDate)) -> bool {
+        self.arrears_watermark()
+            .is_some_and(|watermark| period.1 <= watermark)
+    }
+
     /// Whether the ending cut `window` short of its period.
     fn cut_by_ending(&self, window: &Window) -> bool {
         self.end == Some(window.until) && window.until < window.period.1
@@ -661,33 +933,15 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         out: &mut Out,
     ) -> Result<(), PricingError> {
         let intervals = self.intervals(lineage);
-        let mut runs: Vec<(usize, usize)> = Vec::new();
-        for (i, interval) in intervals.iter().enumerate() {
-            match runs.last_mut() {
-                Some((_, end))
-                    if intervals[*end].to == Some(interval.from)
-                        && intervals[*end].row.billing == interval.row.billing
-                        && intervals[*end].row.cadence == interval.row.cadence =>
-                {
-                    *end = i;
-                }
-                _ => runs.push((i, i)),
-            }
+        if intervals.is_empty() {
+            self.one_time_in_trial(lineage, out)?;
         }
         let mut one_time_billed = false;
-        let mut previous: Option<Billed> = None;
         let mut last_run: Option<(NaiveDate, &FeeFact<F>)> = None;
-        for (first, last) in runs {
-            let rows = &intervals[first..=last];
+        for (rows, billed) in self.runs(&intervals) {
             last_run = Some((rows[0].from, rows[rows.len() - 1].row));
             let billing = rows[0].row.billing;
             let life = (rows[0].from, rows[rows.len() - 1].to);
-            let months = (billing != Billing::OneTime).then_some(rows[0].row.cadence.max(1));
-            // A run of another cadence on the lineage bills on its own grid, keyed on its own
-            // periods (R-084).
-            let before = previous.filter(|last| months.is_none_or(|months| last.cadence == months));
-            let billed = self.billed(life, months, before);
-            previous = billed.last().copied().or(previous);
             if billing == Billing::OneTime {
                 // A plan's one-time fee bills with the start, never with a later plan version.
                 let with_plan = Some(life.0) != self.billing_start
@@ -697,7 +951,8 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                     && !with_plan
                     && let Some(first) = billed.first()
                 {
-                    self.one_time(lineage, first, prices, out)?;
+                    let rates = || self.rates_on(lineage, first.window.from, prices);
+                    self.one_time(lineage, first, rates, out)?;
                 }
                 one_time_billed = true;
                 continue;
@@ -771,10 +1026,7 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
             row: row.id,
             billing: row.billing,
             cadence: row.cadence,
-            seats: self
-                .facts
-                .seats_on(&row.lineage, at)
-                .map(|step| step.quantity),
+            seats: self.seats_on(&row.lineage, at).map(|step| step.quantity),
             fee: &row.fee,
             allowance: DayFraction::WHOLE,
         }
@@ -800,7 +1052,7 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
             .fee_on(lineage, at)
             .map(|row| row.reference())
             .into_iter()
-            .chain(facts.seats_on(lineage, at).map(|step| step.reference()))
+            .chain(self.seats_on(lineage, at).map(|step| step.reference()))
             .chain(plan)
             .chain(
                 facts
@@ -848,7 +1100,11 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         out: &mut Out,
     ) -> Result<(), PricingError> {
         let window = billed.window;
-        if self.behind_watermark(window.period) {
+        let behind = match billing {
+            Billing::Arrears => self.arrears_behind_watermark(window.period),
+            _ => self.behind_watermark(window.period),
+        };
+        if behind {
             out.settled.push((lineage.clone(), window.period));
             return Ok(());
         }
@@ -1058,12 +1314,67 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         Ok(())
     }
 
+    /// A one-time fee added in a free trial and living to its end bills then, though an ending or
+    /// a change closing the trial leaves its row no day to bill: it lived before them (R-093,
+    /// R-016). The day is the ending's when it closes the trial. A plan's setup is left out.
+    fn one_time_in_trial(&self, lineage: &Fee, out: &mut Out) -> Result<(), PricingError> {
+        let Some(start) = self.billing_start else {
+            return Ok(());
+        };
+        let day = self.end.map_or(start, |end| end.min(start));
+        let row = self
+            .facts
+            .fees
+            .iter()
+            .filter(|row| {
+                row.lineage == *lineage
+                    && row.billing == Billing::OneTime
+                    && !row.plan_component
+                    && row.from < day
+                    && row.to.is_none_or(|to| to >= day)
+            })
+            .min_by_key(|row| row.from);
+        let Some(row) = row else {
+            return Ok(());
+        };
+        let period = (day, day.succ_opt().unwrap_or(day));
+        let billed = Billed {
+            window: Window {
+                period,
+                from: day,
+                until: day,
+            },
+            nominal: period,
+            plan: self.span_on(day).plan,
+            months: 1,
+            cadence: 1,
+            own: period,
+        };
+        let rates = || {
+            let segment = Segment {
+                from: day,
+                until: Some(day),
+                fees: vec![self.in_force(row, day)],
+            };
+            self.pricer.rates(&segment)
+        };
+        let before = out.charges.len();
+        self.one_time(lineage, &billed, rates, out)?;
+        // A row a change ended that day is no longer in force on it: its line names it.
+        for charge in &mut out.charges[before..] {
+            charge.trace.push(row.reference());
+            charge.trace.sort();
+            charge.trace.dedup();
+        }
+        Ok(())
+    }
+
     /// A one-time fee bills once, at the start of its life.
     fn one_time(
         &self,
         lineage: &Fee,
         billed: &Billed,
-        prices: &mut BTreeMap<usize, Vec<Rate>>,
+        rates: impl FnOnce() -> Result<Vec<Rate>, PricingError>,
         out: &mut Out,
     ) -> Result<(), PricingError> {
         let window = billed.window;
@@ -1090,7 +1401,7 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                 full
             }
         };
-        for rate in self.rates_on(lineage, window.from, prices)? {
+        for rate in rates()?.into_iter().filter(|rate| rate.fee == *lineage) {
             // A one-time price bills on its day, as its line is keyed (R-075), a pack bought whole
             // after the start too; one tied to its period grants for its first window.
             let on_its_day = rate.kind != ChargeKind::Credit
@@ -1189,7 +1500,7 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         out: &mut Out,
     ) {
         let window = billed.window;
-        if self.behind_watermark(window.period) {
+        if self.arrears_behind_watermark(window.period) {
             if let Some(interval) = rows.first() {
                 out.settled
                     .push((interval.row.lineage.clone(), window.period));
@@ -1300,7 +1611,7 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
             return;
         };
         if grid.period_containing(end).is_none_or(|period| {
-            (period.0 != end && continues.is_some()) || self.behind_watermark(period)
+            (period.0 != end && continues.is_some()) || self.arrears_behind_watermark(period)
         }) {
             return;
         }
@@ -1489,13 +1800,11 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         } else {
             Status::Pending
         };
-        let pending_checkout = !settled
-            && (status == Status::TrialExpired
-                || (status == Status::Pending && self.now >= midnight(facts.start.date)));
+        let pending_checkout = !settled && facts.start.checkout;
         let current_period = match status {
             Status::Cancelled | Status::Completed => self.end.map(|end| (end, None)),
-            // Awaiting its checkout, the first period is open-ended, as stored until it settles.
-            _ if pending_checkout && status == Status::Pending => {
+            // Started and still to settle, the first period is open-ended, as stored until then.
+            Status::Pending if !settled && self.now >= midnight(facts.start.date) => {
                 self.billing_start.map(|start| (start, None))
             }
             Status::Trialing if self.billing_start.is_none_or(|start| today < start) => {

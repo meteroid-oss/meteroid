@@ -24,16 +24,13 @@ pub(crate) fn midnight(date: NaiveDate) -> NaiveDateTime {
     date.and_time(NaiveTime::MIN)
 }
 
-/// Statuses in which a subscription bills no more usage: termination (and pause) opened its last
-/// period at the date it took effect, an immediate cancellation also recorded its instant.
+/// Statuses in which a subscription bills no more usage: its ending opened its last period at the
+/// date it took effect, an immediate cancellation also recorded its instant.
 fn ended(status: &SubscriptionStatusEnum) -> bool {
     matches!(
         status,
         SubscriptionStatusEnum::Cancelled
             | SubscriptionStatusEnum::Completed
-            | SubscriptionStatusEnum::Paused
-            | SubscriptionStatusEnum::Superseded
-            | SubscriptionStatusEnum::Errored
             | SubscriptionStatusEnum::Aborted
     )
 }

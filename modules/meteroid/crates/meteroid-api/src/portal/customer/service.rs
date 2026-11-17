@@ -49,7 +49,6 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
                     // SubscriptionStatusEnum::Completed,
                     // SubscriptionStatusEnum::Cancelled,
                     SubscriptionStatusEnum::TrialActive,
-                    SubscriptionStatusEnum::Paused,
                 ]),
                 None,
                 vec![],
@@ -87,12 +86,7 @@ impl PortalCustomerService for PortalCustomerServiceComponents {
         let active_subscriptions: Vec<SubscriptionSummary> = subscriptions
             .items
             .into_iter()
-            .filter(|s| {
-                !matches!(
-                    s.status,
-                    SubscriptionStatusEnum::Superseded | SubscriptionStatusEnum::Completed
-                )
-            })
+            .filter(|s| s.status != SubscriptionStatusEnum::Completed)
             .map(|s| {
                 let status =
                     crate::subscriptions::mapping::subscriptions::map_subscription_status(s.status);

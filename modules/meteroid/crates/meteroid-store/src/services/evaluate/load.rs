@@ -237,9 +237,22 @@ pub async fn load_facts_with(
         free: row.free,
     });
     let settled = db(SubscriptionStartSettledRow::find(conn, subscription_id).await)?;
-    let (ending, end_date) = endings(db(
-        SubscriptionEndingRow::list_of(conn, subscription_id).await
-    )?);
+    let checkout = settled.is_none()
+        && db(diesel_models::checkout_sessions::CheckoutSessionRow::exists_uncompleted_for_subscription(
+            conn,
+            tenant_id,
+            subscription_id,
+        )
+        .await)?;
+    let ending_rows = db(SubscriptionEndingRow::list_of(conn, subscription_id).await)?;
+    let ending_day_invoiced = crate::services::subscriptions::terminate::ending_day_invoiced(
+        conn,
+        tenant_id,
+        subscription_id,
+        &ending_rows,
+    )
+    .await?;
+    let (ending, end_date, ending_recorded) = endings(ending_rows);
     let change = overlay.map(|overlay| &overlay.rows);
     if let Some(window) = change.and_then(|change| change.plan_window.as_ref()) {
         lay_plan_window(&mut plan_windows, window);
@@ -285,6 +298,8 @@ pub async fn load_facts_with(
         .map(|t| t.id)
         .collect();
     let mut minimums = minimums(conn, subscription_id).await?;
+    let (reconcile_from, arrears_from) =
+        db(SubscriptionRow::reconcile_from(conn, subscription_id).await)?;
     if let Some(change) = change {
         lay_seat_seeds(&mut seats, &rows, &change.seat_seeds, change.on);
         lay_seat_seeds(&mut seats, &rows, &change.set_seats, change.on);
@@ -300,6 +315,7 @@ pub async fn load_facts_with(
             start: Start {
                 date: subscription.start_date,
                 settled: settled.map(|row| row.at.and_utc()),
+                checkout,
             },
             trial,
             plan_windows,
@@ -309,7 +325,10 @@ pub async fn load_facts_with(
             minimums,
             ending,
             end_date,
-            reconcile_from: db(SubscriptionRow::reconcile_from(conn, subscription_id).await)?,
+            reconcile_from,
+            arrears_from,
+            ending_recorded,
+            ending_day_invoiced,
         },
         tenant_id,
         customer_id: subscription.customer_id,
@@ -401,6 +420,7 @@ pub(crate) async fn facts_of_details(
                 lineage: row.lineage(),
                 at: row.window().0,
                 quantity: u64::from(*initial_slots),
+                removed_at_renewal: 0,
             }),
             _ => None,
         })
@@ -412,6 +432,7 @@ pub(crate) async fn facts_of_details(
             start: Start {
                 date: start,
                 settled: Some(super::bill::midnight(start)),
+                checkout: false,
             },
             trial: None,
             plan_windows: vec![PlanWindow {
@@ -428,6 +449,9 @@ pub(crate) async fn facts_of_details(
             ending: None,
             end_date: subscription.end_date,
             reconcile_from: None,
+            arrears_from: None,
+            ending_recorded: None,
+            ending_day_invoiced: false,
         },
         tenant_id: subscription.tenant_id,
         customer_id: subscription.customer_id,
@@ -466,10 +490,14 @@ async fn plan_windows(
     Ok(windows)
 }
 
-/// The cancellation as the ending, the fixed term as the end date: the core takes the earlier.
-fn endings(rows: Vec<SubscriptionEndingRow>) -> (Option<Ending>, Option<NaiveDate>) {
+/// The cancellation as the ending, with the day it was requested, the fixed term as the end date:
+/// the core takes the earlier.
+fn endings(
+    rows: Vec<SubscriptionEndingRow>,
+) -> (Option<Ending>, Option<NaiveDate>, Option<NaiveDate>) {
     let mut ending = None;
     let mut end_date = None;
+    let mut recorded = None;
     for row in rows {
         match row.kind.as_str() {
             ENDING_CANCEL => {
@@ -477,12 +505,13 @@ fn endings(rows: Vec<SubscriptionEndingRow>) -> (Option<Ending>, Option<NaiveDat
                     at: row.at.and_utc(),
                     kind: EndingKind::Cancel,
                 });
+                recorded = Some(row.requested_at.date());
             }
             ENDING_COMPLETE => end_date = Some(row.at.date()),
             _ => {}
         }
     }
-    (ending, end_date)
+    (ending, end_date, recorded)
 }
 
 /// A plan window opened as `SubscriptionPlanWindowRow::open` opens it: the open one closed at its
@@ -587,6 +616,7 @@ fn lay_seat_seeds(seats: &mut Vec<SeatStep>, rows: &[Row], seeds: &[SeatSeed], o
                 lineage,
                 at: on,
                 quantity: u64::try_from(seed.slots).unwrap_or(0),
+                removed_at_renewal: 0,
             });
         }
     }
@@ -813,11 +843,17 @@ fn seat_steps(rows: &[Row], transactions: &[SlotTransactionRow]) -> Vec<SeatStep
         };
         counts.insert(transaction.unit.as_str(), count);
         let quantity = u64::try_from(count).unwrap_or(0);
+        // A removal is always for the end of its fee's period (`add_slot_transaction_tx`).
+        let removed = u64::try_from(-transaction.delta).unwrap_or(0);
         for (_, lineage) in lineages
             .iter()
             .filter(|(unit, _)| *unit == transaction.unit)
         {
             let at = transaction.effective_at.date();
+            let earlier = by_day
+                .get(&(lineage.clone(), at))
+                .filter(|_| transaction.delta != 0)
+                .map_or(0, |step| step.removed_at_renewal);
             by_day.insert(
                 (lineage.clone(), at),
                 SeatStep {
@@ -825,6 +861,7 @@ fn seat_steps(rows: &[Row], transactions: &[SlotTransactionRow]) -> Vec<SeatStep
                     lineage: lineage.clone(),
                     at,
                     quantity,
+                    removed_at_renewal: earlier + removed,
                 },
             );
         }

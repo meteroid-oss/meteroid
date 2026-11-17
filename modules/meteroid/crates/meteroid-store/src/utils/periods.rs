@@ -470,30 +470,6 @@ pub fn cycle_on(grid: &billing_core::timeline::Grid, at: NaiveDate) -> Option<(P
     }
 }
 
-/// The end of the period a renewal on `start` opens (R-084): on the latest change of cadence's
-/// grid, which a renewal left off it by an earlier release realigns onto; else on the base grid,
-/// a renewal off it (a history no rule produced) keeping a whole cadence from it.
-pub fn renewal_end(
-    run: Option<&CadenceRun>,
-    (billing_start, billing_from): (NaiveDate, NaiveDate),
-    billing_day: u32,
-    cadence: &BillingPeriodEnum,
-    start: NaiveDate,
-) -> Option<NaiveDate> {
-    let months = cadence.as_months();
-    if let Some(run) = run {
-        return billing_core::timeline::Grid::from_origin(run.origin, billing_day, months)?
-            .period_containing(start)
-            .map(|(_, end)| end);
-    }
-    let grid = base_grid(billing_start, billing_from, billing_day, months)?;
-    if grid.is_boundary(start) {
-        return grid.period_containing(start).map(|(_, end)| end);
-    }
-    log::warn!("a renewal on {start} is off its grid; it keeps a whole cadence");
-    Some(calculate_advance_period_range(start, billing_day, false, cadence).end)
-}
-
 /// A fee's grid as an invoice reads it (R-084): where the fee started on it, and the renewal before
 /// the invoice, since which what started is billed.
 #[derive(Clone, Copy, Debug)]

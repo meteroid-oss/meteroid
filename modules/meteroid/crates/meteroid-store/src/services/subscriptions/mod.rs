@@ -74,6 +74,21 @@ pub(crate) async fn recorded_trial_free_tx(
     )
 }
 
+/// Whether the subscription's current period is its free trial: the invoice ending it opens the
+/// first billed period, so the trial's usage is never billed.
+pub(crate) async fn in_free_trial_period_tx(
+    conn: &mut crate::store::PgConn,
+    subscription: &crate::domain::Subscription,
+) -> crate::StoreResult<bool> {
+    Ok(
+        diesel_models::subscription_facts::SubscriptionTrialRow::find(conn, subscription.id)
+            .await?
+            .is_some_and(|trial| {
+                trial.free && subscription.current_period_end == Some(trial.until_date)
+            }),
+    )
+}
+
 /// Whether the subscription's trial is free: its trial fact (R-100); with none, as activation
 /// decided it, by the plan version it started on, free when the version is gone.
 pub(crate) async fn trial_is_free_tx(

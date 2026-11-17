@@ -52,9 +52,7 @@ use meteroid_store::repositories::credit_notes::{
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use std::str::FromStr;
 
-use super::usage::{
-    PLAN_VERSION_USAGE_ONLY_ID, PRICE_USAGE_ONLY_API_CALLS_ID, seed_usage_only_plan,
-};
+use super::usage::{PLAN_VERSION_USAGE_ONLY_ID, seed_usage_only_plan};
 use crate::data::ids::*;
 use crate::data::plans::{PlanSeed, SeedComp};
 use crate::harness::{TestEnv, subscription, test_env_with_seed_and_usage};
@@ -139,9 +137,6 @@ async fn unit_scenario(options: Options) -> UnitScenario {
     env.set_consolidate_and_grace(options.consolidate, 0).await;
     let unit_id = CreditUnitId::new();
     {
-        use diesel::{ExpressionMethods, QueryDsl};
-        use diesel_async::RunQueryDsl;
-        use diesel_models::schema::price::dsl as p;
         let mut conn = env.conn().await;
         CreditUnitRowNew {
             id: unit_id,
@@ -159,15 +154,8 @@ async fn unit_scenario(options: Options) -> UnitScenario {
             serde_json::to_value(Pricing::Usage(UsagePricingModel::PerUnit { rate: dec!(3) }))
                 .unwrap();
         if !options.add_on {
-            diesel::update(p::price.filter(p::id.eq(PRICE_USAGE_ONLY_API_CALLS_ID)))
-                .set((
-                    p::pricing.eq(pricing),
-                    p::credit_unit_id.eq(Some(unit_id)),
-                    p::credit_unit_rate.eq(Some(options.rate)),
-                ))
-                .execute(&mut conn)
-                .await
-                .expect("price the usage in credits");
+            super::usage::price_usage_only_plan_in_credits(&env, pricing, unit_id, options.rate)
+                .await;
         }
         if let Some(unit_price) = options.list_price {
             CreditUnitPriceRowNew {

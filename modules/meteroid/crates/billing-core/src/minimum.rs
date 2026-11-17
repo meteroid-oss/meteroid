@@ -6,7 +6,7 @@ use common_domain::ids::ProductId;
 use rust_decimal::Decimal;
 
 use crate::allocation::largest_remainder;
-use crate::proration::DayFraction;
+use crate::proration::{DayFraction, DaySpan};
 use crate::rounding::div_round;
 
 /// What a minimum covers.
@@ -42,6 +42,18 @@ pub struct Spend {
     pub fixed: bool,
     /// Its invoice was voided: no spend (R-096).
     pub voided: bool,
+    /// A prorated fixed fee's whole period and price: a cut counts its days served as the note
+    /// on it does (R-079).
+    pub nominal: Option<Nominal>,
+}
+
+/// The whole period a prorated fee's price is for, and that price; for seats bought inside it,
+/// the price before them too, the step billing the difference of what is left of each (R-079).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Nominal {
+    pub period: (NaiveDate, NaiveDate),
+    pub full: i64,
+    pub base: i64,
 }
 
 /// The period a closing invoice trues up, and what its minimum asks of it.
@@ -58,6 +70,9 @@ pub struct TrueUp {
     /// Shortfalls the period's opening invoice prepaid under the rule before the true-up, each
     /// over `[from, until)`.
     pub prepaid: Vec<(NaiveDate, NaiveDate, i64)>,
+    /// What earlier true-ups of the period billed, net of their notes: a cancellation cutting it
+    /// short bills only what its shortfall exceeds, never crediting one back.
+    pub trued_up: i64,
     /// The scoped products the subscription carries, in scope order: a shortfall no product
     /// counted toward is split equally over them.
     pub carried: Vec<ProductId>,
@@ -99,21 +114,32 @@ impl TrueUp {
         {
             return None;
         }
-        let corrected = if line.subtotal == 0 {
-            0
-        } else {
+        let share_of_net = |corrected: i64| {
+            if line.subtotal == 0 {
+                return 0;
+            }
             let share = div_round(
-                i128::from(line.corrected) * i128::from(line.net),
+                i128::from(corrected) * i128::from(line.net),
                 i128::from(line.subtotal),
             );
             i64::try_from(share).unwrap_or(line.net)
         };
         // A note is what a line bills from then on; a fixed fee no note cut yet counts its days
         // served, each rounded once as its note will.
-        let amount = if line.fixed && line.corrected == 0 {
-            served(line.net, line.from, line.until, cut)
-        } else {
-            line.net - corrected
+        let amount = match (line.fixed && line.corrected == 0, line.nominal, cut) {
+            (true, Some(nominal), Some(cut))
+                if line.from <= cut && cut < line.until && line.net > 0 =>
+            {
+                let left = DaySpan {
+                    period: nominal.period,
+                    from: cut,
+                    until: line.until,
+                };
+                let note = left.prorate(nominal.full) - left.prorate(nominal.base);
+                line.net - share_of_net(note)
+            }
+            (true, _, _) => served(line.net, line.from, line.until, cut),
+            _ => line.net - share_of_net(line.corrected),
         };
         Some((line.product, amount))
     }
@@ -136,10 +162,10 @@ impl TrueUp {
             .sum()
     }
 
-    /// The shortfall of `counted` spend: what the floor asks above it and above what was prepaid.
-    /// Never negative: a true-up is never credited back.
+    /// The shortfall of `counted` spend: what the floor asks above it and above what was prepaid
+    /// or trued up already. Never negative: a true-up is never credited back.
     pub fn shortfall(&self, counted: i64) -> i64 {
-        (self.floor - counted - self.already_billed()).max(0)
+        (self.floor - counted - self.already_billed() - self.trued_up).max(0)
     }
 
     /// The lines the closing invoice bills: none when the spend meets the floor, else the
@@ -219,6 +245,7 @@ mod tests {
             scope: Scope::AllComponents,
             cut: None,
             prepaid: Vec::new(),
+            trued_up: 0,
             carried: Vec::new(),
         }
     }
@@ -233,6 +260,7 @@ mod tests {
             corrected: 0,
             fixed,
             voided: false,
+            nominal: None,
         }
     }
 
@@ -323,6 +351,71 @@ mod tests {
         }
     }
 
+    /// A 120.00 yearly fee added on Jan 16, 2024 bills its stub to Jan 1, 2025, 12000 × 351/366 =
+    /// 11508. Cancelled at January's end, it counts what the note on it leaves, 11508 − 12000 ×
+    /// 335/366 = 11508 − 10984 = 524, before that note is written as after.
+    /// Rules: R-022, R-079
+    #[test]
+    fn a_cut_stub_counts_its_days_served_over_its_whole_period_as_its_note_does() {
+        let cut = TrueUp {
+            cut: Some(d(2, 1)),
+            ..january(10_000)
+        };
+        let next_year = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
+        let stub = Spend {
+            nominal: Some(Nominal {
+                period: (d(1, 1), next_year),
+                full: 12_000,
+                base: 0,
+            }),
+            ..line(d(1, 16), next_year, 11_508, true)
+        };
+        let noted = Spend {
+            corrected: 10_984,
+            ..stub.clone()
+        };
+        for stub in [stub, noted] {
+            assert_eq!(cut.spend(&[], &[stub]), vec![(None, 524)]);
+        }
+    }
+
+    /// One 10.00 seat from Jan 5, 2025, three more bought on Jan 10 for 4000 × 26/31 − 1000 ×
+    /// 26/31 = 3355 − 839 = 2516, cancelled from Jan 16 before any note: the seat counts
+    /// 1000 − 645 = 355, the step 2516 − (2581 − 645) = 580 as its note will leave it, where its
+    /// days served read 581.
+    /// Rules: R-022, R-079
+    #[test]
+    fn a_seat_step_counts_what_its_note_will_leave() {
+        let day = |m, d| NaiveDate::from_ymd_opt(2025, m, d).unwrap();
+        let period = (day(1, 5), day(2, 5));
+        let cut = TrueUp {
+            start: day(1, 5),
+            end: day(1, 16),
+            cut: Some(day(1, 16)),
+            ..january(0)
+        };
+        let seat = Spend {
+            nominal: Some(Nominal {
+                period,
+                full: 1_000,
+                base: 0,
+            }),
+            ..line(day(1, 5), day(2, 5), 1_000, true)
+        };
+        let step = Spend {
+            nominal: Some(Nominal {
+                period,
+                full: 4_000,
+                base: 1_000,
+            }),
+            ..line(day(1, 10), day(2, 5), 2_516, true)
+        };
+        assert_eq!(
+            cut.spend(&[], &[seat, step]),
+            vec![(None, 355), (None, 580)]
+        );
+    }
+
     /// Cancelled on Aug 28 after 6 days of a period of 31 from Aug 22: the floor is rounded once,
     /// 100000 × 6/31 = 19354.84, so 19355. A fee its note left 2205 counts 2205, what it bills,
     /// even where its days served would read 2204: the shortfall is 19355 − 2205 = 17150.
@@ -354,6 +447,33 @@ mod tests {
         };
         let fee = line(d(1, 1), d(2, 1), 3_500, true);
         assert!(prepaid.lines(&[], &[fee]).is_empty());
+    }
+
+    /// Trued up 30.01 when it closed, a period a backdated cancellation cut to 16 of its 31 days
+    /// owes 5000 × 16/31 = 2581 less the 10.32 its notes left: 15.49, under what was trued up, so
+    /// nothing more. Had it trued up 10.00, only the 5.49 above it is billed.
+    /// Rules: R-022
+    #[test]
+    fn a_cut_period_bills_only_what_its_shortfall_exceeds_its_true_up() {
+        let cut = TrueUp {
+            start: d(1, 28),
+            end: d(2, 13),
+            floor: floor(5_000, &[(16, 31)]),
+            cut: Some(d(2, 13)),
+            trued_up: 3_001,
+            ..january(0)
+        };
+        assert_eq!(cut.floor, 2_581);
+        let fee = Spend {
+            corrected: 1_999 - 1_032,
+            ..line(d(1, 28), d(2, 28), 1_999, true)
+        };
+        assert!(cut.lines(&[], std::slice::from_ref(&fee)).is_empty());
+        let less = TrueUp {
+            trued_up: 1_000,
+            ..cut
+        };
+        assert_eq!(less.lines(&[], &[fee]), vec![(None, 549)]);
     }
 
     /// A product-scoped 100.00 minimum after 29.00 and 10.00 of its products' spend: 61.00

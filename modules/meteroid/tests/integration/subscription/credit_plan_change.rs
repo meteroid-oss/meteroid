@@ -339,7 +339,7 @@ pub(super) async fn pay(env: &TestEnv, invoice: &Invoice) {
             TENANT_ID,
             invoice.id,
             Decimal::new(invoice.amount_due, 2),
-            Utc::now().fixed_offset(),
+            env.now().fixed_offset(),
             Some(format!("payment-{}", invoice.id)),
         )
         .await
@@ -4487,8 +4487,6 @@ async fn a_deferred_seat_credit_reads_the_seats_before_the_new_plan_s(#[future] 
 struct EventOutcome {
     #[diesel(sql_type = diesel::sql_types::Text)]
     status: String,
-    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
-    error: Option<String>,
 }
 
 /// Round 6, item 2. A scheduled cancellation runs while a seat update (or an immediate change) of
@@ -4505,8 +4503,12 @@ async fn a_scheduled_cancellation_racing_a_seat_update_or_a_change_never_deadloc
 
     let env = test_env.await;
     halyard(&env, CreditExpiry::BillingPeriod).await;
+    // On the wall clock, the payments being dated by it: a cancellation scheduled for tomorrow
+    // is applied by the steps racing the update below, the clock moved past it.
+    let today = Utc::now().date_naive();
+    let tomorrow = today + chrono::Days::new(1);
     for round in 0..4 {
-        let sub_id = start(&env, CUST_UBER_ID, STUDIO, date(2024, 1, 1)).await;
+        let sub_id = start(&env, CUST_UBER_ID, STUDIO, today - chrono::Days::new(10)).await;
         pay(&env, &invoice(&env, sub_id, 0).await).await;
         env.services()
             .cancel_subscription(
@@ -4514,10 +4516,11 @@ async fn a_scheduled_cancellation_racing_a_seat_update_or_a_change_never_deadloc
                 sub_id,
                 TENANT_ID,
                 None,
-                CancellationEffectiveAt::Date(date(2024, 1, 20)),
+                CancellationEffectiveAt::Date(tomorrow + chrono::Days::new(round)),
             )
             .await
             .expect("cancellation scheduled");
+        env.set_now(midnight(tomorrow + chrono::Days::new(round)) + Duration::hours(1));
         let seats = env
             .get_subscription_components(sub_id)
             .await
@@ -4559,7 +4562,7 @@ async fn a_scheduled_cancellation_racing_a_seat_update_or_a_change_never_deadloc
                         TENANT_ID,
                         SCALE,
                         vec![],
-                        date(2024, 1, 16),
+                        today + chrono::Days::new(round),
                     )
                     .await
                     .map(|_| ())
@@ -4569,9 +4572,9 @@ async fn a_scheduled_cancellation_racing_a_seat_update_or_a_change_never_deadloc
         let cancelling = async {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             env.services()
-                .get_and_process_due_events()
+                .run_subscription_steps()
                 .await
-                .expect("due events");
+                .expect("the cancellation applied");
         };
         let releasing = async {
             tokio::time::sleep(std::time::Duration::from_millis(900)).await;
@@ -4586,114 +4589,14 @@ async fn a_scheduled_cancellation_racing_a_seat_update_or_a_change_never_deadloc
             "round {round}: the update failed: {updated:?}"
         );
         let mut conn = env.conn().await;
-        let outcome: EventOutcome = diesel::sql_query(
-            "SELECT status::text AS status, error FROM scheduled_event \
-             WHERE subscription_id = $1 AND event_type = 'CANCEL_SUBSCRIPTION'",
-        )
-        .bind::<diesel::sql_types::Uuid, _>(sub_id.as_uuid())
-        .get_result(&mut conn)
-        .await
-        .expect("the cancellation");
-        assert_eq!(
-            (outcome.status.as_str(), outcome.error),
-            ("COMPLETED", None),
-            "round {round}"
-        );
+        let outcome: EventOutcome =
+            diesel::sql_query("SELECT status::text AS status FROM subscription WHERE id = $1")
+                .bind::<diesel::sql_types::Uuid, _>(sub_id.as_uuid())
+                .get_result(&mut conn)
+                .await
+                .expect("the subscription");
+        assert_eq!(outcome.status.as_str(), "CANCELLED", "round {round}");
     }
-}
-
-#[derive(diesel::QueryableByName)]
-struct ClaimState {
-    #[diesel(sql_type = diesel::sql_types::Date)]
-    current_period_start: NaiveDate,
-    #[diesel(sql_type = diesel::sql_types::Int4)]
-    error_count: i32,
-    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Timestamp>)]
-    processing_started_at: Option<NaiveDateTime>,
-}
-
-async fn claim_state(env: &TestEnv, sub_id: SubscriptionId) -> ClaimState {
-    use diesel_async::RunQueryDsl;
-    let mut conn = env.conn().await;
-    diesel::sql_query(
-        "SELECT current_period_start, error_count, processing_started_at \
-         FROM subscription WHERE id = $1",
-    )
-    .bind::<diesel::sql_types::Uuid, _>(sub_id.as_uuid())
-    .get_result(&mut conn)
-    .await
-    .expect("subscription")
-}
-
-/// Round 6, item 4. A renewal whose customer another transaction holds is deferred without
-/// waiting and without counting a failure, then renewed on the first tick after the deferral.
-#[rstest]
-#[tokio::test]
-async fn the_lifecycle_worker_skips_a_busy_customer_until_the_next_tick(
-    #[future] test_env: TestEnv,
-) {
-    use diesel_async::RunQueryDsl;
-
-    let env = test_env.await;
-    halyard(&env, CreditExpiry::BillingPeriod).await;
-    let sub_id = start(&env, CUST_UBER_ID, STUDIO, date(2024, 1, 1)).await;
-    pay(&env, &invoice(&env, sub_id, 0).await).await;
-    let mut holder = env.conn().await;
-    diesel::sql_query("BEGIN")
-        .execute(&mut holder)
-        .await
-        .expect("begin");
-    diesel::sql_query("SELECT id FROM customer WHERE id = $1 FOR NO KEY UPDATE")
-        .bind::<diesel::sql_types::Uuid, _>(CUST_UBER_ID.as_uuid())
-        .execute(&mut holder)
-        .await
-        .expect("customer locked");
-    let tick = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        env.services().get_and_process_cycle_transitions(),
-    )
-    .await
-    .expect("the worker waited on the customer")
-    .expect("tick");
-    assert_eq!((tick.processed, tick.has_more), (0, false));
-    let skipped = claim_state(&env, sub_id).await;
-    assert_eq!(
-        (
-            skipped.current_period_start,
-            skipped.error_count,
-            skipped.processing_started_at
-        ),
-        (date(2024, 1, 1), 0, None)
-    );
-    diesel::sql_query("COMMIT")
-        .execute(&mut holder)
-        .await
-        .expect("commit");
-    let tick = env
-        .services()
-        .get_and_process_cycle_transitions()
-        .await
-        .expect("tick");
-    assert_eq!(tick.processed, 0, "deferred, not claimed again at once");
-    diesel::sql_query(
-        "UPDATE subscription SET next_retry = now() - interval '1 second' WHERE id = $1",
-    )
-    .bind::<diesel::sql_types::Uuid, _>(sub_id.as_uuid())
-    .execute(&mut env.conn().await)
-    .await
-    .expect("the deferral is over");
-
-    let tick = env
-        .services()
-        .get_and_process_cycle_transitions()
-        .await
-        .expect("tick");
-    assert_eq!(tick.processed, 1);
-    let renewed = claim_state(&env, sub_id).await;
-    assert_eq!(
-        (renewed.current_period_start, renewed.error_count),
-        (date(2024, 2, 1), 0)
-    );
 }
 
 /// Round 6, item 5. Both February drafts wait to be consolidated; the sweep checks the switch and

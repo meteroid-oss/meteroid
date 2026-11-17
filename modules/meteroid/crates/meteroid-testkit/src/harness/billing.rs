@@ -110,6 +110,11 @@ impl TestEnv {
         common_clock::test::set(at);
     }
 
+    /// The present as billing reads it (see `common_clock`).
+    pub fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        common_clock::now()
+    }
+
     /// Moves the present forward by `by`.
     pub fn advance(&self, by: chrono::Duration) {
         common_clock::test::advance(by);
@@ -139,36 +144,35 @@ impl TestEnv {
 
     /// One pass of the billing controller over every due customer, each wake recomputed first as
     /// the daily sweep does (tests move the clock and edit rows directly): each due item is taken
-    /// once, a subscription advancing one transition. Returns how many customers ran.
+    /// once, a subscription advancing one boundary. Returns how many customers ran.
     pub async fn run_billing_controller(&self) -> usize {
         self.services()
             .sweep_billing_controller()
             .await
             .expect("Failed to sweep the billing controller");
         self.services()
-            .run_billing_controller(10_000)
+            .run_billing_controller_one_step(10_000)
             .await
             .expect("Failed to run the billing controller")
             .customers
     }
 
-    /// Process only due scheduled events (e.g. grace-period invoice finalization).
+    /// Only the invoices' deadlines due (a draft finalized after its grace, a payment attempt).
     #[allow(dead_code)]
     pub async fn process_due_events(&self) {
         self.services()
-            .get_and_process_due_events()
+            .run_invoice_deadlines()
             .await
-            .expect("Failed to process due events");
+            .expect("Failed to take the invoice deadlines");
     }
 
-    /// Process only pending cycle transitions (renewals/activations), WITHOUT firing due
-    /// scheduled events. Lets a test observe a freshly-created draft (and its scheduled
-    /// finalization) before finalization actually runs.
+    /// Only the subscriptions' steps (their transitions and documents), the invoices' deadlines
+    /// left: a test sees a fresh draft before its grace finalizes it.
     #[allow(dead_code)]
     pub async fn process_cycle_transitions(&self) {
         self.services()
-            .get_and_process_cycle_transitions()
+            .run_subscription_steps()
             .await
-            .expect("Failed to process cycle transitions");
+            .expect("Failed to step the subscriptions");
     }
 }

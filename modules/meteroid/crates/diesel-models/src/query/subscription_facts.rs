@@ -1,12 +1,11 @@
-use crate::enums::ScheduledEventTypeEnum;
+use crate::enums::ActorTypeEnum;
 use crate::errors::IntoDbResult;
-use crate::scheduled_events::ScheduledEventRow;
 use crate::subscription_facts::{
     SubscriptionEndingRow, SubscriptionPlanWindowRow, SubscriptionPlanWindowRowNew,
     SubscriptionStartSettledRow, SubscriptionTrialRow,
 };
 use crate::{DbResult, PgConn};
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{BaseId, SubscriptionId, TenantId};
 use diesel::sql_types::{Array, Date, Timestamp, Uuid as SqlUuid};
 use diesel::{ExpressionMethods, OptionalExtension, QueryDsl, SelectableHelper};
@@ -15,8 +14,7 @@ use error_stack::ResultExt;
 use uuid::Uuid;
 
 /// The statuses of a subscription still running, inlined as SQL.
-const LIVE_SQL: &str = "('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE', \
-     'TRIAL_EXPIRED', 'PAUSED', 'SUSPENDED')";
+const LIVE_SQL: &str = "('PENDING_ACTIVATION', 'TRIAL_ACTIVE', 'ACTIVE', 'TRIAL_EXPIRED')";
 
 /// The day a subscription's dated rows are read on, as SQL over `subscription`: today, held
 /// inside its stored period until the renewal advances it (the rows a change wrote for the
@@ -346,7 +344,7 @@ impl SubscriptionEndingRow {
             .into_db_result()
     }
 
-    /// Drops the cancellation of a live subscription once its cancellation events are cancelled.
+    /// Drops the cancellation of a live subscription: it was withdrawn before it applied.
     pub async fn withdraw_cancellation(
         conn: &mut PgConn,
         subscription_id: SubscriptionId,
@@ -354,11 +352,7 @@ impl SubscriptionEndingRow {
         diesel::sql_query(format!(
             "DELETE FROM subscription_ending e \
              WHERE e.subscription_id = $1 AND e.kind = 'CANCEL' \
-               AND EXISTS (SELECT 1 FROM subscription s WHERE s.id = $1 AND s.status IN {LIVE_SQL}) \
-               AND NOT EXISTS (SELECT 1 FROM scheduled_event v \
-                               WHERE v.subscription_id = $1 \
-                                 AND v.event_type = 'CANCEL_SUBSCRIPTION' \
-                                 AND v.status <> 'CANCELED')"
+               AND EXISTS (SELECT 1 FROM subscription s WHERE s.id = $1 AND s.status IN {LIVE_SQL})"
         ))
         .bind::<SqlUuid, _>(subscription_id)
         .execute(conn)
@@ -369,76 +363,95 @@ impl SubscriptionEndingRow {
     }
 }
 
-/// What newly scheduled events decide, recorded as facts: a cancellation's ending, an invoice's
-/// finalization after its grace, its next payment attempt.
-pub(crate) async fn record_scheduled_facts(
-    conn: &mut PgConn,
-    events: &[ScheduledEventRow],
-) -> DbResult<()> {
-    let of = |kind: ScheduledEventTypeEnum| -> Vec<Uuid> {
-        events
-            .iter()
-            .filter(|e| e.event_type == kind)
-            .map(|e| e.id.as_uuid())
-            .collect()
-    };
-    let now = common_clock::now().naive_utc();
+/// A cancellation still to apply, as the subscription's details show it.
+#[derive(Debug, Clone, diesel::QueryableByName)]
+pub struct PendingCancellation {
+    #[diesel(sql_type = SqlUuid)]
+    pub id: Uuid,
+    #[diesel(sql_type = SqlUuid)]
+    pub subscription_id: SubscriptionId,
+    #[diesel(sql_type = Timestamp)]
+    pub at: NaiveDateTime,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub reason: Option<String>,
+    #[diesel(sql_type = crate::schema::sql_types::ActorTypeEnum)]
+    pub actor_type: ActorTypeEnum,
+}
 
-    let cancellations = of(ScheduledEventTypeEnum::CancelSubscription);
-    if !cancellations.is_empty() {
-        diesel::sql_query(
-            "INSERT INTO subscription_ending (subscription_id, tenant_id, kind, at, reason, \
-                                              actor_type, actor_uuid, actor_alias, created_at) \
-             SELECT DISTINCT ON (e.subscription_id) e.subscription_id, e.tenant_id, 'CANCEL', \
-                    COALESCE((e.event_data -> 'CancelSubscription' ->> 'usage_cutoff')::timestamp, \
-                             e.scheduled_time), \
-                    e.event_data -> 'CancelSubscription' ->> 'reason', \
-                    e.actor_type, e.actor_uuid, e.actor_alias, $2 \
-             FROM scheduled_event e \
-             WHERE e.id = ANY($1) AND e.event_type = 'CANCEL_SUBSCRIPTION' \
-             ORDER BY e.subscription_id, e.scheduled_time DESC \
-             ON CONFLICT (subscription_id, kind) DO UPDATE \
-             SET at = EXCLUDED.at, reason = EXCLUDED.reason, actor_type = EXCLUDED.actor_type, \
-                 actor_uuid = EXCLUDED.actor_uuid, actor_alias = EXCLUDED.actor_alias, \
-                 created_at = EXCLUDED.created_at",
-        )
-        .bind::<Array<SqlUuid>, _>(&cancellations)
-        .bind::<Timestamp, _>(now)
-        .execute(conn)
-        .await
-        .attach("Error while recording a scheduled cancellation")
-        .into_db_result()?;
+impl SubscriptionEndingRow {
+    /// The cancellation of a subscription, replacing one recorded before.
+    pub async fn record_cancellation(
+        conn: &mut PgConn,
+        row: &SubscriptionEndingRow,
+    ) -> DbResult<()> {
+        use crate::schema::subscription_ending::dsl as e;
+
+        diesel::insert_into(e::subscription_ending)
+            .values(row)
+            .on_conflict((e::subscription_id, e::kind))
+            .do_update()
+            .set((
+                e::at.eq(row.at),
+                e::reason.eq(row.reason.clone()),
+                e::actor_type.eq(row.actor_type),
+                e::actor_uuid.eq(row.actor_uuid),
+                e::actor_alias.eq(row.actor_alias.clone()),
+                e::created_at.eq(row.created_at),
+                e::requested_at.eq(row.requested_at),
+            ))
+            .execute(conn)
+            .await
+            .attach("Error while recording a cancellation")
+            .map(|_| ())
+            .into_db_result()
     }
 
-    for (kind, variant, column) in [
-        (
-            ScheduledEventTypeEnum::FinalizeInvoice,
-            "FinalizeInvoice",
-            "finalize_after",
-        ),
-        (
-            ScheduledEventTypeEnum::RetryPayment,
-            "RetryPayment",
-            "next_payment_attempt_at",
-        ),
-    ] {
-        let ids = of(kind);
-        if ids.is_empty() {
-            continue;
+    /// The cancellations of the live subscriptions among `subscription_ids`, in the tenant: still
+    /// to apply, since applying one ends its subscription.
+    pub async fn list_pending_cancellations(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_ids: &[SubscriptionId],
+    ) -> DbResult<Vec<PendingCancellation>> {
+        if subscription_ids.is_empty() {
+            return Ok(Vec::new());
         }
+        let ids: Vec<Uuid> = subscription_ids.iter().map(|id| id.as_uuid()).collect();
         diesel::sql_query(format!(
-            "UPDATE invoice i SET {column} = e.scheduled_time \
-             FROM scheduled_event e \
-             WHERE e.id = ANY($1) AND i.tenant_id = e.tenant_id \
-               AND i.id = (e.event_data -> '{variant}' ->> 'invoice_id')::uuid"
+            "SELECT e.id, e.subscription_id, e.at, e.reason, e.actor_type \
+             FROM subscription_ending e JOIN subscription s ON s.id = e.subscription_id \
+             WHERE e.tenant_id = $1 AND e.subscription_id = ANY($2) AND e.kind = 'CANCEL' \
+               AND s.status IN {LIVE_SQL} \
+             ORDER BY e.at"
         ))
-        .bind::<Array<SqlUuid>, _>(&ids)
-        .execute(conn)
+        .bind::<SqlUuid, _>(tenant_id)
+        .bind::<Array<SqlUuid>, _>(ids)
+        .get_results(conn)
         .await
-        .attach("Error while recording an invoice deadline")
-        .into_db_result()?;
+        .attach("Error while listing pending cancellations")
+        .into_db_result()
     }
-    Ok(())
+
+    /// The cancellation named `id` of a live subscription of the tenant.
+    pub async fn find_pending_cancellation(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: Uuid,
+    ) -> DbResult<Option<PendingCancellation>> {
+        diesel::sql_query(format!(
+            "SELECT e.id, e.subscription_id, e.at, e.reason, e.actor_type \
+             FROM subscription_ending e JOIN subscription s ON s.id = e.subscription_id \
+             WHERE e.tenant_id = $1 AND e.id = $2 AND e.kind = 'CANCEL' \
+               AND s.status IN {LIVE_SQL}"
+        ))
+        .bind::<SqlUuid, _>(tenant_id)
+        .bind::<SqlUuid, _>(id)
+        .get_result(conn)
+        .await
+        .optional()
+        .attach("Error while reading a pending cancellation")
+        .into_db_result()
+    }
 }
 
 /// Most rows of one kind a subscription's facts are read from: past it the read fails, never
@@ -577,32 +590,37 @@ impl crate::subscription_adjustments::SubscriptionAdjustmentComponentRow {
 }
 
 impl crate::subscriptions::SubscriptionRow {
-    /// The reconcile watermark: periods ending by it were settled before billing from facts.
+    /// The reconcile watermark, periods ending by it settled before billing from facts, and the
+    /// watermark of what a period bills at its end.
     pub async fn reconcile_from(
         conn: &mut PgConn,
         subscription_id: SubscriptionId,
-    ) -> DbResult<Option<NaiveDate>> {
+    ) -> DbResult<(Option<NaiveDate>, Option<NaiveDate>)> {
         use crate::schema::subscription::dsl as s;
 
         s::subscription
             .filter(s::id.eq(subscription_id))
-            .select(s::reconcile_from)
+            .select((s::reconcile_from, s::reconcile_arrears_from))
             .first(conn)
             .await
             .attach("Error while reading the reconcile watermark")
             .into_db_result()
     }
 
-    /// Sets the reconcile watermark.
+    /// Sets the reconcile watermarks.
     pub async fn set_reconcile_from(
         conn: &mut PgConn,
         subscription_id: SubscriptionId,
         from: Option<NaiveDate>,
+        arrears_from: Option<NaiveDate>,
     ) -> DbResult<()> {
         use crate::schema::subscription::dsl as s;
 
         diesel::update(s::subscription.filter(s::id.eq(subscription_id)))
-            .set(s::reconcile_from.eq(from))
+            .set((
+                s::reconcile_from.eq(from),
+                s::reconcile_arrears_from.eq(arrears_from),
+            ))
             .execute(conn)
             .await
             .attach("Error while setting the reconcile watermark")
@@ -628,34 +646,6 @@ impl crate::subscriptions::SubscriptionRow {
             .into_db_result()
             .map(|_| ())
     }
-
-    /// The customer's live subscriptions whose facts changed their derived state by `now`.
-    pub async fn list_due_derivations(
-        conn: &mut PgConn,
-        tenant_id: TenantId,
-        customer_id: common_domain::ids::CustomerId,
-        now: chrono::DateTime<chrono::Utc>,
-        limit: i64,
-    ) -> DbResult<Vec<SubscriptionId>> {
-        use crate::schema::subscription::dsl as s;
-        use diesel::dsl::sql;
-
-        s::subscription
-            .filter(s::tenant_id.eq(tenant_id))
-            .filter(s::customer_id.eq(customer_id))
-            .filter(s::next_wake_at.le(now))
-            .filter(s::lifecycle_suspended.eq(false))
-            .filter(sql::<diesel::sql_types::Bool>(&format!(
-                "status IN {LIVE_SQL}"
-            )))
-            .order_by(s::next_wake_at.asc())
-            .limit(limit)
-            .select(s::id)
-            .load(conn)
-            .await
-            .attach("Error while listing the subscriptions to derive")
-            .into_db_result()
-    }
 }
 
 /// What a scheduled change wrote dated `on`, to withdraw: the rows it opened go, the rows it
@@ -679,7 +669,7 @@ impl ScheduledRows {
     /// Withdraws the rows of a change still to take effect on `on` (a pending change cancelled or
     /// replaced, or the rollback of the facts migration).
     pub async fn withdraw(
-        &self,
+        rows: &Self,
         conn: &mut PgConn,
         subscription_id: SubscriptionId,
         on: NaiveDate,
@@ -689,7 +679,7 @@ impl ScheduledRows {
                 .bind::<SqlUuid, _>(subscription_id)
                 .bind::<Date, _>(on)
         };
-        if let (Some(window), Some(replaced)) = (self.plan_window, &self.replaced_plan_window) {
+        if let (Some(window), Some(replaced)) = (rows.plan_window, &rows.replaced_plan_window) {
             run("DELETE FROM subscription_plan_window \
                  WHERE id = $3 AND subscription_id = $1 AND from_date >= $2")
             .bind::<SqlUuid, _>(window)
@@ -707,7 +697,7 @@ impl ScheduledRows {
                 .await
                 .attach("Error while restoring a replaced plan window")
                 .into_db_result()?;
-        } else if let Some(window) = self.plan_window {
+        } else if let Some(window) = rows.plan_window {
             // One open window at a time: the change's goes before the one it closed reopens.
             run("WITH gone AS (DELETE FROM subscription_plan_window \
                                WHERE id = $3 AND subscription_id = $1 AND from_date >= $2 \
@@ -722,12 +712,12 @@ impl ScheduledRows {
             .into_db_result()?;
         }
         let ids = |ids: &[Uuid]| ids.to_vec();
-        let opened: Vec<Uuid> = self
+        let opened: Vec<Uuid> = rows
             .opened_components
             .iter()
             .map(|id| id.as_uuid())
             .collect();
-        let closed: Vec<Uuid> = self
+        let closed: Vec<Uuid> = rows
             .closed_components
             .iter()
             .map(|id| id.as_uuid())
@@ -757,8 +747,8 @@ impl ScheduledRows {
         .await
         .attach("Error while reopening components")
         .into_db_result()?;
-        let opened: Vec<Uuid> = self.opened_add_ons.iter().map(|id| id.as_uuid()).collect();
-        let closed: Vec<Uuid> = self.closed_add_ons.iter().map(|id| id.as_uuid()).collect();
+        let opened: Vec<Uuid> = rows.opened_add_ons.iter().map(|id| id.as_uuid()).collect();
+        let closed: Vec<Uuid> = rows.closed_add_ons.iter().map(|id| id.as_uuid()).collect();
         // R-106: a row an immediate amendment wrote under the change, ended where the change's
         // row starts, runs on.
         run("UPDATE subscription_add_on c SET effective_to = NULL \
@@ -784,7 +774,7 @@ impl ScheduledRows {
         .await
         .attach("Error while reopening add-ons")
         .into_db_result()?;
-        let seeds: Vec<Uuid> = self.seat_seeds.iter().map(|id| id.as_uuid()).collect();
+        let seeds: Vec<Uuid> = rows.seat_seeds.iter().map(|id| id.as_uuid()).collect();
         run("DELETE FROM slot_transaction \
              WHERE subscription_id = $1 AND effective_at = $2::timestamp AND id = ANY($3)")
         .bind::<Array<SqlUuid>, _>(seeds)
@@ -792,7 +782,7 @@ impl ScheduledRows {
         .await
         .attach("Error while withdrawing seat seeds")
         .into_db_result()?;
-        if self.minimum {
+        if rows.minimum {
             run("DELETE FROM subscription_adjustment_component \
                  WHERE subscription_id = $1 AND kind = 'MINIMUM' AND effective_from = $2")
             .execute(conn)
@@ -812,7 +802,7 @@ impl ScheduledRows {
             .attach("Error while reopening a minimum")
             .into_db_result()?;
         }
-        if let Some(until) = self.trial_until {
+        if let Some(until) = rows.trial_until {
             run("UPDATE subscription_trial SET until_date = $3 \
                  WHERE subscription_id = $1 AND until_date = GREATEST(from_date, $2)")
             .bind::<Date, _>(until)
@@ -821,6 +811,100 @@ impl ScheduledRows {
             .attach("Error while restoring a trial")
             .into_db_result()?;
         }
+        Ok(())
+    }
+
+    /// Moves the fee rows of an amendment still to take effect on `on` to `to`: those it opens
+    /// start then, those it ends (and those written under it) end then, its seat seeds go with
+    /// them. The plan window it opened goes, its cadence read again on `to`.
+    pub async fn defer(
+        rows: &Self,
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+        on: NaiveDate,
+        to: NaiveDate,
+    ) -> DbResult<()> {
+        if rows.plan_window.is_some() {
+            let window = ScheduledRows {
+                plan_window: rows.plan_window,
+                replaced_plan_window: rows.replaced_plan_window.clone(),
+                ..ScheduledRows::default()
+            };
+            Self::withdraw(&window, conn, subscription_id, on).await?;
+        }
+        let run = |sql: &'static str, ids: Vec<Uuid>| {
+            diesel::sql_query(sql)
+                .bind::<SqlUuid, _>(subscription_id)
+                .bind::<Date, _>(on)
+                .bind::<Date, _>(to)
+                .bind::<Array<SqlUuid>, _>(ids)
+        };
+        let opened: Vec<Uuid> = rows
+            .opened_components
+            .iter()
+            .map(|id| id.as_uuid())
+            .collect();
+        let closed: Vec<Uuid> = rows
+            .closed_components
+            .iter()
+            .map(|id| id.as_uuid())
+            .collect();
+        run(
+            "UPDATE subscription_component c SET effective_to = $3 \
+             WHERE c.subscription_id = $1 AND c.effective_to = $2 \
+               AND (c.id = ANY($4) OR COALESCE(c.lineage_id, c.id) IN \
+                   (SELECT COALESCE(o.lineage_id, o.id) FROM subscription_component o \
+                    WHERE o.id = ANY($5)))",
+            closed,
+        )
+        .bind::<Array<SqlUuid>, _>(opened.clone())
+        .execute(conn)
+        .await
+        .attach("Error while deferring the components an amendment ends")
+        .into_db_result()?;
+        run(
+            "UPDATE subscription_component SET effective_from = $3 \
+             WHERE subscription_id = $1 AND effective_from = $2 AND id = ANY($4)",
+            opened,
+        )
+        .execute(conn)
+        .await
+        .attach("Error while deferring the components an amendment opens")
+        .into_db_result()?;
+        let opened: Vec<Uuid> = rows.opened_add_ons.iter().map(|id| id.as_uuid()).collect();
+        let closed: Vec<Uuid> = rows.closed_add_ons.iter().map(|id| id.as_uuid()).collect();
+        run(
+            "UPDATE subscription_add_on c SET effective_to = $3 \
+             WHERE c.subscription_id = $1 AND c.effective_to = $2 \
+               AND (c.id = ANY($4) OR COALESCE(c.lineage_id, c.id) IN \
+                   (SELECT COALESCE(o.lineage_id, o.id) FROM subscription_add_on o \
+                    WHERE o.id = ANY($5)))",
+            closed,
+        )
+        .bind::<Array<SqlUuid>, _>(opened.clone())
+        .execute(conn)
+        .await
+        .attach("Error while deferring the add-ons an amendment ends")
+        .into_db_result()?;
+        run(
+            "UPDATE subscription_add_on SET effective_from = $3 \
+             WHERE subscription_id = $1 AND effective_from = $2 AND id = ANY($4)",
+            opened,
+        )
+        .execute(conn)
+        .await
+        .attach("Error while deferring the add-ons an amendment opens")
+        .into_db_result()?;
+        let seeds: Vec<Uuid> = rows.seat_seeds.iter().map(|id| id.as_uuid()).collect();
+        run(
+            "UPDATE slot_transaction SET effective_at = $3::timestamp, transaction_at = $3::timestamp \
+             WHERE subscription_id = $1 AND effective_at = $2::timestamp AND id = ANY($4)",
+            seeds,
+        )
+        .execute(conn)
+        .await
+        .attach("Error while deferring seat seeds")
+        .into_db_result()?;
         Ok(())
     }
 }

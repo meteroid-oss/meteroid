@@ -37,8 +37,22 @@ pub struct PlanChangePreviewExtended {
     pub immediate_allowed: bool,
 }
 
+/// The document an immediate change bills on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChangeDocument {
+    /// An adjustment invoice beside the period's, the unused fees credited on notes.
+    #[default]
+    Adjustment,
+    /// The subscription's opening invoice: a change ending a free trial starts billing that day
+    /// at the new plan's rate (R-011).
+    OpeningInvoice,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProrationSummary {
+    /// The document `charges_total_cents` is billed on.
+    #[serde(default)]
+    pub document: ChangeDocument,
     pub credits_total_cents: i64,
     pub charges_total_cents: i64,
     pub net_amount_cents: i64,

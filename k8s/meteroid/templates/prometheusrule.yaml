@@ -1,0 +1,38 @@
+{{- if .Values.alerts.enabled }}
+# Billing alerts, on the metrics the workers export (OpenTelemetry names, as Prometheus reads them).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "meteroid.fullname" . }}-billing
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "meteroid.labels" . | nindent 4 }}
+    {{- with .Values.alerts.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: meteroid-billing
+      rules:
+        - alert: BillingFailingRepeatedly
+          expr: max by (kind) (billing_controller_failing) > 0
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Billing failed 5 times in a row for {{ "{{" }} $value {{ "}}" }} {{ "{{" }} $labels.kind {{ "}}" }}(s)"
+            description: >-
+              A subscription or customer whose billing step failed five times in a row is now
+              retried once a day. Its error is on the subscription (billing_last_error) or the
+              customer's billing_controller row (last_error).
+        - alert: BillingReleaseHeldTooLong
+          expr: max(billing_controller_held_customers) > 0
+          for: {{ .Values.alerts.heldFor }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ "{{" }} $value {{ "}}" }} customers due wait for their tenant's billing release"
+            description: >-
+              BILLING_CONTROLLER_RELEASE=allowlist holds every tenant no billing_controller_release
+              row names. Release the tenant, or every tenant with a row naming none.
+{{- end }}

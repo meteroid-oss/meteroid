@@ -88,17 +88,12 @@ pub mod subscriptions {
     pub fn map_subscription_status(e: SubscriptionStatusEnum) -> proto2::SubscriptionStatus {
         match e {
             SubscriptionStatusEnum::PendingActivation => proto2::SubscriptionStatus::Pending,
-            SubscriptionStatusEnum::PendingCharge => proto2::SubscriptionStatus::Pending,
             SubscriptionStatusEnum::TrialActive => proto2::SubscriptionStatus::Trialing,
             SubscriptionStatusEnum::Active => proto2::SubscriptionStatus::Active,
             SubscriptionStatusEnum::TrialExpired => proto2::SubscriptionStatus::TrialExpired,
-            SubscriptionStatusEnum::Paused => proto2::SubscriptionStatus::Ended,
-            SubscriptionStatusEnum::Suspended => proto2::SubscriptionStatus::Ended,
             SubscriptionStatusEnum::Cancelled => proto2::SubscriptionStatus::Canceled,
             SubscriptionStatusEnum::Aborted => proto2::SubscriptionStatus::Aborted,
             SubscriptionStatusEnum::Completed => proto2::SubscriptionStatus::Ended,
-            SubscriptionStatusEnum::Superseded => proto2::SubscriptionStatus::Ended,
-            SubscriptionStatusEnum::Errored => proto2::SubscriptionStatus::Errored,
         }
     }
 
@@ -106,24 +101,15 @@ pub mod subscriptions {
         status: proto2::SubscriptionStatus,
     ) -> Vec<SubscriptionStatusEnum> {
         match status {
-            proto2::SubscriptionStatus::Pending => {
-                vec![
-                    SubscriptionStatusEnum::PendingActivation,
-                    SubscriptionStatusEnum::PendingCharge,
-                ]
-            }
+            proto2::SubscriptionStatus::Pending => vec![SubscriptionStatusEnum::PendingActivation],
             proto2::SubscriptionStatus::Trialing => vec![SubscriptionStatusEnum::TrialActive],
             proto2::SubscriptionStatus::Active => vec![SubscriptionStatusEnum::Active],
             proto2::SubscriptionStatus::TrialExpired => vec![SubscriptionStatusEnum::TrialExpired],
             proto2::SubscriptionStatus::Canceled => vec![SubscriptionStatusEnum::Cancelled],
             proto2::SubscriptionStatus::Aborted => vec![SubscriptionStatusEnum::Aborted],
-            proto2::SubscriptionStatus::Ended => vec![
-                SubscriptionStatusEnum::Paused,
-                SubscriptionStatusEnum::Suspended,
-                SubscriptionStatusEnum::Completed,
-                SubscriptionStatusEnum::Superseded,
-            ],
-            proto2::SubscriptionStatus::Errored => vec![SubscriptionStatusEnum::Errored],
+            proto2::SubscriptionStatus::Ended => vec![SubscriptionStatusEnum::Completed],
+            // No subscription is errored any more: a failure stays on its billing run.
+            proto2::SubscriptionStatus::Errored => vec![],
         }
     }
 
@@ -412,7 +398,7 @@ pub mod subscriptions {
             pending_events: details
                 .pending_events
                 .into_iter()
-                .filter_map(pending_event_to_proto)
+                .map(pending_event_to_proto)
                 .collect(),
             minimum_commitment: details
                 .minimum
@@ -427,22 +413,14 @@ pub mod subscriptions {
         })
     }
 
-    fn pending_event_to_proto(
-        event: PendingScheduledEvent,
-    ) -> Option<proto2::PendingScheduledEvent> {
+    fn pending_event_to_proto(event: PendingScheduledEvent) -> proto2::PendingScheduledEvent {
         let event_type = match event.event_type {
             ScheduledEventTypeEnum::ApplyPlanChange => proto2::ScheduledEventType::PlanChange,
             ScheduledEventTypeEnum::CancelSubscription => proto2::ScheduledEventType::Cancel,
-            ScheduledEventTypeEnum::PauseSubscription => proto2::ScheduledEventType::Pause,
-            ScheduledEventTypeEnum::EndTrial => proto2::ScheduledEventType::EndTrial,
             ScheduledEventTypeEnum::ApplyAmendment => proto2::ScheduledEventType::Amendment,
-            // Truly internal billing events are not surfaced to API clients.
-            ScheduledEventTypeEnum::FinalizeInvoice | ScheduledEventTypeEnum::RetryPayment => {
-                return None;
-            }
         };
 
-        Some(proto2::PendingScheduledEvent {
+        proto2::PendingScheduledEvent {
             id: event.id.as_proto(),
             event_type: event_type.into(),
             scheduled_date: event.scheduled_date.as_proto(),
@@ -456,7 +434,7 @@ pub mod subscriptions {
                 added_add_on_names: s.added_add_on_names,
                 removed_add_on_names: s.removed_add_on_names,
             }),
-        })
+        }
     }
 
     pub(crate) fn update_request_to_patch(
@@ -1442,15 +1420,11 @@ pub mod upcoming {
         invoice.charge_date = charge_date;
         invoice.not_invoiced = matches!(
             forecast.change,
-            Some(
-                UpcomingChange::Ends { billed: false, .. }
-                    | UpcomingChange::Pauses { billed: false, .. }
-            )
+            Some(UpcomingChange::Ends { billed: false, .. })
         );
         invoice.change = match forecast.change {
             None => UpcomingInvoiceChange::None,
             Some(UpcomingChange::Ends { .. }) => UpcomingInvoiceChange::Ends,
-            Some(UpcomingChange::Pauses { .. }) => UpcomingInvoiceChange::Pause,
             Some(UpcomingChange::PlanChange { .. }) => UpcomingInvoiceChange::PlanChange,
             Some(UpcomingChange::Amendment) => UpcomingInvoiceChange::Amendment,
         }

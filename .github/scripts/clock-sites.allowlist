@@ -7,3 +7,4 @@ modules/meteroid/crates/diesel-models/src/query/instance_telemetry.rs | now() | 
 modules/meteroid/crates/meteroid-store/src/repositories/filter_resolution.rs | now() | the balance shown in a customer list filter
 modules/meteroid/crates/diesel-models/src/query/payment_reminders.rs | "now()" | the test that keeps the reminder scans free of the session clock
 modules/meteroid/crates/diesel-models/src/query/invoices.rs | contains("CURRENT_TIMESTAMP") | the test that keeps the scan free of the session clock
+modules/meteroid/crates/meteroid-testkit/src/release.rs | now() | rows seeded at main's schema for the release migration tests; their stamps are never compared with billing times

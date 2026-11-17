@@ -9,8 +9,8 @@ use crate::domain::{
 use crate::services::subscriptions::proration::DayFraction;
 use chrono::{DateTime, NaiveDate, Utc};
 use common_domain::ids::{
-    BillableMetricId, InvoiceId, PriceComponentId, SubscriptionAddOnId,
-    SubscriptionPriceComponentId,
+    BillableMetricId, InvoiceId, PriceComponentId, SubscriptionAddOnId, SubscriptionId,
+    SubscriptionPriceComponentId, TenantId,
 };
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
@@ -260,6 +260,8 @@ pub(in crate::services) struct PricedLines {
     pub prepaid_amount: Option<u64>,
     pub invoice_id: Option<InvoiceId>,
     pub true_up: Option<super::minimum::PeriodTrueUp>,
+    /// The true-ups of earlier periods an ending gave spend back in, billed on its document.
+    pub reopened: Box<[super::minimum::PeriodTrueUp]>,
     pub span: BilledSpan,
 }
 
@@ -641,6 +643,8 @@ impl Services {
                 || (!invoice.line_items.iter().any(is_usage_based_line)
                     && !self
                         .can_accrue_arrears_in_period(conn, subscription_details, *invoice_date)
+                        .await?
+                    && super::discount::shows_owed_coupons(conn, subscription_details, invoice)
                         .await?))
         {
             // Reused lines still estimate the customer credit they would draw.
@@ -704,13 +708,17 @@ impl Services {
             super::cadence::load_cadence_runs(conn, subscription_details, invoice_date, true)
                 .await?;
         #[cfg(feature = "timeline-shadow")]
-        crate::services::timeline_shadow::check_origins(
-            conn,
-            subscription_details,
-            invoice_date,
-            &runs,
-        )
-        .await?;
+        {
+            let started = std::time::Instant::now();
+            crate::services::timeline_shadow::check_origins(
+                conn,
+                subscription_details,
+                invoice_date,
+                &runs,
+            )
+            .await?;
+            crate::services::timeline_shadow::spend(started);
+        }
         let price_components_lines = self
             .process_fee_records(
                 conn,
@@ -852,6 +860,7 @@ impl Services {
             prepaid_amount,
             invoice_id: invoice.map(|invoice| invoice.id),
             true_up,
+            reopened: Box::default(),
             span,
         }))
     }
@@ -933,6 +942,7 @@ impl Services {
             prepaid_amount,
             invoice_id,
             true_up,
+            reopened,
             ..
         } = priced;
         let mut invoice_lines = invoice_lines;
@@ -945,7 +955,12 @@ impl Services {
             invoice_date,
             true_up.as_ref(),
         );
-        let applicable = super::discount::applicable_coupons(&subscription_details.applied_coupons);
+        let currency = &subscription_details.subscription.currency;
+        let queue =
+            super::discount::Queue::load(conn, subscription_details, invoice_id, invoice_date)
+                .await?;
+        let owed = queue.owed(&subscription_details.applied_coupons, currency);
+        let applicable = super::discount::applicable_coupons(&owed);
         let assembled = assemble_lines(
             &mut invoice_lines,
             &AssemblyInputs {
@@ -955,12 +970,27 @@ impl Services {
             },
         );
         let discount_total = assembled.discount;
+        let consumed: Vec<_> = assembled
+            .coupons
+            .iter()
+            .map(|applied| applicable[applied.coupon].applied_coupon.id)
+            .collect();
         super::minimum::append_minimum_shortfall_if_any(
             &invoice_type,
             subscription_details,
             &mut invoice_lines,
             true_up.as_ref(),
+            &consumed,
         )?;
+        for earlier in &reopened {
+            super::minimum::append_minimum_shortfall_if_any(
+                &invoice_type,
+                subscription_details,
+                &mut invoice_lines,
+                Some(earlier),
+                &consumed,
+            )?;
+        }
         super::charges::disambiguate(
             &mut invoice_lines,
             &super::charges::Lineages::of(subscription_details),
@@ -1238,14 +1268,18 @@ impl Services {
                     adjusted_period.advance = None;
                 }
                 #[cfg(feature = "timeline-shadow")]
-                crate::services::timeline_shadow::check(
-                    subscription_details,
-                    component,
-                    &adjusted_period,
-                    invoice_date,
-                    billing_start_or_resume_date,
-                    runs,
-                );
+                {
+                    let started = std::time::Instant::now();
+                    crate::services::timeline_shadow::check(
+                        subscription_details,
+                        component,
+                        &adjusted_period,
+                        invoice_date,
+                        billing_start_or_resume_date,
+                        runs,
+                    );
+                    crate::services::timeline_shadow::spend(started);
+                }
 
                 let lines = self
                     .compute_component(
@@ -1998,6 +2032,55 @@ impl BilledSpan {
             _ => Self::Period,
         }
     }
+}
+
+/// The day and span the windows of a subscription's invoice of `span` keyed `on` are read at. A
+/// final invoice issued after the day its cancellation ended reads that day as its recurring
+/// invoice would, unless that invoice is live and billed up to it (R-016).
+pub(crate) async fn billed_at(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    span: BilledSpan,
+    on: NaiveDate,
+) -> StoreResult<(NaiveDate, BilledSpan)> {
+    if span != BilledSpan::Final {
+        return Ok((on, span));
+    }
+    let ended =
+        diesel_models::subscription_facts::SubscriptionEndingRow::list_of(conn, subscription_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .find(|row| row.kind == diesel_models::subscription_facts::ENDING_CANCEL)
+            .map(|row| row.at.date())
+            .filter(|ended| *ended < on);
+    let Some(ended) = ended else {
+        return Ok((on, span));
+    };
+    let live = Box::pin(InvoiceRow::find_existing_recurring_invoice(
+        conn,
+        tenant_id,
+        subscription_id,
+        ended,
+    ))
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?
+    .is_some_and(|invoice| {
+        !matches!(
+            invoice.status,
+            diesel_models::enums::InvoiceStatusEnum::Void
+                | diesel_models::enums::InvoiceStatusEnum::Closed
+        )
+    });
+    Ok((
+        ended,
+        if live {
+            BilledSpan::Final
+        } else {
+            BilledSpan::Period
+        },
+    ))
 }
 
 /// The records whose arrears the period's own invoice settled up to `on`, on the final invoice's

@@ -6,10 +6,7 @@ use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
 use common_domain::ids::SubscriptionId;
-use diesel_models::enums::{
-    CycleActionEnum, ScheduledEventStatus, SubscriptionEventType, SubscriptionStatusEnum,
-    TenantStatusEnum,
-};
+use diesel_models::enums::{SubscriptionEventType, SubscriptionStatusEnum, TenantStatusEnum};
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use meteroid_store::clients::usage::MockUsageClient;
@@ -164,8 +161,8 @@ async fn test_issuing(
 
     // we expect the fisrt invoice to be issued
 
-    services.get_and_process_cycle_transitions().await.unwrap();
-    services.get_and_process_due_events().await.unwrap();
+    services.run_subscription_steps().await.unwrap();
+    services.run_invoice_deadlines().await.unwrap();
 
     // we expect the second invoice to be issued
 }
@@ -192,13 +189,12 @@ async fn test_paused_tenant_is_not_claimed(services: &Services, conn: &mut PgCon
     );
 
     set_tenant_status(conn, TenantStatusEnum::Paused).await;
-    services.get_and_process_cycle_transitions().await.unwrap();
+    services.run_subscription_steps().await.unwrap();
     let subscription = get_subscription_row(conn, subscription_id).await;
     assert_eq!(subscription.current_period_start, start_date);
-    assert!(subscription.processing_started_at.is_none());
 
     set_tenant_status(conn, TenantStatusEnum::Active).await;
-    services.get_and_process_cycle_transitions().await.unwrap();
+    services.run_subscription_steps().await.unwrap();
     let subscription = get_subscription_row(conn, subscription_id).await;
     assert_eq!(subscription.current_period_start, next_period);
 }
@@ -257,14 +253,14 @@ async fn test_monthly_subscription_with_billing_anchor(
     for cycle in 1..=2 {
         log::info!(">>> Cycle {}", cycle + 1);
 
-        services.get_and_process_cycle_transitions().await.unwrap();
+        services.run_subscription_steps().await.unwrap();
         if cycle == 1 {
             // Check draft state after transition but before processing due events
             let invoices = get_invoices(store, subscription_id).await;
             assert_eq!(invoices[1].status, InvoiceStatusEnum::Draft);
         }
 
-        services.get_and_process_due_events().await.unwrap();
+        services.run_invoice_deadlines().await.unwrap();
 
         let subscription = get_subscription_row(conn, subscription_id).await;
         assert_subscription_state(&subscription, cycle, &invoice_dates, expected_total);
@@ -335,8 +331,8 @@ async fn test_quarterly_subscription_first_cycle_proration(
     );
 
     // Second cycle: full quarterly amount, not prorated
-    services.get_and_process_cycle_transitions().await.unwrap();
-    services.get_and_process_due_events().await.unwrap();
+    services.run_subscription_steps().await.unwrap();
+    services.run_invoice_deadlines().await.unwrap();
 
     let subscription = get_subscription_row(conn, subscription_id).await;
     // Quarterly MRR = total / 3
@@ -372,8 +368,8 @@ async fn test_anniversary_billing(services: &Services, store: &Store, conn: &mut
     // Test cycles without proration
     for cycle in 0..=2 {
         if cycle > 0 {
-            services.get_and_process_cycle_transitions().await.unwrap();
-            services.get_and_process_due_events().await.unwrap();
+            services.run_subscription_steps().await.unwrap();
+            services.run_invoice_deadlines().await.unwrap();
         }
 
         let subscription = get_subscription_row(conn, subscription_id).await;
@@ -408,10 +404,6 @@ async fn test_subscription_with_end_date(services: &Services, store: &Store, con
     let subscription = get_subscription_row(conn, subscription_id).await;
     assert_period(&subscription, invoice_dates[0], invoice_dates[1]);
     assert_eq!(subscription.status, SubscriptionStatusEnum::Active);
-    assert_eq!(
-        subscription.next_cycle_action.unwrap(),
-        CycleActionEnum::RenewSubscription
-    );
     assert_eq!(subscription.mrr_cents, expected_total);
 
     let invoices = get_invoices(store, subscription_id).await;
@@ -419,16 +411,12 @@ async fn test_subscription_with_end_date(services: &Services, store: &Store, con
     assert_full_invoice(&invoices[0], invoice_dates[0], expected_total);
 
     // Second cycle - should set up for end
-    services.get_and_process_cycle_transitions().await.unwrap();
-    services.get_and_process_due_events().await.unwrap();
+    services.run_subscription_steps().await.unwrap();
+    services.run_invoice_deadlines().await.unwrap();
 
     let subscription = get_subscription_row(conn, subscription_id).await;
     assert_period(&subscription, invoice_dates[1], end_date);
     assert_eq!(subscription.status, SubscriptionStatusEnum::Active);
-    assert_eq!(
-        subscription.next_cycle_action.unwrap(),
-        CycleActionEnum::EndSubscription
-    );
     assert_eq!(subscription.mrr_cents, expected_total);
 
     // The term's last window is [Feb 29, Mar 10) of [Feb 29, Mar 31) (R-084), its share of the
@@ -449,12 +437,11 @@ async fn test_subscription_with_end_date(services: &Services, store: &Store, con
     );
 
     // Final cycle - subscription ends
-    services.get_and_process_cycle_transitions().await.unwrap();
-    services.get_and_process_due_events().await.unwrap();
+    services.run_subscription_steps().await.unwrap();
+    services.run_invoice_deadlines().await.unwrap();
 
     let subscription = get_subscription_row(conn, subscription_id).await;
     assert_eq!(subscription.status, SubscriptionStatusEnum::Completed);
-    assert!(subscription.next_cycle_action.is_none());
     // A fixed-term subscription churns its MRR when it completes: the recurring revenue
     // stops, so mrr_cents drops to exactly 0 (never negative, which would overflow u64).
     assert_eq!(
@@ -484,8 +471,8 @@ async fn test_subscription_with_end_date(services: &Services, store: &Store, con
     assert_eq!(invoices.len(), 2); // No new invoice after completion
 
     // Idempotency: re-processing the lifecycle must not double-churn.
-    services.get_and_process_cycle_transitions().await.unwrap();
-    services.get_and_process_due_events().await.unwrap();
+    services.run_subscription_steps().await.unwrap();
+    services.run_invoice_deadlines().await.unwrap();
     let subscription = get_subscription_row(conn, subscription_id).await;
     assert_eq!(
         subscription.mrr_cents, 0,
@@ -511,7 +498,7 @@ async fn test_subscription_cancellation(services: &Services, store: &Store, conn
     )
     .await;
 
-    // Schedule cancellation. Events are not processed until it is in current or previous cycle(s)
+    // Mar 10 is past: the cancellation applies in its request, the Feb 29 period renewed first.
     services
         .cancel_subscription(
             common_domain::actor::Actor::System,
@@ -523,47 +510,22 @@ async fn test_subscription_cancellation(services: &Services, store: &Store, conn
         .await
         .unwrap();
 
-    // First cycle
     let subscription = get_subscription_row(conn, subscription_id).await;
-    assert_eq!(subscription.status, SubscriptionStatusEnum::Active);
-    assert_period(&subscription, invoice_dates[0], invoice_dates[1]);
-    assert_eq!(subscription.mrr_cents, expected_total);
-
-    let invoices = get_invoices(store, subscription_id).await;
-    assert_eq!(invoices.len(), 1);
-    assert_full_invoice(&invoices[0], invoice_dates[0], expected_total);
-
-    // this should do nothing
-    services.get_and_process_due_events().await.unwrap();
-    let subscription = get_subscription_row(conn, subscription_id).await;
-    assert_eq!(subscription.status, SubscriptionStatusEnum::Active);
-
-    // Process second cycle which includes cancellation
-    services.get_and_process_cycle_transitions().await.unwrap();
-
-    // Before processing due events, subscription should still be active but ready for renewal
-    let subscription = get_subscription_row(conn, subscription_id).await;
-    assert_period(
-        &subscription,
-        invoice_dates[1],
-        NaiveDate::from_ymd_opt(2024, 3, 31).unwrap(),
-    );
-    assert_eq!(subscription.status, SubscriptionStatusEnum::Active);
-    assert_eq!(
-        subscription.next_cycle_action.unwrap(),
-        CycleActionEnum::RenewSubscription
-    );
-    assert_eq!(subscription.mrr_cents, expected_total);
+    assert_eq!(subscription.status, SubscriptionStatusEnum::Cancelled);
+    assert_eq!(subscription.current_period_start, cancel_date);
+    assert!(subscription.current_period_end.is_none());
+    assert_eq!(subscription.mrr_cents, 0);
 
     let invoices = get_invoices(store, subscription_id).await;
     assert_eq!(invoices.len(), 2);
+    assert_full_invoice(&invoices[0], invoice_dates[0], expected_total);
+    assert_eq!(invoices[1].billing_period_start, invoice_dates[1]);
 
     // Process due events - this finalizes the invoice and processes the cancellation
-    services.get_and_process_due_events().await.unwrap();
+    services.run_invoice_deadlines().await.unwrap();
 
     let subscription = get_subscription_row(conn, subscription_id).await;
     assert_eq!(subscription.status, SubscriptionStatusEnum::Cancelled);
-    assert!(subscription.next_cycle_action.is_none());
     assert_eq!(subscription.current_period_start, cancel_date);
     assert!(subscription.current_period_end.is_none());
     assert_eq!(subscription.mrr_cents, 0);
@@ -589,8 +551,8 @@ async fn test_subscription_cancellation(services: &Services, store: &Store, conn
     assert_eq!(renewal.amount_due, expected_total - 2_371);
 
     // Ensure no further changes after cancellation
-    services.get_and_process_cycle_transitions().await.unwrap();
-    services.get_and_process_due_events().await.unwrap();
+    services.run_subscription_steps().await.unwrap();
+    services.run_invoice_deadlines().await.unwrap();
 
     let invoices = get_invoices(store, subscription_id).await;
     assert_eq!(invoices.len(), 2);
@@ -642,8 +604,8 @@ async fn test_subscription_cancellation_race_condition(
         .unwrap();
 
     let (events_processed, _) = tokio::try_join! {
-        services.get_and_process_due_events(), // does nothing
-        services.get_and_process_cycle_transitions(), // actually process the cancellation
+        services.run_invoice_deadlines(), // does nothing
+        services.run_subscription_steps(), // actually process the cancellation
     }
     .unwrap();
 
@@ -653,8 +615,8 @@ async fn test_subscription_cancellation_race_condition(
     assert_eq!(subscription.status, SubscriptionStatusEnum::Cancelled);
 
     tokio::try_join! {
-        services.get_and_process_due_events(), // does nothing
-        services.get_and_process_cycle_transitions(), // does nothing
+        services.run_invoice_deadlines(), // does nothing
+        services.run_subscription_steps(), // does nothing
     }
     .unwrap();
 
@@ -664,7 +626,6 @@ async fn test_subscription_cancellation_race_condition(
 
     let subscription = get_subscription_row(conn, subscription_id).await;
     assert_eq!(subscription.status, SubscriptionStatusEnum::Cancelled);
-    assert!(subscription.next_cycle_action.is_none());
     assert_eq!(subscription.current_period_start, cancel_date);
     assert!(subscription.current_period_end.is_none());
     assert_eq!(subscription.mrr_cents, 0);
@@ -725,8 +686,8 @@ async fn test_mrr_cancellation_after_multiple_cycles(
 
     // Run through 3 billing cycles to build up state
     for cycle in 1..=3 {
-        services.get_and_process_cycle_transitions().await.unwrap();
-        services.get_and_process_due_events().await.unwrap();
+        services.run_subscription_steps().await.unwrap();
+        services.run_invoice_deadlines().await.unwrap();
 
         let subscription = get_subscription_row(conn, subscription_id).await;
         assert_eq!(subscription.status, SubscriptionStatusEnum::Active);
@@ -758,13 +719,9 @@ async fn test_mrr_cancellation_after_multiple_cycles(
         .await
         .unwrap();
 
-    // MRR should still be positive while cancellation is pending
-    let subscription = get_subscription_row(conn, subscription_id).await;
-    assert_eq!(subscription.mrr_cents, expected_mrr);
-
-    // Process the cancellation through the lifecycle
-    services.get_and_process_cycle_transitions().await.unwrap();
-    services.get_and_process_due_events().await.unwrap();
+    // Aug 15 is past: the cancellation applies in its request; the lifecycle finds nothing left.
+    services.run_subscription_steps().await.unwrap();
+    services.run_invoice_deadlines().await.unwrap();
 
     // CRITICAL: mrr_cents must be exactly 0, not negative (which would overflow to u64::MAX)
     let subscription = get_subscription_row(conn, subscription_id).await;
@@ -802,8 +759,8 @@ async fn test_mrr_cancellation_after_multiple_cycles(
     );
 
     // Idempotency: repeated processing must not change mrr_cents
-    services.get_and_process_cycle_transitions().await.unwrap();
-    services.get_and_process_due_events().await.unwrap();
+    services.run_subscription_steps().await.unwrap();
+    services.run_invoice_deadlines().await.unwrap();
 
     let subscription = get_subscription_row(conn, subscription_id).await;
     assert_eq!(subscription.status, SubscriptionStatusEnum::Cancelled);
@@ -842,8 +799,8 @@ async fn test_mrr_cancellation_at_period_boundary(
     .await;
 
     // Run one billing cycle
-    services.get_and_process_cycle_transitions().await.unwrap();
-    services.get_and_process_due_events().await.unwrap();
+    services.run_subscription_steps().await.unwrap();
+    services.run_invoice_deadlines().await.unwrap();
 
     let subscription = get_subscription_row(conn, subscription_id).await;
     assert_eq!(subscription.mrr_cents, expected_mrr);
@@ -866,8 +823,8 @@ async fn test_mrr_cancellation_at_period_boundary(
 
     // Process: cycle transition should find the cancel event at the next period start
     // and handle it inline (without billing first)
-    services.get_and_process_cycle_transitions().await.unwrap();
-    services.get_and_process_due_events().await.unwrap();
+    services.run_subscription_steps().await.unwrap();
+    services.run_invoice_deadlines().await.unwrap();
 
     let subscription = get_subscription_row(conn, subscription_id).await;
     assert_eq!(subscription.status, SubscriptionStatusEnum::Cancelled);
@@ -914,18 +871,18 @@ async fn test_mrr_cancellation_at_period_boundary(
     );
 
     // Idempotency
-    services.get_and_process_cycle_transitions().await.unwrap();
-    services.get_and_process_due_events().await.unwrap();
+    services.run_subscription_steps().await.unwrap();
+    services.run_invoice_deadlines().await.unwrap();
 
     let subscription = get_subscription_row(conn, subscription_id).await;
     assert_eq!(subscription.mrr_cents, 0);
 }
 
-/// Quiesce every still-active subscription (and its pending scheduled events) so the
+/// Quiesce every still-active subscription (and its invoices' deadlines) so the
 /// lifecycle processor stops claiming them.
 ///
 /// `test_lifecycle_billing` runs many independent scenarios against the same shared customer
-/// in one database. `get_and_process_cycle_transitions` claims *all* due subscriptions
+/// in one database. `run_subscription_steps` claims *all* due subscriptions
 /// tenant-wide and processes them concurrently, and every scenario's subscription stays
 /// permanently "due" (its synthetic 2024/2025 periods are in the past relative to wall-clock
 /// now). Left-over subscriptions from earlier scenarios therefore keep being re-billed and
@@ -937,15 +894,16 @@ async fn test_mrr_cancellation_at_period_boundary(
 async fn isolate_prior_subscriptions(conn: &mut PgConn) {
     use diesel::{ExpressionMethods, QueryDsl};
     use diesel_async::RunQueryDsl;
-    use diesel_models::schema::{scheduled_event, subscription};
+    use diesel_models::schema::{invoice, subscription};
 
-    diesel::update(
-        scheduled_event::table.filter(scheduled_event::status.eq(ScheduledEventStatus::Pending)),
-    )
-    .set(scheduled_event::status.eq(ScheduledEventStatus::Canceled))
-    .execute(conn)
-    .await
-    .unwrap();
+    diesel::update(invoice::table)
+        .set((
+            invoice::finalize_after.eq(None::<chrono::NaiveDateTime>),
+            invoice::next_payment_attempt_at.eq(None::<chrono::NaiveDateTime>),
+        ))
+        .execute(conn)
+        .await
+        .unwrap();
 
     diesel::update(
         subscription::table
@@ -953,10 +911,7 @@ async fn isolate_prior_subscriptions(conn: &mut PgConn) {
     )
     .set((
         subscription::status.eq(SubscriptionStatusEnum::Cancelled),
-        subscription::next_cycle_action.eq(None::<CycleActionEnum>),
         subscription::current_period_end.eq(None::<NaiveDate>),
-        subscription::processing_started_at.eq(None::<chrono::NaiveDateTime>),
-        subscription::next_retry.eq(None::<chrono::NaiveDateTime>),
     ))
     .execute(conn)
     .await
@@ -971,10 +926,6 @@ fn assert_subscription_state(
     expected_total: i64,
 ) {
     assert_eq!(subscription.status, SubscriptionStatusEnum::Active);
-    assert_eq!(
-        subscription.next_cycle_action.clone().unwrap(),
-        CycleActionEnum::RenewSubscription
-    );
     assert_period(
         subscription,
         invoice_dates[cycle_idx],

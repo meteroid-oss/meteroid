@@ -90,12 +90,13 @@ async fn s06_cancel_at_period_end_lapses_the_plan_credit_with_its_subscription()
     h.tokens(customer, at_time(9, 25, 10, 0, 0), LITE, 20 * M);
 
     h.services()
-        .cancel_subscription(
+        .cancel_subscription_at(
             Actor::System,
             sub,
             h.tenant,
             None,
             CancellationEffectiveAt::Date(day(10, 1)),
+            at(9, 26),
         )
         .await
         .expect("cancelled for the period end");

@@ -576,7 +576,7 @@ async fn an_add_on_is_bought_on_the_day_its_checkout_is_paid(#[future] test_env:
 async fn a_checkout_whose_term_ends_in_its_first_period_bills_up_to_its_end(
     #[future] test_env: TestEnv,
 ) {
-    use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
+    use diesel_models::enums::SubscriptionStatusEnum;
     let env = test_env.await;
     env.seed_payments().await;
     let end_date = NaiveDate::from_ymd_opt(2024, 1, 25).unwrap();
@@ -624,10 +624,7 @@ async fn a_checkout_whose_term_ends_in_its_first_period_bills_up_to_its_end(
         )]
     );
     let sub = env.get_subscription(subscription_id).await;
-    assert_eq!(
-        (sub.current_period_end, sub.next_cycle_action),
-        (Some(end_date), Some(CycleActionEnum::EndSubscription))
-    );
+    assert_eq!(sub.current_period_end, Some(end_date));
 
     env.set_now(end_date.and_hms_opt(1, 0, 0).unwrap().and_utc());
     env.process_cycles().await;

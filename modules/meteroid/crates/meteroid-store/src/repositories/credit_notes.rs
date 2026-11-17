@@ -740,6 +740,50 @@ pub(crate) async fn invoice_payment_in_flight(
         .map_err(Into::<Report<StoreError>>::into)
 }
 
+/// The note a change issues on `invoice`: to the balance once any of it was collected, paid by
+/// credit or is in flight, its debt left cancelled first (I17); else it cancels debt.
+pub(crate) async fn change_note_type(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    invoice: &Invoice,
+) -> StoreResult<CreditType> {
+    let collected_or_in_flight = matches!(
+        invoice.payment_status,
+        InvoicePaymentStatus::Paid | InvoicePaymentStatus::PartiallyPaid
+    ) || invoice.amount_due <= 0
+        || invoice.amount_due < invoice.total
+        || invoice_payment_in_flight(conn, tenant_id, invoice).await?;
+    Ok(if collected_or_in_flight {
+        CreditType::CreditToBalance
+    } else {
+        CreditType::DebtCancellation
+    })
+}
+
+/// What a note of `amount` a change issues on `invoice` returns to the balance (R-078).
+pub(crate) async fn change_note_to_balance(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    invoice: &Invoice,
+    amount: i64,
+) -> StoreResult<i64> {
+    if change_note_type(conn, tenant_id, invoice).await? != CreditType::CreditToBalance {
+        return Ok(0);
+    }
+    let prior = CreditNoteRow::list_by_invoice_id(conn, tenant_id, invoice.id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    let in_flight = invoice_payment_in_flight(conn, tenant_id, invoice).await?;
+    let (credited, _) = credit_note_effects::balance_effects_in_flight(
+        invoice,
+        credit_note_effects::total(amount)?,
+        &prior,
+        false,
+        in_flight,
+    )?;
+    Ok(credited)
+}
+
 const CREDITS_PURCHASE_TWICE: &str = "the credit purchased on this invoice is already the customer's; issue a Refund to reverse it, not a credit-to-balance note that would grant it twice";
 /// Credit-to-balance on a line whose purchase already funded credit would grant it twice.
 async fn credits_funded_purchase_tx(

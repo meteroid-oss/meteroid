@@ -896,6 +896,7 @@
       "SubscriptionStatusEnum": {
         "type": "string",
         "title": "SubscriptionStatus",
+        "description": "`PendingCharge`, `Paused`, `Suspended`, `Superseded` and `Errored` stay in the published\nschema; no subscription holds them any more, and a filter on them lists none.",
         "enum": [
           "PENDING_ACTIVATION",
           "PENDING_CHARGE",

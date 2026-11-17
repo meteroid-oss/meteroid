@@ -210,16 +210,17 @@ pub fn capacity_overage_lines(
     let mut lines: Vec<PricedLine> = vec![];
     if overage_rate > &Decimal::ZERO {
         for usage_data in usage {
-            let overage_units = usage_data
-                .value
+            // The usage read is rounded, never the allowance: a prorated one is exact, and the
+            // units past it are shown rounded but billed exactly (R-001).
+            let past = round_billable_quantity(usage_data.value, *overage_rate, precision)
                 .checked_sub(included)
                 .map(only_positive_decimal)
-                .map(|units| round_billable_quantity(units, *overage_rate, precision))
                 .ok_or(PricingError::OutOfRange)?;
+            let overage_units = round_billable_quantity(past, *overage_rate, precision);
 
             // Multiplied before rounding, once, so a sub-minor-unit rate still bills.
             let overage_total = overage_rate
-                .checked_mul(overage_units)
+                .checked_mul(past)
                 .and_then(|total| {
                     total.checked_mul(Decimal::from(10_i64.pow(u32::from(precision))))
                 })
@@ -279,6 +280,22 @@ mod tests {
         // Fractional overage is billed, not truncated: 10.5 x $0.02 = $0.21.
         assert_eq!(overage_total(dec!(0.02), 5, dec!(15.5), 2), (21, 21));
         assert_eq!(overage_total(dec!(0.02), 20, dec!(15.5), 2), (0, 0));
+    }
+
+    /// A capacity of 100 units for a year, cancelled after 3 of its 365 days, includes 300/365
+    /// units: 6 used at 0.25 owe (6 − 300/365) × 25 = 129.45, so 129, where the units past the
+    /// allowance read 5.18 first and billed 129.5, so 130.
+    /// Rules: R-001, R-002
+    #[test]
+    fn a_prorated_allowance_is_billed_past_exactly_rounded_once() {
+        let usage = [GroupedUsage {
+            value: dec!(6),
+            dimensions: HashMap::new(),
+        }];
+        let included = Decimal::from(100) * Decimal::from(3) / Decimal::from(365);
+        let lines = capacity_overage_lines(included, &dec!(0.25), &usage, 2).unwrap();
+        assert_eq!((lines[0].total, lines[0].sublines[0].total), (129, 129));
+        assert_eq!(lines[0].sublines[0].quantity, dec!(5.18));
     }
 
     fn five_units() -> [GroupedUsage; 1] {

@@ -45,13 +45,13 @@ use diesel_models::PgConn;
 use diesel_models::customers::CustomerRow;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::plans::PlanRow;
-use diesel_models::scheduled_events::ScheduledEventRowNew;
 use meteroid_store_macros::with_conn_delegate;
 
 pub mod slots;
 pub(crate) mod usage_attribution;
-use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventData, ScheduledEventNew};
-use diesel_models::scheduled_events::ScheduledEventRow;
+use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventData};
+use diesel_models::subscription_changes::SubscriptionChangeRow;
+use diesel_models::subscription_facts::SubscriptionEndingRow;
 pub use slots::SubscriptionSlotsInterface;
 
 pub enum CancellationEffectiveAt {
@@ -129,12 +129,6 @@ pub trait SubscriptionInterface {
         &self,
         subscription_ids: Vec<SubscriptionId>,
     ) -> StoreResult<Vec<Subscription>>;
-
-    async fn schedule_events(
-        &self,
-        conn: &mut PgConn,
-        events: Vec<ScheduledEventNew>,
-    ) -> StoreResult<Vec<ScheduledEvent>>;
 
     async fn patch_subscription(
         &self,
@@ -304,18 +298,18 @@ impl SubscriptionInterface for Store {
 
         let mut conn = self.get_conn().await?;
 
-        let rows = ScheduledEventRow::list_pending_cancellations_for_subscriptions(
+        let rows = SubscriptionEndingRow::list_pending_cancellations(
             &mut conn,
+            tenant_id,
             subscription_ids,
-            &tenant_id,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-        // Rows are ordered by scheduled_time asc, so the first per subscription is the earliest.
         let mut map = HashMap::new();
-        for (sub_id, scheduled_time) in rows {
-            map.entry(sub_id).or_insert_with(|| scheduled_time.date());
+        for row in rows {
+            map.entry(row.subscription_id)
+                .or_insert_with(|| row.at.date());
         }
 
         Ok(map)
@@ -416,24 +410,6 @@ impl SubscriptionInterface for Store {
         self.pgmq_send_batch(PgmqQueue::HubspotSync, req).await
     }
 
-    async fn schedule_events(
-        &self,
-        conn: &mut PgConn,
-        events: Vec<ScheduledEventNew>,
-    ) -> StoreResult<Vec<ScheduledEvent>> {
-        let insertable_batch: Vec<ScheduledEventRowNew> = events
-            .into_iter()
-            .map(std::convert::TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        ScheduledEventRowNew::insert_batch(conn, &insertable_batch)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .into_iter()
-            .map(std::convert::TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()
-    }
-
     async fn patch_subscription(
         &self,
         tenant_id: TenantId,
@@ -451,9 +427,7 @@ impl SubscriptionInterface for Store {
         let status: SubscriptionStatusEnum = existing.subscription.status.into();
         if matches!(
             status,
-            SubscriptionStatusEnum::Cancelled
-                | SubscriptionStatusEnum::Completed
-                | SubscriptionStatusEnum::Superseded
+            SubscriptionStatusEnum::Cancelled | SubscriptionStatusEnum::Completed
         ) {
             bail!(StoreError::InvalidArgument(
                 "Cannot update subscription in terminal state".to_string()
@@ -984,17 +958,34 @@ impl Store {
             }
         };
 
-        // Fetch pending user-visible scheduled events (excludes internal billing events)
+        // The changes written ahead and the cancellation still to apply.
         let pending_events = {
-            let event_rows = ScheduledEventRow::get_pending_user_visible_events_for_subscription(
-                conn,
-                subscription.id,
-                &tenant_id,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+            let event_rows =
+                SubscriptionChangeRow::list_pending_user_visible(conn, subscription.id, &tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
             let mut events = Vec::new();
+            for cancellation in SubscriptionEndingRow::list_pending_cancellations(
+                conn,
+                tenant_id,
+                &[subscription.id],
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            {
+                events.push(PendingScheduledEvent {
+                    id: common_domain::ids::ScheduledEventId::from(cancellation.id),
+                    event_type: crate::domain::enums::ScheduledEventTypeEnum::CancelSubscription,
+                    scheduled_date: cancellation.at.date(),
+                    new_plan_name: None,
+                    new_plan_version_id: None,
+                    cancel_reason: cancellation.reason,
+                    customer_initiated: cancellation.actor_type
+                        == diesel_models::enums::ActorTypeEnum::Customer,
+                    amendment_summary: None,
+                });
+            }
             for row in event_rows {
                 let event: ScheduledEvent = row.try_into()?;
                 let mut pending = PendingScheduledEvent {
@@ -1019,9 +1010,6 @@ impl Store {
                                 .map_err(Into::<Report<StoreError>>::into)?;
                         pending.new_plan_name = Some(plan_with_version.plan.name);
                         pending.new_plan_version_id = Some(*new_plan_version_id);
-                    }
-                    ScheduledEventData::CancelSubscription { reason, .. } => {
-                        pending.cancel_reason = reason.clone();
                     }
                     ScheduledEventData::ApplyAmendment {
                         component_close,
@@ -1062,11 +1050,11 @@ impl Store {
                             removed_add_on_names,
                         });
                     }
-                    _ => {}
                 }
 
                 events.push(pending);
             }
+            events.sort_by_key(|event| event.scheduled_date);
             events
         };
 

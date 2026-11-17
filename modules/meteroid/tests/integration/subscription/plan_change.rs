@@ -416,12 +416,17 @@ async fn test_plan_change_replaces_existing(#[future] test_env: TestEnv) {
 
     // Only one pending plan change should exist
     let mut conn = env.conn().await;
-    let pending =
-        diesel_models::scheduled_events::ScheduledEventRow::get_pending_events_for_subscription(
-            &mut conn, sub_id, &TENANT_ID,
-        )
-        .await
-        .expect("query pending events");
+    let pending = diesel_models::subscription_changes::SubscriptionChangeRow::list_pending(
+        &mut conn,
+        &TENANT_ID,
+        sub_id,
+        &[
+            diesel_models::enums::SubscriptionChangeKindEnum::PlanChange,
+            diesel_models::enums::SubscriptionChangeKindEnum::Amendment,
+        ],
+    )
+    .await
+    .expect("query pending changes");
 
     assert_eq!(pending.len(), 1, "should have exactly one pending event");
     assert_eq!(
@@ -944,12 +949,17 @@ async fn test_immediate_plan_change_cancels_pending_scheduled(#[future] test_env
 
     // Pending scheduled events should be cancelled
     let mut conn = env.conn().await;
-    let pending =
-        diesel_models::scheduled_events::ScheduledEventRow::get_pending_events_for_subscription(
-            &mut conn, sub_id, &TENANT_ID,
-        )
-        .await
-        .expect("query pending events");
+    let pending = diesel_models::subscription_changes::SubscriptionChangeRow::list_pending(
+        &mut conn,
+        &TENANT_ID,
+        sub_id,
+        &[
+            diesel_models::enums::SubscriptionChangeKindEnum::PlanChange,
+            diesel_models::enums::SubscriptionChangeKindEnum::Amendment,
+        ],
+    )
+    .await
+    .expect("query pending changes");
 
     assert!(
         pending.is_empty(),
@@ -3513,6 +3523,14 @@ async fn a_plan_change_after_a_scheduled_cancellation_is_refused(#[future] test_
         .create(env.services())
         .await;
 
+    // Inside the period, so the cancellation at its end is still to come.
+    env.set_now(
+        NaiveDate::from_ymd_opt(2024, 1, 15)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc(),
+    );
     env.services()
         .cancel_subscription(
             common_domain::actor::Actor::System,
@@ -3541,13 +3559,22 @@ async fn a_plan_change_after_a_scheduled_cancellation_is_refused(#[future] test_
 
     let mut conn = env.conn().await;
     let pending =
-        diesel_models::scheduled_events::ScheduledEventRow::get_pending_events_for_subscription(
-            &mut conn, sub_id, &TENANT_ID,
+        diesel_models::subscription_facts::SubscriptionEndingRow::list_pending_cancellations(
+            &mut conn,
+            TENANT_ID,
+            &[sub_id],
         )
         .await
-        .expect("query pending events");
+        .expect("query pending cancellations");
     assert_eq!(pending.len(), 1, "the cancellation is still pending");
 
+    env.set_now(
+        NaiveDate::from_ymd_opt(2024, 2, 1)
+            .unwrap()
+            .and_hms_opt(1, 0, 0)
+            .unwrap()
+            .and_utc(),
+    );
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
@@ -3573,6 +3600,14 @@ async fn an_immediate_plan_change_keeps_a_scheduled_cancellation(#[future] test_
         .create(env.services())
         .await;
 
+    // Inside the period, so the cancellation at its end is still to come.
+    env.set_now(
+        NaiveDate::from_ymd_opt(2024, 1, 15)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc(),
+    );
     env.services()
         .cancel_subscription(
             common_domain::actor::Actor::System,
@@ -3603,16 +3638,15 @@ async fn an_immediate_plan_change_keeps_a_scheduled_cancellation(#[future] test_
 
     let mut conn = env.conn().await;
     let pending =
-        diesel_models::scheduled_events::ScheduledEventRow::get_pending_events_for_subscription(
-            &mut conn, sub_id, &TENANT_ID,
+        diesel_models::subscription_facts::SubscriptionEndingRow::list_pending_cancellations(
+            &mut conn,
+            TENANT_ID,
+            &[sub_id],
         )
         .await
-        .expect("query pending events");
+        .expect("query pending cancellations");
     assert_eq!(pending.len(), 1, "the cancellation is still pending");
-    assert_eq!(
-        pending[0].event_type,
-        diesel_models::enums::ScheduledEventTypeEnum::CancelSubscription
-    );
+    assert_eq!(pending[0].subscription_id, sub_id);
 }
 
 /// An immediate change dated after the subscription's cancellation is refused (R-092).
@@ -3682,6 +3716,14 @@ async fn an_immediate_change_during_a_paid_trial_keeps_a_scheduled_cancellation(
         .assert()
         .is_trial_active();
 
+    // Inside the period, so the cancellation at its end is still to come.
+    env.set_now(
+        NaiveDate::from_ymd_opt(2024, 1, 5)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc(),
+    );
     env.services()
         .cancel_subscription(
             common_domain::actor::Actor::System,
@@ -3707,20 +3749,17 @@ async fn an_immediate_change_during_a_paid_trial_keeps_a_scheduled_cancellation(
 
     let mut conn = env.conn().await;
     let pending =
-        diesel_models::scheduled_events::ScheduledEventRow::get_pending_events_for_subscription(
-            &mut conn, sub_id, &TENANT_ID,
+        diesel_models::subscription_facts::SubscriptionEndingRow::list_pending_cancellations(
+            &mut conn,
+            TENANT_ID,
+            &[sub_id],
         )
         .await
-        .expect("query pending events");
-    assert!(
-        pending.iter().any(|event| event.event_type
-            == diesel_models::enums::ScheduledEventTypeEnum::CancelSubscription),
+        .expect("query pending cancellations");
+    assert_eq!(
+        pending.len(),
+        1,
         "the cancellation is still pending: {pending:?}"
-    );
-    assert!(
-        pending.iter().all(|event| event.event_type
-            != diesel_models::enums::ScheduledEventTypeEnum::EndTrial),
-        "the trial end went with the trial"
     );
 }
 
@@ -3894,12 +3933,17 @@ async fn test_sequential_scheduled_plan_changes(#[future] test_env: TestEnv) {
 
     // Only 1 pending event
     let mut conn = env.conn().await;
-    let pending =
-        diesel_models::scheduled_events::ScheduledEventRow::get_pending_events_for_subscription(
-            &mut conn, sub_id, &TENANT_ID,
-        )
-        .await
-        .expect("query pending events");
+    let pending = diesel_models::subscription_changes::SubscriptionChangeRow::list_pending(
+        &mut conn,
+        &TENANT_ID,
+        sub_id,
+        &[
+            diesel_models::enums::SubscriptionChangeKindEnum::PlanChange,
+            diesel_models::enums::SubscriptionChangeKindEnum::Amendment,
+        ],
+    )
+    .await
+    .expect("query pending changes");
     assert_eq!(pending.len(), 1, "only the last schedule should be pending");
 
     // Execute
@@ -4067,7 +4111,8 @@ async fn test_plan_change_monthly_to_annual(#[future] test_env: TestEnv) {
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    sub.assert().is_active().has_cycle_index(1);
+    sub.assert().is_active();
+    assert_eq!(env.billed_cycle(sub_id).await, 1);
 
     // The renewal period should be annual (1 year from the billing anchor)
     let period_start = sub.current_period_start;
@@ -4142,7 +4187,6 @@ async fn test_plan_change_monthly_to_annual(#[future] test_env: TestEnv) {
 ///
 /// Expected:
 ///   - Trial ends immediately, subscription becomes Active
-///   - next_cycle_action changes from EndTrial to RenewSubscription
 ///   - Billing period resets to start from change_date
 ///   - No adjustment invoice (nothing was charged during free trial)
 ///   - First invoice created at Starter prices (€39 = 3900 cents)
@@ -4166,7 +4210,6 @@ async fn test_plan_change_during_free_trial_immediate(#[future] test_env: TestEn
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
         .is_trial_active()
-        .has_next_action(Some(diesel_models::enums::CycleActionEnum::EndTrial))
         .has_period_start(start_date)
         .has_period_end(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()); // 14 days from start
 

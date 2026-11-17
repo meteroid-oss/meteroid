@@ -1,4 +1,4 @@
-use crate::enums::{InvoiceStatusEnum, ScheduledEventStatus, ScheduledEventTypeEnum};
+use crate::enums::{InvoiceStatusEnum, SubscriptionStatusEnum};
 use crate::errors::IntoDbResult;
 use crate::invoices::InvoiceRow;
 use crate::{DbResult, PgConn};
@@ -82,25 +82,26 @@ impl InvoiceRow {
     }
 }
 
-/// The pending cancellations and pauses of the customer's subscriptions: when each stops.
+/// The cancellations still to apply of the customer's subscriptions: when each stops.
 pub async fn list_scheduled_stops(
     conn: &mut PgConn,
     tenant_id: TenantId,
     customer_id: CustomerId,
 ) -> DbResult<Vec<(SubscriptionId, NaiveDateTime)>> {
-    use crate::schema::scheduled_event::dsl as e;
     use crate::schema::subscription::dsl as s;
-    e::scheduled_event
+    use crate::schema::subscription_ending::dsl as e;
+    e::subscription_ending
         .inner_join(s::subscription.on(s::id.eq(e::subscription_id)))
         .filter(e::tenant_id.eq(tenant_id))
         .filter(s::tenant_id.eq(tenant_id))
         .filter(s::customer_id.eq(customer_id))
-        .filter(e::status.eq(ScheduledEventStatus::Pending))
-        .filter(e::event_type.eq_any([
-            ScheduledEventTypeEnum::CancelSubscription,
-            ScheduledEventTypeEnum::PauseSubscription,
+        .filter(e::kind.eq(crate::subscription_facts::ENDING_CANCEL))
+        .filter(s::status.ne_all([
+            SubscriptionStatusEnum::Cancelled,
+            SubscriptionStatusEnum::Completed,
+            SubscriptionStatusEnum::Aborted,
         ]))
-        .select((e::subscription_id, e::scheduled_time))
+        .select((e::subscription_id, e::at))
         .load(conn)
         .await
         .attach("Error while listing scheduled subscription stops")

@@ -656,22 +656,15 @@ impl ServicesEdge {
     ) -> StoreResult<Vec<PlannedWindow>> {
         if !matches!(
             details.subscription.status,
-            SubscriptionStatusEnum::Active
-                | SubscriptionStatusEnum::TrialActive
-                | SubscriptionStatusEnum::PendingCharge
+            SubscriptionStatusEnum::Active | SubscriptionStatusEnum::TrialActive
         ) {
             return Ok(Vec::new());
         }
         let basis = self.services.next_invoice_basis(conn, details).await?;
         let span = basis.span();
         let (billed, invoice_date, span) = match basis.change {
-            Some(
-                UpcomingChange::Ends { billed: false, .. }
-                | UpcomingChange::Pauses { billed: false, .. },
-            ) => return Ok(Vec::new()),
-            Some(UpcomingChange::Ends { .. } | UpcomingChange::Pauses { .. }) | None => {
-                (basis.details, basis.invoice_date, span)
-            }
+            Some(UpcomingChange::Ends { billed: false, .. }) => return Ok(Vec::new()),
+            Some(UpcomingChange::Ends { .. }) | None => (basis.details, basis.invoice_date, span),
             // The change applies at the period's end: the usage up to it is billed as it is now.
             Some(_) => {
                 let (billed, invoice_date) = upcoming_invoice_details_on(conn, details).await?;
@@ -737,15 +730,15 @@ impl ServicesEdge {
             }
             let subscription_details = &details[&cycle.subscription_id];
             let invoice_type: crate::domain::enums::InvoiceType = cycle.invoice_type.clone().into();
-            windows.extend(
-                windows_at(
-                    conn,
-                    subscription_details,
-                    cycle.anchor,
-                    BilledSpan::of(&invoice_type),
-                )
-                .await?,
-            );
+            let (anchor, span) = crate::services::invoice_lines::invoice_lines::billed_at(
+                conn,
+                tenant_id,
+                cycle.subscription_id,
+                BilledSpan::of(&invoice_type),
+                cycle.anchor,
+            )
+            .await?;
+            windows.extend(windows_at(conn, subscription_details, anchor, span).await?);
         }
 
         let mut seen = HashSet::new();

@@ -236,21 +236,8 @@ async fn test_consolidated_payment_activates_all_trial_members(#[future] test_en
         sub_ids.push(sub_id);
     }
 
-    for sub_id in &sub_ids {
-        let mut conn = env.conn().await;
-        env.services()
-            .complete_subscription_checkout_tx(
-                &mut conn,
-                TENANT_ID,
-                *sub_id,
-                CUST_UBER_PAYMENT_METHOD_ID,
-                0,
-                "EUR".to_string(),
-                None,
-            )
-            .await
-            .expect("checkout should succeed");
-    }
+    // Their checkouts never completed: unsettled, each awaits the payment of its first invoice,
+    // collected at the trial's end from the customer's card on file.
 
     // Trial ends → both go TrialExpired and their drafts consolidate.
     env.process_cycles().await;
@@ -537,21 +524,8 @@ async fn test_void_blocked_while_trial_members_pending(#[future] test_env: TestE
             .await;
         sub_ids.push(sub_id);
     }
-    for sub_id in &sub_ids {
-        let mut conn = env.conn().await;
-        env.services()
-            .complete_subscription_checkout_tx(
-                &mut conn,
-                TENANT_ID,
-                *sub_id,
-                CUST_UBER_PAYMENT_METHOD_ID,
-                0,
-                "EUR".to_string(),
-                None,
-            )
-            .await
-            .expect("checkout should succeed");
-    }
+    // Their checkouts never completed: unsettled, each awaits the payment of its first invoice,
+    // collected at the trial's end from the customer's card on file.
 
     // Trial ends → both TrialExpired and drafts consolidate into one finalized (unpaid) parent.
     env.process_cycles().await;
@@ -1029,8 +1003,9 @@ async fn the_reconcile_watermark_counts_a_consolidated_renewal_as_issued(
     env.process_cycles().await;
     assert_eq!(consolidated_parents(&env, CUST_UBER_ID).await.len(), 1);
 
-    let migration = include_str!(
-        "../../../migrations/diesel/2026-11-15-172649_subscription_reconcile_from/up.sql"
+    let migration = crate::release_migrations::migration_section(
+        crate::release_migrations::BILLING_ON_FACTS_UP,
+        "Reconcile watermark",
     );
     let backfill = &migration[migration.find("UPDATE subscription").expect("the backfill")..];
     let mut conn = env.conn().await;
@@ -1051,5 +1026,120 @@ async fn the_reconcile_watermark_counts_a_consolidated_renewal_as_issued(
     assert_eq!(
         watermarks,
         vec![Some(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap()); 2]
+    );
+}
+
+/// Each line of the credit notes on `invoice_id`: its local id and amount.
+async fn note_lines(
+    env: &TestEnv,
+    invoice_id: common_domain::ids::InvoiceId,
+) -> Vec<(String, i64)> {
+    use meteroid_store::repositories::CreditNoteInterface;
+    let mut lines = Vec::new();
+    for note in env
+        .store()
+        .list_credit_notes_by_invoice_id(TENANT_ID, invoice_id)
+        .await
+        .expect("credit notes")
+    {
+        lines.extend(
+            note.line_items
+                .iter()
+                .map(|line| (line.local_id.clone(), line.amount_subtotal)),
+        );
+    }
+    lines
+}
+
+/// Two 35.00 monthly subscriptions from Jan 1, 2024, renewals merged; on Mar 5 one is cancelled
+/// from Jan 20: January gives back 3500 × 12/31 = 1355, each merged renewal its 3500 whole.
+/// Rules: R-016, R-077, R-080
+#[rstest]
+#[tokio::test]
+async fn a_backdated_cancellation_gives_back_the_periods_its_merged_renewals_billed(
+    #[future] test_env: TestEnv,
+) {
+    use common_domain::actor::Actor;
+    use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
+
+    let env = test_env.await;
+    let day = |m: u32, d: u32| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
+    env.set_now(day(1, 1).and_hms_opt(1, 0, 0).unwrap().and_utc());
+    env.set_consolidate_recurring_invoices(true).await;
+    let mut subs = Vec::new();
+    for _ in 0..2 {
+        subs.push(
+            subscription()
+                .customer(CUST_UBER_ID)
+                .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+                .start_date(day(1, 1))
+                .on_start()
+                .no_trial()
+                .create(env.services())
+                .await,
+        );
+    }
+    let (cancelled, kept) = (subs[0], subs[1]);
+    env.run_until(day(3, 5)).await;
+    let parents = consolidated_parents(&env, CUST_UBER_ID).await;
+    assert_eq!(parents.len(), 2, "the Feb 1 and Mar 1 renewals, merged");
+
+    env.services()
+        .cancel_subscription(
+            Actor::System,
+            cancelled,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::Date(day(1, 20)),
+        )
+        .await
+        .expect("cancelled from Jan 20");
+    env.process_cycles().await;
+    env.run_outbox_and_orchestration().await;
+
+    for parent in &parents {
+        let children = env.get_consolidated_children(parent.id).await;
+        let member = |sub| {
+            children
+                .iter()
+                .find(|child| child.subscription_id == Some(sub))
+                .expect("a merged draft of each subscription")
+        };
+        assert_eq!(member(cancelled).status, InvoiceStatusEnum::Draft);
+        assert_eq!(member(kept).status, InvoiceStatusEnum::Draft);
+        let line = &member(cancelled).line_items[0];
+        assert_eq!(
+            (
+                parent.billing_period_start,
+                note_lines(&env, parent.id).await
+            ),
+            (
+                parent.billing_period_start,
+                vec![(line.local_id.clone(), -3500)]
+            ),
+            "the cancelled subscription's merged line comes back whole, the other's stays"
+        );
+    }
+    let own: Vec<_> = env
+        .get_invoices(cancelled)
+        .await
+        .into_iter()
+        .filter(|invoice| {
+            invoice.subscription_id == Some(cancelled)
+                && invoice.consolidated_into_invoice_id.is_none()
+        })
+        .collect();
+    let opening = own
+        .iter()
+        .find(|invoice| invoice.billing_period_start == day(1, 1))
+        .expect("January's invoice");
+    assert_eq!(
+        note_lines(&env, opening.id).await,
+        vec![(opening.line_items[0].local_id.clone(), -1355)]
+    );
+    assert!(
+        own.iter()
+            .all(|invoice| invoice.billing_period_start == day(1, 1) || invoice.total == 0),
+        "nothing else billed: {own:?}"
     );
 }

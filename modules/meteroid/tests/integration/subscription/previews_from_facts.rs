@@ -14,7 +14,7 @@ use meteroid_store::domain::subscription_add_ons::{
 use meteroid_store::domain::subscription_amendment::{
     AddOnChanges, ComponentChanges, SubscriptionAmendment,
 };
-use meteroid_store::domain::subscription_changes::PlanChangeMode;
+use meteroid_store::domain::subscription_changes::{ChangeDocument, PlanChangeMode};
 use meteroid_store::domain::{CreateCheckoutSession, Invoice, SlotUpgradeBillingMode};
 use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
 use meteroid_store::repositories::credit_notes::CreditNoteInterface;
@@ -106,8 +106,8 @@ async fn written(env: &TestEnv, sub_id: SubscriptionId) -> Vec<(&'static str, i6
             format!("FROM subscription_event WHERE subscription_id = '{sub}'"),
         ),
         (
-            "scheduled_event",
-            format!("FROM scheduled_event WHERE subscription_id = '{sub}'"),
+            "subscription_change",
+            format!("FROM subscription_change WHERE subscription_id = '{sub}'"),
         ),
         (
             "customer_credit_grant",
@@ -266,6 +266,71 @@ async fn a_plan_change_preview_is_what_the_change_invoices(#[future] test_env: T
     assert_eq!(
         noted(&env, sub_id, &applied.credit_note_ids).await,
         vec![-1_497, -516]
+    );
+}
+
+/// A 14-day free trial from Jan 1 changed to Starter on Jan 8 ends there: billing starts that
+/// day, Platform Fee 2900 and a 1000 seat over Jan 8–Feb 8 on the opening invoice, 3900. The
+/// preview names that invoice and charges what it bills; no adjustment is written.
+/// Rules: R-011
+#[rstest]
+#[tokio::test]
+async fn a_plan_change_in_a_free_trial_previews_its_opening_invoice(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.set_now(at(jan(1)));
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID)
+        .start_date(jan(1))
+        .on_start()
+        .trial_days(14)
+        .create(env.services())
+        .await;
+    env.run_outbox_and_orchestration().await;
+    env.set_now(at(jan(8)));
+    let preview = env
+        .services()
+        .preview_plan_change(
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_STARTER_ID,
+            vec![],
+            Some(PlanChangeMode::Immediate),
+        )
+        .await
+        .expect("the preview");
+    let summary = preview.proration.expect("an immediate change's summary");
+    assert_eq!(
+        (
+            summary.document,
+            summary.charges_total_cents,
+            summary.credits_total_cents
+        ),
+        (ChangeDocument::OpeningInvoice, 3_900, 0)
+    );
+
+    let applied = env
+        .services()
+        .apply_plan_change_immediate_at(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_STARTER_ID,
+            vec![],
+            jan(8),
+        )
+        .await
+        .expect("the change");
+    assert_eq!(applied.adjustment_invoice_id, None);
+    let opening = invoice(
+        &env,
+        sub_id,
+        applied.first_invoice_id.expect("the opening invoice"),
+    )
+    .await;
+    assert_eq!(opening.invoice_type, InvoiceType::Recurring);
+    assert_eq!(
+        (opening.billing_period_start, opening.subtotal),
+        (jan(8), 3_900)
     );
 }
 
@@ -863,6 +928,101 @@ async fn a_swap_on_a_paid_invoice_charges_what_its_preview_says_is_due(
     assert_eq!(
         noted(&env, sub_id, &applied.credit_note_ids).await,
         vec![-2_100]
+    );
+}
+
+/// Starter with a 31.00 add-on bought on Jan 1, 25.00 of its invoice paid by credit and 6.00
+/// left due, swapped on Jan 11 for a 62.00 one: the note of 3100 × 21/31 = 2100 cancels the 600
+/// due and returns 1500 to the balance, which pays as much of the 4200 adjustment: 2700 due, as
+/// previewed, where the preview counted nothing back and said 4200.
+/// Rules: R-078
+#[rstest]
+#[tokio::test]
+async fn a_swap_on_an_invoice_paid_by_credit_previews_what_its_note_returns(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    env.set_now(at(jan(1)));
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(jan(1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    env.run_outbox_and_orchestration().await;
+    fund_grant(
+        env.store(),
+        TENANT_ID,
+        CUST_UBER_ID,
+        None,
+        Grant::invoice(2_500),
+    )
+    .await;
+    let basic = create_rate_addon(&env, "Basic Support", 3_100).await;
+    let premium = create_rate_addon(&env, "Premium Support", 6_200).await;
+    let bought = env
+        .services()
+        .apply_amendment_immediate_at(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            add_on_amendment(basic),
+            jan(1),
+        )
+        .await
+        .expect("the 31.00 add-on");
+    let bought = invoice(
+        &env,
+        sub_id,
+        bought.adjustment_invoice_id.expect("the add-on's invoice"),
+    )
+    .await;
+    assert_eq!(
+        (bought.total, bought.applied_credits, bought.amount_due),
+        (3_100, 2_500, 600)
+    );
+
+    env.set_now(at(jan(11)));
+    let active = {
+        let mut conn = env.conn().await;
+        diesel_models::subscription_add_ons::SubscriptionAddOnRow::list_by_subscription_id_active(
+            &mut conn, &TENANT_ID, &sub_id, None,
+        )
+        .await
+        .expect("active add-ons")
+    };
+    let mut swap = add_on_amendment(premium);
+    swap.add_on_changes.removed = vec![active[0].id];
+    let preview = env
+        .services()
+        .preview_amendment(sub_id, TENANT_ID, swap.clone())
+        .await
+        .expect("the preview of the swap");
+    let quoted = preview.adjustment_invoice.expect("an adjustment invoice");
+    assert_eq!(totals(&quoted), (4_200, 4_200, 1_500, 2_700));
+
+    let applied = env
+        .services()
+        .apply_amendment_immediate_at(Actor::System, sub_id, TENANT_ID, swap, jan(11))
+        .await
+        .expect("the swap");
+    let charged = invoice(
+        &env,
+        sub_id,
+        applied
+            .adjustment_invoice_id
+            .expect("an adjustment invoice"),
+    )
+    .await;
+    assert_eq!(
+        (
+            charged.subtotal,
+            charged.total,
+            charged.applied_credits,
+            charged.amount_due
+        ),
+        (4_200, 4_200, 1_500, 2_700)
     );
 }
 

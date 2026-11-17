@@ -19,6 +19,5 @@ pub use store::Store;
 
 pub type StoreResult<T> = Result<T, Report<errors::StoreError>>;
 
-pub use crate::services::CycleTransitionResult;
 pub use crate::services::ServicesEdge as Services;
 pub use crate::services::clients;

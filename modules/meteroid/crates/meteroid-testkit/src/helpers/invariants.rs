@@ -460,7 +460,7 @@ const CHECKS: &[(&str, &str)] = &[
          FROM customer_credit_grant g
          JOIN subscription s ON s.id = g.subscription_id AND s.tenant_id = g.tenant_id
          WHERE g.tenant_id = $1 AND g.ends_at IS NULL
-           AND s.status IN ('CANCELLED', 'COMPLETED', 'ABORTED', 'SUPERSEDED')
+           AND s.status IN ('CANCELLED', 'COMPLETED', 'ABORTED')
            AND (g.expires_at IS NULL
                 OR g.expires_at >= LEAST(COALESCE(s.terminated_at, s.current_period_start::timestamp)
                                            AT TIME ZONE 'UTC', $6))",
@@ -511,8 +511,8 @@ const CHECKS: &[(&str, &str)] = &[
          JOIN subscription sa ON sa.id = a.subscription_id
          JOIN subscription sb ON sb.id = b.subscription_id AND sb.customer_id = sa.customer_id
          WHERE a.tenant_id = $1
-           AND sa.status IN ('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE')
-           AND sb.status IN ('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE')",
+           AND sa.status IN ('PENDING_ACTIVATION', 'TRIAL_ACTIVE', 'ACTIVE')
+           AND sb.status IN ('PENDING_ACTIVATION', 'TRIAL_ACTIVE', 'ACTIVE')",
     ),
     (
         "I22 a line's total is its taxable amount plus its tax",
@@ -586,7 +586,7 @@ const CHECKS: &[(&str, &str)] = &[
              LIMIT 1
          ) w ON TRUE
          WHERE s.tenant_id = $1
-           AND s.status NOT IN ('CANCELLED', 'ABORTED', 'COMPLETED', 'SUPERSEDED', 'ERRORED')
+           AND s.status NOT IN ('CANCELLED', 'ABORTED', 'COMPLETED')
            AND EXISTS (SELECT 1 FROM subscription_event e
                        WHERE e.subscription_id = s.id AND e.event_type = 'CREATED')
            AND (w.id IS NULL OR w.plan_version_id <> s.plan_version_id OR w.cadence <> s.period)
@@ -597,23 +597,6 @@ const CHECKS: &[(&str, &str)] = &[
          WHERE w.tenant_id = $1 AND w.to_date IS NOT NULL
            AND NOT EXISTS (SELECT 1 FROM subscription_plan_window n
                            WHERE n.subscription_id = w.subscription_id AND n.from_date = w.to_date)",
-    ),
-    (
-        "I28 a live subscription's cancellation still to apply is its ending",
-        "SELECT format('%s subscription %s: cancellation event for %s, ending at %s', s.status,
-                       s.id, c.at, e.at) AS message
-         FROM subscription s
-         LEFT JOIN LATERAL (
-             SELECT coalesce((v.event_data -> 'CancelSubscription' ->> 'usage_cutoff')::timestamp,
-                             v.scheduled_time) AS at
-             FROM scheduled_event v
-             WHERE v.subscription_id = s.id AND v.event_type = 'CANCEL_SUBSCRIPTION'
-               AND v.status <> 'CANCELED'
-             ORDER BY v.created_at DESC LIMIT 1) c ON true
-         LEFT JOIN subscription_ending e ON e.subscription_id = s.id AND e.kind = 'CANCEL'
-         WHERE s.tenant_id = $1
-           AND s.status NOT IN ('CANCELLED', 'ABORTED', 'COMPLETED', 'SUPERSEDED', 'ERRORED')
-           AND c.at IS DISTINCT FROM e.at",
     ),
     (
         "I29 a subscription has a trial exactly when it has a trial length",

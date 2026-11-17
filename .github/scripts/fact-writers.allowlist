@@ -1,9 +1,11 @@
-# Functions allowed to write a subscription's facts: <path>::<impl type>::<fn>, or
-# <path>::* for a whole module | class | reason. Classes: see check-fact-writers.sh.
+# Functions allowed to write a subscription's facts: <path>::<impl type>::<fn>, or <path>::* for a
+# whole module | class | reason. Classes: see check-fact-writers.sh. Facts are written by
+# services::facts and the diesel primitives it calls; each entry outside them says why it is one.
+# Documents are the billing controller's (lifecycle::derived); this list covers facts only.
 # Keep it short and current: an entry whose function no longer writes a fact fails the check.
-# The aim is services::facts and its primitives alone (design/phase-7-facts.md).
 
 # Primitives: the diesel-models functions writing the fact tables. Their callers are checked.
+modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionPlanWindowRow::open | primitive | opens a plan window from its date, through open_replacing
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionPlanWindowRow::open_replacing | primitive | opens a plan window, closing or replacing the open one, and returns the one it replaced
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionPlanWindowRow::insert_batch | primitive | first plan windows of inserted subscriptions
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionPlanWindowRow::set_origin | primitive | a window's cadence origin decided after the migration
@@ -12,9 +14,11 @@ modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::Subscript
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionTrialRow::end_by | primitive | a plan change ends the trial on its date
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionStartSettledRow::insert_batch | primitive | settled starts, the first one kept
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionEndingRow::insert_batch | primitive | endings: a fixed term at insert
-modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionEndingRow::withdraw_cancellation | primitive | a cancellation withdrawn with its events
-modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::record_scheduled_facts | primitive | a scheduled cancellation's ending, recorded with its event
+modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionEndingRow::withdraw_cancellation | primitive | a cancellation withdrawn before it applied
+modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::SubscriptionEndingRow::record_cancellation | primitive | a cancellation, recorded or replaced when it is requested
+modules/meteroid/crates/diesel-models/src/query/sandbox_seed.rs::backdate_sandbox_signatures | primitive | a seeded Sandbox's pending cancellations dated as given twelve days ahead
 modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::ScheduledRows::withdraw | primitive | withdraws what a scheduled change wrote dated its day (its window, the window it replaced, minimum, trial cut) when it is cancelled before it applies
+modules/meteroid/crates/diesel-models/src/query/subscription_facts.rs::ScheduledRows::defer | primitive | moves a scheduled amendment's rows to the renewal it waits for, withdrawing the plan window it opened
 modules/meteroid/crates/diesel-models/src/query/subscription_adjustments.rs::SubscriptionAdjustmentRow::end_current | primitive | closes the open minimum on a date, dropping later ones
 modules/meteroid/crates/diesel-models/src/query/subscription_adjustments.rs::SubscriptionAdjustmentRowNew::insert | primitive | one dated minimum
 modules/meteroid/crates/diesel-models/src/query/subscription_adjustments.rs::SubscriptionAdjustmentRowNew::insert_batch | primitive | dated minimums of inserted subscriptions
@@ -22,24 +26,27 @@ modules/meteroid/crates/diesel-models/src/query/subscription_adjustments.rs::Sub
 modules/meteroid/crates/diesel-models/src/query/applied_coupons.rs::AppliedCouponRowNew::insert | primitive | one applied coupon, its effective_from with it
 modules/meteroid/crates/diesel-models/src/query/applied_coupons.rs::AppliedCouponRow::insert_batch | primitive | applied coupons, each with its effective_from
 
-# The facts module: the writers that stay.
+# The facts module: the writers.
 modules/meteroid/crates/meteroid-store/src/services/facts.rs::* | writer | records each fact when its path decides it (insert, settled start, plan and cadence changes, origins)
-modules/meteroid/crates/meteroid-store/src/services/facts/pending.rs::* | writer | writes a scheduled change as the future rows it resolves to (at once, or a pending one migrated), and withdraws them when it is cancelled
+modules/meteroid/crates/meteroid-store/src/services/facts/pending.rs::* | writer | writes a scheduled change as the future rows it resolves to, and withdraws them when it is cancelled
 
-# Scheduled events record or withdraw the facts they decide, in the same transaction.
-modules/meteroid/crates/diesel-models/src/query/scheduled_events.rs::ScheduledEventRowNew::insert_batch | writer | a scheduled cancellation records its ending with its event
-modules/meteroid/crates/diesel-models/src/query/scheduled_events.rs::ScheduledEventRow::cancel_event | writer | cancelling a cancellation event withdraws its ending
-modules/meteroid/crates/diesel-models/src/query/scheduled_events.rs::ScheduledEventRow::cancel_pending_lifecycle_events | writer | cancelling a subscription's pending lifecycle events withdraws its cancellation
-modules/meteroid/crates/diesel-models/src/query/scheduled_events.rs::ScheduledEventRow::cancel_pending_subscription_events | writer | same, for every pending event of the subscription
-modules/meteroid/crates/diesel-models/src/query/subscription_events.rs::SubscriptionEventRow::record_cadence_origin | writer | a renewal recording a switch's origin late records its window's too
+# Outside services::facts.
+# A seeded Sandbox's fixtures, dated as a real tenant's would be: seeding, not a lifecycle path.
+modules/meteroid/crates/meteroid-store/src/repositories/sandbox.rs::Store::backdate_sandbox_signatures | writer | dates a seeded Sandbox's signatures before what they started
+modules/meteroid/crates/meteroid-seeder/src/presets/runner.rs::seed_sandbox_data | writer | the Sandbox seed dates its signatures as the store's seeding call does
 
-# Minimums: dated rows, written where the minimum is set.
+# An origin recorded late, on the switch rows the legacy cadence runs read.
+modules/meteroid/crates/diesel-models/src/query/subscription_events.rs::SubscriptionEventRow::record_cadence_origin | writer | the controller's step or a finalization recording a switch's origin late records its window's too, in one statement
+
+# Minimums: dated rows, written where the minimum is set (the plan change's and the insert's
+# transactions own them; moving them into services::facts is a refactor of those paths).
 modules/meteroid/crates/meteroid-store/src/domain/subscription_minimums.rs::SubscriptionMinimumNew::to_row | writer | builds the dated minimum row its callers insert (minimum.rs, plan_change.rs)
 modules/meteroid/crates/meteroid-store/src/services/subscriptions/minimum.rs::Services::replace_subscription_minimum | writer | an operator's minimum: closes the open one today, opens the new one
 modules/meteroid/crates/meteroid-store/src/services/subscriptions/plan_change.rs::refresh_subscription_minimum_on_plan_change | writer | a plan change dates the new plan's minimum from its date
 modules/meteroid/crates/meteroid-store/src/services/subscriptions/insert/process.rs::Services::persist_subscriptions_internal | writer | a new subscription's first minimum and its scopes, from its start
 
-# Coupons: an applied_coupon row carries its effective_from from the insert.
+# Coupons: an applied_coupon row carries its effective_from from the insert, written by each
+# coupon path in its own transaction.
 modules/meteroid/crates/meteroid-store/src/services/subscriptions/utils.rs::process_create_subscription_coupons | writer | coupons of a new subscription, from its start date
 modules/meteroid/crates/meteroid-store/src/services/subscriptions/utils.rs::record_coupon_redemptions | writer | inserts the applied coupons every coupon path builds
 modules/meteroid/crates/meteroid-store/src/services/credit/coupon_grant.rs::redeem_coupon_credit_code_tx | writer | a promotional credit code redeemed on a subscription, from the redemption's date

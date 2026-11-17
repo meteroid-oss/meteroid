@@ -9,6 +9,7 @@ mod checkout_session;
 mod checkout_terminal_invoice;
 mod checkout_with_credit;
 mod consolidation;
+mod controller_on_facts;
 mod coupons;
 mod credit_activity;
 mod credit_dated_usage;

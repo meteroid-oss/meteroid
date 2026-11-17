@@ -11,9 +11,6 @@ use crate::enums::{
     ConnectorProviderEnum, EInvoicingStatusEnum, InvoicePaymentStatus, InvoiceStatusEnum,
 };
 use crate::extend::connection_metadata;
-use crate::extend::cursor_pagination::{
-    CursorPaginate, CursorPaginatedVec, CursorPaginationRequest,
-};
 use crate::extend::filtering::{ListFilter, render_list_filter};
 use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
@@ -1166,8 +1163,8 @@ impl InvoiceRow {
             .into_db_result()
     }
 
-    /// Subscription-period drafts whose stored lines may have drifted from current usage,
-    /// for the background refresh sweep.
+    /// A customer's subscription-period drafts whose stored lines may have drifted from current
+    /// usage, for the billing controller's background refresh.
     ///
     /// Staleness is measured from `data_updated_at` (the last refresh), not from
     /// `invoice_date`: gating on the invoice date makes every draft older than the interval
@@ -1187,7 +1184,7 @@ impl InvoiceRow {
     /// still arriving; nothing structurally stops one (a backdated event is always in-window), but
     /// re-querying metering hourly forever on that chance is not worth it.
     ///
-    /// This bounds the background sweep only: the operator's refresh action has no horizon, and
+    /// This bounds the background refresh only: the operator's refresh action has no horizon, and
     /// every finalization path recomputes from current usage, so what is billed never depends on
     /// it — only what a draft displays beforehand.
     ///
@@ -1200,30 +1197,6 @@ impl InvoiceRow {
     /// - manually edited drafts — a refresh regenerates the lines the operator took ownership of;
     /// - drafts with a payment in flight — moving `amount_due` under a live intent desyncs the
     ///   invoice from the money the provider is already capturing.
-    pub async fn list_refreshable_drafts(
-        conn: &mut PgConn,
-        stale_after_hours: i32,
-        horizon_days: i64,
-        pagination: CursorPaginationRequest,
-    ) -> DbResult<CursorPaginatedVec<InvoiceRow>> {
-        let query = refreshable_drafts_filter(
-            stale_after_hours,
-            horizon_days,
-            common_clock::now().naive_utc(),
-        )
-        .select(InvoiceRow::as_select())
-        .cursor_paginate(pagination, "id");
-
-        crate::debug_sql(&query);
-
-        query
-            .load_and_get_next_cursor(conn, |a| a.id.as_uuid())
-            .await
-            .attach("Error while paginating refreshable draft invoices")
-            .into_db_result()
-    }
-
-    /// One customer's refreshable drafts, as [`Self::list_refreshable_drafts`] selects them.
     pub async fn list_refreshable_drafts_of(
         conn: &mut PgConn,
         tenant_id: TenantId,
@@ -2402,7 +2375,7 @@ impl InvoiceRowLinesPatch {
     }
 }
 
-/// Eligibility predicate for [`InvoiceRow::list_refreshable_drafts`], split out so the SQL it
+/// Eligibility predicate for [`InvoiceRow::list_refreshable_drafts_of`], split out so the SQL it
 /// produces can be pinned by a test without a connection.
 ///
 /// `now` is bound as a cutoff rather than compared against `CURRENT_TIMESTAMP`: `data_updated_at`
@@ -2483,6 +2456,248 @@ impl crate::invoices::InvoiceRowPatch {
             .await
             .attach("Error while updating draft invoice")
             .into_db_result()
+    }
+}
+
+/// An invoice's deadlines: when its draft is finalized, when its payment is tried again.
+impl InvoiceRow {
+    /// Every document of the subscription by kind and period start (an adjustment's is its
+    /// date), voided ones included: a void forgives what it billed (R-096).
+    pub async fn written_slots_of(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> DbResult<Vec<(crate::enums::InvoiceType, chrono::NaiveDate)>> {
+        use crate::enums::InvoiceType;
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        i_dsl::invoice
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(i_dsl::subscription_id.eq(subscription_id))
+            .filter(i_dsl::invoice_type.eq_any([
+                InvoiceType::Recurring,
+                InvoiceType::Final,
+                InvoiceType::Adjustment,
+            ]))
+            .select((i_dsl::invoice_type, i_dsl::billing_period_start))
+            .load(conn)
+            .await
+            .attach("Error while listing a subscription's documents")
+            .into_db_result()
+    }
+
+    /// The subscription's drafts, oldest period first.
+    pub async fn drafts_of_subscription(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> DbResult<Vec<InvoiceRow>> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        i_dsl::invoice
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(i_dsl::subscription_id.eq(subscription_id))
+            .filter(i_dsl::status.eq(InvoiceStatusEnum::Draft))
+            .order((
+                i_dsl::billing_period_start.asc(),
+                i_dsl::created_at.asc(),
+                i_dsl::id.asc(),
+            ))
+            .select(InvoiceRow::as_select())
+            .load(conn)
+            .await
+            .attach("Error while listing a subscription's drafts")
+            .into_db_result()
+    }
+
+    /// The subscription's recurring drafts of periods starting on or after `from`, but those merged
+    /// into a consolidated invoice: issued through it, they bill as it does.
+    pub async fn recurring_drafts_from(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        from: chrono::NaiveDate,
+    ) -> DbResult<Vec<InvoiceId>> {
+        use crate::enums::InvoiceType;
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        i_dsl::invoice
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(i_dsl::subscription_id.eq(subscription_id))
+            .filter(i_dsl::invoice_type.eq(InvoiceType::Recurring))
+            .filter(i_dsl::status.eq(InvoiceStatusEnum::Draft))
+            .filter(i_dsl::consolidated_into_invoice_id.is_null())
+            .filter(i_dsl::billing_period_start.ge(from))
+            .select(i_dsl::id)
+            .load(conn)
+            .await
+            .attach("Error while listing a subscription's drafts")
+            .into_db_result()
+    }
+
+    /// The deadlines the subscription's invoices still wait for: (finalize_after,
+    /// next_payment_attempt_at).
+    pub async fn deadlines_of_subscription(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> DbResult<Vec<(Option<NaiveDateTime>, Option<NaiveDateTime>)>> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        i_dsl::invoice
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(i_dsl::subscription_id.eq(subscription_id))
+            .filter(
+                i_dsl::finalize_after
+                    .is_not_null()
+                    .or(i_dsl::next_payment_attempt_at.is_not_null()),
+            )
+            .select((i_dsl::finalize_after, i_dsl::next_payment_attempt_at))
+            .load(conn)
+            .await
+            .attach("Error while reading a subscription's invoice deadlines")
+            .into_db_result()
+    }
+
+    /// The customer's drafts whose grace ended by `now`, earliest first.
+    pub async fn list_due_finalizations_of(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        now: NaiveDateTime,
+        limit: i64,
+    ) -> DbResult<Vec<InvoiceId>> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        i_dsl::invoice
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(i_dsl::customer_id.eq(customer_id))
+            .filter(i_dsl::status.eq(InvoiceStatusEnum::Draft))
+            .filter(i_dsl::finalize_after.le(now))
+            .order_by(i_dsl::finalize_after.asc())
+            .limit(limit)
+            .select(i_dsl::id)
+            .load(conn)
+            .await
+            .attach("Error while listing the drafts due for finalization")
+            .into_db_result()
+    }
+
+    /// The customer's invoices whose next payment attempt is due by `now`, earliest first.
+    pub async fn list_due_payment_attempts_of(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        now: NaiveDateTime,
+        limit: i64,
+    ) -> DbResult<Vec<(InvoiceId, Option<SubscriptionId>)>> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        i_dsl::invoice
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(i_dsl::customer_id.eq(customer_id))
+            .filter(i_dsl::next_payment_attempt_at.le(now))
+            .order_by(i_dsl::next_payment_attempt_at.asc())
+            .limit(limit)
+            .select((i_dsl::id, i_dsl::subscription_id))
+            .load(conn)
+            .await
+            .attach("Error while listing the invoices due for a payment attempt")
+            .into_db_result()
+    }
+
+    /// When the draft is finalized, its grace over; None once it waits for nothing.
+    pub async fn set_finalize_after(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: InvoiceId,
+        at: Option<NaiveDateTime>,
+    ) -> DbResult<()> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .set(i_dsl::finalize_after.eq(at))
+            .execute(conn)
+            .await
+            .attach("Error while setting an invoice's finalization deadline")
+            .into_db_result()
+            .map(|_| ())
+    }
+
+    /// The invoice's payment attempt due by `now`, taken: false when another run took it, or it
+    /// is no longer due.
+    pub async fn take_due_payment_attempt(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: InvoiceId,
+        now: NaiveDateTime,
+    ) -> DbResult<bool> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(i_dsl::next_payment_attempt_at.le(now))
+            .set(i_dsl::next_payment_attempt_at.eq(None::<NaiveDateTime>))
+            .execute(conn)
+            .await
+            .map(|taken| taken > 0)
+            .attach("Error while taking an invoice's payment attempt")
+            .into_db_result()
+    }
+
+    /// The draft's finalization due by `now`, taken: false when another run took it, or it is
+    /// no longer due.
+    pub async fn take_due_finalization(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: InvoiceId,
+        now: NaiveDateTime,
+    ) -> DbResult<bool> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(i_dsl::finalize_after.le(now))
+            .set(i_dsl::finalize_after.eq(None::<NaiveDateTime>))
+            .execute(conn)
+            .await
+            .map(|taken| taken > 0)
+            .attach("Error while taking a draft's finalization")
+            .into_db_result()
+    }
+
+    /// When the invoice's payment is tried again; None once no attempt is left to make.
+    pub async fn set_next_payment_attempt_at(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: InvoiceId,
+        at: Option<NaiveDateTime>,
+    ) -> DbResult<()> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .set(i_dsl::next_payment_attempt_at.eq(at))
+            .execute(conn)
+            .await
+            .attach("Error while setting an invoice's next payment attempt")
+            .into_db_result()
+            .map(|_| ())
     }
 }
 

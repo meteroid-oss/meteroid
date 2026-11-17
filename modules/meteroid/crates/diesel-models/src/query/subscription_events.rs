@@ -387,11 +387,11 @@ impl SubscriptionEventRow {
             .into_db_result()
     }
 
-    /// Days in `[from, to)` an immediate cancellation of the subscription settled its lines on.
+    /// Days before `to` an immediate cancellation of the subscription settled its lines on: one
+    /// backdated before `from` ends every day of a draft issued after it.
     pub async fn list_settling_cancellations(
         conn: &mut PgConn,
         subscription_uid: SubscriptionId,
-        from: NaiveDate,
         to: NaiveDate,
     ) -> DbResult<Vec<NaiveDate>> {
         use crate::schema::subscription_event::dsl::{
@@ -402,7 +402,6 @@ impl SubscriptionEventRow {
         subscription_event
             .filter(subscription_id.eq(subscription_uid))
             .filter(event_type.eq(SubscriptionEventType::Cancelled))
-            .filter(applies_to.ge(from))
             .filter(applies_to.lt(to))
             .filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
                 "details ->> 'outgoing' = 'settled'",

@@ -115,6 +115,10 @@ global:
   # Issuer shown in authenticator apps
   mfaIssuer: "Meteroid"
 
+  # Tenants the billing controller bills, on the API and the workers alike: `all`, or `allowlist`
+  # for only those a billing_controller_release row names (every tenant once a row names none)
+  billingControllerRelease: "all"
+
   # Outbound webhooks and alert channels; unset keys keep the app defaults
   webhooks:
     # CONNECT proxy for webhook and alert deliveries (e.g. Smokescreen)
@@ -218,3 +222,10 @@ worker:
     tag: ""
   config:
     pgPoolMaxSize: 15
+
+# PrometheusRule of the billing alerts (needs the Prometheus operator's CRDs).
+alerts:
+  enabled: false
+  labels: {}
+  # How long customers may wait for their tenant's release before it alerts.
+  heldFor: 48h

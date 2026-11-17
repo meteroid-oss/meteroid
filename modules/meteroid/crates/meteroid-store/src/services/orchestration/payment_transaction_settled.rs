@@ -17,7 +17,7 @@ use crate::utils::periods::calculate_advance_period_range;
 use chrono::{Datelike, Utc};
 use common_domain::ids::BaseId;
 use diesel_models::checkout_sessions::CheckoutSessionRow;
-use diesel_models::enums::{CycleActionEnum, SubscriptionActivationConditionEnum};
+use diesel_models::enums::SubscriptionActivationConditionEnum;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::payments::PaymentTransactionRow;
 use diesel_models::subscriptions::SubscriptionRow;
@@ -396,7 +396,7 @@ impl Services {
                     }
                 }
 
-                // Activate subscription if pending checkout (TrialExpired activation is handled by on_invoice_paid)
+                // Activate subscription if pending checkout
                 if let Some(subscription_id) = subscription_id.as_ref() {
                     let subscription = SubscriptionRow::get_subscription_by_id(
                         conn,
@@ -405,8 +405,10 @@ impl Services {
                     )
                     .await?;
 
+                    // An expired trial paying its invoice becomes Active through on_invoice_paid.
                     let should_activate = subscription.subscription.activated_at.is_none()
                         && !subscription.subscription.status.is_terminal()
+                        && subscription.subscription.status != diesel_models::enums::SubscriptionStatusEnum::TrialExpired
                         && subscription.subscription.activation_condition
                             == SubscriptionActivationConditionEnum::OnCheckout;
 
@@ -418,8 +420,6 @@ impl Services {
 
                         let current_period_start;
                         let current_period_end;
-                        let next_cycle_action;
-                        let mut cycle_index = None;
                         let status;
 
                         if let Some(trial_duration) = subscription.subscription.trial_duration {
@@ -429,7 +429,6 @@ impl Services {
                                 current_period_start
                                     + chrono::Duration::days(i64::from(trial_duration)),
                             );
-                            next_cycle_action = Some(CycleActionEnum::EndTrial);
                         } else {
                             let range = calculate_advance_period_range(
                                 billing_start_date,
@@ -439,10 +438,8 @@ impl Services {
                             );
 
                             status = SubscriptionStatusEnum::Active;
-                            cycle_index = Some(0);
                             current_period_start = range.start;
                             current_period_end = Some(range.end);
-                            next_cycle_action = Some(CycleActionEnum::RenewSubscription);
                         }
 
                         // TODO send a subscription_activated event
@@ -454,8 +451,6 @@ impl Services {
                             StartTransition::Activate {
                                 current_period_start,
                                 current_period_end,
-                                next_cycle_action,
-                                cycle_index,
                                 status: status.into(),
                                 by: crate::services::subscriptions::start::StartSettledBy::Payment,
                             },
@@ -1558,7 +1553,7 @@ async fn apply_priced_coupons_tx(
     let session = CheckoutSessionRow::get_by_id(conn, tenant_id, checkout_session_id)
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
-    if session.pre_payment_coupon_ids.is_none() {
+    if session.coupon_ids_before_payment.is_none() {
         return Ok(());
     }
     let applied = AppliedCouponDetailedRow::list_by_subscription_id(conn, &subscription_id)

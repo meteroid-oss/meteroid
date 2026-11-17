@@ -50,6 +50,7 @@ pub fn build_store(
         invite_ttl_days: config.invite_ttl_days,
         mfa_issuer: config.mfa_issuer.clone(),
         portal_legacy_tokens_until: config.portal_legacy_tokens_until,
+        billing_release: config.billing_controller_release,
     })
     .expect("Failed to initialize store");
 

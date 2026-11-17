@@ -1,6 +1,5 @@
-//! A subscription recorded as dated facts: each path that acts records what it decided,
-//! next to the events and state that still drive billing. Nothing bills from them yet. Scheduled
-//! cancellations and invoice deadlines are recorded with their events (`record_scheduled_facts`).
+//! A subscription recorded as dated facts: each path that acts records what it decided, and the
+//! controller derives the state and the documents due from them.
 use chrono::{Days, NaiveDate, NaiveDateTime};
 use common_domain::actor::Actor;
 use common_domain::ids::{SubscriptionId, TenantId};
@@ -8,8 +7,9 @@ use diesel_models::enums::BillingPeriodEnum as DbBillingPeriod;
 use diesel_models::enums::SubscriptionActivationConditionEnum;
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscription_facts::{
-    ENDING_COMPLETE, StartSettledBy, SubscriptionEndingRow, SubscriptionPlanWindowRow,
-    SubscriptionPlanWindowRowNew, SubscriptionStartSettledRow, SubscriptionTrialRow,
+    ENDING_CANCEL, ENDING_COMPLETE, StartSettledBy, SubscriptionEndingRow,
+    SubscriptionPlanWindowRow, SubscriptionPlanWindowRowNew, SubscriptionStartSettledRow,
+    SubscriptionTrialRow,
 };
 use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowNew};
 use error_stack::Report;
@@ -146,6 +146,7 @@ pub(crate) async fn record_inserted_tx(
                 actor_uuid: actor.as_uuid(),
                 actor_alias: actor.actor_alias(),
                 created_at: now,
+                requested_at: now,
             });
         }
     }
@@ -153,6 +154,44 @@ pub(crate) async fn record_inserted_tx(
     db(SubscriptionTrialRow::insert_batch(conn, &trials).await)?;
     db(SubscriptionStartSettledRow::insert_batch(conn, &starts).await)?;
     db(SubscriptionEndingRow::insert_batch(conn, &endings).await)
+}
+
+/// The subscription is cancelled at `at`, replacing a cancellation recorded before: the instant of
+/// an immediate cancellation, else its date's midnight. The controller applies it then.
+/// `requested_at` is when it was decided: after `at`'s day, it is backdated (R-016).
+pub(crate) async fn record_cancellation_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    at: NaiveDateTime,
+    requested_at: NaiveDateTime,
+    reason: Option<String>,
+    actor: &Actor,
+) -> StoreResult<()> {
+    db(SubscriptionEndingRow::record_cancellation(
+        conn,
+        &SubscriptionEndingRow {
+            subscription_id,
+            tenant_id,
+            kind: ENDING_CANCEL.to_owned(),
+            at,
+            reason,
+            actor_type: actor.actor_type().into(),
+            actor_uuid: actor.as_uuid(),
+            actor_alias: actor.actor_alias(),
+            created_at: common_clock::now().naive_utc(),
+            requested_at,
+        },
+    )
+    .await)
+}
+
+/// The subscription's cancellation withdrawn before it applied.
+pub(crate) async fn withdraw_cancellation_tx(
+    conn: &mut PgConn,
+    subscription_id: SubscriptionId,
+) -> StoreResult<()> {
+    db(SubscriptionEndingRow::withdraw_cancellation(conn, subscription_id).await)
 }
 
 /// The start settled at `at` (a checkout, a payment, an activation); the first one is kept.
@@ -177,7 +216,8 @@ pub(crate) async fn settle_start_tx(
 }
 
 /// A plan change applied on `on` to `plan_version_id` on `cadence`: its plan window from then, and
-/// the trial it ends. `starts_billing`: it ended a free trial, billing starting on `on`.
+/// the trial it ends. `starts_billing`: it ended a free trial, billing starting on `on`. Returns
+/// the cadence it renews on (`cadence_of_change`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn record_plan_change_tx(
     conn: &mut PgConn,
@@ -187,9 +227,10 @@ pub(crate) async fn record_plan_change_tx(
     plan_version_id: common_domain::ids::PlanVersionId,
     cadence: DbBillingPeriod,
     starts_billing: bool,
-) -> StoreResult<()> {
+) -> StoreResult<DbBillingPeriod> {
     let sub = db(SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id).await)?
         .subscription;
+    let as_created = starts_billing || on == billing_from(conn, &sub).await?;
     db(SubscriptionTrialRow::end_by(conn, subscription_id, on).await)?;
     let (windows, from) = windows_before(conn, subscription_id, on).await?;
     let origin = if starts_billing {
@@ -197,6 +238,7 @@ pub(crate) async fn record_plan_change_tx(
     } else {
         decided_origin(conn, &sub, &windows, from, &cadence).await?
     };
+    let cadence = cadence_of_change(conn, subscription_id, on, cadence, as_created, &[]).await?;
     db(SubscriptionPlanWindowRow::open(
         conn,
         SubscriptionPlanWindowRowNew {
@@ -205,12 +247,55 @@ pub(crate) async fn record_plan_change_tx(
             subscription_id,
             plan_version_id,
             from_date: from,
-            cadence,
+            cadence: cadence.clone(),
             cadence_origin: origin,
         },
     )
     .await)?;
-    Ok(())
+    Ok(cadence)
+}
+
+/// The cadence a plan change on `on` renews on: its plan's `cadence`, or, when it leaves the
+/// subscription `as_created` on the new plan, the shortest of it and of the add-ons it keeps (all
+/// but `closed`), as at creation (R-084). The grid's origin stays the one the plan's cadence reads.
+pub(crate) async fn cadence_of_change(
+    conn: &mut PgConn,
+    subscription_id: SubscriptionId,
+    on: NaiveDate,
+    cadence: DbBillingPeriod,
+    as_created: bool,
+    closed: &[common_domain::ids::SubscriptionAddOnId],
+) -> StoreResult<DbBillingPeriod> {
+    use crate::domain::enums::SubscriptionFeeBillingPeriod;
+    use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
+    if !as_created {
+        return Ok(cadence);
+    }
+    let kept = db(SubscriptionAddOnRow::list_fact_rows(conn, subscription_id).await)?
+        .into_iter()
+        .filter(|row| row.effective_from <= on && row.effective_to.is_none_or(|to| on < to))
+        .filter(|row| !closed.contains(&row.id))
+        .filter_map(|row| SubscriptionFeeBillingPeriod::from(row.period).as_billing_period_opt())
+        .map(Into::<DbBillingPeriod>::into);
+    Ok(kept.fold(cadence, |shortest, period| {
+        if months(&period) < months(&shortest) {
+            period
+        } else {
+            shortest
+        }
+    }))
+}
+
+/// The day the subscription bills from: its billing start, or a free trial's end after it.
+pub(crate) async fn billing_from(
+    conn: &mut PgConn,
+    sub: &SubscriptionRow,
+) -> StoreResult<NaiveDate> {
+    let billing_start = sub.billing_start_date.unwrap_or(sub.current_period_start);
+    Ok(match db(SubscriptionTrialRow::find(conn, sub.id).await)? {
+        Some(trial) if trial.free => trial.until_date.max(billing_start),
+        _ => billing_start,
+    })
 }
 
 /// The windows a plan change on `on` follows, and the day the window it opens starts: a window
@@ -242,6 +327,12 @@ async fn decided_origin(
     on: NaiveDate,
     cadence: &DbBillingPeriod,
 ) -> StoreResult<NaiveDate> {
+    let billing_from = billing_from(conn, sub).await?;
+    // A window opening on the billing start, as a change replacing the one that ended a free
+    // trial that day: its grid starts there, whatever the trial's window ran on.
+    if on == billing_from {
+        return Ok(on);
+    }
     if let Some(previous) = before.last()
         && months(&previous.cadence) == months(cadence)
     {
@@ -250,11 +341,6 @@ async fn decided_origin(
     if let Some(recorded) = db(SubscriptionEventRow::cadence_origin(conn, sub.id, on).await)? {
         return Ok(recorded);
     }
-    let billing_start = sub.billing_start_date.unwrap_or(sub.current_period_start);
-    let billing_from = match db(SubscriptionTrialRow::find(conn, sub.id).await)? {
-        Some(trial) if trial.free => trial.until_date.max(billing_start),
-        _ => billing_start,
-    };
     Ok(origin_by_rule(
         billing_from,
         u32::from(sub.billing_day_anchor.unsigned_abs()),
@@ -310,7 +396,8 @@ impl Services {
             )?
         };
         for subscription_id in subscriptions {
-            self.store
+            let decided = self
+                .store
                 .transaction(|conn| {
                     async move {
                         let lock = SubscriptionRow::lock_customer_of(conn, subscription_id).await?;
@@ -355,7 +442,13 @@ impl Services {
                     }
                     .scope_boxed()
                 })
-                .await?;
+                .await;
+            // One undecidable subscription is left pending, counted below; the others go on.
+            if let Err(error) = decided {
+                log::error!(
+                    "cadence origin of subscription {subscription_id} not decided: {error:?}"
+                );
+            }
         }
         let mut conn = self.store.get_conn().await?;
         db(SubscriptionPlanWindowRow::count_pending_origins(&mut conn).await)

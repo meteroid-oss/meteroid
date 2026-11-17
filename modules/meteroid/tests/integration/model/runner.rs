@@ -428,6 +428,7 @@ pub async fn run_cases(shard: u64, shards: u64) {
         seed: 0x00C0_FFEE,
         steps: 25,
         jobs: 4,
+        moves_clock: false,
         shard,
         shards,
     })

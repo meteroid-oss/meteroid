@@ -285,6 +285,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let customer_id = CustomerId::from_proto_opt(inner.customer_id.as_ref())?;
         let plan_id = PlanId::from_proto_opt(inner.plan_id)?;
 
+        // A status no subscription holds any more (Errored) filters to none, never to all.
+        let status_requested = !inner.status.is_empty();
         let status_filter: Vec<_> = inner
             .status
             .into_iter()
@@ -301,11 +303,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 tenant_id,
                 customer_id,
                 plan_id,
-                if status_filter.is_empty() {
-                    None
-                } else {
-                    Some(status_filter)
-                },
+                (status_requested || !status_filter.is_empty()).then_some(status_filter),
                 inner.search,
                 meteroid_grpc_mapping::filters::map_filters(inner.filters)?,
                 inner.order_by,

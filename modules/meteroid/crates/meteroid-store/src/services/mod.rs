@@ -42,6 +42,9 @@ pub(crate) mod intelligence_support;
 pub mod invoice_lines;
 pub(crate) mod invoices;
 mod lifecycle;
+#[cfg(all(feature = "test-faults", debug_assertions))]
+pub mod step_faults;
+pub use lifecycle::release as billing_release;
 pub mod minimum_progress;
 pub(crate) mod orchestration;
 mod payment;
@@ -71,7 +74,6 @@ pub use credit::wallet_purchase::{ReplayedTopUp, TopUpWalletReceipt};
 pub use credit_paid_features::{CreditPaidFeature, CreditPayer};
 pub use edge::CheckoutPaymentOutcome;
 pub use invoices::{CustomerDetailsUpdate, InvoiceBillingMode, InvoiceDelivery, IssueAt};
-pub use lifecycle::CycleTransitionResult;
 pub use payment::hosted_payment_sweep::{HostedPaymentSweepOutcome, PendingHostedPaymentRef};
 pub use payment::hosted_return::HostedReturnOutcome;
 pub use payment::hosted_setup::DefaultMethodAdoption;

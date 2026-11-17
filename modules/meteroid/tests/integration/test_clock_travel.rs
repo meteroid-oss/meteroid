@@ -9,7 +9,7 @@ use rust_decimal::Decimal;
 
 use crate::data::ids::*;
 use crate::data::plans::{PlanSeed, SeedComp};
-use crate::harness::{TestEnv, subscription, test_env};
+use crate::harness::{TestEnv, derived_cycle_index, subscription, test_env};
 
 const RATE_CENTS: i64 = 2_000;
 
@@ -91,8 +91,8 @@ async fn a_subscription_starting_on_the_31st_renews_at_each_month_end() {
     let renewed = env.get_subscription(id).await;
     assert_eq!(
         (
-            renewed.status,
-            renewed.cycle_index,
+            renewed.status.clone(),
+            derived_cycle_index(&renewed),
             renewed.current_period_end
         ),
         (

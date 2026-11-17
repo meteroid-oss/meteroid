@@ -294,6 +294,61 @@ impl Services {
         .await
     }
 
+    /// A recurring draft of a period a cancellation ended before, emptied and closed: what it
+    /// billed the cancellation's final invoice and notes settle. A draft the facts still bill
+    /// is left as it is.
+    pub(in crate::services) async fn close_draft_past_ending_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        tenant_id: TenantId,
+        id: InvoiceId,
+    ) -> StoreResult<bool> {
+        let lock = InvoiceRow::select_for_update_by_id(conn, tenant_id, id).await?;
+        let invoice: Invoice = lock.invoice.try_into()?;
+        if invoice.manually_edited_at.is_some() {
+            return Ok(false);
+        }
+        let patch = self
+            .build_invoice_lines_patch(
+                conn,
+                &invoice,
+                &None,
+                true,
+                CreditUnitCover::Estimate {
+                    invoice_id: Some(invoice.id),
+                },
+            )
+            .await?;
+        if !patch.line_items.is_empty() {
+            return Ok(false);
+        }
+        let row_patch: InvoiceRowLinesPatch = patch.try_into()?;
+        row_patch
+            .update_lines(id, tenant_id, conn)
+            .await
+            .map(|_| ())
+            .map_err(Into::<Report<StoreError>>::into)?;
+        self.freeze_invoice_identity(conn, &invoice, None).await?;
+        InvoiceRow::close(conn, id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let closed: DetailedInvoice = InvoiceRow::find_detailed_by_id(conn, tenant_id, id)
+            .await
+            .map_err(Into::into)
+            .and_then(std::convert::TryInto::try_into)?;
+        self.store
+            .internal
+            .record_outbox_batch_tx(
+                conn,
+                tenant_id,
+                actor,
+                vec![OutboxEvent::invoice_closed((&closed.invoice).into())],
+            )
+            .await?;
+        Ok(true)
+    }
+
     /// Resolves the identity one last time and writes it to the row. Called at every terminal
     /// transition out of `Draft`: past that point the read paths stop overlaying, so whatever is
     /// stored is what shows — and for an issued document it must never move again. An overridden
@@ -868,7 +923,15 @@ impl Services {
             .get_subscription_details_with_conn(conn, tenant_id, billed.subscription_id)
             .await?;
         let currency = credit::normalized_currency(currency);
-        let mut windows = billing_windows::windows_at(conn, &details, billed.anchor, billed.span)
+        let (anchor, span) = crate::services::invoice_lines::invoice_lines::billed_at(
+            conn,
+            tenant_id,
+            billed.subscription_id,
+            billed.span,
+            billed.anchor,
+        )
+        .await?;
+        let mut windows = billing_windows::windows_at(conn, &details, anchor, span)
             .await?
             .into_iter()
             .filter(|window| window.bills_money_in(&currency))

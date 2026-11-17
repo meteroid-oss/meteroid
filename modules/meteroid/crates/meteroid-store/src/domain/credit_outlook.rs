@@ -57,8 +57,6 @@ pub enum UpcomingChange {
     /// The subscription is cancelled or reaches its end date: the final invoice. Not `billed` when
     /// it never activated (awaiting checkout): it ends without one.
     Ends { on: NaiveDate, billed: bool },
-    /// The subscription is paused: the last invoice before the pause, `billed` as for an ending.
-    Pauses { on: NaiveDate, billed: bool },
     /// A plan change takes effect on the invoice date: advance charges are the new plan's.
     PlanChange { plan_version_id: PlanVersionId },
     /// A scheduled amendment takes effect on the invoice date.

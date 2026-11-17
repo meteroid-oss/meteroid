@@ -14,5 +14,7 @@ pub struct BillingControllerRow {
     pub lease_until: Option<DateTime<Utc>>,
     pub attempts: i32,
     pub last_error: Option<String>,
+    pub first_failed_at: Option<DateTime<Utc>>,
+    pub last_failed_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
 }

@@ -8,9 +8,8 @@ use crate::domain::pgmq::{
 };
 use crate::domain::stored_object::StoredObjectRef;
 use crate::domain::{
-    ConnectorProviderEnum, CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice,
-    EmissionProjectionContext, Invoice, InvoiceNew, InvoiceWithCustomer, LineItem, PaginatedVec,
-    PaginationRequest, TaxBreakdownItem,
+    ConnectorProviderEnum, DetailedInvoice, EmissionProjectionContext, Invoice, InvoiceNew,
+    InvoiceWithCustomer, LineItem, PaginatedVec, PaginationRequest, TaxBreakdownItem,
 };
 use crate::errors::StoreError;
 use crate::repositories::connectors::ConnectorsInterface;
@@ -223,13 +222,6 @@ pub trait InvoiceInterface {
     async fn insert_invoice(&self, invoice: InvoiceNew) -> StoreResult<Invoice>;
 
     async fn insert_invoice_batch(&self, invoice: Vec<InvoiceNew>) -> StoreResult<Vec<Invoice>>;
-
-    async fn list_refreshable_draft_invoices(
-        &self,
-        stale_after_hours: i32,
-        horizon_days: i64,
-        pagination: CursorPaginationRequest,
-    ) -> StoreResult<CursorPaginatedVec<Invoice>>;
 
     async fn list_invoices_by_ids(&self, ids: Vec<InvoiceId>) -> StoreResult<Vec<Invoice>>;
 
@@ -638,35 +630,6 @@ impl InvoiceInterface for Store {
         .await
     }
 
-    async fn list_refreshable_draft_invoices(
-        &self,
-        stale_after_hours: i32,
-        horizon_days: i64,
-        pagination: CursorPaginationRequest,
-    ) -> StoreResult<CursorPaginatedVec<Invoice>> {
-        let mut conn = self.get_conn().await?;
-
-        let invoices = InvoiceRow::list_refreshable_drafts(
-            &mut conn,
-            stale_after_hours,
-            horizon_days,
-            pagination.into(),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        let res: CursorPaginatedVec<Invoice> = CursorPaginatedVec {
-            items: invoices
-                .items
-                .into_iter()
-                .map(std::convert::TryInto::try_into)
-                .collect::<Result<Vec<_>, _>>()?,
-            next_cursor: invoices.next_cursor,
-        };
-
-        Ok(res)
-    }
-
     async fn list_invoices_by_ids(&self, ids: Vec<InvoiceId>) -> StoreResult<Vec<Invoice>> {
         let mut conn = self.get_conn().await?;
 
@@ -1030,11 +993,7 @@ impl InvoiceInterface for Store {
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
                         let has_pending_activation = members.iter().any(|s| {
-                            matches!(
-                                s.subscription.status,
-                                SubscriptionStatusEnum::TrialExpired
-                                    | SubscriptionStatusEnum::PendingCharge
-                            )
+                            s.subscription.status == SubscriptionStatusEnum::TrialExpired
                         });
                         if has_pending_activation {
                             bail!(StoreError::InvalidArgument(

@@ -1022,7 +1022,7 @@ enum StartPath {
     CheckoutDuringFreeTrial,
     CheckoutAfterTrialExpired,
     CheckoutSettledAfter3ds,
-    TrialExpiredInvoicePaid,
+    TrialSettledInvoicePaid,
 }
 
 /// Every way a subscription starts funds the promo credit applied before it started, exactly
@@ -1035,7 +1035,7 @@ enum StartPath {
 #[case::checkout_during_free_trial(StartPath::CheckoutDuringFreeTrial)]
 #[case::checkout_after_trial_expired(StartPath::CheckoutAfterTrialExpired)]
 #[case::checkout_settled_after_3ds(StartPath::CheckoutSettledAfter3ds)]
-#[case::trial_expired_invoice_paid(StartPath::TrialExpiredInvoicePaid)]
+#[case::trial_settled_invoice_paid(StartPath::TrialSettledInvoicePaid)]
 #[tokio::test]
 async fn every_start_path_funds_promo_credit_once(
     #[future] test_env: TestEnv,
@@ -1079,7 +1079,7 @@ async fn every_start_path_funds_promo_credit_once(
             .trial_days(14)
             .no_auto_charge(),
         StartPath::CheckoutSettledAfter3ds => pending_checkout(),
-        StartPath::TrialExpiredInvoicePaid => subscription()
+        StartPath::TrialSettledInvoicePaid => subscription()
             .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID)
             .on_checkout()
             .trial_days(14)
@@ -1155,6 +1155,7 @@ async fn every_start_path_funds_promo_credit_once(
                 "an expired trial has not started the subscription"
             );
             checkout(4900).await;
+            env.get_subscription(sub_id).await.assert().is_active();
         }
         StartPath::CheckoutSettledAfter3ds => {
             checkout(3500).await;
@@ -1189,15 +1190,12 @@ async fn every_start_path_funds_promo_credit_once(
             .await;
             env.get_subscription(sub_id).await.assert().is_active();
         }
-        StartPath::TrialExpiredInvoicePaid => {
-            // The trial checkout starts it; the paid trial-end invoice then moves it from
-            // TrialExpired to Active through the same start transition, funding nothing twice.
+        StartPath::TrialSettledInvoicePaid => {
+            // R-105: the trial checkout settles the start, so the trial's end makes it Active;
+            // paying the trial-end invoice funds nothing twice.
             checkout(0).await;
             env.process_cycles().await;
-            env.get_subscription(sub_id)
-                .await
-                .assert()
-                .is_trial_expired();
+            env.get_subscription(sub_id).await.assert().is_active();
             env.run_outbox_and_orchestration().await;
             env.get_subscription(sub_id).await.assert().is_active();
         }

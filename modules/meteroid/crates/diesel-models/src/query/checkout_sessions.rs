@@ -142,6 +142,26 @@ impl CheckoutSessionRow {
         Ok((lock, row))
     }
 
+    /// Whether the subscription has a checkout session not completed, whatever its other status.
+    pub async fn exists_uncompleted_for_subscription(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> DbResult<bool> {
+        use crate::schema::checkout_session::dsl as cs_dsl;
+
+        diesel::select(diesel::dsl::exists(
+            cs_dsl::checkout_session
+                .filter(cs_dsl::tenant_id.eq(tenant_id))
+                .filter(cs_dsl::subscription_id.eq(subscription_id))
+                .filter(cs_dsl::status.ne(CheckoutSessionStatusEnum::Completed)),
+        ))
+        .get_result(conn)
+        .await
+        .attach("Error while looking for a subscription's checkout session")
+        .into_db_result()
+    }
+
     /// Returns the most recent session that is still in Created or AwaitingPayment status.
     pub async fn get_by_subscription(
         conn: &mut PgConn,
@@ -215,13 +235,13 @@ impl CheckoutSessionRow {
             .filter(cs_dsl::id.eq(id))
             .filter(cs_dsl::tenant_id.eq(tenant_id))
             .set((
-                cs_dsl::pre_payment_coupon_code.eq(diesel::dsl::sql::<Nullable<Varchar>>(
-                    "CASE WHEN pre_payment_coupon_ids IS NULL THEN coupon_code ELSE pre_payment_coupon_code END",
+                cs_dsl::coupon_code_before_payment.eq(diesel::dsl::sql::<Nullable<Varchar>>(
+                    "CASE WHEN coupon_ids_before_payment IS NULL THEN coupon_code ELSE coupon_code_before_payment END",
                 )),
-                cs_dsl::pre_payment_coupon_ids.eq(diesel::dsl::sql::<
+                cs_dsl::coupon_ids_before_payment.eq(diesel::dsl::sql::<
                     Nullable<Array<Nullable<Uuid>>>,
                 >(
-                    "COALESCE(pre_payment_coupon_ids, coupon_ids)"
+                    "COALESCE(coupon_ids_before_payment, coupon_ids)"
                 )),
                 cs_dsl::coupon_code.eq(coupon_code),
                 cs_dsl::coupon_ids.eq(coupon_ids),
@@ -384,13 +404,13 @@ impl CheckoutSessionRow {
                 cs_dsl::status.eq(CheckoutSessionStatusEnum::Created),
                 // The failed attempt's coupons leave with it.
                 cs_dsl::coupon_code.eq(diesel::dsl::sql::<diesel::sql_types::Nullable<diesel::sql_types::Varchar>>(
-                    "CASE WHEN pre_payment_coupon_ids IS NULL THEN coupon_code ELSE pre_payment_coupon_code END",
+                    "CASE WHEN coupon_ids_before_payment IS NULL THEN coupon_code ELSE coupon_code_before_payment END",
                 )),
                 cs_dsl::coupon_ids.eq(diesel::dsl::sql::<
                     diesel::sql_types::Array<diesel::sql_types::Nullable<diesel::sql_types::Uuid>>,
-                >("COALESCE(pre_payment_coupon_ids, coupon_ids)")),
-                cs_dsl::pre_payment_coupon_code.eq(None::<String>),
-                cs_dsl::pre_payment_coupon_ids.eq(None::<Vec<Option<common_domain::ids::CouponId>>>),
+                >("COALESCE(coupon_ids_before_payment, coupon_ids)")),
+                cs_dsl::coupon_code_before_payment.eq(None::<String>),
+                cs_dsl::coupon_ids_before_payment.eq(None::<Vec<Option<common_domain::ids::CouponId>>>),
             ));
 
         crate::debug_sql(&query);

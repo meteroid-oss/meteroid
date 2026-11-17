@@ -193,7 +193,8 @@ impl TestEnv {
                 tenant_id: TENANT_ID,
                 customer_id: subscription.customer_id,
                 subscription_id: Some(subscription_id),
-                cycle_index: subscription.cycle_index.map(|c| c.max(0) as u32),
+                cycle_index: super::assertions::derived_cycle_index(&subscription)
+                    .map(|c| c.max(0) as u32),
                 currency: subscription.currency.clone(),
                 invoice_number: "draft".to_string(),
                 line_items: vec![],
@@ -256,17 +257,21 @@ impl TestEnv {
 }
 
 impl TestEnv {
-    /// Advance `cycle_index` without running a renewal — a state the scheduler reaches on its own,
-    /// injected directly so the next period's invoice doesn't obscure the assertion.
+    /// Moves the subscription to its cycle `to` without running a renewal — a state the controller
+    /// reaches on its own, injected directly so the next period's invoice doesn't obscure the
+    /// assertion.
     pub async fn advance_subscription_cycle(&self, subscription_id: SubscriptionId, to: i32) {
-        use diesel_async::RunQueryDsl;
-        let mut conn = self.conn().await;
-        diesel::sql_query("UPDATE subscription SET cycle_index = $1 WHERE id = $2")
-            .bind::<diesel::sql_types::Integer, _>(to)
-            .bind::<diesel::sql_types::Uuid, _>(*subscription_id)
-            .execute(&mut conn)
-            .await
-            .expect("failed to advance subscription cycle_index");
+        let sub = self.get_subscription(subscription_id).await;
+        let months =
+            meteroid_store::domain::enums::BillingPeriodEnum::from(sub.period.clone()).as_months();
+        let start_of = |cycle: i32| {
+            sub.billing_start_date
+                .unwrap_or(sub.start_date)
+                .checked_add_months(chrono::Months::new(months * cycle.max(0) as u32))
+                .expect("a date")
+        };
+        self.set_subscription_period(subscription_id, start_of(to), start_of(to + 1))
+            .await;
     }
 
     /// Move a subscription's current billing cycle to `[start, end)` without running a renewal.

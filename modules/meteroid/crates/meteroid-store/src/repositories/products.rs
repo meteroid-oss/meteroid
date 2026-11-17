@@ -220,7 +220,7 @@ impl ProductInterface for Store {
                         .map_err(Into::<Report<StoreError>>::into)?
                 {
                     return Err(Report::new(StoreError::InvalidArgument(
-                        "fee_structure is immutable once the product has a price (R-098)"
+                        "fee_structure cannot change once the product has a price: create a new product instead"
                             .to_string(),
                     )));
                 }

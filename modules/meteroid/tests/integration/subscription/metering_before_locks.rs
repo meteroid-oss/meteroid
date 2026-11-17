@@ -300,7 +300,7 @@ async fn a_period_transition_reads_metering_without_holding_the_subscription() {
 
     usage.arm();
     let services = env.services().clone();
-    let renewing = tokio::spawn(async move { services.get_and_process_cycle_transitions().await });
+    let renewing = tokio::spawn(async move { services.run_subscription_steps().await });
     usage.held().await;
     free(
         &env,
@@ -319,8 +319,6 @@ async fn a_period_transition_reads_metering_without_holding_the_subscription() {
     let february = invoice_of(&env, subscription_id, 2).await;
     assert_eq!(february.status, InvoiceStatusEnum::Draft);
     assert_eq!(february.total, 4_000);
-    let subscription = env.get_subscription(subscription_id).await;
-    assert_eq!(subscription.error_count, 0);
 }
 
 /// The grace period's scheduled finalization reads February's usage while the draft and its
@@ -336,7 +334,7 @@ async fn a_scheduled_finalization_reads_metering_without_holding_the_draft() {
 
     usage.arm();
     let services = env.services().clone();
-    let finalizing = tokio::spawn(async move { services.get_and_process_due_events().await });
+    let finalizing = tokio::spawn(async move { services.run_invoice_deadlines().await });
     usage.held().await;
     draft_free(&env, february.id, customer_id).await;
     metric_redefined(&env, &usage, 300).await;
@@ -349,81 +347,6 @@ async fn a_scheduled_finalization_reads_metering_without_holding_the_draft() {
     let finalized = invoice_of(&env, subscription_id, 2).await;
     assert_eq!(finalized.status, InvoiceStatusEnum::Finalized);
     assert_eq!(finalized.total, 4_000);
-}
-
-/// The renewal's locked pass finds the customer taken by another transaction while its usage was
-/// read: the worker defers the subscription for a short while without an error, and the first
-/// tick after that renews it.
-#[tokio::test]
-async fn a_customer_taken_while_the_renewal_reads_metering_waits_for_the_next_tick() {
-    let (env, usage, subscription_id, customer_id) = alpha(true).await;
-    env.set_consolidate_and_grace(false, 24).await;
-    let invoiced = env.get_invoices(subscription_id).await.len();
-
-    usage.arm();
-    let services = env.services().clone();
-    let renewing = tokio::spawn(async move { services.get_and_process_cycle_transitions().await });
-    usage.held().await;
-    free(&env, "customer", customer_id.as_uuid(), "FOR UPDATE").await;
-    let mut holder = env.conn().await;
-    holder
-        .batch_execute(&format!(
-            "BEGIN; SELECT id FROM customer WHERE id = '{}' FOR UPDATE;",
-            customer_id.as_uuid()
-        ))
-        .await
-        .expect("another transaction takes the customer");
-    usage.release.notify_one();
-    let skipped = renewing
-        .await
-        .expect("the renewal task")
-        .expect("a busy customer is not a failure");
-    assert_eq!((skipped.processed, skipped.has_more), (0, false));
-    let deferred = env.get_subscription(subscription_id).await;
-    assert_eq!(deferred.error_count, 0);
-    assert!(
-        deferred
-            .next_retry
-            .is_some_and(|at| at > chrono::Utc::now().naive_utc() + chrono::Duration::seconds(20)),
-        "deferred: {:?}",
-        deferred.next_retry
-    );
-    assert_eq!(env.get_invoices(subscription_id).await.len(), invoiced);
-    holder
-        .batch_execute("COMMIT;")
-        .await
-        .expect("the customer is given back");
-    let deferral_over = env
-        .services()
-        .get_and_process_cycle_transitions()
-        .await
-        .expect("a tick within the deferral");
-    assert_eq!(
-        deferral_over.processed, 0,
-        "deferred, not claimed again at once"
-    );
-    env.conn()
-        .await
-        .batch_execute(&format!(
-            "UPDATE subscription SET next_retry = now() - interval '1 second' WHERE id = '{}'",
-            subscription_id.as_uuid()
-        ))
-        .await
-        .expect("the deferral is over");
-
-    let renewed = env
-        .services()
-        .get_and_process_cycle_transitions()
-        .await
-        .expect("the next tick");
-    assert_eq!(renewed.processed, 1);
-    let february = invoice_of(&env, subscription_id, 2).await;
-    assert_eq!(february.status, InvoiceStatusEnum::Draft);
-    assert_eq!(
-        february.total, 2_000,
-        "January's 100 calls at 0.10 and February's 10.00 fee"
-    );
-    assert_eq!(env.get_subscription(subscription_id).await.error_count, 0);
 }
 
 /// Scale -> Studio on Feb 15 while February's draft waits out its grace; the draft is issued
@@ -647,4 +570,178 @@ async fn a_plan_change_checkout_reads_metering_before_locking_the_customer() {
         "{completed:?}"
     );
     assert_eq!(env.get_subscription(sub_id).await.plan_version_id, STUDIO);
+}
+
+/// Scale with a quarterly 900.00 pack of 900.00 of credit, held with metering at 1,000 units.
+async fn scale_with_a_quarterly_pack(with_usage: bool) -> (TestEnv, Arc<HeldUsage>) {
+    use super::credit_plan_change::{SCALE, halyard, new_pack_product, scale_usage};
+    use meteroid_store::domain::enums::BillingPeriodEnum;
+    use meteroid_store::domain::price_components::{CreditExpiry, PriceEntry, PriceInput};
+    use meteroid_store::domain::prices::Pricing;
+    use meteroid_store::repositories::price_components::PriceComponentInterface;
+    use rust_decimal_macros::dec;
+
+    let usage = held_usage();
+    usage.set(1_000);
+    let env = crate::harness::test_env_with_usage(usage.clone()).await;
+    halyard(&env, CreditExpiry::BillingPeriod).await;
+    if with_usage {
+        scale_usage(&env).await;
+    }
+    crate::helpers::plans::as_draft(
+        env.store(),
+        SCALE,
+        env.store().create_price_component_from_ref(
+            "Quarterly credit".to_owned(),
+            new_pack_product("Quarterly credit"),
+            vec![PriceEntry::New(PriceInput {
+                cadence: BillingPeriodEnum::Quarterly,
+                currency: "EUR".to_owned(),
+                pricing: Pricing::Credit {
+                    unit_price: dec!(900),
+                    quantity: 1,
+                    credit_amount: dec!(900),
+                    expiry: Some(CreditExpiry::BillingPeriod),
+                    credit_unit_id: None,
+                    rollover: None,
+                    once: false,
+                },
+                credit_unit: None,
+            })],
+            SCALE,
+            TENANT_ID,
+        ),
+    )
+    .await
+    .expect("quarterly pack");
+    (env, usage)
+}
+
+/// Scale with a quarterly 900.00 pack, changed to Studio at the end of its first month: the
+/// switch ends the quarter's pack two months early, so the controller's renewal settles the pack's
+/// usage up to the switch (1,000 units, 100.00) and gives back its fee for the 62 days of 92
+/// left, 90000 × 62/92 = 60652. Every metering read it makes, the pack's and the renewal's, runs
+/// outside any transaction with the customer free.
+/// Rules: R-077
+#[tokio::test]
+async fn a_scheduled_switch_ending_a_period_pack_reads_metering_outside_transactions() {
+    use super::credit_plan_change::{SCALE, STUDIO, invoice, pay, start};
+    use crate::data::ids::CUST_UBER_ID;
+    use chrono::Datelike;
+    use meteroid_store::repositories::CreditNoteInterface;
+
+    let (env, usage) = scale_with_a_quarterly_pack(true).await;
+    let opened = chrono::Utc::now().date_naive().with_day(1).unwrap();
+    let sub_id = start(&env, CUST_UBER_ID, SCALE, opened).await;
+    let opening = invoice(&env, sub_id, 0).await;
+    pay(&env, &opening).await;
+    env.services()
+        .schedule_plan_change(Actor::System, sub_id, TENANT_ID, STUDIO, vec![])
+        .await
+        .expect("the change at the period's end");
+
+    let switch = opened + chrono::Months::new(1);
+    env.set_now(switch.and_hms_opt(9, 0, 0).unwrap().and_utc());
+    let services = env.services().clone();
+    let renewing = tokio::spawn(async move { services.run_subscription_steps().await });
+    each_read(&usage, renewing, || async {
+        no_transaction_open(&env).await;
+        free(&env, "customer", CUST_UBER_ID.as_uuid(), "FOR UPDATE").await;
+    })
+    .await
+    .expect("the renewal");
+
+    assert_eq!(env.get_subscription(sub_id).await.plan_version_id, STUDIO);
+    let notes = env
+        .store()
+        .list_credit_notes_by_invoice_id(TENANT_ID, opening.id)
+        .await
+        .expect("the notes");
+    assert_eq!(
+        notes
+            .iter()
+            .flat_map(|note| &note.line_items)
+            .map(|line| (line.name.as_str(), line.amount_subtotal))
+            .collect::<Vec<_>>(),
+        vec![("Quarterly credit", -60_652)]
+    );
+    let renewal = invoice(&env, sub_id, 1).await;
+    assert_eq!(renewal.billing_period_start, switch);
+    let bandwidth: Vec<_> = renewal
+        .line_items
+        .iter()
+        .filter(|line| line.metric_id.is_some())
+        .map(|line| (line.amount_subtotal, line.start_date, line.end_date))
+        .collect();
+    assert_eq!(bandwidth, vec![(10_000, opened, switch)]);
+}
+
+/// The same pack on a Scale without usage of its own, changed to Free at the period's end, while
+/// a usage subscription of the customer draws on its credit. A request deriving the state after
+/// the switch, before the controller ran, has no document to write, yet the switch's settlement
+/// reads the customer's usage: the switch is left to the controller, which reads it before its
+/// locks. The request reads no metering.
+/// Rules: R-077
+#[tokio::test]
+async fn a_request_behind_a_scheduled_switch_leaves_its_settlement_to_the_controller() {
+    use super::credit_plan_change::{SCALE, invoice, pay, start};
+    use crate::data::ids::{CUST_UBER_ID, PLAN_VERSION_FREE_ID};
+    use chrono::Datelike;
+
+    let (env, usage) = scale_with_a_quarterly_pack(false).await;
+    let opened = chrono::Utc::now().date_naive().with_day(1).unwrap();
+    let sub_id = start(&env, CUST_UBER_ID, SCALE, opened).await;
+    pay(&env, &invoice(&env, sub_id, 0).await).await;
+    start(&env, CUST_UBER_ID, PLAN_VERSION_USAGE_ALPHA_ID, opened).await;
+    env.services()
+        .schedule_plan_change(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_FREE_ID,
+            vec![],
+        )
+        .await
+        .expect("the change at the period's end");
+
+    let switch = opened + chrono::Months::new(1);
+    let now = switch.and_hms_opt(9, 0, 0).unwrap().and_utc();
+    env.set_now(now);
+    usage.arm();
+    let services = env.services().clone();
+    let mut deriving = tokio::spawn(async move {
+        services
+            .derive_subscription_state(TENANT_ID, sub_id, now)
+            .await
+    });
+    tokio::select! {
+        _ = usage.entered.notified() => {
+            no_transaction_open(&env).await;
+            usage.release.notify_one();
+            panic!("the request reads metering");
+        }
+        derived = &mut deriving => {
+            usage.disarm();
+            derived.expect("the request's task").expect("the request");
+        }
+    }
+    let held = env.get_subscription(sub_id).await;
+    assert_eq!(held.plan_version_id, SCALE);
+    assert!(
+        held.next_wake_at.is_some_and(|wake| wake <= now),
+        "the controller is woken at once"
+    );
+
+    let services = env.services().clone();
+    let renewing = tokio::spawn(async move { services.run_subscription_steps().await });
+    each_read(&usage, renewing, || async {
+        no_transaction_open(&env).await;
+        free(&env, "customer", CUST_UBER_ID.as_uuid(), "FOR UPDATE").await;
+    })
+    .await
+    .expect("the renewal");
+    assert_eq!(
+        env.get_subscription(sub_id).await.plan_version_id,
+        PLAN_VERSION_FREE_ID
+    );
 }

@@ -49,8 +49,14 @@ pub(crate) async fn cadence_after_change(
     cadences: &[SubscriptionFeeBillingPeriod],
     on: NaiveDate,
 ) -> StoreResult<Option<Cadence>> {
+    use crate::domain::SubscriptionStatusEnum;
     let sub = &details.subscription;
-    if sub.status != crate::domain::SubscriptionStatusEnum::Active
+    // A change dated on or after the trial's end finds the subscription active.
+    let trial_over_by = sub.status == SubscriptionStatusEnum::TrialActive
+        && sub
+            .trial_duration
+            .is_some_and(|days| sub.start_date + chrono::Duration::days(i64::from(days)) <= on);
+    if (sub.status != SubscriptionStatusEnum::Active && !trial_over_by)
         || sub.current_period_end.is_none()
     {
         return Ok(None);
@@ -64,10 +70,36 @@ pub(crate) async fn cadence_after_change(
     ) else {
         return Ok(None);
     };
-    let switched = !cadence_runs_of(conn, CadenceSubject::of(details), on, true)
-        .await?
-        .is_empty();
+    let switched = switched_onto_own_grid(conn, CadenceSubject::of(details), on).await?;
     Ok((!switched).then_some(cadence))
+}
+
+/// Whether a plan switch by `on` moved the subscription onto a grid of its own. A switch on its
+/// billing start, one ending a free trial, starts the billing on that start's grid.
+pub(crate) async fn switched_onto_own_grid(
+    conn: &mut PgConn,
+    subject: CadenceSubject,
+    on: NaiveDate,
+) -> StoreResult<bool> {
+    let runs = cadence_runs_of(conn, subject, on, true).await?;
+    if runs.is_empty() {
+        return Ok(false);
+    }
+    let trial_end = diesel_models::subscription_facts::SubscriptionTrialRow::find(
+        conn,
+        subject.subscription_id,
+    )
+    .await
+    .map_err(Into::<error_stack::Report<crate::errors::StoreError>>::into)?
+    .filter(|trial| trial.free)
+    .map(|trial| trial.until_date);
+    let billing_from = match (subject.billing_start, trial_end) {
+        (Some(start), Some(end)) => Some(start.max(end)),
+        (start, end) => start.or(end),
+    };
+    Ok(runs
+        .iter()
+        .any(|run| billing_from.is_none_or(|start| run.switched_on > start)))
 }
 
 #[cfg(test)]

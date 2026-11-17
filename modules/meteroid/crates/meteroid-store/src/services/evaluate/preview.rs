@@ -21,7 +21,7 @@ use super::load::{LoadedFacts, Overlay, facts_of_details, load_facts_with};
 use super::pricer::StorePricer;
 use crate::StoreResult;
 use crate::constants::Currencies;
-use crate::domain::enums::{InvoicePaymentStatus, InvoiceType, ScheduledEventStatus};
+use crate::domain::enums::InvoiceType;
 use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventData};
 use crate::domain::slot_transactions::{SlotForTransaction, SlotUpdatePreview};
 use crate::domain::subscription_add_ons::CreateSubscriptionAddOn;
@@ -32,7 +32,7 @@ use crate::repositories::credit_notes::CreditLineItem;
 use crate::repositories::subscriptions::SubscriptionSlotsInterface;
 use crate::services::Services;
 use crate::services::credit::forecast::CreditBooks;
-use crate::services::facts::pending::{amendment_cadence_window_tx, resolve_pending_tx};
+use crate::services::facts::pending::{amendment_cadence_window_tx, resolve_change_tx};
 use crate::services::invoice_lines::charges::{Lineages, disambiguate};
 use crate::services::invoice_lines::credit_units::CreditUnitCover;
 use crate::services::invoice_lines::fees::pricing_error;
@@ -81,15 +81,10 @@ pub(in crate::services) fn change_event(
         tenant_id,
         event_type: event_data.to_event_type_enum(),
         scheduled_time: on.and_time(NaiveTime::MIN),
-        priority: 0,
         event_data,
         created_at: now,
         updated_at: now,
-        status: ScheduledEventStatus::Pending,
-        retries: 0,
-        last_retry_at: None,
-        error: None,
-        processed_at: None,
+        withdrawn_at: None,
         source: "preview".to_owned(),
         created_by_customer: false,
         actor_type: ActorType::System,
@@ -189,10 +184,7 @@ impl Services {
         conn: &mut PgConn,
         event: &ScheduledEvent,
     ) -> StoreResult<Overlay> {
-        let ahead = crate::services::facts::pending::Writing::Ahead {
-            leave_fresh_claims: false,
-        };
-        let rows = match resolve_pending_tx(conn, event, ahead).await? {
+        let rows = match resolve_change_tx(conn, event).await? {
             Ok(rows) => rows,
             Err(why) => {
                 return Err(Report::new(StoreError::InvalidArgument(format!(
@@ -232,8 +224,15 @@ impl Services {
             let sub = &details.subscription;
             let (tenant_id, subscription_id) = (sub.tenant_id, sub.id);
             let precision = Currencies::resolve_currency_precision(&sub.currency).unwrap_or(2);
-            let documents =
-                change_documents(conn, tenant_id, subscription_id, &change, Some(overlay)).await?;
+            let documents = change_documents(
+                conn,
+                tenant_id,
+                subscription_id,
+                &change,
+                Some(overlay),
+                Some(self.usage_client.as_ref()),
+            )
+            .await?;
             let credits: Vec<(InvoiceId, CreditLineItem)> =
                 documents.credits.into_iter().chain(also).collect();
             let mut invoices: Vec<InvoiceId> = credits.iter().map(|(id, _)| *id).collect();
@@ -598,6 +597,7 @@ impl Services {
                 prepaid_amount: None,
                 invoice_id: None,
                 true_up: None,
+                reopened: Box::default(),
                 span: BilledSpan::of(&InvoiceType::Recurring),
             };
             let cover = CreditUnitCover::Estimate { invoice_id: None };
@@ -686,17 +686,10 @@ async fn credit_note_preview(
         if returned == 0 {
             continue;
         }
-        let collected_or_in_flight = matches!(
-            invoice.payment_status,
-            InvoicePaymentStatus::Paid | InvoicePaymentStatus::PartiallyPaid
-        ) || invoice.amount_due <= 0
-            || crate::repositories::credit_notes::invoice_payment_in_flight(
-                conn, tenant_id, invoice,
-            )
-            .await?;
-        if collected_or_in_flight {
-            to_balance += -returned;
-        }
+        to_balance += crate::repositories::credit_notes::change_note_to_balance(
+            conn, tenant_id, invoice, returned,
+        )
+        .await?;
     }
 
     let promotional_credits = crate::services::credit::promotional::net_total(&lines)?;

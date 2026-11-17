@@ -1524,7 +1524,7 @@ async fn a_plan_pack_funds_its_credit_when_paid_and_included_credit_when_invoice
         .map_err(test_error)?;
     setup
         .services
-        .get_and_process_due_events()
+        .run_invoice_deadlines()
         .await
         .map_err(test_error)?;
     let invoices = setup

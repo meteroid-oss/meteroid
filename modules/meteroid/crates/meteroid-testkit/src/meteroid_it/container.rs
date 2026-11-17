@@ -173,8 +173,9 @@ struct SharedPostgres {
     base_connection_string: String,
 }
 
-/// The migrated template the test databases are cloned from: `meteroid_template`, or
-/// `METEROID_TEST_TEMPLATE`, so worktrees of different migrations can share one Postgres.
+/// The migrated template the test databases are cloned from: `METEROID_TEST_TEMPLATE`, else one
+/// named by this migration set's fingerprint, so branches sharing one server never rebuild each
+/// other's.
 fn template() -> &'static str {
     static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     NAME.get_or_init(|| {
@@ -183,7 +184,7 @@ fn template() -> &'static str {
             .filter(|name| {
                 !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '_')
             })
-            .unwrap_or_else(|| "meteroid_template".to_owned())
+            .unwrap_or_else(|| format!("meteroid_template_{}", &migrations_fingerprint()[..16]))
     })
 }
 
@@ -196,7 +197,7 @@ fn with_database(base_url: &str, db_name: &str) -> String {
 }
 
 /// Initialize the shared Postgres (external or container-backed) and run migrations
-/// once on the `meteroid_template` database.
+/// once on this migration set's template database.
 async fn get_shared_postgres() -> &'static SharedPostgres {
     POSTGRES_INSTANCE
         .get_or_init(|| async {
@@ -234,20 +235,19 @@ async fn get_shared_postgres() -> &'static SharedPostgres {
                     .unwrap();
 
                 if template_fingerprint(&mut conn).await.as_deref() != Some(fingerprint.as_str()) {
-                    let template_count: i64 =
-                        diesel::dsl::sql::<diesel::sql_types::BigInt>(&format!(
-                            "SELECT count(*) FROM pg_database WHERE datname = '{}'",
-                            template()
-                        ))
-                        .get_result(&mut conn)
+                    // Migrated from scratch: a template stamped with another migration set may
+                    // hold migrations this one rewrote or removed.
+                    sql_query(format!(
+                        "DROP DATABASE IF EXISTS {} WITH (FORCE)",
+                        template()
+                    ))
+                    .execute(&mut conn)
+                    .await
+                    .unwrap();
+                    sql_query(format!("CREATE DATABASE {}", template()))
+                        .execute(&mut conn)
                         .await
                         .unwrap();
-                    if template_count == 0 {
-                        sql_query(format!("CREATE DATABASE {}", template()))
-                            .execute(&mut conn)
-                            .await
-                            .unwrap();
-                    }
 
                     let template_url = with_database(&base_connection_string, template());
                     let template_pool =
@@ -286,6 +286,7 @@ async fn get_shared_postgres() -> &'static SharedPostgres {
 
 /// Hash of the migration directory names: diesel tracks applied migrations by version, so a
 /// template migrated from the same set is up to date.
+/// The migrations' names and contents: an edited migration is a new template.
 fn migrations_fingerprint() -> String {
     use sha2::{Digest, Sha256};
 
@@ -295,8 +296,20 @@ fn migrations_fingerprint() -> String {
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     names.sort();
-    let digest = Sha256::digest(names.join("\n").as_bytes());
-    digest.iter().map(|b| format!("{b:02x}")).collect()
+    let mut hasher = Sha256::new();
+    for name in &names {
+        hasher.update(name.as_bytes());
+        for file in ["up.sql", "down.sql"] {
+            if let Ok(sql) = std::fs::read(format!("{dir}/{name}/{file}")) {
+                hasher.update(&sql);
+            }
+        }
+    }
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 async fn template_fingerprint(conn: &mut meteroid_store::store::PgConn) -> Option<String> {
@@ -487,6 +500,7 @@ async fn start_meteroid_from_config(
         invite_ttl_days: 7,
         mfa_issuer: "Meteroid".to_string(),
         portal_legacy_tokens_until: None,
+        billing_release: config.billing_controller_release,
     })
     .expect("Could not create store");
 

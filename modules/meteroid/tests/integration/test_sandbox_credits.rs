@@ -245,18 +245,14 @@ async fn pulse_future_start_subscription_renews_into_cycle_one() {
     .await
     .unwrap();
     let customer = customer_ids(&env, tenant.id).await["Halvorsen Freight"];
-    let (subscription_id, status, cycle): (
-        common_domain::ids::SubscriptionId,
-        SubscriptionStatusEnum,
-        Option<i32>,
-    ) = s::subscription
-        .filter(s::customer_id.eq(customer))
-        .select((s::id, s::status, s::cycle_index))
-        .first(&mut env.conn().await)
-        .await
-        .unwrap();
+    let (subscription_id, status): (common_domain::ids::SubscriptionId, SubscriptionStatusEnum) =
+        s::subscription
+            .filter(s::customer_id.eq(customer))
+            .select((s::id, s::status))
+            .first(&mut env.conn().await)
+            .await
+            .unwrap();
     assert_eq!(status, SubscriptionStatusEnum::PendingActivation);
-    assert_eq!(cycle, None);
 
     // Its start (and its components') moved two months back, with 1,000 AI actions used in its
     // first period.
@@ -309,12 +305,17 @@ async fn pulse_future_start_subscription_renews_into_cycle_one() {
             .sum()
     };
     let cycle_of = || async {
-        s::subscription
+        let row: diesel_models::subscriptions::SubscriptionRow = s::subscription
             .filter(s::id.eq(subscription_id))
-            .select(s::cycle_index)
-            .first::<Option<i32>>(&mut env.conn().await)
+            .select(
+                <diesel_models::subscriptions::SubscriptionRow as diesel::SelectableHelper<
+                    diesel::pg::Pg,
+                >>::as_select(),
+            )
+            .first(&mut env.conn().await)
             .await
-            .unwrap()
+            .unwrap();
+        crate::harness::derived_cycle_index(&row)
     };
 
     let activation = env

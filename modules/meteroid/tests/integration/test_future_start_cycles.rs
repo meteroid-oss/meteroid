@@ -21,7 +21,7 @@ use rust_decimal::Decimal;
 
 use crate::data::ids::*;
 use crate::data::plans::{PlanSeed, SeedComp};
-use crate::harness::{TestEnv, subscription, test_env_with_seed_and_usage};
+use crate::harness::{TestEnv, derived_cycle_index, subscription, test_env_with_seed_and_usage};
 use crate::meteroid_it::container::SeedLevel;
 
 const RATE_CENTS: i64 = 2_000;
@@ -144,7 +144,6 @@ async fn lifecycle_activated(env: &TestEnv, version: PlanVersionId) -> Subscript
         .await;
     let created = env.get_subscription(id).await;
     assert_eq!(created.status, SubscriptionStatusEnum::PendingActivation);
-    assert_eq!(created.cycle_index, None);
     assert!(
         env.get_invoices(id).await.is_empty(),
         "nothing is invoiced before the start date"
@@ -181,11 +180,17 @@ async fn a_lifecycle_activated_subscription_renews_into_cycle_one() {
 
     env.set_now(at(2024, 1, 1));
     env.process_cycles().await;
-    assert_eq!(env.get_subscription(id).await.cycle_index, Some(0));
+    assert_eq!(
+        derived_cycle_index(&env.get_subscription(id).await),
+        Some(0)
+    );
     assert_eq!(totals(&env, id).await, vec![RATE_CENTS + SETUP_CENTS]);
 
     env.run_until(day(2024, 2, 1)).await;
-    assert_eq!(env.get_subscription(id).await.cycle_index, Some(1));
+    assert_eq!(
+        derived_cycle_index(&env.get_subscription(id).await),
+        Some(1)
+    );
     assert_eq!(
         totals(&env, id).await,
         vec![RATE_CENTS + SETUP_CENTS, RATE_CENTS + USAGE_CENTS],
@@ -219,8 +224,8 @@ async fn a_paid_trial_starting_later_bills_its_period_and_ends_on_schedule() {
     let started = env.get_subscription(id).await;
     assert_eq!(
         (
-            started.status,
-            started.cycle_index,
+            started.status.clone(),
+            derived_cycle_index(&started),
             started.current_period_end
         ),
         (
@@ -233,7 +238,10 @@ async fn a_paid_trial_starting_later_bills_its_period_and_ends_on_schedule() {
     assert_eq!(totals(&env, id).await, vec![9_900]);
 
     env.run_until(day(2024, 2, 1)).await;
-    assert_eq!(env.get_subscription(id).await.cycle_index, Some(1));
+    assert_eq!(
+        derived_cycle_index(&env.get_subscription(id).await),
+        Some(1)
+    );
     assert_eq!(totals(&env, id).await, vec![9_900, 9_900]);
 }
 
@@ -253,9 +261,7 @@ async fn a_future_start_invoiced_at_creation_is_not_invoiced_again_at_its_start(
     sql(
         &env,
         &format!(
-            "UPDATE subscription SET status = 'PENDING_ACTIVATION', cycle_index = NULL,
-                next_cycle_action = 'ACTIVATE_SUBSCRIPTION'
-             WHERE id = '{id}';
+            "UPDATE subscription SET status = 'PENDING_ACTIVATION' WHERE id = '{id}';
              UPDATE invoice SET cycle_index = NULL WHERE subscription_id = '{id}';",
             id = id.as_uuid()
         ),
@@ -266,7 +272,7 @@ async fn a_future_start_invoiced_at_creation_is_not_invoiced_again_at_its_start(
     env.process_cycles().await;
     let started = env.get_subscription(id).await;
     assert_eq!(
-        (started.status, started.cycle_index),
+        (started.status.clone(), derived_cycle_index(&started)),
         (SubscriptionStatusEnum::Active, Some(0))
     );
     assert_eq!(totals(&env, id).await, vec![RATE_CENTS + SETUP_CENTS]);
@@ -299,13 +305,16 @@ async fn a_manually_activated_subscription_bills_its_first_period() {
         .expect("activated");
     let activated = env.get_subscription(id).await;
     assert_eq!(
-        (activated.status, activated.cycle_index),
+        (activated.status.clone(), derived_cycle_index(&activated)),
         (SubscriptionStatusEnum::Active, Some(0))
     );
     assert_eq!(totals(&env, id).await, vec![RATE_CENTS + SETUP_CENTS]);
 
     env.process_cycles().await;
-    assert_eq!(env.get_subscription(id).await.cycle_index, Some(1));
+    assert_eq!(
+        derived_cycle_index(&env.get_subscription(id).await),
+        Some(1)
+    );
     assert_eq!(
         totals(&env, id).await,
         vec![RATE_CENTS + SETUP_CENTS, RATE_CENTS + USAGE_CENTS],
@@ -335,8 +344,7 @@ async fn a_draft_invoiced_at_creation_is_issued_once_at_the_start() {
     sql(
         &env,
         &format!(
-            "UPDATE subscription SET status = 'PENDING_ACTIVATION', cycle_index = NULL,
-                next_cycle_action = 'ACTIVATE_SUBSCRIPTION', auto_advance_invoices = true
+            "UPDATE subscription SET status = 'PENDING_ACTIVATION', auto_advance_invoices = true
              WHERE id = '{id}';
              UPDATE invoice SET cycle_index = NULL, auto_advance = true
              WHERE subscription_id = '{id}';",
@@ -449,7 +457,10 @@ async fn a_usage_only_minimum_starting_later_is_booked_at_its_start() {
 
     env.set_now(at(2024, 1, 1));
     env.process_cycles().await;
-    assert_eq!(env.get_subscription(id).await.cycle_index, Some(0));
+    assert_eq!(
+        derived_cycle_index(&env.get_subscription(id).await),
+        Some(0)
+    );
     assert!(env.get_invoices(id).await.is_empty());
     assert_eq!(env.get_subscription(id).await.mrr_cents, 9_000);
     let movements: Vec<(MrrMovementType, i64, NaiveDate)> = m::bi_mrr_movement_log
@@ -488,6 +499,8 @@ async fn a_manually_activated_paid_trial_bills_its_first_period() {
         .await;
     assert!(env.get_invoices(id).await.is_empty());
 
+    // Activated on its start date, as the lifecycle would.
+    env.set_now(at(2024, 1, 1) + Duration::hours(9));
     env.services()
         .activate_subscription_manual(TENANT_ID, id)
         .await
@@ -495,8 +508,8 @@ async fn a_manually_activated_paid_trial_bills_its_first_period() {
     let activated = env.get_subscription(id).await;
     assert_eq!(
         (
-            activated.status,
-            activated.cycle_index,
+            activated.status.clone(),
+            derived_cycle_index(&activated),
             activated.current_period_end
         ),
         (
@@ -507,43 +520,15 @@ async fn a_manually_activated_paid_trial_bills_its_first_period() {
     );
     assert_eq!(totals(&env, id).await, vec![9_900]);
 
-    env.process_due_events().await;
+    // The trial's end is the subscription's step, inside the period.
+    env.set_now(at(2024, 1, 10));
+    env.process_cycles().await;
     assert_eq!(
         env.get_subscription(id).await.status,
         SubscriptionStatusEnum::Active,
         "the trial ended on January 8"
     );
     assert_eq!(totals(&env, id).await, vec![9_900]);
-}
-
-/// A row the lifecycle activated before activation opened cycle 0 still has none: its renewal is
-/// cycle 1 all the same.
-#[tokio::test]
-async fn a_renewal_without_a_cycle_is_cycle_one() {
-    let env = env().await;
-    let version = plan(&env).await;
-    let id = subscription()
-        .plan_version(version)
-        .start_date(day(2024, 1, 1))
-        .on_start()
-        .no_trial()
-        .create(env.services())
-        .await;
-    sql(
-        &env,
-        &format!(
-            "UPDATE subscription SET cycle_index = NULL WHERE id = '{}'",
-            id.as_uuid()
-        ),
-    )
-    .await;
-
-    env.process_cycles().await;
-    assert_eq!(env.get_subscription(id).await.cycle_index, Some(1));
-    assert_eq!(
-        totals(&env, id).await,
-        vec![RATE_CENTS + SETUP_CENTS, RATE_CENTS + USAGE_CENTS]
-    );
 }
 
 /// The replay's entry points rewrite a sandbox's past only.

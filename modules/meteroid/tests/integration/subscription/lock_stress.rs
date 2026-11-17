@@ -78,7 +78,7 @@ struct Race {
     customer_id: CustomerId,
     payment_method_id: CustomerPaymentMethodId,
     subscription_id: SubscriptionId,
-    cycle_index_before: Option<i32>,
+    period_before: NaiveDate,
     draft_invoice_id: InvoiceId,
     change_date: NaiveDate,
     seats_at: NaiveDateTime,
@@ -186,14 +186,9 @@ async fn concurrent_billing_on_one_customer_never_deadlocks(#[future] test_env: 
             }
         }
 
-        // The worker records a failed renewal on the subscription instead of returning it.
+        // A failing step is the worker's own result, checked above for lock failures.
         let after = env.get_subscription(race.subscription_id).await;
-        if let Some(error) = &after.last_error
-            && let Some(failure) = lock_failure(error)
-        {
-            panic!("iteration {iteration}: the worker's renewal failed with `{failure}`: {error}");
-        }
-        if worker_ran && after.cycle_index > race.cycle_index_before {
+        if worker_ran && after.current_period_start > race.period_before {
             succeeded[OPS.iter().position(|op| *op == Op::Worker).unwrap()] += 1;
         }
 
@@ -236,18 +231,16 @@ async fn concurrent_billing_on_one_customer_never_deadlocks(#[future] test_env: 
             outcome.customer_id
         );
 
+        // A failed step never ends a subscription: it is retried, never a status.
         let sub = env.get_subscription(outcome.subscription_id).await;
-        assert_ne!(
-            sub.status,
-            SubscriptionStatusEnum::Errored,
-            "subscription {} errored: {:?}",
+        assert!(
+            !matches!(
+                sub.status,
+                SubscriptionStatusEnum::Cancelled | SubscriptionStatusEnum::Completed
+            ),
+            "subscription {} ended: {:?}",
             outcome.subscription_id,
-            sub.last_error
-        );
-        assert_eq!(
-            sub.error_count, 0,
-            "subscription {} failed a renewal: {:?}",
-            outcome.subscription_id, sub.last_error
+            sub.status
         );
     }
 }
@@ -285,7 +278,7 @@ async fn run(op: Op, services: Services, store: Store, race: Arc<Race>) -> Resul
             .map_err(chain),
         Op::Settlement => settle(&services, &store, &race).await.map(|()| true),
         Op::Worker => services
-            .get_and_process_cycle_transitions()
+            .run_subscription_steps()
             .await
             .map(|_| true)
             .map_err(chain),
@@ -545,7 +538,7 @@ async fn prepare(env: &TestEnv, iteration: usize) -> Race {
         customer_id,
         payment_method_id,
         subscription_id,
-        cycle_index_before: sub.cycle_index,
+        period_before: sub.current_period_start,
         draft_invoice_id: draft.id,
         change_date,
         seats_at,

@@ -380,7 +380,7 @@ impl CreditRecomputeMarkRow {
         entity_id: Uuid,
     ) -> DbResult<usize> {
         use crate::enums::EntitlementEntityTypeEnum as Owner;
-        const ACTIVE: &str = "s.status IN ('ACTIVE', 'TRIAL_ACTIVE', 'PENDING_CHARGE')";
+        const ACTIVE: &str = "s.status IN ('ACTIVE', 'TRIAL_ACTIVE')";
         let selection = match entity_type {
             Owner::Customer => {
                 return Self::mark_one(conn, tenant_id, CustomerId::from(entity_id)).await;
@@ -431,11 +431,11 @@ impl CreditRecomputeMarkRow {
                      WHERE effective_to IS NULL
                  ) sp ON sp.subscription_id = s.id AND sp.product_id = $2
                  WHERE s.tenant_id = $1
-                   AND s.status IN ('ACTIVE', 'TRIAL_ACTIVE', 'PENDING_CHARGE')"
+                   AND s.status IN ('ACTIVE', 'TRIAL_ACTIVE')"
                 .to_owned(),
             None => "FROM subscription s
                  WHERE s.tenant_id = $1 AND $2::uuid IS NULL
-                   AND s.status IN ('ACTIVE', 'TRIAL_ACTIVE', 'PENDING_CHARGE')"
+                   AND s.status IN ('ACTIVE', 'TRIAL_ACTIVE')"
                 .to_owned(),
         };
         Self::mark_selection(

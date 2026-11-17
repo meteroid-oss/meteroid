@@ -1,5 +1,17 @@
+use std::collections::HashMap;
+
+use chrono::NaiveDate;
+use common_domain::ids::{AppliedCouponId, InvoiceId};
+use diesel_models::invoices::InvoiceRow;
+use error_stack::Report;
+
+use crate::StoreResult;
 use crate::domain::coupons::{AppliedCouponsDiscount, CouponDiscount};
-use crate::domain::{AppliedCouponDetailed, CouponLineItem, LineItem};
+use crate::domain::{
+    AppliedCouponDetailed, CouponLineItem, Invoice, LineItem, LineItemKind, SubscriptionDetails,
+};
+use crate::errors::StoreError;
+use crate::store::PgConn;
 use billing_core::assembly::discount as core;
 
 pub fn distribute_discount(line_items: Vec<LineItem>, discount: u64) -> Vec<LineItem> {
@@ -87,6 +99,172 @@ pub fn calculate_coupons_discount(
         discount_subunit: applied_coupons_items.iter().map(|x| x.value).sum(),
         applied_coupons: applied_coupons_items,
     }
+}
+
+/// A subscription's open period invoices in period order, each with what its coupons discount,
+/// and the place among them of the invoice being computed: a coupon's limited uses go to the
+/// oldest period first, whatever order the drafts are issued in (R-089).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Queue {
+    /// `None` is the invoice being computed.
+    entries: Vec<(Option<InvoiceId>, i64)>,
+}
+
+impl Queue {
+    /// The subscription's recurring and final drafts but `invoice` (a consolidated one's are
+    /// its parent's), oldest period first; `invoice`, or a new one of `period_start`, in its place.
+    pub(in crate::services) async fn load(
+        conn: &mut PgConn,
+        details: &SubscriptionDetails,
+        invoice: Option<InvoiceId>,
+        period_start: NaiveDate,
+    ) -> StoreResult<Self> {
+        let sub = &details.subscription;
+        let rows = InvoiceRow::drafts_of_subscription(conn, sub.tenant_id, sub.id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let mut entries: Vec<(Option<InvoiceId>, i64)> = Vec::with_capacity(rows.len() + 1);
+        let mut place: Option<usize> = None;
+        let mut later: Option<usize> = None;
+        for row in rows {
+            let draft: Invoice = row.try_into()?;
+            if Some(draft.id) == invoice {
+                place = Some(entries.len());
+                continue;
+            }
+            if !draft.invoice_type.bills_subscription_usage() || draft.is_consolidated_child() {
+                continue;
+            }
+            if later.is_none() && draft.billing_period_start > period_start {
+                later = Some(entries.len());
+            }
+            entries.push((Some(draft.id), discounted(&draft.line_items)));
+        }
+        let at = place.or(later).unwrap_or(entries.len());
+        entries.insert(at, (None, 0));
+        Ok(Self { entries })
+    }
+
+    /// `coupons` as the invoice being computed is owed them: each limited one's uses the drafts
+    /// of earlier periods take counted as taken.
+    pub fn owed(
+        &self,
+        coupons: &[AppliedCouponDetailed],
+        currency: &str,
+    ) -> Vec<AppliedCouponDetailed> {
+        let (inputs, mut uses) = uses_of(coupons);
+        let mut taken = vec![0; coupons.len()];
+        for (id, subtotal) in &self.entries {
+            if id.is_none() {
+                break;
+            }
+            for i in uses.take(&inputs, *subtotal, currency) {
+                taken[i] += 1;
+            }
+        }
+        coupons
+            .iter()
+            .zip(taken)
+            .map(|(coupon, taken)| {
+                let mut coupon = coupon.clone();
+                if taken > 0 {
+                    let applied = &mut coupon.applied_coupon;
+                    applied.applied_count = Some(applied.applied_count.unwrap_or(0) + taken);
+                }
+                coupon
+            })
+            .collect()
+    }
+
+    /// The coupons each draft takes once issued, the invoice being computed taking `consumed`.
+    pub fn taken(
+        &self,
+        coupons: &[AppliedCouponDetailed],
+        currency: &str,
+        consumed: &[AppliedCouponId],
+    ) -> HashMap<InvoiceId, Vec<AppliedCouponId>> {
+        let (inputs, mut uses) = uses_of(coupons);
+        let mut taken = HashMap::new();
+        for (id, subtotal) in &self.entries {
+            match id {
+                Some(id) => {
+                    let ids = uses
+                        .take(&inputs, *subtotal, currency)
+                        .into_iter()
+                        .map(|i| coupons[i].applied_coupon.id)
+                        .collect();
+                    taken.insert(*id, ids);
+                }
+                None => uses.took(
+                    &(0..coupons.len())
+                        .filter(|i| consumed.contains(&coupons[*i].applied_coupon.id))
+                        .collect::<Vec<_>>(),
+                ),
+            }
+        }
+        taken
+    }
+}
+
+/// Whether `invoice`, a draft kept as it stands, shows the coupons its period is owed now: a
+/// use another draft was owed, or one a void freed, makes it computed again (R-089).
+pub(in crate::services) async fn shows_owed_coupons(
+    conn: &mut PgConn,
+    details: &SubscriptionDetails,
+    invoice: &Invoice,
+) -> StoreResult<bool> {
+    if !invoice.invoice_type.bills_subscription_usage() {
+        return Ok(true);
+    }
+    let currency = &details.subscription.currency;
+    let owed = Queue::load(
+        conn,
+        details,
+        Some(invoice.id),
+        invoice.billing_period_start,
+    )
+    .await?
+    .owed(&details.applied_coupons, currency);
+    let applicable = applicable_coupons(&owed);
+    let takes: Vec<AppliedCouponId> = core::calculate_coupons_discount(
+        discounted(&invoice.line_items),
+        currency,
+        &coupon_inputs(&applicable),
+    )
+    .iter()
+    .map(|applied| applicable[applied.coupon].applied_coupon.id)
+    .collect();
+    Ok(takes.len() == invoice.coupons.len()
+        && invoice
+            .coupons
+            .iter()
+            .all(|coupon| takes.contains(&coupon.applied_coupon_id)))
+}
+
+/// What a draft's coupons discount: its lines but a true-up, which no coupon discounts (R-023).
+fn discounted(lines: &[LineItem]) -> i64 {
+    lines
+        .iter()
+        .filter(|line| line.kind != LineItemKind::MinimumShortfall)
+        .map(|line| line.amount_subtotal)
+        .sum()
+}
+
+/// `coupons` as `billing_core` hands out their uses: what each limited one has left, none for
+/// one no invoice takes.
+fn uses_of(coupons: &[AppliedCouponDetailed]) -> (Vec<core::Coupon>, core::Uses) {
+    let left = coupons
+        .iter()
+        .map(|coupon| {
+            if !coupon.is_invoice_applicable() {
+                return Some(0);
+            }
+            coupon.coupon.recurring_value.map(|n| {
+                u32::try_from(n - coupon.applied_coupon.applied_count.unwrap_or(0)).unwrap_or(0)
+            })
+        })
+        .collect();
+    (coupons.iter().map(to_core).collect(), core::Uses::new(left))
 }
 
 /// What `coupons` will take off `subtotal` on the invoice that follows one which consumed
@@ -182,6 +360,36 @@ mod tests {
             calculate_coupons_discount(1, "USD", &[fixed]).discount_subunit,
             1
         );
+    }
+
+    /// A 10 % coupon for two invoices, January's and February's drafts open: March is owed none;
+    /// February, issued first, the second, leaving January the first and March nothing.
+    /// Rules: R-089, R-022
+    #[test]
+    fn an_invoice_is_owed_a_use_only_after_the_open_drafts_of_earlier_periods() {
+        let mut ten = applied_coupon("TEN", CouponDiscount::Percentage(Decimal::from(10)));
+        ten.coupon.recurring_value = Some(2);
+        let coupons = std::slice::from_ref(&ten);
+        let (january, february, march) = (InvoiceId::new(), InvoiceId::new(), InvoiceId::new());
+        let last = Queue {
+            entries: vec![(Some(january), 2_500), (Some(february), 49_597), (None, 0)],
+        };
+        assert!(applicable_coupons(&last.owed(coupons, "USD")).is_empty());
+
+        let closing = Queue {
+            entries: vec![(Some(january), 2_500), (None, 0), (Some(march), 50_000)],
+        };
+        assert_eq!(applicable_coupons(&closing.owed(coupons, "USD")).len(), 1);
+        let taken = closing.taken(coupons, "USD", &[ten.applied_coupon.id]);
+        assert_eq!(taken[&january], vec![ten.applied_coupon.id]);
+        assert_eq!(taken[&march], Vec::<AppliedCouponId>::new());
+
+        // January's draft bills nothing yet: it takes no use, so the second is March's.
+        let empty = Queue {
+            entries: vec![(Some(january), 0), (None, 0), (Some(march), 50_000)],
+        };
+        let taken = empty.taken(coupons, "USD", &[ten.applied_coupon.id]);
+        assert_eq!(taken[&march], vec![ten.applied_coupon.id]);
     }
 
     #[test]

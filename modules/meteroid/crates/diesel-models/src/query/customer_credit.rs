@@ -648,7 +648,7 @@ impl CustomerCreditGrantRow {
              FROM customer_credit_grant g
              JOIN subscription s ON s.id = g.subscription_id AND s.tenant_id = g.tenant_id
              WHERE g.ends_at IS NULL
-               AND s.status IN ('CANCELLED', 'COMPLETED', 'ABORTED', 'SUPERSEDED')
+               AND s.status IN ('CANCELLED', 'COMPLETED', 'ABORTED')
                AND (g.expires_at IS NULL
                     OR g.expires_at >= LEAST(
                         COALESCE(s.terminated_at, s.current_period_start::timestamp)
@@ -1567,7 +1567,7 @@ fn plan_credit_rules(customers: &str) -> String {
          LEFT JOIN price pr ON pr.id = sc.price_id
          LEFT JOIN credit_unit cu ON cu.id = pr.credit_unit_id
          WHERE s.tenant_id = $1 AND s.customer_id IN ({customers})
-           AND s.status IN ('ACTIVE', 'TRIAL_ACTIVE', 'PENDING_CHARGE')
+           AND s.status IN ('ACTIVE', 'TRIAL_ACTIVE')
            AND (pr.id IS NULL OR pr.pricing->>'type' IN ('Usage', 'Capacity'))"
     )
 }

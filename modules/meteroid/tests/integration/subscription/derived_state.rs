@@ -1,23 +1,19 @@
-//! The derived state written from the facts: a change scheduled for a period's end
-//! is its future rows from the moment it is requested, and the writer applies it with the renewal
-//! that bills it, never before the stored period advances (the cap). Each test reads the state
-//! and the documents at every step, and I27 at every commit between the boundary and the renewal.
+//! The derived state written from the facts: a change scheduled for a period's end is its future
+//! rows from the moment it is requested, and the controller applies it in the step that writes
+//! the renewal billing it. Each test reads the state and the documents at every step, and I27 at
+//! every commit between the boundary and the renewal.
 //!
 //! Starter is a Platform Fee of 29.00 and Seats at 10.00 (one seat), Pro 99.00 and 25.00: both
 //! monthly in advance, from Jan 1, 2024.
 
-use chrono::{DateTime, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use common_domain::actor::Actor;
 use common_domain::ids::{
     BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId, SubscriptionId,
 };
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
-use diesel_models::enums::{
-    BillingPeriodEnum as DieselBillingPeriodEnum, ScheduledEventStatus as DieselEventStatus,
-    SubscriptionStatusEnum,
-};
-use diesel_models::scheduled_events::ScheduledEventRow;
+use diesel_models::enums::{BillingPeriodEnum as DieselBillingPeriodEnum, SubscriptionStatusEnum};
 use diesel_models::subscription_facts::{SubscriptionPlanWindowRow, SubscriptionTrialRow};
 use meteroid_store::domain::enums::{BillingPeriodEnum, FeeTypeEnum};
 use meteroid_store::domain::price_components::{PriceEntry, PriceInput, ProductRef};
@@ -31,7 +27,6 @@ use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
 use rstest::rstest;
 use rust_decimal::Decimal;
 
-use super::pending_facts::roll_back_changes_as_facts;
 use crate::data::ids::*;
 use crate::data::plans::{PlanSeed, SeedComp};
 use crate::harness::{SubscriptionAssertExt, TestEnv, subscription, test_env};
@@ -146,14 +141,14 @@ async fn next_wake_at(env: &TestEnv, sub_id: SubscriptionId) -> Option<DateTime<
     env.get_subscription(sub_id).await.next_wake_at
 }
 
-/// The renewal of [Jan 1, Feb 1) on a scheduled Starter to Pro change. From midnight until the
-/// renewal runs, the writer keeps the stored plan (the cap), whether the controller reads it at
-/// its wake or the cycle waits in its retry backoff; I27 holds at each commit. The renewal then
-/// applies the change in its own transaction and bills Pro's February.
+/// The renewal of [Jan 1, Feb 1) on a scheduled Starter to Pro change. Read after a fact edit
+/// on the boundary day, before the controller ran, nothing is written: the renewal is due, and a
+/// document is the controller's alone, so the stored plan stays Starter (I27) and the controller
+/// is woken. Its step then applies Pro and bills Pro's February in one transaction.
 /// Rules: R-084, R-011
 #[rstest]
 #[tokio::test]
-async fn a_change_at_the_period_end_waits_for_the_renewal_that_bills_it(
+async fn a_change_at_the_period_end_applies_in_the_step_writing_its_renewal(
     #[future] test_env: TestEnv,
 ) {
     let env = test_env.await;
@@ -167,29 +162,32 @@ async fn a_change_at_the_period_end_waits_for_the_renewal_that_bills_it(
     );
     assert_invariants(&env, "scheduled").await;
 
-    // Feb 1, 06:00: the boundary has passed, the renewal not yet. The cycle is in its backoff.
+    // Feb 1, 06:00: the boundary has passed, the controller has not run yet.
     env.set_now(at(2, 1, 6));
-    {
-        use diesel_models::schema::subscription::dsl as s;
-        diesel::update(s::subscription.filter(s::id.eq(sub_id)))
-            .set(s::next_retry.eq(Some(at(2, 1, 12).naive_utc())))
-            .execute(&mut env.conn().await)
-            .await
-            .unwrap();
-    }
     let step = env
         .services()
         .derive_subscription_state(TENANT_ID, sub_id, at(2, 1, 6))
         .await
         .expect("derive")
         .expect("a live subscription");
-    assert!(step.transitions.is_empty(), "{step:?}");
-    env.process_cycles().await;
+    assert_eq!(step.transitions.len(), 1, "the plan transition: {step:?}");
+    assert_eq!(
+        step.documents
+            .iter()
+            .map(|due| format!("{:?}", due.slot))
+            .collect::<Vec<_>>(),
+        vec!["Recurring { period_start: 2024-02-01 }"]
+    );
     let held = env.get_subscription(sub_id).await;
     assert_eq!(held.plan_version_id, PLAN_VERSION_STARTER_ID);
     held.assert()
         .has_period_start(day(1, 1))
         .has_period_end(day(2, 1));
+    assert!(
+        held.next_wake_at
+            .is_some_and(|wake| wake <= common_clock::now()),
+        "the controller is woken at once"
+    );
     assert_eq!(env.get_invoices(sub_id).await.len(), 1, "not renewed yet");
     assert_invariants(&env, "after midnight, before the renewal").await;
 
@@ -390,8 +388,8 @@ async fn a_change_before_a_pending_cancellation_applies_then_the_cancellation_en
 }
 
 /// A paid trial of 45 days from Jan 1 runs to Feb 15; a change at the period's end, Feb 1, ends it
-/// there: its trial end moves to Feb 1 with the change, and the subscription is Active from then
-/// on the new plan, billed whole from Feb 1.
+/// there: its trial fact ends on Feb 1 with the change, and the subscription is Active from then on
+/// the new plan, billed whole from Feb 1.
 #[rstest]
 #[tokio::test]
 async fn a_change_ending_a_paid_trial_moves_its_trial_end_to_its_date(#[future] test_env: TestEnv) {
@@ -428,29 +426,17 @@ async fn a_change_ending_a_paid_trial_moves_its_trial_end_to_its_date(#[future] 
         .await
         .assert()
         .is_trial_active();
-    let end_trial_at = || async {
-        use diesel_models::schema::scheduled_event::dsl as e;
-        e::scheduled_event
-            .filter(e::subscription_id.eq(sub_id))
-            .filter(e::event_type.eq(diesel_models::enums::ScheduledEventTypeEnum::EndTrial))
-            .select(e::scheduled_time)
-            .first::<chrono::NaiveDateTime>(&mut env.conn().await)
+    let trial_until = || async {
+        SubscriptionTrialRow::find(&mut env.conn().await, sub_id)
             .await
-            .expect("the trial end")
+            .unwrap()
+            .expect("the trial fact")
+            .until_date
     };
-    assert_eq!(end_trial_at().await.date(), day(2, 15));
+    assert_eq!(trial_until().await, day(2, 15));
 
     schedule(&env, sub_id, next).await;
-    assert_eq!(
-        end_trial_at().await.date(),
-        day(2, 1),
-        "moved to the change"
-    );
-    let trial = SubscriptionTrialRow::find(&mut env.conn().await, sub_id)
-        .await
-        .unwrap()
-        .expect("the trial fact");
-    assert_eq!(trial.until_date, day(2, 1));
+    assert_eq!(trial_until().await, day(2, 1), "moved to the change");
 
     env.set_now(at(2, 1, 1));
     env.process_cycles().await;
@@ -467,90 +453,6 @@ async fn a_change_ending_a_paid_trial_moves_its_trial_end_to_its_date(#[future] 
         ]
     );
     assert_billed_once(&env, sub_id).await;
-}
-
-/// A change an old replica claimed before the deploy and left PROCESSING: the timeout puts it back
-/// pending, and it is migrated when it comes due, never applied as an event; claimed again, the
-/// writer migrates it as it is.
-#[rstest]
-#[tokio::test]
-async fn a_straggler_claimed_by_an_old_replica_is_migrated_not_applied(
-    #[future] test_env: TestEnv,
-) {
-    use diesel_models::schema::scheduled_event::dsl as e;
-
-    let env = test_env.await;
-    env.set_now(at(1, 15, 12));
-    let sub_id = starter_from_jan_1(&env).await;
-    schedule(&env, sub_id, PLAN_VERSION_PRO_ID).await;
-    roll_back_changes_as_facts(&env).await;
-    let event_id = {
-        let mut conn = env.conn().await;
-        diesel::update(e::scheduled_event.filter(e::subscription_id.eq(sub_id)))
-            .set((
-                e::status.eq(DieselEventStatus::Processing),
-                e::updated_at.eq((at(1, 15, 12) - Duration::minutes(10)).naive_utc()),
-            ))
-            .returning(e::id)
-            .get_result::<common_domain::ids::ScheduledEventId>(&mut conn)
-            .await
-            .unwrap()
-    };
-
-    env.services()
-        .cleanup_timeout_scheduled_events()
-        .await
-        .expect("timeout");
-    let event = || async {
-        ScheduledEventRow::get_by_id(&mut env.conn().await, event_id, &TENANT_ID)
-            .await
-            .unwrap()
-    };
-    assert!(matches!(event().await.status, DieselEventStatus::Pending));
-
-    env.set_now(at(2, 1, 1));
-    env.process_cycles().await;
-    let migrated = event().await;
-    assert!(
-        matches!(migrated.status, DieselEventStatus::Migrated),
-        "{:?}",
-        migrated.status
-    );
-    assert!(migrated.written_facts.is_some(), "its rows recorded");
-    assert_eq!(
-        env.get_subscription(sub_id).await.plan_version_id,
-        PLAN_VERSION_PRO_ID
-    );
-    assert_eq!(
-        documents(&env, sub_id).await,
-        vec![
-            "Recurring 2024-01-01: Platform Fee 2024-01-01..2024-02-01 2900",
-            "Recurring 2024-01-01: Seats 2024-01-01..2024-02-01 1000",
-            "Recurring 2024-02-01: Platform Fee 2024-02-01..2024-03-01 9900",
-            "Recurring 2024-02-01: Seats 2024-02-01..2024-03-01 2500",
-        ]
-    );
-
-    // Claimed and never released: migrated as it is.
-    let other = starter_from_jan_1(&env).await;
-    schedule(&env, other, PLAN_VERSION_PRO_ID).await;
-    roll_back_changes_as_facts(&env).await;
-    let claimed = diesel::update(e::scheduled_event.filter(e::subscription_id.eq(other)))
-        .set(e::status.eq(DieselEventStatus::Processing))
-        .returning(e::id)
-        .get_result::<common_domain::ids::ScheduledEventId>(&mut env.conn().await)
-        .await
-        .unwrap();
-    let written = env
-        .services()
-        .write_pending_event_as_facts(TENANT_ID, claimed)
-        .await
-        .expect("write")
-        .expect("the claimed change resolves");
-    assert!(matches!(
-        written,
-        meteroid_store::services::facts::pending::Migration::Written(_)
-    ));
 }
 
 /// The plan windows, fee rows and trial of a subscription, as they read.
@@ -589,44 +491,6 @@ async fn snapshot(env: &TestEnv, sub_id: SubscriptionId) -> Vec<String> {
     );
     rows.sort();
     rows
-}
-
-/// The rollback script withdraws a change written since the deploy and not applied yet: its rows
-/// go, what it closed reopens, its event is pending again. A change the state applied stays.
-#[rstest]
-#[tokio::test]
-async fn the_rollback_script_restores_a_change_as_its_pending_event(#[future] test_env: TestEnv) {
-    let env = test_env.await;
-    env.set_now(at(1, 15, 12));
-    let applied = starter_from_jan_1(&env).await;
-    schedule(&env, applied, PLAN_VERSION_PRO_ID).await;
-    env.set_now(at(2, 1, 1));
-    env.process_cycles().await;
-    let applied_rows = snapshot(&env, applied).await;
-
-    let pending = starter_from_jan_1(&env).await;
-    env.process_cycles().await;
-    let before = snapshot(&env, pending).await;
-    schedule(&env, pending, PLAN_VERSION_PRO_ID).await;
-    assert_ne!(snapshot(&env, pending).await, before, "rows written ahead");
-
-    roll_back_changes_as_facts(&env).await;
-    assert_eq!(snapshot(&env, pending).await, before, "withdrawn");
-    assert_eq!(snapshot(&env, applied).await, applied_rows, "applied: kept");
-    let events = ScheduledEventRow::get_pending_events_for_subscription(
-        &mut env.conn().await,
-        pending,
-        &TENANT_ID,
-    )
-    .await
-    .unwrap()
-    .into_iter()
-    .filter(|e| e.event_type == diesel_models::enums::ScheduledEventTypeEnum::ApplyPlanChange)
-    .collect::<Vec<_>>();
-    assert_eq!(events.len(), 1);
-    assert!(matches!(events[0].status, DieselEventStatus::Pending));
-    assert_eq!(events[0].written_facts, None);
-    assert_invariants(&env, "rolled back").await;
 }
 
 /// Cancelling a pending change withdraws its rows, bumps the customer and derives the state
@@ -685,100 +549,13 @@ async fn cancelling_a_pending_change_withdraws_its_rows_and_derives_again(
     );
 }
 
-/// A change an earlier release left pending for a day inside the period (Jan 15) is migrated at
-/// the deploy and waits for its date: the controller applies it at the subscription's wake, its
-/// documents January's 2900 and 1000 alone.
-#[rstest]
-#[tokio::test]
-async fn a_change_inside_the_period_applies_at_its_wake(#[future] test_env: TestEnv) {
-    use diesel_models::schema::scheduled_event::dsl as e;
-
-    let env = test_env.await;
-    env.set_now(at(1, 5, 12));
-    let sub_id = starter_from_jan_1(&env).await;
-    schedule(&env, sub_id, PLAN_VERSION_PRO_ID).await;
-    roll_back_changes_as_facts(&env).await;
-    diesel::update(e::scheduled_event.filter(e::subscription_id.eq(sub_id)))
-        .set(e::scheduled_time.eq(day(1, 15).and_time(NaiveTime::MIN)))
-        .execute(&mut env.conn().await)
-        .await
-        .unwrap();
-
-    env.set_now(at(1, 10, 12));
-    let migration = env
-        .services()
-        .migrate_pending_changes()
-        .await
-        .expect("the deploy-time migration")
-        .expect("this replica runs it");
-    assert_eq!((migration.written, migration.already), (1, 0));
-    assert!(
-        migration.unresolved.is_empty(),
-        "{:?}",
-        migration.unresolved
-    );
-    assert_eq!(
-        env.get_subscription(sub_id).await.plan_version_id,
-        PLAN_VERSION_STARTER_ID,
-        "not before its date"
-    );
-    assert_eq!(next_wake_at(&env, sub_id).await, Some(at(1, 15, 0)));
-
-    env.set_now(at(1, 15, 3));
-    env.process_cycles().await;
-    let sub = env.get_subscription(sub_id).await;
-    assert_eq!(
-        sub.plan_version_id, PLAN_VERSION_PRO_ID,
-        "applied at its wake"
-    );
-    sub.assert()
-        .has_period_start(day(1, 1))
-        .has_period_end(day(2, 1));
-    assert_eq!(next_wake_at(&env, sub_id).await, Some(at(2, 1, 0)));
-    let documents: Vec<String> = env
-        .get_invoices(sub_id)
-        .await
-        .iter()
-        .flat_map(|invoice| {
-            invoice.line_items.iter().map(move |line| {
-                format!(
-                    "{:?} {}: {} {}..{} {}",
-                    invoice.invoice_type,
-                    invoice.billing_period_start,
-                    line.name,
-                    line.start_date,
-                    line.end_date,
-                    line.amount_subtotal
-                )
-            })
-        })
-        .collect();
-    // January's Starter invoice alone: a legacy change dated inside the period issues no stub nor
-    // give-back (pre-release check 22 must read 0 before the deploy).
-    assert_eq!(
-        documents,
-        vec![
-            "Recurring 2024-01-01: Platform Fee 2024-01-01..2024-02-01 2900",
-            "Recurring 2024-01-01: Seats 2024-01-01..2024-02-01 1000",
-        ]
-    );
-    assert_invariants(&env, "applied").await;
-    let again = env
-        .services()
-        .migrate_pending_changes()
-        .await
-        .expect("a second run")
-        .expect("this replica runs it");
-    assert_eq!((again.written, again.already), (0, 0), "nothing pending");
-}
-
-/// An immediate change on the boundary day before the renewal ran: its rows start on Feb 1, the
-/// stored period still ends then, so the stored plan stays Starter (I27) until the renewal applies
-/// Pro and bills its month.
+/// An immediate change on the boundary day before the controller ran: its rows start on Feb 1 and
+/// the renewal is due, a document the controller's alone, so the change's own transaction writes
+/// no state: the stored plan stays Starter (I27) until the step that renews applies Pro.
 /// Rules: R-084
 #[rstest]
 #[tokio::test]
-async fn an_immediate_change_on_the_boundary_day_shows_the_old_plan_until_the_renewal(
+async fn an_immediate_change_on_the_boundary_day_shows_the_old_plan_until_the_controller(
     #[future] test_env: TestEnv,
 ) {
     let env = test_env.await;
@@ -913,7 +690,7 @@ async fn each_charge_on_a_written_document_is_billed_once(
                 )
                 .await
                 .expect("cancelled on Jan 15");
-            env.process_due_events().await;
+            env.process_cycles().await;
         }
     }
     env.set_now(at(2, 1, 1));
@@ -1036,75 +813,6 @@ async fn a_change_after_a_seat_purchase_gives_back_the_purchased_seats(
     assert_billed_once(&env, sub_id).await;
 }
 
-/// A pause has no fact (R29) and no resume exists: a subscription resumed by
-/// hand on Apr 1 after a pause on Jan 15 renews from Apr 1. Billed from the facts, the renewal
-/// would catch up the periods no recurring invoice was written for (R-084), the paused ones too:
-/// a subscription once paused is billed as before, April alone.
-#[rstest]
-#[tokio::test]
-async fn a_subscription_resumed_after_a_pause_catches_up_its_paused_months(
-    #[future] test_env: TestEnv,
-) {
-    use diesel_models::schema::subscription::dsl as s;
-    use meteroid_store::domain::scheduled_events::{ScheduledEventData, ScheduledEventNew};
-    use meteroid_store::repositories::subscriptions::SubscriptionInterface;
-
-    let env = test_env.await;
-    env.set_now(at(1, 15, 12));
-    let sub_id = starter_from_jan_1(&env).await;
-    {
-        let mut conn = env.store().get_conn().await.expect("connection");
-        env.store()
-            .schedule_events(
-                &mut conn,
-                vec![ScheduledEventNew {
-                    subscription_id: sub_id,
-                    tenant_id: TENANT_ID,
-                    scheduled_time: day(1, 15).and_time(NaiveTime::MIN),
-                    event_data: ScheduledEventData::PauseSubscription,
-                    source: "test".to_owned(),
-                    created_by: Actor::System,
-                }],
-            )
-            .await
-            .expect("pause on Jan 15");
-    }
-    env.process_due_events().await;
-    env.process_due_events().await;
-    env.get_subscription(sub_id)
-        .await
-        .assert()
-        .has_status(SubscriptionStatusEnum::Paused);
-    let paused = documents(&env, sub_id).await;
-
-    // Resumed by hand on Apr 1: the release has no resume.
-    env.skip_checks(&["I27"], "a resume fabricated without its facts");
-    diesel::update(s::subscription.filter(s::id.eq(sub_id)))
-        .set((
-            s::status.eq(SubscriptionStatusEnum::Active),
-            s::current_period_start.eq(day(4, 1)),
-            s::current_period_end.eq(Some(day(4, 1))),
-            s::next_cycle_action.eq(Some(
-                diesel_models::enums::CycleActionEnum::RenewSubscription,
-            )),
-        ))
-        .execute(&mut env.conn().await)
-        .await
-        .unwrap();
-    env.set_now(at(4, 1, 1));
-    env.process_cycles().await;
-    let mut resumed = documents(&env, sub_id).await;
-    resumed.retain(|line| !paused.contains(line));
-    // From the facts it billed February and March too, 2900 + 1000 each: the paused months.
-    assert_eq!(
-        resumed,
-        vec![
-            "Recurring 2024-04-01: Platform Fee 2024-04-01..2024-05-01 2900",
-            "Recurring 2024-04-01: Seats 2024-04-01..2024-05-01 1000",
-        ]
-    );
-}
-
 /// What the writer costs: a customer of 40 subscriptions, each with a change at the period's end,
 /// renewed in one controller pass. Each step loads the facts and evaluates them once.
 #[rstest]
@@ -1139,136 +847,6 @@ async fn a_customer_of_many_subscriptions_is_derived_in_one_pass(#[future] test_
             PLAN_VERSION_PRO_ID
         );
     }
-}
-
-/// A Starter to Pro change the previous release left pending for Feb 1, whose Seats price Pro no
-/// longer offers by then: that release applied it as it stored it, so the renewal writes it
-/// as it is and bills Pro's month, 9900 and 2500.
-/// Rules: R-011
-#[rstest]
-#[tokio::test]
-async fn a_legacy_change_whose_price_left_its_plan_applies_as_stored_at_the_renewal(
-    #[future] test_env: TestEnv,
-) {
-    use diesel_models::schema::plan_component_price::dsl as pcp;
-
-    let env = test_env.await;
-    env.set_now(at(1, 15, 12));
-    let sub_id = starter_from_jan_1(&env).await;
-    schedule(&env, sub_id, PLAN_VERSION_PRO_ID).await;
-    roll_back_changes_as_facts(&env).await;
-    diesel::delete(
-        pcp::plan_component_price
-            .filter(pcp::plan_component_id.eq(COMP_PRO_SEATS_ID))
-            .filter(pcp::price_id.eq(PRICE_PRO_SEATS_ID)),
-    )
-    .execute(&mut env.conn().await)
-    .await
-    .unwrap();
-
-    env.set_now(at(2, 1, 1));
-    env.process_cycles().await;
-    let renewed = env.get_subscription(sub_id).await;
-    assert_eq!(renewed.plan_version_id, PLAN_VERSION_PRO_ID);
-    renewed.assert().has_status(SubscriptionStatusEnum::Active);
-    assert_eq!(
-        documents(&env, sub_id).await,
-        vec![
-            "Recurring 2024-01-01: Platform Fee 2024-01-01..2024-02-01 2900",
-            "Recurring 2024-01-01: Seats 2024-01-01..2024-02-01 1000",
-            "Recurring 2024-02-01: Platform Fee 2024-02-01..2024-03-01 9900",
-            "Recurring 2024-02-01: Seats 2024-02-01..2024-03-01 2500",
-        ]
-    );
-    assert_billed_once(&env, sub_id).await;
-}
-
-/// A Support fee the previous release left pending for Feb 1, and the subscription cancelled at
-/// the period's end, Feb 1: that release ended it and skipped the fee. The amendment then finds
-/// the subscription ended: it completes unwritten, with its reason, and January alone is billed.
-/// Rules: R-011
-#[rstest]
-#[tokio::test]
-async fn a_legacy_amendment_on_the_day_the_subscription_ends_completes_unwritten(
-    #[future] test_env: TestEnv,
-) {
-    let env = test_env.await;
-    env.set_now(at(1, 15, 12));
-    let sub_id = starter_from_jan_1(&env).await;
-    let event = env
-        .services()
-        .schedule_amendment(
-            Actor::System,
-            sub_id,
-            TENANT_ID,
-            SubscriptionAmendment {
-                apply_mode: PlanChangeMode::EndOfPeriod,
-                component_changes: ComponentChanges {
-                    edited: vec![],
-                    added: vec![AddExtraComponent {
-                        name: "Support".to_string(),
-                        product: ProductRef::New {
-                            name: "Support Product".to_string(),
-                            fee_type: FeeTypeEnum::Rate,
-                            fee_structure: FeeStructure::Rate {},
-                        },
-                        price_entry: PriceEntry::New(PriceInput {
-                            cadence: BillingPeriodEnum::Monthly,
-                            currency: "EUR".to_string(),
-                            pricing: Pricing::Rate {
-                                rate: Decimal::new(5000, 2),
-                            },
-                            credit_unit: None,
-                        }),
-                    }],
-                    removed: vec![],
-                },
-                add_on_changes: AddOnChanges::default(),
-            },
-        )
-        .await
-        .expect("an amendment at the period end");
-    roll_back_changes_as_facts(&env).await;
-    env.services()
-        .cancel_subscription(
-            Actor::System,
-            sub_id,
-            TENANT_ID,
-            None,
-            CancellationEffectiveAt::EndOfBillingPeriod,
-        )
-        .await
-        .expect("cancelled at the period's end");
-
-    env.set_now(at(2, 1, 1));
-    env.process_cycles().await;
-    env.process_cycles().await;
-    let ended = env.get_subscription(sub_id).await;
-    ended.assert().has_status(SubscriptionStatusEnum::Cancelled);
-    let row = ScheduledEventRow::get_by_id(&mut env.conn().await, event.id, &TENANT_ID)
-        .await
-        .unwrap();
-    assert!(
-        matches!(row.status, DieselEventStatus::Completed),
-        "{:?} {:?}",
-        row.status,
-        row.error
-    );
-    assert!(
-        row.error
-            .as_deref()
-            .is_some_and(|error| error.contains("SubscriptionNotActive(Cancelled)")),
-        "{:?}",
-        row.error
-    );
-    assert_eq!(
-        documents(&env, sub_id).await,
-        vec![
-            "Recurring 2024-01-01: Platform Fee 2024-01-01..2024-02-01 2900",
-            "Recurring 2024-01-01: Seats 2024-01-01..2024-02-01 1000",
-        ]
-    );
-    assert_billed_once(&env, sub_id).await;
 }
 
 /// Two seats bought Jan 10 by the previous release, its line naming no fee row: backfilled, it
@@ -1310,8 +888,9 @@ async fn a_seat_purchase_the_previous_release_invoiced_is_given_back_as_the_seat
         ))
         .await
         .expect("the line in its old shape");
-    let backfill = include_str!(
-        "../../../migrations/diesel/2026-11-15-213817_seat_upgrade_lines_attached/up.sql"
+    let backfill = crate::release_migrations::migration_section(
+        crate::release_migrations::BILLING_ON_FACTS_UP,
+        "Seat upgrade lines",
     )
     .replace("CURRENT_DATE", "'2024-01-12'::date");
     env.conn()

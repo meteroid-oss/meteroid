@@ -1,7 +1,6 @@
 use crate::StoreResult;
 use crate::domain::entity_activity::Actor;
 use crate::domain::payment_transactions::PaymentTransaction;
-use crate::domain::scheduled_events::{ScheduledEventData, ScheduledEventNew};
 use crate::domain::{Customer, DetailedInvoice, Invoice, PaymentStatusEnum, SubscriptionDetails};
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
@@ -179,6 +178,67 @@ impl Services {
                     .map_err(Into::into)
                     .and_then(TryInto::try_into)?;
 
+            self.bill_subscription_with_data_tx(
+                conn,
+                actor,
+                tenant_id,
+                subscription,
+                customer,
+                mode,
+                PeriodBilling::Bill,
+            )
+            .await
+        })
+        .await
+    }
+
+    /// Bills the recurring invoice of the subscription period starting on `period_start`, which may
+    /// be an earlier period than the stored one: a controller catching up writes each in turn.
+    pub(in crate::services) async fn bill_period_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        period_start: chrono::NaiveDate,
+        mode: InvoiceBillingMode,
+    ) -> StoreResult<Option<DetailedInvoice>> {
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            let mut subscription = self
+                .store
+                .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
+                .await?;
+            // A period after an invoiced one closes a period, whatever cadence it now runs on.
+            let follows = InvoiceRow::latest_recurring_period_before(
+                conn,
+                tenant_id,
+                subscription_id,
+                period_start,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .is_some();
+            let elapsed = subscription.subscription.billing_start_date.map(|start| {
+                crate::utils::periods::calculate_elapsed_cycles(
+                    start,
+                    period_start,
+                    &subscription.subscription.period,
+                    u32::from(subscription.subscription.billing_day_anchor),
+                )
+            });
+            let cycle_index = if follows {
+                Some(elapsed.unwrap_or(0).max(1))
+            } else {
+                elapsed
+            };
+            subscription.subscription.current_period_start = period_start;
+            subscription.subscription.cycle_index = cycle_index;
+            let customer =
+                CustomerRow::find_by_id(conn, &subscription.subscription.customer_id, &tenant_id)
+                    .await
+                    .map_err(Into::into)
+                    .and_then(TryInto::try_into)?;
             self.bill_subscription_with_data_tx(
                 conn,
                 actor,
@@ -809,7 +869,7 @@ impl Services {
         })
     }
 
-    /// Schedule invoice finalization after a grace period.
+    /// Sets when the draft is finalized, after a grace period.
     ///
     /// When `consolidate` is set, the effective grace is floored to `CONSOLIDATION_MIN_GRACE_HOURS`
     /// so an aggressive (near-zero or negative) grace can't push the shared `invoice_date + grace`
@@ -841,21 +901,19 @@ impl Services {
             .terminated_at
             .filter(|at| at.date() == invoice_date)
             .map_or(opens, |at| at.max(opens));
-        let scheduled_time = window_end + chrono::Duration::hours(i64::from(effective_hours));
+        let finalize_after = window_end + chrono::Duration::hours(i64::from(effective_hours));
 
-        self.store
-            .schedule_events(
-                conn,
-                vec![ScheduledEventNew {
-                    subscription_id: subscription.subscription.id,
-                    tenant_id,
-                    scheduled_time,
-                    event_data: ScheduledEventData::FinalizeInvoice { invoice_id },
-                    source: String::new(),
-                    created_by: Actor::System,
-                }],
-            )
-            .await?;
+        InvoiceRow::set_finalize_after(conn, tenant_id, invoice_id, Some(finalize_after))
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        diesel_models::billing_controller::BillingControllerRow::wake_by(
+            conn,
+            tenant_id,
+            subscription.subscription.customer_id,
+            finalize_after.and_utc(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         Ok(())
     }

@@ -104,29 +104,18 @@ impl TestEnv {
         .await;
     }
 
-    /// Number of dunning retries queued for this invoice.
+    /// Number of dunning retries queued for this invoice: one while its next attempt is set.
     pub async fn pending_payment_retries(
         &self,
-        subscription_id: common_domain::ids::SubscriptionId,
+        _subscription_id: common_domain::ids::SubscriptionId,
         invoice_id: common_domain::ids::InvoiceId,
     ) -> usize {
-        use meteroid_store::domain::scheduled_events::ScheduledEventData;
-
         let mut conn = self.conn().await;
-        let events = diesel_models::scheduled_events::ScheduledEventRow::
-            get_pending_events_for_subscription(&mut conn, subscription_id, &ids::TENANT_ID)
+        let invoice =
+            diesel_models::invoices::InvoiceRow::find_by_id(&mut conn, ids::TENANT_ID, invoice_id)
                 .await
-                .expect("failed to list pending scheduled events");
-
-        events
-            .into_iter()
-            .filter(|row| {
-                matches!(
-                    serde_json::from_value::<ScheduledEventData>(row.event_data.clone()),
-                    Ok(ScheduledEventData::RetryPayment { invoice_id: queued }) if queued == invoice_id
-                )
-            })
-            .count()
+                .expect("failed to read the invoice");
+        usize::from(invoice.next_payment_attempt_at.is_some())
     }
 
     /// Seed both payment provider and customer payment methods.

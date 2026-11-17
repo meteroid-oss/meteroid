@@ -402,11 +402,22 @@ pub fn resolve(model: &Model, op: &Op) -> Option<Action> {
         }
         Op::AmendAtEnd { price } => {
             open.then_some(())?;
+            let at = slot(model, 0, 15)?;
+            // Half keep the fee's own cadence, which a shorter add-on may not be the
+            // subscription's: detaching it then moves the period's end past the amendment.
+            let own = model
+                .rows
+                .iter()
+                .rev()
+                .find(|row| row.lineage == sub.fixed && row.from <= at.date_naive())
+                .map(|row| row.months);
             Some(Action::AmendAtEnd {
-                at: slot(model, 0, 15)?,
+                at,
                 plan: sub.plan,
                 price: FEES[usize::from(price) % FEES.len()],
-                months: model.months(),
+                months: own
+                    .filter(|_| price >= 128)
+                    .unwrap_or_else(|| model.months()),
             })
         }
         Op::ChangeNow { gap } => {

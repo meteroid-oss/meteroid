@@ -174,6 +174,7 @@ fn subscription(start: NaiveDate, anchor: u32, cadence: u32) -> Facts<TestFee> {
         start: Start {
             date: start,
             settled: Some(midnight(start)),
+            checkout: false,
         },
         trial: None,
         plan_windows: vec![plan(100, start, cadence, start)],
@@ -184,6 +185,9 @@ fn subscription(start: NaiveDate, anchor: u32, cadence: u32) -> Facts<TestFee> {
         ending: None,
         end_date: None,
         reconcile_from: None,
+        arrears_from: None,
+        ending_recorded: None,
+        ending_day_invoiced: false,
     }
 }
 
@@ -344,6 +348,7 @@ fn a_free_trial_bills_nothing_then_bills_from_its_end() {
 fn a_free_trial_ended_before_its_checkout_settled_expires() {
     let mut facts = subscription(d(2024, 1, 1), 1, 1);
     facts.start.settled = None;
+    facts.start.checkout = true;
     facts.trial = Some(Trial {
         from: d(2024, 1, 1),
         until: d(2024, 1, 15),
@@ -394,6 +399,7 @@ fn a_paid_trial_bills_from_the_start() {
 fn a_checkout_start_not_settled_bills_its_first_period_alone() {
     let mut facts = subscription(d(2024, 1, 1), 1, 1);
     facts.start.settled = None;
+    facts.start.checkout = true;
     facts.fees.push(fixed(10, 1, d(2024, 1, 1), 1, 3_100));
     facts.fees.push(metered(20, 2, d(2024, 1, 1), 1, 1));
     let pending = run(&facts, at(2024, 3, 10, 0));
@@ -439,6 +445,7 @@ fn a_checkout_start_not_settled_bills_its_first_period_alone() {
 fn a_cancellation_before_the_checkout_settled_bills_nothing() {
     let mut facts = subscription(d(2024, 1, 1), 1, 1);
     facts.start.settled = None;
+    facts.start.checkout = true;
     facts.fees.push(fixed(10, 1, d(2024, 1, 1), 1, 3_100));
     facts.ending = Some(Ending {
         at: at(2024, 1, 5, 12),
@@ -456,6 +463,7 @@ fn a_cancellation_before_the_checkout_settled_bills_nothing() {
 fn a_cancellation_still_to_come_leaves_a_pending_checkout_its_opening_invoice() {
     let mut facts = subscription(d(2024, 1, 1), 1, 1);
     facts.start.settled = None;
+    facts.start.checkout = true;
     facts.fees.push(fixed(10, 1, d(2024, 1, 1), 1, 3_100));
     facts.ending = Some(Ending {
         at: at(2024, 3, 20, 0),
@@ -799,6 +807,74 @@ fn a_line_counts_for_the_charge_billing_its_days_not_the_narrowest_holding_it() 
         vec![Adjustment::Credit {
             line: "year".to_owned(),
             amount: 4_958
+        }]
+    );
+}
+
+/// 500.00 a month in arrears from Jan 2, 2025, changed on Jan 4 to 500.00 a year on its lineage
+/// (origin Feb 2), amended on Jan 8 to 29.00 a month. The year's stub billed on Jan 4, 3962 for
+/// [Jan 4, Feb 2), counts for the year that started it, though January's month holds it and
+/// bills days of it: the year keeps 50000 × 29/366 − 50000 × 25/366 = 547 and gives back 3415,
+/// and the month bills its stub to Feb 2, 2900 × 2/31 = 187, beside January's arrears.
+/// Rules: R-080, R-084
+#[test]
+fn a_line_counts_for_the_charge_that_started_it() {
+    let mut facts = subscription(d(2025, 1, 2), 2, 1);
+    facts
+        .plan_windows
+        .push(plan(101, d(2025, 1, 4), 12, d(2025, 2, 2)));
+    facts.fees.push(FeeFact {
+        to: Some(d(2025, 1, 4)),
+        billing: Billing::Arrears,
+        ..fixed(10, 1, d(2025, 1, 2), 1, 50_000)
+    });
+    facts.fees.push(FeeFact {
+        to: Some(d(2025, 1, 8)),
+        ..fixed(11, 1, d(2025, 1, 4), 12, 50_000)
+    });
+    facts.fees.push(FeeFact {
+        to: Some(d(2025, 1, 10)),
+        ..fixed(12, 1, d(2025, 1, 8), 1, 2_900)
+    });
+    let evaluation = run(&facts, at(2025, 1, 8, 1));
+    let key = |from: NaiveDate, until: NaiveDate| ChargeKey {
+        subscription: Some(id(SUBSCRIPTION)),
+        fee: lineage(1),
+        from,
+        until,
+        kind: ChargeKind::Fee,
+        denomination: Denomination::Money,
+    };
+    let (month, year) = (
+        key(d(2025, 1, 2), d(2025, 2, 2)),
+        key(d(2024, 2, 2), d(2025, 2, 2)),
+    );
+    let stub = IssuedLine {
+        from: d(2025, 1, 4),
+        ..line("stub".to_owned(), &year, 3_962)
+    };
+    let expected: Vec<Expected> = evaluation
+        .expected()
+        .into_iter()
+        .filter(|e| e.key == month || e.key == year)
+        .collect();
+    let keys: Vec<&ChargeKey> = expected.iter().map(|e| &e.key).collect();
+    assert_eq!(
+        owner(&stub, keys.iter().copied(), &evaluation.charges),
+        Some(&year)
+    );
+    let amounts: Vec<(&ChargeKey, i64)> = expected.iter().map(|e| (&e.key, e.amount)).collect();
+    assert_eq!(amounts, vec![(&year, 547), (&month, 3_226 + 187)]);
+    let year_charge = expected.iter().find(|e| e.key == year).unwrap();
+    assert_eq!(
+        reconcile(
+            std::slice::from_ref(year_charge),
+            &[stub],
+            TakeBack::Unused(d(2025, 1, 8))
+        ),
+        vec![Adjustment::Credit {
+            line: "stub".to_owned(),
+            amount: 3_415
         }]
     );
 }
@@ -1214,6 +1290,7 @@ fn seats(quantities: &[(NaiveDate, u64)]) -> Facts<TestFee> {
             lineage: lineage(1),
             at: *on,
             quantity: *quantity,
+            removed_at_renewal: 0,
         })
         .collect();
     facts
@@ -1337,6 +1414,106 @@ fn a_seat_step_down_takes_back_what_is_left_of_the_period() {
     );
     apply(&mut lines, &adjustments);
     assert!(reconcile(&evaluation.expected(), &lines, TakeBack::LatestFirst).is_empty());
+}
+
+/// Ten seats, five removed for January 16, the period's end when they were removed, which a
+/// change moved to February 1: the removal waits for that renewal and gives nothing back.
+/// Rules: R-108
+#[test]
+fn a_removal_for_a_period_end_that_moved_waits_for_the_next_renewal() {
+    let mut facts = seats(&[(d(2024, 1, 1), 10), (d(2024, 1, 16), 5)]);
+    facts.seats[1].removed_at_renewal = 5;
+    let january = run(&facts, at(2024, 1, 20, 0));
+    let charges = of(&january, 1);
+    assert_eq!(
+        charges
+            .iter()
+            .map(|charge| (charge.amount, charge.document))
+            .collect::<Vec<_>>(),
+        vec![(1_000, recurring(d(2024, 1, 1)))]
+    );
+    let lines = issue(&january.expected());
+    let february = run(&facts, at(2024, 2, 1, 0));
+    assert_eq!(
+        of(&february, 1)
+            .iter()
+            .map(|charge| (charge.amount, charge.quantity, charge.document))
+            .collect::<Vec<_>>(),
+        vec![
+            (1_000, Some(Decimal::from(10)), recurring(d(2024, 1, 1))),
+            (500, Some(Decimal::from(5)), recurring(d(2024, 2, 1))),
+        ]
+    );
+    assert_eq!(
+        reconcile(&january.expected(), &lines, TakeBack::LatestFirst),
+        vec![]
+    );
+
+    // On a renewal, as scheduled, it is that renewal's count.
+    let mut on_time = seats(&[(d(2024, 1, 1), 10), (d(2024, 2, 1), 5)]);
+    on_time.seats[1].removed_at_renewal = 5;
+    let mut plain = on_time.clone();
+    plain.seats[1].removed_at_renewal = 0;
+    assert_eq!(
+        run(&on_time, at(2024, 2, 1, 0)).charges,
+        run(&plain, at(2024, 2, 1, 0)).charges
+    );
+}
+
+/// Ten seats, five removed for January 16 waiting for February 1, two bought on the 20th: twelve
+/// seats less the ten billed, 1200 × 12/31 − 1000 × 12/31 = 78, then February bills 7.
+/// Rules: R-108, R-079
+#[test]
+fn seats_bought_while_a_removal_waits_bill_on_top_of_the_seats_it_keeps() {
+    let mut facts = seats(&[
+        (d(2024, 1, 1), 10),
+        (d(2024, 1, 16), 5),
+        (d(2024, 1, 20), 7),
+    ]);
+    facts.seats[1].removed_at_renewal = 5;
+    let evaluation = run(&facts, at(2024, 2, 1, 0));
+    assert_eq!(
+        of(&evaluation, 1)
+            .iter()
+            .map(|charge| (charge.amount, charge.quantity, charge.document))
+            .collect::<Vec<_>>(),
+        vec![
+            (1_000, Some(Decimal::from(10)), recurring(d(2024, 1, 1))),
+            (
+                78,
+                Some(Decimal::from(12)),
+                DocumentSlot::Adjustment { on: d(2024, 1, 20) }
+            ),
+            (700, Some(Decimal::from(7)), recurring(d(2024, 2, 1))),
+        ]
+    );
+}
+
+/// Monthly from Jan 1, yearly from Jan 10 on the same grid: Feb 1 is inside the year, whose
+/// renewal is Jan 1, 2025; a renewal is its own; an ending before any renewal leaves none.
+/// Rules: R-106
+#[test]
+fn the_first_renewal_on_or_after_a_day_follows_the_cadence_in_force() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.fees.push(fixed(10, 1, d(2024, 1, 1), 12, 50_000));
+    facts.plan_windows[0].to = Some(d(2024, 1, 10));
+    facts
+        .plan_windows
+        .push(plan(100, d(2024, 1, 10), 12, d(2024, 1, 1)));
+    let now = at(2024, 1, 10, 15);
+    assert_eq!(
+        renewal_on_or_after(&facts, d(2024, 2, 1), now),
+        Some(d(2025, 1, 1))
+    );
+    assert_eq!(
+        renewal_on_or_after(&facts, d(2025, 1, 1), now),
+        Some(d(2025, 1, 1))
+    );
+    facts.ending = Some(Ending {
+        at: midnight(d(2024, 6, 15)),
+        kind: EndingKind::Cancel,
+    });
+    assert_eq!(renewal_on_or_after(&facts, d(2024, 2, 1), now), None);
 }
 
 fn with_usage(ending: Option<Ending>) -> Facts<TestFee> {
@@ -2160,6 +2337,182 @@ fn a_one_time_add_on_bought_with_a_change_of_cadence_bills() {
     );
 }
 
+/// A 99.00 one-time fee added on Jan 1 in a free trial to Jan 15, the subscription cancelled at
+/// the trial's end: the fee lived before the ending and bills 9900 on Jan 15, where no window
+/// was left to bill it. Cancelled inside the trial on Jan 10, it bills on that day; a change
+/// ending the trial and the fee's row on Jan 4 bills it on the change's opening invoice.
+/// Rules: R-093, R-016, R-011
+#[test]
+fn a_one_time_fee_added_in_a_free_trial_bills_when_an_ending_closes_the_trial() {
+    let mut facts = subscription(d(2025, 1, 1), 1, 1);
+    facts.trial = Some(Trial {
+        from: d(2025, 1, 1),
+        until: d(2025, 1, 15),
+        free: true,
+    });
+    facts.fees.push(fixed(10, 1, d(2025, 1, 1), 1, 2_900));
+    let mut setup = fixed(20, 2, d(2025, 1, 1), 1, 9_900);
+    setup.billing = Billing::OneTime;
+    setup.plan_component = false;
+    setup.fee.whole = true;
+    facts.fees.push(setup);
+    let billed = |facts: &Facts<TestFee>, now| {
+        run(facts, now)
+            .charges
+            .iter()
+            .map(|c| {
+                (
+                    c.key.fee.clone(),
+                    (c.key.from, c.key.until),
+                    c.amount,
+                    c.document,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+
+    facts.ending = Some(Ending {
+        at: at(2025, 1, 15, 0),
+        kind: EndingKind::Cancel,
+    });
+    assert_eq!(
+        billed(&facts, at(2025, 1, 16, 0)),
+        vec![(
+            lineage(2),
+            (d(2025, 1, 15), d(2025, 1, 15)),
+            9_900,
+            recurring(d(2025, 1, 15))
+        )]
+    );
+
+    facts.ending = Some(Ending {
+        at: at(2025, 1, 10, 0),
+        kind: EndingKind::Cancel,
+    });
+    assert_eq!(
+        billed(&facts, at(2025, 1, 11, 0)),
+        vec![(
+            lineage(2),
+            (d(2025, 1, 10), d(2025, 1, 10)),
+            9_900,
+            recurring(d(2025, 1, 10))
+        )]
+    );
+
+    // Added after the ending's day, it never lived.
+    facts.fees[1].from = d(2025, 1, 10);
+    assert_eq!(billed(&facts, at(2025, 1, 11, 0)), vec![]);
+
+    facts.fees[1].from = d(2025, 1, 1);
+    facts.fees[1].to = Some(d(2025, 1, 4));
+    facts.ending = None;
+    facts.trial = facts.trial.map(|trial| Trial {
+        until: d(2025, 1, 4),
+        ..trial
+    });
+    facts.fees[0].to = Some(d(2025, 1, 4));
+    facts.fees.push(fixed(11, 3, d(2025, 1, 4), 1, 4_999));
+    let charges = billed(&facts, at(2025, 1, 5, 0));
+    assert!(charges.contains(&(
+        lineage(2),
+        (d(2025, 1, 4), d(2025, 1, 4)),
+        9_900,
+        recurring(d(2025, 1, 4))
+    )));
+    // Removed inside the trial, before its end, it never bills.
+    facts.fees[1].to = Some(d(2025, 1, 3));
+    assert!(
+        billed(&facts, at(2025, 1, 5, 0))
+            .iter()
+            .all(|charge| charge.0 != lineage(2))
+    );
+}
+
+/// 49.99 a year in arrears from Jan 25, 2025, renewing monthly, cancelled on Feb 25 from that
+/// day: the year's 31 days the ending cuts, 4999 × 31/365 = 425, go on a final invoice when Feb
+/// 25's renewal was written before the cancellation was decided, else on that renewal.
+/// Rules: R-016
+#[test]
+fn a_cancellation_after_its_day_invoice_was_written_bills_its_cut_fees_on_a_final_invoice() {
+    let mut facts = subscription(d(2025, 1, 25), 25, 1);
+    let mut yearly = fixed(10, 1, d(2025, 1, 25), 12, 4_999);
+    yearly.billing = Billing::Arrears;
+    facts.fees.push(yearly);
+    facts.fees.push(fixed(20, 2, d(2025, 1, 25), 1, 9_900));
+    facts.ending = Some(Ending {
+        at: at(2025, 2, 25, 0),
+        kind: EndingKind::Cancel,
+    });
+    facts.ending_recorded = Some(d(2025, 2, 25));
+    let billed = |facts: &Facts<TestFee>| {
+        of(&run(facts, at(2025, 2, 26, 0)), 1)
+            .iter()
+            .map(|c| ((c.key.from, c.key.until), c.amount, c.document))
+            .collect::<Vec<_>>()
+    };
+    facts.ending_day_invoiced = true;
+    assert_eq!(
+        billed(&facts),
+        vec![((d(2025, 1, 25), d(2026, 1, 25)), 425, DocumentSlot::Final)]
+    );
+    // Decided that day before the renewal was written, the renewal carries it.
+    facts.ending_day_invoiced = false;
+    assert_eq!(
+        billed(&facts),
+        vec![(
+            (d(2025, 1, 25), d(2026, 1, 25)),
+            425,
+            recurring(d(2025, 2, 25))
+        )]
+    );
+}
+
+/// 500.00 a month in arrears from Jan 7, 2025, cancelled from Feb 7: requested on Feb 9, after
+/// its day, January's 50000 goes on the final invoice issued then, unless the recurring invoice
+/// of Feb 7 was issued already, which keeps it; requested before, on that recurring invoice.
+/// Rules: R-016, R-011
+#[test]
+fn a_backdated_cancellation_bills_the_last_period_arrears_on_its_final_invoice() {
+    let mut facts = subscription(d(2025, 1, 7), 7, 1);
+    let mut monthly = fixed(10, 1, d(2025, 1, 7), 1, 50_000);
+    monthly.billing = Billing::Arrears;
+    facts.fees.push(monthly);
+    facts.ending = Some(Ending {
+        at: at(2025, 2, 7, 0),
+        kind: EndingKind::Cancel,
+    });
+    let billed = |facts: &Facts<TestFee>| {
+        of(&run(facts, at(2025, 2, 9, 9)), 1)
+            .iter()
+            .map(|c| ((c.key.from, c.key.until), c.amount, c.document))
+            .collect::<Vec<_>>()
+    };
+    facts.ending_recorded = Some(d(2025, 2, 9));
+    assert_eq!(
+        billed(&facts),
+        vec![((d(2025, 1, 7), d(2025, 2, 7)), 50_000, DocumentSlot::Final)]
+    );
+    facts.ending_day_invoiced = true;
+    assert_eq!(
+        billed(&facts),
+        vec![(
+            (d(2025, 1, 7), d(2025, 2, 7)),
+            50_000,
+            recurring(d(2025, 2, 7))
+        )]
+    );
+    facts.ending_day_invoiced = false;
+    facts.ending_recorded = Some(d(2025, 1, 20));
+    assert_eq!(
+        billed(&facts),
+        vec![(
+            (d(2025, 1, 7), d(2025, 2, 7)),
+            50_000,
+            recurring(d(2025, 2, 7))
+        )]
+    );
+}
+
 /// A row starting later bills over an earlier one of its lineage still open.
 #[test]
 fn the_later_fee_row_of_a_lineage_takes_precedence() {
@@ -2188,6 +2541,22 @@ fn a_fixed_term_ending_first_completes_the_subscription() {
     facts.end_date = Some(d(2024, 3, 1));
     facts.ending = Some(Ending {
         at: at(2024, 4, 1, 0),
+        kind: EndingKind::Cancel,
+    });
+    let evaluation = run(&facts, at(2024, 3, 5, 0));
+    assert_eq!(evaluation.state.status, Status::Completed);
+    assert_eq!(of(&evaluation, 1).len(), 2);
+    assert_eq!(evaluation.next_wake, None);
+}
+
+/// A cancellation dated on the fixed term's end: the term ends the subscription, Completed.
+#[test]
+fn a_cancellation_on_the_fixed_terms_end_completes_the_subscription() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.fees.push(fixed(10, 1, d(2024, 1, 1), 1, 1_000));
+    facts.end_date = Some(d(2024, 3, 1));
+    facts.ending = Some(Ending {
+        at: at(2024, 3, 1, 0),
         kind: EndingKind::Cancel,
     });
     let evaluation = run(&facts, at(2024, 3, 5, 0));
@@ -2390,6 +2759,7 @@ prop_compose! {
         let mut facts = subscription(start_date, anchor, cadence);
         if !settled {
             facts.start.settled = None;
+            facts.start.checkout = true;
         }
         facts.trial = trial.map(|(days, free)| Trial {
             from: start_date,
@@ -2452,6 +2822,7 @@ prop_compose! {
                 lineage: lineage(1),
                 at: start_date + Days::new(offset),
                 quantity,
+                removed_at_renewal: 0,
             })
             .collect();
         facts.ending = ending.map(|(offset, hour, cancel, on_renewal)| {

@@ -1,7 +1,6 @@
-//! Pending scheduled changes written as facts. A change the previous release
-//! left pending (here: one written now, then the rollback script run over it) resolves against
-//! its target version, an amendment as it is; the writer writes them once and marks the event
-//! migrated, at the deploy or when the event comes due, never applying it.
+//! Scheduled changes written as facts. A plan change resolves against its target version, an
+//! amendment as it is; scheduling writes the rows it resolves to at once, and the state applies
+//! them on their date.
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -16,10 +15,10 @@ use diesel::{ExpressionMethods, QueryDsl};
 use diesel_async::RunQueryDsl;
 use diesel_models::enums::{
     ActorTypeEnum, BillingPeriodEnum as DieselBillingPeriodEnum,
-    ScheduledEventStatus as DieselEventStatus, SubscriptionStatusEnum as DieselStatus,
+    SubscriptionStatusEnum as DieselStatus,
 };
-use diesel_models::scheduled_events::ScheduledEventRow;
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
+use diesel_models::subscription_changes::SubscriptionChangeRow;
 use diesel_models::subscription_components::{
     SubscriptionComponentRow, SubscriptionComponentRowNew,
 };
@@ -32,7 +31,7 @@ use crate::data::ids::*;
 use crate::data::plans::{PlanSeed, SeedComp};
 use crate::harness::{TestEnv, subscription, test_env};
 use meteroid_store::domain::SubscriptionStatusEnum;
-use meteroid_store::domain::enums::{BillingPeriodEnum, FeeTypeEnum, ScheduledEventStatus};
+use meteroid_store::domain::enums::{BillingPeriodEnum, FeeTypeEnum};
 use meteroid_store::domain::plan_version_add_ons::PlanVersionAddOnNew;
 use meteroid_store::domain::price_components::{PriceEntry, PriceInput, ProductRef};
 use meteroid_store::domain::prices::{FeeStructure, Pricing};
@@ -45,7 +44,7 @@ use meteroid_store::domain::subscription_amendment::{
 };
 use meteroid_store::domain::subscription_changes::PlanChangeMode;
 use meteroid_store::repositories::plan_version_add_ons::PlanVersionAddOnInterface;
-use meteroid_store::services::facts::pending::{Migration, PendingFacts, Unresolvable};
+use meteroid_store::services::facts::pending::{PendingFacts, Unresolvable};
 
 fn day(month: u32, day: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(2025, month, day).unwrap()
@@ -61,46 +60,21 @@ async fn starter_from_jan_1(env: &TestEnv) -> SubscriptionId {
         .await
 }
 
-/// The rollback script of the release, run over every change written since the epoch.
-pub(crate) async fn roll_back_changes_as_facts(env: &TestEnv) {
-    use diesel_async::SimpleAsyncConnection;
-
-    let script = include_str!("../../../migrations/rollback/changes-as-facts.sql")
-        .replace(":deployed_at", "'1970-01-01'");
-    env.conn()
-        .await
-        .batch_execute(&script)
-        .await
-        .expect("the rollback script runs");
-}
-
-async fn reload(env: &TestEnv, event: &ScheduledEvent) -> ScheduledEvent {
-    let mut conn = env.conn().await;
-    ScheduledEventRow::get_by_id(&mut conn, event.id, &TENANT_ID)
-        .await
-        .expect("the event")
-        .try_into()
-        .expect("a scheduled event")
-}
-
-/// A change to `to` at the period's end, Feb 1, as the previous release left it: pending, no
-/// row written.
+/// A change to `to` at the period's end, Feb 1, written as facts when scheduled.
 async fn schedule(env: &TestEnv, sub_id: SubscriptionId, to: PlanVersionId) -> ScheduledEvent {
-    let event = env
-        .services()
+    env.services()
         .schedule_plan_change(Actor::System, sub_id, TENANT_ID, to, vec![])
         .await
-        .expect("a change at the period end");
-    roll_back_changes_as_facts(env).await;
-    reload(env, &event).await
+        .expect("a change at the period end")
 }
 
+/// What the change resolves to against the rows before it wrote them.
 async fn resolved(env: &TestEnv, event: &ScheduledEvent) -> PendingFacts {
     env.services()
-        .resolve_pending_event(TENANT_ID, event.id)
+        .resolve_scheduled_change(TENANT_ID, event.id)
         .await
         .expect("resolve")
-        .expect("the pending change resolves")
+        .expect("the change resolves")
 }
 
 /// A fee row without its id.
@@ -320,12 +294,7 @@ async fn a_scheduled_plan_change_resolves_to_the_rows_it_writes(#[future] test_e
         day(1, 1),
         "the monthly grid keeps its origin"
     );
-    assert!(
-        written_on(&env, sub_id, day(2, 1))
-            .await
-            .opened_components
-            .is_empty()
-    );
+    assert_written_as_resolved(&env, &facts).await;
 
     env.process_cycles().await;
     assert_eq!(
@@ -525,8 +494,6 @@ async fn a_scheduled_amendment_resolves_to_the_rows_it_writes(#[future] test_env
         )
         .await
         .expect("an amendment at the period end");
-    roll_back_changes_as_facts(&env).await;
-    let event = reload(&env, &event).await;
 
     let facts = resolved(&env, &event).await;
     assert_eq!(facts.on, day(2, 1));
@@ -546,42 +513,23 @@ async fn a_scheduled_amendment_resolves_to_the_rows_it_writes(#[future] test_env
     assert_written_as_resolved(&env, &facts).await;
 }
 
-/// The writer writes the resolved rows and marks the event migrated; run again, it writes
-/// nothing more.
+/// Scheduling writes the resolved rows once: resolving the change again changes nothing.
 #[rstest]
 #[tokio::test]
-async fn a_pending_change_is_written_as_facts_once(#[future] test_env: TestEnv) {
+async fn a_scheduled_change_is_written_as_facts_once(#[future] test_env: TestEnv) {
     let env = test_env.await;
     let sub_id = starter_from_jan_1(&env).await;
     let event = schedule(&env, sub_id, PLAN_VERSION_PRO_ID).await;
     let facts = resolved(&env, &event).await;
+    assert_written_as_resolved(&env, &facts).await;
 
-    let first = env
-        .services()
-        .write_pending_event_as_facts(TENANT_ID, event.id)
-        .await
-        .expect("write")
-        .expect("the pending change resolves");
-    let Migration::Written(written) = first else {
-        panic!("the first run writes");
-    };
-    assert_written_as_resolved(&env, &written).await;
+    let again = resolved(&env, &event).await;
     assert_eq!(
-        sorted(written.opens_components.iter().map(opened_component)),
+        sorted(again.opens_components.iter().map(opened_component)),
         sorted(facts.opens_components.iter().map(opened_component)),
-        "the writer writes what the dry run resolved"
+        "the same rows resolved again"
     );
-
-    let second = env
-        .services()
-        .write_pending_event_as_facts(TENANT_ID, event.id)
-        .await
-        .expect("write again")
-        .expect("a migrated event");
-    assert!(matches!(second, Migration::AlreadyMigrated), "{second:?}");
-
-    let after = written_on(&env, sub_id, day(2, 1)).await;
-    assert_eq!(after.opened_components.len(), facts.opens_components.len());
+    assert_written_as_resolved(&env, &facts).await;
     let mut conn = env.conn().await;
     let windows = SubscriptionPlanWindowRow::list_by_subscription(&mut conn, sub_id)
         .await
@@ -591,19 +539,10 @@ async fn a_pending_change_is_written_as_facts_once(#[future] test_env: TestEnv) 
         1,
         "one window from the change"
     );
-    let row = ScheduledEventRow::get_by_id(&mut conn, event.id, &TENANT_ID)
+    let change = SubscriptionChangeRow::get_by_id(&mut conn, event.id, &TENANT_ID)
         .await
-        .expect("the event");
-    assert!(matches!(row.status, DieselEventStatus::Migrated));
-    drop(conn);
-    assert_eq!(
-        env.services()
-            .resolve_pending_event(TENANT_ID, event.id)
-            .await
-            .expect("resolve")
-            .expect_err("migrated"),
-        Unresolvable::NotPending(ScheduledEventStatus::Migrated)
-    );
+        .expect("the change");
+    assert!(change.withdrawn_at.is_none(), "still to apply");
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -673,10 +612,6 @@ async fn break_it(env: &TestEnv, sub_id: SubscriptionId, breakage: Breakage) -> 
             Unresolvable::SubscriptionNotActive(SubscriptionStatusEnum::Cancelled)
         }
         Breakage::CancelledOnTheChange => {
-            env.skip_checks(
-                &["I28"],
-                "an ending fabricated without its cancellation event",
-            );
             let at = day(2, 1).and_time(NaiveTime::MIN);
             SubscriptionEndingRow::insert_batch(
                 &mut conn,
@@ -690,6 +625,7 @@ async fn break_it(env: &TestEnv, sub_id: SubscriptionId, breakage: Breakage) -> 
                     actor_uuid: None,
                     actor_alias: None,
                     created_at: at,
+                    requested_at: at,
                 }],
             )
             .await
@@ -714,7 +650,7 @@ async fn break_it(env: &TestEnv, sub_id: SubscriptionId, breakage: Breakage) -> 
     }
 }
 
-/// A change that no longer resolves names why, and the writer writes nothing for it.
+/// A change that no longer resolves names why; resolving it changes nothing.
 #[rstest]
 #[case::target_not_published(Breakage::TargetDraft)]
 #[case::target_in_another_currency(Breakage::TargetInUsd)]
@@ -735,189 +671,22 @@ async fn a_change_that_does_not_resolve_names_why(
 
     let why = env
         .services()
-        .resolve_pending_event(TENANT_ID, event.id)
+        .resolve_scheduled_change(TENANT_ID, event.id)
         .await
         .expect("resolve")
         .expect_err("the change does not resolve");
     assert_eq!(why, expected, "{breakage:?}");
 
-    let written = env
-        .services()
-        .write_pending_event_as_facts(TENANT_ID, event.id)
-        .await
-        .expect("write");
-    match written {
-        Err(why) => assert_eq!(why, expected, "{breakage:?}"),
-        Ok(migration) => panic!("{breakage:?} wrote {migration:?}"),
-    }
     let rows = written_on(&env, sub_id, day(2, 1)).await;
-    assert!(rows.closed_components.is_empty() && rows.opened_components.is_empty());
+    assert!(
+        !rows.closed_components.is_empty() && !rows.opened_components.is_empty(),
+        "{breakage:?}: the rows written when it was scheduled stay"
+    );
     let mut conn = env.conn().await;
-    let row = ScheduledEventRow::get_by_id(&mut conn, event.id, &TENANT_ID)
+    let change = SubscriptionChangeRow::get_by_id(&mut conn, event.id, &TENANT_ID)
         .await
-        .expect("the event");
-    assert!(
-        matches!(row.status, DieselEventStatus::Pending),
-        "{breakage:?}"
-    );
-}
-
-async fn status_of(env: &TestEnv, event: &ScheduledEvent) -> DieselEventStatus {
-    reload_row(env, event).await.status
-}
-
-async fn reload_row(env: &TestEnv, event: &ScheduledEvent) -> ScheduledEventRow {
-    ScheduledEventRow::get_by_id(&mut env.conn().await, event.id, &TENANT_ID)
-        .await
-        .expect("the event")
-}
-
-async fn migrate(env: &TestEnv) -> meteroid_store::services::facts::pending::PendingMigration {
-    env.services()
-        .migrate_pending_changes()
-        .await
-        .expect("the migration runs")
-        .expect("this replica runs it")
-}
-
-/// An old replica claimed the change a minute ago and may be applying it: the migration leaves
-/// it to the timeout. Claimed longer ago than the timeout, the claim is stale: it is migrated.
-#[rstest]
-#[tokio::test]
-async fn the_migration_leaves_a_change_an_old_replica_is_applying(#[future] test_env: TestEnv) {
-    use diesel_models::schema::scheduled_event::dsl as e;
-
-    let env = test_env.await;
-    let sub_id = starter_from_jan_1(&env).await;
-    let event = schedule(&env, sub_id, PLAN_VERSION_PRO_ID).await;
-    let claimed = |ago: i64| {
-        diesel::update(e::scheduled_event.filter(e::id.eq(event.id))).set((
-            e::status.eq(DieselEventStatus::Processing),
-            e::updated_at.eq(common_clock::now().naive_utc() - chrono::Duration::minutes(ago)),
-        ))
-    };
-
-    claimed(1)
-        .execute(&mut env.conn().await)
-        .await
-        .expect("claimed a minute ago");
-    let migration = migrate(&env).await;
-    assert_eq!((migration.written, migration.unresolved.len()), (0, 0));
-    assert!(matches!(
-        status_of(&env, &event).await,
-        DieselEventStatus::Processing
-    ));
-
-    claimed(10)
-        .execute(&mut env.conn().await)
-        .await
-        .expect("claimed ten minutes ago");
-    assert_eq!(migrate(&env).await.written, 1);
-    assert!(matches!(
-        status_of(&env, &event).await,
-        DieselEventStatus::Migrated
-    ));
-}
-
-/// The migration runs the tenants the billing worker runs: a paused tenant's changes, and a
-/// sandbox's still being seeded, wait for it to run them.
-#[rstest]
-#[case::paused_tenant("UPDATE tenant SET status = 'PAUSED'")]
-#[case::sandbox_seeding(
-    "INSERT INTO sandbox_seed (tenant_id, status, started_at) \
-     SELECT id, 'IN_PROGRESS', now() FROM tenant"
-)]
-#[tokio::test]
-async fn the_migration_skips_the_tenants_billing_skips(
-    #[future] test_env: TestEnv,
-    #[case] gate: &str,
-) {
-    use diesel_async::SimpleAsyncConnection;
-
-    let env = test_env.await;
-    let sub_id = starter_from_jan_1(&env).await;
-    let event = schedule(&env, sub_id, PLAN_VERSION_PRO_ID).await;
-    env.conn()
-        .await
-        .batch_execute(gate)
-        .await
-        .expect("the tenant gated");
-
-    let migration = migrate(&env).await;
-    assert_eq!((migration.written, migration.unresolved.len()), (0, 0));
-    assert!(matches!(
-        status_of(&env, &event).await,
-        DieselEventStatus::Pending
-    ));
-}
-
-/// A change whose write fails is listed with its error; the changes after it are written.
-#[rstest]
-#[tokio::test]
-async fn a_change_that_fails_to_write_does_not_stop_the_migration(#[future] test_env: TestEnv) {
-    use diesel_models::schema::scheduled_event::dsl as e;
-
-    let env = test_env.await;
-    let broken = schedule(&env, starter_from_jan_1(&env).await, PLAN_VERSION_PRO_ID).await;
-    let written = schedule(&env, starter_from_jan_1(&env).await, PLAN_VERSION_PRO_ID).await;
-    diesel::update(e::scheduled_event.filter(e::id.eq(broken.id)))
-        .set((
-            e::event_data.eq(serde_json::json!({"ApplyPlanChange": "unreadable"})),
-            e::scheduled_time.eq(day(1, 20).and_time(NaiveTime::MIN)),
-        ))
-        .execute(&mut env.conn().await)
-        .await
-        .expect("the first change unreadable");
-
-    let migration = migrate(&env).await;
-    assert_eq!(migration.written, 1);
-    assert!(
-        matches!(
-            migration.unresolved.as_slice(),
-            [(id, Unresolvable::Failed(_))] if *id == broken.id
-        ),
-        "{:?}",
-        migration.unresolved
-    );
-    assert!(matches!(
-        status_of(&env, &written).await,
-        DieselEventStatus::Migrated
-    ));
-    assert!(matches!(
-        reload_row(&env, &broken).await.status,
-        DieselEventStatus::Pending
-    ));
-}
-
-/// One replica migrates: while another holds the migration's lock, this one skips it.
-#[rstest]
-#[tokio::test]
-async fn one_replica_runs_the_migration(#[future] test_env: TestEnv) {
-    use distributed_lock::LeaderElection;
-    use meteroid_store::leader_lock::{LeaderLock, PgLeaderElection};
-
-    let env = test_env.await;
-    let sub_id = starter_from_jan_1(&env).await;
-    let event = schedule(&env, sub_id, PLAN_VERSION_PRO_ID).await;
-    let other = PgLeaderElection::new(env.pool().clone(), LeaderLock::PendingChangesMigration)
-        .try_acquire()
-        .await
-        .expect("election")
-        .expect("the other replica holds it");
-
-    let skipped = env
-        .services()
-        .migrate_pending_changes()
-        .await
-        .expect("the migration runs");
-    assert!(skipped.is_none(), "{skipped:?}");
-    assert!(matches!(
-        status_of(&env, &event).await,
-        DieselEventStatus::Pending
-    ));
-
-    other.release().await;
-    assert_eq!(migrate(&env).await.written, 1);
+        .expect("the change");
+    assert!(change.withdrawn_at.is_none(), "{breakage:?}");
 }
 
 /// The facts backfill reads a switch's plan version in its public form as the UUID it encodes:
@@ -938,7 +707,7 @@ async fn the_facts_backfill_reads_a_public_plan_version_id_as_its_uuid(
     }
 
     let env = test_env.await;
-    let up = include_str!("../../../migrations/diesel/2026-11-15-104418_subscription_facts/up.sql");
+    let up = crate::release_migrations::BILLING_ON_FACTS_UP;
     let from = up
         .find("CREATE FUNCTION pg_temp.plan_version_of")
         .expect("the decoding function");
@@ -973,51 +742,6 @@ async fn the_facts_backfill_reads_a_public_plan_version_id_as_its_uuid(
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
-/// Reverting the written facts' column while a change is migrated refuses before dropping it: the
-/// rollback script needs it to restore the change.
-#[rstest]
-#[tokio::test]
-async fn the_written_facts_revert_refuses_while_a_change_is_migrated(#[future] test_env: TestEnv) {
-    use diesel_async::SimpleAsyncConnection;
-
-    let env = test_env.await;
-    let sub_id = starter_from_jan_1(&env).await;
-    schedule(&env, sub_id, PLAN_VERSION_PRO_ID).await;
-    assert_eq!(migrate(&env).await.written, 1);
-
-    let down = include_str!(
-        "../../../migrations/diesel/2026-11-15-195248_scheduled_event_written_facts/down.sql"
-    );
-    let mut conn = env.conn().await;
-    conn.batch_execute("BEGIN").await.expect("begin");
-    let reverted = conn.batch_execute(down).await;
-    conn.batch_execute("ROLLBACK").await.expect("rollback");
-    assert!(reverted.is_err(), "the revert refuses");
-}
-
-/// The rollback script restores a change not applied yet, and leaves one the state applied
-/// COMPLETED, a status the previous release reads.
-#[rstest]
-#[tokio::test]
-async fn the_rollback_completes_the_changes_already_applied(#[future] test_env: TestEnv) {
-    let env = test_env.await;
-    let applied = schedule(&env, starter_from_jan_1(&env).await, PLAN_VERSION_PRO_ID).await;
-    assert_eq!(migrate(&env).await.written, 1);
-    env.process_cycles().await;
-    let pending = schedule(&env, starter_from_jan_1(&env).await, PLAN_VERSION_PRO_ID).await;
-    assert_eq!(migrate(&env).await.written, 1);
-
-    roll_back_changes_as_facts(&env).await;
-    assert!(matches!(
-        status_of(&env, &applied).await,
-        DieselEventStatus::Completed
-    ));
-    assert!(matches!(
-        status_of(&env, &pending).await,
-        DieselEventStatus::Pending
-    ));
-}
-
 /// Each plan window: its version, days and cadence.
 async fn plan_windows(
     env: &TestEnv,
@@ -1040,8 +764,8 @@ async fn plan_windows(
 
 /// An annual subscription from Jan 1 whose plan window moves onto the monthly grid on Jan 1, 2026,
 /// as an amendment's cadence window does (written here, no amendment opening one on a renewal day).
-/// A plan change scheduled that day replaces that window; cancelled or rolled back, it gives it
-/// back, and the monthly cadence with it.
+/// A plan change scheduled that day replaces that window; cancelled, it gives it back, and the
+/// monthly cadence with it.
 #[rstest]
 #[tokio::test]
 async fn cancelling_a_change_restores_the_plan_window_it_replaced(#[future] test_env: TestEnv) {
@@ -1105,13 +829,5 @@ async fn cancelling_a_change_restores_the_plan_window_it_replaced(#[future] test
         .cancel_plan_change(Actor::System, sub_id, TENANT_ID)
         .await
         .expect("the change cancelled");
-    assert_eq!(plan_windows(&env, sub_id).await, amended);
-
-    // The rollback script restores it the same way.
-    env.services()
-        .schedule_plan_change(Actor::System, sub_id, TENANT_ID, other, vec![])
-        .await
-        .expect("the change scheduled again");
-    roll_back_changes_as_facts(&env).await;
     assert_eq!(plan_windows(&env, sub_id).await, amended);
 }

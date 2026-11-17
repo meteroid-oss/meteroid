@@ -1,113 +1,143 @@
 use crate::domain::BillingPeriodEnum;
-use crate::domain::enums::{
-    ScheduledEventStatus, ScheduledEventTypeEnum, SubscriptionFeeBillingPeriod,
-};
+use crate::domain::enums::{ScheduledEventTypeEnum, SubscriptionFeeBillingPeriod};
 use crate::domain::subscription_components::SubscriptionFee;
-use crate::errors::StoreErrorReport;
+use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
 use chrono::NaiveDateTime;
 use common_domain::actor::{Actor, ActorType};
 use common_domain::ids::{
-    AddOnId, BaseId, InvoiceId, PlanVersionId, PriceComponentId, PriceId, ProductId,
-    ScheduledEventId, SubscriptionAddOnId, SubscriptionId, SubscriptionPriceComponentId, TenantId,
+    AddOnId, BaseId, PlanVersionId, PriceComponentId, PriceId, ProductId, ScheduledEventId,
+    SubscriptionAddOnId, SubscriptionId, SubscriptionPriceComponentId, TenantId,
 };
-use diesel_models::scheduled_events::ScheduledEventRow;
-use diesel_models::scheduled_events::ScheduledEventRowNew;
-use o2o::o2o;
+use diesel_models::enums::SubscriptionChangeKindEnum;
+use diesel_models::subscription_changes::{SubscriptionChangeRow, SubscriptionChangeRowNew};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Clone, Debug, o2o)]
-#[try_from_owned(ScheduledEventRow, StoreErrorReport)]
+/// A plan change or amendment scheduled for a later date, as it was requested.
+#[derive(Clone, Debug)]
 pub struct ScheduledEvent {
     pub id: ScheduledEventId,
     pub subscription_id: SubscriptionId,
     pub tenant_id: TenantId,
-    #[from(~.into())]
     pub event_type: ScheduledEventTypeEnum,
     pub scheduled_time: NaiveDateTime,
-    pub priority: i32,
-    #[from(~.try_into()?)]
     pub event_data: ScheduledEventData,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
-    #[from(~.into())]
-    pub status: ScheduledEventStatus,
-    pub retries: i32,
-    pub last_retry_at: Option<NaiveDateTime>,
-    pub error: Option<String>,
-    pub processed_at: Option<NaiveDateTime>,
-    pub source: String, // API, System, etc.
+    pub withdrawn_at: Option<NaiveDateTime>,
+    pub source: String,
     pub created_by_customer: bool,
-    #[from(~.into())]
     pub actor_type: ActorType,
     pub actor_uuid: Option<Uuid>,
     pub actor_alias: Option<String>,
 }
 
 impl ScheduledEvent {
-    /// The actor that scheduled this event, rebuilt from its persisted columns, so a
-    /// worker applying the event later can attribute the resulting activity to them.
+    /// The actor that scheduled the change, rebuilt from its persisted columns.
     pub fn created_by(&self) -> Actor {
         Actor::from_parts(self.actor_type, self.actor_uuid, self.actor_alias.clone())
     }
 }
 
-#[derive(Clone, Debug, o2o)]
-#[owned_try_into(ScheduledEventRowNew, StoreErrorReport)]
-#[ghosts(
-    id: common_domain::ids::ScheduledEventId::new(),
-    event_type: @.event_data.to_event_type_enum().into(),
-    status: diesel_models::enums::ScheduledEventStatus::Pending,
-    priority: 0,
-    retries: 0,
-    created_by_customer: @.created_by.is_customer(),
-    actor_type: @.created_by.actor_type().into(),
-    actor_uuid: @.created_by.as_uuid(),
-    actor_alias: @.created_by.actor_alias()
-)] // TODO drop priority if unused
+impl TryFrom<SubscriptionChangeRow> for ScheduledEvent {
+    type Error = StoreErrorReport;
+
+    fn try_from(row: SubscriptionChangeRow) -> Result<Self, Self::Error> {
+        Ok(ScheduledEvent {
+            id: row.id,
+            subscription_id: row.subscription_id,
+            tenant_id: row.tenant_id,
+            event_type: row.kind.into(),
+            scheduled_time: row.effective_at,
+            event_data: row.change.try_into()?,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            withdrawn_at: row.withdrawn_at,
+            source: row.source,
+            created_by_customer: row.created_by_customer,
+            actor_type: row.actor_type.into(),
+            actor_uuid: row.actor_uuid,
+            actor_alias: row.actor_alias,
+        })
+    }
+}
+
+/// A change to schedule: written as facts at once, recorded with the rows it wrote.
+#[derive(Clone, Debug)]
 pub struct ScheduledEventNew {
     pub subscription_id: SubscriptionId,
     pub tenant_id: TenantId,
     pub scheduled_time: NaiveDateTime,
-    #[into(~.clone().try_into()?)]
     pub event_data: ScheduledEventData,
     pub source: String,
-    /// The actor scheduling this event; decomposed into the persisted actor columns
-    /// (and `created_by_customer`) so the worker can attribute the terminal transition.
-    #[ghost]
+    /// The actor scheduling the change, decomposed into the persisted actor columns.
     pub created_by: Actor,
+}
+
+impl ScheduledEventNew {
+    /// The change as recorded once written, before its record is stored.
+    pub fn into_event(self, now: NaiveDateTime) -> ScheduledEvent {
+        ScheduledEvent {
+            id: ScheduledEventId::new(),
+            subscription_id: self.subscription_id,
+            tenant_id: self.tenant_id,
+            event_type: self.event_data.to_event_type_enum(),
+            scheduled_time: self.scheduled_time,
+            created_at: now,
+            updated_at: now,
+            withdrawn_at: None,
+            source: self.source,
+            created_by_customer: self.created_by.is_customer(),
+            actor_type: self.created_by.actor_type(),
+            actor_uuid: self.created_by.as_uuid(),
+            actor_alias: self.created_by.actor_alias(),
+            event_data: self.event_data,
+        }
+    }
+}
+
+impl ScheduledEvent {
+    /// Its record, with the rows it wrote as facts.
+    pub fn to_row(
+        &self,
+        written_facts: serde_json::Value,
+    ) -> Result<SubscriptionChangeRowNew, StoreErrorReport> {
+        let change = serde_json::to_value(&self.event_data).map_err(|error| {
+            error_stack::Report::new(StoreError::SerdeError(
+                "Failed to serialize ScheduledEventData".to_string(),
+                error,
+            ))
+        })?;
+        Ok(SubscriptionChangeRowNew {
+            id: self.id,
+            tenant_id: self.tenant_id,
+            subscription_id: self.subscription_id,
+            kind: self.event_data.kind(),
+            effective_at: self.scheduled_time,
+            change,
+            written_facts: Some(written_facts),
+            source: self.source.clone(),
+            created_by_customer: self.created_by_customer,
+            actor_type: self.actor_type.into(),
+            actor_uuid: self.actor_uuid,
+            actor_alias: self.actor_alias.clone(),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ScheduledEventData {
-    CancelSubscription {
-        reason: Option<String>,
-        /// The termination instant for an immediate cancellation, captured when the user requested
-        /// it so the terminal period bills usage up to that moment (not the worker-fire time, and
-        /// not the date-truncated midnight). None for a date-effective cancel, which settles at the
-        /// effective date's midnight. Defaulted for events serialized before this field existed.
-        #[serde(default)]
-        usage_cutoff: Option<NaiveDateTime>,
-    },
-    PauseSubscription,
-    FinalizeInvoice {
-        invoice_id: InvoiceId,
-    },
-    RetryPayment {
-        invoice_id: InvoiceId,
-    },
     ApplyPlanChange {
         #[serde(default)]
         source_plan_version_id: Option<PlanVersionId>,
         new_plan_version_id: PlanVersionId,
         component_mappings: Vec<ComponentMapping>,
     },
-    /// End paid trial - transitions subscription from TrialActive to Active
-    /// Billing continues normally via RenewSubscription, this just handles the status change
-    EndTrial,
-    /// Apply a manual/sales-led amendment at the end of the current period.
-    /// Carries fully-resolved component and add-on deltas (no plan-version switch).
+    /// A manual/sales-led amendment at the end of the current period, its component and add-on
+    /// deltas fully resolved (no plan-version switch).
     ApplyAmendment {
         component_close: Vec<SubscriptionPriceComponentId>,
         component_insert: Vec<ResolvedComponentInsert>,
@@ -163,13 +193,15 @@ json_value_serde!(ScheduledEventData);
 impl ScheduledEventData {
     pub fn to_event_type_enum(&self) -> ScheduledEventTypeEnum {
         match self {
-            Self::CancelSubscription { .. } => ScheduledEventTypeEnum::CancelSubscription,
-            Self::PauseSubscription { .. } => ScheduledEventTypeEnum::PauseSubscription,
-            Self::FinalizeInvoice { .. } => ScheduledEventTypeEnum::FinalizeInvoice,
-            Self::RetryPayment { .. } => ScheduledEventTypeEnum::RetryPayment,
             Self::ApplyPlanChange { .. } => ScheduledEventTypeEnum::ApplyPlanChange,
-            Self::EndTrial => ScheduledEventTypeEnum::EndTrial,
             Self::ApplyAmendment { .. } => ScheduledEventTypeEnum::ApplyAmendment,
+        }
+    }
+
+    pub fn kind(&self) -> SubscriptionChangeKindEnum {
+        match self {
+            Self::ApplyPlanChange { .. } => SubscriptionChangeKindEnum::PlanChange,
+            Self::ApplyAmendment { .. } => SubscriptionChangeKindEnum::Amendment,
         }
     }
 }
@@ -216,33 +248,5 @@ impl ComponentMapping {
                 ComponentMapping::Removed { .. } => None,
             })
             .min()
-    }
-}
-
-impl ScheduledEventNew {
-    /// Creates an EndTrial scheduled event for paid trials.
-    ///
-    /// This event transitions a subscription from TrialActive to Active when the trial period ends.
-    /// Billing continues normally via RenewSubscription - this only handles the status change.
-    ///
-    /// Returns `None` if the trial end date cannot be computed (invalid date arithmetic).
-    pub fn end_trial(
-        subscription_id: SubscriptionId,
-        tenant_id: TenantId,
-        billing_start_date: chrono::NaiveDate,
-        trial_days: i32,
-        source: impl Into<String>,
-    ) -> Option<Self> {
-        let trial_end_date = billing_start_date + chrono::Duration::days(i64::from(trial_days));
-        let scheduled_time = trial_end_date.and_hms_opt(0, 0, 0)?;
-
-        Some(Self {
-            subscription_id,
-            tenant_id,
-            scheduled_time,
-            event_data: ScheduledEventData::EndTrial,
-            source: source.into(),
-            created_by: Actor::System,
-        })
     }
 }

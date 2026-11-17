@@ -11,4 +11,5 @@ pub mod helpers;
 pub mod mailer;
 pub mod metering_it;
 pub mod meteroid_it;
+pub mod release;
 pub mod revenue;

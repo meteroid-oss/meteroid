@@ -137,26 +137,32 @@ pub async fn list_active_slots(
         .map(|(id, unit)| (id.as_uuid(), unit.clone()))
         .unzip();
     diesel::sql_query(
+        // Each pair counted as `SlotTransactionRow::fetch_active_slots` counts it.
         "WITH pairs AS (
              SELECT * FROM unnest($2::uuid[], $3::text[]) AS p(subscription_id, unit)
-         ), checkpoint AS (
-             SELECT DISTINCT ON (st.subscription_id, st.unit)
-                    st.subscription_id, st.unit, st.prev_active_slots, st.transaction_at
+         ), active AS (
+             SELECT st.subscription_id, st.unit, st.delta, st.prev_active_slots,
+                    st.effective_at, st.transaction_at
              FROM slot_transaction st
              JOIN pairs p ON p.subscription_id = st.subscription_id AND p.unit = st.unit
              JOIN subscription s ON s.id = st.subscription_id
-             WHERE s.tenant_id = $1 AND st.transaction_at <= $4 AND st.status = 'ACTIVE'
-             ORDER BY st.subscription_id, st.unit, st.transaction_at DESC
+             WHERE s.tenant_id = $1 AND st.effective_at <= $4 AND st.status = 'ACTIVE'
+         ), base AS (
+             SELECT DISTINCT ON (subscription_id, unit)
+                    subscription_id, unit, prev_active_slots, effective_at, delta = 0 AS seed
+             FROM active
+             ORDER BY subscription_id, unit, (delta = 0) DESC,
+                      CASE WHEN delta = 0 THEN effective_at END DESC,
+                      CASE WHEN delta = 0 THEN transaction_at END DESC,
+                      effective_at, transaction_at
          )
-         SELECT c.subscription_id, c.unit,
-                (COALESCE(c.prev_active_slots, 0) + COALESCE(SUM(st.delta), 0))::integer
-                    AS active_slots
-         FROM checkpoint c
-         LEFT JOIN slot_transaction st
-           ON st.subscription_id = c.subscription_id AND st.unit = c.unit
-          AND st.effective_at >= c.transaction_at AND st.effective_at <= $4
-          AND st.status = 'ACTIVE'
-         GROUP BY c.subscription_id, c.unit, c.prev_active_slots",
+         SELECT b.subscription_id, b.unit,
+                (b.prev_active_slots + COALESCE((
+                    SELECT SUM(a.delta) FROM active a
+                    WHERE a.subscription_id = b.subscription_id AND a.unit = b.unit
+                      AND a.delta <> 0 AND (NOT b.seed OR a.effective_at >= b.effective_at)
+                ), 0))::integer AS active_slots
+         FROM base b",
     )
     .bind::<sql_types::Uuid, _>(tenant_id.as_uuid())
     .bind::<sql_types::Array<sql_types::Uuid>, _>(subscription_ids)

@@ -582,13 +582,13 @@ async fn test_coupon_with_checkout_and_free_trial(#[future] test_env: TestEnv) {
         .has_resolved_payment_method(&env, true)
         .await;
 
-    // End trial → TrialExpired (OnCheckout requires payment)
+    // End trial → Active: its checkout settled the start during the trial
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
-        .with_context("TrialExpired awaiting payment")
-        .is_trial_expired()
+        .with_context("Active at the trial end, its first invoice collected")
+        .is_active()
         .has_pending_checkout(false)
         .has_resolved_payment_method(&env, true)
         .await;
@@ -1650,13 +1650,13 @@ async fn test_100_percent_coupon_with_free_trial_checkout(#[future] test_env: Te
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().assert_empty();
 
-    // Process trial end → TrialExpired (OnCheckout requires payment)
+    // Process trial end → Active: its checkout settled the start during the trial
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
-        .with_context("TrialExpired awaiting payment")
-        .is_trial_expired()
+        .with_context("Active at the trial end, its first invoice collected")
+        .is_active()
         .has_pending_checkout(false)
         .has_resolved_payment_method(&env, true)
         .await;
@@ -1995,12 +1995,11 @@ async fn a_draft_finalized_after_a_void_frees_its_coupon_discounts_its_header() 
     assert_eq!(discounted(&february), (9_000, 900, 8_100, 900));
 }
 
-/// A 25 % coupon for one invoice, January's draft and February's open at once: February,
-/// finalized first, takes it, 25 % of 9000 = 2250; January, finalized after, is none of its
-/// invoices and goes out at its 5000, its lines as undiscounted as its header.
+/// A 25 % coupon for one invoice, January's and February's drafts open: February, finalized
+/// first, goes out at 9000, lines undiscounted; January takes 1250 (February took 2250 before).
 /// Rules: R-089, R-076, R-070
 #[tokio::test]
-async fn the_draft_finalized_second_under_a_one_invoice_coupon_spreads_no_discount() {
+async fn the_draft_finalized_first_under_a_one_invoice_coupon_leaves_it_to_the_older_one() {
     let (env, usage, plan) = fee_and_usage_env().await;
     january_usage(&usage);
     let coupon = env
@@ -2038,6 +2037,6 @@ async fn the_draft_finalized_second_under_a_one_invoice_coupon_spreads_no_discou
                 .expect("the invoice"),
         )
     };
-    assert_eq!(of(february.id), (9_000, 2_250, 6_750, 2_250));
-    assert_eq!(of(january.id), (5_000, 0, 5_000, 0));
+    assert_eq!(of(february.id), (9_000, 0, 9_000, 0));
+    assert_eq!(of(january.id), (5_000, 1_250, 3_750, 1_250));
 }

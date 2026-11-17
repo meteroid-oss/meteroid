@@ -1,7 +1,6 @@
-//! Scheduled changes as the facts they become: a plan change resolved against its
-//! target version, an amendment written as it is, each to the rows its event wrote when it
-//! applied. A change scheduled now is written at once; a pending one is migrated (at deploy, or
-//! when its event comes due), never applied.
+//! Scheduled changes as the facts they become: a plan change resolved against its target
+//! version, an amendment written as it is. A change is written when it is scheduled, recorded
+//! with the rows it wrote, and withdrawn by removing them before its date.
 use std::collections::{HashMap, HashSet};
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
@@ -10,6 +9,7 @@ use common_domain::ids::{
     SlotTransactionId, SubscriptionAddOnId, SubscriptionId, SubscriptionPriceComponentId, TenantId,
 };
 use diesel_models::enums::BillingPeriodEnum as DbBillingPeriod;
+use diesel_models::enums::SubscriptionChangeKindEnum;
 use diesel_models::plan_component_prices::PlanComponentPriceRow;
 use diesel_models::plan_version_add_ons::PlanVersionAddOnRow;
 use diesel_models::plan_version_adjustments::{
@@ -20,10 +20,10 @@ use diesel_models::price_components::PriceComponentRow;
 use diesel_models::prices::PriceRow;
 use diesel_models::products::ProductRow;
 use diesel_models::query::subscription_facts::ScheduledRows;
-use diesel_models::scheduled_events::ScheduledEventRow;
 use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
 use diesel_models::subscription_adjustments::SubscriptionAdjustmentRow;
+use diesel_models::subscription_changes::SubscriptionChangeRow;
 use diesel_models::subscription_components::{
     SubscriptionComponentRow, SubscriptionComponentRowNew,
 };
@@ -40,10 +40,10 @@ use serde::{Deserialize, Serialize};
 use super::db;
 use crate::StoreResult;
 use crate::domain::SubscriptionStatusEnum;
-use crate::domain::enums::{BillingPeriodEnum, ScheduledEventStatus};
+use crate::domain::enums::BillingPeriodEnum;
 use crate::domain::scheduled_events::{
     ComponentMapping, ResolvedAddOnInsert, ResolvedComponentInsert, ScheduledEvent,
-    ScheduledEventData,
+    ScheduledEventData, ScheduledEventNew,
 };
 use crate::domain::slot_transactions::SlotTransactionNewInternal;
 use crate::domain::subscription_add_ons::{SubscriptionAddOnNew, SubscriptionAddOnNewInternal};
@@ -110,13 +110,9 @@ pub enum MinimumChange {
     },
 }
 
-/// Why a pending change cannot be written as facts.
+/// Why a change cannot be written as facts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Unresolvable {
-    /// Neither an `ApplyPlanChange` nor an `ApplyAmendment`.
-    NotAChange,
-    /// Applied, cancelled, failed, claimed or migrated already.
-    NotPending(ScheduledEventStatus),
     /// Another plan change landed first: applying this one does nothing.
     Superseded {
         expected: PlanVersionId,
@@ -140,34 +136,14 @@ pub enum Unresolvable {
     /// A fee row the change closes is no longer open.
     ComponentRowNotOpen(SubscriptionPriceComponentId),
     AddOnRowNotOpen(SubscriptionAddOnId),
-    /// Writing it failed: the error, logged with the event.
-    Failed(String),
 }
 
 pub type Resolution = Result<PendingFacts, Unresolvable>;
 
-#[derive(Debug, Clone)]
-pub enum Migration {
-    Written(Box<PendingFacts>),
-    /// Migrated by an earlier run: nothing written.
-    AlreadyMigrated,
-    /// A replica claimed it within the claim timeout, and may be applying it: left to it.
-    Claimed,
-}
-
-/// When a pending change is written as facts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Writing {
-    /// Before its date (scheduled now, or at the deploy): its target must still offer each price
-    /// it names. `leave_fresh_claims`: a change a replica claimed within the timeout is left.
-    Ahead { leave_fresh_claims: bool },
-    /// On its date, as the previous release applied it: each price as the event stored it.
-    Due,
-}
-
 struct Context<'a> {
     event: &'a ScheduledEvent,
-    writing: Writing,
+    /// Due already, as an earlier release stored it: each price taken as named, offered or not.
+    as_stored: bool,
     sub: &'a SubscriptionRow,
     on: NaiveDate,
     open_components: HashSet<SubscriptionPriceComponentId>,
@@ -188,7 +164,7 @@ impl Context<'_> {
             opens_add_ons: Vec::new(),
             seat_seeds: Vec::new(),
             set_seats: Vec::new(),
-            scheduled_at: (self.writing == Writing::Due).then_some(self.event.created_at),
+            scheduled_at: self.as_stored.then_some(self.event.created_at),
             minimum: MinimumChange::Kept,
         }
     }
@@ -202,26 +178,19 @@ struct Named {
     price: Option<PriceId>,
 }
 
-/// The facts a pending change becomes, read and never written: the migration's dry run.
-pub(crate) async fn resolve_pending_tx(
+/// The facts a change becomes, read and never written.
+pub(crate) async fn resolve_change_tx(
     conn: &mut PgConn,
     event: &ScheduledEvent,
-    writing: Writing,
 ) -> StoreResult<Resolution> {
-    let is_change = matches!(
-        event.event_data,
-        ScheduledEventData::ApplyPlanChange { .. } | ScheduledEventData::ApplyAmendment { .. }
-    );
-    if !is_change {
-        return Ok(Err(Unresolvable::NotAChange));
-    }
-    // A straggler an old replica claimed is migrated too.
-    if !matches!(
-        event.status,
-        ScheduledEventStatus::Pending | ScheduledEventStatus::Processing
-    ) {
-        return Ok(Err(Unresolvable::NotPending(event.status.clone())));
-    }
+    resolve_change_with(conn, event, false).await
+}
+
+async fn resolve_change_with(
+    conn: &mut PgConn,
+    event: &ScheduledEvent,
+    as_stored: bool,
+) -> StoreResult<Resolution> {
     let sub =
         db(
             SubscriptionRow::get_subscription_by_id(conn, &event.tenant_id, event.subscription_id)
@@ -240,7 +209,7 @@ pub(crate) async fn resolve_pending_tx(
         .collect();
     let ctx = Context {
         event,
-        writing,
+        as_stored,
         sub: &sub,
         on: event.scheduled_time.date(),
         open_components,
@@ -277,7 +246,6 @@ pub(crate) async fn resolve_pending_tx(
             )
             .await
         }
-        _ => Ok(Err(Unresolvable::NotAChange)),
     }
 }
 
@@ -374,7 +342,7 @@ async fn resolve_plan_change(
             return Ok(Err(Unresolvable::ComponentRowNotOpen(*row)));
         }
     }
-    let offered = (ctx.writing != Writing::Due).then_some(&offered);
+    let offered = (!ctx.as_stored).then_some(&offered);
     if let Some(why) = catalog_gone(conn, ctx, &named, &components, offered).await? {
         return Ok(Err(why));
     }
@@ -463,7 +431,17 @@ async fn resolve_plan_change(
         .collect();
 
     facts.minimum = minimum_change(conn, sub.id, new_plan_version_id).await?;
-    facts.plan_window = Some(plan_window(conn, sub, on, new_plan_version_id, mappings).await?);
+    facts.plan_window = Some(
+        plan_window(
+            conn,
+            sub,
+            on,
+            new_plan_version_id,
+            mappings,
+            &facts.closes_add_ons,
+        )
+        .await?,
+    );
     Ok(Ok(facts))
 }
 
@@ -474,6 +452,7 @@ async fn plan_window(
     on: NaiveDate,
     plan_version_id: PlanVersionId,
     mappings: &[ComponentMapping],
+    closes_add_ons: &[SubscriptionAddOnId],
 ) -> StoreResult<PlanWindowFact> {
     let cadence = ComponentMapping::derive_billing_period(mappings)
         .unwrap_or_else(|| BillingPeriodEnum::from(sub.period.clone()));
@@ -484,6 +463,8 @@ async fn plan_window(
         let until = t.from_date.max(on);
         (t.until_date > until).then_some(until)
     });
+    let as_created = matches!((trial.as_ref(), trial_until), (Some(t), Some(_)) if t.free)
+        || on == super::billing_from(conn, sub).await?;
     let (windows, from) = super::windows_before(conn, sub.id, on).await?;
     let cadence_origin = match (trial.as_ref(), trial_until) {
         (Some(t), Some(until)) if t.free => {
@@ -491,6 +472,10 @@ async fn plan_window(
         }
         _ => super::decided_origin(conn, sub, &windows, from, &db_cadence).await?,
     };
+    let cadence =
+        super::cadence_of_change(conn, sub.id, on, db_cadence, as_created, closes_add_ons)
+            .await?
+            .into();
     Ok(PlanWindowFact {
         plan_version_id,
         from_date: from,
@@ -780,15 +765,15 @@ pub(crate) async fn carry_into_set_seats_tx(
         return Ok(());
     }
     let mut seeds: Vec<SlotTransactionId> = Vec::new();
-    for event in db(ScheduledEventRow::list_migrated_pending(
+    for change in db(SubscriptionChangeRow::list_pending(
         conn,
         &tenant_id,
         row.subscription_id,
-        &[diesel_models::enums::ScheduledEventTypeEnum::ApplyPlanChange],
+        &[SubscriptionChangeKindEnum::PlanChange],
     )
     .await)?
     {
-        let Some(record) = event.written_facts else {
+        let Some(record) = change.written_facts else {
             continue;
         };
         let written: WrittenFacts = serde_json::from_value(record)
@@ -802,8 +787,8 @@ pub(crate) async fn carry_into_set_seats_tx(
     Ok(())
 }
 
-/// What a change wrote as facts, kept on its MIGRATED record: withdrawn when the change is
-/// cancelled before its date, and by the rollback script (ids as UUIDs, for SQL).
+/// What a change wrote as facts, kept on its record: withdrawn when the change is cancelled
+/// before its date (ids as UUIDs, for SQL).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WrittenFacts {
     pub on: NaiveDate,
@@ -824,8 +809,6 @@ pub struct WrittenFacts {
     pub minimum: bool,
     /// The trial's end before the change cut it.
     pub trial_until: Option<NaiveDate>,
-    /// The pending trial end moved to `on`, and when it was due.
-    pub end_trial: Option<(uuid::Uuid, NaiveDateTime)>,
 }
 
 /// A plan window a change's window replaced, as it was (its cadence as the database writes it).
@@ -922,56 +905,6 @@ impl WrittenFacts {
             trial_until: self.trial_until,
         }
     }
-}
-
-/// Writes a pending change as the facts it becomes and marks it `MIGRATED` with the rows it
-/// wrote, under its customer's lock. A straggler an old replica claimed is migrated the same way,
-/// unless it is left to a fresh claim; run again, it finds the event migrated and writes nothing.
-pub(crate) async fn write_pending_as_facts_tx(
-    conn: &mut PgConn,
-    event: &ScheduledEvent,
-    writing: Writing,
-) -> StoreResult<Result<Migration, Unresolvable>> {
-    let lock =
-        db(SubscriptionRow::lock_subscription_for_update(conn, event.subscription_id).await)?;
-    let current = load_event(conn, event.tenant_id, event.id).await?;
-    if current.status == ScheduledEventStatus::Migrated {
-        return Ok(Ok(Migration::AlreadyMigrated));
-    }
-    if writing
-        == (Writing::Ahead {
-            leave_fresh_claims: true,
-        })
-        && current.status == ScheduledEventStatus::Processing
-        && current.updated_at
-            > diesel_models::query::scheduled_events::stale_claims_before(
-                common_clock::now().naive_utc(),
-            )
-    {
-        return Ok(Ok(Migration::Claimed));
-    }
-    let facts = match resolve_pending_tx(conn, &current, writing).await? {
-        Ok(facts) => facts,
-        Err(why) => return Ok(Err(why)),
-    };
-    let written = write_facts(conn, &facts, &current).await?;
-    let record = serde_json::to_value(&written)
-        .map_err(|error| Report::new(StoreError::SerdeError("written facts".into(), error)))?;
-    if !db(ScheduledEventRow::mark_as_migrated(
-        conn,
-        &current.tenant_id,
-        &current.id,
-        Some(record),
-    )
-    .await)?
-    {
-        return Err(Report::new(StoreError::FailedPrecondition(format!(
-            "scheduled event {} left pending while it was migrated",
-            current.id
-        ))));
-    }
-    db(diesel_models::query::credit_inputs::bump_customer(conn, &lock).await)?;
-    Ok(Ok(Migration::Written(Box::new(facts))))
 }
 
 async fn write_facts(
@@ -1074,17 +1007,6 @@ async fn write_facts(
     {
         written.trial_until = Some(trial.until_date);
         db(SubscriptionTrialRow::end_by(conn, facts.subscription_id, on).await)?;
-        // The status is still the trial end event's: it moves to the change.
-        if !trial.free {
-            written.end_trial = db(ScheduledEventRow::move_pending_end_trial(
-                conn,
-                &facts.tenant_id,
-                facts.subscription_id,
-                on.and_time(NaiveTime::MIN),
-            )
-            .await)?
-            .map(|(id, at)| (id.as_uuid(), at));
-        }
     }
     let (opened, replaced) = db(SubscriptionPlanWindowRow::open_replacing(
         conn,
@@ -1147,11 +1069,22 @@ pub(crate) async fn amendment_cadence_window_tx(
     change: Option<&PendingFacts>,
 ) -> StoreResult<Option<PlanWindowFact>> {
     use crate::domain::enums::SubscriptionFeeBillingPeriod;
-    use crate::services::invoice_lines::cadence::{CadenceSubject, cadence_runs_of};
+    use crate::services::invoice_lines::cadence::CadenceSubject;
 
+    use diesel_models::enums::SubscriptionStatusEnum;
     let sub = db(SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id).await)?
         .subscription;
-    if sub.status != diesel_models::enums::SubscriptionStatusEnum::Active
+    // A change dated on or after the trial's end finds the subscription active; one inside a
+    // free trial moves the grid its billing starts on.
+    let trialing = sub.status == SubscriptionStatusEnum::TrialActive;
+    let trial_over_by = trialing
+        && sub
+            .trial_duration
+            .is_some_and(|days| sub.start_date + chrono::Duration::days(i64::from(days)) <= on);
+    let in_free_trial = trialing
+        && db(SubscriptionTrialRow::find(conn, sub.id).await)?
+            .is_some_and(|trial| trial.free && on < trial.until_date);
+    if (sub.status != SubscriptionStatusEnum::Active && !trial_over_by && !in_free_trial)
         || sub.current_period_end.is_none()
     {
         return Ok(None);
@@ -1202,9 +1135,12 @@ pub(crate) async fn amendment_cadence_window_tx(
         return Ok(None);
     };
     // A plan switch moved it onto a grid of its own.
-    if !cadence_runs_of(conn, CadenceSubject::of_row(&sub), on, true)
-        .await?
-        .is_empty()
+    if crate::services::subscriptions::cadence::switched_onto_own_grid(
+        conn,
+        CadenceSubject::of_row(&sub),
+        on,
+    )
+    .await?
     {
         return Ok(None);
     }
@@ -1220,151 +1156,189 @@ pub(crate) async fn amendment_cadence_window_tx(
     }))
 }
 
-/// Withdraws a change written as facts before its date: the rows it opened go, those it closed
-/// reopen, a trial end it moved goes back. False when it took effect or was withdrawn already.
+/// Withdraws a change before its date: the rows it opened go, those it closed reopen. False when
+/// it took effect or was withdrawn already.
 pub(crate) async fn withdraw_pending_tx(
     conn: &mut PgConn,
-    event: &ScheduledEventRow,
+    change: &SubscriptionChangeRow,
     reason: &str,
 ) -> StoreResult<bool> {
-    let Some(record) = event.written_facts.clone() else {
+    let Some(record) = change.written_facts.clone() else {
         return Ok(false);
     };
     let written: WrittenFacts = serde_json::from_value(record)
         .map_err(|error| Report::new(StoreError::SerdeError("written facts".into(), error)))?;
-    if !db(ScheduledEventRow::withdraw_migrated(conn, &event.tenant_id, &event.id, reason).await)? {
+    if !db(SubscriptionChangeRow::withdraw(conn, &change.id, reason).await)? {
         return Ok(false);
     }
-    db(written
-        .rows(event.tenant_id, event.subscription_id)
-        .withdraw(conn, event.subscription_id, written.on)
-        .await)?;
-    if let Some((id, at)) = written.end_trial {
-        db(ScheduledEventRow::reschedule_pending(
-            conn,
-            &event.tenant_id,
-            ScheduledEventId::from(id),
-            at,
-        )
-        .await)?;
-    }
+    db(ScheduledRows::withdraw(
+        &written.rows(change.tenant_id, change.subscription_id),
+        conn,
+        change.subscription_id,
+        written.on,
+    )
+    .await)?;
     Ok(true)
 }
 
+/// An amendment scheduled for its period's end that a later change left inside a period (a
+/// cadence lengthened by an immediate amendment): moved to the subscription's first renewal on or
+/// after its day, or withdrawn when the subscription ends first (R-106).
+pub(crate) async fn defer_to_renewal_tx(
+    conn: &mut PgConn,
+    change: &SubscriptionChangeRow,
+    facts: &billing_core::facts::Facts<crate::services::evaluate::pricer::StoreFee>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> StoreResult<()> {
+    let Some(record) = change.written_facts.clone() else {
+        return Ok(());
+    };
+    let mut written: WrittenFacts = serde_json::from_value(record)
+        .map_err(|error| Report::new(StoreError::SerdeError("written facts".into(), error)))?;
+    let on = written.on;
+    // Its own plan window would make its day a renewal: read without it.
+    let mut without = facts.clone();
+    if written.plan_window.is_some()
+        && let Some(i) = without.plan_windows.iter().position(|w| w.from == on)
+    {
+        let window = without.plan_windows.remove(i);
+        if let Some(replaced) = &written.replaced_plan_window
+            && let Some(row) = replaced.row(change.tenant_id, change.subscription_id)
+        {
+            without.plan_windows.push(billing_core::facts::PlanWindow {
+                plan_version: row.plan_version_id,
+                from: row.from_date,
+                to: window.to,
+                cadence: BillingPeriodEnum::from(row.cadence).as_months(),
+                cadence_origin: row.cadence_origin,
+            });
+        }
+    }
+    match billing_core::evaluate::renewal_on_or_after(&without, on, now) {
+        Some(renewal) if renewal == on => Ok(()),
+        Some(renewal) => {
+            db(ScheduledRows::defer(
+                &written.rows(change.tenant_id, change.subscription_id),
+                conn,
+                change.subscription_id,
+                on,
+                renewal,
+            )
+            .await)?;
+            written.on = renewal;
+            written.plan_window = None;
+            written.replaced_plan_window = None;
+            let record = serde_json::to_value(&written).map_err(|error| {
+                Report::new(StoreError::SerdeError("written facts".into(), error))
+            })?;
+            db(SubscriptionChangeRow::defer(
+                conn,
+                &change.id,
+                renewal.and_time(NaiveTime::MIN),
+                record,
+            )
+            .await)?;
+            db(SubscriptionChangeRow::drop_amendment_settlement_due(
+                conn,
+                change.subscription_id,
+                on,
+            )
+            .await)
+        }
+        None => withdraw_pending_tx(conn, change, "The subscription ends before its renewal")
+            .await
+            .map(|_| ()),
+    }
+}
+
 /// Every kind of change written as facts.
-pub(crate) const CHANGES: &[diesel_models::enums::ScheduledEventTypeEnum] = &[
-    diesel_models::enums::ScheduledEventTypeEnum::ApplyPlanChange,
-    diesel_models::enums::ScheduledEventTypeEnum::ApplyAmendment,
+pub(crate) const CHANGES: &[SubscriptionChangeKindEnum] = &[
+    SubscriptionChangeKindEnum::PlanChange,
+    SubscriptionChangeKindEnum::Amendment,
 ];
 
-/// Withdraws the subscription's changes of `types` written as facts and still to take effect;
-/// returns how many.
+/// Withdraws the subscription's changes of `kinds` still to take effect; returns how many.
 pub(crate) async fn withdraw_pending_of_tx(
     conn: &mut PgConn,
     tenant_id: TenantId,
     subscription_id: SubscriptionId,
-    types: &[diesel_models::enums::ScheduledEventTypeEnum],
+    kinds: &[SubscriptionChangeKindEnum],
     reason: &str,
 ) -> StoreResult<usize> {
     let mut withdrawn = 0;
-    for event in
-        db(
-            ScheduledEventRow::list_migrated_pending(conn, &tenant_id, subscription_id, types)
-                .await,
-        )?
+    for change in
+        db(SubscriptionChangeRow::list_pending(conn, &tenant_id, subscription_id, kinds).await)?
     {
-        if withdraw_pending_tx(conn, &event, reason).await? {
+        if withdraw_pending_tx(conn, &change, reason).await? {
             withdrawn += 1;
         }
     }
     Ok(withdrawn)
 }
 
-/// A change requested now for a later date, written as facts at once: its event is recorded
-/// MIGRATED with the rows it wrote, so it stays restorable and cancellable.
+/// A change requested now for a later date, written as facts at once and recorded with the rows
+/// it wrote, so it stays cancellable until its date.
 pub(crate) async fn schedule_as_facts_tx(
-    store: &crate::Store,
+    _store: &crate::Store,
     conn: &mut PgConn,
-    change: crate::domain::scheduled_events::ScheduledEventNew,
+    change: ScheduledEventNew,
 ) -> StoreResult<ScheduledEvent> {
-    use crate::repositories::SubscriptionInterface;
-
-    let event = store
-        .schedule_events(conn, vec![change])
-        .await?
-        .into_iter()
-        .next()
-        .ok_or_else(|| Report::new(StoreError::InsertError))?;
-    if let Err(why) = write_pending_as_facts_tx(
-        conn,
-        &event,
-        Writing::Ahead {
-            leave_fresh_claims: false,
-        },
-    )
-    .await?
-    {
-        return Err(Report::new(StoreError::InvalidArgument(format!(
-            "the change cannot be scheduled: {why:?}"
-        ))));
-    }
-    load_event(conn, event.tenant_id, event.id).await
-}
-
-async fn load_event(
-    conn: &mut PgConn,
-    tenant_id: TenantId,
-    event_id: ScheduledEventId,
-) -> StoreResult<ScheduledEvent> {
-    ScheduledEvent::try_from(db(ScheduledEventRow::get_by_id(
-        conn, event_id, &tenant_id,
-    )
-    .await)?)
-}
-
-/// What the deploy-time migration of pending changes did.
-#[derive(Debug, Default, Clone)]
-pub struct PendingMigration {
-    pub written: usize,
-    pub already: usize,
-    /// Claimed by a replica since they were listed: left to it.
-    pub claimed: usize,
-    /// Each change left pending, and why.
-    pub unresolved: Vec<(ScheduledEventId, Unresolvable)>,
+    let lock =
+        db(SubscriptionRow::lock_subscription_for_update(conn, change.subscription_id).await)?;
+    let event = change.into_event(common_clock::now().naive_utc());
+    let facts = match resolve_change_tx(conn, &event).await? {
+        Ok(facts) => facts,
+        Err(why) => {
+            return Err(Report::new(StoreError::InvalidArgument(format!(
+                "the change cannot be scheduled: {why:?}"
+            ))));
+        }
+    };
+    let written = write_facts(conn, &facts, &event).await?;
+    let record = serde_json::to_value(&written)
+        .map_err(|error| Report::new(StoreError::SerdeError("written facts".into(), error)))?;
+    let row = db(event.to_row(record)?.insert(conn).await)?;
+    db(diesel_models::query::credit_inputs::bump_customer(conn, &lock).await)?;
+    ScheduledEvent::try_from(row)
 }
 
 impl ServicesEdge {
-    /// The facts a pending scheduled change becomes, written by nothing (the migration's dry run).
-    pub async fn resolve_pending_event(
+    /// What a recorded change resolves to against the rows before it wrote them, read in a
+    /// transaction rolled back: nothing changes.
+    pub async fn resolve_scheduled_change(
         &self,
         tenant_id: TenantId,
         event_id: ScheduledEventId,
     ) -> StoreResult<Resolution> {
-        let mut conn = self.store.get_conn().await?;
-        let event = load_event(&mut conn, tenant_id, event_id).await?;
-        resolve_pending_tx(
-            &mut conn,
-            &event,
-            Writing::Ahead {
-                leave_fresh_claims: false,
-            },
-        )
-        .await
+        let mut resolution = None;
+        let rolled_back = self
+            .store
+            .transaction(|conn| {
+                let resolution = &mut resolution;
+                async move {
+                    let row =
+                        db(SubscriptionChangeRow::get_by_id(conn, event_id, &tenant_id).await)?;
+                    withdraw_pending_tx(conn, &row, "resolved again").await?;
+                    let event = ScheduledEvent::try_from(row)?;
+                    *resolution = Some(resolve_change_tx(conn, &event).await?);
+                    Err::<(), _>(Report::new(StoreError::FailedPrecondition(
+                        "a resolution is rolled back".into(),
+                    )))
+                }
+                .scope_boxed()
+            })
+            .await;
+        match (resolution, rolled_back) {
+            (Some(resolution), _) => Ok(resolution),
+            (None, Err(error)) => Err(error),
+            (None, Ok(())) => Err(Report::new(StoreError::FailedPrecondition(
+                "a resolution was not rolled back".into(),
+            ))),
+        }
     }
 
-    /// Writes a pending scheduled change as facts and marks it migrated, then derives the state.
-    pub async fn write_pending_event_as_facts(
-        &self,
-        tenant_id: TenantId,
-        event_id: ScheduledEventId,
-    ) -> StoreResult<Result<Migration, Unresolvable>> {
-        self.services
-            .write_pending_event_as_facts(tenant_id, event_id)
-            .await
-    }
-
-    /// Derives the subscription's state from its facts at `at`, under its customer's lock, as the
-    /// controller does at its wake; the step it took.
+    /// Derives the subscription's state from its facts at `at`, under its customer's lock, as a
+    /// fact edit does (documents left to the controller); the step it took.
     pub async fn derive_subscription_state(
         &self,
         tenant_id: TenantId,
@@ -1377,14 +1351,16 @@ impl ServicesEdge {
                 async move {
                     let lock = db(SubscriptionRow::lock_customer_of(conn, subscription_id).await)?;
                     let step = services
-                        .derive_state_tx(
+                        .step_subscription_tx(
                             conn,
                             &common_domain::actor::Actor::System,
                             tenant_id,
                             subscription_id,
                             at,
+                            crate::services::lifecycle::derived::Issue::StateOnly,
                         )
-                        .await?;
+                        .await?
+                        .map(|stepped| stepped.step);
                     db(diesel_models::query::credit_inputs::bump_customer(conn, &lock).await)?;
                     Ok(step)
                 }
@@ -1392,121 +1368,220 @@ impl ServicesEdge {
             })
             .await
     }
+}
 
-    /// The deploy-time migration, once check 20 of `pre-release-checks.sql` reads 0: see
-    /// [`crate::services::Services::migrate_pending_changes`].
-    pub async fn migrate_pending_changes(&self) -> StoreResult<Option<PendingMigration>> {
-        self.services.migrate_pending_changes().await
+/// What the conversion of the scheduled changes an earlier release left pending did.
+#[derive(Debug, Default, Clone)]
+pub struct PendingConversion {
+    pub written: usize,
+    /// Each change of a tenant not live that could not be written as facts, cancelled, and why.
+    pub cancelled: Vec<(ScheduledEventId, String)>,
+}
+
+/// The changes of live tenants that could not be written as facts, and why: the release refuses.
+#[derive(Debug, Clone)]
+pub struct LiveChangesUnwritten(pub Vec<(ScheduledEventId, TenantId, String)>);
+
+#[derive(diesel::QueryableByName)]
+struct PendingEventRow {
+    #[diesel(sql_type = diesel::sql_types::Uuid)]
+    id: ScheduledEventId,
+    #[diesel(sql_type = diesel::sql_types::Uuid)]
+    tenant_id: TenantId,
+    #[diesel(sql_type = diesel::sql_types::Uuid)]
+    subscription_id: SubscriptionId,
+    #[diesel(sql_type = diesel::sql_types::Timestamp)]
+    scheduled_time: NaiveDateTime,
+    #[diesel(sql_type = diesel::sql_types::Jsonb)]
+    event_data: serde_json::Value,
+    #[diesel(sql_type = diesel::sql_types::Timestamp)]
+    created_at: NaiveDateTime,
+    #[diesel(sql_type = diesel::sql_types::Timestamp)]
+    updated_at: NaiveDateTime,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    source: String,
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    created_by_customer: bool,
+    #[diesel(sql_type = diesel_models::schema::sql_types::ActorTypeEnum)]
+    actor_type: diesel_models::enums::ActorTypeEnum,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Uuid>)]
+    actor_uuid: Option<uuid::Uuid>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    actor_alias: Option<String>,
+    /// An active tenant in production or development: its changes are never cancelled.
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    live: bool,
+}
+
+impl PendingEventRow {
+    fn event(self) -> StoreResult<ScheduledEvent> {
+        let event_data = ScheduledEventData::try_from(self.event_data)?;
+        Ok(ScheduledEvent {
+            id: self.id,
+            subscription_id: self.subscription_id,
+            tenant_id: self.tenant_id,
+            event_type: event_data.to_event_type_enum(),
+            scheduled_time: self.scheduled_time,
+            event_data,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            withdrawn_at: None,
+            source: self.source,
+            created_by_customer: self.created_by_customer,
+            actor_type: self.actor_type.into(),
+            actor_uuid: self.actor_uuid,
+            actor_alias: self.actor_alias,
+        })
     }
 }
 
-impl crate::services::Services {
-    /// Writes a pending scheduled change as facts and marks it migrated, then derives the state.
-    pub async fn write_pending_event_as_facts(
-        &self,
-        tenant_id: TenantId,
-        event_id: ScheduledEventId,
-    ) -> StoreResult<Result<Migration, Unresolvable>> {
-        self.write_event_as_facts(
-            tenant_id,
-            event_id,
-            Writing::Ahead {
-                leave_fresh_claims: false,
-            },
-        )
-        .await
-    }
+/// Every plan change and amendment an earlier release left pending as a scheduled event, of every
+/// tenant (archived and sandbox ones included), written as the facts it becomes and moved, id
+/// kept, to `subscription_change` with the rows it wrote, each in its own transaction. One of a
+/// live tenant (active, in production or
+/// development) that cannot be written fails the conversion, every such change listed; one of any
+/// other tenant is cancelled with its reason. Run by the migrations just before that drop, on
+/// their connection and in their transaction; nothing once the table is gone.
+pub async fn write_pending_scheduled_changes(
+    conn: &mut PgConn,
+) -> StoreResult<Result<PendingConversion, LiveChangesUnwritten>> {
+    use diesel_async::RunQueryDsl;
 
-    async fn write_event_as_facts(
-        &self,
-        tenant_id: TenantId,
-        event_id: ScheduledEventId,
-        writing: Writing,
-    ) -> StoreResult<Result<Migration, Unresolvable>> {
-        self.store
-            .transaction(|conn| {
-                async move {
-                    let event = load_event(conn, tenant_id, event_id).await?;
-                    let migrated = write_pending_as_facts_tx(conn, &event, writing).await?;
-                    if let Ok(Migration::Written(_)) = migrated {
-                        self.derive_state_tx(
-                            conn,
-                            &common_domain::actor::Actor::System,
-                            tenant_id,
-                            event.subscription_id,
-                            common_clock::now(),
-                        )
-                        .await?;
-                    }
-                    Ok(migrated)
-                }
-                .scope_boxed()
-            })
+    #[derive(diesel::QueryableByName)]
+    struct Exists {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        exists: bool,
+    }
+    let table: Exists =
+        diesel::sql_query("SELECT to_regclass('scheduled_event') IS NOT NULL AS exists")
+            .get_result(conn)
             .await
+            .map_err(sql_error)?;
+    let mut conversion = PendingConversion::default();
+    if !table.exists {
+        return Ok(Ok(conversion));
     }
-
-    /// Every pending plan change and amendment written as facts, each in its own transaction; one
-    /// not written stays pending and is listed. The billing worker runs it as it starts, on one
-    /// replica at a time: None when another holds it.
-    pub async fn migrate_pending_changes(&self) -> StoreResult<Option<PendingMigration>> {
-        use crate::leader_lock::{LeaderLock, PgLeaderElection};
-        use distributed_lock::LeaderElection;
-
-        let election =
-            PgLeaderElection::new(self.store.pool.clone(), LeaderLock::PendingChangesMigration);
-        let guard = election.try_acquire().await.map_err(|error| {
-            Report::new(StoreError::InitializationError(format!(
-                "the pending changes migration's lock: {error:?}"
-            )))
-        })?;
-        let Some(guard) = guard else {
-            return Ok(None);
+    let pending: Vec<PendingEventRow> = diesel::sql_query(
+        "SELECT e.id, e.tenant_id, e.subscription_id, e.scheduled_time, e.event_data, e.created_at,
+                e.updated_at, e.source, e.created_by_customer, e.actor_type, e.actor_uuid,
+                e.actor_alias,
+                t.status = 'ACTIVE' AND t.environment IN ('PRODUCTION', 'DEVELOPMENT') AS live
+         FROM scheduled_event e
+         JOIN tenant t ON t.id = e.tenant_id
+         WHERE e.status IN ('PENDING', 'PROCESSING')
+           AND e.event_type IN ('APPLY_PLAN_CHANGE', 'APPLY_AMENDMENT')
+         ORDER BY e.scheduled_time, e.id",
+    )
+    .load(conn)
+    .await
+    .map_err(sql_error)?;
+    let mut live_unwritten = Vec::new();
+    for row in pending {
+        let (id, tenant_id, live) = (row.id, row.tenant_id, row.live);
+        let why = match write_pending_event(conn, row).await {
+            Ok(()) => {
+                conversion.written += 1;
+                continue;
+            }
+            Err(error) => format!("{error:?}"),
         };
-        let migration = self.migrate_listed_changes().await;
-        guard.release().await;
-        migration.map(Some)
-    }
-
-    async fn migrate_listed_changes(&self) -> StoreResult<PendingMigration> {
-        let pending = {
-            let mut conn = self.store.get_conn().await?;
-            db(ScheduledEventRow::list_pending_changes(&mut conn).await)?
-        };
-        let mut migration = PendingMigration::default();
-        for (tenant_id, event_id) in pending {
-            let why = match self
-                .write_event_as_facts(
-                    tenant_id,
-                    event_id,
-                    Writing::Ahead {
-                        leave_fresh_claims: true,
-                    },
-                )
-                .await
-            {
-                Ok(Ok(Migration::Written(_))) => {
-                    migration.written += 1;
-                    continue;
-                }
-                Ok(Ok(Migration::AlreadyMigrated)) => {
-                    migration.already += 1;
-                    continue;
-                }
-                Ok(Ok(Migration::Claimed)) => {
-                    migration.claimed += 1;
-                    continue;
-                }
-                Ok(Err(why)) => why,
-                Err(error) => {
-                    log::error!(
-                        "pending change {event_id} failed to be written as facts: {error:?}"
-                    );
-                    Unresolvable::Failed(format!("{error:?}"))
-                }
-            };
-            log::warn!("pending change {event_id} not migrated: {why:?}");
-            migration.unresolved.push((event_id, why));
+        if live {
+            live_unwritten.push((id, tenant_id, why));
+            continue;
         }
-        Ok(migration)
+        log::error!("pending scheduled change {id} not written as facts, cancelled: {why}");
+        diesel::sql_query(
+            "UPDATE scheduled_event
+             SET status = 'CANCELED', error = $2, updated_at = $3
+             WHERE id = $1 AND status IN ('PENDING', 'PROCESSING')",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(id)
+        .bind::<diesel::sql_types::Text, _>(format!("not written as facts: {why}"))
+        .bind::<diesel::sql_types::Timestamp, _>(common_clock::now().naive_utc())
+        .execute(conn)
+        .await
+        .map_err(sql_error)?;
+        conversion.cancelled.push((id, why));
     }
+    if live_unwritten.is_empty() {
+        Ok(Ok(conversion))
+    } else {
+        Ok(Err(LiveChangesUnwritten(live_unwritten)))
+    }
+}
+
+fn sql_error(error: diesel::result::Error) -> Report<StoreError> {
+    crate::errors::StoreErrorContainer::from(error).into()
+}
+
+/// One pending change written as facts and moved to `subscription_change` with them; rolled back
+/// whole when it cannot be.
+async fn write_pending_event(conn: &mut PgConn, row: PendingEventRow) -> StoreResult<()> {
+    use diesel_async::{AsyncConnection, RunQueryDsl};
+
+    let event = row.event()?;
+    let event = &event;
+    let written = conn
+        .transaction(async |conn| {
+            let written: StoreResult<()> = async {
+                let lock = db(SubscriptionRow::lock_subscription_for_update(
+                    conn,
+                    event.subscription_id,
+                )
+                .await)?;
+                // Due already, it is written as the earlier release would have applied it.
+                let due = event.scheduled_time <= common_clock::now().naive_utc();
+                let facts = resolve_change_with(conn, event, due)
+                    .await?
+                    .map_err(|why| Report::new(StoreError::InvalidArgument(format!("{why:?}"))))?;
+                let written = write_facts(conn, &facts, event).await?;
+                let record = serde_json::to_value(&written).map_err(|error| {
+                    Report::new(StoreError::SerdeError("written facts".into(), error))
+                })?;
+                diesel::sql_query(
+                    "WITH moved AS (
+                         DELETE FROM scheduled_event
+                         WHERE id = $1 AND status IN ('PENDING', 'PROCESSING')
+                         RETURNING *)
+                     INSERT INTO subscription_change (id, tenant_id, subscription_id, kind,
+                         effective_at, change, written_facts, source, created_by_customer,
+                         actor_type, actor_uuid, actor_alias, created_at, updated_at)
+                     SELECT id, tenant_id, subscription_id,
+                            CASE event_type
+                                WHEN 'APPLY_PLAN_CHANGE' THEN 'PLAN_CHANGE'::\"SubscriptionChangeKindEnum\"
+                                ELSE 'AMENDMENT'::\"SubscriptionChangeKindEnum\"
+                            END,
+                            scheduled_time, event_data, $2, source, created_by_customer,
+                            actor_type, actor_uuid, actor_alias, created_at, $3
+                     FROM moved",
+                )
+                .bind::<diesel::sql_types::Uuid, _>(event.id)
+                .bind::<diesel::sql_types::Jsonb, _>(record)
+                .bind::<diesel::sql_types::Timestamp, _>(common_clock::now().naive_utc())
+                .execute(conn)
+                .await
+                .map_err(sql_error)?;
+                // Inside a period its adjustment and notes are due on its day: the controller's.
+                let kind = match event.event_data {
+                    ScheduledEventData::ApplyPlanChange { .. } => {
+                        SubscriptionChangeKindEnum::PlanChange
+                    }
+                    ScheduledEventData::ApplyAmendment { .. } => {
+                        SubscriptionChangeKindEnum::Amendment
+                    }
+                };
+                db(SubscriptionChangeRow::mark_settlement_due_inside_period(
+                    conn,
+                    event.subscription_id,
+                    event.scheduled_time.date(),
+                    kind,
+                )
+                .await)?;
+                db(diesel_models::query::credit_inputs::bump_customer(conn, &lock).await)
+            }
+            .await;
+            written.map_err(crate::errors::StoreErrorContainer::from)
+        })
+        .await;
+    written.map_err(Into::into)
 }

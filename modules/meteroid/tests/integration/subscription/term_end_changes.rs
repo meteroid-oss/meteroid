@@ -10,7 +10,7 @@ use common_domain::ids::{
     BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId, SubscriptionId,
 };
 use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
-use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
+use diesel_models::enums::SubscriptionStatusEnum;
 use meteroid_store::domain::SlotUpgradeBillingMode;
 use meteroid_store::domain::subscription_add_ons::{
     CreateSubscriptionAddOn, SubscriptionAddOnCustomization,
@@ -46,7 +46,6 @@ async fn renewed_into_the_cut_period(env: &TestEnv, plan: PlanVersionId) -> Subs
     env.get_subscription(sub_id)
         .await
         .assert()
-        .has_next_action(Some(CycleActionEnum::EndSubscription))
         .has_period_start(day(2, 1))
         .has_period_end(day(2, 15));
     sub_id
@@ -396,7 +395,6 @@ async fn a_scheduled_change_on_a_fixed_term_bills_the_new_prices_up_to_the_term_
     env.get_subscription(sub_id)
         .await
         .assert()
-        .has_next_action(Some(CycleActionEnum::EndSubscription))
         .has_period_end(day(2, 15));
     let refused = env
         .services()

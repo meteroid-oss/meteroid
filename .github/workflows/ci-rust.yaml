@@ -243,3 +243,11 @@ jobs:
       - uses: actions/checkout@v6
       - name: Check every subscription fact is written by an allowlisted function
         run: ./.github/scripts/check-fact-writers.sh
+
+  document-writers:
+    name: Document writers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check every invoice and credit note is written by an allowlisted function
+        run: ./.github/scripts/check-document-writers.sh

@@ -122,11 +122,12 @@ pub fn step<F>(
         now,
         stored.plan_version,
         derived.plan_version,
+        stored.current_period.map(|(start, _)| start),
     ));
     // Stable: on one instant a status change comes before a plan change.
     transitions.sort_by_key(Transition::at);
 
-    let (documents, opening) = due_documents(now, evaluation, written);
+    let (documents, opening) = due_documents(now, evaluation, written, !facts.settled_by(now));
     let next_wake_at = evaluation
         .next_wake
         .into_iter()
@@ -246,12 +247,14 @@ fn push_change<T: PartialEq>(began: &mut Vec<(DateTime<Utc>, T)>, at: DateTime<U
 }
 
 /// Each plan version since the stored one, from the day its window opened: windows of one
-/// version in a row (a change of cadence) are one.
+/// version in a row (a change of cadence) are one. A stored version no window names gave way
+/// to a window opening the day its own did, in the stored period: the change is from that day.
 fn plan_path<F>(
     facts: &Facts<F>,
     now: DateTime<Utc>,
     stored: Option<PlanVersionId>,
     derived: Option<PlanVersionId>,
+    stored_from: Option<NaiveDate>,
 ) -> Vec<Transition> {
     let (Some(stored), Some(derived)) = (stored, derived) else {
         return Vec::new();
@@ -267,7 +270,7 @@ fn plan_path<F>(
         .collect();
     windows.sort_by_key(|window| (window.from, window.plan_version));
     let mut began: Vec<(DateTime<Utc>, PlanVersionId)> = Vec::new();
-    for window in windows {
+    for window in &windows {
         push_change(&mut began, midnight(window.from), window.plan_version);
     }
     match began.iter().rposition(|(_, version)| *version == stored) {
@@ -279,11 +282,21 @@ fn plan_path<F>(
                 at: pair[1].0,
             })
             .collect(),
-        None => vec![Transition::Plan {
-            from: stored,
-            to: derived,
-            at: began.last().map_or(now, |(at, _)| *at),
-        }],
+        None => {
+            let replaced = stored_from.and_then(|from| {
+                windows
+                    .iter()
+                    .find(|window| window.plan_version == derived && window.from >= from)
+            });
+            vec![Transition::Plan {
+                from: stored,
+                to: derived,
+                at: match replaced {
+                    Some(window) => midnight(window.from),
+                    None => began.last().map_or(now, |(at, _)| *at),
+                },
+            }]
+        }
     }
 }
 
@@ -294,6 +307,7 @@ fn due_documents(
     now: DateTime<Utc>,
     evaluation: &Evaluation,
     written: &[DocumentSlot],
+    unsettled: bool,
 ) -> (Vec<Due>, Option<DateTime<Utc>>) {
     let mut slots: BTreeMap<DocumentSlot, Vec<Charge>> = BTreeMap::new();
     for charge in &evaluation.charges {
@@ -301,6 +315,22 @@ fn due_documents(
             .entry(charge.document)
             .or_default()
             .push(charge.clone());
+    }
+    // A period whose usage is still to read is due all the same: its draft prices it (R-050);
+    // so is an ending's, once its window closed.
+    let mut ending_read: Option<DateTime<Utc>> = None;
+    for need in &evaluation.usage_needed {
+        match need.document {
+            DocumentSlot::Recurring { .. } => {
+                slots.entry(need.document).or_default();
+            }
+            DocumentSlot::Final if need.read.window.until <= now => {
+                slots.entry(need.document).or_default();
+                let until = need.read.window.until;
+                ending_read = Some(ending_read.map_or(until, |read| read.min(until)));
+            }
+            DocumentSlot::Final | DocumentSlot::Adjustment { .. } => {}
+        }
     }
     let mut due: Vec<Due> = Vec::new();
     let mut opening: Option<DateTime<Utc>> = None;
@@ -311,6 +341,7 @@ fn due_documents(
         let first = charges
             .iter()
             .map(|charge| charge.due_at)
+            .chain(ending_read.filter(|_| slot == DocumentSlot::Final))
             .min()
             .unwrap_or(now);
         // A charge riding the next renewal (R-084) waits for its period; the ending's go on
@@ -324,7 +355,7 @@ fn due_documents(
                 slot,
                 at,
                 charges,
-                awaiting_checkout: evaluation.state.pending_checkout,
+                awaiting_checkout: unsettled,
             });
         } else {
             opening = Some(opening.map_or(at, |earliest| earliest.min(at)));

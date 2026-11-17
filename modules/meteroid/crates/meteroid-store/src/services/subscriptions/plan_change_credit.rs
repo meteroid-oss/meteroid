@@ -399,6 +399,34 @@ fn reach(period: &crate::domain::enums::SubscriptionFeeBillingPeriod) -> u32 {
         .map_or(0, |period| period.as_months())
 }
 
+/// How far back a cancellation on `at` reaches: the longest cadence of the fees in force from it
+/// to `until`, a fee a later change ended included, as a backdated ending gives it back too.
+async fn reach_of_rows_from(
+    conn: &mut PgConn,
+    subscription_id: SubscriptionId,
+    at: NaiveDate,
+    until: NaiveDate,
+) -> StoreResult<u32> {
+    use crate::domain::enums::SubscriptionFeeBillingPeriod;
+    use diesel_models::subscription_components::SubscriptionComponentRow;
+    let until = until.max(at.succ_opt().unwrap_or(at));
+    let components = SubscriptionComponentRow::list_component_history_for_period(
+        conn,
+        &subscription_id,
+        at,
+        until,
+    )
+    .await?
+    .into_iter()
+    .map(|row| reach(&SubscriptionFeeBillingPeriod::from(row.period)));
+    let add_ons =
+        SubscriptionAddOnRow::list_add_on_history_for_period(conn, &subscription_id, at, until)
+            .await?
+            .into_iter()
+            .map(|row| reach(&SubscriptionFeeBillingPeriod::from(row.period)));
+    Ok(components.chain(add_ons).max().unwrap_or(0))
+}
+
 /// The invoices an ending is settled against.
 #[derive(Debug, Clone)]
 pub(crate) struct EndingScope {
@@ -715,7 +743,11 @@ impl Services {
         settle_at: DateTime<Utc>,
     ) -> StoreResult<Vec<CreditNoteId>> {
         let prepaid = minimum::up_front_shortfalls_prepaid(conn, details).await?;
-        let ending = Ending::of_cancellation(details, at, settle_at, prepaid);
+        let mut ending = Ending::of_cancellation(details, at, settle_at, prepaid);
+        if let Some(end) = details.subscription.current_period_end {
+            let reach = reach_of_rows_from(conn, details.subscription.id, at, end).await?;
+            ending.reach_months = ending.reach_months.max(reach);
+        }
         let Some(scope) = EndingScope::of_subscription(&details.subscription, &ending) else {
             return Ok(vec![]);
         };
@@ -732,15 +764,22 @@ impl Services {
         conn: &mut PgConn,
         invoice: &Invoice,
     ) -> StoreResult<bool> {
-        let span = |lines: &[LineItem]| {
-            let from = lines.iter().map(|line| line.start_date).min()?;
-            let to = lines.iter().map(|line| line.end_date).max()?;
+        // A true-up of an earlier period is no line a change ends (R-022): it widens no span.
+        let span = |lines: &[LineItem], period_start: NaiveDate| {
+            let ended = || {
+                lines.iter().filter(|line| {
+                    line.kind != LineItemKind::MinimumShortfall
+                        || minimum::is_up_front(line, period_start)
+                })
+            };
+            let from = ended().map(|line| line.start_date).min()?;
+            let to = ended().map(|line| line.end_date).max()?;
             Some((from, to))
         };
         let mut billed: Vec<(SubscriptionId, NaiveDate, NaiveDate)> = Vec::new();
         match invoice.subscription_id {
             Some(subscription_id) => {
-                if let Some((from, to)) = span(&invoice.line_items) {
+                if let Some((from, to)) = span(&invoice.line_items, invoice.billing_period_start) {
                     billed.push((subscription_id, from, to));
                 }
             }
@@ -751,9 +790,10 @@ impl Services {
                         .await?
                 {
                     let child: Invoice = child.try_into()?;
-                    if let (Some(subscription_id), Some((from, to))) =
-                        (child.subscription_id, span(&child.line_items))
-                    {
+                    if let (Some(subscription_id), Some((from, to))) = (
+                        child.subscription_id,
+                        span(&child.line_items, child.billing_period_start),
+                    ) {
                         billed.push((subscription_id, from, to));
                     }
                 }
@@ -778,7 +818,7 @@ impl Services {
                 issued |= !notes.is_empty();
             }
             let cancellations =
-                SubscriptionEventRow::list_settling_cancellations(conn, subscription_id, from, to)
+                SubscriptionEventRow::list_settling_cancellations(conn, subscription_id, to)
                     .await?;
             for at in cancellations {
                 let notes = self
@@ -906,7 +946,9 @@ impl Services {
             .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
             .await?;
         let prepaid = minimum::up_front_shortfalls_prepaid(conn, &details).await?;
-        let ending = Ending::of_cancellation(&details, at, record.settle_at, prepaid);
+        let mut ending = Ending::of_cancellation(&details, at, record.settle_at, prepaid);
+        let reach = reach_of_rows_from(conn, subscription_id, at, record.period_end).await?;
+        ending.reach_months = ending.reach_months.max(reach);
         let scope = EndingScope {
             tenant_id,
             customer_id: details.subscription.customer_id,

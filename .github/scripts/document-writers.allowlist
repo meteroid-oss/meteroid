@@ -1,0 +1,56 @@
+# Functions allowed to write an invoice or a credit note: <path>::<impl type>::<fn> | class | reason.
+# A subscription's period, final and consolidated documents are the billing controller's
+# (lifecycle::derived); a change writes its own adjustment invoice and notes in its transaction.
+# Keep it short and current: an entry whose function no longer writes a document fails the check.
+
+# Primitives: each builds one kind of document; their callers are checked.
+modules/meteroid/crates/meteroid-store/src/services/invoices/draft.rs::Services::create_subscription_draft_invoice_unboxed | primitive | a subscription period's or final draft
+modules/meteroid/crates/meteroid-store/src/services/invoices/draft.rs::Services::create_subscription_draft_invoice | primitive | boxes the period's or final draft
+modules/meteroid/crates/meteroid-store/src/services/invoices/draft.rs::Services::create_adjustment_invoice_from_content | primitive | a change's adjustment invoice
+modules/meteroid/crates/meteroid-store/src/services/invoices/draft.rs::Services::create_adjustment_invoice | primitive | prices then builds a change's adjustment invoice
+modules/meteroid/crates/meteroid-store/src/services/invoices/draft.rs::Services::create_oneoff_draft_invoice | primitive | an operator's one-off invoice
+modules/meteroid/crates/meteroid-store/src/services/invoices/draft.rs::Services::create_corrected_invoice_from_tx | primitive | the invoice correcting a voided one
+modules/meteroid/crates/meteroid-store/src/services/invoices/draft.rs::Services::create_corrected_invoice_from | primitive | the same, in its own transaction
+modules/meteroid/crates/meteroid-store/src/services/invoices/consolidate.rs::Services::build_and_finalize_consolidated | primitive | a consolidated invoice over its members' drafts
+modules/meteroid/crates/meteroid-store/src/services/invoices/consolidate.rs::Services::consolidate_and_finalize | primitive | finalizes a customer's same-day drafts as one invoice
+modules/meteroid/crates/meteroid-store/src/services/subscriptions/slots.rs::Services::create_slot_upgrade_invoice_internal | primitive | a seat purchase's invoice
+modules/meteroid/crates/meteroid-store/src/services/subscriptions/slots.rs::Services::create_slot_upgrade_invoice_draft | primitive | a seat purchase's invoice left a draft
+modules/meteroid/crates/meteroid-store/src/services/subscriptions/slots.rs::Services::create_slot_upgrade_invoice | primitive | a seat purchase's invoice, finalized
+modules/meteroid/crates/meteroid-store/src/repositories/credit_notes.rs::create_user_credit_note_tx | primitive | a credit note against one invoice
+modules/meteroid/crates/meteroid-store/src/repositories/invoices.rs::Store::insert_invoice | primitive | an invoice as given, the API's and the imports'
+modules/meteroid/crates/meteroid-store/src/services/edge.rs::ServicesEdge::create_corrected_invoice_from | primitive | the correction, through the edge
+modules/meteroid/crates/meteroid-store/src/services/invoices/bill.rs::Services::bill_subscription_with_data_tx | primitive | a period's or final invoice from its draft, priced and issued
+modules/meteroid/crates/meteroid-store/src/services/invoices/bill.rs::Services::bill_subscription_tx | primitive | the same, its data read
+modules/meteroid/crates/meteroid-store/src/services/invoices/bill.rs::Services::bill_period_tx | primitive | a period's invoice
+modules/meteroid/crates/meteroid-store/src/services/invoices/bill.rs::Services::bill_final_invoice_tx | primitive | an ending's final invoice
+
+# The billing controller.
+modules/meteroid/crates/meteroid-store/src/services/lifecycle/derived.rs::Services::write_document_tx | writer | each document a step makes due
+modules/meteroid/crates/meteroid-store/src/services/lifecycle/controller.rs::Services::finalize_after_grace | writer | merges the drafts whose grace ended into the customer's consolidated invoice
+
+# Writers outside the controller: a change's own documents, an operator's, a purchase's.
+modules/meteroid/crates/meteroid-store/src/repositories/invoices.rs::Store::void_invoice_at | writer | an operator's void, its note taking back what was paid
+modules/meteroid/crates/meteroid-api/src/invoices/service.rs::InvoiceServiceComponents::create_invoice | writer | an operator's invoice through the API
+modules/meteroid/crates/meteroid-store/src/repositories/credit_notes.rs::Store::create_operator_credit_note | writer | an operator's credit note
+modules/meteroid/crates/meteroid-store/src/services/credit/purchase.rs::Services::record_credit_purchase | writer | a credit purchase's invoice, outside any subscription
+modules/meteroid/crates/meteroid-store/src/services/credit/wallet_purchase.rs::Services::draft_purchase_invoice | writer | a wallet top-up's invoice, outside any subscription
+modules/meteroid/crates/meteroid-store/src/services/invoices/draft.rs::Services::create_and_finalize_credit_note_with_reissue | writer | an operator's note reissuing what it corrects
+modules/meteroid/crates/meteroid-store/src/services/invoices/draft.rs::Services::record_addon_purchase_tx | writer | an add-on purchase's own adjustment invoice, once its charge settles
+modules/meteroid/crates/meteroid-store/src/services/orchestration/payment_transaction_settled.rs::Services::on_invoice_payment_settled_tx | writer | a deferred plan change that can never apply gives its payment back on a note
+modules/meteroid/crates/meteroid-store/src/services/subscriptions/amendment.rs::Services::issue_period_credit_notes_tx | writer | a change's own notes, taking back what the facts no longer owe
+modules/meteroid/crates/meteroid-api/src/invoices/service.rs::InvoiceServiceComponents::create_corrected_invoice | writer | an operator's correction of a voided invoice
+modules/meteroid/crates/meteroid-store/src/services/edge.rs::ServicesEdge::complete_checkout_plan_change_tx | writer | a plan change ending a free trial bills its first invoice when its checkout is paid
+modules/meteroid/crates/meteroid-store/src/services/evaluate/change.rs::Services::issue_change_adjustment_tx | writer | a change's own adjustment invoice
+modules/meteroid/crates/meteroid-store/src/services/subscriptions/slots.rs::Services::handle_on_invoice_paid_upgrade_tx | writer | a seat purchase's invoice, its seats held once it is paid
+modules/meteroid/crates/meteroid-store/src/services/subscriptions/slots.rs::Services::handle_optimistic_upgrade_tx | writer | a seat purchase's invoice, its seats held at once
+modules/meteroid/crates/meteroid-store/src/services/subscriptions/slots.rs::Services::complete_slot_upgrade_checkout | writer | a seat purchase paid through checkout
+modules/meteroid/crates/meteroid-store/src/services/invoices/regenerate.rs::Services::regenerate_voided_invoice | writer | an operator re-issues a voided period
+modules/meteroid/crates/meteroid-store/src/services/orchestration/payment_transaction_settled.rs::Services::resolve_checkout_payment | writer | a checkout's change applied when its payment settles, with its own documents
+
+# A start's opening invoice, written with what starts it (a checkout charges it, an activation or
+# an insert starting at once issues it), as the controller would at its first step.
+modules/meteroid/crates/meteroid-store/src/services/edge.rs::ServicesEdge::complete_subscription_checkout_charging_tx | writer | the opening invoice a checkout charges
+modules/meteroid/crates/meteroid-store/src/services/edge.rs::ServicesEdge::complete_checkout_self_serve_tx | writer | the opening invoice of a self-serve checkout
+modules/meteroid/crates/meteroid-store/src/services/subscriptions/activate.rs::Services::activate_subscription_manual | writer | the opening invoice of a manual activation
+modules/meteroid/crates/meteroid-store/src/services/subscriptions/insert/process.rs::Services::persist_subscriptions_internal | writer | the opening invoice of a subscription starting on insert
+modules/meteroid/crates/meteroid-store/src/services/subscriptions/plan_change.rs::Services::apply_plan_change_immediate_at | writer | a plan change ending a free trial issues the new plan's first invoice

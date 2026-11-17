@@ -427,16 +427,16 @@ impl CustomerRow {
                 SELECT s.customer_id,
                     -- SUM(int8) is numeric in Postgres; cast back to bigint for the i64 mapping.
                     COALESCE(SUM(s.mrr_cents) FILTER (
-                        WHERE s.status IN ('ACTIVE', 'PENDING_CHARGE')), 0)::bigint   AS mrr_cents,
-                    bool_or(s.status IN ('ACTIVE', 'PENDING_CHARGE')
+                        WHERE s.status = 'ACTIVE'), 0)::bigint   AS mrr_cents,
+                    bool_or(s.status = 'ACTIVE'
                             AND p.plan_type <> 'FREE')                                AS has_active_paid_sub,
                     bool_or(s.status = 'TRIAL_ACTIVE')                                AS is_trialing,
-                    bool_or(s.status IN ('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE', 'PAUSED')
+                    bool_or(s.status IN ('PENDING_ACTIVATION', 'TRIAL_ACTIVE', 'ACTIVE')
                             AND p.plan_type = 'FREE')                                 AS has_active_free_sub,
-                    bool_or(s.status IN ('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE', 'PAUSED'))
+                    bool_or(s.status IN ('PENDING_ACTIVATION', 'TRIAL_ACTIVE', 'ACTIVE'))
                                                                                       AS has_active_sub,
-                    bool_or(s.status = 'SUSPENDED')                                   AS has_suspended_sub,
-                    bool_or(s.status = 'PAUSED')                                      AS has_paused_sub,
+                    false AS has_suspended_sub,
+                    false AS has_paused_sub,
                     bool_or(s.status IN ('CANCELLED', 'COMPLETED')
                             AND p.plan_type <> 'FREE')                                AS had_paid_sub_ended,
                     bool_or(p.plan_type <> 'FREE')                                    AS ever_paid,
@@ -1222,17 +1222,17 @@ impl CustomerLifecycleSignalRow {
             FROM customer c
             LEFT JOIN LATERAL (
                 SELECT
-                    bool_or(s.status IN ('ACTIVE', 'PENDING_CHARGE') AND p.plan_type <> 'FREE') AS has_active_paid_sub,
+                    bool_or(s.status = 'ACTIVE' AND p.plan_type <> 'FREE') AS has_active_paid_sub,
                     bool_or(s.status = 'TRIAL_ACTIVE') AS is_trialing,
-                    bool_or(s.status IN ('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE', 'PAUSED') AND p.plan_type = 'FREE') AS has_active_free_sub,
-                    bool_or(s.status IN ('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE', 'PAUSED')) AS has_active_sub,
-                    bool_or(s.status = 'SUSPENDED') AS has_suspended_sub,
-                    bool_or(s.status = 'PAUSED') AS has_paused_sub,
+                    bool_or(s.status IN ('PENDING_ACTIVATION', 'TRIAL_ACTIVE', 'ACTIVE') AND p.plan_type = 'FREE') AS has_active_free_sub,
+                    bool_or(s.status IN ('PENDING_ACTIVATION', 'TRIAL_ACTIVE', 'ACTIVE')) AS has_active_sub,
+                    false AS has_suspended_sub,
+                    false AS has_paused_sub,
                     bool_or(s.status IN ('CANCELLED', 'COMPLETED') AND p.plan_type <> 'FREE') AS had_paid_sub_ended,
                     bool_or(p.plan_type <> 'FREE') AS ever_paid,
                     bool_or(s.status = 'TRIAL_EXPIRED') AS trial_expired,
                     min(s.end_date) FILTER (WHERE s.status IN ('CANCELLED', 'COMPLETED') AND p.plan_type <> 'FREE' AND s.end_date IS NOT NULL) AS min_paid_ended_end,
-                    max(s.start_date) FILTER (WHERE s.status IN ('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE', 'PAUSED')) AS max_active_start
+                    max(s.start_date) FILTER (WHERE s.status IN ('PENDING_ACTIVATION', 'TRIAL_ACTIVE', 'ACTIVE')) AS max_active_start
                 FROM subscription s
                 JOIN plan_version pv ON pv.id = s.plan_version_id
                 JOIN plan p ON p.id = pv.plan_id

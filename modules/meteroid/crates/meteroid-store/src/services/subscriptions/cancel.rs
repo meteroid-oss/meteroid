@@ -19,12 +19,10 @@ use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::{SubscriptionCycleRowPatch, SubscriptionRow};
 // TODO we need to always pass the tenant id and match it with the resource, if not within the resource.
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
-use crate::domain::scheduled_events::{ScheduledEventData, ScheduledEventNew};
 use crate::services::Services;
 use crate::services::credit::scope::credit_ended_at;
 use crate::services::credit::subscription_end::end_subscription_credit_tx;
 use common_domain::ids::{BaseId, SubscriptionId, TenantId};
-use diesel_models::scheduled_events::ScheduledEventRow;
 
 impl Services {
     pub(in crate::services) async fn cancel_subscription(
@@ -35,7 +33,34 @@ impl Services {
         reason: Option<String>,
         effective_at: CancellationEffectiveAt,
     ) -> StoreResult<Subscription> {
-        let db_subscription = self
+        self.cancel_subscription_at(
+            actor,
+            subscription_id,
+            tenant_id,
+            reason,
+            effective_at,
+            common_clock::now(),
+        )
+        .await
+    }
+
+    /// The cancellation requested at `requested_at`, the clock or a replay's earlier moment: it
+    /// applies in the request when its ending is reached by then.
+    pub(in crate::services) async fn cancel_subscription_at(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        reason: Option<String>,
+        effective_at: CancellationEffectiveAt,
+        requested_at: chrono::DateTime<chrono::Utc>,
+    ) -> StoreResult<Subscription> {
+        if requested_at > common_clock::now() {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "a cancellation cannot be requested at a future moment".to_string(),
+            )));
+        }
+        let (db_subscription, ends_at) = self
             .store
             .transaction(|conn| {
                 let actor = &actor;
@@ -54,15 +79,7 @@ impl Services {
                     let customer_id = subscription.subscription.customer_id;
                     let reason_for_audit = reason.clone();
 
-                    // Cancel all pending lifecycle events before scheduling the new cancellation
-                    ScheduledEventRow::cancel_pending_lifecycle_events(
-                        conn,
-                        subscription_id,
-                        &tenant_id,
-                        "Replaced by subscription cancellation",
-                    )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                    // A cancellation replaces the changes still to come.
                     crate::services::facts::pending::withdraw_pending_of_tx(
                         conn,
                         tenant_id,
@@ -72,7 +89,7 @@ impl Services {
                     )
                     .await?;
 
-                    let now = common_clock::now().naive_utc();
+                    let now = requested_at.naive_utc();
 
                     // A never-activated subscription (awaiting checkout / pending activation) was
                     // never counted in the active population: abort it immediately with no CANCELLED
@@ -82,12 +99,9 @@ impl Services {
                             id: subscription_id,
                             tenant_id,
                             status: Some(SubscriptionStatusEnum::Aborted),
-                            next_cycle_action: Some(None),
-                            cycle_index: None,
                             current_period_start: None,
                             current_period_end: None,
                             pending_checkout: Some(false),
-                            processing_started_at: Some(None),
                             billing_start_date: None,
                             billing_day_anchor: None,
                             terminated_at: None,
@@ -150,7 +164,7 @@ impl Services {
                             .await?;
                         }
 
-                        return Ok(res);
+                        return Ok((res, None));
                     }
 
                     // `usage_cutoff` is set only for an immediate cancel: it pins the terminal
@@ -162,9 +176,8 @@ impl Services {
                             // The period the subscription is in ends it, as Stripe's
                             // cancel_at_period_end: counting a cadence from today overshoots it.
                             CancellationEffectiveAt::EndOfBillingPeriod => (
-                                subscription
-                                    .subscription
-                                    .current_period_end
+                                period_end_in_force(conn, &subscription, requested_at)
+                                    .await?
                                     .or_else(|| {
                                         subscription
                                             .calculate_cancellable_end_of_period_date(now.date())
@@ -188,23 +201,19 @@ impl Services {
                     // the past, so `now` no longer belongs to the settled period; fall back to the
                     // date's midnight, keeping `terminated_at` consistent with the period boundary.
                     let usage_cutoff = usage_cutoff.filter(|c| c.date() == billing_end_date);
+                    let ends_at =
+                        usage_cutoff.unwrap_or_else(|| billing_end_date.and_time(NaiveTime::MIN));
 
-                    self.store
-                        .schedule_events(
-                            conn,
-                            vec![ScheduledEventNew {
-                                subscription_id: subscription.subscription.id,
-                                tenant_id,
-                                scheduled_time: billing_end_date.and_time(NaiveTime::MIN),
-                                event_data: ScheduledEventData::CancelSubscription {
-                                    reason,
-                                    usage_cutoff,
-                                },
-                                source: "edge".to_string(),
-                                created_by: actor.clone(),
-                            }],
-                        )
-                        .await?;
+                    crate::services::facts::record_cancellation_tx(
+                        conn,
+                        tenant_id,
+                        subscription_id,
+                        ends_at,
+                        now,
+                        reason,
+                        actor,
+                    )
+                    .await?;
 
                     let res =
                         SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
@@ -253,12 +262,80 @@ impl Services {
                     )
                     .await?;
 
-                    Ok(res)
+                    // The controller wakes at the ending, before its period's end.
+                    let held = self.is_held(conn, tenant_id).await?;
+                    self.derive_state_unless_held_tx(
+                        conn,
+                        actor,
+                        tenant_id,
+                        subscription_id,
+                        requested_at,
+                        held,
+                    )
+                    .await?;
+
+                    Ok((res, Some(ends_at.and_utc())))
                 }
                 .scope_boxed()
             })
             .await?;
 
+        // Reached already, the ending applies now, as the controller would: an ending past the
+        // stored period's end first renews each period before it, one boundary a step.
+        let held = {
+            let mut conn = self.store.get_conn().await?;
+            self.is_held(&mut conn, tenant_id).await?
+        };
+        // Held (R-123), the ending and its documents are the controller's, on release.
+        if !held && ends_at.is_some_and(|at| at <= requested_at) {
+            self.step_until_idle(
+                tenant_id,
+                subscription_id,
+                crate::services::lifecycle::controller::CATCH_UP,
+                crate::services::lifecycle::controller::StepOf::Request,
+            )
+            .await?;
+            let mut conn = self.store.get_conn().await?;
+            return SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, subscription_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .try_into();
+        }
         db_subscription.try_into()
     }
+}
+
+/// The end of the period the subscription is in at `at`, on its grid (R-084): the stored one,
+/// unless the controller has not renewed past it yet (it is behind, or retrying), then the one its
+/// facts hold at `at`. None without a period.
+async fn period_end_in_force(
+    conn: &mut crate::store::PgConn,
+    details: &SubscriptionDetails,
+    at: chrono::DateTime<chrono::Utc>,
+) -> StoreResult<Option<NaiveDate>> {
+    let stored = details.subscription.current_period_end;
+    if stored.is_none_or(|end| end > at.date_naive()) {
+        return Ok(stored);
+    }
+    let loaded = crate::services::evaluate::load::load_facts(
+        conn,
+        details.subscription.tenant_id,
+        details.subscription.id,
+        at.date_naive(),
+        None,
+    )
+    .await?;
+    let evaluation = billing_core::evaluate::evaluate(
+        &loaded.facts,
+        at,
+        None,
+        &crate::services::evaluate::pricer::StorePricer,
+    )
+    .map_err(crate::services::invoice_lines::fees::pricing_error)?;
+    Ok(evaluation
+        .state
+        .current_period
+        .and_then(|(_, end)| end)
+        .filter(|end| *end > at.date_naive())
+        .or(stored))
 }

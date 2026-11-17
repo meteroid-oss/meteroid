@@ -147,9 +147,12 @@ pub async fn backdate_sandbox_signatures(conn: &mut PgConn, tenant_id: TenantId)
     .into_db_result()?;
     diesel::sql_query(
         r#"
-        UPDATE scheduled_event
-        SET created_at = LEAST(created_at, scheduled_time - interval '12 days')
-        WHERE tenant_id = $1 AND event_type = 'CANCEL_SUBSCRIPTION' AND status = 'PENDING'
+        UPDATE subscription_ending e
+        SET created_at = LEAST(e.created_at, e.at - interval '12 days'),
+            requested_at = LEAST(e.requested_at, e.at - interval '12 days')
+        FROM subscription s
+        WHERE e.tenant_id = $1 AND e.kind = 'CANCEL' AND s.id = e.subscription_id
+          AND s.status NOT IN ('CANCELLED', 'COMPLETED', 'ABORTED')
         "#,
     )
     .bind::<sql_types::Uuid, _>(tenant_id)

@@ -106,7 +106,6 @@ impl ActiveSubscriptionsCountRow {
         // column is never populated, so status is the source of truth.
         let active_statuses = vec![
             SubscriptionStatusEnum::PendingActivation,
-            SubscriptionStatusEnum::PendingCharge,
             SubscriptionStatusEnum::TrialActive,
             SubscriptionStatusEnum::Active,
         ];

@@ -2,6 +2,8 @@
 //! (feature `timeline-shadow`): each period not one of its fee's windows fails the test.
 
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use billing_core::timeline::Grid;
 use chrono::NaiveDate;
@@ -11,6 +13,28 @@ use crate::domain::{ComponentPeriods, Period, SubscriptionDetails};
 use crate::utils::periods::CadenceRun;
 
 static MISMATCHES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// The subscriptions whose cadence changes the legacy path's runs miss, as `check_origins` last
+/// read them: their windows are read off a grid the facts never had, so they are not checked.
+static BLIND: Mutex<Vec<common_domain::ids::SubscriptionId>> = Mutex::new(Vec::new());
+
+fn blind_to(subscription: common_domain::ids::SubscriptionId) -> bool {
+    BLIND
+        .lock()
+        .is_ok_and(|blind| blind.contains(&subscription))
+}
+
+static SPENT: AtomicU64 = AtomicU64::new(0);
+
+/// The time this process spent in the checks, to profile a test run.
+pub fn time_spent() -> Duration {
+    Duration::from_nanos(SPENT.load(Ordering::Relaxed))
+}
+
+pub(crate) fn spend(since: Instant) {
+    let nanos = u64::try_from(since.elapsed().as_nanos()).unwrap_or(u64::MAX);
+    SPENT.fetch_add(nanos, Ordering::Relaxed);
+}
 
 /// What the timeline found different from the invoices since the last call.
 pub fn take_mismatches() -> Vec<String> {
@@ -48,6 +72,21 @@ pub(crate) fn check<T: SubscriptionFeeInterface>(
     runs: &[CadenceRun],
 ) {
     let sub = &details.subscription;
+    if blind_to(sub.id) {
+        return;
+    }
+    // An ending's invoice is no renewal: a change's grid read off it starts at the ending, which
+    // places nothing (R-084, R-016); as in `check_origins`, not checked.
+    let ends_that_day = sub.current_period_end.is_none()
+        || sub
+            .terminated_at
+            .is_some_and(|at| at.date() == invoice_date);
+    if ends_that_day
+        && crate::utils::periods::run_in_force(runs, record.effective_from(), record.effective_to())
+            .is_some_and(|run| run.origin >= invoice_date)
+    {
+        return;
+    }
     let anchor = u32::from(sub.billing_day_anchor);
     let billing_from =
         crate::services::invoice_lines::invoice_lines::billing_from(details, billing_start);
@@ -109,6 +148,32 @@ pub(crate) async fn check_origins(
     runs: &[CadenceRun],
 ) -> crate::StoreResult<()> {
     let sub = &details.subscription;
+    // R-084: a cadence change on the day an amendment's row opened and was closed by it is a plan
+    // window of the facts the legacy runs miss (they read that row as opened).
+    let windows =
+        diesel_models::subscription_facts::SubscriptionPlanWindowRow::list_by_subscription(
+            conn, sub.id,
+        )
+        .await
+        .map_err(Into::<error_stack::Report<crate::errors::StoreError>>::into)?;
+    let missed = windows.windows(2).any(|pair| {
+        pair[1].from_date <= invoice_date
+            && std::mem::discriminant(&pair[0].cadence) != std::mem::discriminant(&pair[1].cadence)
+            && !runs.iter().any(|run| run.switched_on == pair[1].from_date)
+    });
+    if let Ok(mut blind) = BLIND.lock() {
+        blind.retain(|id| *id != sub.id);
+        if missed {
+            blind.push(sub.id);
+        }
+    }
+    if missed {
+        log::debug!(
+            "timeline shadow: {} has a cadence change the legacy runs miss",
+            sub.id
+        );
+        return Ok(());
+    }
     // An ending's invoice comes before the renewals that place a switch's grid; read off them
     // or the switches alone, its origin bills no renewal: not checked.
     if sub.current_period_end.is_none()

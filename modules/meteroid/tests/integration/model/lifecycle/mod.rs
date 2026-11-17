@@ -2,6 +2,7 @@
 //! the period the model places, and, once ended, what the reference owes over the life.
 mod engine;
 mod generator;
+mod pinned;
 mod reference;
 
 use engine::Engine;
@@ -157,7 +158,9 @@ impl harness::Reference for Model {
             Action::Advance { at } => {
                 let sub = self.sub();
                 let what = match sub.scheduled {
-                    Some(reference::Scheduled::Cancel) => "the period ends, final invoice",
+                    Some(reference::Scheduled::Cancel(on)) if on <= at.date_naive() => {
+                        "the period ends, final invoice"
+                    }
                     _ => "renew",
                 };
                 format!("{}  {what} (plan {})", when(*at), plan_name(sub.plan))
@@ -297,6 +300,7 @@ pub async fn run_cases(shard: u64, shards: u64) {
         seed: 0x11FE_2026,
         steps: 24,
         jobs: 1,
+        moves_clock: true,
         shard,
         shards,
     })

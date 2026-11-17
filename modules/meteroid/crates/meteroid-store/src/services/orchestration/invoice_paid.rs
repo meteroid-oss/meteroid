@@ -8,7 +8,6 @@ use crate::services::Services;
 use crate::services::subscriptions::start::{StartTransition, mark_subscription_started_tx};
 use crate::utils::periods::calculate_advance_period_range;
 use common_domain::ids::TenantId;
-use diesel_models::enums::CycleActionEnum;
 use diesel_models::subscriptions::SubscriptionRow;
 use scoped_futures::ScopedFutureExt;
 
@@ -137,8 +136,6 @@ impl Services {
                         StartTransition::TrialExpiredToActive {
                             current_period_start: range.start,
                             current_period_end: Some(range.end),
-                            next_cycle_action: Some(CycleActionEnum::RenewSubscription),
-                            cycle_index: Some(0),
                         },
                     )
                     .await?;

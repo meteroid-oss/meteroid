@@ -10,6 +10,23 @@ use diesel::QueryableByName;
 use diesel::{OptionalExtension, sql_types};
 use error_stack::ResultExt;
 
+/// The active rows of a unit's seat ledger effective by $4, of subscription $2 of tenant $1.
+pub(crate) const ACTIVE_SLOT_ROWS: &str = "SELECT st.delta, st.prev_active_slots, st.effective_at, st.transaction_at \
+    FROM slot_transaction st INNER JOIN subscription s ON st.subscription_id = s.id \
+    WHERE s.tenant_id = $1 AND st.subscription_id = $2 AND st.unit = $3 \
+    AND st.status = 'ACTIVE' AND st.effective_at <= $4";
+
+/// The seats `active` holds: the latest row of no seats sets the count, the rows changing seats
+/// at or after its instant add theirs, whatever count they were written against; with no such
+/// row, the first row's count and every change. No row, no count.
+pub(crate) const SLOT_COUNT: &str = "SELECT b.prev_active_slots + COALESCE((\
+    SELECT SUM(a.delta) FROM active a \
+    WHERE a.delta <> 0 AND (NOT b.seed OR a.effective_at >= b.effective_at)), 0) AS slots \
+    FROM ((SELECT prev_active_slots, effective_at, true AS seed FROM active \
+    WHERE delta = 0 ORDER BY effective_at DESC, transaction_at DESC LIMIT 1) \
+    UNION ALL (SELECT prev_active_slots, effective_at, false AS seed FROM active \
+    ORDER BY effective_at, transaction_at LIMIT 1) ORDER BY seed DESC LIMIT 1) b";
+
 impl SlotTransactionRow {
     /// Re-points pending slot transactions from a set of (consolidated) invoices to the
     /// merged parent. Tenant-scoped via an EXISTS guard on the source invoice.
@@ -93,30 +110,10 @@ impl SlotTransactionRow {
     ) -> DbResult<Option<i32>> {
         use diesel_async::RunQueryDsl;
 
-        let raw_sql = r"
-WITH LatestCheckpoint AS (
-    SELECT st.prev_active_slots, st.transaction_at
-    FROM slot_transaction st
-    INNER JOIN subscription s ON st.subscription_id = s.id
-    WHERE s.tenant_id = $1
-      AND st.subscription_id = $2
-      AND st.unit = $3
-      AND st.transaction_at <= $4
-      AND st.status = 'ACTIVE'
-    ORDER BY transaction_at DESC
-    LIMIT 1
-)
-SELECT
-    (COALESCE(lc.prev_active_slots, 0) + COALESCE(SUM(st.delta), 0))::integer AS current_active_slots
-FROM LatestCheckpoint lc
-LEFT JOIN slot_transaction st ON
-    st.subscription_id = $2
-    AND st.unit = $3
-    AND st.effective_at >= lc.transaction_at
-    AND st.effective_at <= $4
-    AND st.status = 'ACTIVE'
-GROUP BY lc.prev_active_slots;
-";
+        // The count in force at $4 (`SLOT_COUNT`).
+        let raw_sql = format!(
+            "WITH active AS ({ACTIVE_SLOT_ROWS}) SELECT slots::integer AS current_active_slots FROM ({SLOT_COUNT}) c"
+        );
 
         diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)
@@ -184,31 +181,13 @@ GROUP BY lc.prev_active_slots;
         let tenant_id = lock.tenant_id();
         let at_ts = at_ts.unwrap_or_else(|| common_clock::now().naive_utc());
 
-        let raw_sql = r"
-WITH LatestCheckpoint AS (
-    SELECT st.prev_active_slots, st.transaction_at
-    FROM slot_transaction st
-    INNER JOIN subscription s ON st.subscription_id = s.id
-    WHERE s.tenant_id = $1
-      AND st.subscription_id = $2
-      AND st.unit = $3
-      AND st.transaction_at <= $4
-      AND st.status = 'ACTIVE'
-    ORDER BY transaction_at DESC
-    LIMIT 1
-    FOR UPDATE OF st
-)
-SELECT
-    (COALESCE(lc.prev_active_slots, 0) + COALESCE(SUM(st.delta), 0))::integer AS current_active_slots
-FROM LatestCheckpoint lc
-LEFT JOIN slot_transaction st ON
-    st.subscription_id = $2
-    AND st.unit = $3
-    AND st.effective_at >= lc.transaction_at
-    AND st.effective_at <= $4
-    AND st.status = 'ACTIVE'
-GROUP BY lc.prev_active_slots;
-";
+        // The unit's rows are locked, then counted as `fetch_active_slots` does.
+        let raw_sql = format!(
+            "WITH locked AS (SELECT st.id FROM slot_transaction st WHERE st.subscription_id = $2 AND st.unit = $3 FOR UPDATE), \
+             active AS ({ACTIVE_SLOT_ROWS}) \
+             SELECT slots::integer AS current_active_slots FROM ({SLOT_COUNT}) c \
+             WHERE (SELECT count(*) FROM locked) >= 0"
+        );
 
         let query = diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)

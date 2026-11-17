@@ -150,6 +150,14 @@ impl Services {
                                 .await?
                         }
                         SlotUpgradeBillingMode::OnInvoicePaid => {
+                            // Its seats wait for an invoice paid: none is written while held.
+                            if services.is_held(conn, tenant_id).await? {
+                                return Err(Report::new(StoreError::FailedPrecondition(
+                                    "this tenant's billing is held for the release; buy the seats \
+                                     at once or retry once it is released"
+                                        .to_owned(),
+                                )));
+                            }
                             services
                                 .handle_on_invoice_paid_upgrade_tx(
                                     conn,
@@ -387,12 +395,14 @@ impl Services {
             // The added slots are active immediately, so the subscription MRR grows now: the
             // writer's, from the seat step just written.
             let old_mrr = subscription_details.subscription.mrr_cents as i64;
-            self.derive_state_tx(
+            let held = self.is_held(conn, tenant_id).await?;
+            self.derive_state_unless_held_tx(
                 conn,
                 &crate::domain::entity_activity::Actor::System,
                 tenant_id,
                 subscription_id,
                 crate::services::evaluate::bill::midnight(start_date),
+                held,
             )
             .await?;
             let new_mrr =
@@ -403,19 +413,33 @@ impl Services {
                     .mrr_cents;
             subscription_details.subscription.mrr_cents = new_mrr.max(0) as u64;
 
-            let invoice_id = self
-                .create_slot_upgrade_invoice(
+            // Held (R-123), the seats bought bill on the controller's adjustment, on release.
+            let invoice_id = if held {
+                crate::services::lifecycle::release::leave_to_controller(
                     conn,
                     tenant_id,
-                    subscription_details,
-                    price_component_id,
-                    delta,
-                    slot.unit.as_str(),
-                    prorated_amount,
+                    subscription_id,
                     start_date,
-                    end_date,
+                    diesel_models::enums::SubscriptionChangeKindEnum::Amendment,
                 )
                 .await?;
+                None
+            } else {
+                Some(
+                    self.create_slot_upgrade_invoice(
+                        conn,
+                        tenant_id,
+                        subscription_details,
+                        price_component_id,
+                        delta,
+                        slot.unit.as_str(),
+                        prorated_amount,
+                        start_date,
+                        end_date,
+                    )
+                    .await?,
+                )
+            };
 
             // The expansion's record: a Switch event (mrr_delta None, so process_mrr never
             // books it); the writer booked the movement.
@@ -438,7 +462,7 @@ impl Services {
             Ok(UpdateSlotsResult {
                 new_slot_count,
                 delta_applied: delta,
-                invoice_id: Some(invoice_id),
+                invoice_id,
                 prorated_amount: Some(prorated_amount),
                 slots_active: true,
             })
@@ -479,7 +503,36 @@ impl Services {
             on,
         )
         .await?;
-        let own = crate::services::subscriptions::proration::own_period(grid, on)(&period);
+        // A fee of the subscription's cadence bills the period holding its current one, on its
+        // run's own grid, which a change of cadence may have left apart (R-084).
+        let same_cadence = period
+            .as_billing_period_opt()
+            .is_some_and(|own| own.as_months() == subscription.period.as_months());
+        let lineage = details
+            .price_components
+            .iter()
+            .find(|c| c.price_component_id() == Some(price_component_id))
+            .map(|c| billing_core::charge::Fee::Component(c.lineage()))
+            .filter(|_| same_cadence);
+        let held = on
+            .min(current_end.pred_opt().unwrap_or(current_end))
+            .max(subscription.current_period_start);
+        let billed = match &lineage {
+            Some(lineage) => {
+                crate::services::evaluate::change::fee_period_on(
+                    conn,
+                    subscription.tenant_id,
+                    subscription.id,
+                    held,
+                    lineage,
+                )
+                .await?
+            }
+            None => None,
+        };
+        let own = billed.unwrap_or_else(|| {
+            crate::services::subscriptions::proration::own_period(grid, on)(&period)
+        });
         Ok(grid.left(own, on))
     }
 

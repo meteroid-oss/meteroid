@@ -427,19 +427,18 @@ async fn an_offer_edited_after_publication_leaves_running_add_ons_as_they_are() 
         )
         .await
         .expect("schedule plan change");
-    // As the previous release left it: pending, written by the migration.
-    super::pending_facts::roll_back_changes_as_facts(&env).await;
-    let written = env
-        .services()
-        .write_pending_event_as_facts(TENANT_ID, event.id)
-        .await
-        .expect("write")
-        .expect("the change resolves");
-    let meteroid_store::services::facts::pending::Migration::Written(facts) = written else {
-        panic!("written once");
-    };
+    let change = diesel_models::subscription_changes::SubscriptionChangeRow::get_by_id(
+        &mut env.conn().await,
+        event.id,
+        &TENANT_ID,
+    )
+    .await
+    .expect("the scheduled change");
+    let written: meteroid_store::services::facts::pending::WrittenFacts =
+        serde_json::from_value(change.written_facts.expect("the rows it wrote"))
+            .expect("written facts");
     assert!(
-        facts.closes_add_ons.is_empty(),
+        written.closed_add_ons.is_empty(),
         "Pro offers it: it carries over"
     );
     env.store()

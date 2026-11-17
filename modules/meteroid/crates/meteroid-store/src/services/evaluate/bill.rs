@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 use billing_core::charge::{ChargeKey, ChargeKind, Denomination, Fee};
 use billing_core::evaluate::{Charge, DocumentSlot, Evaluation, evaluate};
-use billing_core::facts::{Billing, EndingKind, FactKind, Facts, FeeFact};
+use billing_core::facts::{Billing, Ending, EndingKind, FactKind, Facts, FeeFact};
 use billing_core::issued::{IssuedKind, IssuedLine};
 use billing_core::pricing;
 use billing_core::proration::DayFraction;
@@ -18,13 +18,13 @@ use diesel_models::invoices::InvoiceRow;
 use error_stack::Report;
 use rust_decimal::Decimal;
 
-use super::issued::{issued_line_of, load_billed};
+use super::issued::{issued_line_of, load_billed, noted_from};
 use super::load::{LoadedFacts, Overlay, load_facts, load_facts_with};
 use super::pricer::{StoreFee, StorePricer};
 use super::usage::{BreakdownRead, attach_breakdowns, read_usage};
 use crate::StoreResult;
 use crate::constants::Currencies;
-use crate::domain::enums::{InvoiceType, SubscriptionStatusEnum};
+use crate::domain::enums::InvoiceType;
 use crate::domain::{
     Invoice, LineCreditUnit, LineItem, LineItemKind, SubscriptionDetails, SubscriptionFee,
 };
@@ -86,14 +86,9 @@ pub(crate) fn midnight(date: NaiveDate) -> DateTime<Utc> {
     date.and_time(NaiveTime::MIN).and_utc()
 }
 
-/// Whether a period invoice of `invoice_type` is billed from its subscription's facts: a pause
-/// has no fact, so a paused subscription is billed as before until pause goes (R29).
-pub(in crate::services) fn bills_from_facts(
-    details: &SubscriptionDetails,
-    invoice_type: &InvoiceType,
-) -> bool {
+/// Whether a period invoice of `invoice_type` is billed from its subscription's facts.
+pub(in crate::services) fn bills_from_facts(invoice_type: &InvoiceType) -> bool {
     matches!(invoice_type, InvoiceType::Recurring | InvoiceType::Final)
-        && details.subscription.status != SubscriptionStatusEnum::Paused
 }
 
 /// The document a recurring invoice of `invoice_date` (or a final one) is, and those it carries.
@@ -128,6 +123,48 @@ pub(in crate::services) struct FromFacts {
     /// The reconcile watermark.
     #[cfg(feature = "facts-shadow")]
     pub watermark: Option<NaiveDate>,
+    /// The fee rows, as the comparison reads them.
+    #[cfg(feature = "facts-shadow")]
+    pub fees: Vec<crate::services::facts_shadow::ShadowFee>,
+    /// Where a free trial ends, fees billing from it.
+    #[cfg(feature = "facts-shadow")]
+    pub trial_end: Option<NaiveDate>,
+}
+
+#[cfg(feature = "facts-shadow")]
+fn shadow_fees(facts: &Facts<StoreFee>) -> Vec<crate::services::facts_shadow::ShadowFee> {
+    use crate::domain::SubscriptionFee;
+    facts
+        .fees
+        .iter()
+        .map(|fee| {
+            let store = &fee.fee;
+            let minor = Decimal::from(10_i64.pow(u32::from(store.precision)));
+            let price = match &store.fee {
+                SubscriptionFee::Rate { rate } | SubscriptionFee::Capacity { rate, .. } => {
+                    Some(*rate)
+                }
+                SubscriptionFee::Recurring { rate, quantity, .. }
+                | SubscriptionFee::OneTime { rate, quantity } => {
+                    Some(*rate * Decimal::from(*quantity))
+                }
+                _ => None,
+            };
+            let included = match &store.fee {
+                SubscriptionFee::Capacity { included, .. } => {
+                    Some(Decimal::from(*included) * store.instances)
+                }
+                _ => None,
+            };
+            crate::services::facts_shadow::ShadowFee {
+                row: fee.id,
+                arrears: fee.billing == Billing::Arrears,
+                price: price.map(|price| price * store.instances * minor),
+                included,
+                metric: store.metric(),
+            }
+        })
+        .collect()
 }
 
 /// The facts as a document written at `now` reads them: a cancellation still to come gives its
@@ -145,6 +182,45 @@ pub(super) fn as_written(facts: &mut Facts<StoreFee>, now: DateTime<Utc>) {
     {
         facts.ending = None;
     }
+}
+
+/// What `key` owes by now that no line bills, the facts read as they stand (`unwritten`: the
+/// start's settlement and the ending `as_written` set aside), with `watermark` the notes dated
+/// from it took back from earlier lines; `None` when nothing.
+fn unbilled_by_now(
+    facts: &Facts<StoreFee>,
+    (settled, ending): (Option<DateTime<Utc>>, Option<Ending>),
+    key: &ChargeKey,
+    issued: &[IssuedLine],
+    watermark: Option<(NaiveDate, i64)>,
+) -> StoreResult<Option<i64>> {
+    let facts = Facts {
+        start: billing_core::facts::Start {
+            settled,
+            ..facts.start
+        },
+        ending,
+        ..facts.clone()
+    };
+    let evaluation =
+        evaluate(&facts, common_clock::now(), None, &StorePricer).map_err(pricing_error)?;
+    let owed_from = |from: DateTime<Utc>| -> i64 {
+        evaluation
+            .charges
+            .iter()
+            .filter(|charge| charge.key == *key && !charge.is_commitment() && charge.due_at >= from)
+            .map(|charge| charge.amount)
+            .sum()
+    };
+    let expected = Expected {
+        key: key.clone(),
+        amount: owed_from(DateTime::<Utc>::MIN_UTC),
+    };
+    let since = watermark.map(|(w, noted)| (w, owed_from(midnight(w)) + noted));
+    Ok(match decide(&expected, issued, since, true) {
+        Decision::Unbilled(owed) if owed > 0 => Some(owed),
+        _ => None,
+    })
 }
 
 /// The instant an invoice of `invoice_date` is evaluated at, however late it is computed: its date,
@@ -199,15 +275,7 @@ impl Services {
     ) -> StoreResult<PricedInvoice> {
         // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
         Box::pin(async move {
-            // A pause has no fact: the periods it stopped would be caught up after a resume.
-            let paused = diesel_models::scheduled_events::ScheduledEventRow::was_paused(
-                conn,
-                &details.subscription.tenant_id,
-                details.subscription.id,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-            if paused || !bills_from_facts(details, &invoice_type) {
+            if !bills_from_facts(&invoice_type) {
                 return self
                     .price_invoice_lines(
                         conn,
@@ -298,6 +366,23 @@ impl Services {
             overlay,
         )
         .await?;
+        // A draft of a period a backdated cancellation ended before keeps nothing: closed empty.
+        let past_the_ending = invoice.is_some_and(|invoice| {
+            invoice.status == crate::domain::enums::InvoiceStatusEnum::Draft
+                && invoice.invoice_type == InvoiceType::Recurring
+        }) && loaded.facts.ending.is_some_and(|ending| {
+            ending.kind == EndingKind::Cancel
+                && midnight(invoice_date) >= ending.at
+                && loaded
+                    .facts
+                    .ending_recorded
+                    .is_some_and(|recorded| recorded > ending.on())
+        });
+        let cancelled_on = loaded
+            .facts
+            .ending
+            .filter(|ending| ending.kind == EndingKind::Cancel)
+            .map(|ending| ending.on());
         #[cfg(feature = "facts-shadow")]
         let ending = loaded.facts.effective_ending().map(|ending| ending.at);
         #[cfg(feature = "facts-shadow")]
@@ -309,6 +394,7 @@ impl Services {
             .facts
             .ending
             .is_some_and(|ending| ending.kind == EndingKind::Cancel && ending.at > now);
+        let unwritten = (loaded.facts.start.settled, loaded.facts.ending);
         as_written(&mut loaded.facts, now);
 
         let planned = evaluate(&loaded.facts, now, None, &StorePricer).map_err(pricing_error)?;
@@ -317,7 +403,7 @@ impl Services {
             .await?;
 
         // A written invoice billing no usage, whose period accrues none, keeps its lines.
-        if let Some(invoice) = invoice {
+        if let Some(invoice) = invoice.filter(|_| !past_the_ending) {
             let accrues = details.can_accrue_arrears()
                 || planned
                     .usage_needed
@@ -327,7 +413,13 @@ impl Services {
                     .charges
                     .iter()
                     .any(|c| slot.carries(c.document) && is_arrears(c, &loaded.facts));
-            if !invoice.line_items.iter().any(is_usage_based_line) && !accrues {
+            if !invoice.line_items.iter().any(is_usage_based_line)
+                && !accrues
+                && crate::services::invoice_lines::discount::shows_owed_coupons(
+                    conn, details, invoice,
+                )
+                .await?
+            {
                 let already_paid = prepaid_amount.unwrap_or(0) as i64;
                 let content = self
                     .estimate_stored_credit(conn, invoice, already_paid, common_clock::now(), book)
@@ -340,6 +432,13 @@ impl Services {
                     ending,
                     #[cfg(feature = "facts-shadow")]
                     watermark: loaded.facts.reconcile_from,
+                    #[cfg(feature = "facts-shadow")]
+                    fees: shadow_fees(&loaded.facts),
+                    #[cfg(feature = "facts-shadow")]
+                    trial_end: loaded
+                        .facts
+                        .free_trial()
+                        .map(|_| loaded.facts.billing_start()),
                 });
             }
         }
@@ -386,7 +485,7 @@ impl Services {
         // A written invoice keeps its fee lines (R-077): what a change makes of its period is the
         // change's own documents'. Its usage is read again (R-050).
         let kept: Vec<LineItem> = match (&written, invoice) {
-            (Some(written), Some(_)) => written
+            (Some(written), Some(_)) if !past_the_ending => written
                 .iter()
                 .filter(|line| !is_usage_based_line(line))
                 .filter(|line| {
@@ -414,6 +513,12 @@ impl Services {
             None => Vec::new(),
         };
         let others: Vec<IssuedLine> = billed.lines.iter().map(|on| on.line.clone()).collect();
+        let drafted: HashSet<&str> = billed
+            .lines
+            .iter()
+            .filter(|on| on.draft)
+            .map(|on| on.line.id.as_str())
+            .collect();
         let watermark = loaded.facts.reconcile_from;
 
         count_unmatched(
@@ -461,7 +566,8 @@ impl Services {
                     .is_none_or(|owner| *owner == key)
             };
             // A usage line issued over a longer period holding this one billed its usage: a
-            // cancellation backdated past that line's invoice reads it again (R-080).
+            // cancellation backdated past that line's invoice reads it again (R-080). A draft's
+            // line is billed again when it is refreshed; an ending's own day starts past the line.
             let covers = |line: &IssuedLine| {
                 usage
                     && line.key.subscription == key.subscription
@@ -469,8 +575,9 @@ impl Services {
                     && line.key.kind == key.kind
                     && line.key.denomination == key.denomination
                     && line.from <= key.from
+                    && key.from < line.until
                     && key.until <= line.until
-                    && line.from < line.until
+                    && !drafted.contains(line.id.as_str())
             };
             let issued: Vec<IssuedLine> = others
                 .iter()
@@ -493,7 +600,8 @@ impl Services {
                         charge.key == key && !charge.is_commitment() && charge.due_at >= midnight(w)
                     })
                     .map(|charge| charge.amount)
-                    .sum()
+                    .sum::<i64>()
+                    + noted_from(&billed.noted, &issued, w)
             });
             let difference = match decide(
                 &expected,
@@ -531,7 +639,23 @@ impl Services {
                 {
                     continue;
                 }
-                Decision::Unbilled(owed) => {
+                Decision::Unbilled(as_written) => {
+                    // The document reads the facts at its date; whether a charge is left unbilled
+                    // is what the facts owe by now against every line, a later ending's notes too.
+                    let Some(owed) = unbilled_by_now(
+                        &loaded.facts,
+                        unwritten,
+                        &key,
+                        &issued,
+                        watermark.map(|w| (w, noted_from(&billed.noted, &issued, w))),
+                    )?
+                    else {
+                        continue;
+                    };
+                    log::debug!(
+                        "subscription {}: {key:?} owes {as_written} at the document's date",
+                        sub.id
+                    );
                     log::warn!(
                         "subscription {}: {key:?} owes {owed} no document billed; the written invoice keeps its lines",
                         sub.id
@@ -624,11 +748,27 @@ impl Services {
             .and_then(|invoice| invoice.cycle_index)
             .or(sub.cycle_index)
             .unwrap_or(0);
-        let true_up = if invoice_type == InvoiceType::Recurring {
-            crate::services::invoice_lines::minimum::load_period_true_up(
+        let (read_at, span) = crate::services::invoice_lines::invoice_lines::billed_at(
+            conn,
+            sub.tenant_id,
+            sub.id,
+            BilledSpan::of(&invoice_type),
+            invoice_date,
+        )
+        .await?;
+        // A backdated cancellation's final invoice trues up the period its ending cut, as the
+        // recurring invoice of the ending's day would; a draft past that ending trues up nothing.
+        let trues_up = match invoice_type {
+            InvoiceType::Recurring => !past_the_ending,
+            InvoiceType::Final => span == BilledSpan::Period,
+            _ => false,
+        };
+        let nominals = nominals(details, &loaded.facts, &planned, currency.precision);
+        let true_up = if trues_up {
+            crate::services::invoice_lines::minimum::load_period_true_up_priced(
                 conn,
                 details,
-                invoice_date,
+                read_at,
                 cycle_index,
                 written
                     .as_ref()
@@ -638,23 +778,44 @@ impl Services {
                         ..invoice.clone()
                     })
                     .as_ref(),
+                &nominals,
             )
             .await?
         } else {
             None
         };
+        // The ending's own document trues up again the earlier periods it gives spend back in.
+        let ends_here = match invoice_type {
+            InvoiceType::Final => true,
+            InvoiceType::Recurring => !past_the_ending && cancelled_on == Some(read_at),
+            _ => false,
+        };
+        let reopened = match cancelled_on.filter(|on| ends_here && *on <= read_at) {
+            Some(on) => {
+                let before = true_up
+                    .as_ref()
+                    .map_or(sub.current_period_start.min(on), |true_up| true_up.start);
+                crate::services::invoice_lines::minimum::load_reopened_true_ups(
+                    conn, details, before, on, &nominals,
+                )
+                .await?
+                .into_boxed_slice()
+            }
+            None => Box::default(),
+        };
 
         Ok(FromFacts {
             priced: PricedInvoice::Lines(PricedLines {
                 lines,
-                invoice_date,
+                invoice_date: read_at,
                 currency_precision: currency.precision,
                 tax_inclusive,
-                span: BilledSpan::of(&invoice_type),
+                span,
                 invoice_type,
                 prepaid_amount,
                 invoice_id: invoice.map(|invoice| invoice.id),
                 true_up,
+                reopened,
             }),
             #[cfg(feature = "facts-shadow")]
             state,
@@ -662,6 +823,13 @@ impl Services {
             ending,
             #[cfg(feature = "facts-shadow")]
             watermark: loaded.facts.reconcile_from,
+            #[cfg(feature = "facts-shadow")]
+            fees: shadow_fees(&loaded.facts),
+            #[cfg(feature = "facts-shadow")]
+            trial_end: loaded
+                .facts
+                .free_trial()
+                .map(|_| loaded.facts.billing_start()),
         })
     }
 
@@ -763,6 +931,39 @@ impl Services {
             .iter()
             .any(|need| slot.carries(need.document) && need.read.window.until <= now))
     }
+
+    /// Whether the document of a cancellation ending on `on` would true up again an earlier period
+    /// it gives spend back in (R-022): written for that alone when the ending bills nothing else.
+    pub(in crate::services) async fn ending_reopens_true_ups(
+        &self,
+        conn: &mut PgConn,
+        details: &SubscriptionDetails,
+        on: NaiveDate,
+    ) -> StoreResult<bool> {
+        let sub = &details.subscription;
+        let currency = Currencies::resolve_currency(&sub.currency).ok_or_else(|| {
+            Report::new(StoreError::ValueNotFound(format!(
+                "Currency {} not found",
+                sub.currency
+            )))
+        })?;
+        let loaded = load_facts(conn, sub.tenant_id, sub.id, on, None).await?;
+        let planned =
+            evaluate(&loaded.facts, midnight(on), None, &StorePricer).map_err(pricing_error)?;
+        let nominals = nominals(details, &loaded.facts, &planned, currency.precision);
+        let reopened = crate::services::invoice_lines::minimum::load_reopened_true_ups(
+            conn,
+            details,
+            sub.current_period_start.min(on),
+            on,
+            &nominals,
+        )
+        .await?;
+        Ok(reopened.iter().any(|true_up| {
+            let prior = true_up.prior_as_issued(&details.applied_coupons, &sub.currency, &[]);
+            !true_up.true_up.lines(&[], &prior).is_empty()
+        }))
+    }
 }
 
 impl Services {
@@ -831,8 +1032,8 @@ pub(super) enum Decision {
 
 /// The positive difference between `expected` and what `issued`, the lines billing its key, still
 /// bill after their notes (R-080). With `watermark`, the watermark and what the key's charges due
-/// on or after it owe: a line before it settles the charges due before it, so only those are
-/// billed against the lines dated from it (R-094).
+/// on or after it owe plus what notes from it took back from earlier lines: a line before it
+/// settles the charges due before it, so only those are billed against the lines from it (R-094).
 pub(super) fn decide(
     expected: &Expected,
     issued: &[IssuedLine],
@@ -976,6 +1177,57 @@ fn by_row<'a>(
         ));
     }
     (parts.iter().map(|(part, _)| part.amount).sum::<i64>() == charge.amount).then_some(parts)
+}
+
+/// Each fixed fee charge's whole period and its price there, as its notes prorate it (R-079).
+fn nominals(
+    details: &SubscriptionDetails,
+    facts: &Facts<StoreFee>,
+    evaluation: &Evaluation,
+    precision: u8,
+) -> crate::services::invoice_lines::minimum::Nominals {
+    let periods = evaluation
+        .charges
+        .iter()
+        .filter(|charge| {
+            charge.key.kind == ChargeKind::Fee
+                && charge.key.denomination == Denomination::Money
+                && charge.usage.is_none()
+        })
+        .filter_map(|charge| {
+            let row = row_of(facts, charge)?;
+            let full = fixed_shown(
+                &row.fee.fee,
+                row.fee.instances,
+                charge.quantity,
+                None,
+                precision,
+            )?;
+            let seat = match &row.fee.fee {
+                SubscriptionFee::Slot { .. } => fixed_shown(
+                    &row.fee.fee,
+                    row.fee.instances,
+                    Some(Decimal::ONE),
+                    None,
+                    precision,
+                )
+                .and_then(|seat| i64::try_from(seat.total).ok()),
+                _ => None,
+            };
+            Some((
+                charge.key.fee.clone(),
+                (charge.key.from, charge.key.until),
+                billing_core::minimum::Nominal {
+                    period: charge.nominal,
+                    full: i64::try_from(full.total).ok()?,
+                    base: 0,
+                },
+                seat,
+                charge.window.0,
+            ))
+        })
+        .collect();
+    crate::services::invoice_lines::minimum::Nominals::new(Lineages::of(details), periods)
 }
 
 /// The days of `window` over those of `nominal`, when fewer (R-002).

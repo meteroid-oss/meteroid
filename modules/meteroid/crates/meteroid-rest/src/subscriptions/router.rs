@@ -55,7 +55,7 @@ pub async fn list_subscriptions(
 ) -> Result<impl IntoResponse, RestApiError> {
     let status_filter = request
         .statuses
-        .map(|statuses| statuses.into_iter().map(|s| s.into()).collect());
+        .map(|statuses| statuses.into_iter().filter_map(|s| s.held()).collect());
 
     let customer_id = match request.customer_id {
         None => None,

@@ -1,9 +1,6 @@
-pub mod billing_events;
 pub mod controller;
 pub(crate) mod derived;
-pub mod period_transitions;
-
-pub use period_transitions::CycleTransitionResult;
+pub mod release;
 
 /// A read the metering service cannot serve yet (one predating usage filters, during a deploy) is
 /// no failure of the work: it is retried later without counting against its retries.

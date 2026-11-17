@@ -434,11 +434,10 @@ impl SubscriptionRow {
     /// Included statuses:
     ///   - `Active`: regular paid, in-cycle subscription.
     ///   - `TrialActive`: trial in progress — entitlements granted to let trialists evaluate.
-    ///   - `PendingCharge`: invoice issued, not yet collected; access continues during dunning.
     ///
-    /// Excluded by design: `Paused`, `Pending`, `TrialExpired`, `Cancelled`, `Ended`,
-    /// `Suspended`, `Completed`. Pause and trial-expiration both intentionally cut off
-    /// feature access until the operator reactivates.
+    /// Excluded by design: `PendingActivation`, `TrialExpired`, `Cancelled`, `Aborted`,
+    /// `Completed`. Trial expiration intentionally cuts off feature access until the checkout
+    /// settles.
     pub async fn find_active_by_customer(
         conn: &mut PgConn,
         customer_id: CustomerId,
@@ -451,7 +450,6 @@ impl SubscriptionRow {
         let active_statuses = vec![
             SubscriptionStatusEnum::Active,
             SubscriptionStatusEnum::TrialActive,
-            SubscriptionStatusEnum::PendingCharge,
         ];
 
         let query = s_dsl::subscription
@@ -487,7 +485,6 @@ impl SubscriptionRow {
             .filter(s_dsl::status.eq_any(vec![
                 SubscriptionStatusEnum::Active,
                 SubscriptionStatusEnum::TrialActive,
-                SubscriptionStatusEnum::PendingCharge,
             ]))
             .select(SubscriptionRow::as_select())
             .get_results(conn)

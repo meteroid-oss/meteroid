@@ -32,7 +32,6 @@ use meteroid_store::domain::invoice_annex_templates::{
 };
 use meteroid_store::domain::invoices::InvoiceAnnexCell;
 use meteroid_store::domain::price_components::{MatrixDimension, MatrixRow, UsagePricingModel};
-use meteroid_store::domain::scheduled_events::{ScheduledEventData, ScheduledEventNew};
 use meteroid_store::domain::subscription_components::CreateSubscriptionComponents;
 use meteroid_store::domain::{
     ApiTokenNew, BillableMetric, BillableMetricNew, CreateSubscription, Invoice,
@@ -350,12 +349,12 @@ impl Stack {
         for _ in 0..3 {
             self.meteroid
                 .services
-                .get_and_process_cycle_transitions()
+                .run_subscription_steps()
                 .await
                 .expect("cycle transitions");
             self.meteroid
                 .services
-                .get_and_process_due_events()
+                .run_invoice_deadlines()
                 .await
                 .expect("due events");
         }
@@ -835,8 +834,8 @@ async fn preview_and_invoice_agree(renewed_today: bool) {
     assert_eq!(stack.invoiced(b, start).await, 1_400);
 }
 
-/// A filtered subscription's claim ends with it: cancelled at a date, paused, or cancelled at once
-/// before its fixed term. Its key's later events fall back to the unfiltered subscription.
+/// A filtered subscription's claim ends with it: cancelled at a date, or cancelled at once before
+/// its fixed term. Its key's later events fall back to the unfiltered subscription.
 #[tokio::test]
 async fn test_a_usage_filter_claims_nothing_once_its_subscription_ended() {
     clear_of_midnight(600).await;
@@ -847,12 +846,10 @@ async fn test_a_usage_filter_claims_nothing_once_its_subscription_ended() {
     let next_month = this_month + Months::new(1);
 
     let cancelled = stack.customer("Cancelled at a date").await;
-    let paused = stack.customer("Paused").await;
     let fixed_term = stack.customer("Fixed term cancelled at once").await;
     let mut pairs = Vec::new();
     for (customer, end) in [
         (cancelled, None),
-        (paused, None),
         (fixed_term, Some(next_month + Months::new(1))),
     ] {
         let a = stack
@@ -877,32 +874,13 @@ async fn test_a_usage_filter_claims_nothing_once_its_subscription_ended() {
         )
         .await
         .expect("cancel A at the start of this month");
-    {
-        let mut conn = stack.meteroid.store.get_conn().await.unwrap();
-        stack
-            .meteroid
-            .store
-            .schedule_events(
-                &mut conn,
-                vec![ScheduledEventNew {
-                    subscription_id: pairs[1].1,
-                    tenant_id: TENANT_ID,
-                    scheduled_time: this_month.and_time(NaiveTime::MIN),
-                    event_data: ScheduledEventData::PauseSubscription,
-                    source: "test".to_owned(),
-                    created_by: Actor::System,
-                }],
-            )
-            .await
-            .expect("pause A at the start of this month");
-    }
     stack.process_cycles().await;
     stack
         .meteroid
         .services
         .cancel_subscription(
             Actor::System,
-            pairs[2].1,
+            pairs[1].1,
             TENANT_ID,
             None,
             CancellationEffectiveAt::Immediate,
@@ -911,10 +889,10 @@ async fn test_a_usage_filter_claims_nothing_once_its_subscription_ended() {
         .expect("end the fixed-term A now");
     stack.process_cycles().await;
     for (_, a, _) in &pairs {
-        assert!(matches!(
+        assert_eq!(
             stack.subscription_row(*a).await.status,
-            SubscriptionStatusEnum::Cancelled | SubscriptionStatusEnum::Paused
-        ));
+            SubscriptionStatusEnum::Cancelled
+        );
     }
     tokio::time::sleep(Duration::from_millis(1_100)).await;
 

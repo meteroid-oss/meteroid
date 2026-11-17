@@ -159,6 +159,8 @@ async fn customer_term_names_the_pending_cancellation(#[future] test_env: TestEn
         date(2026, 11, 1),
     )
     .await;
+    // The detectors' present: the cancellation is still to come.
+    env.set_now(now().and_utc());
     env.services()
         .cancel_subscription(
             Actor::System,
@@ -181,17 +183,15 @@ async fn customer_term_names_the_pending_cancellation(#[future] test_env: TestEn
     let event = term
         .cancellation_event_id
         .expect("the pending cancellation");
-    use diesel_models::schema::scheduled_event::dsl as se;
-    let event_type: diesel_models::enums::ScheduledEventTypeEnum = se::scheduled_event
-        .filter(se::id.eq(event))
-        .select(se::event_type)
+    use common_domain::ids::BaseId;
+    use diesel_models::schema::subscription_ending::dsl as e;
+    let (subscription, kind): (SubscriptionId, String) = e::subscription_ending
+        .filter(e::id.eq(event.as_uuid()))
+        .select((e::subscription_id, e::kind))
         .first(&mut env.conn().await)
         .await
         .unwrap();
-    assert_eq!(
-        event_type,
-        diesel_models::enums::ScheduledEventTypeEnum::CancelSubscription
-    );
+    assert_eq!((subscription, kind.as_str()), (cancelled, "CANCEL"));
 }
 
 #[rstest]

@@ -64,12 +64,7 @@ impl Services {
                 let subscription = &details.subscription;
                 let not_billable = match subscription.status {
                     SubscriptionStatusEnum::PendingActivation => Some("has not started yet"),
-                    SubscriptionStatusEnum::PendingCharge => Some("awaits its first payment"),
                     SubscriptionStatusEnum::Aborted => Some("was never activated"),
-                    SubscriptionStatusEnum::Superseded => {
-                        Some("was replaced by another subscription")
-                    }
-                    SubscriptionStatusEnum::Errored => Some("is in error"),
                     _ if subscription.pending_checkout => Some("awaits its checkout"),
                     _ => None,
                 };
@@ -78,10 +73,8 @@ impl Services {
                         "This invoice cannot be regenerated: its subscription {state}"
                     )));
                 }
-                let same_cycle = voided
-                    .cycle_index
-                    .is_none_or(|cycle| subscription.cycle_index == Some(cycle));
-                if subscription.current_period_start != voided.billing_period_start || !same_cycle {
+                // A period's start names it: the cycle a draft pinned is derived from it.
+                if subscription.current_period_start != voided.billing_period_start {
                     bail!(StoreError::InvalidArgument(format!(
                         "Only the invoice of the current billing period (starting {}) can be \
                          regenerated; bill a past period with a one-off invoice",
@@ -186,10 +179,7 @@ impl ServicesEdge {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .subscription;
-        let same_cycle = invoice
-            .cycle_index
-            .is_none_or(|cycle| subscription.cycle_index == i32::try_from(cycle).ok());
-        if subscription.current_period_start != invoice.billing_period_start || !same_cycle {
+        if subscription.current_period_start != invoice.billing_period_start {
             return Ok(false);
         }
         let billed = if invoice.invoice_type == InvoiceType::Final {

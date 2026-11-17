@@ -30,6 +30,16 @@ pub async fn bump_customer(conn: &mut PgConn, lock: &CustomerLock) -> DbResult<(
 
 /// Customers of one or several tenants, deduplicated and in key order: one statement per table.
 pub async fn bump_customers(conn: &mut PgConn, locks: &[&CustomerLock]) -> DbResult<()> {
+    bump(conn, locks, true).await
+}
+
+/// As [`bump_customer`], for the customer's billing controller's own writes: the credit inputs
+/// move, the controller is not marked again, its run taking what they made due.
+pub async fn bump_customer_inputs(conn: &mut PgConn, lock: &CustomerLock) -> DbResult<()> {
+    bump(conn, &[lock], false).await
+}
+
+async fn bump(conn: &mut PgConn, locks: &[&CustomerLock], marks_controller: bool) -> DbResult<()> {
     for lock in locks {
         lock.on(conn);
     }
@@ -52,21 +62,23 @@ pub async fn bump_customers(conn: &mut PgConn, locks: &[&CustomerLock]) -> DbRes
     .attach("Error while bumping customers' credit input tokens")
     .into_db_result()?;
     // An input changed: the customer's billing controller runs (see `billing_controller`).
-    sql_query(
-        "INSERT INTO billing_controller (tenant_id, customer_id, dirty_since, updated_at)
-         SELECT k.tenant_id, k.customer_id, $3, $3
-         FROM UNNEST($1::uuid[], $2::uuid[]) WITH ORDINALITY AS k (tenant_id, customer_id, n)
-         ORDER BY k.n
-         ON CONFLICT (tenant_id, customer_id) DO UPDATE
-         SET dirty_since = excluded.dirty_since, updated_at = excluded.updated_at",
-    )
-    .bind::<sql_types::Array<sql_types::Uuid>, _>(&tenants)
-    .bind::<sql_types::Array<sql_types::Uuid>, _>(&customers)
-    .bind::<sql_types::Timestamptz, _>(common_clock::now())
-    .execute(conn)
-    .await
-    .attach("Error while marking customers' billing controllers")
-    .into_db_result()?;
+    if marks_controller {
+        sql_query(
+            "INSERT INTO billing_controller (tenant_id, customer_id, dirty_since, updated_at)
+             SELECT k.tenant_id, k.customer_id, $3, $3
+             FROM UNNEST($1::uuid[], $2::uuid[]) WITH ORDINALITY AS k (tenant_id, customer_id, n)
+             ORDER BY k.n
+             ON CONFLICT (tenant_id, customer_id) DO UPDATE
+             SET dirty_since = excluded.dirty_since, updated_at = excluded.updated_at",
+        )
+        .bind::<sql_types::Array<sql_types::Uuid>, _>(&tenants)
+        .bind::<sql_types::Array<sql_types::Uuid>, _>(&customers)
+        .bind::<sql_types::Timestamptz, _>(common_clock::now())
+        .execute(conn)
+        .await
+        .attach("Error while marking customers' billing controllers")
+        .into_db_result()?;
+    }
     record_customers(conn, &tenants, &customers, CreditInputChangeKind::Inputs).await
 }
 

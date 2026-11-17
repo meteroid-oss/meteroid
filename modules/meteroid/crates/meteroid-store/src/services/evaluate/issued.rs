@@ -36,6 +36,65 @@ pub struct Issued {
     pub lines: Vec<IssuedOn>,
     /// Lines naming no component or add-on: past the watermark they bill nothing.
     pub unattached: Vec<IssuedOn>,
+    /// What each line's corrections took back, by the day their note was finalized.
+    pub noted: HashMap<String, Vec<(NaiveDate, i64)>>,
+}
+
+/// What corrections dated from the watermark `w` took back from those of `lines` starting before
+/// it: activity from the watermark, counted with what falls due from it (R-094).
+pub fn noted_from(
+    noted: &HashMap<String, Vec<(NaiveDate, i64)>>,
+    lines: &[IssuedLine],
+    w: NaiveDate,
+) -> i64 {
+    lines
+        .iter()
+        .filter(|line| line.from < w && line.key.denomination == Denomination::Money)
+        .filter_map(|line| noted.get(&line.id))
+        .flatten()
+        .filter(|(day, _)| *day >= w)
+        .map(|(_, amount)| amount)
+        .sum()
+}
+
+/// The corrections of `invoice_id`'s lines, as `load_credit_matching_context` counts them, by the
+/// day their note was finalized.
+async fn corrections_by_day(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    invoice_id: InvoiceId,
+    into: &mut HashMap<String, Vec<(NaiveDate, i64)>>,
+) -> StoreResult<()> {
+    use diesel_models::credit_notes::CreditNoteRow;
+    use diesel_models::enums::{CreditNoteOriginEnum, CreditNoteStatus};
+    let notes = CreditNoteRow::list_by_invoice_id(conn, tenant_id, invoice_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    for note in notes {
+        let Some(finalized) = note.finalized_at else {
+            continue;
+        };
+        if note.status != CreditNoteStatus::Finalized
+            || matches!(
+                note.origin,
+                CreditNoteOriginEnum::Manual | CreditNoteOriginEnum::Void
+            )
+        {
+            continue;
+        }
+        let lines: Vec<LineItem> = serde_json::from_value(note.line_items).map_err(|e| {
+            Report::new(StoreError::SerdeError(
+                "Failed to deserialize credit note line items".to_string(),
+                e,
+            ))
+        })?;
+        for line in lines.into_iter().filter(|line| line.amount_subtotal < 0) {
+            into.entry(line.local_id)
+                .or_default()
+                .push((finalized.date(), -line.amount_subtotal));
+        }
+    }
+    Ok(())
 }
 
 /// The lines of the issued invoices of `subscription_id` settling periods from `from` on, its
@@ -112,6 +171,7 @@ pub async fn load_billed(
         }
         let (line_lineage, mut already_credited, mut corrected, _) =
             load_credit_matching_context(conn, tenant_id, &invoice).await?;
+        corrections_by_day(conn, tenant_id, invoice.id, &mut issued.noted).await?;
         // A draft merged into a consolidated invoice is credited by notes against that invoice.
         if let Some(parent) = parent {
             let as_parent = Invoice {
@@ -126,6 +186,7 @@ pub async fn load_billed(
             for (line, amount) in by_engine {
                 *corrected.entry(line).or_insert(0) += amount;
             }
+            corrections_by_day(conn, tenant_id, parent, &mut issued.noted).await?;
         }
         let lineages = Lineages::of_lines(&invoice.line_items, &line_lineage);
         for line in &invoice.line_items {

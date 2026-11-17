@@ -2,8 +2,8 @@ use crate::StoreResult;
 use crate::domain::LineItemKind;
 use crate::domain::SubscriptionStatusEnum;
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
+use crate::domain::enums::InvoiceStatusEnum;
 use crate::domain::enums::SubscriptionFeeBillingPeriod;
-use crate::domain::enums::{CreditType, InvoicePaymentStatus, InvoiceStatusEnum};
 use crate::domain::invoice_lines::LineItem;
 use crate::domain::invoices::Invoice;
 use crate::domain::price_components::{PriceComponentNewInternal, PriceEntry, ProductRef};
@@ -48,11 +48,12 @@ use common_domain::ids::{
 use common_utils::decimals::ToSubunit;
 use diesel_models::credit_notes::CreditNoteRow;
 use diesel_models::enums::CreditNoteStatus;
+use diesel_models::enums::SubscriptionChangeKindEnum;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::query::credit_inputs;
-use diesel_models::scheduled_events::ScheduledEventRow;
 use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
+use diesel_models::subscription_changes::SubscriptionChangeRow;
 use diesel_models::subscription_components::{
     SubscriptionComponentRow, SubscriptionComponentRowNew,
 };
@@ -214,6 +215,7 @@ impl Services {
                 };
 
                 ProrationSummary {
+                    document: Default::default(),
                     credits_total_cents: 0,
                     charges_total_cents: 0,
                     net_amount_cents: 0,
@@ -496,7 +498,18 @@ impl Services {
 
                 // What the rows just written owe goes on an adjustment invoice; what reconcile
                 // takes back of the lines billing them, latest first, on notes (R-078, R-080).
+                let held = services.is_held(conn, tenant_id).await?;
                 let (adjustment_invoice_id, credit_note_ids) = if is_free_trial {
+                    (None, vec![])
+                } else if held {
+                    crate::services::lifecycle::release::leave_to_controller(
+                        conn,
+                        tenant_id,
+                        subscription_id,
+                        change_date,
+                        diesel_models::enums::SubscriptionChangeKindEnum::Amendment,
+                    )
+                    .await?;
                     (None, vec![])
                 } else {
                     services
@@ -621,20 +634,9 @@ impl Services {
                 // invoice was marked paid yet.
                 // Partly settled by credit or cash, the note may exceed what is still due: to the
                 // balance, which cancels the debt left first (I17).
-                let collected_or_in_flight = matches!(
-                    invoice.payment_status,
-                    InvoicePaymentStatus::Paid | InvoicePaymentStatus::PartiallyPaid
-                ) || invoice.amount_due <= 0
-                    || invoice.amount_due < invoice.total
-                    || crate::repositories::credit_notes::invoice_payment_in_flight(
-                        conn, tenant_id, invoice,
-                    )
-                    .await?;
-                let credit_type = if collected_or_in_flight {
-                    CreditType::CreditToBalance
-                } else {
-                    CreditType::DebtCancellation
-                };
+                let credit_type =
+                    crate::repositories::credit_notes::change_note_type(conn, tenant_id, invoice)
+                        .await?;
 
                 let credit_note = create_user_credit_note_tx(
                     &self.store,
@@ -982,12 +984,14 @@ impl Services {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         // The period the cadence cuts and the MRR: the writer's, from the rows just written.
-        self.derive_state_tx(
+        let held = self.is_held(conn, tenant_id).await?;
+        self.derive_state_unless_held_tx(
             conn,
             &Actor::System,
             tenant_id,
             subscription_id,
             crate::services::evaluate::bill::midnight(change_date),
+            held,
         )
         .await?;
 
@@ -1147,14 +1151,15 @@ async fn reject_if_plan_change_pending(
     subscription_id: SubscriptionId,
     tenant_id: TenantId,
 ) -> StoreResult<()> {
-    let pending =
-        ScheduledEventRow::get_pending_events_for_subscription(conn, subscription_id, &tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-    if pending
-        .iter()
-        .any(|e| e.event_type == diesel_models::enums::ScheduledEventTypeEnum::ApplyPlanChange)
-    {
+    let pending = SubscriptionChangeRow::list_pending(
+        conn,
+        &tenant_id,
+        subscription_id,
+        &[SubscriptionChangeKindEnum::PlanChange],
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?;
+    if !pending.is_empty() {
         return Err(Report::new(StoreError::InvalidArgument(
             "A plan change is already scheduled for this subscription; cancel it before amending"
                 .to_string(),
@@ -1163,38 +1168,20 @@ async fn reject_if_plan_change_pending(
     Ok(())
 }
 
-/// Cancel pending ApplyAmendment events only. Returns the number cancelled.
+/// Withdraws the amendments still to take effect. Returns how many.
 async fn cancel_pending_amendments(
     conn: &mut PgConn,
     subscription_id: SubscriptionId,
     tenant_id: TenantId,
 ) -> StoreResult<usize> {
-    let pending =
-        ScheduledEventRow::get_pending_events_for_subscription(conn, subscription_id, &tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-    let mut count = 0;
-    for event in pending
-        .iter()
-        .filter(|e| e.event_type == diesel_models::enums::ScheduledEventTypeEnum::ApplyAmendment)
-    {
-        let cancelled = if matches!(
-            event.status,
-            diesel_models::enums::ScheduledEventStatus::Migrated
-        ) {
-            crate::services::facts::pending::withdraw_pending_tx(conn, event, "Cancelled by user")
-                .await?
-        } else {
-            ScheduledEventRow::cancel_event(conn, &event.id, "Cancelled by user")
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-        };
-        if cancelled {
-            count += 1;
-        }
-    }
-    Ok(count)
+    crate::services::facts::pending::withdraw_pending_of_tx(
+        conn,
+        tenant_id,
+        subscription_id,
+        &[SubscriptionChangeKindEnum::Amendment],
+        "Cancelled by user",
+    )
+    .await
 }
 
 /// Patch a Slot fee's `initial_slots` with the live count from the slot_transaction ledger.
@@ -1373,6 +1360,13 @@ pub(in crate::services) async fn gather_period_credit_context(
                     == Some(subscription_id)
             });
         }
+        // A true-up of an earlier period is never credited back; an ending's document may bill
+        // that period's charge again, under the same id (R-022, R-075).
+        let period_start = invoice.billing_period_start;
+        invoice.line_items.retain(|line| {
+            line.kind != LineItemKind::MinimumShortfall
+                || crate::services::invoice_lines::minimum::is_up_front(line, period_start)
+        });
 
         if let Some(line) = invoice
             .line_items

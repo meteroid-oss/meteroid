@@ -1,3 +1,5 @@
+use common_domain::ids::BaseId;
+use diesel::Connection;
 use diesel::RunQueryDsl;
 use diesel::connection::SimpleConnection;
 use diesel::dsl::sql;
@@ -44,47 +46,177 @@ const DROPPED_QUEUES: &[(&str, &str)] = &[
 ];
 
 type Conn = AsyncConnectionWrapper<AsyncPgConnection>;
+// The pooled connection itself: the conversion of pending changes runs on it, in its transaction.
+type ReleaseConn = AsyncConnectionWrapper<PgConn>;
+
+/// The release billing from facts: `billing_on_facts` adds and backfills, then the changes still
+/// pending as scheduled events are written as facts, then `billing_legacy_dropped` retires what
+/// they replace; all in one transaction, so a pod of the release before sees its own schema or
+/// the final one, never one in between.
+const RELEASE_FIRST: &str = "20261116171538";
+const RELEASE_LAST: &str = "20261116171749";
+// A lock held by a long transaction of a running pod fails the release instead of queueing every
+// later query behind it; the whole release is retried.
+const RELEASE_LOCK_TIMEOUT: &str = "SET LOCAL lock_timeout = '5s'";
+// First, every table the release's backfills read: a running pod's write waits for the commit
+// instead of landing between two backfills' snapshots. Tables already gone are skipped.
+const RELEASE_TABLES_LOCKED: &str = r#"DO $$
+DECLARE
+    locked TEXT;
+BEGIN
+    SELECT string_agg(format('%I', name), ', ') INTO locked
+    FROM unnest(ARRAY['subscription', 'subscription_event', 'subscription_component',
+                      'subscription_add_on', 'slot_transaction', 'scheduled_event', 'invoice',
+                      'applied_coupon', 'subscription_adjustment',
+                      'subscription_adjustment_component', 'customer_credit_grant', 'price',
+                      'checkout_session']) AS name
+    WHERE to_regclass(name) IS NOT NULL;
+    EXECUTE 'LOCK TABLE ' || locked || ' IN ACCESS EXCLUSIVE MODE';
+END $$"#;
+const RELEASE_ATTEMPTS: u32 = 120;
+const RELEASE_RETRY: Duration = Duration::from_secs(5);
 
 /// Runs the legacy-OSS bridge then the pending migrations, serialized across processes.
 pub async fn run(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    // Detached from the pool: on a panic the connection, and the session lock it holds, closes.
-    let conn = PgConn::take(pool.get().await?);
-    let mut conn: Conn = AsyncConnectionWrapper::from(conn);
+    let mut conn: ReleaseConn = AsyncConnectionWrapper::from(pool.get().await?);
+    let runtime = tokio::runtime::Handle::current();
 
     tokio::task::spawn_blocking(move || -> Result<(), DieselMigrationError> {
-        check_server_version(&mut conn)?;
-        acquire_lock(&mut conn)?;
-        check_dropped_queues(&mut conn)?;
-        bridge(&mut conn)?;
-
-        let applied = conn
-            .run_pending_migrations(diesel_migrations_source::MIGRATIONS)
-            .map_err(DieselMigrationError::ApplyError)?;
-
-        if applied.is_empty() {
-            tracing::info!("Migrations up to date");
-        } else {
-            for migration in &applied {
-                tracing::info!("Migration applied: {}", migration);
-            }
-        }
-
-        if let Ok(mut all) = conn.applied_migrations() {
-            all.sort();
-            if let Some(last) = all.last() {
-                tracing::info!("Latest migration: {}", last);
-            }
-        }
-
-        // Dropping the detached connection releases the lock too.
+        let ran = migrate(&mut conn, &runtime);
         if let Err(error) = conn.batch_execute(UNLOCK) {
             tracing::warn!(%error, "Could not release the migration lock");
         }
-        Ok(())
+        // Closed rather than pooled: nothing it held outlives the run.
+        drop(PgConn::take(conn.into_inner()));
+        ran
     })
     .await??;
 
     Ok(())
+}
+
+fn migrate(
+    conn: &mut ReleaseConn,
+    runtime: &tokio::runtime::Handle,
+) -> Result<(), DieselMigrationError> {
+    check_server_version(conn)?;
+    acquire_lock(conn)?;
+    check_dropped_queues(conn)?;
+    bridge(conn)?;
+
+    let mut applied = apply(conn, |version| version < RELEASE_FIRST)?;
+    let mut attempt = 1;
+    let released = loop {
+        if !pending_in_release(conn)? {
+            break vec![];
+        }
+        match apply_release(conn, runtime) {
+            Ok(released) => break released,
+            Err(error) if attempt < RELEASE_ATTEMPTS && waited_on_a_lock(&error) => {
+                tracing::warn!(%error, attempt, "Release migrations waited on a lock; retried");
+                attempt += 1;
+                std::thread::sleep(RELEASE_RETRY);
+            }
+            Err(error) => return Err(error),
+        }
+    };
+    applied.extend(released);
+    applied.extend(apply(conn, |version| version > RELEASE_LAST)?);
+
+    if applied.is_empty() {
+        tracing::info!("Migrations up to date");
+    } else {
+        for migration in &applied {
+            tracing::info!("Migration applied: {}", migration);
+        }
+    }
+    if let Ok(mut all) = conn.applied_migrations() {
+        all.sort();
+        if let Some(last) = all.last() {
+            tracing::info!("Latest migration: {}", last);
+        }
+    }
+    Ok(())
+}
+
+/// The release's pending migrations and the conversion of the pending changes, all or nothing.
+fn apply_release(
+    conn: &mut ReleaseConn,
+    runtime: &tokio::runtime::Handle,
+) -> Result<Vec<String>, DieselMigrationError> {
+    conn.transaction(|conn| {
+        conn.batch_execute(RELEASE_LOCK_TIMEOUT)?;
+        conn.batch_execute(RELEASE_TABLES_LOCKED)?;
+        let mut applied = apply(conn, |version| version < RELEASE_LAST)?;
+        let conversion = runtime
+            .block_on(
+                meteroid_store::services::facts::pending::write_pending_scheduled_changes(conn),
+            )
+            .map_err(|error| DieselMigrationError::PendingChanges(format!("{error:?}")))?
+            .map_err(|unwritten| {
+                DieselMigrationError::LiveChangesUnwritten(
+                    unwritten
+                        .0
+                        .iter()
+                        .map(|(id, tenant, why)| {
+                            format!("{} (tenant {}): {why}", id.as_uuid(), tenant.as_uuid())
+                        })
+                        .collect::<Vec<_>>()
+                        .join("; "),
+                )
+            })?;
+        if conversion.written > 0 {
+            tracing::info!(
+                written = conversion.written,
+                "Pending scheduled changes written as facts"
+            );
+        }
+        if !conversion.cancelled.is_empty() {
+            tracing::error!(
+                cancelled = ?conversion.cancelled,
+                "Pending scheduled changes not written as facts were cancelled"
+            );
+        }
+        applied.extend(apply(conn, |version| version <= RELEASE_LAST)?);
+        Ok(applied)
+    })
+}
+
+fn pending_in_release(conn: &mut ReleaseConn) -> Result<bool, DieselMigrationError> {
+    let pending = conn
+        .pending_migrations(diesel_migrations_source::MIGRATIONS)
+        .map_err(DieselMigrationError::ApplyError)?;
+    Ok(pending.iter().any(|migration| {
+        let version = migration.name().version().to_string();
+        (RELEASE_FIRST..=RELEASE_LAST).contains(&version.as_str())
+    }))
+}
+
+/// A lock a running pod held past the timeout, or a deadlock with one: the release is retried.
+fn waited_on_a_lock(error: &DieselMigrationError) -> bool {
+    let error = error.to_string();
+    error.contains("lock timeout") || error.contains("deadlock detected")
+}
+
+/// Applies, in order, the pending migrations whose version `run` accepts; their versions.
+fn apply<C>(conn: &mut C, run: impl Fn(&str) -> bool) -> Result<Vec<String>, DieselMigrationError>
+where
+    C: MigrationHarness<Pg>,
+{
+    let pending = conn
+        .pending_migrations(diesel_migrations_source::MIGRATIONS)
+        .map_err(DieselMigrationError::ApplyError)?;
+    let mut applied = Vec::new();
+    for migration in pending {
+        let version = migration.name().version().to_string();
+        if !run(&version) {
+            continue;
+        }
+        conn.run_migration(&migration)
+            .map_err(DieselMigrationError::ApplyError)?;
+        applied.push(migration.name().to_string());
+    }
+    Ok(applied)
 }
 
 /// The migrations of this binary the database has not applied, by name. Writes nothing.
@@ -117,7 +249,7 @@ fn migration_names<M: Migration<Pg> + ?Sized>(migrations: &[Box<M>]) -> Vec<Stri
 }
 
 /// Refuses before anything is written: on an older server the migrations would stop halfway.
-fn check_server_version(conn: &mut Conn) -> Result<(), DieselMigrationError> {
+fn check_server_version(conn: &mut ReleaseConn) -> Result<(), DieselMigrationError> {
     let (num, version): (i32, String) = sql::<(Integer, Text)>(
         "SELECT current_setting('server_version_num')::int, current_setting('server_version')",
     )
@@ -136,7 +268,7 @@ fn supported_server_version(num: i32, version: &str) -> Result<(), DieselMigrati
 }
 
 /// Refuses before anything is written while a queue a pending migration drops holds messages.
-fn check_dropped_queues(conn: &mut Conn) -> Result<(), DieselMigrationError> {
+fn check_dropped_queues(conn: &mut ReleaseConn) -> Result<(), DieselMigrationError> {
     for (version, queue) in DROPPED_QUEUES {
         // Separate statements: a query naming a missing table fails at parse time.
         let queue_exists: bool =
@@ -174,7 +306,7 @@ fn check_dropped_queues(conn: &mut Conn) -> Result<(), DieselMigrationError> {
 
 /// Polls instead of blocking in pg_advisory_lock: a session waiting inside a statement holds a
 /// snapshot, which a `CREATE INDEX CONCURRENTLY` run by the lock holder would wait for (deadlock).
-fn acquire_lock(conn: &mut Conn) -> Result<(), DieselMigrationError> {
+fn acquire_lock(conn: &mut ReleaseConn) -> Result<(), DieselMigrationError> {
     let mut logged = false;
     loop {
         let acquired: bool = sql::<Bool>(TRY_LOCK)
@@ -191,7 +323,7 @@ fn acquire_lock(conn: &mut Conn) -> Result<(), DieselMigrationError> {
     }
 }
 
-fn bridge(conn: &mut Conn) -> Result<(), DieselMigrationError> {
+fn bridge(conn: &mut ReleaseConn) -> Result<(), DieselMigrationError> {
     let before = bridge_state(conn).map_err(DieselMigrationError::Bridge)?;
     conn.batch_execute(OSS_BRIDGE_SQL)
         .map_err(DieselMigrationError::Bridge)?;
@@ -221,7 +353,7 @@ struct BridgeState {
 }
 
 /// `None` when Diesel's version table does not exist yet (fresh database).
-fn bridge_state(conn: &mut Conn) -> diesel::QueryResult<Option<BridgeState>> {
+fn bridge_state(conn: &mut ReleaseConn) -> diesel::QueryResult<Option<BridgeState>> {
     let table_exists: bool = sql::<Bool>(MIGRATIONS_TABLE_EXISTS).get_result(conn)?;
     if !table_exists {
         return Ok(None);
@@ -256,6 +388,20 @@ pub enum DieselMigrationError {
     Status(#[source] diesel::result::Error),
     #[error("ApplyError: {0}")]
     ApplyError(#[source] Box<dyn Error + Send + Sync>),
+    #[error("Pending scheduled changes: {0}")]
+    PendingChanges(String),
+    #[error(
+        "Scheduled changes of live tenants (active, in production or development) cannot be carried over to this version: {0}. Nothing was changed: on your previous version, cancel each listed change or its subscription, then upgrade again, or contact support"
+    )]
+    LiveChangesUnwritten(String),
+    #[error("Release migrations: {0}")]
+    Release(#[source] diesel::result::Error),
+}
+
+impl From<diesel::result::Error> for DieselMigrationError {
+    fn from(error: diesel::result::Error) -> Self {
+        DieselMigrationError::Release(error)
+    }
 }
 
 #[cfg(test)]

@@ -6,7 +6,6 @@ use crate::domain::coupons::Coupon;
 use crate::domain::custom_property_definitions::CustomPropertyMode;
 use crate::domain::entity_activity::Actor;
 use crate::domain::enums::{CustomPropertyEntityType, SubscriptionEventType};
-use crate::domain::scheduled_events::ScheduledEventNew;
 use crate::domain::slot_transactions::{SlotTransaction, SlotTransactionNewInternal};
 use crate::domain::{
     CreateSubscription, CreateSubscriptionAddOns, CreateSubscriptionComponents,
@@ -23,18 +22,14 @@ use crate::services::subscriptions::utils::{
     process_create_subscription_components, process_create_subscription_coupons,
 };
 use crate::store::PgConn;
-use crate::utils::periods::{
-    calculate_advance_period_range, calculate_elapsed_cycles, find_period_containing_date,
-};
+use crate::utils::periods::{calculate_advance_period_range, find_period_containing_date};
 use crate::{StoreResult, services::Services};
 use chrono::{Datelike, NaiveDate};
 use common_domain::ids::{BaseId, QuoteId, SubscriptionId, TenantId};
 use common_eventbus::{Event, EventBus};
 use diesel_models::applied_coupons::AppliedCouponRowNew;
 use diesel_models::checkout_sessions::{CheckoutSessionRow, CheckoutSessionRowNew};
-use diesel_models::enums::CycleActionEnum;
 use diesel_models::plans::PlanRow;
-use diesel_models::scheduled_events::ScheduledEventRowNew;
 use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
 use diesel_models::subscription_components::{
@@ -65,7 +60,6 @@ pub struct ProcessedSubscription {
     /// it at its end_date. The +1 at start comes from the DB activation trigger.
     ended_event: Option<SubscriptionEventRow>,
     slot_transactions: Vec<SlotTransactionRow>,
-    scheduled_events: Vec<ScheduledEventNew>,
     /// Products/prices that need to be created inside the persist transaction (components).
     pending_materializations: Vec<PendingMaterialization>,
     /// Products/prices that need to be created inside the persist transaction (add-ons).
@@ -98,7 +92,6 @@ impl ProcessedSubscription {
             || row.trial_duration.is_some()
             || row.imported_at.is_some()
             || row.pending_checkout
-            || !self.scheduled_events.is_empty()
         {
             return Err(Report::new(StoreError::InvalidArgument(
                 "only a subscription that starts on its start date, without a trial, can be \
@@ -109,8 +102,6 @@ impl ProcessedSubscription {
         row.status = diesel_models::enums::SubscriptionStatusEnum::PendingActivation;
         row.current_period_start = row.billing_start_date.unwrap_or(row.start_date);
         row.current_period_end = Some(row.start_date);
-        row.next_cycle_action = Some(CycleActionEnum::ActivateSubscription);
-        row.cycle_index = None;
         self.start_deferred = true;
         Ok(())
     }
@@ -386,10 +377,7 @@ impl Services {
 
         let mut current_period_start = billing_start_date;
         let mut current_period_end = None;
-        let mut next_cycle_action = None;
-        let mut cycle_index = None;
         let mut status = SubscriptionStatusEnum::PendingActivation;
-        let mut scheduled_events: Vec<ScheduledEventNew> = vec![];
         let mut imported_at = None;
 
         // Handle trial: distinguish between free and paid trials
@@ -441,43 +429,17 @@ impl Services {
                             &period,
                             billing_day_anchor as u32,
                         );
-                        let elapsed = calculate_elapsed_cycles(
-                            effective_billing_start,
-                            end_date,
-                            &period,
-                            billing_day_anchor as u32,
-                        );
                         status = SubscriptionStatusEnum::Completed;
-                        cycle_index = Some(elapsed);
                         current_period_start = last_period.start;
                         current_period_end = Some(end_date);
-                        next_cycle_action = None;
                     } else if trial_still_active {
                         // Trial is still ongoing - set up as trial subscription
                         let trial_days = effective_trial_duration.unwrap();
                         status = SubscriptionStatusEnum::TrialActive;
-                        cycle_index = Some(0);
                         current_period_start = billing_start_date;
                         current_period_end = Some(
                             billing_start_date + chrono::Duration::days(i64::from(trial_days)),
                         );
-                        next_cycle_action = Some(CycleActionEnum::EndTrial);
-                        // For paid trial, also schedule the EndTrial event
-                        if has_paid_trial {
-                            let scheduled_event = ScheduledEventNew::end_trial(
-                                subscription_id,
-                                tenant_id,
-                                billing_start_date,
-                                trial_days as i32,
-                                "subscription_creation_migration",
-                            )
-                            .ok_or_else(|| {
-                                Report::new(StoreError::InvalidArgument(
-                                    "Failed to compute trial end date".to_string(),
-                                ))
-                            })?;
-                            scheduled_events.push(scheduled_event);
-                        }
                     } else {
                         // Trial has ended (or no trial): the current period on the grid its fees
                         // bill on, from the billing start or the free trial's end (R-084).
@@ -509,30 +471,24 @@ impl Services {
                         // completed period.
                         if current.start == now.date() && elapsed > 0 {
                             let (prev, _) = on(now.date() - chrono::Duration::days(1))?;
-                            cycle_index = Some(elapsed - 1);
                             current_period_start = prev.start;
                             current_period_end = Some(prev.end);
                         } else {
-                            cycle_index = Some(elapsed);
                             current_period_start = current.start;
                             current_period_end = Some(current.end);
                         }
-                        next_cycle_action = Some(CycleActionEnum::RenewSubscription);
                     }
                 } else if has_free_trial {
                     // Free trial: period = trial duration, no billing until trial ends
                     let trial_days = effective_trial_duration.unwrap();
                     status = SubscriptionStatusEnum::TrialActive;
-                    cycle_index = Some(0); // Track cycle from start, even during trial
                     current_period_start = billing_start_date;
                     current_period_end =
                         Some(current_period_start + chrono::Duration::days(i64::from(trial_days)));
-                    next_cycle_action = Some(CycleActionEnum::EndTrial);
                 } else if has_paid_trial {
                     // Paid trial: period = full billing cycle, bill immediately
                     // Trial only affects feature resolution, not billing
-                    // Use normal RenewSubscription cycle - trial end is handled via scheduled event
-                    let trial_days = effective_trial_duration.unwrap();
+                    // The trial's end, from its fact, only changes the status.
                     let range = calculate_advance_period_range(
                         billing_start_date,
                         u32::from(billing_day_anchor),
@@ -540,26 +496,8 @@ impl Services {
                         &period,
                     );
                     status = SubscriptionStatusEnum::TrialActive;
-                    cycle_index = Some(0);
                     current_period_start = range.start;
                     current_period_end = Some(range.end);
-                    // Use RenewSubscription for normal billing cycle
-                    next_cycle_action = Some(CycleActionEnum::RenewSubscription);
-
-                    // Schedule trial end event at start_date + trial_duration
-                    let scheduled_event = ScheduledEventNew::end_trial(
-                        subscription_id,
-                        tenant_id,
-                        billing_start_date,
-                        trial_days as i32,
-                        "subscription_creation",
-                    )
-                    .ok_or_else(|| {
-                        Report::new(StoreError::InvalidArgument(
-                            "Failed to compute trial end date".to_string(),
-                        ))
-                    })?;
-                    scheduled_events.push(scheduled_event);
                 } else {
                     // No trial: normal billing
                     let range = calculate_advance_period_range(
@@ -570,14 +508,11 @@ impl Services {
                     );
 
                     status = SubscriptionStatusEnum::Active;
-                    cycle_index = Some(0);
                     current_period_start = range.start;
                     current_period_end = Some(range.end);
-                    next_cycle_action = Some(CycleActionEnum::RenewSubscription);
                 }
             } else {
                 current_period_end = Some(sub.subscription.start_date);
-                next_cycle_action = Some(CycleActionEnum::ActivateSubscription);
             }
         } else if sub.subscription.activation_condition
             == SubscriptionActivationCondition::OnCheckout
@@ -588,24 +523,27 @@ impl Services {
             if sub.subscription.start_date <= now.date() {
                 let trial_days = effective_trial_duration.unwrap(); // Safe: has_free_trial implies this
                 status = SubscriptionStatusEnum::TrialActive;
-                cycle_index = Some(0); // Track cycle from start, even during trial
                 current_period_start = billing_start_date;
                 current_period_end =
                     Some(current_period_start + chrono::Duration::days(i64::from(trial_days)));
-                next_cycle_action = Some(CycleActionEnum::EndTrial);
             } else {
                 current_period_end = Some(sub.subscription.start_date);
-                next_cycle_action = Some(CycleActionEnum::ActivateSubscription);
             }
         }
         // OnCheckout with paid trial: stays PendingActivation, checkout will handle billing
 
-        (current_period_end, next_cycle_action) =
-            crate::services::subscriptions::start::cut_at_term_end(
+        // A period that renews stops at a fixed term's end inside it; a trial's or a pending
+        // start's does not.
+        let renews = status == SubscriptionStatusEnum::Active
+            || (status == SubscriptionStatusEnum::TrialActive
+                && has_paid_trial
+                && imported_at.is_none());
+        if renews {
+            current_period_end = crate::services::subscriptions::start::cut_at_term_end(
                 sub.subscription.end_date,
                 current_period_end,
-                next_cycle_action,
             );
+        }
 
         let enriched = SubscriptionNewEnriched {
             subscription: &sub.subscription,
@@ -619,10 +557,8 @@ impl Services {
             status,
             current_period_start,
             current_period_end,
-            next_cycle_action,
             activated_at,
             net_terms,
-            cycle_index,
             quote_id,
             effective_trial_duration,
             imported_at,
@@ -723,7 +659,6 @@ impl Services {
             event,
             ended_event,
             slot_transactions,
-            scheduled_events,
             pending_materializations: sub.pending_materializations.clone(),
             pending_addon_materializations: sub.pending_addon_materializations.clone(),
             skip_checkout_session: sub.subscription.skip_checkout_session,
@@ -1225,6 +1160,29 @@ impl Services {
                             .await
                             .map(|v| v.into_iter().map(Into::into).collect())?;
 
+                    // An import's past was billed elsewhere, its current period's advance too:
+                    // its facts bill from its next renewal, that period's arrears and usage with it.
+                    for proc in processed.iter() {
+                        let row = &proc.subscription;
+                        if row.imported_at.is_some()
+                            && matches!(
+                                row.status,
+                                diesel_models::enums::SubscriptionStatusEnum::Active
+                                    | diesel_models::enums::SubscriptionStatusEnum::TrialActive
+                            )
+                            && let Some(end) = row.current_period_end
+                        {
+                            SubscriptionRow::set_reconcile_from(
+                                conn,
+                                row.id,
+                                Some(end),
+                                Some(row.current_period_start),
+                            )
+                            .await
+                            .map_err(Into::<StoreErrorReport>::into)?;
+                        }
+                    }
+
                     for (proc, created) in processed.iter().zip(inserted.iter()) {
                         if !proc.entitlements.is_empty() {
                             crate::repositories::entitlements::insert_entitlement_specs(
@@ -1373,19 +1331,6 @@ impl Services {
                     SlotTransactionRow::insert_batch(conn, slot_transactions)
                         .map_err(Into::<StoreErrorReport>::into)
                         .await?;
-
-                    // Insert scheduled events (e.g., EndTrial for paid trials)
-                    let scheduled_events: Vec<ScheduledEventRowNew> = processed
-                        .iter()
-                        .flat_map(|p| &p.scheduled_events)
-                        .cloned()
-                        .map(|e| e.try_into())
-                        .collect::<Result<Vec<_>, _>>()?;
-                    if !scheduled_events.is_empty() {
-                        ScheduledEventRowNew::insert_batch(conn, &scheduled_events)
-                            .map_err(Into::<StoreErrorReport>::into)
-                            .await?;
-                    }
 
                     services.insert_created_outbox_events_tx(conn, actor, &inserted, tenant_id)
                         .await?;

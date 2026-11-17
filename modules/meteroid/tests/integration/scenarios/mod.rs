@@ -8,7 +8,6 @@ mod s01_scale_to_studio_forced;
 mod s02_scale_to_studio_scheduled;
 mod s03_studio_to_scale;
 mod s04_plan_version_migration;
-mod s05_pause_across_expiry;
 mod s06_cancel_at_period_end;
 mod s07_immediate_termination;
 mod s08_trial_then_paid;

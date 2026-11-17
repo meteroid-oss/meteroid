@@ -13,7 +13,7 @@ use rstest::rstest;
 
 use crate::data::ids::*;
 use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
-use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
+use diesel_models::enums::SubscriptionStatusEnum;
 use meteroid_store::domain::SubscriptionActivationCondition;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
 
@@ -137,7 +137,7 @@ async fn test_oncheckout_no_trial_starts_pending(#[future] test_env: TestEnv) {
 ///   3. subscription cancelled (System)
 ///   4. Invoice finalized (System)    <- BUG
 ///
-/// `terminate_subscription` bills unconditionally, unlike subscription creation
+/// A cancellation once billed unconditionally, unlike subscription creation
 /// which skips billing while `pending_checkout` is set. A pending-checkout
 /// subscription has no active period to charge, so cancelling it should leave it
 /// invoice-free.
@@ -216,8 +216,7 @@ async fn test_oncheckout_free_trial_starts_trial_with_pending_checkout(
     sub.assert()
         .is_trial_active()
         .has_pending_checkout(true) // OnCheckout sets pending_checkout even during trial
-        .has_trial_duration(Some(14))
-        .has_next_action(Some(CycleActionEnum::EndTrial)); // Trial will end at next cycle
+        .has_trial_duration(Some(14));
 
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().assert_empty();
@@ -336,7 +335,6 @@ async fn test_manual_stays_pending_after_cycle_processing(#[future] test_env: Te
     None,
     false,
     SubscriptionStatusEnum::Active,
-    Some(CycleActionEnum::RenewSubscription),
     false,
     true // has invoice
 )]
@@ -346,7 +344,6 @@ async fn test_manual_stays_pending_after_cycle_processing(#[future] test_env: Te
     Some(14),
     false,
     SubscriptionStatusEnum::TrialActive,
-    Some(CycleActionEnum::EndTrial),
     false,
     false // no invoice during free trial
 )]
@@ -356,7 +353,6 @@ async fn test_manual_stays_pending_after_cycle_processing(#[future] test_env: Te
     None,
     true,
     SubscriptionStatusEnum::PendingActivation,
-    None,
     true, // pending_checkout
     false // no invoice
 )]
@@ -366,7 +362,6 @@ async fn test_manual_stays_pending_after_cycle_processing(#[future] test_env: Te
     Some(14),
     true,
     SubscriptionStatusEnum::TrialActive,
-    Some(CycleActionEnum::EndTrial),
     true, // pending_checkout even during trial
     false // no invoice
 )]
@@ -376,7 +371,6 @@ async fn test_manual_stays_pending_after_cycle_processing(#[future] test_env: Te
     None,
     true,
     SubscriptionStatusEnum::PendingActivation,
-    None,
     false, // manual doesn't use pending_checkout
     false // no invoice
 )]
@@ -388,7 +382,6 @@ async fn test_activation_matrix(
     #[case] trial_days: Option<u32>,
     #[case] needs_payment_provider: bool,
     #[case] expected_status: SubscriptionStatusEnum,
-    #[case] expected_action: Option<CycleActionEnum>,
     #[case] expected_pending_checkout: bool,
     #[case] expected_has_invoice: bool,
 ) {
@@ -411,7 +404,6 @@ async fn test_activation_matrix(
     let sub = env.get_subscription(sub_id).await;
     sub.assert()
         .has_status(expected_status)
-        .has_next_action(expected_action)
         .has_pending_checkout(expected_pending_checkout);
 
     let invoices = env.get_invoices(sub_id).await;

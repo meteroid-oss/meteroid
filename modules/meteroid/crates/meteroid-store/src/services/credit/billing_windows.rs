@@ -221,18 +221,11 @@ pub async fn subscription_windows(
     details: &SubscriptionDetails,
 ) -> StoreResult<Vec<PlannedWindow>> {
     // A free trial's usage is never billed: the invoice ending it opens cycle 0, with no arrears.
-    if details.subscription.status == crate::domain::SubscriptionStatusEnum::TrialActive {
-        let row = diesel_models::subscriptions::SubscriptionRow::get_subscription_by_id(
-            conn,
-            &details.subscription.tenant_id,
-            details.subscription.id,
-        )
-        .await?;
-        if row.subscription.next_cycle_action
-            == Some(diesel_models::enums::CycleActionEnum::EndTrial)
-        {
-            return Ok(Vec::new());
-        }
+    if details.subscription.status == crate::domain::SubscriptionStatusEnum::TrialActive
+        && crate::services::subscriptions::in_free_trial_period_tx(conn, &details.subscription)
+            .await?
+    {
+        return Ok(Vec::new());
     }
     let (upcoming, invoice_date) = upcoming_invoice_details(details);
     windows_at(conn, &upcoming, invoice_date, BilledSpan::Period).await

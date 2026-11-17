@@ -282,17 +282,16 @@ impl ActiveSubscriptions {
         })
     }
 
-    /// No further period starts: paused, or cancelled at or before the end of this one.
+    /// No further period starts once cancelled at or before the end of this one.
     fn renews(&self, subscription: &Subscription) -> bool {
-        subscription.status != SubscriptionStatusEnum::Paused
-            && match (
-                self.cancellations.get(&subscription.id),
-                subscription.current_period_end,
-            ) {
-                (Some(cancels), Some(end)) => *cancels > end,
-                (Some(_), None) => false,
-                (None, _) => true,
-            }
+        match (
+            self.cancellations.get(&subscription.id),
+            subscription.current_period_end,
+        ) {
+            (Some(cancels), Some(end)) => *cancels > end,
+            (Some(_), None) => false,
+            (None, _) => true,
+        }
     }
 }
 
@@ -407,7 +406,6 @@ impl ServicesEdge {
                 Some(vec![
                     SubscriptionStatusEnum::Active,
                     SubscriptionStatusEnum::TrialActive,
-                    SubscriptionStatusEnum::Paused,
                 ]),
                 None,
                 vec![],

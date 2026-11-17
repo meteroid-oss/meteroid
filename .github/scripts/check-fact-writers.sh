@@ -8,13 +8,16 @@
 #   - writes one of those tables: SQL INSERT INTO / UPDATE / DELETE FROM it, a diesel
 #     insert_into / update / delete of its table, any diesel write in subscription_adjustments.rs,
 #     an insert into applied_coupon, a write of effective_from in applied_coupons.rs;
-#   - calls a `primitive` of fact-writers.allowlist (`Type::fn(` or a free `fn(`);
+#   - calls a `primitive` of fact-writers.allowlist (`Type::fn(`, `Self::fn(` inside an impl of
+#     `Type`, or a free `fn(`);
 #   - builds a row that is only ever inserted: SubscriptionPlanWindowRowNew, SubscriptionTrialRow,
 #     SubscriptionStartSettledRow, SubscriptionEndingRow, SubscriptionAdjustmentRowNew,
 #     SubscriptionAdjustmentComponentRow, AppliedCouponRowNew (which catches `row.insert(conn)`).
 # Each such function is listed as <path>::<impl type>::<fn> (or <path>::* for a whole module) with
 # a class and a reason:
-#   primitive  a diesel-models query function writing a fact table; its callers are checked
+#   primitive  a diesel-models query function writing a fact table; its callers are checked. A
+#              call `value.fn(` is not seen, so a primitive taking `self` is refused unless its
+#              type is one of the rows above, whose building is the write site
 #   writer     a function allowed to write facts, directly or through a primitive
 # Tests and migrations are out of scope. Limits: functions are attributed by brace depth with
 # strings and comments stripped per line; a table name assembled at runtime is not seen.
@@ -88,6 +91,10 @@ sites=$(
         for (i = sp; i >= 1; i--) if (kind[i] == "fn") return fnkey[i]
         return ""
       }
+      function innermost_type(    i) {
+        for (i = sp; i >= 1; i--) if (kind[i] == "type") return scope[i]
+        return ""
+      }
       BEGIN {
         sql = "(INSERT INTO|UPDATE|DELETE FROM)[[:space:]]+(" tables ")([^A-Za-z0-9_]|$)|INSERT INTO[[:space:]]+applied_coupon([^A-Za-z0-9_]|$)"
         dsl = "(insert_into|update|delete)\\([[:space:]]*([A-Za-z0-9_]+::)*(" tables ")([^A-Za-z0-9_]|$)"
@@ -96,9 +103,10 @@ sites=$(
         anywrite = "diesel::(insert_into|update|delete)\\("
         fndef = "(^|[^A-Za-z0-9_])fn [A-Za-z0-9_]+[<(]"
         couponset = "effective_from[[:space:]]*=[^=>]|effective_from[.]eq[(]"
+        receiver = "^[[:space:]]*(&[[:space:]]*(\047[A-Za-z_]+[[:space:]]+)?)?(mut[[:space:]]+)?self([^A-Za-z0-9_]|$)"
       }
       FNR == 1 {
-        depth = 0; sp = 0; pending = ""; pkind = ""
+        depth = 0; sp = 0; pending = ""; pkind = ""; sig = ""
         indated = (FILENAME ~ dated); incoupons = (FILENAME ~ coupons)
       }
       {
@@ -112,6 +120,7 @@ sites=$(
         if (match(bare, /(^|[^A-Za-z0-9_])fn [A-Za-z0-9_]+/)) {
           s = substr(bare, RSTART, RLENGTH); sub(/^[^f]*fn /, "", s)
           pending = key_of(s); pkind = "fn"
+          sig = substr(bare, RSTART + RLENGTH) " "; sigkey = pending; sigline = FNR
         } else if (bare ~ /^[[:space:]]*(pub(\([a-z]+\))?[[:space:]]+)?(unsafe[[:space:]]+)?(impl|trait)([[:space:]<]|$)/) {
           t = bare
           sub(/[[:space:]]*\{.*$/, "", t); sub(/[[:space:]]+where[[:space:]].*$/, "", t)
@@ -121,9 +130,20 @@ sites=$(
           pending = t; pkind = "type"
         }
 
+        if (sig != "" && sigline != FNR) sig = sig " " bare
+        # A function whose first parameter is self: its callers name the value, not its type.
+        if (sig != "" && (index(sig, "{") || index(sig, ";"))) {
+          params = sig; sub(/^[^(]*[(]/, "", params)
+          if (params ~ receiver) print "receiver " sigkey
+          sig = ""
+        }
+
         hit = (line ~ sql) || (bare ~ dsl) || (bare ~ coupon) || (indated && bare ~ anywrite) ||
           (incoupons && line ~ couponset)
-        if (!hit && calls != "" && bare !~ fndef && bare ~ calls) hit = 1
+        # Inside an impl, `Self::fn(` is a call of `Type::fn(`.
+        called = bare
+        if (innermost_type() != "") gsub(/Self::/, innermost_type() "::", called)
+        if (!hit && calls != "" && bare !~ fndef && called ~ calls) hit = 1
         if (!hit && bare ~ built && bare !~ fndef && bare !~ /(^|[^A-Za-z0-9_])(struct|impl|enum)[[:space:]]/) hit = 1
         if (hit) {
           item = innermost_fn()
@@ -146,9 +166,24 @@ sites=$(
         }
         if (pkind == "fn" && index(bare, ";")) pkind = ""
       }
-      END { for (i = 1; i <= count; i++) print order[i] }
+      END { for (i = 1; i <= count; i++) print "site " order[i] }
     '
 )
+
+declare -A takes_self
+while IFS= read -r line; do
+  [[ "$line" == "receiver "* ]] && takes_self[${line#receiver }]=1
+done <<< "$sites"
+for key in "${!class_of[@]}"; do
+  callee="${key#*.rs::}"
+  if [[ "${class_of[$key]}" == primitive && -n "${takes_self[$key]:-}" &&
+        ! "${callee%%::*}" =~ ^($ROWS)$ ]]; then
+    echo "❌ $ALLOWLIST: primitive $key takes self: a call value.${callee##*::}( is not seen" >&2
+    echo "   Take the value as an argument, ${callee}(&value, ...), which its callers name." >&2
+    failed=1
+  fi
+done
+sites=$(sed -n 's/^site //p' <<< "$sites")
 
 declare -A used
 while IFS= read -r key; do

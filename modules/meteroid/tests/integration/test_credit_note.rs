@@ -138,7 +138,7 @@ async fn test_credit_note_partial_credits() {
         .unwrap();
 
     // 6. Process billing events to finalize invoice
-    services.get_and_process_due_events().await.unwrap();
+    services.run_invoice_deadlines().await.unwrap();
 
     // 7. Get the invoice
     let invoices = store
@@ -559,7 +559,7 @@ async fn test_credit_note_race_condition() {
         .unwrap();
 
     // Process billing to finalize invoice
-    services.get_and_process_due_events().await.unwrap();
+    services.run_invoice_deadlines().await.unwrap();
 
     // Get invoice
     let invoices = store
@@ -760,8 +760,8 @@ async fn test_credit_note_refund_with_applied_credits() {
     assert_eq!(invoices.len(), 1, "Should have a single invoice");
 
     // Process billing
-    // services.get_and_process_cycle_transitions().await.unwrap(); // no need to create the next invoice
-    services.get_and_process_due_events().await.unwrap();
+    // services.run_subscription_steps().await.unwrap(); // no need to create the next invoice
+    services.run_invoice_deadlines().await.unwrap();
 
     let invoices = store
         .list_invoices(
@@ -1019,7 +1019,7 @@ async fn test_credit_note_partial_amounts() {
         .unwrap();
 
     // 5. Process billing events to finalize invoice
-    services.get_and_process_due_events().await.unwrap();
+    services.run_invoice_deadlines().await.unwrap();
 
     // 6. Get the invoice
     let invoices = store
@@ -1332,7 +1332,7 @@ pub(crate) async fn setup_unpaid_invoice() -> (
         .await
         .unwrap();
 
-    services.get_and_process_due_events().await.unwrap();
+    services.run_invoice_deadlines().await.unwrap();
 
     let invoices = store
         .list_invoices(
@@ -2829,8 +2829,8 @@ async fn a_reissued_invoice_gives_back_only_its_unused_days() {
         .await
         .expect("cancel mid-period");
     env.set_now(at(16));
-    env.process_due_events().await;
-    env.process_due_events().await;
+    env.process_cycles().await;
+    env.process_cycles().await;
 
     let lines_of = |notes: Vec<meteroid_store::domain::CreditNote>| {
         let mut lines: Vec<(String, i64)> = notes

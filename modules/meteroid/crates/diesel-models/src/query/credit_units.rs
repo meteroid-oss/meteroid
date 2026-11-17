@@ -135,12 +135,12 @@ impl CreditUnitRow {
                             JOIN subscription s ON s.id = sc.subscription_id
                             JOIN price p ON p.id = sc.price_id
                             WHERE s.tenant_id = $1 AND s.customer_id = $2 AND p.credit_unit_id = $3
-                              AND s.status::text IN ('ACTIVE', 'TRIAL_ACTIVE', 'PENDING_CHARGE'))
+                              AND s.status::text IN ('ACTIVE', 'TRIAL_ACTIVE'))
                  OR EXISTS (SELECT 1 FROM subscription_add_on sao
                             JOIN subscription s ON s.id = sao.subscription_id
                             JOIN price p ON p.id = sao.price_id
                             WHERE s.tenant_id = $1 AND s.customer_id = $2 AND p.credit_unit_id = $3
-                              AND s.status::text IN ('ACTIVE', 'TRIAL_ACTIVE', 'PENDING_CHARGE'))
+                              AND s.status::text IN ('ACTIVE', 'TRIAL_ACTIVE'))
              ) AS used",
         )
         .bind::<sql_types::Uuid, _>(tenant_id)

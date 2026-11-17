@@ -318,15 +318,25 @@ async fn test_slot_downgrade(services: &Services, store: &Store, _conn: &mut PgC
     assert_eq!(result.delta_applied, -5);
     assert!(result.invoice_id.is_none(), "No invoice for downgrade");
 
-    // Verify current slots haven't changed yet (deferred)
-    let current_count = store
-        .get_active_slots_value(TENANT_ID, subscription_id, SLOT_UNIT.to_string(), None)
-        .await
-        .expect("Failed to get current slots");
-
+    // Deferred to the period's end, Feb 1, 2024: held until then, removed from it (R-108).
+    let count_on = |day: u32, month: u32| {
+        store.get_active_slots_value(
+            TENANT_ID,
+            subscription_id,
+            SLOT_UNIT.to_string(),
+            NaiveDate::from_ymd_opt(2024, month, day).map(|d| d.and_time(NaiveTime::MIN)),
+        )
+    };
     assert_eq!(
-        current_count, initial_count,
+        count_on(31, 1).await.expect("Failed to get current slots"),
+        initial_count,
         "Slots should not change until period end"
+    );
+    assert_eq!(
+        count_on(1, 2)
+            .await
+            .expect("Failed to get slots at the period end"),
+        initial_count - 5
     );
 }
 
@@ -695,8 +705,8 @@ async fn test_temporal_slot_changes(services: &Services, store: &Store) {
         "Should still have 2 invoices (no invoice for deferred downgrade)"
     );
 
-    services.get_and_process_cycle_transitions().await.unwrap();
-    services.get_and_process_due_events().await.unwrap();
+    services.run_subscription_steps().await.unwrap();
+    services.run_invoice_deadlines().await.unwrap();
 
     // Verify the downgrade has taken effect (7 - 5 = 2)
     let slots = store

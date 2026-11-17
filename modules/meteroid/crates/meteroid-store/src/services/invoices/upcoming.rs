@@ -14,9 +14,8 @@ use crate::services::subscriptions::terminate::ends_with_final_invoice;
 use crate::store::PgConn;
 use chrono::NaiveDate;
 use common_domain::ids::BillableMetricId;
-use diesel_models::enums::CycleActionEnum;
-use diesel_models::scheduled_events::ScheduledEventRow;
-use diesel_models::subscriptions::SubscriptionRow;
+use diesel_models::subscription_changes::SubscriptionChangeRow;
+use diesel_models::subscription_facts::SubscriptionEndingRow;
 use error_stack::Report;
 use std::sync::Arc;
 
@@ -34,8 +33,8 @@ pub fn upcoming_invoice_details(details: &SubscriptionDetails) -> (SubscriptionD
 }
 
 /// A free trial ending at the period's end: the invoice ending it opens cycle 0 with no arrears, so
-/// the trial's usage is never billed (the cycle transition keeps the cycle on EndTrial). A plan
-/// change scheduled for that day makes the subscription Active but leaves the EndTrial transition.
+/// the trial's usage is never billed. A plan change scheduled for that day makes the subscription
+/// Active, its period still the trial.
 async fn ends_free_trial(conn: &mut PgConn, details: &SubscriptionDetails) -> StoreResult<bool> {
     let subscription = &details.subscription;
     let in_first_cycle = subscription.cycle_index.unwrap_or(0) == 0
@@ -46,14 +45,7 @@ async fn ends_free_trial(conn: &mut PgConn, details: &SubscriptionDetails) -> St
     if !in_first_cycle {
         return Ok(false);
     }
-    let row = SubscriptionRow::get_subscription_by_id(
-        conn,
-        &details.subscription.tenant_id,
-        details.subscription.id,
-    )
-    .await
-    .map_err(Into::<Report<StoreError>>::into)?;
-    Ok(row.subscription.next_cycle_action == Some(CycleActionEnum::EndTrial))
+    crate::services::subscriptions::in_free_trial_period_tx(conn, subscription).await
 }
 
 /// The subscription as its upcoming invoice bills it, as [`upcoming_invoice_details`] but keeping
@@ -79,8 +71,6 @@ pub(crate) struct NextInvoiceBasis {
     /// `Final` for an immediate cancellation on the first day of a period already invoiced.
     pub invoice_type: InvoiceType,
     pub change: Option<UpcomingChange>,
-    /// A plan change or amendment the lifecycle applies before billing the renewal.
-    apply: Option<ScheduledEvent>,
 }
 
 impl NextInvoiceBasis {
@@ -97,29 +87,23 @@ fn ending(
     usage_cutoff: Option<chrono::NaiveDateTime>,
     invoice_type: InvoiceType,
 ) -> NextInvoiceBasis {
-    let pauses = status == SubscriptionStatusEnum::Paused;
     let mut ended = details.clone();
     ended.subscription.status = status;
     ended.subscription.current_period_start = on;
     ended.subscription.current_period_end = None;
     ended.subscription.terminated_at = usage_cutoff.filter(|cutoff| cutoff.date() == on);
-    // Never activated, it ends without a final invoice (`terminate_subscription`).
+    // Never activated, it ends without a final invoice (R-013).
     let billed = !details.subscription.pending_checkout;
-    let change = if pauses {
-        UpcomingChange::Pauses { on, billed }
-    } else {
-        UpcomingChange::Ends { on, billed }
-    };
+    let change = UpcomingChange::Ends { on, billed };
     NextInvoiceBasis {
         details: ended,
         invoice_date: on,
         invoice_type,
         change: Some(change),
-        apply: None,
     }
 }
 
-/// The day a subscription stops consuming, when a cancellation, a pause or its end date falls on
+/// The day a subscription stops consuming, when a cancellation or its end date falls on
 /// or before `until`.
 pub fn scheduled_stop(
     end_date: Option<NaiveDate>,
@@ -145,93 +129,77 @@ impl Services {
             invoice_date,
             invoice_type: InvoiceType::Recurring,
             change: None,
-            apply: None,
         };
         let subscription = &details.subscription;
         let Some(period_end) = subscription.current_period_end else {
             return Ok(plain(renewal));
         };
-        let events = ScheduledEventRow::get_pending_user_visible_events_for_subscription(
+        let cancellation = SubscriptionEndingRow::list_pending_cancellations(
+            conn,
+            subscription.tenant_id,
+            &[subscription.id],
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .next();
+        if let Some(cancellation) = cancellation.filter(|c| c.at.date() <= period_end) {
+            let on = cancellation.at.date();
+            // An immediate cancellation stops at its instant, a dated one at its midnight.
+            let usage_cutoff =
+                Some(cancellation.at).filter(|at| *at > on.and_time(chrono::NaiveTime::MIN));
+            let invoice_type = if ends_with_final_invoice(
+                conn,
+                subscription.tenant_id,
+                subscription.id,
+                on,
+                usage_cutoff,
+            )
+            .await?
+            {
+                InvoiceType::Final
+            } else {
+                InvoiceType::Recurring
+            };
+            return Ok(ending(
+                details,
+                on,
+                SubscriptionStatusEnum::Cancelled,
+                usage_cutoff,
+                invoice_type,
+            ));
+        }
+        let change = SubscriptionChangeRow::list_pending_user_visible(
             conn,
             subscription.id,
             &subscription.tenant_id,
         )
         .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-        for row in events {
-            let event: ScheduledEvent = row.try_into()?;
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .find(|row| row.effective_at.date() == period_end)
+        .map(ScheduledEvent::try_from)
+        .transpose()?;
+        if let Some(event) = change {
             let on = event.scheduled_time.date();
-            if on > period_end {
-                break;
-            }
-            match &event.event_data {
-                ScheduledEventData::CancelSubscription { usage_cutoff, .. } => {
-                    let invoice_type = if ends_with_final_invoice(
-                        conn,
-                        subscription.tenant_id,
-                        subscription.id,
-                        on,
-                        *usage_cutoff,
-                    )
-                    .await?
-                    {
-                        InvoiceType::Final
-                    } else {
-                        InvoiceType::Recurring
-                    };
-                    return Ok(ending(
-                        details,
-                        on,
-                        SubscriptionStatusEnum::Cancelled,
-                        *usage_cutoff,
-                        invoice_type,
-                    ));
-                }
-                ScheduledEventData::PauseSubscription => {
-                    return Ok(ending(
-                        details,
-                        on,
-                        SubscriptionStatusEnum::Paused,
-                        None,
-                        InvoiceType::Recurring,
-                    ));
-                }
-                ScheduledEventData::ApplyPlanChange { .. }
-                | ScheduledEventData::ApplyAmendment { .. }
-                    if on == period_end =>
-                {
-                    let change = match &event.event_data {
-                        ScheduledEventData::ApplyPlanChange {
-                            new_plan_version_id,
-                            ..
-                        } => UpcomingChange::PlanChange {
-                            plan_version_id: *new_plan_version_id,
-                        },
-                        _ => UpcomingChange::Amendment,
-                    };
-                    // Written as facts, the renewal reads its rows: no change to apply first.
-                    if event.status == crate::domain::enums::ScheduledEventStatus::Migrated {
-                        let changed = self.details_on(conn, details, on).await?;
-                        let (renewal, invoice_date) =
-                            upcoming_invoice_details_on(conn, &changed).await?;
-                        return Ok(NextInvoiceBasis {
-                            details: renewal,
-                            invoice_date,
-                            invoice_type: InvoiceType::Recurring,
-                            change: Some(change),
-                            apply: None,
-                        });
-                    }
-                    return Ok(NextInvoiceBasis {
-                        details: details.clone(),
-                        invoice_date,
-                        invoice_type: InvoiceType::Recurring,
-                        change: Some(change),
-                        apply: Some(event),
-                    });
-                }
-                _ => {}
-            }
+            let change = match &event.event_data {
+                ScheduledEventData::ApplyPlanChange {
+                    new_plan_version_id,
+                    ..
+                } => UpcomingChange::PlanChange {
+                    plan_version_id: *new_plan_version_id,
+                },
+                ScheduledEventData::ApplyAmendment { .. } => UpcomingChange::Amendment,
+            };
+            // Written as facts, the renewal reads its rows.
+            let changed = self.details_on(conn, details, on).await?;
+            let (renewal, invoice_date) = upcoming_invoice_details_on(conn, &changed).await?;
+            return Ok(NextInvoiceBasis {
+                details: renewal,
+                invoice_date,
+                invoice_type: InvoiceType::Recurring,
+                change: Some(change),
+            });
         }
         if subscription.end_date.is_some_and(|end| end <= period_end) {
             return Ok(ending(
@@ -288,9 +256,7 @@ impl Services {
         Ok(renewal)
     }
 
-    /// The next invoice of `basis`, its credit estimated on `book` when given. A change still
-    /// pending as an event is resolved to the rows it writes, laid over the facts and billed
-    /// from them as the renewal will be; nothing is written.
+    /// The next invoice of `basis`, its credit estimated on `book` when given.
     pub(crate) async fn compute_next_invoice_on(
         &self,
         conn: &mut PgConn,
@@ -299,33 +265,22 @@ impl Services {
     ) -> StoreResult<ComputedInvoiceContent> {
         if matches!(
             basis.change,
-            Some(
-                UpcomingChange::Ends { billed: false, .. }
-                    | UpcomingChange::Pauses { billed: false, .. }
-            )
+            Some(UpcomingChange::Ends { billed: false, .. })
         ) {
             return Ok(ComputedInvoiceContent::empty());
         }
-        let Some(event) = basis.apply.as_ref() else {
-            return self
-                .compute_invoice_from_facts(
-                    conn,
-                    &basis.invoice_date,
-                    &basis.details,
-                    None,
-                    None,
-                    basis.invoice_type.clone(),
-                    CreditUnitCover::Estimate { invoice_id: None },
-                    book,
-                )
-                .await;
-        };
-        let overlay = self.overlay_of_change(conn, event).await?;
-        let after = crate::services::evaluate::preview::details_after(&basis.details, &overlay)?;
-        self.preview_next_invoice(conn, &after, &overlay, book)
-            .await
+        self.compute_invoice_from_facts(
+            conn,
+            &basis.invoice_date,
+            &basis.details,
+            None,
+            None,
+            basis.invoice_type.clone(),
+            CreditUnitCover::Estimate { invoice_id: None },
+            book,
+        )
+        .await
     }
-
     /// Compute the upcoming invoice — i.e. the next invoice that will be generated
     /// at the end of the current billing period, from [`upcoming_invoice_details`].
     pub async fn compute_upcoming_invoice(

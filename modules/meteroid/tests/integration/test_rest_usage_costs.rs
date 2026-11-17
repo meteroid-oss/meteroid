@@ -1300,16 +1300,8 @@ async fn test_monthly_buckets_of_a_non_additive_metric_span_anniversary_billing_
     )
     .await;
     for _ in 0..3 {
-        api.setup
-            .services
-            .get_and_process_cycle_transitions()
-            .await
-            .unwrap();
-        api.setup
-            .services
-            .get_and_process_due_events()
-            .await
-            .unwrap();
+        api.setup.services.run_subscription_steps().await.unwrap();
+        api.setup.services.run_invoice_deadlines().await.unwrap();
     }
 
     let at = |date: NaiveDate| date.and_time(NaiveTime::MIN) + Duration::hours(3);
@@ -1639,11 +1631,7 @@ async fn test_a_cancelled_subscription_adds_nothing_and_a_scheduled_one_bills_to
         )
         .await
         .unwrap();
-    env.setup
-        .services
-        .get_and_process_due_events()
-        .await
-        .unwrap();
+    env.setup.services.run_invoice_deadlines().await.unwrap();
     let cancelled = env.running_total(env.tiered, "").await;
     assert_eq!(cancelled["totals"], serde_json::json!([]), "{cancelled}");
     assert_eq!(

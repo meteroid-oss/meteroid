@@ -5,8 +5,7 @@
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use common_domain::actor::Actor;
 use common_domain::ids::{SubscriptionId, SubscriptionPriceComponentId};
-use diesel_models::enums::ScheduledEventStatus as DieselEventStatus;
-use diesel_models::scheduled_events::ScheduledEventRow;
+use diesel_models::subscription_changes::SubscriptionChangeRow;
 use meteroid_store::domain::enums::BillingPeriodEnum;
 use meteroid_store::domain::price_components::{PriceEntry, PriceInput};
 use meteroid_store::domain::prices::Pricing;
@@ -92,11 +91,12 @@ async fn schedule_platform_at_39(env: &TestEnv, sub_id: SubscriptionId) -> Sched
         .expect("an amendment at the period end")
 }
 
-async fn status_of(env: &TestEnv, event: &ScheduledEvent) -> DieselEventStatus {
-    ScheduledEventRow::get_by_id(&mut env.conn().await, event.id, &TENANT_ID)
+async fn withdrawn(env: &TestEnv, event: &ScheduledEvent) -> bool {
+    SubscriptionChangeRow::get_by_id(&mut env.conn().await, event.id, &TENANT_ID)
         .await
-        .expect("the event")
-        .status
+        .expect("the change")
+        .withdrawn_at
+        .is_some()
 }
 
 /// 39.00 scheduled from Feb 1, then 99.00 from Jan 16: the scheduled change stands, the 99.00
@@ -141,10 +141,7 @@ async fn an_immediate_amendment_leaves_a_scheduled_one_of_the_same_fee_standing(
     assert_eq!(env.get_subscription(sub_id).await.mrr_cents, 3900 + 1000);
     assert_billed_once(&env, sub_id).await;
     // Written as facts, it is never withdrawn.
-    assert!(matches!(
-        status_of(&env, &scheduled).await,
-        DieselEventStatus::Migrated
-    ));
+    assert!(!withdrawn(&env, &scheduled).await);
 }
 
 /// 39.00 scheduled from Feb 1, then a one-time 99.00 added on Jan 16: the scheduled change
@@ -215,10 +212,7 @@ async fn a_one_time_fee_added_leaves_a_scheduled_amendment_standing(#[future] te
     );
     assert_billed_once(&env, sub_id).await;
     // Written as facts, it is never withdrawn.
-    assert!(matches!(
-        status_of(&env, &scheduled).await,
-        DieselEventStatus::Migrated
-    ));
+    assert!(!withdrawn(&env, &scheduled).await);
 }
 
 /// 39.00 scheduled from Feb 1, 99.00 from Jan 16 written under it, then the scheduled change
@@ -308,10 +302,7 @@ async fn an_immediate_plan_change_replaces_a_scheduled_amendment(#[future] test_
     );
     assert_eq!(env.get_subscription(sub_id).await.mrr_cents, 9900 + 2500);
     assert_billed_once(&env, sub_id).await;
-    assert!(matches!(
-        status_of(&env, &scheduled).await,
-        DieselEventStatus::Canceled
-    ));
+    assert!(withdrawn(&env, &scheduled).await);
 }
 
 /// 39.00 scheduled from Feb 1, then the subscription cancelled on Jan 21, which withdraws it:
@@ -349,10 +340,7 @@ async fn a_cancellation_withdraws_a_scheduled_amendment(#[future] test_env: Test
         ]
     );
     assert_invariants(&env, "cancelled").await;
-    assert!(matches!(
-        status_of(&env, &scheduled).await,
-        DieselEventStatus::Canceled
-    ));
+    assert!(withdrawn(&env, &scheduled).await);
 }
 
 /// 39.00 scheduled from Feb 1, then the subscription terminated at once on Jan 21: the
@@ -389,8 +377,5 @@ async fn an_immediate_cancellation_withdraws_a_scheduled_amendment(#[future] tes
         ]
     );
     assert_invariants(&env, "terminated").await;
-    assert!(matches!(
-        status_of(&env, &scheduled).await,
-        DieselEventStatus::Canceled
-    ));
+    assert!(withdrawn(&env, &scheduled).await);
 }

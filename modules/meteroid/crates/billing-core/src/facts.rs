@@ -28,6 +28,16 @@ pub struct Facts<F> {
     /// The reconcile watermark, not a fact: a period ending on or before it is never computed
     /// again, one straddling it is computed whole so reconcile sees its whole key.
     pub reconcile_from: Option<NaiveDate>,
+    /// Earlier than the watermark for what is billed at a period's end (fixed arrears, usage): an
+    /// import's period, its advance billed elsewhere, still owes what it consumed.
+    pub arrears_from: Option<NaiveDate>,
+    /// The day the cancellation was requested: requested after its date, it is backdated, and what
+    /// it ends is billed on a final invoice issued then, never on a document dated in the past.
+    pub ending_recorded: Option<NaiveDate>,
+    /// The recurring invoice of the cancellation's day takes no more fee lines, what the ending cuts
+    /// going on a final invoice: written before the cancellation was requested, or, for a backdated
+    /// one, kept (a draft it closes hands its charges to the final invoice).
+    pub ending_day_invoiced: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,6 +48,8 @@ pub struct Start {
     /// When the start was settled: at insert for an immediate start, else by the checkout or the
     /// payment that settled it. Until then only the opening invoice is billed.
     pub settled: Option<DateTime<Utc>>,
+    /// A checkout session of the subscription not completed: unsettled, it awaits that checkout.
+    pub checkout: bool,
 }
 
 /// `[from, until)`; a free trial bills nothing, its freeness read from the plan version in
@@ -92,6 +104,9 @@ pub struct SeatStep {
     pub lineage: Fee,
     pub at: NaiveDate,
     pub quantity: u64,
+    /// Of the seats `quantity` no longer counts, those a removal scheduled for a period's end
+    /// takes off: they stay billed until the first renewal on or after `at` (R-108).
+    pub removed_at_renewal: u64,
 }
 
 /// From `from` on, for `invoices` invoices (forever when none); the count used is read from the
@@ -256,11 +271,20 @@ impl<F> DatedFact for FeeFact<F> {
             id: self.id,
         }
     }
+    /// A one-time fee's row closed on the day it opened still lived that day, which it bills
+    /// (R-093): a change the same day never gives it back.
     fn window(&self) -> Span {
+        let to = match self.to {
+            Some(to) if to == self.from && self.billing == Billing::OneTime => to.succ_opt(),
+            to => to,
+        };
         Span {
             from: self.from,
-            to: self.to,
+            to,
         }
+    }
+    fn cuts(&self) -> Vec<NaiveDate> {
+        std::iter::once(self.from).chain(self.to).collect()
     }
     fn bears_on(&self, lineage: &Fee) -> bool {
         self.lineage == *lineage
@@ -388,14 +412,15 @@ impl<F> Facts<F> {
             .is_some_and(|trial| trial.until > self.start.date)
     }
 
-    /// The ending in force: the ending fact or the fixed term's end, the earlier one.
+    /// The ending in force: the ending fact or the fixed term's end, the earlier one; a
+    /// cancellation dated on the term's end leaves it completed.
     pub fn effective_ending(&self) -> Option<Ending> {
         let term = self.end_date.map(|date| Ending {
             at: midnight(date),
             kind: EndingKind::Complete,
         });
         match (self.ending, term) {
-            (Some(ending), Some(term)) => Some(if term.at < ending.at { term } else { ending }),
+            (Some(ending), Some(term)) => Some(if term.at <= ending.at { term } else { ending }),
             (ending, term) => ending.or(term),
         }
     }

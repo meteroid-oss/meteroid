@@ -517,12 +517,11 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
             headline_fee,
             currency: details.subscription.currency.clone(),
             can_change_plan,
-            pending_event: details.pending_events.into_iter().find_map(|e| {
+            pending_event: details.pending_events.into_iter().next().map(|e| {
                 let event_type = match e.event_type {
                     ScheduledEventTypeEnum::ApplyPlanChange => PendingEventType::PlanChange,
                     ScheduledEventTypeEnum::CancelSubscription => PendingEventType::Cancel,
                     ScheduledEventTypeEnum::ApplyAmendment => PendingEventType::Amendment,
-                    _ => return None,
                 };
                 let customer_cancellable = e.customer_initiated;
                 let amendment_summary = e.amendment_summary.map(|s| sub_proto::AmendmentSummary {
@@ -531,7 +530,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                     added_add_on_names: s.added_add_on_names,
                     removed_add_on_names: s.removed_add_on_names,
                 });
-                Some(PendingEvent {
+                PendingEvent {
                     id: e.id.as_proto(),
                     event_type: event_type.into(),
                     scheduled_date: e.scheduled_date.as_proto(),
@@ -539,7 +538,7 @@ impl PortalSubscriptionService for PortalSubscriptionServiceComponents {
                     cancel_reason: e.cancel_reason,
                     customer_cancellable,
                     amendment_summary,
-                })
+                }
             }),
             online_payment_enabled,
             plan_price: Some(plan_price),

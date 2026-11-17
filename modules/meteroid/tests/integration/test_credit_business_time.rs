@@ -660,16 +660,17 @@ async fn a_manual_payment_date_funds_a_pack_from_its_payment_or_issue() -> TestR
     Ok(())
 }
 
-/// Scheduled events of a tenant on hold wait for the release, then fire as they would have.
+/// An invoice deadline of a tenant on hold waits for the release, then is met as it would have been.
 #[tokio::test]
-async fn scheduled_events_wait_for_the_lifecycle_hold_to_be_released() -> TestResult {
-    use meteroid_store::domain::scheduled_events::{ScheduledEventData, ScheduledEventNew};
-    use meteroid_store::repositories::SubscriptionInterface;
+async fn invoice_deadlines_wait_for_the_lifecycle_hold_to_be_released() -> TestResult {
+    use diesel::{ExpressionMethods, QueryDsl};
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::invoice::dsl as i;
     let env = test_env_with_seed(SeedLevel::PLANS).await;
     let start = (Utc::now().date_naive() - Months::new(2))
         .with_day(1)
         .expect("first of the month");
-    // Not advanced automatically: the first period's invoice stays a draft for the event to finalize.
+    // Not advanced automatically: the first period's invoice stays a draft for its deadline.
     let sub_id = subscription()
         .plan_version(PLAN_VERSION_1_LEETCODE_ID)
         .start_date(start)
@@ -688,28 +689,17 @@ async fn scheduled_events_wait_for_the_lifecycle_hold_to_be_released() -> TestRe
     assert!(draft.can_edit());
     hold_lifecycle(&env).await?;
     let mut conn = env.conn().await;
-    env.store()
-        .schedule_events(
-            &mut conn,
-            vec![ScheduledEventNew {
-                subscription_id: sub_id,
-                tenant_id: TENANT_ID,
-                scheduled_time: start.and_hms_opt(1, 0, 0).expect("time"),
-                event_data: ScheduledEventData::FinalizeInvoice {
-                    invoice_id: draft.id,
-                },
-                source: String::new(),
-                created_by: Actor::System,
-            }],
-        )
+    diesel::update(i::invoice.filter(i::id.eq(draft.id)))
+        .set(i::finalize_after.eq(start.and_hms_opt(1, 0, 0)))
+        .execute(&mut conn)
         .await
-        .map_err(test_error)?;
+        .expect("the draft's deadline");
     drop(conn);
 
     env.process_due_events().await;
     assert!(
         first(env.get_invoices(sub_id).await).can_edit(),
-        "a due event waits while the tenant is being seeded"
+        "a deadline passed waits while the tenant is being seeded"
     );
 
     release_lifecycle(&env).await?;
@@ -791,7 +781,7 @@ async fn a_replay_bills_one_period_at_a_time_at_its_end() -> TestResult {
         .await;
     hold_lifecycle(&env).await?;
     env.services()
-        .get_and_process_cycle_transitions()
+        .run_subscription_steps()
         .await
         .map_err(test_error)?;
     let held = env.get_subscription(sub_id).await;
@@ -812,8 +802,9 @@ async fn a_replay_bills_one_period_at_a_time_at_its_end() -> TestResult {
                     InvoiceDelivery::Suppressed,
                 )
                 .await
-                .is_err(),
-            "the period has not ended a day earlier"
+                .map_err(test_error)?
+                .is_none(),
+            "a day earlier the period has not ended: nothing is due"
         );
         let invoice = env
             .services()
@@ -833,8 +824,6 @@ async fn a_replay_bills_one_period_at_a_time_at_its_end() -> TestResult {
         );
         let advanced = env.get_subscription(sub_id).await;
         assert_eq!(advanced.current_period_start, period_end);
-        assert_eq!(advanced.error_count, 0);
-        assert!(advanced.last_error.is_none());
         period_end = advanced.current_period_end.expect("a period end");
     }
     release_lifecycle(&env).await?;

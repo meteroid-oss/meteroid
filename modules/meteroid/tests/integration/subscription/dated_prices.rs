@@ -266,13 +266,19 @@ async fn a_matrix_edit_dated_before_today_or_a_later_edit_is_refused() {
     let (product, _) = matrix_plan(&env, "Metered").await;
     env.set_now(at(1, 10));
     let refused = edit(&env, product, add_us(dec!(0.20), day(1, 9))).await;
-    assert!(format!("{refused:?}").contains("R-097"), "{refused:?}");
+    assert!(
+        format!("{refused:?}").contains("a price changes from today or later"),
+        "{refused:?}"
+    );
 
     edit(&env, product, add_us(dec!(0.20), day(1, 20)))
         .await
         .expect("us from Jan 20");
     let refused = edit(&env, product, remove_eu(day(1, 15))).await;
-    assert!(format!("{refused:?}").contains("R-097"), "{refused:?}");
+    assert!(
+        format!("{refused:?}").contains("date this one on or after it"),
+        "{refused:?}"
+    );
     edit(&env, product, remove_eu(day(1, 20)))
         .await
         .expect("the same day as the last edit");
@@ -353,7 +359,10 @@ async fn the_price_lineage_revert_refuses_while_a_successor_exists() {
         .await
         .expect("us from Jan 15");
 
-    let down = include_str!("../../../migrations/diesel/2026-11-15-183517_price_lineage/down.sql");
+    let down = crate::release_migrations::migration_section(
+        crate::release_migrations::BILLING_ON_FACTS_DOWN,
+        "Price lineage",
+    );
     let mut conn = env.conn().await;
     conn.batch_execute("BEGIN").await.expect("begin");
     let reverted = conn.batch_execute(down).await;

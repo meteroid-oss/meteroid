@@ -2,7 +2,7 @@ use crate::billing_controller::BillingControllerRow;
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 use chrono::{DateTime, Utc};
-use common_domain::ids::{BaseId, CustomerId, TenantId};
+use common_domain::ids::{BaseId, CustomerId, SubscriptionId, TenantId};
 use diesel::{OptionalExtension, QueryableByName, sql_types};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
@@ -10,11 +10,13 @@ use error_stack::ResultExt;
 impl BillingControllerRow {
     /// Leases up to `limit` customers whose wake is due or whose inputs changed, oldest first,
     /// skipping those another replica leased: tenants paused or seeding a sandbox wait.
+    /// Held to an allowlist (`held`), only the released tenants' customers.
     pub async fn claim_due(
         conn: &mut PgConn,
         now: DateTime<Utc>,
         lease_until: DateTime<Utc>,
         limit: i64,
+        held: bool,
     ) -> DbResult<Vec<BillingControllerRow>> {
         diesel::sql_query(
             "UPDATE billing_controller bc
@@ -25,6 +27,8 @@ impl BillingControllerRow {
                  JOIN tenant t ON t.id = c.tenant_id AND t.status = 'ACTIVE'
                  LEFT JOIN sandbox_seed sd ON sd.tenant_id = c.tenant_id AND sd.status = 'IN_PROGRESS'
                  WHERE sd.tenant_id IS NULL
+                   AND (NOT $4 OR EXISTS (SELECT 1 FROM billing_controller_release r
+                                          WHERE r.tenant_id IS NULL OR r.tenant_id = c.tenant_id))
                    -- A failed run waits for its retry, dirty or not.
                    AND (c.next_wake_at <= $1 OR (c.dirty_since IS NOT NULL AND c.attempts = 0))
                    AND (c.lease_until IS NULL OR c.lease_until < $1)
@@ -38,67 +42,109 @@ impl BillingControllerRow {
         .bind::<sql_types::Timestamptz, _>(now)
         .bind::<sql_types::Timestamptz, _>(lease_until)
         .bind::<sql_types::BigInt, _>(limit)
+        .bind::<sql_types::Bool, _>(held)
         .get_results(conn)
         .await
         .attach("Error while claiming due billing controllers")
         .into_db_result()
     }
 
-    /// Ends a run that claimed the customer dirty as of `claimed_dirty`: wakes at `next_wake_at`;
-    /// an input that changed since the claim (a newer mark, whatever the clocks) keeps it dirty.
+    /// Renews the lease the run holds (`held`) until `until` as it starts the customer: the
+    /// stored lease, None when another replica took the customer over.
+    pub async fn renew_lease(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        held: DateTime<Utc>,
+        until: DateTime<Utc>,
+    ) -> DbResult<Option<DateTime<Utc>>> {
+        #[derive(QueryableByName)]
+        struct Lease {
+            #[diesel(sql_type = sql_types::Timestamptz)]
+            lease_until: DateTime<Utc>,
+        }
+        diesel::sql_query(
+            "UPDATE billing_controller SET lease_until = $4
+             WHERE tenant_id = $1 AND customer_id = $2 AND lease_until = $3
+             RETURNING lease_until",
+        )
+        .bind::<sql_types::Uuid, _>(tenant_id)
+        .bind::<sql_types::Uuid, _>(customer_id)
+        .bind::<sql_types::Timestamptz, _>(held)
+        .bind::<sql_types::Timestamptz, _>(until)
+        .get_result::<Lease>(conn)
+        .await
+        .optional()
+        .map(|lease| lease.map(|lease| lease.lease_until))
+        .attach("Error while renewing a billing controller lease")
+        .into_db_result()
+    }
+
+    /// Ends a run holding `lease` that claimed the customer dirty as of `claimed_dirty`: wakes at
+    /// `next_wake_at`; an input that changed since the claim (a newer mark, whatever the clocks)
+    /// keeps it dirty. False when the run no longer holds the customer: it writes nothing.
+    #[allow(clippy::too_many_arguments)]
     pub async fn complete(
         conn: &mut PgConn,
         tenant_id: TenantId,
         customer_id: CustomerId,
+        lease: DateTime<Utc>,
         claimed_dirty: Option<DateTime<Utc>>,
         next_wake_at: Option<DateTime<Utc>>,
         now: DateTime<Utc>,
-    ) -> DbResult<()> {
+    ) -> DbResult<bool> {
         diesel::sql_query(
             "UPDATE billing_controller
              SET next_wake_at = $3,
                  dirty_since = CASE WHEN dirty_since IS NOT DISTINCT FROM $4 THEN NULL
                                     ELSE dirty_since END,
-                 lease_until = NULL, attempts = 0, last_error = NULL, updated_at = $5
-             WHERE tenant_id = $1 AND customer_id = $2",
+                 lease_until = NULL, attempts = 0, last_error = NULL, first_failed_at = NULL,
+                 last_failed_at = NULL,
+                 updated_at = $5
+             WHERE tenant_id = $1 AND customer_id = $2 AND lease_until = $6",
         )
         .bind::<sql_types::Uuid, _>(tenant_id)
         .bind::<sql_types::Uuid, _>(customer_id)
         .bind::<sql_types::Nullable<sql_types::Timestamptz>, _>(next_wake_at)
         .bind::<sql_types::Nullable<sql_types::Timestamptz>, _>(claimed_dirty)
         .bind::<sql_types::Timestamptz, _>(now)
+        .bind::<sql_types::Timestamptz, _>(lease)
         .execute(conn)
         .await
+        .map(|updated| updated > 0)
         .attach("Error while completing a billing controller run")
         .into_db_result()
-        .map(|_| ())
     }
 
-    /// A run that failed: retried at `retry_at`, its error kept.
+    /// A run holding `lease` that failed: retried at `retry_at`, its error kept. False when the
+    /// run no longer holds the customer.
     pub async fn fail(
         conn: &mut PgConn,
         tenant_id: TenantId,
         customer_id: CustomerId,
+        lease: DateTime<Utc>,
         error: &str,
         retry_at: DateTime<Utc>,
         now: DateTime<Utc>,
-    ) -> DbResult<()> {
+    ) -> DbResult<bool> {
         diesel::sql_query(
             "UPDATE billing_controller
              SET next_wake_at = $4, lease_until = NULL, attempts = attempts + 1,
-                 last_error = $3, updated_at = $5
-             WHERE tenant_id = $1 AND customer_id = $2",
+                 last_error = $3, first_failed_at = COALESCE(first_failed_at, $5),
+                 last_failed_at = $5, updated_at = $5
+             WHERE tenant_id = $1 AND customer_id = $2 AND lease_until = $6",
         )
         .bind::<sql_types::Uuid, _>(tenant_id)
         .bind::<sql_types::Uuid, _>(customer_id)
         .bind::<sql_types::Text, _>(error)
         .bind::<sql_types::Timestamptz, _>(retry_at)
         .bind::<sql_types::Timestamptz, _>(now)
+        .bind::<sql_types::Timestamptz, _>(lease)
         .execute(conn)
         .await
+        .map(|updated| updated > 0)
         .attach("Error while recording a failed billing controller run")
         .into_db_result()
-        .map(|_| ())
     }
 
     /// The sweep's recomputed wake of a customer not leased; returns the wake it replaced and
@@ -146,6 +192,67 @@ impl BillingControllerRow {
         after: Option<(TenantId, CustomerId)>,
         limit: i64,
     ) -> DbResult<Vec<(TenantId, CustomerId)>> {
+        Self::list_keys(conn, after, limit, None).await
+    }
+
+    /// As [`Self::list_customers`], those a run may take as `claim_due` does: tenants paused,
+    /// seeding a sandbox or, `held`, not released wait.
+    pub async fn list_runnable_customers(
+        conn: &mut PgConn,
+        after: Option<(TenantId, CustomerId)>,
+        limit: i64,
+        held: bool,
+    ) -> DbResult<Vec<(TenantId, CustomerId)>> {
+        Self::list_keys(conn, after, limit, Some(held)).await
+    }
+
+    /// Customers due by `now` that a held release keeps waiting: their tenant is not released.
+    pub async fn count_held(conn: &mut PgConn, now: DateTime<Utc>) -> DbResult<i64> {
+        #[derive(QueryableByName)]
+        struct Held {
+            #[diesel(sql_type = sql_types::BigInt)]
+            held: i64,
+        }
+        diesel::sql_query(
+            "SELECT count(*) AS held FROM billing_controller c
+             JOIN tenant t ON t.id = c.tenant_id AND t.status = 'ACTIVE'
+             WHERE (c.next_wake_at <= $1 OR c.dirty_since IS NOT NULL)
+               AND NOT EXISTS (SELECT 1 FROM billing_controller_release r
+                               WHERE r.tenant_id IS NULL OR r.tenant_id = c.tenant_id)",
+        )
+        .bind::<sql_types::Timestamptz, _>(now)
+        .get_result::<Held>(conn)
+        .await
+        .map(|count| count.held)
+        .attach("Error while counting the customers a held release waits")
+        .into_db_result()
+    }
+
+    /// Whether the tenant's billing waits for its release, the release held to an allowlist.
+    pub async fn is_held(conn: &mut PgConn, tenant_id: TenantId) -> DbResult<bool> {
+        #[derive(QueryableByName)]
+        struct Held {
+            #[diesel(sql_type = sql_types::Bool)]
+            held: bool,
+        }
+        diesel::sql_query(
+            "SELECT NOT EXISTS (SELECT 1 FROM billing_controller_release r
+                                WHERE r.tenant_id IS NULL OR r.tenant_id = $1) AS held",
+        )
+        .bind::<sql_types::Uuid, _>(tenant_id)
+        .get_result::<Held>(conn)
+        .await
+        .map(|held| held.held)
+        .attach("Error while reading whether a tenant's billing is released")
+        .into_db_result()
+    }
+
+    async fn list_keys(
+        conn: &mut PgConn,
+        after: Option<(TenantId, CustomerId)>,
+        limit: i64,
+        runnable: Option<bool>,
+    ) -> DbResult<Vec<(TenantId, CustomerId)>> {
         #[derive(QueryableByName)]
         struct Key {
             #[diesel(sql_type = sql_types::Uuid)]
@@ -156,18 +263,35 @@ impl BillingControllerRow {
         let (tenant, customer) = after
             .map(|(t, c)| (t.as_uuid(), c.as_uuid()))
             .unwrap_or((uuid::Uuid::nil(), uuid::Uuid::nil()));
-        diesel::sql_query(
-            "SELECT tenant_id, customer_id FROM (
+        let held = match runnable {
+            Some(false) => {
+                "JOIN tenant t ON t.id = k.tenant_id AND t.status = 'ACTIVE'
+                 LEFT JOIN sandbox_seed sd
+                   ON sd.tenant_id = k.tenant_id AND sd.status = 'IN_PROGRESS'
+                 WHERE sd.tenant_id IS NULL AND"
+            }
+            Some(true) => {
+                "JOIN tenant t ON t.id = k.tenant_id AND t.status = 'ACTIVE'
+                 LEFT JOIN sandbox_seed sd
+                   ON sd.tenant_id = k.tenant_id AND sd.status = 'IN_PROGRESS'
+                 WHERE sd.tenant_id IS NULL
+                   AND EXISTS (SELECT 1 FROM billing_controller_release r
+                               WHERE r.tenant_id IS NULL OR r.tenant_id = k.tenant_id) AND"
+            }
+            None => "WHERE",
+        };
+        diesel::sql_query(format!(
+            "SELECT k.tenant_id, k.customer_id FROM (
                  SELECT tenant_id, customer_id FROM subscription
                  UNION
                  SELECT tenant_id, customer_id FROM customer_credit_grant WHERE remaining > 0
                  UNION
                  SELECT tenant_id, customer_id FROM billing_controller
              ) k
-             WHERE (tenant_id, customer_id) > ($1, $2)
-             ORDER BY tenant_id, customer_id
-             LIMIT $3",
-        )
+             {held} (k.tenant_id, k.customer_id) > ($1, $2)
+             ORDER BY k.tenant_id, k.customer_id
+             LIMIT $3"
+        ))
         .bind::<sql_types::Uuid, _>(tenant)
         .bind::<sql_types::Uuid, _>(customer)
         .bind::<sql_types::BigInt, _>(limit)
@@ -183,15 +307,146 @@ impl BillingControllerRow {
     }
 }
 
+/// The live statuses: a subscription the controller steps.
+const LIVE_SQL: &str = "('PENDING_ACTIVATION', 'TRIAL_ACTIVE', 'TRIAL_EXPIRED', 'ACTIVE')";
+
+impl BillingControllerRow {
+    /// The customer's live subscriptions to evaluate by `now`: those whose wake is due, and those
+    /// never evaluated; each once per run.
+    pub async fn due_subscriptions_of(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        now: DateTime<Utc>,
+        limit: i64,
+    ) -> DbResult<Vec<SubscriptionId>> {
+        #[derive(QueryableByName)]
+        struct Due {
+            #[diesel(sql_type = sql_types::Uuid)]
+            id: SubscriptionId,
+        }
+        diesel::sql_query(format!(
+            "SELECT s.id FROM subscription s
+             WHERE s.tenant_id = $1 AND s.customer_id = $2
+               AND s.status IN {LIVE_SQL}
+               AND NOT s.lifecycle_suspended
+               AND (s.next_wake_at IS NULL OR s.next_wake_at <= $3)
+             ORDER BY s.next_wake_at ASC NULLS FIRST, s.id
+             LIMIT $4"
+        ))
+        .bind::<sql_types::Uuid, _>(tenant_id)
+        .bind::<sql_types::Uuid, _>(customer_id)
+        .bind::<sql_types::Timestamptz, _>(now)
+        .bind::<sql_types::BigInt, _>(limit)
+        .get_results::<Due>(conn)
+        .await
+        .map(|rows| rows.into_iter().map(|row| row.id).collect())
+        .attach("Error while listing the subscriptions due for the billing controller")
+        .into_db_result()
+    }
+
+    /// Wakes the customer by `at` at the latest: a deadline written outside a run, marked as an
+    /// input too, so a run ending meanwhile (its wake read before it) runs once more.
+    pub async fn wake_by(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        at: DateTime<Utc>,
+    ) -> DbResult<()> {
+        diesel::sql_query(
+            "INSERT INTO billing_controller (tenant_id, customer_id, next_wake_at, dirty_since,
+                                             updated_at)
+             VALUES ($1, $2, $3, $4, $4)
+             ON CONFLICT (tenant_id, customer_id) DO UPDATE
+             SET next_wake_at = LEAST(COALESCE(billing_controller.next_wake_at, excluded.next_wake_at),
+                                      excluded.next_wake_at),
+                 dirty_since = excluded.dirty_since,
+                 updated_at = excluded.updated_at",
+        )
+        .bind::<sql_types::Uuid, _>(tenant_id)
+        .bind::<sql_types::Uuid, _>(customer_id)
+        .bind::<sql_types::Timestamptz, _>(at)
+        .bind::<sql_types::Timestamptz, _>(common_clock::now())
+        .execute(conn)
+        .await
+        .attach("Error while waking a billing controller")
+        .into_db_result()
+        .map(|_| ())
+    }
+}
+
+/// What the customer's credit makes due: the lapses of credit still holding value, and the
+/// settlement grace (OQ15) of its invoicing entity.
+#[derive(Debug, Clone, Default)]
+pub struct CreditLapses {
+    pub lapses: Vec<DateTime<Utc>>,
+    pub grace_period_hours: Option<i32>,
+    pub consolidate_recurring_invoices: Option<bool>,
+}
+
+impl CreditLapses {
+    pub async fn of_customer(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+    ) -> DbResult<CreditLapses> {
+        #[derive(QueryableByName)]
+        struct Lapse {
+            #[diesel(sql_type = sql_types::Timestamptz)]
+            lapses_at: DateTime<Utc>,
+        }
+        #[derive(QueryableByName)]
+        struct Terms {
+            #[diesel(sql_type = sql_types::Nullable<sql_types::Integer>)]
+            grace_period_hours: Option<i32>,
+            #[diesel(sql_type = sql_types::Nullable<sql_types::Bool>)]
+            consolidate_recurring_invoices: Option<bool>,
+        }
+        let lapses = diesel::sql_query(
+            "SELECT DISTINCT g.lapses_at FROM customer_credit_grant g
+             WHERE g.tenant_id = $1 AND g.customer_id = $2 AND g.remaining > 0
+               AND g.lapses_at IS NOT NULL",
+        )
+        .bind::<sql_types::Uuid, _>(tenant_id)
+        .bind::<sql_types::Uuid, _>(customer_id)
+        .get_results::<Lapse>(conn)
+        .await
+        .attach("Error while reading a customer's credit lapses")
+        .into_db_result()?;
+        let terms = diesel::sql_query(
+            "SELECT ie.grace_period_hours, ie.consolidate_recurring_invoices FROM customer c
+             JOIN invoicing_entity ie ON ie.id = c.invoicing_entity_id
+             WHERE c.tenant_id = $1 AND c.id = $2",
+        )
+        .bind::<sql_types::Uuid, _>(tenant_id)
+        .bind::<sql_types::Uuid, _>(customer_id)
+        .get_result::<Terms>(conn)
+        .await
+        .optional()
+        .attach("Error while reading a customer's settlement grace")
+        .into_db_result()?;
+        Ok(CreditLapses {
+            lapses: lapses.into_iter().map(|lapse| lapse.lapses_at).collect(),
+            grace_period_hours: terms.as_ref().and_then(|terms| terms.grace_period_hours),
+            consolidate_recurring_invoices: terms
+                .as_ref()
+                .and_then(|terms| terms.consolidate_recurring_invoices),
+        })
+    }
+}
+
 /// What makes a customer's billing steps due, the earliest of each kind (see the controller).
 #[derive(Debug, Clone, Default, QueryableByName)]
 pub struct DueTimes {
-    /// A live subscription's next transition: its period end (midnight), after any retry backoff.
+    /// A live subscription to evaluate: its wake (`next_wake_at`), at once when never evaluated.
     #[diesel(sql_type = sql_types::Nullable<sql_types::Timestamptz>)]
-    pub transition: Option<DateTime<Utc>>,
-    /// A pending scheduled event, after any retry backoff.
+    pub derive: Option<DateTime<Utc>>,
+    /// A draft's finalization once its grace ends.
     #[diesel(sql_type = sql_types::Nullable<sql_types::Timestamptz>)]
-    pub event: Option<DateTime<Utc>>,
+    pub finalize: Option<DateTime<Utc>>,
+    /// An invoice's next payment attempt.
+    #[diesel(sql_type = sql_types::Nullable<sql_types::Timestamptz>)]
+    pub attempt: Option<DateTime<Utc>>,
     /// The earliest lapse of credit still holding value.
     #[diesel(sql_type = sql_types::Nullable<sql_types::Timestamptz>)]
     pub lapse: Option<DateTime<Utc>>,
@@ -205,9 +460,6 @@ pub struct DueTimes {
     /// A refreshable draft's next hourly refresh.
     #[diesel(sql_type = sql_types::Nullable<sql_types::Timestamptz>)]
     pub draft: Option<DateTime<Utc>>,
-    /// A live subscription's facts changing its derived state (`next_wake_at`).
-    #[diesel(sql_type = sql_types::Nullable<sql_types::Timestamptz>)]
-    pub derive: Option<DateTime<Utc>>,
 }
 
 impl DueTimes {
@@ -217,25 +469,18 @@ impl DueTimes {
         customer_id: CustomerId,
         now: DateTime<Utc>,
     ) -> DbResult<DueTimes> {
-        diesel::sql_query(
+        diesel::sql_query(format!(
             "SELECT
-               (SELECT MIN(GREATEST(s.current_period_end::timestamp AT TIME ZONE 'UTC',
-                                    COALESCE(s.next_retry AT TIME ZONE 'UTC',
-                                             s.current_period_end::timestamp AT TIME ZONE 'UTC')))
-                FROM subscription s
+               -- A paused tenant's wakes are kept: the claim holds them until it is active.
+               (SELECT MIN(COALESCE(s.next_wake_at, $3)) FROM subscription s
                 WHERE s.tenant_id = $1 AND s.customer_id = $2
-                  AND s.current_period_end IS NOT NULL
-                  AND s.status IN ('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE', 'PAUSED')
-                  AND NOT s.lifecycle_suspended) AS transition,
-               (SELECT MIN(GREATEST(e.scheduled_time,
-                                    COALESCE(e.next_attempt_at, e.scheduled_time)) AT TIME ZONE 'UTC')
-                FROM scheduled_event e
-                JOIN subscription s ON s.id = e.subscription_id
-                WHERE e.tenant_id = $1 AND s.customer_id = $2 AND e.status = 'PENDING'
-                  -- As the claim: a lifecycle event at or after the period end is the renewal's.
-                  AND (e.event_type IN ('FINALIZE_INVOICE', 'RETRY_PAYMENT')
-                       OR s.current_period_end IS NULL
-                       OR s.current_period_end > e.scheduled_time::date)) AS event,
+                  AND s.status IN {LIVE_SQL}) AS derive,
+               (SELECT MIN(i.finalize_after AT TIME ZONE 'UTC') FROM invoice i
+                WHERE i.tenant_id = $1 AND i.customer_id = $2
+                  AND i.status = 'DRAFT' AND i.finalize_after IS NOT NULL) AS finalize,
+               (SELECT MIN(i.next_payment_attempt_at AT TIME ZONE 'UTC') FROM invoice i
+                WHERE i.tenant_id = $1 AND i.customer_id = $2
+                  AND i.next_payment_attempt_at IS NOT NULL) AS attempt,
                (SELECT MIN(g.lapses_at) FROM customer_credit_grant g
                 WHERE g.tenant_id = $1 AND g.customer_id = $2 AND g.remaining > 0
                   AND g.lapses_at IS NOT NULL) AS lapse,
@@ -268,19 +513,101 @@ impl DueTimes {
                        OR i.billing_period_start
                           + COALESCE((SELECT ie.grace_period_hours FROM invoicing_entity ie
                                       WHERE ie.id = i.invoicing_entity_id), 0) * interval '1 hour'
-                          > ($3::timestamptz AT TIME ZONE 'UTC'))) AS draft,
-               (SELECT MIN(s.next_wake_at) FROM subscription s
-                WHERE s.tenant_id = $1 AND s.customer_id = $2
-                  AND s.status IN ('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE',
-                                   'TRIAL_EXPIRED', 'PAUSED', 'SUSPENDED')
-                  AND NOT s.lifecycle_suspended) AS derive",
-        )
+                          > ($3::timestamptz AT TIME ZONE 'UTC'))) AS draft"
+        ))
         .bind::<sql_types::Uuid, _>(tenant_id)
         .bind::<sql_types::Uuid, _>(customer_id)
         .bind::<sql_types::Timestamptz, _>(now)
         .get_result(conn)
         .await
         .attach("Error while reading a customer's due billing times")
+        .into_db_result()
+    }
+}
+
+impl crate::subscriptions::SubscriptionRow {
+    /// The failures in a row of the subscription's billing step.
+    pub async fn billing_failures(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+    ) -> DbResult<i32> {
+        use crate::schema::subscription::dsl as s;
+        use diesel::{ExpressionMethods, QueryDsl};
+        s::subscription
+            .filter(s::id.eq(subscription_id))
+            .select(s::billing_failures)
+            .first(conn)
+            .await
+            .attach("Error while reading a subscription's billing failures")
+            .into_db_result()
+    }
+
+    /// One more failure of the subscription's billing step: retried at `retry_at`, its error kept.
+    pub async fn record_billing_failure(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+        error: &str,
+        retry_at: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> DbResult<()> {
+        diesel::sql_query(
+            "UPDATE subscription
+             SET billing_failures = billing_failures + 1,
+                 billing_first_failed_at = COALESCE(billing_first_failed_at, $4),
+                 billing_last_failed_at = $4, billing_last_error = $2, billing_retry_at = $3,
+                 next_wake_at = $3
+             WHERE id = $1",
+        )
+        .bind::<sql_types::Uuid, _>(subscription_id)
+        .bind::<sql_types::Text, _>(error)
+        .bind::<sql_types::Timestamptz, _>(retry_at)
+        .bind::<sql_types::Timestamptz, _>(now)
+        .execute(conn)
+        .await
+        .attach("Error while recording a subscription's billing failure")
+        .into_db_result()
+        .map(|_| ())
+    }
+
+    /// The subscription's billing step took: its failures cleared. True when it had some.
+    pub async fn clear_billing_failures(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+    ) -> DbResult<bool> {
+        diesel::sql_query(
+            "UPDATE subscription
+             SET billing_failures = 0, billing_first_failed_at = NULL,
+                 billing_last_failed_at = NULL, billing_last_error = NULL, billing_retry_at = NULL
+             WHERE id = $1 AND billing_failures > 0",
+        )
+        .bind::<sql_types::Uuid, _>(subscription_id)
+        .execute(conn)
+        .await
+        .map(|cleared| cleared > 0)
+        .attach("Error while clearing a subscription's billing failures")
+        .into_db_result()
+    }
+}
+
+/// What is failing, `at_least` times in a row or more.
+#[derive(Debug, Clone, Copy, Default, QueryableByName)]
+pub struct Failing {
+    #[diesel(sql_type = sql_types::BigInt)]
+    pub subscriptions: i64,
+    #[diesel(sql_type = sql_types::BigInt)]
+    pub customers: i64,
+}
+
+impl Failing {
+    pub async fn count(conn: &mut PgConn, at_least: i32) -> DbResult<Failing> {
+        diesel::sql_query(
+            "SELECT (SELECT count(*) FROM subscription WHERE billing_failures >= $1) AS subscriptions,
+                    (SELECT count(*) FROM billing_controller WHERE attempts >= $1) AS customers",
+        )
+        .bind::<sql_types::Integer, _>(at_least)
+        .get_result(conn)
+        .await
+        .attach("Error while counting the billing failures")
         .into_db_result()
     }
 }

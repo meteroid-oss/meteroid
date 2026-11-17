@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 
@@ -89,6 +89,49 @@ pub fn run_later() {
     });
 }
 
+/// The time each phase of the cases took in this process, kept when `MODEL_PROFILE` is set.
+static PROFILE: std::sync::Mutex<BTreeMap<&'static str, (Duration, u64)>> =
+    std::sync::Mutex::new(BTreeMap::new());
+
+/// Runs `work`, adding its time to `phase` when `MODEL_PROFILE` is set.
+pub async fn timed<T>(phase: &'static str, work: impl Future<Output = T>) -> T {
+    if env("MODEL_PROFILE", 0) == 0 {
+        return work.await;
+    }
+    let started = Instant::now();
+    let out = work.await;
+    add_time(phase, started.elapsed());
+    out
+}
+
+/// Adds `spent` to `phase`, as [`timed`] does.
+pub fn add_time(phase: &'static str, spent: Duration) {
+    if let Ok(mut profile) = PROFILE.lock() {
+        let entry = profile.entry(phase).or_default();
+        entry.0 += spent;
+        entry.1 += 1;
+    }
+}
+
+fn print_profile() {
+    if env("MODEL_PROFILE", 0) == 0 {
+        return;
+    }
+    add_time(
+        "store: facts shadow",
+        meteroid_store::services::facts_shadow::time_spent(),
+    );
+    add_time(
+        "store: timeline shadow",
+        meteroid_store::services::timeline_shadow::time_spent(),
+    );
+    if let Ok(profile) = PROFILE.lock() {
+        for (phase, (spent, count)) in profile.iter() {
+            eprintln!("  profile {phase}: {spent:.2?} over {count}");
+        }
+    }
+}
+
 /// A difference as (category, detail); the category names the kind of mismatch.
 pub type Diff = (String, String);
 
@@ -135,8 +178,10 @@ pub struct Knobs {
     pub cases: u64,
     pub seed: u64,
     pub steps: u64,
-    /// Cases run at once; one when a case moves the process's clock.
+    /// Cases run at once.
     pub jobs: u64,
+    /// Its cases move the process's clock, so they run one at a time: `_JOBS` above one is refused.
+    pub moves_clock: bool,
     /// This run takes the cases whose index is `shard` modulo `shards`.
     pub shard: u64,
     pub shards: u64,
@@ -160,13 +205,16 @@ pub struct ModelHarness<R, E>(PhantomData<(R, E)>);
 impl<R: Reference, E: Engine<R>> ModelHarness<R, E> {
     /// One case: every operation resolved against the model, run on both, then compared.
     pub async fn run_case(ops: &[R::Op]) -> Run {
-        let mut engine = E::new().await;
+        let mut engine = timed("case: new database", E::new()).await;
         let run = Self::run_with(&mut engine, ops).await;
         // Dropping a test database blocks on DROP DATABASE, which waits for every backend,
         // including another case's connection still authenticating on this task.
-        tokio::task::spawn_blocking(move || drop(engine))
-            .await
-            .expect("the test database dropped");
+        timed(
+            "case: drop database",
+            tokio::task::spawn_blocking(move || drop(engine)),
+        )
+        .await
+        .expect("the test database dropped");
         run
     }
 
@@ -178,12 +226,13 @@ impl<R: Reference, E: Engine<R>> ModelHarness<R, E> {
             let Some(action) = model.resolve(op) else {
                 continue;
             };
-            let mut details: Vec<Diff> = engine.before(&mut model, &action).await;
+            let mut details: Vec<Diff> =
+                timed("step: before", engine.before(&mut model, &action)).await;
             lines.push(model.describe(&action));
             kinds.push(R::kind(&action));
             let before = model.clone();
             let expected = model.apply(&action);
-            let actual = engine.apply(&action, &before).await;
+            let actual = timed("step: apply", engine.apply(&action, &before)).await;
             match (&expected, &actual) {
                 (Ok(()), Ok(())) | (Err(_), Err(_)) => {}
                 (Ok(()), Err(e)) => {
@@ -200,17 +249,17 @@ impl<R: Reference, E: Engine<R>> ModelHarness<R, E> {
                     R::reason(r)
                 ));
             }
-            details.extend(engine.compare(&model).await);
-            for violation in engine.invariants().await {
+            details.extend(timed("step: compare", engine.compare(&model)).await);
+            for violation in timed("step: invariants", engine.invariants()).await {
                 let name = violation.split(": ").next().unwrap_or_default().to_owned();
                 details.push((format!("invariant {name}"), violation));
             }
             if details.is_empty() {
-                let first = engine.fingerprint().await;
-                match engine.rerun_workers(&action).await {
+                let first = timed("step: fingerprint", engine.fingerprint()).await;
+                match timed("step: rerun workers", engine.rerun_workers(&action)).await {
                     Err(e) => details.push(("idempotency".to_owned(), e)),
                     Ok(()) => {
-                        let second = engine.fingerprint().await;
+                        let second = timed("step: fingerprint", engine.fingerprint()).await;
                         if first != second {
                             details.push((
                                 "idempotency".to_owned(),
@@ -278,6 +327,10 @@ impl<R: Reference, E: Engine<R>> ModelHarness<R, E> {
         let base = var("SEED", knobs.seed);
         let steps = var("STEPS", knobs.steps) as usize;
         let jobs = var("JOBS", knobs.jobs).max(1) as usize;
+        assert!(
+            jobs == 1 || !knobs.moves_clock,
+            "{prefix}_JOBS={jobs}: its cases move the process's clock, so they run one at a time"
+        );
         let shrinks = var("SHRINK", 8) as usize;
         let started = Instant::now();
         let seeds: Vec<u64> = (0..cases)
@@ -312,6 +365,7 @@ impl<R: Reference, E: Engine<R>> ModelHarness<R, E> {
             }
         }
         eprintln!("  actions run: {actions:?}");
+        print_profile();
         let mut by_signature: BTreeMap<String, Vec<u64>> = BTreeMap::new();
         for (seed, _, run) in &failures {
             let failure = run.failure.as_ref().expect("failed");
@@ -367,7 +421,7 @@ impl<R: Reference, E: Engine<R>> ModelHarness<R, E> {
                     (run.lines, failure)
                 };
                 let mut report = vec![format!(
-                    "\n=== {signature} (seed {seed:#x}, replay with {prefix}_SEED={seed:#x} {prefix}_CASES=1) ==="
+                    "\n=== {signature} (seed {seed:#x}, replay with {prefix}_SEED={seed:#x} {prefix}_CASES=1 {prefix}_STEPS={steps}) ==="
                 )];
                 report.extend(lines);
                 report.push("    mismatch:".to_owned());
@@ -388,6 +442,11 @@ impl<R: Reference, E: Engine<R>> ModelHarness<R, E> {
             by_signature.keys().collect::<Vec<_>>()
         );
     }
+}
+
+/// How many shards `{prefix}_SHARDS` splits the cases in, between one and `most`.
+pub fn shards(prefix: &str, most: u64) -> u64 {
+    env(&format!("{prefix}_SHARDS"), most).clamp(1, most)
 }
 
 fn env(name: &str, default: u64) -> u64 {

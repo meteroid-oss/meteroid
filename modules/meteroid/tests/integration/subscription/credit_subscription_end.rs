@@ -142,6 +142,12 @@ fn terminal_invoice(invoices: &[Invoice], on: NaiveDate) -> &Invoice {
         })
 }
 
+/// Long after these 2024 lives and past the 12 h grace: the final invoice a cancellation decided
+/// that day dates then (R-016) is issued before the test reads it, at whatever hour it runs.
+fn decided_later() -> chrono::DateTime<Utc> {
+    midnight(date(2025, 6, 2)) + Duration::hours(13)
+}
+
 /// Large (Enterprise) includes EUR 100 of credit for the period, and bills bandwidth at EUR 0.10.
 async fn included_credit_plan(env: &TestEnv, with_usage: bool) {
     add_component(
@@ -195,6 +201,7 @@ fn plan_credit<'a>(
 #[tokio::test]
 async fn an_immediate_cancellation_credits_fees_and_pack_as_a_plan_change_does() {
     let (env, usage) = usage_env().await;
+    env.set_now(decided_later());
     halyard(&env, CreditExpiry::BillingPeriod).await;
     scale_usage(&env).await;
     let sub_id = start(&env, CUST_UBER_ID, SCALE, date(2024, 1, 1)).await;
@@ -305,6 +312,7 @@ async fn an_immediate_cancellation_credits_fees_and_pack_as_a_plan_change_does()
 #[tokio::test]
 async fn a_late_event_after_an_immediate_cancellation_is_paid_by_the_ending_credit() {
     let (env, usage) = usage_env().await;
+    env.set_now(decided_later());
     halyard(&env, CreditExpiry::BillingPeriod).await;
     scale_usage(&env).await;
     let sub_id = start(&env, CUST_UBER_ID, SCALE, date(2024, 1, 1)).await;
@@ -326,7 +334,6 @@ async fn a_late_event_after_an_immediate_cancellation_is_paid_by_the_ending_cred
         CancellationEffectiveAt::Date(date(2024, 1, 16)),
     )
     .await;
-    env.process_due_events().await;
     let rows = grant_rows(&env, CUST_UBER_ID).await;
     let welcome = the(&rows, "INCLUDED_CREDIT", "PROMOTIONAL", 5_000).id;
 
@@ -999,6 +1006,7 @@ async fn a_cancellation_refunds_the_unused_time_exactly_like_a_forced_downgrade(
 #[tokio::test]
 async fn included_credit_ends_with_its_subscription_and_pays_its_late_usage() {
     let (env, usage) = usage_env().await;
+    env.set_now(decided_later());
     included_credit_plan(&env, true).await;
     let sub_id = start(&env, CUST_UBER_ID, LARGE, date(2024, 3, 1)).await;
     let top_up = fund_grant(
@@ -1017,7 +1025,6 @@ async fn included_credit_ends_with_its_subscription_and_pays_its_late_usage() {
         CancellationEffectiveAt::Date(date(2024, 3, 20)),
     )
     .await;
-    env.process_due_events().await;
 
     let pack = plan_credit(&grant_rows(&env, CUST_UBER_ID).await, "INCLUDED_CREDIT").clone();
     assert_eq!(pack.amount, 10_000);
@@ -1163,7 +1170,7 @@ async fn the_sweep_ends_the_credit_a_termination_left_running(#[future] test_env
             .await
             .batch_execute(&format!(
                 "UPDATE subscription SET status = 'CANCELLED', current_period_start = '2024-03-20',
-                     current_period_end = NULL, next_cycle_action = NULL
+                     current_period_end = NULL
                  WHERE id = '{}'",
                 sub_id.as_uuid()
             ))
@@ -1837,6 +1844,8 @@ fn invoice_starting(invoices: &[Invoice], start: NaiveDate) -> Invoice {
 #[tokio::test]
 async fn a_cancellation_trues_up_the_days_served_on_the_final_invoice(#[future] test_env: TestEnv) {
     let env = test_env.await;
+    // The cancellation is requested on the day it ends from.
+    env.set_now(midnight(date(2024, 10, 10)) + Duration::hours(9));
     starter_minimum(&env, 100_000).await;
     let sub_id = starter_anchored_on_the_first(&env, date(2024, 9, 20)).await;
     env.process_cycles().await;
@@ -1917,6 +1926,8 @@ async fn a_cancellation_during_a_draft_period_never_credits_the_minimum(
     #[future] test_env: TestEnv,
 ) {
     let env = test_env.await;
+    // The cancellation is requested on the day it ends from.
+    env.set_now(midnight(date(2024, 10, 10)) + Duration::hours(9));
     starter_minimum(&env, 100_000).await;
     let mut request = subscription()
         .plan_version(PLAN_VERSION_STARTER_ID)
@@ -1994,6 +2005,8 @@ async fn a_cancellation_during_a_draft_period_never_credits_the_minimum(
 #[tokio::test]
 async fn a_quarterly_pack_never_reaches_back_to_earlier_minimums(#[future] test_env: TestEnv) {
     let env = test_env.await;
+    // The cancellation is requested on the day it ends from.
+    env.set_now(midnight(date(2024, 10, 10)) + Duration::hours(9));
     starter_minimum(&env, 100_000).await;
     use meteroid_store::repositories::price_components::PriceComponentInterface;
     crate::helpers::plans::as_draft(
@@ -2174,8 +2187,8 @@ async fn an_immediate_cancellation_on_the_renewal_day_credits_the_whole_period()
     assert_ledger_balances(env.store(), TENANT_ID, CUST_UBER_ID).await;
 }
 
-/// The undo of a scheduled cancellation waits on the customer the cancellation holds while it
-/// runs; once the cancellation has executed, the undo is refused and the event stays completed.
+/// The undo of a scheduled cancellation waits on the customer the controller holds while it
+/// applies it; once applied, the undo is refused and the cancellation stays.
 #[rstest]
 #[tokio::test]
 async fn undoing_a_cancellation_that_already_ran_is_refused(#[future] test_env: TestEnv) {
@@ -2185,6 +2198,7 @@ async fn undoing_a_cancellation_that_already_ran_is_refused(#[future] test_env: 
     struct Event {
         #[diesel(sql_type = diesel::sql_types::Uuid)]
         id: uuid::Uuid,
+        /// The subscription's status.
         #[diesel(sql_type = diesel::sql_types::Text)]
         status: String,
     }
@@ -2199,8 +2213,9 @@ async fn undoing_a_cancellation_that_already_ran_is_refused(#[future] test_env: 
     cancel_on(&env, sub_id, CancellationEffectiveAt::EndOfBillingPeriod).await;
     async fn event(conn: &mut diesel_models::PgConn, sub_id: SubscriptionId) -> Event {
         diesel::sql_query(
-            "SELECT id, status::text AS status FROM scheduled_event
-             WHERE subscription_id = $1 AND event_type = 'CANCEL_SUBSCRIPTION'",
+            "SELECT e.id, s.status::text AS status FROM subscription_ending e
+             JOIN subscription s ON s.id = e.subscription_id
+             WHERE e.subscription_id = $1 AND e.kind = 'CANCEL'",
         )
         .bind::<diesel::sql_types::Uuid, _>(sub_id.as_uuid())
         .get_result::<Event>(conn)
@@ -2208,9 +2223,9 @@ async fn undoing_a_cancellation_that_already_ran_is_refused(#[future] test_env: 
         .expect("the cancellation")
     }
     let scheduled = event(&mut env.conn().await, sub_id).await;
-    assert_eq!(scheduled.status, "PENDING");
+    assert_eq!(scheduled.status, "ACTIVE");
 
-    // Stands in for the lifecycle worker: it holds the customer while it executes the event.
+    // Stands in for the controller: it holds the customer while it applies the cancellation.
     let mut worker = env.conn().await;
     diesel::sql_query("BEGIN")
         .execute(&mut worker)
@@ -2233,8 +2248,8 @@ async fn undoing_a_cancellation_that_already_ran_is_refused(#[future] test_env: 
     };
     let executing = async {
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        diesel::sql_query("UPDATE scheduled_event SET status = 'COMPLETED' WHERE id = $1")
-            .bind::<diesel::sql_types::Uuid, _>(scheduled.id)
+        diesel::sql_query("UPDATE subscription SET status = 'CANCELLED' WHERE id = $1")
+            .bind::<diesel::sql_types::Uuid, _>(sub_id.as_uuid())
             .execute(&mut worker)
             .await
             .expect("executed");
@@ -2244,10 +2259,11 @@ async fn undoing_a_cancellation_that_already_ran_is_refused(#[future] test_env: 
             .expect("commit");
     };
     let (undone, ()) = tokio::join!(undoing, executing);
-    assert!(undone.is_err(), "an executed cancellation cannot be undone");
+    assert!(undone.is_err(), "an applied cancellation cannot be undone");
+    let applied = event(&mut env.conn().await, sub_id).await;
     assert_eq!(
-        event(&mut env.conn().await, sub_id).await.status,
-        "COMPLETED"
+        (applied.id, applied.status.as_str()),
+        (scheduled.id, "CANCELLED")
     );
 }
 

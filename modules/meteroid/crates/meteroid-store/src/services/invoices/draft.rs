@@ -165,7 +165,31 @@ impl Services {
     ) -> Result<Option<Invoice>, StoreErrorReport> {
         let subscription = &subscription_details.subscription;
 
-        let invoice_date = subscription.current_period_start;
+        // A backdated cancellation's final invoice is dated the day it is issued, never before.
+        let (backdated, ending_day_invoiced) = if period_billing == PeriodBilling::Final {
+            let endings = diesel_models::subscription_facts::SubscriptionEndingRow::list_of(
+                conn,
+                subscription.id,
+            )
+            .await?;
+            (
+                backdated_cancellation(&endings),
+                crate::services::subscriptions::terminate::ending_day_invoiced(
+                    conn,
+                    tenant_id,
+                    subscription.id,
+                    &endings,
+                )
+                .await?,
+            )
+        } else {
+            (false, false)
+        };
+        let invoice_date = if backdated {
+            common_clock::now().date_naive()
+        } else {
+            subscription.current_period_start
+        };
 
         let invoice_type = match period_billing {
             PeriodBilling::Final => {
@@ -175,10 +199,13 @@ impl Services {
                 {
                     return Ok(Some(existing.try_into()?));
                 }
-                // Its window runs from the period's start to the cancellation instant.
-                if subscription
-                    .terminated_at
-                    .is_none_or(|at| at <= invoice_date.and_time(NaiveTime::MIN))
+                // Its window runs from the period's start to the cancellation instant, or holds
+                // what the ending cut after its day's invoice was written.
+                if !backdated
+                    && !ending_day_invoiced
+                    && subscription
+                        .terminated_at
+                        .is_none_or(|at| at <= invoice_date.and_time(NaiveTime::MIN))
                 {
                     return Ok(None);
                 }
@@ -1029,6 +1056,15 @@ impl Services {
 pub(crate) struct AdjustmentInvoiceContent {
     pub computed: ComputedInvoiceContent,
     pub invoicing_entity: Option<crate::domain::InvoicingEntity>,
+}
+
+/// Whether the subscription's cancellation was requested after the day it ends.
+fn backdated_cancellation(
+    endings: &[diesel_models::subscription_facts::SubscriptionEndingRow],
+) -> bool {
+    endings
+        .iter()
+        .any(diesel_models::subscription_facts::SubscriptionEndingRow::is_backdated_cancellation)
 }
 
 #[cfg(test)]

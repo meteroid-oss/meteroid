@@ -44,7 +44,7 @@ pub async fn customer_billing_mrr(
         FROM subscription s
         WHERE s.tenant_id = $1
           AND s.customer_id = ANY($2)
-          AND s.status IN ('ACTIVE', 'TRIAL_ACTIVE', 'PENDING_CHARGE')
+          AND s.status IN ('ACTIVE', 'TRIAL_ACTIVE')
         GROUP BY s.customer_id, s.currency
         ORDER BY s.customer_id, s.currency
         "#,
@@ -114,7 +114,6 @@ pub async fn list_billing_active_subscriptions(
         &[
             SubscriptionStatusEnum::Active,
             SubscriptionStatusEnum::TrialActive,
-            SubscriptionStatusEnum::PendingCharge,
         ],
     )
     .await
@@ -146,12 +145,11 @@ pub async fn list_subscriptions_in_status(
         JOIN plan_version pv ON pv.id = s.plan_version_id
         JOIN plan p ON p.id = pv.plan_id
         LEFT JOIN LATERAL (
-            SELECT MIN(se.scheduled_time)::date AS at
-            FROM scheduled_event se
-            WHERE se.tenant_id = $1
-              AND se.subscription_id = s.id
-              AND se.event_type = 'CANCEL_SUBSCRIPTION'
-              AND se.status = 'PENDING'
+            SELECT MIN(e.at)::date AS at
+            FROM subscription_ending e
+            WHERE e.tenant_id = $1
+              AND e.subscription_id = s.id
+              AND e.kind = 'CANCEL'
         ) cancel ON true
         WHERE s.tenant_id = $1
           AND s.customer_id = ANY($2)
@@ -228,7 +226,7 @@ pub struct PendingRetryRow {
     pub next_retry_at: NaiveDateTime,
 }
 
-/// The next pending dunning retry (`RETRY_PAYMENT` event) of each invoice.
+/// The next dunning retry of each invoice still to try one (`next_payment_attempt_at`).
 pub async fn list_pending_payment_retries(
     conn: &mut PgConn,
     tenant_id: TenantId,
@@ -242,18 +240,11 @@ pub async fn list_pending_payment_retries(
 
     diesel::sql_query(
         r#"
-        SELECT r.invoice_id, MIN(r.next_attempt) AS next_retry_at
-        FROM (
-            -- A retry payment that failed itself is tried again at its next attempt.
-            SELECT (se.event_data -> 'RetryPayment' ->> 'invoice_id')::uuid AS invoice_id,
-                   COALESCE(se.next_attempt_at, se.scheduled_time) AS next_attempt
-            FROM scheduled_event se
-            WHERE se.tenant_id = $1
-              AND se.event_type = 'RETRY_PAYMENT'
-              AND se.status = 'PENDING'
-        ) r
-        WHERE r.invoice_id = ANY($2)
-        GROUP BY r.invoice_id
+        SELECT i.id AS invoice_id, i.next_payment_attempt_at AS next_retry_at
+        FROM invoice i
+        WHERE i.tenant_id = $1
+          AND i.id = ANY($2)
+          AND i.next_payment_attempt_at IS NOT NULL
         "#,
     )
     .bind::<sql_types::Uuid, _>(tenant_id)
@@ -312,7 +303,7 @@ struct ScheduledEventIdRow {
     id: ScheduledEventId,
 }
 
-/// The earliest pending `CANCEL_SUBSCRIPTION` event of the subscription.
+/// The cancellation still to apply of the subscription: its ending's id.
 pub async fn pending_cancellation_event(
     conn: &mut PgConn,
     tenant_id: TenantId,
@@ -323,14 +314,13 @@ pub async fn pending_cancellation_event(
 
     diesel::sql_query(
         r#"
-        SELECT se.id
-        FROM scheduled_event se
-        WHERE se.tenant_id = $1
-          AND se.subscription_id = $2
-          AND se.event_type = 'CANCEL_SUBSCRIPTION'
-          AND se.status = 'PENDING'
-        ORDER BY se.scheduled_time, se.id
-        LIMIT 1
+        SELECT e.id
+        FROM subscription_ending e
+        JOIN subscription s ON s.id = e.subscription_id
+        WHERE e.tenant_id = $1
+          AND e.subscription_id = $2
+          AND e.kind = 'CANCEL'
+          AND s.status NOT IN ('CANCELLED', 'COMPLETED', 'ABORTED')
         "#,
     )
     .bind::<sql_types::Uuid, _>(tenant_id)

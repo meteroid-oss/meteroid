@@ -21,8 +21,6 @@ pub enum LeaderLock {
     VatRevalidation = 92_000_005,
     /// Organization activation-milestones derivation worker.
     DogfoodingMilestones = 92_000_006,
-    /// Hourly stale-draft invoice refresh worker.
-    DraftRefresh = 92_000_007,
     /// Payment reconciliation worker (provider polling).
     Reconciliation = 92_000_008,
     /// Hosted-checkout pending-intent sweeper (provider polling).
@@ -51,8 +49,8 @@ pub enum LeaderLock {
     TelemetryReport = 92_000_021,
     /// Daily recompute of every customer's billing controller wake.
     BillingControllerSweep = 92_000_022,
-    /// The billing worker's start-up migration of pending changes into facts.
-    PendingChangesMigration = 92_000_023,
+    // Retired keys, never reused: a replica of an earlier version may still hold one.
+    // 92_000_007 (stale-draft refresh), 92_000_023 (pending changes start-up migration).
 }
 
 impl LeaderLock {

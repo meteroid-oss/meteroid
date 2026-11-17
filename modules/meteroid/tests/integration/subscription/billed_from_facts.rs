@@ -56,7 +56,7 @@ async fn a_period_ending_by_the_watermark_is_never_billed_again() {
         .await;
     {
         let mut conn = env.conn().await;
-        SubscriptionRow::set_reconcile_from(&mut conn, sub_id, Some(day(2, 1)))
+        SubscriptionRow::set_reconcile_from(&mut conn, sub_id, Some(day(2, 1)), None)
             .await
             .expect("watermark");
     }
@@ -127,4 +127,68 @@ async fn seats_bought_while_a_removal_waits_add_to_its_count(
         .find(|invoice| invoice.billing_period_start == day(3, 1))
         .expect("the Mar 1 invoice");
     assert_eq!(march.subtotal, 10_900, "{:?}", lines_of(&march));
+}
+
+/// Two removals waiting for the same period's end each take their seats once: Starter with 10
+/// seats, 1 removed on Feb 10 and 1 on Feb 11, both from Mar 1. The ledger holds 8 on Mar 1, so
+/// a third removal of 7 is accepted, and Mar 1 bills 2900 + 1000 × 8 = 10900; read from the
+/// latest removal's count, the earlier one counted twice, 7.
+/// Rules: R-108
+#[rstest::rstest]
+#[tokio::test]
+async fn removals_waiting_for_the_same_end_take_their_seats_once(
+    #[future] test_env: crate::harness::TestEnv,
+) {
+    use chrono::NaiveTime;
+    use meteroid_store::domain::SlotUpgradeBillingMode;
+    use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
+    let env = test_env.await;
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(day(1, 1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let change = |seats: i32, on: NaiveDate| {
+        let env = &env;
+        async move {
+            env.services()
+                .update_subscription_slots_for_test(
+                    TENANT_ID,
+                    sub_id,
+                    COMP_STARTER_SEATS_ID,
+                    seats,
+                    SlotUpgradeBillingMode::Optimistic,
+                    Some(on.and_time(NaiveTime::MIN)),
+                )
+                .await
+        }
+    };
+    change(9, day(1, 2)).await.expect("10 seats");
+    env.process_cycles().await;
+    change(-1, day(2, 10)).await.expect("one seat off");
+    change(-1, day(2, 11)).await.expect("another seat off");
+    let seats = env
+        .store()
+        .get_active_slots_value(
+            TENANT_ID,
+            sub_id,
+            "Seats".to_string(),
+            Some(day(3, 1).and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("seats on Mar 1");
+    assert_eq!(seats, 8);
+    env.process_cycles().await;
+    let march = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .find(|invoice| invoice.billing_period_start == day(3, 1))
+        .expect("the Mar 1 invoice");
+    assert_eq!(march.subtotal, 10_900, "{:?}", lines_of(&march));
+    change(-7, day(3, 2))
+        .await
+        .expect("down to the minimum of one seat");
 }

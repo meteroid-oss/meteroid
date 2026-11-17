@@ -253,6 +253,34 @@ pub(super) async fn seed_usage_only_plan(env: &TestEnv) {
     .expect("failed to seed usage-only plan version");
 }
 
+/// The usage-only plan repriced in credits: a price's rates are never rewritten (R-097), so its
+/// component takes a new price at `pricing`, `rate` money a credit of `unit`.
+pub(super) async fn price_usage_only_plan_in_credits(
+    env: &TestEnv,
+    pricing: serde_json::Value,
+    unit: CreditUnitId,
+    rate: Decimal,
+) {
+    use diesel_async::RunQueryDsl;
+    diesel::sql_query(
+        "WITH credit AS (
+             INSERT INTO price (id, product_id, cadence, currency, pricing, tenant_id, created_at,
+                                catalog, credit_unit_id, credit_unit_rate)
+             SELECT $1, product_id, cadence, currency, $2, tenant_id, created_at, catalog, $3, $4
+             FROM price WHERE id = $5
+             RETURNING id)
+         UPDATE plan_component_price SET price_id = (SELECT id FROM credit) WHERE price_id = $5",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(uuid::Uuid::now_v7())
+    .bind::<diesel::sql_types::Jsonb, _>(pricing)
+    .bind::<diesel::sql_types::Uuid, _>(*unit)
+    .bind::<diesel::sql_types::Numeric, _>(rate)
+    .bind::<diesel::sql_types::Uuid, _>(*PRICE_USAGE_ONLY_API_CALLS_ID)
+    .execute(&mut env.conn().await)
+    .await
+    .expect("price the usage in credits");
+}
+
 /// A usage-only subscription whose renewal period has *no imported usage yet* must still produce
 /// an invoice: an empty draft is created as the finalization anchor and, still empty at
 /// finalization, is Closed (never numbered) rather than being silently skipped.
@@ -613,7 +641,9 @@ async fn test_first_period_termination_creates_draft_anchor() {
         .create(env.services())
         .await;
 
-    // Terminate mid first period, before any renewal — cycle_index is still 0.
+    // Terminate mid first period, before any renewal — cycle_index is still 0. The cancellation
+    // is requested on the day it ends from.
+    env.set_now(cancel_date.and_hms_opt(9, 0, 0).unwrap().and_utc());
     env.services()
         .cancel_subscription(
             common_domain::actor::Actor::System,
@@ -675,6 +705,8 @@ async fn test_first_period_termination_bills_late_usage() {
         .create(env.services())
         .await;
 
+    // The day of the cancellation: its grace runs 30 days from there.
+    env.set_now(cancel_date.and_hms_opt(12, 0, 0).unwrap().and_utc());
     env.services()
         .cancel_subscription(
             common_domain::actor::Actor::System,
@@ -712,7 +744,13 @@ async fn test_first_period_termination_bills_late_usage() {
         },
     );
 
-    // The deferred settle recomputes the cycle-0 arrears window [start, cancel] and bills it.
+    // Past the grace, the deferred settle recomputes [start, cancel] and bills it.
+    env.set_now(
+        (cancel_date + chrono::Days::new(31))
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_utc(),
+    );
     env.process_due_events().await;
 
     let invoices = env.get_invoices(sub_id).await;
@@ -817,6 +855,177 @@ async fn test_immediate_cancel_same_day_bills_usage() {
         .await;
 }
 
+/// Cancelled at once on a renewal day whose invoice is still a draft: the draft keeps January's
+/// 100 units, 10.00, and the day's 100 units up to 14:00 go on a final invoice of its own, 10.00.
+/// Rules: R-016
+#[tokio::test]
+async fn test_immediate_cancel_on_a_renewal_day_bills_its_usage_on_a_final_invoice() {
+    use chrono::{TimeZone, Utc};
+    let usage = MutableMockUsageClient::new();
+    let env = test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(usage.clone())).await;
+    seed_usage_only_plan(&env).await;
+    usage.set_usage_for_any_nonempty_window(
+        METRIC_BANDWIDTH,
+        UsageData {
+            data: vec![GroupedUsageData {
+                value: Decimal::from(100),
+                dimensions: HashMap::new(),
+            }],
+            period: UsagePeriod {
+                start: NaiveDate::from_ymd_opt(2024, 1, 1)
+                    .unwrap()
+                    .and_time(NaiveTime::MIN),
+                end: NaiveDate::from_ymd_opt(2024, 1, 1)
+                    .unwrap()
+                    .and_time(NaiveTime::MIN),
+            },
+        },
+    );
+    // The renewal stays a draft through the day.
+    env.set_consolidate_and_grace(false, 48).await;
+    env.set_now(Utc.with_ymd_and_hms(2024, 1, 1, 10, 0, 0).unwrap());
+    let renewal_day = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_USAGE_ONLY_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    env.set_now(Utc.with_ymd_and_hms(2024, 2, 1, 6, 0, 0).unwrap());
+    env.process_cycles().await;
+    let renewal = |invoices: Vec<Invoice>| {
+        invoices
+            .into_iter()
+            .find(|i| {
+                i.invoice_type == InvoiceType::Recurring && i.billing_period_start == renewal_day
+            })
+            .expect("the renewal of Feb 1")
+    };
+    let draft = renewal(env.get_invoices(sub_id).await);
+    assert_eq!(draft.status, InvoiceStatusEnum::Draft);
+    assert_eq!(draft.total, 1_000, "January's 100 units");
+
+    env.set_now(Utc.with_ymd_and_hms(2024, 2, 1, 14, 0, 0).unwrap());
+    env.services()
+        .cancel_subscription(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::Immediate,
+        )
+        .await
+        .expect("cancel_subscription failed");
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.status, SubscriptionStatusEnum::Cancelled);
+    let invoices = env.get_invoices(sub_id).await;
+    let kept = renewal(invoices.clone());
+    assert_eq!(kept.id, draft.id);
+    assert_eq!(kept.status, InvoiceStatusEnum::Draft);
+    assert_eq!(kept.total, 1_000, "January's usage alone");
+    let finals: Vec<_> = invoices
+        .iter()
+        .filter(|i| i.invoice_type == InvoiceType::Final)
+        .collect();
+    assert_eq!(finals.len(), 1, "one final invoice");
+    let usage_lines: Vec<(NaiveDate, NaiveDate, i64)> = finals[0]
+        .line_items
+        .iter()
+        .filter(|line| line.metric_id.is_some())
+        .map(|line| (line.start_date, line.end_date, line.amount_subtotal))
+        .collect();
+    assert_eq!(usage_lines, vec![(renewal_day, renewal_day, 1_000)]);
+    assert_eq!(finals[0].subtotal, 1_000);
+    assert_eq!(finals[0].total, 1_000);
+}
+
+/// Cancelled at 15:00 on a renewal day whose invoice was issued that morning: the day's usage up
+/// to the cancellation is billed on a final invoice of its own. Usage Alpha, 10.00 a month and
+/// 0.10 a unit, 100 units in every window: the Feb 1 renewal bills 1000 + 1000, the final
+/// invoice [Feb 1 00:00, 15:00) 1000.
+/// Rules: R-016
+#[tokio::test]
+async fn test_immediate_cancel_after_an_issued_renewal_bills_the_day_on_a_final_invoice() {
+    use chrono::{TimeZone, Utc};
+    let usage = MutableMockUsageClient::new();
+    let env = test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(usage.clone())).await;
+    usage.set_usage_for_any_nonempty_window(
+        METRIC_BANDWIDTH,
+        UsageData {
+            data: vec![GroupedUsageData {
+                value: Decimal::from(100),
+                dimensions: HashMap::new(),
+            }],
+            period: UsagePeriod {
+                start: NaiveDate::from_ymd_opt(2024, 1, 1)
+                    .unwrap()
+                    .and_time(NaiveTime::MIN),
+                end: NaiveDate::from_ymd_opt(2024, 1, 1)
+                    .unwrap()
+                    .and_time(NaiveTime::MIN),
+            },
+        },
+    );
+    // Issued as written: the renewal is finalized the morning it is billed.
+    env.set_consolidate_and_grace(false, -1).await;
+    env.set_now(Utc.with_ymd_and_hms(2024, 1, 1, 10, 0, 0).unwrap());
+    let renewal_day = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_USAGE_ALPHA_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    env.set_now(Utc.with_ymd_and_hms(2024, 2, 1, 6, 0, 0).unwrap());
+    env.process_cycles().await;
+    let renewal = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .find(|i| i.invoice_type == InvoiceType::Recurring && i.billing_period_start == renewal_day)
+        .expect("the renewal of Feb 1");
+    assert_eq!(renewal.status, InvoiceStatusEnum::Finalized);
+    assert_eq!(
+        renewal.total, 2_000,
+        "February's 10.00 and January's 100 units"
+    );
+
+    env.set_now(Utc.with_ymd_and_hms(2024, 2, 1, 15, 0, 0).unwrap());
+    env.services()
+        .cancel_subscription(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::Immediate,
+        )
+        .await
+        .expect("cancel_subscription failed");
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.status, SubscriptionStatusEnum::Cancelled);
+    let finals: Vec<_> = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .filter(|i| i.invoice_type == InvoiceType::Final)
+        .collect();
+    assert_eq!(finals.len(), 1, "one final invoice");
+    let usage_lines: Vec<(NaiveDate, NaiveDate, i64)> = finals[0]
+        .line_items
+        .iter()
+        .map(|line| (line.start_date, line.end_date, line.amount_subtotal))
+        .collect();
+    assert_eq!(usage_lines, vec![(renewal_day, renewal_day, 1_000)]);
+    assert_eq!(finals[0].subtotal, 1_000);
+    assert_eq!(finals[0].total, 1_000);
+}
+
 /// A usage-metered subscription cancelled **effective today by date** (not immediately) on the day
 /// it started must settle cleanly. Its terminal arrear window is [today, today] with no instant
 /// cutoff (date/pause cancels leave `terminated_at` null), so it stays empty and nothing is billed —
@@ -879,15 +1088,11 @@ async fn test_date_cancel_same_day_settles_without_error() {
         sub.terminated_at.is_none(),
         "a date-effective cancel records no instant cutoff"
     );
+    // Ended at the midnight it started, the subscription owes nothing: no document is written.
     let invoices = env.get_invoices(sub_id).await;
-    let inv = invoices
-        .iter()
-        .find(|i| i.invoice_type == InvoiceType::Recurring)
-        .expect("a closing recurring invoice must exist");
-    assert_eq!(
-        inv.status,
-        InvoiceStatusEnum::Closed,
-        "an empty same-day date cancel closes cleanly rather than erroring or billing"
+    assert!(
+        invoices.is_empty(),
+        "an empty same-day date cancel bills nothing: {invoices:?}"
     );
 }
 
@@ -1773,19 +1978,13 @@ async fn test_failed_settle_leaves_the_event_retryable() {
     assert_eq!(invoices[0].total, 1000, "billed lines survive the failure");
 
     let mut conn = env.conn().await;
-    let pending =
-        diesel_models::scheduled_events::ScheduledEventRow::get_pending_events_for_subscription(
-            &mut conn, sub_id, &TENANT_ID,
-        )
-        .await
-        .expect("listing pending events should succeed");
-    let finalize_event = pending
-        .iter()
-        .find(|e| e.event_type == diesel_models::enums::ScheduledEventTypeEnum::FinalizeInvoice)
-        .expect("the failed settle must leave its event Pending (retryable), not Completed/Failed");
-    assert_eq!(
-        finalize_event.retries, 1,
-        "exactly one failed attempt is recorded on the retry marker"
+    let draft =
+        diesel_models::invoices::InvoiceRow::find_by_id(&mut conn, TENANT_ID, invoices[0].id)
+            .await
+            .expect("the draft");
+    assert!(
+        draft.finalize_after.is_some(),
+        "the failed settle leaves the draft waiting for its deadline (retryable)"
     );
 }
 

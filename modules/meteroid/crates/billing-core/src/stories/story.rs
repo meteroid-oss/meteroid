@@ -547,6 +547,7 @@ impl Builder {
             lineage: lineage.clone(),
             at: on,
             quantity,
+            removed_at_renewal: 0,
         });
     }
 
@@ -912,6 +913,7 @@ pub fn build(story: &Story) -> Built {
             start: Start {
                 date: start,
                 settled: Some(midnight(start)),
+                checkout: false,
             },
             trial: setup.trial.map(|(days, free)| Trial {
                 from: start,
@@ -939,6 +941,9 @@ pub fn build(story: &Story) -> Built {
             ending: None,
             end_date: None,
             reconcile_from: None,
+            arrears_from: None,
+            ending_recorded: None,
+            ending_day_invoiced: false,
         },
         next: 1_000,
         names: BTreeMap::new(),

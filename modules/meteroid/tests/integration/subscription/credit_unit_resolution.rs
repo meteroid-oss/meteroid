@@ -31,9 +31,7 @@ use meteroid_store::repositories::CreditUnitsInterface;
 use meteroid_store::repositories::add_ons::AddOnInterface;
 
 use super::credit_unit_wallets::pack_scenario;
-use super::usage::{
-    PLAN_VERSION_USAGE_ONLY_ID, PRICE_USAGE_ONLY_API_CALLS_ID, seed_usage_only_plan,
-};
+use super::usage::{PLAN_VERSION_USAGE_ONLY_ID, seed_usage_only_plan};
 use crate::data::ids::*;
 use crate::harness::{TestEnv, subscription, test_env_with_seed_and_usage};
 use crate::helpers::credit::{available, fund};
@@ -98,21 +96,10 @@ async fn scenario_with_credits(credits: Option<i64>) -> Scenario {
         .expect("credit unit")
         .id;
     {
-        use diesel::{ExpressionMethods, QueryDsl};
-        use diesel_async::RunQueryDsl;
-        use diesel_models::schema::price::dsl as p;
         let pricing =
             serde_json::to_value(Pricing::Usage(UsagePricingModel::PerUnit { rate: dec!(3) }))
                 .unwrap();
-        diesel::update(p::price.filter(p::id.eq(PRICE_USAGE_ONLY_API_CALLS_ID)))
-            .set((
-                p::pricing.eq(pricing),
-                p::credit_unit_id.eq(Some(unit_id)),
-                p::credit_unit_rate.eq(Some(dec!(0.01))),
-            ))
-            .execute(&mut env.conn().await)
-            .await
-            .expect("price the usage in credits");
+        super::usage::price_usage_only_plan_in_credits(&env, pricing, unit_id, dec!(0.01)).await;
     }
     let subscription_id = subscription()
         .customer(CUST_UBER_ID)

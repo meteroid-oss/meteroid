@@ -73,6 +73,15 @@ async fn entity_grace_hours(h: &Halyard, hours: i32) {
         .expect("entity grace");
 }
 
+/// Months after these 2025 dates and past the 1 h grace: the final invoice the cancellation dates
+/// the day it is decided (R-016) is issued before the test reads it, at whatever hour it runs.
+fn decided_later() -> chrono::DateTime<chrono::Utc> {
+    chrono::NaiveDate::from_ymd_opt(2026, 3, 2)
+        .and_then(|day| day.and_hms_opt(13, 0, 0))
+        .expect("a day")
+        .and_utc()
+}
+
 /// Scale from Sep 1 paid (P 50000, B 5000, W 5000), a 10000 top-up bought and paid on Sep 5, and
 /// 40000 of usage by Sep 15; the entity bills with a 1 h grace.
 async fn on_scale_with_top_up(h: &Halyard) -> (CustomerId, SubscriptionId) {
@@ -140,7 +149,6 @@ async fn cancel_on_sep_16(h: &Halyard, customer: CustomerId, sub: SubscriptionId
         )
         .await
         .expect("cancelled");
-    h.env.process_due_events().await;
 
     let grants = h.grants(customer).await;
     let paid = grant(&grants, "CREDIT_PURCHASE", "PAID", 50_000);
@@ -189,6 +197,7 @@ async fn cancel_on_sep_16(h: &Halyard, customer: CustomerId, sub: SubscriptionId
 #[tokio::test]
 async fn s07_immediate_termination_settles_known_and_late_usage() {
     let h = Halyard::new().await;
+    h.env.set_now(decided_later());
     let (customer, sub) = on_scale_with_top_up(&h).await;
     cancel_on_sep_16(&h, customer, sub).await;
 
@@ -237,6 +246,7 @@ async fn s07_immediate_termination_settles_known_and_late_usage() {
 #[tokio::test]
 async fn s07_late_event_beyond_the_ending_credit_is_paid_by_the_top_up() {
     let h = Halyard::new().await;
+    h.env.set_now(decided_later());
     let (customer, sub) = on_scale_with_top_up(&h).await;
     cancel_on_sep_16(&h, customer, sub).await;
 

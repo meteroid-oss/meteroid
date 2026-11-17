@@ -211,6 +211,10 @@ Settings shared by the API and the worker
 - name: METEROID_MFA_ISSUER
   value: {{ . | quote }}
 {{- end }}
+{{- with .Values.global.billingControllerRelease }}
+- name: BILLING_CONTROLLER_RELEASE
+  value: {{ . | quote }}
+{{- end }}
 {{- $webhooks := .Values.global.webhooks | default dict }}
 {{- $webhookEnv := dict
   "deliveryConcurrency" "WEBHOOK_DELIVERY_CONCURRENCY"

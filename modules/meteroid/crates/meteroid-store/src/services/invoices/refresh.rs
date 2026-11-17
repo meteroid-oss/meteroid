@@ -326,13 +326,21 @@ impl Services {
                     )))
                 })?;
         let mut lines = invoice.line_items.clone();
+        let (invoice_date, span) = crate::services::invoice_lines::invoice_lines::billed_at(
+            conn,
+            invoice.tenant_id,
+            subscription_id,
+            BilledSpan::of(&invoice.invoice_type),
+            invoice.billing_period_start,
+        )
+        .await?;
         self.cover_credit_unit_lines(
             conn,
             CreditUnitCover::DrawAsShown { invoice_id, at },
             &mut [CoverTarget {
                 details,
-                invoice_date: invoice.billing_period_start,
-                span: BilledSpan::of(&invoice.invoice_type),
+                invoice_date,
+                span,
                 currency_precision,
                 lines: &mut lines,
             }],

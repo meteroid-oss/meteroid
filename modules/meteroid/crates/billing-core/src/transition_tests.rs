@@ -78,6 +78,7 @@ fn subscription(start: NaiveDate, anchor: u32, cadence: u32) -> Facts<TestFee> {
         start: Start {
             date: start,
             settled: Some(midnight(start)),
+            checkout: false,
         },
         trial: None,
         plan_windows: vec![plan(100, start, cadence, start)],
@@ -88,6 +89,9 @@ fn subscription(start: NaiveDate, anchor: u32, cadence: u32) -> Facts<TestFee> {
         ending: None,
         end_date: None,
         reconcile_from: None,
+        arrears_from: None,
+        ending_recorded: None,
+        ending_day_invoiced: false,
     }
 }
 
@@ -226,6 +230,7 @@ fn a_subscription_activates_on_its_start_date() {
 fn a_checkout_start_still_pending_writes_its_opening_invoice_alone() {
     let mut facts = subscription(d(2024, 1, 1), 1, 1);
     facts.start.settled = None;
+    facts.start.checkout = true;
     facts.fees.push(fixed(10, 1, d(2024, 1, 1), 3_100));
     let mut controller = Controller::inserted(&facts, at(2023, 12, 15, 0));
 
@@ -299,6 +304,7 @@ fn a_free_trial_ends_active_when_its_start_is_settled() {
 fn a_free_trial_ended_before_its_checkout_settled_expires() {
     let mut facts = subscription(d(2024, 1, 1), 1, 1);
     facts.start.settled = None;
+    facts.start.checkout = true;
     facts.trial = Some(Trial {
         from: d(2024, 1, 1),
         until: d(2024, 1, 15),
@@ -470,6 +476,7 @@ fn a_cancellation_applies_at_its_instant() {
 fn a_cancellation_before_the_start_settled_bills_nothing() {
     let mut facts = subscription(d(2024, 1, 1), 1, 1);
     facts.start.settled = None;
+    facts.start.checkout = true;
     facts.fees.push(fixed(10, 1, d(2024, 1, 1), 3_100));
     facts.ending = Some(Ending {
         at: at(2024, 1, 5, 12),
@@ -551,6 +558,42 @@ fn a_scheduled_plan_window_change_applies_at_its_origin() {
     assert_eq!(slots(&changed), vec![recurring(d(2024, 7, 1))]);
     assert_eq!(changed.documents[0].charges[0].amount, 12_000);
     assert!(controller.step(&facts, at(2024, 7, 1, 1)).is_empty());
+}
+
+/// A monthly plan changed for Feb 1 to another, stored at that renewal, changed back the same
+/// day: the window of the change back took the place of the one the change opened. The plan
+/// changes back on Feb 1, where it read the run of the first plan from Jan 1, a second switch
+/// dated the start that cut the trial's end there for its readers.
+/// Rules: R-084, R-100
+#[test]
+fn a_plan_changed_back_the_day_its_window_opened_changes_back_that_day() {
+    let mut facts = subscription(d(2025, 1, 1), 1, 1);
+    facts.plan_windows = vec![
+        PlanWindow {
+            to: Some(d(2025, 2, 1)),
+            ..plan(100, d(2025, 1, 1), 1, d(2025, 1, 1))
+        },
+        plan(101, d(2025, 2, 1), 1, d(2025, 2, 1)),
+    ];
+    facts.fees.push(FeeFact {
+        to: Some(d(2025, 2, 1)),
+        ..fixed(10, 1, d(2025, 1, 1), 1_000)
+    });
+    facts.fees.push(fixed(20, 2, d(2025, 2, 1), 2_000));
+    let controller = Controller::caught_up(&facts, at(2025, 2, 1, 1));
+    assert_eq!(controller.stored.plan_version, Some(id(101)));
+
+    facts.plan_windows[1] = plan(100, d(2025, 2, 1), 1, d(2025, 2, 1));
+    facts.fees[1].to = Some(d(2025, 2, 1));
+    facts.fees.push(fixed(30, 1, d(2025, 2, 1), 1_000));
+    assert_eq!(
+        controller.step(&facts, at(2025, 2, 1, 16)).transitions,
+        vec![Transition::Plan {
+            from: id(101),
+            to: id(100),
+            at: at(2025, 2, 1, 0),
+        }]
+    );
 }
 
 /// Run daily or once late, the controller emits the same transitions in the same order and ends
@@ -664,4 +707,89 @@ fn the_next_wake_is_the_earliest_deadline() {
         ..no_deadlines()
     };
     assert_eq!(wake(&facts, now, &overdue), Some(at(2024, 1, 9, 0)));
+}
+
+/// Bills a fee priced 0 by its usage of one metric, the others as `TestPricer` does.
+struct MeteredPricer;
+
+impl Pricer<TestFee> for MeteredPricer {
+    fn metrics(&self, fee: &TestFee) -> Vec<BillableMetricId> {
+        if fee.price == 0 {
+            vec![id(900)]
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn rates(&self, segment: &Segment<'_, TestFee>) -> Result<Vec<Rate>, PricingError> {
+        Ok(TestPricer
+            .rates(segment)?
+            .into_iter()
+            .filter(|rate| rate.amount != 0)
+            .collect())
+    }
+
+    fn usage(
+        &self,
+        _: &Segment<'_, TestFee>,
+        _: &UsageWindow,
+        _: &UsageReads,
+    ) -> Result<Vec<Rate>, PricingError> {
+        Ok(Vec::new())
+    }
+}
+
+fn metered_step(
+    facts: &Facts<TestFee>,
+    stored_at: DateTime<Utc>,
+    now: DateTime<Utc>,
+    written: &[DocumentSlot],
+) -> Step {
+    let stored = Stored::from(
+        &evaluate(facts, stored_at, None, &MeteredPricer)
+            .unwrap()
+            .state,
+    );
+    let evaluation = evaluate(facts, now, None, &MeteredPricer).unwrap();
+    step(facts, now, &evaluation, &stored, written, &no_deadlines())
+}
+
+/// Cancelled the day it started, a subscription billing usage alone owes that day's usage up to
+/// the cancellation on its opening invoice, due with it though nothing is read yet.
+/// Rules: R-016
+#[test]
+fn an_ending_on_the_start_day_opens_the_invoice_of_its_usage() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts
+        .fees
+        .push(fee(30, 3, d(2024, 1, 1), Billing::Arrears, 0));
+    facts.ending = Some(Ending {
+        at: at(2024, 1, 1, 14),
+        kind: EndingKind::Cancel,
+    });
+
+    let ended = metered_step(&facts, at(2024, 1, 1, 1), at(2024, 1, 1, 15), &[]);
+    assert_eq!(slots(&ended), vec![recurring(d(2024, 1, 1))]);
+}
+
+/// Cancelled on a renewal day after its invoice was written, the day's usage up to the
+/// cancellation goes on the ending's document, due once its window closed.
+/// Rules: R-016
+#[test]
+fn an_ending_after_its_day_was_invoiced_is_due_once_its_usage_window_closed() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.fees.push(fixed(10, 1, d(2024, 1, 1), 3_100));
+    facts
+        .fees
+        .push(fee(30, 3, d(2024, 1, 1), Billing::Arrears, 0));
+    facts.ending = Some(Ending {
+        at: at(2024, 2, 1, 14),
+        kind: EndingKind::Cancel,
+    });
+    let written = [recurring(d(2024, 1, 1)), recurring(d(2024, 2, 1))];
+
+    let open = metered_step(&facts, at(2024, 2, 1, 1), at(2024, 2, 1, 10), &written);
+    assert!(!slots(&open).contains(&DocumentSlot::Final));
+    let ended = metered_step(&facts, at(2024, 2, 1, 1), at(2024, 2, 1, 15), &written);
+    assert!(slots(&ended).contains(&DocumentSlot::Final));
 }

@@ -130,7 +130,9 @@ async fn start(env: &TestEnv, plan_version_id: PlanVersionId, on: NaiveDate) -> 
         .await
 }
 
+/// Cancelled from `on`, requested that day.
 async fn cancel_on(env: &TestEnv, sub_id: SubscriptionId, on: NaiveDate) {
+    env.set_now(on.and_hms_opt(9, 0, 0).unwrap().and_utc());
     env.services()
         .cancel_subscription(
             Actor::System,
@@ -232,6 +234,73 @@ async fn an_immediate_cancellation_credits_the_fee_only_and_trues_up_the_days_se
     assert_eq!(usage_billed, 90_000);
 }
 
+/// As above with 100.00 of usage up to Oct 11, renewed Nov 1, then cancelled on Nov 5 from Oct
+/// 11: the final invoice issued Nov 5 bills the usage and trues up the 10 days served, 100000 ×
+/// 10/31 = 32258 less the fee's 935 kept (2900 − 1965 given back) and the 10000 of usage: 21323,
+/// as a cancellation requested on Oct 11 does. November's renewal, after the ending, trues up
+/// nothing.
+/// Rules: R-016, R-022, R-077
+#[tokio::test]
+async fn a_backdated_cancellation_trues_up_the_days_served_on_the_final_invoice_issued_now() {
+    let (env, usage) = usage_env().await;
+    let at = |m: u32, d: u32| day(2024, m, d).and_hms_opt(9, 0, 0).unwrap().and_utc();
+    env.set_now(at(9, 1));
+    let plan = fee_and_usage_plan(&env).await;
+    let sub_id = start(&env, plan, day(2024, 9, 1)).await;
+    env.set_now(at(10, 1));
+    env.process_cycles().await;
+    let october = invoice_of(&env, sub_id, day(2024, 10, 1)).await;
+    set_usage(&usage, day(2024, 10, 1), day(2024, 10, 11), 1_000);
+    env.set_now(at(11, 1));
+    env.process_cycles().await;
+
+    env.set_now(at(11, 5));
+    env.services()
+        .cancel_subscription(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::Date(day(2024, 10, 11)),
+        )
+        .await
+        .expect("cancellation scheduled");
+    env.process_due_events().await;
+    env.process_due_events().await;
+
+    assert_eq!(
+        note_lines(&env, &october).await,
+        vec![("Platform Fee".to_owned(), -1_965)]
+    );
+    let november = invoice_of(&env, sub_id, day(2024, 11, 1)).await;
+    assert_eq!(november.status, InvoiceStatusEnum::Closed);
+    assert!(november.line_items.is_empty(), "{:?}", lines(&november));
+    let last = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .find(|invoice| invoice.invoice_type == meteroid_store::domain::enums::InvoiceType::Final)
+        .expect("the final invoice");
+    assert_eq!(last.invoice_date, day(2024, 11, 5));
+    assert_eq!(
+        lines(&last),
+        vec![
+            (
+                "Bandwidth".to_owned(),
+                10_000,
+                day(2024, 10, 1),
+                day(2024, 10, 11)
+            ),
+            (
+                "Minimum commitment".to_owned(),
+                21_323,
+                day(2024, 10, 1),
+                day(2024, 10, 11)
+            ),
+        ]
+    );
+}
+
 /// The same plan with a 45-day paid trial from Sep 1, cancelled on Sep 10 while still in trial
 /// (a renewal ends the trial status, so its first period): the fee comes back as without a trial
 /// (2900 × 21/30 = 2030), the trial owes no minimum, and the usage up to Sep 10 is billed.
@@ -321,6 +390,43 @@ async fn a_period_cut_short_is_trued_up_on_the_final_invoice_by_days_served() {
         vec![(28_190, day(2024, 10, 1), day(2024, 10, 10))],
         "{:?}",
         lines(&last)
+    );
+}
+
+/// September trued up 1000.00 − 29.00 = 971.00 when it closed on Oct 1. Cancelled from Sep 10
+/// afterwards, its floor is 100000 × 9/30 = 30000 and its fee counts the 870 its note left: the
+/// 291.30 owed is under what September already trued up, so nothing more is billed and the
+/// 971.00 stays, never a second true-up of Sep 1–10.
+#[tokio::test]
+async fn a_backdated_cancellation_bills_only_what_exceeds_the_period_true_up() {
+    let (env, _usage) = usage_env().await;
+    let plan = fee_and_usage_plan(&env).await;
+    let sub_id = start(&env, plan, day(2024, 9, 1)).await;
+    env.process_cycles().await;
+    let october = invoice_of(&env, sub_id, day(2024, 10, 1)).await;
+    assert_eq!(
+        shortfalls(&october),
+        vec![(97_100, day(2024, 9, 1), day(2024, 10, 1))]
+    );
+
+    cancel_on(&env, sub_id, day(2024, 9, 10)).await;
+
+    let september = invoice_of(&env, sub_id, day(2024, 9, 1)).await;
+    assert_eq!(
+        note_lines(&env, &september).await,
+        vec![("Platform Fee".to_owned(), -2_030)]
+    );
+    let billed: Vec<(i64, NaiveDate, NaiveDate)> = env
+        .get_invoices(sub_id)
+        .await
+        .iter()
+        .filter(|invoice| invoice.status != InvoiceStatusEnum::Void)
+        .flat_map(shortfalls)
+        .collect();
+    assert_eq!(
+        billed,
+        vec![(97_100, day(2024, 9, 1), day(2024, 10, 1))],
+        "September keeps its true-up and nothing is added for Sep 1–10"
     );
 }
 
@@ -729,6 +835,154 @@ async fn an_immediate_increase_counts_toward_the_period_true_up() {
         vec![(3_519, day(2024, 1, 1), day(2024, 2, 1))],
         "{:?}",
         lines(&february)
+    );
+}
+
+/// Starter (29.00 + 10.00) under a 100.00 minimum adds a 366.00 yearly support fee on Jan 16, at
+/// once, and is cancelled at January's end. The year's stub to Jan 1, 2025 bills 36600 × 351/366
+/// = 35100 and the cancellation gives back 36600 × 335/366 = 33500 of it: the final invoice of
+/// Feb 1 counts the 1600 it still bills, 10000 − 3900 − 1600 = 4500, where it counted the whole
+/// stub and trued up nothing.
+/// Rules: R-022
+#[tokio::test]
+async fn a_cancellation_at_the_period_end_counts_a_longer_fee_by_what_its_note_leaves() {
+    let (env, _usage) = usage_env().await;
+    plan_minimum(&env, PLAN_VERSION_STARTER_ID, 10_000).await;
+    let sub_id = start(&env, PLAN_VERSION_STARTER_ID, day(2024, 1, 1)).await;
+
+    let support = AddExtraComponent {
+        name: "Support".to_string(),
+        product: ProductRef::New {
+            name: "Support Product".to_string(),
+            fee_type: FeeTypeEnum::Rate,
+            fee_structure: FeeStructure::Rate {},
+        },
+        price_entry: PriceEntry::New(PriceInput {
+            cadence: BillingPeriodEnum::Annual,
+            currency: "EUR".to_string(),
+            pricing: Pricing::Rate { rate: dec!(366) },
+            credit_unit: None,
+        }),
+    };
+    env.set_now(day(2024, 1, 16).and_hms_opt(9, 0, 0).unwrap().and_utc());
+    env.services()
+        .apply_amendment_immediate_at(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            SubscriptionAmendment {
+                apply_mode: PlanChangeMode::Immediate,
+                component_changes: ComponentChanges {
+                    edited: vec![],
+                    added: vec![support],
+                    removed: vec![],
+                },
+                add_on_changes: AddOnChanges::default(),
+            },
+            day(2024, 1, 16),
+        )
+        .await
+        .expect("an increase applies at once under a minimum");
+    env.services()
+        .cancel_subscription(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::EndOfBillingPeriod,
+        )
+        .await
+        .expect("cancellation scheduled");
+    env.set_now(day(2024, 2, 1).and_hms_opt(9, 0, 0).unwrap().and_utc());
+    env.process_cycles().await;
+
+    let notes: Vec<(String, i64)> = {
+        let mut all = Vec::new();
+        for invoice in env.get_invoices(sub_id).await {
+            all.extend(note_lines(&env, &invoice).await);
+        }
+        all
+    };
+    assert_eq!(notes, vec![("Support (prorated)".to_owned(), -33_500)]);
+    let last = invoice_of(&env, sub_id, day(2024, 2, 1)).await;
+    assert_eq!(
+        shortfalls(&last),
+        vec![(4_500, day(2024, 1, 1), day(2024, 2, 1))],
+        "{:?}",
+        lines(&last)
+    );
+}
+
+/// As above with a 120.00 yearly fee: its stub bills 12000 × 351/366 = 11508 and the note gives
+/// back 12000 × 335/366 = 10984, leaving 524, so the final invoice of Feb 1 trues up 10000 − 3900
+/// − 524 = 5576, where the stub's own 351 days counted 525 and trued up 5575.
+/// Rules: R-022, R-079
+#[tokio::test]
+async fn a_cancellation_at_the_period_end_counts_a_stub_as_its_note_prorates_it() {
+    let (env, _usage) = usage_env().await;
+    plan_minimum(&env, PLAN_VERSION_STARTER_ID, 10_000).await;
+    let sub_id = start(&env, PLAN_VERSION_STARTER_ID, day(2024, 1, 1)).await;
+
+    let support = AddExtraComponent {
+        name: "Support".to_string(),
+        product: ProductRef::New {
+            name: "Support Product".to_string(),
+            fee_type: FeeTypeEnum::Rate,
+            fee_structure: FeeStructure::Rate {},
+        },
+        price_entry: PriceEntry::New(PriceInput {
+            cadence: BillingPeriodEnum::Annual,
+            currency: "EUR".to_string(),
+            pricing: Pricing::Rate { rate: dec!(120) },
+            credit_unit: None,
+        }),
+    };
+    env.set_now(day(2024, 1, 16).and_hms_opt(9, 0, 0).unwrap().and_utc());
+    env.services()
+        .apply_amendment_immediate_at(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            SubscriptionAmendment {
+                apply_mode: PlanChangeMode::Immediate,
+                component_changes: ComponentChanges {
+                    edited: vec![],
+                    added: vec![support],
+                    removed: vec![],
+                },
+                add_on_changes: AddOnChanges::default(),
+            },
+            day(2024, 1, 16),
+        )
+        .await
+        .expect("an increase applies at once under a minimum");
+    env.services()
+        .cancel_subscription(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::EndOfBillingPeriod,
+        )
+        .await
+        .expect("cancellation scheduled");
+    env.set_now(day(2024, 2, 1).and_hms_opt(9, 0, 0).unwrap().and_utc());
+    env.process_cycles().await;
+
+    let notes: Vec<(String, i64)> = {
+        let mut all = Vec::new();
+        for invoice in env.get_invoices(sub_id).await {
+            all.extend(note_lines(&env, &invoice).await);
+        }
+        all
+    };
+    assert_eq!(notes, vec![("Support (prorated)".to_owned(), -10_984)]);
+    let last = invoice_of(&env, sub_id, day(2024, 2, 1)).await;
+    assert_eq!(
+        shortfalls(&last),
+        vec![(5_576, day(2024, 1, 1), day(2024, 2, 1))],
+        "{:?}",
+        lines(&last)
     );
 }
 
@@ -1161,6 +1415,8 @@ async fn a_draft_beside_usage_alone_replaces_its_old_shortfall_by_the_true_up() 
 #[tokio::test]
 async fn a_draft_whose_minimum_was_removed_keeps_its_old_shortfall_uncredited() {
     let (env, usage) = usage_env().await;
+    // October renewed, its minimum removed that day.
+    env.set_now(day(2024, 10, 1).and_hms_opt(9, 0, 0).unwrap().and_utc());
     let plan = usage_only_plan(&env).await;
     let sub_id = subscription()
         .plan_version(plan)
@@ -2356,4 +2612,201 @@ async fn a_voided_consolidated_invoice_is_no_spend_of_the_minimum() {
             lines(&march)
         );
     }
+}
+
+/// A plan of a 10.00 monthly fee and bandwidth at 0.10 a unit under a 100.00 minimum.
+async fn ten_and_usage_plan(env: &TestEnv) -> PlanVersionId {
+    let plan = PlanVersionId::new();
+    PlanSeed::new(PlanId::new(), "Fee and usage, 100.00 minimum", plan)
+        .components(vec![
+            SeedComp::rate(
+                PriceComponentId::new(),
+                "Platform Fee",
+                PRODUCT_PLATFORM_FEE_ID,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Monthly,
+                dec!(10),
+            ),
+            SeedComp::usage(
+                PriceComponentId::new(),
+                "Bandwidth",
+                PRODUCT_BANDWIDTH_ID,
+                METRIC_BANDWIDTH,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Monthly,
+                UsagePricingModel::PerUnit { rate: dec!(0.10) },
+            ),
+        ])
+        .seed(&mut env.conn().await)
+        .await
+        .unwrap();
+    plan_minimum(env, plan, 10_000).await;
+    plan
+}
+
+/// A 50 % coupon for one invoice owed to January's draft: February, issued first, takes none and
+/// trues up 10000 − 500 − 2000 = 7500, January then takes it (February took it, 8000, before).
+/// Rules: R-022, R-089
+#[tokio::test]
+async fn a_draft_counts_the_coupon_it_keeps_once_issued_after_the_true_up() {
+    let (env, usage) = usage_env().await;
+    env.set_now(day(2024, 1, 1).and_hms_opt(1, 0, 0).unwrap().and_utc());
+    let plan = ten_and_usage_plan(&env).await;
+    let coupon = env
+        .create_limited_percentage_coupon("HALF", 50, Some(1))
+        .await;
+    let sub_id = subscription()
+        .plan_version(plan)
+        .start_date(day(2024, 1, 1))
+        .on_start()
+        .no_trial()
+        .no_auto_advance()
+        .coupon(coupon)
+        .create(env.services())
+        .await;
+    set_usage(&usage, day(2024, 1, 1), day(2024, 2, 1), 200);
+    env.run_until(day(2024, 2, 1)).await;
+
+    let january = invoice_of(&env, sub_id, day(2024, 1, 1)).await;
+    assert_eq!(
+        (january.status, january.subtotal, january.discount),
+        (InvoiceStatusEnum::Draft, 1_000, 500),
+        "the opening draft shows the coupon"
+    );
+    let february = invoice_of(&env, sub_id, day(2024, 2, 1)).await;
+    env.manual_finalize_invoice(february.id)
+        .await
+        .expect("February issued");
+    let february = env.get_detailed_invoice(february.id).await.invoice;
+    assert_eq!(
+        shortfalls(&february),
+        vec![(7_500, day(2024, 1, 1), day(2024, 2, 1))],
+        "10000 − 500 (the fee, net of the coupon January is owed) − 2000 (the usage): {:?}",
+        lines(&february)
+    );
+    assert_eq!(
+        (february.subtotal, february.discount, february.total),
+        (10_500, 0, 10_500)
+    );
+
+    env.manual_finalize_invoice(january.id)
+        .await
+        .expect("January issued");
+    let january = env.get_detailed_invoice(january.id).await.invoice;
+    assert_eq!(
+        (january.subtotal, january.discount, january.total),
+        (1_000, 500, 500),
+        "the coupon's one use is January's"
+    );
+}
+
+/// The same coupon for two invoices, three drafts open: March, issued first, takes none (8500 for
+/// February); January takes 500, February 1500 and trues up 8500 (7500 when March took a use).
+/// Rules: R-022, R-089
+#[tokio::test]
+async fn the_last_coupon_use_is_counted_for_the_oldest_draft() {
+    let (env, usage) = usage_env().await;
+    env.set_now(day(2024, 1, 1).and_hms_opt(1, 0, 0).unwrap().and_utc());
+    let plan = ten_and_usage_plan(&env).await;
+    let coupon = env
+        .create_limited_percentage_coupon("HALF2", 50, Some(2))
+        .await;
+    let sub_id = subscription()
+        .plan_version(plan)
+        .start_date(day(2024, 1, 1))
+        .on_start()
+        .no_trial()
+        .no_auto_advance()
+        .coupon(coupon)
+        .create(env.services())
+        .await;
+    set_usage(&usage, day(2024, 1, 1), day(2024, 2, 1), 200);
+    set_usage(&usage, day(2024, 2, 1), day(2024, 3, 1), 100);
+    env.run_until(day(2024, 3, 1)).await;
+
+    let [january, february, march] = [1, 2, 3].map(|m| day(2024, m, 1));
+    let (january, february, march) = (
+        invoice_of(&env, sub_id, january).await,
+        invoice_of(&env, sub_id, february).await,
+        invoice_of(&env, sub_id, march).await,
+    );
+    env.manual_finalize_invoice(march.id)
+        .await
+        .expect("March issued");
+    let march = env.get_detailed_invoice(march.id).await.invoice;
+    assert_eq!(
+        shortfalls(&march),
+        vec![(8_500, day(2024, 2, 1), day(2024, 3, 1))],
+        "{:?}",
+        lines(&march)
+    );
+    assert_eq!(
+        (march.subtotal, march.discount, march.total),
+        (10_500, 0, 10_500)
+    );
+
+    for draft in [&january, &february] {
+        env.manual_finalize_invoice(draft.id)
+            .await
+            .expect("draft issued");
+    }
+    let january = env.get_detailed_invoice(january.id).await.invoice;
+    assert_eq!((january.subtotal, january.discount), (1_000, 500));
+    let february = env.get_detailed_invoice(february.id).await.invoice;
+    assert_eq!(
+        shortfalls(&february),
+        vec![(8_500, day(2024, 1, 1), day(2024, 2, 1))],
+        "{:?}",
+        lines(&february)
+    );
+    assert_eq!((february.subtotal, february.discount), (11_500, 1_500));
+}
+
+/// The one use January took, freed by its void, is owed to the oldest open draft, February's,
+/// drafted without it: March, issued first, takes none; February takes 1500 off 3000.
+/// Rules: R-089, R-096
+#[tokio::test]
+async fn a_use_a_void_frees_goes_to_the_oldest_open_draft() {
+    let (env, usage) = usage_env().await;
+    env.set_now(day(2024, 1, 1).and_hms_opt(1, 0, 0).unwrap().and_utc());
+    let plan = ten_and_usage_plan(&env).await;
+    let coupon = env
+        .create_limited_percentage_coupon("HALF3", 50, Some(1))
+        .await;
+    let sub_id = subscription()
+        .plan_version(plan)
+        .start_date(day(2024, 1, 1))
+        .on_start()
+        .no_trial()
+        .no_auto_advance()
+        .coupon(coupon)
+        .create(env.services())
+        .await;
+    set_usage(&usage, day(2024, 1, 1), day(2024, 2, 1), 200);
+    set_usage(&usage, day(2024, 2, 1), day(2024, 3, 1), 100);
+    let january = invoice_of(&env, sub_id, day(2024, 1, 1)).await;
+    env.manual_finalize_invoice(january.id)
+        .await
+        .expect("January issued");
+    assert_eq!(
+        env.get_detailed_invoice(january.id).await.invoice.discount,
+        500
+    );
+    env.run_until(day(2024, 2, 1)).await;
+    let february = invoice_of(&env, sub_id, day(2024, 2, 1)).await;
+    assert_eq!(february.discount, 0, "the use is January's");
+    env.try_void_invoice(january.id).await.expect("void");
+    env.run_until(day(2024, 3, 1)).await;
+
+    let march = invoice_of(&env, sub_id, day(2024, 3, 1)).await;
+    env.manual_finalize_invoice(march.id)
+        .await
+        .expect("March issued");
+    let march = env.get_detailed_invoice(march.id).await.invoice;
+    assert_eq!(march.discount, 0, "{:?}", lines(&march));
+    env.manual_finalize_invoice(february.id)
+        .await
+        .expect("February issued");
+    let february = env.get_detailed_invoice(february.id).await.invoice;
+    assert_eq!(february.discount, 1_500, "{:?}", lines(&february));
 }

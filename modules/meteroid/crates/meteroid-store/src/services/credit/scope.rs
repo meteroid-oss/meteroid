@@ -86,15 +86,13 @@ pub fn line_subscription(
         .or(invoice_subscription)
 }
 
-/// Statuses that end a subscription's plan credit; a pause, suspension, expired trial or error
-/// leaves it to its own expiry.
+/// Statuses that end a subscription's plan credit; an expired trial leaves it to its own expiry.
 pub(crate) fn ends_credit(status: &SubscriptionStatusEnum) -> bool {
     matches!(
         status,
         SubscriptionStatusEnum::Cancelled
             | SubscriptionStatusEnum::Completed
             | SubscriptionStatusEnum::Aborted
-            | SubscriptionStatusEnum::Superseded
     )
 }
 
@@ -275,10 +273,6 @@ mod tests {
             Some(midnight(31))
         );
         assert_eq!(
-            ended_at(&SubscriptionStatusEnum::Paused, None, day(20)),
-            None
-        );
-        assert_eq!(
             ended_at(&SubscriptionStatusEnum::Active, None, day(20)),
             None
         );
@@ -290,19 +284,14 @@ mod tests {
             SubscriptionStatusEnum::Cancelled,
             SubscriptionStatusEnum::Completed,
             SubscriptionStatusEnum::Aborted,
-            SubscriptionStatusEnum::Superseded,
         ] {
             assert!(ends_credit(&status), "{status:?}");
         }
         for status in [
-            SubscriptionStatusEnum::Paused,
-            SubscriptionStatusEnum::Suspended,
             SubscriptionStatusEnum::TrialExpired,
-            SubscriptionStatusEnum::Errored,
             SubscriptionStatusEnum::Active,
             SubscriptionStatusEnum::TrialActive,
             SubscriptionStatusEnum::PendingActivation,
-            SubscriptionStatusEnum::PendingCharge,
         ] {
             assert!(!ends_credit(&status), "{status:?}");
         }

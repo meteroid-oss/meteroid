@@ -847,15 +847,32 @@ async fn seed_sandbox_data(
     // a real Churn MRR movement, a future one stays a pending scheduled cancellation.
     for cs in &created_subs {
         if let Some(end) = cancellations.get(&(cs.customer_id, cs.plan_version_id, cs.start_date)) {
-            services
-                .cancel_subscription(
-                    Actor::System,
-                    cs.id,
-                    tenant.id,
-                    Some("Churned (sandbox seed)".to_string()),
-                    CancellationEffectiveAt::Date(*end),
-                )
-                .await?;
+            let reason = Some("Churned (sandbox seed)".to_string());
+            let effective_at = CancellationEffectiveAt::Date(*end);
+            if *end <= now {
+                // Past churn was requested with the notice pending ones get, not at seed time:
+                // requested after its day, it would bill as a backdated cancellation (R-016).
+                let requested = end
+                    .checked_sub_days(Days::new(12))
+                    .unwrap_or(*end)
+                    .max(cs.start_date)
+                    .and_time(NaiveTime::MIN)
+                    .and_utc();
+                services
+                    .cancel_subscription_at(
+                        Actor::System,
+                        cs.id,
+                        tenant.id,
+                        reason,
+                        effective_at,
+                        requested,
+                    )
+                    .await?;
+            } else {
+                services
+                    .cancel_subscription(Actor::System, cs.id, tenant.id, reason, effective_at)
+                    .await?;
+            }
         }
     }
     // After the subscriptions, whose first invoice would otherwise count on credit dated after it.

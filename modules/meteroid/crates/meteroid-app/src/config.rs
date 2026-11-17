@@ -11,6 +11,7 @@ use common_config::instance_telemetry::InstanceTelemetryConfig;
 use common_domain::ids::OrganizationId;
 use meteroid_mailer::config::MailerConfig;
 use meteroid_oauth::config::OauthConfig;
+use meteroid_store::services::billing_release::BillingRelease;
 use meteroid_store::store::PgConfig;
 
 #[derive(Envconfig, Debug, Clone)]
@@ -101,6 +102,11 @@ pub struct Config {
     #[envconfig(from = "PORTAL_LEGACY_TOKENS_ACCEPTED_UNTIL")]
     pub portal_legacy_tokens_until: Option<chrono::NaiveDate>,
 
+    /// `all` bills every tenant; `allowlist` bills only the tenants a `billing_controller_release`
+    /// row names, every tenant once a row names none.
+    #[envconfig(from = "BILLING_CONTROLLER_RELEASE", default = "all")]
+    pub billing_controller_release: BillingRelease,
+
     #[envconfig(nested)]
     pub redis: RedisConfig,
 
@@ -142,15 +148,6 @@ pub struct WorkersConfig {
     // VIES re-validation enqueuer schedule; defaults to daily, 04:00 UTC.
     #[envconfig(from = "VAT_REVALIDATION_CRON", default = "0 4 * * *")]
     pub vat_revalidation_cron: ParsedCron,
-
-    // Stale-draft invoice refresh schedule; defaults to hourly at :25, off the
-    // hour boundary the billing runs and the milestones worker already sit on.
-    #[envconfig(from = "DRAFT_REFRESH_CRON", default = "25 * * * *")]
-    pub draft_refresh_cron: ParsedCron,
-
-    // Kill switch for the stale-draft invoice refresh worker.
-    #[envconfig(from = "DRAFT_REFRESH_ENABLED", default = "true")]
-    pub draft_refresh_enabled: bool,
 
     // Payment reminder sweeper schedule (due steps + enrolment); execution is further gated to
     // each entity's local send window, so the cron only bounds lateness.

@@ -23,6 +23,21 @@ impl TestEnv {
             .expect("Failed to convert CustomerRow to Customer")
     }
 
+    /// How many periods of the subscription were invoiced before its current one: the cycle it is
+    /// in, counted from its first billed period (after a free trial, or across a cadence change).
+    pub async fn billed_cycle(&self, id: SubscriptionId) -> usize {
+        let current = self.get_subscription(id).await.current_period_start;
+        self.get_invoices(id)
+            .await
+            .iter()
+            .filter(|invoice| {
+                invoice.invoice_type == meteroid_store::domain::enums::InvoiceType::Recurring
+                    && invoice.status != meteroid_store::domain::enums::InvoiceStatusEnum::Void
+                    && invoice.billing_period_start < current
+            })
+            .count()
+    }
+
     /// Get a subscription row by ID.
     pub async fn get_subscription(&self, id: SubscriptionId) -> SubscriptionRow {
         let mut conn = self.conn().await;

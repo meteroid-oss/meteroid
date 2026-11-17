@@ -69,7 +69,7 @@ impl Services {
         let effective_on = update.effective_on.unwrap_or(today);
         if effective_on < today {
             return Err(Report::new(StoreError::InvalidArgument(format!(
-                "a price changes from today or later, not {effective_on} (R-097)"
+                "a price changes from today or later, not {effective_on}"
             ))));
         }
 
@@ -88,7 +88,7 @@ impl Services {
                         .find(|from| *from > effective_on)
                     {
                         return Err(Report::new(StoreError::InvalidArgument(format!(
-                            "a change of these prices takes over on {later}: date this one on or after it (R-097)"
+                            "a change of these prices takes over on {later}: date this one on or after it"
                         ))));
                     }
                     let planned = plan_matrix_update(tips, update)?;

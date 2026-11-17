@@ -408,8 +408,9 @@ pub enum SubscriptionFeeBillingPeriodEnum {
     Annual,
 }
 
-#[derive(o2o, Clone, ToSchema, Serialize, Deserialize, Debug)]
-#[map_owned(meteroid_store::domain::enums::SubscriptionStatusEnum)]
+/// `PendingCharge`, `Paused`, `Suspended`, `Superseded` and `Errored` stay in the published
+/// schema; no subscription holds them any more, and a filter on them lists none.
+#[derive(Clone, ToSchema, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[schema(title = "SubscriptionStatus")]
 pub enum SubscriptionStatusEnum {
@@ -425,6 +426,42 @@ pub enum SubscriptionStatusEnum {
     Completed,
     Superseded,
     Errored,
+}
+
+impl From<meteroid_store::domain::enums::SubscriptionStatusEnum> for SubscriptionStatusEnum {
+    fn from(status: meteroid_store::domain::enums::SubscriptionStatusEnum) -> Self {
+        use meteroid_store::domain::enums::SubscriptionStatusEnum as Domain;
+        match status {
+            Domain::PendingActivation => Self::PendingActivation,
+            Domain::TrialActive => Self::TrialActive,
+            Domain::Active => Self::Active,
+            Domain::TrialExpired => Self::TrialExpired,
+            Domain::Cancelled => Self::Cancelled,
+            Domain::Aborted => Self::Aborted,
+            Domain::Completed => Self::Completed,
+        }
+    }
+}
+
+impl SubscriptionStatusEnum {
+    /// The stored status it names, none for those no subscription holds.
+    pub fn held(self) -> Option<meteroid_store::domain::enums::SubscriptionStatusEnum> {
+        use meteroid_store::domain::enums::SubscriptionStatusEnum as Domain;
+        match self {
+            Self::PendingActivation => Some(Domain::PendingActivation),
+            Self::TrialActive => Some(Domain::TrialActive),
+            Self::Active => Some(Domain::Active),
+            Self::TrialExpired => Some(Domain::TrialExpired),
+            Self::Cancelled => Some(Domain::Cancelled),
+            Self::Aborted => Some(Domain::Aborted),
+            Self::Completed => Some(Domain::Completed),
+            Self::PendingCharge
+            | Self::Paused
+            | Self::Suspended
+            | Self::Superseded
+            | Self::Errored => None,
+        }
+    }
 }
 
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]

@@ -41,8 +41,6 @@ pub fn mocked_config(
         ("SECRETS_CRYPT_KEY", "0".repeat(32)),
         ("IDEMPOTENCY_TTL", "5s".to_owned()),
         ("RECONCILIATION_ENABLED", "false".to_owned()),
-        // Off in tests: the sweep would race fixtures that assert on a draft's stored lines.
-        ("DRAFT_REFRESH_ENABLED", "false".to_owned()),
         // Off in tests: sweeps are driven explicitly with a bound `now`.
         ("PAYMENT_REMINDERS_ENABLED", "false".to_owned()),
         ("WEBHOOK_DELIVERY_CONCURRENCY", "4".to_owned()),

@@ -40,16 +40,30 @@ fn shift(day: NaiveDate, months: i64) -> NaiveDate {
     .expect("a day")
 }
 
-/// The period of `months` holding `day` on the grid through `origin`, before it as after it
-/// (R-084); the anchor is the start's day, never past the 28th, so no month clamps it (R-015).
-pub fn period(origin: NaiveDate, months: u32, day: NaiveDate) -> (NaiveDate, NaiveDate) {
+/// `origin`'s month moved by `months`, on the `anchor` day or that month's last (R-015).
+fn step(origin: NaiveDate, months: i64, anchor: u32) -> NaiveDate {
+    let first = shift(origin.with_day(1).expect("a day"), months);
+    (anchor.min(28)..=anchor)
+        .rev()
+        .find_map(|d| first.with_day(d))
+        .expect("a day")
+}
+
+/// The period of `months` holding `day` on the grid through `origin`, before it as after it,
+/// its boundaries on the `anchor` day or a shorter month's last (R-084, R-015).
+pub fn period(
+    origin: NaiveDate,
+    anchor: u32,
+    months: u32,
+    day: NaiveDate,
+) -> (NaiveDate, NaiveDate) {
     let months = i64::from(months.max(1));
     let elapsed = i64::from(day.year() - origin.year()) * 12 + i64::from(day.month())
         - i64::from(origin.month());
     let mut k = elapsed.div_euclid(months);
     loop {
-        let start = shift(origin, k * months);
-        let end = shift(origin, (k + 1) * months);
+        let start = step(origin, k * months, anchor);
+        let end = step(origin, (k + 1) * months, anchor);
         if start > day {
             k -= 1;
         } else if end <= day {
@@ -196,9 +210,12 @@ pub struct Window {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scheduled {
-    Amend(i64),
+    /// The fee's price and cadence from the first renewal on or after the period end in force
+    /// when requested, nothing given back for the days between (R-106).
+    Amend(i64, NaiveDate, u32),
     Change(usize),
-    Cancel,
+    /// Dated when requested: a later change of the period leaves the day (R-016).
+    Cancel(NaiveDate),
 }
 
 #[derive(Clone, Debug)]
@@ -218,9 +235,9 @@ pub struct Sub {
     pub usage: usize,
     pub seats: usize,
     pub seat_count: i64,
-    /// Seats removed from the end of the seats' period then, whatever plan holds them by then: the
-    /// ledger counts per seat unit, never per plan.
-    pub seats_off: Vec<(NaiveDate, i64)>,
+    /// Seats removed from the end of the seats' period then, per seat unit, never per plan: each
+    /// leaves at the first renewal on or after its day, wherever a change moved the end (R-108).
+    pub seats_off: Vec<(NaiveDate, i64, usize)>,
     /// What the seats a change scheduled for the period end sets add to those held when it was
     /// scheduled; else it carries them. The seats bought or removed since carry either way (R-108).
     pub change_seats: Option<i64>,
@@ -233,11 +250,13 @@ pub struct Sub {
     /// The periods closed so far, after the billing start: `[from, to)` and the full period's
     /// days.
     pub periods: Vec<(NaiveDate, NaiveDate, i64)>,
+    /// The day a backdated ending cut the periods closed past it to.
+    pub cut: Option<NaiveDate>,
 }
 
 impl Sub {
     pub fn seats_off(&self) -> i64 {
-        self.seats_off.iter().map(|(_, n)| n).sum()
+        self.seats_off.iter().map(|(_, n, _)| n).sum()
     }
 }
 
@@ -432,9 +451,20 @@ impl Model {
         (window.origin.max(start), window.months)
     }
 
+    /// The day every grid's boundaries fall on: that of the billing start, never clamped.
+    fn anchor(&self) -> u32 {
+        self.windows
+            .first()
+            .map_or(self.sub().start.day(), |window| window.origin.day())
+    }
+
+    fn period_of(&self, origin: NaiveDate, months: u32, day: NaiveDate) -> (NaiveDate, NaiveDate) {
+        period(origin, self.anchor(), months, day)
+    }
+
     fn period_end_on(&self, day: NaiveDate) -> (NaiveDate, NaiveDate) {
         let (origin, months) = self.grid_on(day);
-        let (start, end) = period(origin, months, day);
+        let (start, end) = self.period_of(origin, months, day);
         (
             start,
             self.catalog().term_end.map_or(end, |term| end.min(term)),
@@ -464,29 +494,86 @@ impl Model {
             return;
         }
         let (origin, months) = self.grid_on(from);
-        let (start, end) = period(origin, months, from);
+        let (start, end) = self.period_of(origin, months, from);
         self.sub_mut()
             .periods
             .push((from, to, (end - start).num_days()));
     }
 
-    /// Seats removed from a period's end, applied once that day is reached.
-    fn remove_seats(&mut self, upto: NaiveDate, inclusive: bool) {
-        let mut due: Vec<(NaiveDate, i64)> = self
+    /// Seats removed for a period's end, applied on the renewal `on`: a removal whose seats' run
+    /// still ends a period on its day leaves from that day, however late the renewal billing the
+    /// next period; one a change moved that end past leaves on the renewal, never giving back the
+    /// days before it (R-108).
+    fn remove_seats(&mut self, on: NaiveDate) {
+        let due: Vec<(NaiveDate, i64, usize)> = self
             .sub()
             .seats_off
             .iter()
+            .filter(|(day, _, _)| *day <= on)
             .copied()
-            .filter(|(on, _)| *on < upto || (inclusive && *on == upto))
             .collect();
-        due.sort();
-        self.sub_mut()
-            .seats_off
-            .retain(|(on, _)| !(*on < upto || (inclusive && *on == upto)));
-        for (on, n) in due {
-            let count = self.sub().seat_count - n;
+        self.sub_mut().seats_off.retain(|(day, _, _)| *day > on);
+        let mut later = 0;
+        for (day, n, lineage) in due {
+            if self.ends_a_period(lineage, day) {
+                self.remove_from(day, n);
+            } else {
+                later += n;
+            }
+        }
+        if later > 0 {
+            let count = self.sub().seat_count - later;
             self.seat(on, count);
         }
+    }
+
+    /// The end of the period holding `day` of `lineage`'s run, on the grid the run started on
+    /// (R-084), cut by the term's end.
+    fn run_period_end(&self, lineage: usize, day: NaiveDate) -> Option<NaiveDate> {
+        let months = self.row_on(lineage, day)?.months;
+        let floor = self.catalog().billing_start(self.sub().start);
+        let mut start = self.row_on(lineage, day)?.from;
+        while start > floor {
+            match self.row_on(lineage, start - Duration::days(1)) {
+                Some(row) if row.months == months => start = row.from,
+                _ => break,
+            }
+        }
+        let (origin, _) = self.grid_on(start.max(floor));
+        let end = self.period_of(origin, months, day).1;
+        Some(self.catalog().term_end.map_or(end, |term| end.min(term)))
+    }
+
+    /// Whether the seats' lineage `lineage` is still the subscription's and its run ends a period
+    /// on `day`.
+    fn ends_a_period(&self, lineage: usize, day: NaiveDate) -> bool {
+        lineage == self.sub().seats
+            && self.run_period_end(lineage, day - Duration::days(1)) == Some(day)
+    }
+
+    /// `n` seats off the seats' lineage from `day`, the rows after it included.
+    fn remove_from(&mut self, day: NaiveDate, n: i64) {
+        let (seats, plan) = (self.sub().seats, self.sub().plan);
+        let off = self.catalog().plans[plan].seat * n;
+        let mut split = Vec::new();
+        for row in self
+            .rows
+            .iter_mut()
+            .filter(|row| row.lineage == seats && row.to.is_none_or(|to| to > day))
+        {
+            if row.from < day {
+                split.push(Row {
+                    from: day,
+                    price: row.price - off,
+                    ..row.clone()
+                });
+                row.to = Some(day);
+            } else {
+                row.price -= off;
+            }
+        }
+        self.rows.extend(split);
+        self.sub_mut().seat_count -= n;
     }
 
     fn close(&mut self, lineage: usize, on: NaiveDate) {
@@ -507,19 +594,19 @@ impl Model {
         });
     }
 
-    /// R-084: a change of cadence on `on` renews first on its day when that is a boundary of the
-    /// grid in force, else on the new cadence's first boundary after it through the old grid's
-    /// next one.
+    /// R-084: the first renewal of a change of cadence on `on`: its day when that is a boundary
+    /// of the grid in force, else the new cadence's first boundary after it on the grid through
+    /// the old grid's next boundary. A fee of another cadence runs on the grid through it.
     fn origin(&self, on: NaiveDate, months: u32) -> NaiveDate {
         let (origin, before) = self.grid_on(on);
         if before == months {
             return self.windows.last().map_or(origin, |window| window.origin);
         }
-        let (start, end) = period(origin, before, on);
+        let (start, end) = self.period_of(origin, before, on);
         if start == on {
             on
         } else {
-            period(end, months, on).1
+            self.period_of(end, months, on).1
         }
     }
 
@@ -573,8 +660,8 @@ impl Model {
         else {
             return;
         };
-        // An amendment realigns an active subscription only, never one in its trial.
-        if self.own_grid || self.trialing(on) || months == self.months_on(on) {
+        // In a free trial too: the grid from the trial's end is the one it renews on.
+        if self.own_grid || months == self.months_on(on) {
             return;
         }
         let origin = self.windows.last().map_or(on, |window| window.origin);
@@ -623,8 +710,24 @@ impl Model {
     }
 
     fn end(&mut self, day: NaiveDate, cutoff: At) {
+        // A removal for a period's end before the ending's day leaves from it (R-108).
+        let due: Vec<(NaiveDate, i64, usize)> = self
+            .sub()
+            .seats_off
+            .iter()
+            .filter(|(on, _, _)| *on <= day)
+            .copied()
+            .collect();
+        for (on, n, lineage) in due {
+            if self.ends_a_period(lineage, on) {
+                self.remove_from(on, n);
+            }
+        }
         self.close_period(day);
         let sub = self.sub_mut();
+        if sub.periods.iter().any(|(_, to, _)| day < *to) {
+            sub.cut = Some(day);
+        }
         sub.active = false;
         sub.ended = Some(day);
         sub.cutoff = Some(cutoff);
@@ -632,14 +735,39 @@ impl Model {
         sub.seats_off.clear();
     }
 
+    /// R-011: a change in a free trial ends it that day; billing starts then, on a grid from it.
+    fn end_trial(&mut self, day: NaiveDate) {
+        if let Some(trial) = self.catalog.as_mut().and_then(|c| c.trial.as_mut()) {
+            trial.end = day;
+            trial.anchor = None;
+        }
+        let months = self.months_on(day);
+        self.windows = vec![Window {
+            from: self.sub().start,
+            months,
+            origin: day,
+        }];
+    }
+
     fn months_on(&self, day: NaiveDate) -> u32 {
         self.grid_on(day).1
     }
 
-    fn change(&mut self, on: NaiveDate, to: usize, count: i64) {
+    /// The cadence the subscription renewed on before `on`: a window opened that day is replaced
+    /// by the one a change opens then, as the store lays them.
+    fn months_before(&self, on: NaiveDate) -> u32 {
+        self.windows
+            .iter()
+            .rev()
+            .find(|window| window.from < on)
+            .or(self.windows.first())
+            .map_or_else(|| self.months_on(on), |window| window.months)
+    }
+
+    fn change(&mut self, on: NaiveDate, to: usize, count: i64, immediate: bool) {
         // A change on the start day or in the trial leaves it as if created on the new plan.
-        self.own_grid |= self.catalog().plans[to].months != self.months_on(on)
-            && on > self.catalog().billing_start(self.sub().start);
+        let as_created = on <= self.catalog().billing_start(self.sub().start);
+        self.own_grid |= self.catalog().plans[to].months != self.months_before(on) && !as_created;
         let (fixed, usage, seats) = (self.sub().fixed, self.sub().usage, self.sub().seats);
         self.close(fixed, on);
         self.close(usage, on);
@@ -651,8 +779,17 @@ impl Model {
             self.add_on_rows(on, None);
         }
         let spec = self.catalog().plans[to];
+        let from = self.catalog().plans[self.sub().plan];
         self.sub_mut().seat_count = count;
-        let (fixed, usage, seats) = (self.lineage(), self.lineage(), self.lineage());
+        // An immediate change carries a seat fee the target bills exactly as before: its run goes
+        // on, on its own grid (R-084); at another price or cadence, or at the period's end, the
+        // change opens its lineage.
+        let seats = if immediate && (from.seat, from.months) == (spec.seat, spec.months) {
+            seats
+        } else {
+            self.lineage()
+        };
+        let (fixed, usage) = (self.lineage(), self.lineage());
         self.open(fixed, RowKind::Fixed, on, spec.fee, spec.months);
         self.open(usage, RowKind::Usage, on, spec.rate, spec.months);
         self.open(seats, RowKind::Fixed, on, spec.seat * count, spec.months);
@@ -665,6 +802,10 @@ impl Model {
             self.open_capacity(on);
         }
         self.rewindow(on, spec.months);
+        // R-084: on the shortest cadence of the fees it leaves, the add-on it keeps included.
+        if as_created {
+            self.realign(on);
+        }
     }
 
     fn open_capacity(&mut self, on: NaiveDate) {
@@ -681,11 +822,6 @@ impl Model {
     }
 
     pub fn apply(&mut self, action: &Action) -> Result<(), Refused> {
-        if self.sub.as_ref().is_some_and(|sub| sub.active)
-            && !matches!(action, Action::Advance { .. })
-        {
-            self.remove_seats(action.at().date_naive(), true);
-        }
         match action {
             Action::Start { day, catalog } => {
                 let spec = catalog.plans[0];
@@ -716,6 +852,7 @@ impl Model {
                     add_on: None,
                     expired: false,
                     periods: vec![],
+                    cut: None,
                 });
                 self.open_capacity(*day);
                 self.set_period(*day);
@@ -732,17 +869,22 @@ impl Model {
             Action::Usage { at, units } => self.usage.push((*at, *units)),
             Action::Advance { at } => {
                 let end = at.date_naive();
-                self.remove_seats(end, false);
                 let trial = self.catalog().trial.filter(|trial| trial.end == end);
                 let term = self.catalog().term_end == Some(end);
-                let ending = self.sub().scheduled == Some(Scheduled::Cancel)
-                    || term
-                    || trial.is_some_and(|trial| !trial.card);
+                let cancel = match self.sub().scheduled {
+                    Some(Scheduled::Cancel(on)) if on <= end => Some(on),
+                    _ => None,
+                };
+                let ending = cancel.is_some() || term || trial.is_some_and(|trial| !trial.card);
                 if !ending {
                     self.close_period(end);
                 }
                 match self.sub().scheduled {
-                    Some(Scheduled::Cancel) => self.end(end, midnight(end)),
+                    Some(Scheduled::Cancel(_)) => {
+                        if let Some(on) = cancel {
+                            self.end(on, midnight(on));
+                        }
+                    }
                     _ if term => self.end(end, midnight(end)),
                     // Without a card the trial expires, waiting for a checkout (R-084).
                     _ if trial.is_some_and(|trial| !trial.card) => {
@@ -751,19 +893,25 @@ impl Model {
                     }
                     Some(Scheduled::Change(to)) => {
                         let count = self.sub().seat_count + self.sub().change_seats.unwrap_or(0);
-                        self.change(end, to, count);
+                        self.change(end, to, count, false);
                     }
-                    Some(Scheduled::Amend(price)) => {
-                        let months = self.months_on(end);
+                    Some(Scheduled::Amend(price, on, months)) if on <= end => {
                         self.amend(end, price, months);
+                        self.sub_mut().scheduled = None;
                     }
+                    Some(Scheduled::Amend(..)) => {}
                     None => {}
                 }
                 if self.sub().active {
-                    self.remove_seats(end, true);
+                    self.remove_seats(end);
                     self.set_period(end);
                 }
-                self.sub_mut().scheduled = None;
+                if !matches!(
+                    self.sub().scheduled,
+                    Some(Scheduled::Cancel(_) | Scheduled::Amend(..))
+                ) {
+                    self.sub_mut().scheduled = None;
+                }
             }
             Action::AmendNow {
                 at, price, months, ..
@@ -791,8 +939,9 @@ impl Model {
                 self.now = Some(action.done());
                 return Err(Refused("the subscription ends before the change"));
             }
-            Action::AmendAtEnd { price, .. } => {
-                self.sub_mut().scheduled = Some(Scheduled::Amend(*price));
+            Action::AmendAtEnd { price, months, .. } => {
+                let on = self.sub().period_end;
+                self.sub_mut().scheduled = Some(Scheduled::Amend(*price, on, *months));
             }
             Action::ChangeNow { at, to } => {
                 // R-022: a minimum keeps a plan change to the period's end.
@@ -800,18 +949,25 @@ impl Model {
                     self.now = Some(action.done());
                     return Err(Refused("a minimum commitment"));
                 }
+                let day = at.date_naive();
+                if self.trialing(day) {
+                    self.end_trial(day);
+                }
                 let count = self.sub().seat_count;
-                self.change(at.date_naive(), *to, count);
+                // The change sets the new plan's seats to those held now: a removal dated by
+                // then and still waiting for a renewal is that count's (R-108).
+                self.sub_mut().seats_off.retain(|(on, _, _)| *on > day);
+                self.change(day, *to, count, true);
             }
             Action::ChangeAtEnd { to, seats, .. } => {
                 let sub = self.sub_mut();
                 sub.scheduled = Some(Scheduled::Change(*to));
                 sub.change_seats = seats.map(|count| count - sub.seat_count);
-                // Seats set by the change are its own: a removal requested before for its day
-                // no longer applies.
+                // Seats set by the change are its own: a removal requested before for its day, or
+                // still waiting for it, no longer applies.
                 if seats.is_some() {
                     let end = sub.period_end;
-                    sub.seats_off.retain(|(on, _)| *on != end);
+                    sub.seats_off.retain(|(on, _, _)| *on > end);
                 }
             }
             Action::OneTime { at, price } => {
@@ -832,15 +988,18 @@ impl Model {
                 self.seat(at.date_naive(), count);
             }
             Action::RemoveSeats { at, seats } => {
+                // For the end of the seats' own period, on their run's grid (R-108, R-084).
                 let day = at.date_naive();
                 let seats_row = self.sub().seats;
-                let months = self.row_on(seats_row, day).map_or(1, |row| row.months);
-                let (origin, _) = self.grid_on(day);
-                let mut on = period(origin, months, day).1;
-                if let Some(term) = self.catalog().term_end {
-                    on = on.min(term);
-                }
-                self.sub_mut().seats_off.push((on, *seats));
+                let on = match self.run_period_end(seats_row, day) {
+                    Some(on) => on,
+                    None => {
+                        let (origin, _) = self.grid_on(day);
+                        let end = self.period_of(origin, 1, day).1;
+                        self.catalog().term_end.map_or(end, |term| end.min(term))
+                    }
+                };
+                self.sub_mut().seats_off.push((on, *seats, seats_row));
             }
             Action::AttachAddOn { at, .. }
             | Action::AddOnQuantity { at, .. }
@@ -874,8 +1033,8 @@ impl Model {
                 self.add_on_rows(at.date_naive(), None);
                 self.realign(at.date_naive());
             }
-            Action::CancelAtEnd { .. } => {
-                self.sub_mut().scheduled = Some(Scheduled::Cancel);
+            Action::CancelAtEnd { end, .. } => {
+                self.sub_mut().scheduled = Some(Scheduled::Cancel(*end));
             }
             Action::Void { .. }
             | Action::Pay { .. }
@@ -930,7 +1089,7 @@ impl Model {
                         _ => self.grid_on(day).0,
                     };
                     grid = Some((row.months, origin, day + Duration::days(1)));
-                    let of = period(origin, row.months, day);
+                    let of = self.period_of(origin, row.months, day);
                     let next = day + Duration::days(1);
                     let goes_on = run.is_some_and(|(p, price, _, until)| {
                         p == of && price == row.price && until == day
@@ -947,6 +1106,10 @@ impl Model {
                 day += Duration::days(1);
             }
             runs.extend(run);
+            // R-016, R-002: the ending's day reads its usage up to the instant, in the window the
+            // ending cuts, or on its own with no allowance when its period starts that day.
+            let in_force_at_end = self.row_on(lineage, end).is_some();
+            let mut ending_day_read = false;
             for ((start, stop), price, from, until) in runs {
                 let whole = i128::from((stop - start).num_days());
                 let left = |at: NaiveDate| {
@@ -958,12 +1121,15 @@ impl Model {
                 total += left(from) - left(until);
                 // The allowance prorated with its fee; the units past it billed as consumed.
                 if let Some((included, rate)) = capacity {
+                    let cut = in_force_at_end && until == end && until < stop;
+                    ending_day_read |= cut;
+                    let read_until = if cut { cutoff } else { midnight(until) };
                     let used: i64 = self
                         .usage
                         .iter()
                         .filter(|(at, _)| {
                             *at >= midnight(from.max(billing_start))
-                                && *at < midnight(until)
+                                && *at < read_until
                                 && *at < cutoff
                         })
                         .map(|(_, units)| units)
@@ -974,6 +1140,18 @@ impl Model {
                         total += round(over * i128::from(rate), whole);
                     }
                 }
+            }
+            if let Some((_, rate)) = capacity
+                && in_force_at_end
+                && !ending_day_read
+            {
+                let used: i64 = self
+                    .usage
+                    .iter()
+                    .filter(|(at, _)| *at >= midnight(end) && *at < cutoff)
+                    .map(|(_, units)| units)
+                    .sum();
+                total += used * rate;
             }
         }
         total += self

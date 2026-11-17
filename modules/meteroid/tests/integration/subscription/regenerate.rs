@@ -368,6 +368,8 @@ async fn a_churn_booked_by_an_earlier_invoice_of_the_end_day_is_not_booked_again
         .await;
     let mrr = env.get_subscription(id).await.mrr_cents;
     assert!(mrr > 0);
+    // Scheduled ahead of its day, so the end day's invoice below is written before it applies.
+    env.set_now(day(1, 20).and_hms_opt(12, 0, 0).unwrap().and_utc());
     env.services()
         .cancel_subscription(
             Actor::System,
@@ -432,6 +434,7 @@ async fn a_churn_booked_by_an_earlier_invoice_of_the_end_day_is_not_booked_again
         "the invoice booked the churn"
     );
 
+    env.set_now(day(2, 1).and_hms_opt(1, 0, 0).unwrap().and_utc());
     env.process_cycles().await;
     env.process_due_events().await;
 

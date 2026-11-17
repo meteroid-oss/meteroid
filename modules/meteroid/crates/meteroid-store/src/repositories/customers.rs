@@ -1092,9 +1092,6 @@ impl CustomersInterface for Store {
             DieselSubscriptionStatusEnum::Active,
             DieselSubscriptionStatusEnum::TrialActive,
             DieselSubscriptionStatusEnum::TrialExpired,
-            DieselSubscriptionStatusEnum::PendingCharge,
-            DieselSubscriptionStatusEnum::Paused,
-            DieselSubscriptionStatusEnum::Suspended,
         ];
 
         let blocking_subscriptions = SubscriptionRow::list_subscriptions(
@@ -1626,12 +1623,11 @@ mod tests {
             // not_terminal() is the canonical "alive" set used by has_active_sub.
             assert!(is_not_terminal(&SubscriptionStatusEnum::Active));
             assert!(is_not_terminal(&SubscriptionStatusEnum::TrialActive));
-            assert!(is_not_terminal(&SubscriptionStatusEnum::PendingCharge));
-            assert!(is_not_terminal(&SubscriptionStatusEnum::Paused));
+            assert!(is_not_terminal(&SubscriptionStatusEnum::PendingActivation));
             assert!(!is_not_terminal(&SubscriptionStatusEnum::TrialExpired));
             assert!(!is_not_terminal(&SubscriptionStatusEnum::Cancelled));
             assert!(!is_not_terminal(&SubscriptionStatusEnum::Completed));
-            assert!(!is_not_terminal(&SubscriptionStatusEnum::Suspended));
+            assert!(!is_not_terminal(&SubscriptionStatusEnum::Aborted));
             // Free is the plan_type that demotes a paid state to Free.
             assert_eq!(PlanTypeEnum::default(), PlanTypeEnum::Free);
             // Closed-lost quote states.

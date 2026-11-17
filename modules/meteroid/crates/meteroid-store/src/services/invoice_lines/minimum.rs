@@ -17,11 +17,17 @@ use crate::StoreResult;
 use crate::domain::enums::{BillingPeriodEnum, InvoiceType};
 use crate::domain::plan_minimums::MinimumScope;
 use crate::domain::subscription_minimums::SubscriptionMinimum;
-use crate::domain::{ChargeType, LineItem, LineItemKind, SubscriptionDetails};
+use crate::domain::{
+    AppliedCouponDetailed, ChargeType, LineItem, LineItemKind, SubscriptionDetails,
+};
 use crate::errors::StoreError;
+use crate::services::invoice_lines::charges::{Lineages, evaluated_charge_key};
+use crate::services::invoice_lines::discount::Queue;
 use crate::store::PgConn;
+use billing_core::charge::{ChargeKind, Fee};
 use billing_core::minimum::{self as core, Spend};
-use common_domain::ids::{ProductId, SubscriptionId, TenantId};
+use billing_core::proration::DaySpan;
+use common_domain::ids::{AppliedCouponId, InvoiceId, ProductId, SubscriptionId, TenantId};
 use error_stack::Report;
 
 /// Display name shown on the invoice for the synthesized shortfall line.
@@ -45,6 +51,25 @@ pub struct PeriodTrueUp {
     /// How that rule dated its shortfalls on the subscription, read only when the period or the
     /// invoice closing it carries one.
     pub up_front: Option<UpFrontShortfall>,
+    /// The drafts among them: each is issued with the coupons it is owed then, not those it
+    /// shows (R-022, R-089).
+    pub provisional: Vec<Provisional>,
+    /// The subscription's open drafts, the invoice closing the period in its place.
+    pub queue: Queue,
+}
+
+/// A draft's lines in `prior`, net of the coupons it shows; a coupon's limited uses go to the
+/// oldest periods first (R-089), so it is issued with those its place among the open drafts
+/// owes it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Provisional {
+    pub id: InvoiceId,
+    /// The coupons it shows.
+    pub shown: Vec<AppliedCouponId>,
+    /// Its lines' quoted subtotals before coupons, but a true-up's, which no coupon discounts.
+    pub quoted: Vec<i64>,
+    /// Its lines in `prior`: each one's place there and in `quoted`.
+    pub lines: Vec<(usize, usize)>,
 }
 
 /// How the rule before the true-up dated the shortfalls it charged on a subscription's invoices:
@@ -80,6 +105,56 @@ impl PeriodTrueUp {
     pub fn floor(&self) -> i64 {
         self.true_up.floor
     }
+
+    /// `prior` as its drafts will be issued, the invoice closing the period taking a use of each
+    /// of `consumed`: each draft discounted by the coupons it is owed, oldest period first (R-022).
+    pub(crate) fn prior_as_issued(
+        &self,
+        coupons: &[AppliedCouponDetailed],
+        currency: &str,
+        consumed: &[AppliedCouponId],
+    ) -> Vec<Spend> {
+        let mut prior = self.prior.clone();
+        if self.provisional.is_empty() {
+            return prior;
+        }
+        let taken = self.queue.taken(coupons, currency, consumed);
+        for draft in &self.provisional {
+            let Some(owed) = taken.get(&draft.id) else {
+                continue;
+            };
+            let same =
+                owed.len() == draft.shown.len() && owed.iter().all(|id| draft.shown.contains(id));
+            if same {
+                continue;
+            }
+            let kept: Vec<&AppliedCouponDetailed> = coupons
+                .iter()
+                .filter(|coupon| owed.contains(&coupon.applied_coupon.id))
+                .collect();
+            let off: i64 = billing_core::assembly::discount::calculate_coupons_discount(
+                draft.quoted.iter().sum(),
+                currency,
+                &super::discount::coupon_inputs(&kept),
+            )
+            .iter()
+            .map(|applied| applied.value)
+            .sum();
+            let taxable = billing_core::assembly::discount::distribute_discount(
+                &draft.quoted,
+                u64::try_from(off).unwrap_or(0),
+            );
+            for (index, at) in &draft.lines {
+                let (Some(spend), Some(quoted)) = (prior.get_mut(*index), draft.quoted.get(*at))
+                else {
+                    continue;
+                };
+                let share = quoted - taxable.get(*at).copied().flatten().unwrap_or(*quoted);
+                spend.net += (quoted - spend.net).max(0) - share;
+            }
+        }
+        prior
+    }
 }
 
 /// A stored line as the minimum reads it: net of its coupons, gross of promotional credit, in
@@ -101,6 +176,7 @@ fn spend_of(line: &LineItem, tax_inclusive: bool, corrected: i64, voided: bool) 
         corrected,
         fixed: line.metric_id.is_none(),
         voided,
+        nominal: None,
     }
 }
 
@@ -116,6 +192,7 @@ fn assembled_spend(line: &LineItem) -> Spend {
         corrected: 0,
         fixed: line.metric_id.is_none(),
         voided: false,
+        nominal: None,
     }
 }
 
@@ -217,7 +294,7 @@ pub(crate) fn closed_period(
     })
 }
 
-/// The days of a paid trial, from the billing start (its EndTrial fires after as many days).
+/// The days of a paid trial, from the billing start (its trial fact ends after as many days).
 fn paid_trial(
     details: &SubscriptionDetails,
     billing_start: NaiveDate,
@@ -248,6 +325,27 @@ pub(in crate::services) async fn load_period_true_up(
     invoice_date: NaiveDate,
     cycle_index: u32,
     invoice: Option<&crate::domain::Invoice>,
+) -> StoreResult<Option<PeriodTrueUp>> {
+    load_period_true_up_priced(
+        conn,
+        details,
+        invoice_date,
+        cycle_index,
+        invoice,
+        &Nominals::none(),
+    )
+    .await
+}
+
+/// [`load_period_true_up`], each prorated fixed fee line read over the whole period `nominals`
+/// prices it on.
+pub(in crate::services) async fn load_period_true_up_priced(
+    conn: &mut PgConn,
+    details: &SubscriptionDetails,
+    invoice_date: NaiveDate,
+    cycle_index: u32,
+    invoice: Option<&crate::domain::Invoice>,
+    nominals: &Nominals,
 ) -> StoreResult<Option<PeriodTrueUp>> {
     let sub = &details.subscription;
     if !closes_a_period(details, cycle_index) {
@@ -284,17 +382,29 @@ pub(in crate::services) async fn load_period_true_up(
     }
     let (start, end) = (period.start, period.end);
 
-    // A cancellation gives the unused days of what spans it back: only the days served count.
-    let cut = (sub.status == crate::domain::SubscriptionStatusEnum::Cancelled && period.cut_short)
+    // A cancellation gives the unused days of what spans it back: only the days served count, a
+    // longer fee's past an ending on the period's end too.
+    let ended_here =
+        period.cut_short || (sub.current_period_end.is_none() && sub.current_period_start == end);
+    let cut = (sub.status == crate::domain::SubscriptionStatusEnum::Cancelled && ended_here)
         .then_some(end);
     let mut prior = Vec::new();
+    let mut provisional = Vec::new();
     let mut up_front: Vec<(NaiveDate, NaiveDate, i64)> = Vec::new();
+    let mut trued_up = 0;
+    // A period a backdated ending cut short was billed past the cut too: its closing invoice's
+    // arrears and true-up.
+    let through = if period.cut_short {
+        NaiveDate::MAX
+    } else {
+        end
+    };
     let rows = diesel_models::invoices::InvoiceRow::list_period_spend_invoices(
         conn,
         sub.tenant_id,
         sub.id,
         start,
-        end,
+        through,
         invoice.map(|invoice| invoice.id),
     )
     .await
@@ -316,16 +426,42 @@ pub(in crate::services) async fn load_period_true_up(
             let (copy_lines, copy_corrected) = period_lines(conn, sub.id, &copy).await?;
             for line in &copy_lines {
                 let voided = copy.status == crate::domain::InvoiceStatusEnum::Void;
+                if !voided && copy.status != crate::domain::InvoiceStatusEnum::Draft {
+                    trued_up += true_up_billed(line, &copy, &copy_corrected, start, end);
+                }
                 prior.extend(regular_spend(
                     line,
                     &copy,
                     &copy_corrected,
                     voided,
-                    start,
-                    end,
+                    (start, end),
+                    nominals,
                 ));
             }
         }
+        let quote = |line: &LineItem| {
+            if invoice.tax_inclusive {
+                line.clone().into_tax_inclusive_quote().amount_subtotal
+            } else {
+                line.amount_subtotal
+            }
+        };
+        let discounted: Vec<&LineItem> = invoice
+            .line_items
+            .iter()
+            .filter(|line| line.kind != LineItemKind::MinimumShortfall)
+            .collect();
+        let mut draft = (!voided && invoice.status == crate::domain::InvoiceStatusEnum::Draft)
+            .then(|| Provisional {
+                id: invoice.id,
+                shown: invoice
+                    .coupons
+                    .iter()
+                    .map(|coupon| coupon.applied_coupon_id)
+                    .collect(),
+                quoted: discounted.iter().map(|line| quote(line)).collect(),
+                lines: Vec::new(),
+            });
         for line in &lines {
             if line.start_date < start || line.start_date >= end {
                 continue;
@@ -340,11 +476,30 @@ pub(in crate::services) async fn load_period_true_up(
                 };
                 up_front.push((line.start_date, line.end_date, quoted));
             }
-            prior.extend(regular_spend(
-                line, &invoice, &corrected, voided, start, end,
-            ));
+            // A draft is no issued document: its true-up is computed again when it is.
+            if !voided && invoice.status != crate::domain::InvoiceStatusEnum::Draft {
+                trued_up += true_up_billed(line, &invoice, &corrected, start, end);
+            }
+            if let Some(spend) =
+                regular_spend(line, &invoice, &corrected, voided, (start, end), nominals)
+            {
+                if let Some(draft) = draft.as_mut()
+                    && let Some(at) = discounted
+                        .iter()
+                        .position(|other| other.local_id == line.local_id)
+                {
+                    draft.lines.push((prior.len(), at));
+                }
+                prior.push(spend);
+            }
         }
+        provisional.extend(draft.filter(|draft| !draft.lines.is_empty()));
     }
+    let queue = if provisional.is_empty() {
+        Queue::default()
+    } else {
+        Queue::load(conn, details, invoice.map(|i| i.id), invoice_date).await?
+    };
     let closing_carries_one = invoice.is_some_and(|invoice| {
         invoice
             .line_items
@@ -371,6 +526,7 @@ pub(in crate::services) async fn load_period_true_up(
         scope: core_scope(&minimum.scope),
         cut,
         prepaid,
+        trued_up,
         carried: carried_scope_products(details, &minimum.scope),
     };
 
@@ -381,7 +537,105 @@ pub(in crate::services) async fn load_period_true_up(
         true_up,
         prior,
         up_front: up_front_rule,
+        provisional,
+        queue,
     }))
+}
+
+/// The true-ups of the periods before `before` whose spend an ending on `ended` gives back, a
+/// line of theirs billing past it: each period closed by an issued invoice, its lines counted as
+/// served up to the ending, what it was trued up with deducted (R-022). Never credited back.
+pub(in crate::services) async fn load_reopened_true_ups(
+    conn: &mut PgConn,
+    details: &SubscriptionDetails,
+    before: NaiveDate,
+    ended: NaiveDate,
+    nominals: &Nominals,
+) -> StoreResult<Vec<PeriodTrueUp>> {
+    use crate::domain::InvoiceStatusEnum;
+    let sub = &details.subscription;
+    let rows = diesel_models::invoices::InvoiceRow::list_period_spend_invoices(
+        conn,
+        sub.tenant_id,
+        sub.id,
+        NaiveDate::from_ymd_opt(1970, 1, 1).unwrap_or(before),
+        before.succ_opt().unwrap_or(before),
+        None,
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?;
+    let invoices: Vec<crate::domain::Invoice> = rows
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<Result<_, _>>()?;
+    let cut_from: Vec<NaiveDate> = invoices
+        .iter()
+        .filter(|invoice| {
+            invoice.status != InvoiceStatusEnum::Void && invoice.subscription_id == Some(sub.id)
+        })
+        .flat_map(|invoice| &invoice.line_items)
+        .filter(|line| {
+            line.kind == LineItemKind::Regular && line.start_date < before && line.end_date > ended
+        })
+        .map(|line| line.start_date)
+        .collect();
+    // The invoice closing the period holding each: the first renewal after its start.
+    let mut closing: Vec<&crate::domain::Invoice> = Vec::new();
+    for from in cut_from {
+        let next = invoices
+            .iter()
+            .filter(|invoice| {
+                invoice.invoice_type == InvoiceType::Recurring
+                    && invoice.parent_invoice_id.is_none()
+                    && invoice.billing_period_start > from
+                    && invoice.billing_period_start <= before
+            })
+            .min_by_key(|invoice| invoice.billing_period_start);
+        if let Some(invoice) = next.filter(|invoice| {
+            matches!(
+                invoice.status,
+                InvoiceStatusEnum::Finalized | InvoiceStatusEnum::Uncollectible
+            )
+        }) && !closing.iter().any(|known| known.id == invoice.id)
+        {
+            closing.push(invoice);
+        }
+    }
+    let mut reopened = Vec::new();
+    for invoice in closing {
+        // The period as its renewal closed it, the subscription still running then.
+        let mut running = details.clone();
+        running.subscription.current_period_end = Some(invoice.billing_period_start);
+        let cycle_index = invoice.cycle_index.unwrap_or(1).max(1);
+        let Some(mut true_up) = load_period_true_up_priced(
+            conn,
+            &running,
+            invoice.billing_period_start,
+            cycle_index,
+            Some(invoice),
+            nominals,
+        )
+        .await?
+        else {
+            continue;
+        };
+        let (start, end) = (true_up.start, true_up.end);
+        let (lines, corrected) = period_lines(conn, sub.id, invoice).await?;
+        for line in &lines {
+            true_up.true_up.trued_up += true_up_billed(line, invoice, &corrected, start, end);
+            true_up.prior.extend(regular_spend(
+                line,
+                invoice,
+                &corrected,
+                false,
+                (start, end),
+                nominals,
+            ));
+        }
+        true_up.true_up.cut = Some(ended);
+        reopened.push(true_up);
+    }
+    Ok(reopened)
 }
 
 /// `invoice`'s lines of subscription `subscription_id`, with what notes correcting them took back.
@@ -438,18 +692,110 @@ async fn reissued_copy(
     Ok(Some(row.try_into()?))
 }
 
+/// A fixed fee charge's lineage and key period, its whole period and price, for seats one seat's
+/// price, and the first day the charge bills.
+pub(in crate::services) type NominalPeriod = (
+    Fee,
+    (NaiveDate, NaiveDate),
+    core::Nominal,
+    Option<i64>,
+    NaiveDate,
+);
+
+/// The whole periods the facts price the subscription's fixed fees over, with their prices and,
+/// for seats, one seat's.
+pub(in crate::services) struct Nominals {
+    lineages: Lineages,
+    periods: Vec<NominalPeriod>,
+}
+
+impl Nominals {
+    /// `periods`: each fixed fee charge's lineage and key period, with its nominal period and the
+    /// price of a whole one.
+    pub(in crate::services) fn new(lineages: Lineages, periods: Vec<NominalPeriod>) -> Self {
+        Nominals { lineages, periods }
+    }
+
+    fn none() -> Self {
+        Nominals::new(Lineages::of_roots([]), Vec::new())
+    }
+
+    /// The whole period and price `line` prorates, when they price it to its subtotal.
+    fn of(&self, line: &LineItem) -> Option<core::Nominal> {
+        if line.metric_id.is_some() || line.credit_unit.is_some() {
+            return None;
+        }
+        let key = evaluated_charge_key(line, &self.lineages);
+        if key.kind != ChargeKind::Fee {
+            return None;
+        }
+        let held = |nominal: &core::Nominal| DaySpan {
+            period: nominal.period,
+            from: line.start_date,
+            until: line.end_date,
+        };
+        let covering = || {
+            self.periods.iter().filter(|(fee, (from, until), _, _, _)| {
+                *fee == key.fee && *from <= line.start_date && line.end_date <= *until
+            })
+        };
+        if let Some(nominal) = covering()
+            .map(|(_, _, nominal, _, _)| *nominal)
+            .find(|nominal| held(nominal).prorate(nominal.full) == line.amount_subtotal)
+        {
+            return Some(nominal);
+        }
+        // Seats bought inside the period: what is left at the count after them less at the
+        // count before (R-079): the step's own charge's count, else read back from its amount.
+        let bought = line
+            .quantity
+            .filter(|quantity| quantity.fract().is_zero())
+            .and_then(|quantity| quantity.to_i64())
+            .filter(|bought| *bought > 0)?;
+        let step = |nominal: &core::Nominal, seat: i64, after: i64| {
+            let step = core::Nominal {
+                full: after * seat,
+                base: (after - bought) * seat,
+                ..*nominal
+            };
+            let span = held(&step);
+            (span.prorate(step.full) - span.prorate(step.base) == line.amount_subtotal)
+                .then_some(step)
+        };
+        let seat_of = |seat: &Option<i64>| (*seat).filter(|seat| *seat > 0);
+        covering()
+            .filter(|(_, _, nominal, seat, from)| {
+                *from == line.start_date
+                    && seat_of(seat).is_some_and(|seat| nominal.full % seat == 0)
+            })
+            .find_map(|(_, _, nominal, seat, _)| {
+                let seat = seat_of(seat)?;
+                Some(nominal.full / seat)
+                    .filter(|after| *after > bought)
+                    .and_then(|after| step(nominal, seat, after))
+            })
+            .or_else(|| {
+                covering().find_map(|(_, _, nominal, seat, _)| {
+                    let seat = seat_of(seat)?;
+                    (bought + 1..=nominal.full / seat).find_map(|after| step(nominal, seat, after))
+                })
+            })
+    }
+}
+
 /// A regular line of `invoice` dated in `[start, end)` as the minimum reads it.
 fn regular_spend(
     line: &LineItem,
     invoice: &crate::domain::Invoice,
     corrected: &HashMap<String, i64>,
     voided: bool,
-    start: NaiveDate,
-    end: NaiveDate,
+    (start, end): (NaiveDate, NaiveDate),
+    nominals: &Nominals,
 ) -> Option<Spend> {
     (line.kind == LineItemKind::Regular && line.start_date >= start && line.start_date < end).then(
-        || {
-            spend_of(
+        || Spend {
+            nominal: nominals.of(line),
+            ..spend_of(
                 line,
                 invoice.tax_inclusive,
                 corrected.get(&line.local_id).copied().unwrap_or(0),
@@ -457,6 +803,38 @@ fn regular_spend(
             )
         },
     )
+}
+
+/// What `line` of `invoice` billed as a true-up of the period `[start, end)`, net of its notes,
+/// in the figures the floor is in.
+fn true_up_billed(
+    line: &LineItem,
+    invoice: &crate::domain::Invoice,
+    corrected: &HashMap<String, i64>,
+    start: NaiveDate,
+    end: NaiveDate,
+) -> i64 {
+    if line.kind != LineItemKind::MinimumShortfall
+        || is_up_front(line, invoice.billing_period_start)
+        || line.start_date < start
+        || line.start_date >= end
+    {
+        return 0;
+    }
+    let billed = if invoice.tax_inclusive {
+        line.clone().into_tax_inclusive_quote().amount_subtotal
+    } else {
+        line.amount_subtotal
+    };
+    let corrected = corrected.get(&line.local_id).copied().unwrap_or(0);
+    if corrected == 0 || line.amount_subtotal == 0 {
+        return billed;
+    }
+    let share = billing_core::rounding::div_round(
+        i128::from(corrected) * i128::from(billed),
+        i128::from(line.amount_subtotal),
+    );
+    billed - i64::try_from(share).unwrap_or(billed)
 }
 
 /// Whether `invoice` was merged into a consolidated invoice since voided: voided with it.
@@ -730,7 +1108,8 @@ pub fn drop_true_up_lines(
     invoice_date: NaiveDate,
     true_up: Option<&PeriodTrueUp>,
 ) {
-    if matches!(invoice_type, InvoiceType::Recurring) {
+    // A final invoice holds a true-up only when it stands for its ending day's recurring one.
+    if matches!(invoice_type, InvoiceType::Recurring | InvoiceType::Final) {
         lines.retain(|l| !is_true_up(l, invoice_date, true_up));
     }
 }
@@ -743,8 +1122,9 @@ pub fn append_minimum_shortfall_if_any(
     subscription_details: &SubscriptionDetails,
     lines: &mut Vec<LineItem>,
     true_up: Option<&PeriodTrueUp>,
+    consumed: &[AppliedCouponId],
 ) -> StoreResult<()> {
-    if !matches!(invoice_type, InvoiceType::Recurring) {
+    if !matches!(invoice_type, InvoiceType::Recurring | InvoiceType::Final) {
         return Ok(());
     }
     let Some(true_up) = true_up else {
@@ -756,7 +1136,12 @@ pub fn append_minimum_shortfall_if_any(
         .filter(|line| line.kind == LineItemKind::Regular)
         .map(assembled_spend)
         .collect();
-    let split = true_up.true_up.lines(&document, &true_up.prior);
+    let prior = true_up.prior_as_issued(
+        &subscription_details.applied_coupons,
+        &subscription_details.subscription.currency,
+        consumed,
+    );
+    let split = true_up.true_up.lines(&document, &prior);
     if split.is_empty() {
         return Ok(());
     }
@@ -1194,6 +1579,7 @@ mod tests {
             scope: core::Scope::AllComponents,
             cut: None,
             prepaid: vec![(day(9, 1), day(10, 1), prepaid)],
+            trued_up: 0,
             carried: vec![],
         }
     }
@@ -1298,6 +1684,8 @@ mod tests {
             true_up: september(756, 0),
             prior: vec![],
             up_front,
+            provisional: vec![],
+            queue: Queue::default(),
         };
         let before = true_up(Some(UpFrontShortfall::TrueUpOfPeriodBefore));
         let prepaid = true_up(Some(UpFrontShortfall::Prepaid));

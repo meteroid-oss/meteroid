@@ -13,7 +13,7 @@ use rstest::rstest;
 
 use crate::data::ids::*;
 use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, test_env};
-use diesel_models::enums::{CycleActionEnum, PaymentStatusEnum};
+use diesel_models::enums::PaymentStatusEnum;
 use meteroid_store::domain::CreateCheckoutSession;
 use meteroid_store::domain::checkout_sessions::{CheckoutCompletionResult, CheckoutType};
 use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
@@ -113,7 +113,6 @@ async fn test_checkout_session_paid_trial_invoice_dates(#[future] test_env: Test
     sub.assert()
         .with_context("Phase 1: After checkout")
         .is_trial_active()
-        .has_next_action(Some(CycleActionEnum::RenewSubscription)) // Paid trial = normal billing
         .has_pending_checkout(false)
         .has_trial_duration(Some(7))
         .has_cycle_index(0)
@@ -305,13 +304,13 @@ async fn test_checkout_session_free_trial_invoice_dates(#[future] test_env: Test
     assert_eq!(sub.current_period_start, start_date);
     assert_eq!(sub.current_period_end, Some(expected_trial_end));
 
-    // === Phase 2: Process trial end → TrialExpired (OnCheckout requires payment) ===
+    // === Phase 2: Process trial end → Active: its checkout settled the start during the trial ===
     env.process_cycles().await;
 
     let sub = env.get_subscription(subscription_id).await;
     sub.assert()
-        .with_context("Phase 2a: TrialExpired awaiting payment")
-        .is_trial_expired()
+        .with_context("Phase 2a: Active at the trial end")
+        .is_active()
         .has_pending_checkout(false)
         .has_resolved_payment_method(&env, true)
         .await;
@@ -473,9 +472,9 @@ async fn test_checkout_session_free_trial_no_anchor(#[future] test_env: TestEnv)
         .is_trial_active()
         .has_pending_checkout(false)
         .has_trial_duration(Some(14))
-        .has_cycle_index(0)
         .has_resolved_payment_method(&env, true)
         .await;
+    assert_eq!(env.billed_cycle(subscription_id).await, 0);
 
     let invoices = env.get_invoices(subscription_id).await;
     invoices.assert().assert_empty();
@@ -485,13 +484,13 @@ async fn test_checkout_session_free_trial_no_anchor(#[future] test_env: TestEnv)
     assert_eq!(sub.current_period_start, start_date);
     assert_eq!(sub.current_period_end, Some(expected_trial_end));
 
-    // === Phase 2: Process trial end → TrialExpired (OnCheckout requires payment) ===
+    // === Phase 2: Process trial end → Active: its checkout settled the start during the trial ===
     env.process_cycles().await;
 
     let sub = env.get_subscription(subscription_id).await;
     sub.assert()
-        .with_context("Phase 2a: TrialExpired awaiting payment")
-        .is_trial_expired()
+        .with_context("Phase 2a: Active at the trial end")
+        .is_active()
         .has_pending_checkout(false)
         .has_resolved_payment_method(&env, true)
         .await;
@@ -519,8 +518,8 @@ async fn test_checkout_session_free_trial_no_anchor(#[future] test_env: TestEnv)
     let sub = env.get_subscription(subscription_id).await;
     sub.assert()
         .with_context("Phase 2b: Active after payment")
-        .is_active()
-        .has_cycle_index(0);
+        .is_active();
+    assert_eq!(env.billed_cycle(subscription_id).await, 0);
 
     let period_end_after_trial = sub.current_period_end;
 
@@ -528,7 +527,8 @@ async fn test_checkout_session_free_trial_no_anchor(#[future] test_env: TestEnv)
     env.process_cycles().await;
 
     let sub = env.get_subscription(subscription_id).await;
-    sub.assert().is_active().has_cycle_index(1);
+    sub.assert().is_active();
+    assert_eq!(env.billed_cycle(subscription_id).await, 1);
 
     let invoices = env.get_invoices(subscription_id).await;
     invoices.assert().has_count(2);

@@ -10,7 +10,6 @@ use crate::domain::outbox_event::{
     QuoteConvertedEvent,
 };
 use crate::domain::payment_transactions::{PaymentNextAction, PaymentTransaction};
-use crate::domain::scheduled_events::ScheduledEventNew;
 use crate::domain::subscriptions::PaymentMethodsConfig;
 use crate::domain::{
     CheckoutSession, CreateSubscription, CreateSubscriptionFromQuote, CreatedSubscription,
@@ -20,7 +19,6 @@ use crate::domain::{
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::repositories::subscriptions::CancellationEffectiveAt;
 use crate::repositories::{InvoiceInterface, SubscriptionInterface};
-use crate::services::CycleTransitionResult;
 use crate::services::checkout_completion::{
     CheckoutCharge, CheckoutChargeSent, InvoiceCheckoutCharge, PaymentCoupons, charge_needed,
 };
@@ -41,11 +39,10 @@ use common_domain::ids::{
 use diesel_models::applied_coupons::AppliedCouponRowNew;
 use diesel_models::checkout_sessions::CheckoutSessionRow;
 use diesel_models::customers::CustomerRow;
-use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum as DbSubscriptionStatusEnum};
+use diesel_models::enums::SubscriptionStatusEnum as DbSubscriptionStatusEnum;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::plans::PlanRow;
 use diesel_models::quotes::QuoteRow;
-use diesel_models::scheduled_events::ScheduledEventRowNew;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::{Report, ResultExt};
 use scoped_futures::ScopedFutureExt;
@@ -451,16 +448,6 @@ pub enum CheckoutPaymentOutcome {
     AwaitingCustomerAction,
 }
 
-/// Result of one draft-refresh pass, for the worker's log line. `truncated` means the pass hit
-/// `max_invoices` with candidates still outstanding — the next run continues from the backlog.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct DraftRefreshOutcome {
-    pub scanned: usize,
-    pub refreshed: usize,
-    pub failed: usize,
-    pub truncated: bool,
-}
-
 impl ServicesEdge {
     /// Issues a checkout's invoice. A captured charge is linked first, so finalization draws only
     /// the credit it left, and is recorded whatever the invoice now asks (the excess is kept as
@@ -637,12 +624,6 @@ impl ServicesEdge {
     }
 }
 
-impl DraftRefreshOutcome {
-    pub fn did_work(&self) -> bool {
-        self.scanned > 0
-    }
-}
-
 /// Lightweight projection of a `PaymentTransactionRow` for the reconciliation
 /// worker. Kept outside `diesel_models` so the worker (which lives in
 /// `meteroid`, not `meteroid-store`) doesn't have to depend on the DB layer.
@@ -672,7 +653,7 @@ impl ServicesEdge {
         // refresh moves `amount_due` just as an edit does, so running one under a live charge
         // desyncs the invoice from money the provider is already moving — on settlement it lands
         // PartiallyPaid or overpaid, and `FinalizeAfterPayment` asserts the amount it confirmed.
-        // The background sweep excludes these in SQL; this covers the operator-driven path.
+        // The background refresh excludes these in SQL; this covers the operator-driven path.
         let mut conn = self.get_conn().await?;
         if diesel_models::payments::PaymentTransactionRow::exists_live_for_invoice(
             &mut conn, invoice_id, tenant_id,
@@ -694,109 +675,20 @@ impl ServicesEdge {
             .await
     }
 
-    /// Recompute stale subscription-period drafts so their usage lines track what has been
-    /// ingested since they were created. Driven by the hourly draft-refresh worker.
-    ///
-    /// Eligibility is decided in SQL (see [`InvoiceRow::list_refreshable_drafts`]); this walks the
-    /// pages and refreshes each draft on its own connection and transaction. A failure is logged
-    /// and skipped rather than aborting the pass: `data_updated_at` is only stamped by a
-    /// successful refresh, so a failed invoice is simply picked up again on the next run.
-    ///
-    /// `max_invoices` bounds one pass. Metering is only queried for drafts that can actually
-    /// move — `compute_invoice` reuses stored lines when a recurring invoice has no usage line
-    /// and no arrears can accrue for its period — so a static backlog costs a round trip each,
-    /// not a metering query. `horizon_days` retires drafts whose period nobody is waiting on any
-    /// more; finalization recomputes regardless, so it never changes what is billed.
-    pub async fn refresh_stale_draft_invoices(
-        &self,
-        stale_after_hours: i32,
-        horizon_days: i64,
-        page_size: u32,
-        max_invoices: usize,
-    ) -> StoreResult<DraftRefreshOutcome> {
-        let mut outcome = DraftRefreshOutcome::default();
-        let mut cursor = None;
-
-        loop {
-            let page = self
-                .store
-                .list_refreshable_draft_invoices(
-                    stale_after_hours,
-                    horizon_days,
-                    crate::domain::CursorPaginationRequest {
-                        limit: Some(page_size),
-                        cursor,
-                    },
-                )
-                .await?;
-
-            if page.items.is_empty() {
-                break;
-            }
-
-            for invoice in page.items {
-                if outcome.scanned >= max_invoices {
-                    outcome.truncated = true;
-                    break;
-                }
-                outcome.scanned += 1;
-
-                let refreshed = match self.get_conn().await {
-                    Ok(mut conn) => {
-                        self.services
-                            .refresh_draft_reading_usage_first(
-                                &mut conn,
-                                invoice.id,
-                                invoice.tenant_id,
-                            )
-                            .await
-                    }
-                    Err(e) => Err(e),
-                };
-
-                match refreshed {
-                    Ok(_) => outcome.refreshed += 1,
-                    Err(e) => {
-                        outcome.failed += 1;
-                        tracing::warn!(
-                            tenant_id = %invoice.tenant_id,
-                            invoice_id = %invoice.id,
-                            "Draft refresh failed for invoice {} (tenant {}): {e:?}",
-                            invoice.id,
-                            invoice.tenant_id
-                        );
-                    }
-                }
-            }
-
-            // The cursor is inclusive and taken from the first row of the next page, so it
-            // strictly advances and no candidate is visited twice or skipped — even though a
-            // refreshed draft drops out of the filter as the walk proceeds.
-            match page.next_cursor {
-                Some(next) => cursor = Some(next),
-                // Nothing beyond this page: the backlog is drained, whatever `scanned` reached.
-                None => break,
-            }
-
-            if outcome.scanned >= max_invoices {
-                outcome.truncated = true;
-                break;
-            }
-        }
-
-        Ok(outcome)
+    /// Every customer's subscriptions stepped once, their invoices' deadlines left: a run's first
+    /// step on its own. Returns how many customers took work.
+    pub async fn run_subscription_steps(&self) -> StoreResult<usize> {
+        self.services
+            .run_steps_of_all(crate::services::lifecycle::controller::Steps::Subscriptions)
+            .await
     }
 
-    pub async fn get_and_process_cycle_transitions(&self) -> StoreResult<CycleTransitionResult> {
-        self.services.get_and_process_cycle_transitions().await
-    }
-
-    pub async fn get_and_process_due_events(&self) -> StoreResult<usize> {
-        self.services.get_and_process_due_events().await
-    }
-
-    pub async fn cleanup_timeout_scheduled_events(&self) -> StoreResult<()> {
-        self.services.cleanup_timeout_scheduled_events().await
+    /// Every customer's invoice deadlines due taken once: drafts past their grace finalized,
+    /// payment attempts made. Returns how many customers took work.
+    pub async fn run_invoice_deadlines(&self) -> StoreResult<usize> {
+        self.services
+            .run_steps_of_all(crate::services::lifecycle::controller::Steps::Deadlines)
+            .await
     }
 
     /// Runs the customers whose billing is due (see `lifecycle::controller`), up to `limit`.
@@ -805,6 +697,15 @@ impl ServicesEdge {
         limit: i64,
     ) -> StoreResult<crate::services::lifecycle::controller::ControllerRun> {
         self.services.run_billing_controller(limit).await
+    }
+
+    /// As [`Self::run_billing_controller`], each subscription due stepped once: one boundary a
+    /// run, for tests that walk a late history a boundary at a time.
+    pub async fn run_billing_controller_one_step(
+        &self,
+        limit: i64,
+    ) -> StoreResult<crate::services::lifecycle::controller::ControllerRun> {
+        self.services.run_billing_controller_with(limit, 1).await
     }
 
     /// Recomputes every customer's billing wake, counting the lost ones.
@@ -972,8 +873,6 @@ impl ServicesEdge {
                     StartTransition::Activate {
                         current_period_start: subscription.current_period_start,
                         current_period_end: subscription.current_period_end,
-                        next_cycle_action: subscription.next_cycle_action.clone(),
-                        cycle_index: subscription.cycle_index,
                         status: DbSubscriptionStatusEnum::TrialActive,
                         by: crate::services::subscriptions::start::StartSettledBy::Checkout,
                     },
@@ -1119,20 +1018,12 @@ impl ServicesEdge {
                 );
                 let current_period_end = Some(period.end);
 
-                // Determine status and next action based on trial type
-                let (new_status, next_action) = if is_paid_trial && !is_trial_expired {
-                    // Paid trial: go to TrialActive for feature resolution
-                    // Use RenewSubscription for normal billing cycles - trial end handled via scheduled event
-                    (
-                        DbSubscriptionStatusEnum::TrialActive,
-                        CycleActionEnum::RenewSubscription,
-                    )
+                // A paid trial is TrialActive for feature resolution; no trial or an expired one,
+                // Active.
+                let new_status = if is_paid_trial && !is_trial_expired {
+                    DbSubscriptionStatusEnum::TrialActive
                 } else {
-                    // No trial or trial expired: go to Active
-                    (
-                        DbSubscriptionStatusEnum::Active,
-                        CycleActionEnum::RenewSubscription,
-                    )
+                    DbSubscriptionStatusEnum::Active
                 };
 
                 mark_subscription_started_tx(
@@ -1143,36 +1034,12 @@ impl ServicesEdge {
                     StartTransition::Activate {
                         current_period_start,
                         current_period_end,
-                        next_cycle_action: Some(next_action),
-                        cycle_index: Some(0),
                         status: new_status,
                         by: crate::services::subscriptions::start::StartSettledBy::Checkout,
                     },
                 )
                 .await?;
 
-                // For paid trials, schedule the EndTrial event to transition status when trial ends
-                if is_paid_trial
-                    && !is_trial_expired
-                    && let Some(trial_days) = subscription.trial_duration
-                {
-                    let scheduled_event = ScheduledEventNew::end_trial(
-                        subscription_id,
-                        tenant_id,
-                        current_period_start,
-                        trial_days,
-                        "checkout_completion",
-                    )
-                    .ok_or_else(|| {
-                        Report::new(StoreError::InvalidArgument(
-                            "Failed to compute trial end date".to_string(),
-                        ))
-                    })?;
-                    let insertable: ScheduledEventRowNew = scheduled_event.try_into()?;
-                    ScheduledEventRowNew::insert_batch(conn, &[insertable])
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-                }
                 if !is_trial_expired {
                     self.services
                         .book_created_mrr_tx(conn, tenant_id, subscription_id)
@@ -1597,6 +1464,29 @@ impl ServicesEdge {
     ) -> StoreResult<Subscription> {
         self.services
             .cancel_subscription(actor, subscription_id, tenant_id, reason, effective_at)
+            .await
+    }
+
+    /// A cancellation requested at a past moment, as replays and models issue it: reached by
+    /// then, it applies at once; later, at its date.
+    pub async fn cancel_subscription_at(
+        &self,
+        actor: Actor,
+        subscription_id: SubscriptionId,
+        tenant_id: TenantId,
+        reason: Option<String>,
+        effective_at: CancellationEffectiveAt,
+        requested_at: chrono::DateTime<chrono::Utc>,
+    ) -> StoreResult<Subscription> {
+        self.services
+            .cancel_subscription_at(
+                actor,
+                subscription_id,
+                tenant_id,
+                reason,
+                effective_at,
+                requested_at,
+            )
             .await
     }
 
@@ -3419,8 +3309,6 @@ impl ServicesEdge {
                     StartTransition::Activate {
                         current_period_start: start_date,
                         current_period_end: None,
-                        next_cycle_action: None,
-                        cycle_index: Some(0),
                         status: DbSubscriptionStatusEnum::Active,
                         by: crate::services::subscriptions::start::StartSettledBy::Checkout,
                     },

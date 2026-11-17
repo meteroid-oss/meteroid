@@ -1,44 +1,73 @@
-//! The derived state's plan concern, written from the facts: the plan version,
-//! its cadence and the period it cuts, the MRR, the Switch row and the outbox event of a plan
-//! transition, and when the facts next change any of it. One writer per column: the status,
-//! `pending_checkout` and a renewal's new period stay the cycle's and the cancellation's, kept
-//! apart by the two guards below.
+//! The derived state, written from the facts by one writer: the status, the period, the plan
+//! version and its cadence, `pending_checkout` and the MRR; each transition's logs and outbox,
+//! stamped at the instant its fact put it; the documents now due; and when to look again.
 
-use billing_core::evaluate::{Status, evaluate};
-use billing_core::transition::{Deadlines, Step, Stored, Transition, step};
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use billing_core::evaluate::{DocumentSlot, Status, evaluate};
+use billing_core::facts::{Ending, EndingKind, Facts};
+use billing_core::transition::{Deadlines, Due, Step, Stored, Transition, step};
+use chrono::{DateTime, NaiveDate, Utc};
 use common_domain::actor::Actor;
-use common_domain::ids::{BaseId, PlanVersionId, SubscriptionId, TenantId};
-use diesel_models::enums::{CycleActionEnum, ScheduledEventTypeEnum, SubscriptionEventType};
-use diesel_models::scheduled_events::ScheduledEventRow;
+use common_domain::ids::{BaseId, CreditNoteId, PlanVersionId, SubscriptionId, TenantId};
+use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
+use diesel_models::enums::{
+    InvoiceStatusEnum, InvoiceType as InvoiceKind, PlanTypeEnum, SubscriptionChangeKindEnum,
+    SubscriptionEventType,
+};
+use diesel_models::invoices::InvoiceRow;
+use diesel_models::plans::PlanRow;
+use diesel_models::query::billing_controller::CreditLapses;
+use diesel_models::subscription_changes::SubscriptionChangeRow;
 use diesel_models::subscription_events::SubscriptionEventRow;
-use diesel_models::subscriptions::{SubscriptionCadenceRowPatch, SubscriptionRow};
+use diesel_models::subscription_facts::{ENDING_CANCEL, SubscriptionEndingRow};
+use diesel_models::subscriptions::{SubscriptionCycleRowPatch, SubscriptionRow};
 use error_stack::Report;
+use scoped_futures::ScopedFutureExt;
 
 use crate::StoreResult;
-use crate::domain::SubscriptionStatusEnum;
 use crate::domain::entity_activity::{Activity, ActivityType, AuditInput, EntityType};
 use crate::domain::enums::BillingPeriodEnum;
 use crate::domain::outbox_event::SubscriptionUpdateType;
+use crate::domain::{DetailedInvoice, SubscriptionDetails, SubscriptionStatusEnum};
 use crate::errors::StoreError;
+use crate::repositories::SubscriptionInterface;
 use crate::repositories::entity_activity::EntityActivityInterface;
-use crate::services::Services;
+use crate::services::credit::coupon_grant::has_started;
 use crate::services::evaluate::bill::midnight;
 use crate::services::evaluate::load::load_facts;
-use crate::services::evaluate::pricer::StorePricer;
+use crate::services::evaluate::pricer::{StoreFee, StorePricer};
 use crate::services::invoice_lines::fees::pricing_error;
+use crate::services::subscriptions::plan_change_credit::CancellationRecord;
+use crate::services::subscriptions::start::{StartTransition, mark_subscription_started_at_tx};
+use crate::services::{InvoiceBillingMode, InvoiceDelivery, Services, ServicesEdge};
 use crate::store::PgConn;
+
+/// Adjustment documents due with no change left to the controller: none by construction
+/// (`written_slots`), so one is a failure of the subscription, never written.
+static UNWRITTEN_ADJUSTMENTS: std::sync::LazyLock<opentelemetry::metrics::Counter<u64>> =
+    std::sync::LazyLock::new(|| {
+        common_logging::GLOBAL_METER
+            .u64_counter("billing_controller_unwritten_adjustments")
+            .with_description("Adjustment documents due by the facts that no change wrote")
+            .build()
+    });
+
+/// Changes whose facts were written without their documents, settled by the controller.
+static ADJUSTMENTS_SETTLED: std::sync::LazyLock<opentelemetry::metrics::Counter<u64>> =
+    std::sync::LazyLock::new(|| {
+        common_logging::GLOBAL_METER
+            .u64_counter("billing_controller_settled_changes")
+            .with_description("Changes left without their documents that the controller settled")
+            .build()
+    });
 
 fn db<T>(result: diesel_models::DbResult<T>) -> StoreResult<T> {
     result.map_err(Into::<Report<StoreError>>::into)
 }
 
-/// The stored statuses a derived one stands for; none for those no fact derives yet.
+/// The derived status a stored one stands for.
 pub(crate) fn stored_as(status: &SubscriptionStatusEnum) -> Option<Status> {
     match status {
-        SubscriptionStatusEnum::PendingActivation | SubscriptionStatusEnum::PendingCharge => {
-            Some(Status::Pending)
-        }
+        SubscriptionStatusEnum::PendingActivation => Some(Status::Pending),
         SubscriptionStatusEnum::TrialActive => Some(Status::Trialing),
         SubscriptionStatusEnum::TrialExpired => Some(Status::TrialExpired),
         SubscriptionStatusEnum::Active => Some(Status::Active),
@@ -46,10 +75,32 @@ pub(crate) fn stored_as(status: &SubscriptionStatusEnum) -> Option<Status> {
             Some(Status::Cancelled)
         }
         SubscriptionStatusEnum::Completed => Some(Status::Completed),
-        SubscriptionStatusEnum::Paused
-        | SubscriptionStatusEnum::Suspended
-        | SubscriptionStatusEnum::Superseded
-        | SubscriptionStatusEnum::Errored => None,
+    }
+}
+
+/// The column a derived status is stored as.
+fn status_row(status: Status) -> diesel_models::enums::SubscriptionStatusEnum {
+    use diesel_models::enums::SubscriptionStatusEnum as Row;
+    match status {
+        Status::Pending => Row::PendingActivation,
+        Status::Trialing => Row::TrialActive,
+        Status::TrialExpired => Row::TrialExpired,
+        Status::Active => Row::Active,
+        Status::Cancelled => Row::Cancelled,
+        Status::Completed => Row::Completed,
+    }
+}
+
+fn is_live(status: Status) -> bool {
+    !matches!(status, Status::Cancelled | Status::Completed)
+}
+
+/// As `has_started` reads the stored row: started, and not awaiting its checkout (OQ9).
+fn has_started_as(status: Status, pending_checkout: bool) -> bool {
+    match status {
+        Status::Active => true,
+        Status::Trialing => !pending_checkout,
+        _ => false,
     }
 }
 
@@ -64,62 +115,186 @@ fn cadence_of(months: u32) -> Option<BillingPeriodEnum> {
     .find(|cadence| cadence.as_months() == months)
 }
 
-/// The instant the facts are read at: `now`, held inside the stored period until the renewal
-/// advances it, so a change at its end is applied with the renewal that bills it (I27).
-fn capped(now: DateTime<Utc>, current_period_end: Option<NaiveDate>) -> DateTime<Utc> {
-    // PR 4: the cap goes once the writer owns the period too.
-    match current_period_end {
-        Some(end) => now.min(midnight(end) - Duration::seconds(1)),
-        None => now,
+/// Whether the controller writes a document due: a free plan's billing nothing never (R-104),
+/// a slot whose usage is still to read being no zero, and the opening invoice of a start still
+/// to settle, the checkout's, only once a free trial expired and it can be collected unattended.
+pub(crate) fn writes_document(
+    due: &Due,
+    reads_usage: bool,
+    free_plan: bool,
+    collects_unattended: bool,
+    status: Status,
+) -> bool {
+    if free_plan && !reads_usage && due.charges.iter().all(|charge| charge.amount == 0) {
+        return false;
+    }
+    !due.awaiting_checkout || (status == Status::TrialExpired && collects_unattended)
+}
+
+/// How a step issues the documents due.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Issue {
+    /// None: a fact edit's own transaction writes the state, unless the subscription ends or a
+    /// document is due past the stored period, which the controller does; woken at once for a
+    /// document due.
+    StateOnly,
+    /// The controller's: finalized after their grace.
+    AfterGrace,
+    /// A replay at a past moment: settled inline, issued then.
+    SettleAt(DateTime<Utc>),
+}
+
+/// What a step wrote.
+pub(crate) struct Stepped {
+    pub step: Step,
+    /// The documents written, in their order.
+    pub invoices: Vec<DetailedInvoice>,
+}
+
+impl Stepped {
+    /// A transition applied, the state moved (a renewal writing no document) or a document
+    /// written: what they made due runs next.
+    pub(crate) fn took_work(&self) -> bool {
+        !self.step.transitions.is_empty() || self.step.state.is_some() || !self.invoices.is_empty()
     }
 }
 
+type Settling = Option<(CancellationRecord, Vec<CreditNoteId>)>;
+
 impl Services {
-    /// Writes what the facts derive at `now` of the plan concern, under the customer's lock, in
-    /// the caller's transaction: after a fact edit, inside a renewal, at the subscription's wake.
-    /// Run again at the same instant, it writes nothing.
+    /// Writes the derived state at the fact edit's instant `at` (the clock when later), in the
+    /// caller's transaction under the customer's lock; the documents due are the controller's. A
+    /// change dated later than the clock applies at its wake. Run again, it writes nothing.
     pub(crate) async fn derive_state_tx(
         &self,
         conn: &mut PgConn,
         actor: &Actor,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
-        now: DateTime<Utc>,
+        at: DateTime<Utc>,
     ) -> StoreResult<Option<Step>> {
-        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
-        Box::pin(self.derive_state_unboxed(conn, actor, tenant_id, subscription_id, now)).await
+        let stepped = self
+            .step_subscription_tx(
+                conn,
+                actor,
+                tenant_id,
+                subscription_id,
+                at.min(common_clock::now()),
+                Issue::StateOnly,
+            )
+            .await?;
+        Ok(stepped.map(|stepped| stepped.step))
     }
 
-    async fn derive_state_unboxed(
+    /// As [`Self::derive_state_tx`], unless `held` (R-123): the state, its outbox and the documents
+    /// are then the controller's, on release, the subscription due at once.
+    pub(crate) async fn derive_state_unless_held_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        at: DateTime<Utc>,
+        held: bool,
+    ) -> StoreResult<()> {
+        if held {
+            return db(SubscriptionRow::set_next_wake_at(
+                conn,
+                subscription_id,
+                Some(at.min(common_clock::now())),
+            )
+            .await);
+        }
+        self.derive_state_tx(conn, actor, tenant_id, subscription_id, at)
+            .await
+            .map(|_| ())
+    }
+
+    /// One step of the subscription at `now`, under the customer's lock: the transitions since
+    /// the stored state with their logs and outbox, the state, the documents due (per `issue`)
+    /// and the next wake. None for a subscription no longer live.
+    pub(crate) async fn step_subscription_tx(
         &self,
         conn: &mut PgConn,
         actor: &Actor,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
         now: DateTime<Utc>,
-    ) -> StoreResult<Option<Step>> {
+        issue: Issue,
+    ) -> StoreResult<Option<Stepped>> {
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(self.step_unboxed(conn, actor, tenant_id, subscription_id, now, issue)).await
+    }
+
+    async fn step_unboxed(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        now: DateTime<Utc>,
+        issue: Issue,
+    ) -> StoreResult<Option<Stepped>> {
+        #[cfg(all(feature = "test-faults", debug_assertions))]
+        crate::services::step_faults::step_of(subscription_id);
         let row =
             db(SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id).await)?
                 .subscription;
-        let status = SubscriptionStatusEnum::from(row.status.clone());
-        let live = matches!(
-            status,
-            SubscriptionStatusEnum::PendingActivation
-                | SubscriptionStatusEnum::PendingCharge
-                | SubscriptionStatusEnum::TrialActive
-                | SubscriptionStatusEnum::TrialExpired
-                | SubscriptionStatusEnum::Active
-        );
-        let Some(stored_status) = stored_as(&status).filter(|_| live) else {
+        let Some(stored_status) = stored_as(&SubscriptionStatusEnum::from(row.status.clone()))
+            .filter(|status| is_live(*status))
+        else {
             if row.next_wake_at.is_some() {
                 db(SubscriptionRow::set_next_wake_at(conn, subscription_id, None).await)?;
             }
             return Ok(None);
         };
+        // One boundary a step: a late controller writes the stored period's renewal, then runs
+        // again at once for the next, each period's documents and transitions at their instant.
+        // A subscription still to start goes no further than its start.
+        let boundary = match row.current_period_end {
+            Some(end) => Some(end.max(row.start_date)),
+            None if stored_status == Status::Pending => Some(row.start_date),
+            None => None,
+        };
+        let now = boundary
+            .map(midnight)
+            .map_or(now, |boundary| now.min(boundary));
 
-        let at = capped(now, row.current_period_end);
-        let loaded = load_facts(conn, tenant_id, subscription_id, at.date_naive(), None).await?;
-        let evaluation = evaluate(&loaded.facts, at, None, &StorePricer).map_err(pricing_error)?;
+        // The grid each change of cadence runs on, read from the period as stored before it
+        // moves, and before the facts are read: the plan windows hold the origins it records.
+        // A cancellation due inside the stored period reads that period's grid, as it began.
+        let origins_on = match row.current_period_end {
+            Some(end) if end <= now.date_naive() => Some(end),
+            Some(_) => db(SubscriptionEndingRow::list_of(conn, subscription_id).await)?
+                .iter()
+                .any(|ending| ending.kind == ENDING_CANCEL && ending.at <= now.naive_utc())
+                .then_some(row.current_period_start),
+            None => None,
+        };
+        if let Some(on) = origins_on {
+            let lock = db(SubscriptionRow::lock_customer_of(conn, subscription_id).await)?;
+            crate::services::invoice_lines::cadence::record_cadence_origins_tx(
+                conn,
+                &lock,
+                crate::services::invoice_lines::cadence::CadenceSubject::of_row(&row),
+                on,
+            )
+            .await?;
+        }
+
+        defer_amendments_tx(conn, &row, now).await?;
+        self.realign_amendments_tx(conn, &row, now).await?;
+        let mut loaded =
+            load_facts(conn, tenant_id, subscription_id, now.date_naive(), None).await?;
+        // A start settled by the time the step runs is settled at the instant it evaluates, as an
+        // invoice reads it: a checkout paid today activates a backdated subscription.
+        if let Some(settled) = loaded.facts.start.settled
+            && settled <= common_clock::now()
+        {
+            loaded.facts.start.settled = Some(settled.min(now));
+        }
+        let facts = &loaded.facts;
+        let evaluation = evaluate(facts, now, None, &StorePricer).map_err(pricing_error)?;
         let stored_period = BillingPeriodEnum::from(row.period.clone());
         let stored = Stored {
             status: stored_status,
@@ -128,16 +303,96 @@ impl Services {
             cadence: Some(stored_period.as_months()),
             pending_checkout: row.pending_checkout,
         };
+        let written = written_slots(conn, tenant_id, subscription_id, &evaluation).await?;
+        let invoice_deadlines =
+            db(InvoiceRow::deadlines_of_subscription(conn, tenant_id, subscription_id).await)?;
+        let finalize_after: Vec<DateTime<Utc>> = invoice_deadlines
+            .iter()
+            .filter_map(|(at, _)| at.map(|at| at.and_utc()))
+            .collect();
+        let attempts: Vec<DateTime<Utc>> = invoice_deadlines
+            .iter()
+            .filter_map(|(_, at)| at.map(|at| at.and_utc()))
+            .collect();
+        let credit = db(CreditLapses::of_customer(conn, tenant_id, row.customer_id).await)?;
         let deadlines = Deadlines {
-            finalize_after: &[],
-            next_payment_attempt_at: &[],
-            credit_lapses: &[],
-            settlement_grace: Duration::zero(),
+            finalize_after: &finalize_after,
+            next_payment_attempt_at: &attempts,
+            credit_lapses: &credit.lapses,
+            settlement_grace: crate::repositories::credit::customer_credit::settlement_grace(
+                credit.grace_period_hours.unwrap_or(0),
+                credit.consolidate_recurring_invoices.unwrap_or(false),
+            ),
         };
-        let step = step(&loaded.facts, at, &evaluation, &stored, &[], &deadlines);
-        let derived = &evaluation.state;
+        let step = step(facts, now, &evaluation, &stored, &written, &deadlines);
+        let derived = Stored::from(&evaluation.state);
+        let ending = facts.effective_ending();
 
-        // PR 4: the scope widens to the status transitions, written by the cycle until then.
+        let reading: Vec<DocumentSlot> = evaluation
+            .usage_needed
+            .iter()
+            .map(|need| need.document)
+            .collect();
+        let documents = self
+            .documents_to_write(conn, &row, &step.documents, &reading, &derived)
+            .await?;
+        let ends = step.transitions.iter().any(|transition| {
+            matches!(
+                transition,
+                Transition::Status {
+                    to: Status::Cancelled | Status::Completed,
+                    ..
+                }
+            )
+        });
+        // A period's document is the controller's alone, and an ending's documents go with it; an
+        // adjustment is the change's own, written in its transaction.
+        let periods_due = documents.iter().any(|due| match due.slot {
+            DocumentSlot::Recurring { .. } | DocumentSlot::Final => true,
+            DocumentSlot::Adjustment { .. } => false,
+        });
+        // Without its documents the state moves only up to the stored period's end: a renewal
+        // past it is the controller's, written with that state. A change may recut the period.
+        let crosses = match (derived.current_period, stored.current_period) {
+            (Some((start, _)), Some((_, Some(end)))) => start >= end,
+            (derived, stored) => derived != stored,
+        };
+        // A switch written ahead settles the old plan's ending, reading metering: the controller's
+        // step reads it before its locks, a fact edit's transaction does not.
+        if matches!(issue, Issue::StateOnly)
+            && (ends
+                || (periods_due && crosses)
+                || settles_a_switch(conn, &row, &step.transitions).await?)
+        {
+            db(SubscriptionRow::set_next_wake_at(conn, subscription_id, Some(now)).await)?;
+            return Ok(Some(Stepped {
+                step,
+                invoices: Vec::new(),
+            }));
+        }
+
+        // What an ending settles reads the period it ends, before the state moves past it.
+        let mut cancelled: Option<(SubscriptionDetails, DateTime<Utc>)> = None;
+        for transition in &step.transitions {
+            match *transition {
+                Transition::Status {
+                    to: Status::Cancelled,
+                    at,
+                    ..
+                } => {
+                    cancelled = Some(self.end_cancelled_tx(conn, &row, facts, ending, at).await?);
+                }
+                Transition::Status {
+                    to: Status::Completed,
+                    at,
+                    ..
+                } => self.end_ended_tx(conn, &row, at).await?,
+                _ => {}
+            }
+        }
+        self.write_state_tx(conn, &row, &stored, &derived, &step, ending)
+            .await?;
+
         let switches: Vec<(PlanVersionId, PlanVersionId, NaiveDate)> = step
             .transitions
             .iter()
@@ -150,15 +405,13 @@ impl Services {
             self.record_switch_tx(conn, actor, &row, *from, *to, *on, &stored_period)
                 .await?;
         }
-        let amended = self.record_amendments_tx(conn, &row, at).await?;
-
+        let amended = self.record_amendments_tx(conn, &row, now).await?;
         let plan_version = derived.plan_version.unwrap_or(row.plan_version_id);
         let cadence = derived
             .cadence
             .and_then(cadence_of)
             .unwrap_or(stored_period);
-        let changed = plan_version != row.plan_version_id || cadence != stored_period;
-        if changed {
+        if plan_version != row.plan_version_id || cadence != stored_period {
             db(SubscriptionRow::update_plan_version(
                 conn,
                 &subscription_id,
@@ -168,51 +421,198 @@ impl Services {
             )
             .await)?;
         }
-        // The period the new cadence cuts, inside the stored one (it replaces the realignment).
-        if cadence != stored_period
-            && let Some((start, Some(end))) = derived.current_period
-            && row
-                .current_period_end
-                .is_some_and(|stored_end| start < stored_end)
-            && (start, Some(end)) != (row.current_period_start, row.current_period_end)
-        {
-            let next_cycle_action = match row.end_date {
-                Some(end_date) if end_date <= end => CycleActionEnum::EndSubscription,
-                _ => CycleActionEnum::RenewSubscription,
-            };
-            // A fee's cadence moved it (no plan switch): its cycles count on the new grid.
-            let cycle_index = switches.is_empty().then(|| {
-                crate::utils::periods::calculate_elapsed_cycles(
-                    row.billing_start_date.unwrap_or(row.current_period_start),
-                    at.date_naive(),
-                    &cadence,
-                    u32::from(row.billing_day_anchor.unsigned_abs()),
-                ) as i32
-            });
-            db(SubscriptionCadenceRowPatch {
-                id: subscription_id,
-                tenant_id,
-                period: cadence.into(),
-                current_period_start: start,
-                current_period_end: Some(row.end_date.map_or(end, |end_date| end_date.min(end))),
-                cycle_index,
-                next_cycle_action: Some(next_cycle_action),
-            }
-            .patch(conn)
-            .await)?;
-        }
 
-        // The fees in force at the instant read: a change at the period's end moves the MRR
-        // with the renewal that applies it.
-        let on = switches
+        // The fees in force today, restated before the documents that read it: a change at the
+        // period's end moves the MRR with the renewal that applies it.
+        let today = now.date_naive();
+        let mrr_on = switches
             .last()
             .map(|(_, _, on)| *on)
-            .or_else(|| latest_change(&loaded.facts, at.date_naive()))
-            .unwrap_or(at.date_naive());
-        self.restate_mrr_tx(conn, tenant_id, subscription_id, at.date_naive(), on)
-            .await?;
+            .or_else(|| latest_change(facts, today))
+            .unwrap_or(today);
+        if is_live(derived.status) {
+            self.restate_mrr_tx(conn, tenant_id, subscription_id, today, mrr_on)
+                .await?;
+        }
 
-        let wake = step.next_wake_at.filter(|wake| *wake > now);
+        let first_period = evaluation.state.first_period.map(|(start, _)| start);
+        let mut invoices = Vec::new();
+        let issued = if matches!(issue, Issue::StateOnly) {
+            &[][..]
+        } else {
+            &documents[..]
+        };
+        let opened = issued.iter().any(|due| {
+            matches!(due.slot, DocumentSlot::Recurring { period_start }
+                if Some(period_start) == first_period)
+        });
+        // Final invoices off, the ending's day invoice written in this step already carries it.
+        let ending_day_written = ending.is_some_and(|ending| {
+            issued.iter().any(|due| {
+                due.slot
+                    == DocumentSlot::Recurring {
+                        period_start: ending.on(),
+                    }
+            })
+        });
+        // A backdated cancellation's drafts of periods after its ending close before the final
+        // invoice reads what is billed: their charges are its own (R-016).
+        if cancelled.is_some()
+            && let Some(ending) = ending
+            && facts
+                .ending_recorded
+                .is_some_and(|recorded| recorded > ending.on())
+        {
+            for draft in db(InvoiceRow::recurring_drafts_from(
+                conn,
+                tenant_id,
+                subscription_id,
+                ending.on(),
+            )
+            .await)?
+            {
+                self.close_draft_past_ending_tx(conn, actor, tenant_id, draft)
+                    .await?;
+            }
+        }
+        for due in issued {
+            if due.slot == DocumentSlot::Final
+                && ending_day_written
+                && !crate::services::subscriptions::terminate::issues_final_invoices()
+            {
+                continue;
+            }
+            if let Some(invoice) = self
+                .write_document_tx(conn, actor, &row, due, issue, ending)
+                .await?
+            {
+                invoices.push(invoice);
+            }
+        }
+        // A cancellation billing nothing else writes its document when it trues up again an
+        // earlier period it gives spend back in (R-022).
+        if cancelled.is_some()
+            && let Some(ending) = ending.filter(|ending| ending.kind == EndingKind::Cancel)
+        {
+            let backdated = facts
+                .ending_recorded
+                .is_some_and(|recorded| recorded > ending.on());
+            let slot = if backdated || facts.ending_day_invoiced {
+                DocumentSlot::Final
+            } else {
+                DocumentSlot::Recurring {
+                    period_start: ending.on(),
+                }
+            };
+            if !written.contains(&slot) && !issued.iter().any(|due| due.slot == slot) {
+                let details = self
+                    .store
+                    .get_subscription_details_with_conn(conn, row.tenant_id, row.id)
+                    .await?;
+                if self
+                    .ending_reopens_true_ups(conn, &details, ending.on())
+                    .await?
+                {
+                    let due = Due {
+                        slot,
+                        at: ending.at,
+                        charges: Vec::new(),
+                        awaiting_checkout: false,
+                    };
+                    if let Some(invoice) = self
+                        .write_document_tx(conn, actor, &row, &due, issue, Some(ending))
+                        .await?
+                    {
+                        invoices.push(invoice);
+                    }
+                }
+            }
+        }
+        // The cancellation's give-back follows the documents due: one written now bills its
+        // period as of its date, whole, against the lines it gives back (R-077).
+        let mut settling: Settling = match cancelled {
+            Some((details, ended)) => {
+                self.issue_cancellation_refund(conn, actor, &details, ended.date_naive(), ended)
+                    .await?
+            }
+            None => None,
+        };
+        let starts = step.transitions.iter().any(|transition| {
+            matches!(
+                transition,
+                Transition::Status {
+                    from: Status::Pending,
+                    to: Status::Active | Status::Trialing,
+                    ..
+                }
+            )
+        });
+        if starts
+            && !matches!(issue, Issue::StateOnly)
+            && let Some(start) = first_period
+            && let Some(invoice) = self
+                .issue_opening_draft_tx(conn, actor, &row, start, issue)
+                .await?
+        {
+            invoices.push(invoice);
+        }
+
+        for transition in &step.transitions {
+            match *transition {
+                Transition::Status {
+                    from: Status::Trialing,
+                    to: Status::Active | Status::TrialExpired,
+                    ..
+                } => {
+                    self.emit_subscription_updated_tx(
+                        conn,
+                        tenant_id,
+                        subscription_id,
+                        SubscriptionUpdateType::TrialEnded,
+                    )
+                    .await?;
+                }
+                Transition::Status {
+                    to: Status::Cancelled,
+                    at,
+                    ..
+                } => {
+                    self.cancelled_tx(conn, actor, &row, at, settling.take())
+                        .await?;
+                }
+                Transition::Status {
+                    to: Status::Completed,
+                    at,
+                    ..
+                } => self.completed_tx(conn, &row, at).await?,
+                _ => {}
+            }
+        }
+        let activated = step.transitions.iter().any(|transition| {
+            matches!(
+                transition,
+                Transition::Status {
+                    to: Status::Active,
+                    ..
+                }
+            )
+        });
+        if opened || activated {
+            self.book_created_mrr_tx(conn, tenant_id, subscription_id)
+                .await?;
+            // The creation's New Business, booked only now, is what the restate above waited for.
+            if is_live(derived.status) {
+                self.restate_mrr_tx(conn, tenant_id, subscription_id, today, mrr_on)
+                    .await?;
+            }
+        }
+
+        let wake = if matches!(issue, Issue::StateOnly) && periods_due {
+            Some(now)
+        } else {
+            step.next_wake_at
+                .filter(|wake| *wake > now && is_live(derived.status))
+        };
         if wake != row.next_wake_at {
             db(SubscriptionRow::set_next_wake_at(conn, subscription_id, wake).await)?;
         }
@@ -233,28 +633,467 @@ impl Services {
             )
             .await?;
         }
-        Ok(Some(step))
+        Ok(Some(Stepped { step, invoices }))
+    }
+
+    /// The documents due the controller writes, of those `step` lists.
+    async fn documents_to_write(
+        &self,
+        conn: &mut PgConn,
+        row: &SubscriptionRow,
+        due: &[Due],
+        reading: &[DocumentSlot],
+        derived: &Stored,
+    ) -> StoreResult<Vec<Due>> {
+        if due.is_empty() {
+            return Ok(Vec::new());
+        }
+        let plan = db(PlanRow::get_with_version(
+            conn,
+            derived.plan_version.unwrap_or(row.plan_version_id),
+            row.tenant_id,
+        )
+        .await)?;
+        let free_plan = plan.plan.plan_type == PlanTypeEnum::Free;
+        let collects_unattended = row.charge_automatically
+            && due.iter().any(|document| document.awaiting_checkout)
+            && !db(CustomerPaymentMethodRow::list_by_customer_id(
+                conn,
+                &row.tenant_id,
+                &row.customer_id,
+            )
+            .await)?
+            .is_empty();
+        Ok(due
+            .iter()
+            .filter(|document| {
+                writes_document(
+                    document,
+                    reading.contains(&document.slot),
+                    free_plan,
+                    collects_unattended,
+                    derived.status,
+                )
+            })
+            .cloned()
+            .collect())
+    }
+
+    /// Writes one document due; None when it bills nothing.
+    async fn write_document_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        row: &SubscriptionRow,
+        due: &Due,
+        issue: Issue,
+        ending: Option<Ending>,
+    ) -> StoreResult<Option<DetailedInvoice>> {
+        let mode = match issue {
+            Issue::SettleAt(at) => InvoiceBillingMode::SettleAt(at),
+            Issue::StateOnly | Issue::AfterGrace => {
+                InvoiceBillingMode::AwaitGracePeriodIfApplicable
+            }
+        };
+        match due.slot {
+            DocumentSlot::Recurring { period_start } => {
+                self.bill_period_tx(conn, actor, row.tenant_id, row.id, period_start, mode)
+                    .await
+            }
+            DocumentSlot::Final
+                if crate::services::subscriptions::terminate::issues_final_invoices() =>
+            {
+                let written = self
+                    .bill_final_invoice_tx(conn, actor, row.tenant_id, row.id)
+                    .await?;
+                // Its day's invoice issued before the ending, the ending's hours are this one's.
+                if written.is_none()
+                    && let Some(ending) = ending
+                    && self.ending_day_issued(conn, row, ending.on()).await?
+                {
+                    return Err(Report::new(StoreError::BillingInvariantViolated(format!(
+                        "subscription {}: a final invoice is due after the invoice of {} was issued, and none was written",
+                        row.id,
+                        ending.on()
+                    ))));
+                }
+                Ok(written)
+            }
+            // Final invoices off, its charges ride the recurring invoice of the ending's day.
+            DocumentSlot::Final => Ok(None),
+            DocumentSlot::Adjustment { on } => {
+                let tenant = [common_logging::KeyValue::new(
+                    "tenant",
+                    row.tenant_id.to_string(),
+                )];
+                match db(SubscriptionChangeRow::take_settlement_due(conn, row.id, on).await)? {
+                    Some(kind) => {
+                        ADJUSTMENTS_SETTLED.add(1, &tenant);
+                        self.settle_adjustment_tx(conn, actor, row, on, kind).await
+                    }
+                    None => {
+                        UNWRITTEN_ADJUSTMENTS.add(1, &tenant);
+                        let charges: Vec<String> = due
+                            .charges
+                            .iter()
+                            .map(|c| format!("{:?} {:?} {}", c.key.fee, c.key.kind, c.amount))
+                            .collect();
+                        Err(Report::new(StoreError::BillingInvariantViolated(format!(
+                            "subscription {}: an adjustment dated {on} is due by the facts and no change wrote it: {}",
+                            row.id,
+                            charges.join(", ")
+                        ))))
+                    }
+                }
+            }
+        }
+    }
+
+    /// The change dated `on` whose facts were written without its documents, settled as that
+    /// change settles itself: a plan change gives back by unused time, an amendment latest
+    /// first (R-077, R-078).
+    async fn settle_adjustment_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        row: &SubscriptionRow,
+        on: NaiveDate,
+        kind: SubscriptionChangeKindEnum,
+    ) -> StoreResult<Option<DetailedInvoice>> {
+        use crate::domain::enums::CreditNoteOrigin;
+        use crate::repositories::InvoiceInterface;
+        use crate::services::evaluate::change::{Change, GiveBack};
+        let (change, reason, origin) = if kind == SubscriptionChangeKindEnum::PlanChange {
+            (
+                Change::of_rows(on, GiveBack::Unused, "plan change"),
+                "Plan change",
+                CreditNoteOrigin::PlanChange,
+            )
+        } else {
+            (
+                Change::of_rows(on, GiveBack::LatestFirst, "amendment").without_packs(),
+                "Subscription amendment",
+                CreditNoteOrigin::Amendment,
+            )
+        };
+        let details = self
+            .store
+            .get_subscription_details_with_conn(conn, row.tenant_id, row.id)
+            .await?;
+        let (invoice, _notes) = self
+            .settle_change_tx(
+                conn,
+                actor,
+                &details.subscription,
+                &details.customer,
+                &change,
+                reason,
+                origin,
+            )
+            .await?;
+        match invoice {
+            Some(invoice_id) => self
+                .store
+                .get_detailed_invoice_by_id_with_conn(conn, row.tenant_id, invoice_id)
+                .await
+                .map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// The opening invoice an earlier release wrote ahead of the start and left a draft, with no
+    /// finalization scheduled: the start issues it as it would one written now.
+    async fn issue_opening_draft_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        row: &SubscriptionRow,
+        start: NaiveDate,
+        issue: Issue,
+    ) -> StoreResult<Option<DetailedInvoice>> {
+        let left =
+            db(
+                InvoiceRow::find_existing_recurring_invoice(conn, row.tenant_id, row.id, start)
+                    .await,
+            )?
+            .filter(|invoice| {
+                invoice.status == InvoiceStatusEnum::Draft
+                    && invoice.auto_advance
+                    && invoice.finalize_after.is_none()
+                    && invoice.consolidated_into_invoice_id.is_none()
+            });
+        if left.is_none() {
+            return Ok(None);
+        }
+        let due = Due {
+            slot: DocumentSlot::Recurring {
+                period_start: start,
+            },
+            at: midnight(start),
+            charges: Vec::new(),
+            awaiting_checkout: false,
+        };
+        self.write_document_tx(conn, actor, row, &due, issue, None)
+            .await
+    }
+
+    /// Whether the recurring invoice of `on` was issued: past it, an ending's hours that day are a
+    /// final invoice's.
+    async fn ending_day_issued(
+        &self,
+        conn: &mut PgConn,
+        row: &SubscriptionRow,
+        on: NaiveDate,
+    ) -> StoreResult<bool> {
+        Ok(
+            db(InvoiceRow::find_existing_recurring_invoice(conn, row.tenant_id, row.id, on).await)?
+                .is_some_and(|invoice| invoice.status != InvoiceStatusEnum::Draft),
+        )
+    }
+
+    /// The state columns the step derives, a subscription starting through the one start path.
+    async fn write_state_tx(
+        &self,
+        conn: &mut PgConn,
+        row: &SubscriptionRow,
+        stored: &Stored,
+        derived: &Stored,
+        step: &Step,
+        ending: Option<Ending>,
+    ) -> StoreResult<()> {
+        let cancelled_now =
+            derived.status == Status::Cancelled && stored.status != Status::Cancelled;
+        // An immediate cancellation's instant; one at midnight settles at the date's boundary.
+        let terminated_at = ending
+            .filter(|ending| {
+                cancelled_now
+                    && ending.kind == EndingKind::Cancel
+                    && ending.at != midnight(ending.on())
+            })
+            .map(|ending| Some(ending.at.naive_utc()));
+        if step.state.is_none() && terminated_at.is_none() {
+            return Ok(());
+        }
+        let patch = SubscriptionCycleRowPatch {
+            id: row.id,
+            tenant_id: row.tenant_id,
+            status: (derived.status != stored.status).then(|| status_row(derived.status)),
+            current_period_start: derived.current_period.map(|(start, _)| start),
+            current_period_end: derived.current_period.map(|(_, end)| end),
+            pending_checkout: Some(derived.pending_checkout),
+            billing_start_date: None,
+            billing_day_anchor: None,
+            terminated_at,
+        };
+        if !has_started(row) && has_started_as(derived.status, derived.pending_checkout) {
+            let at = step
+                .transitions
+                .iter()
+                .find_map(|transition| match transition {
+                    Transition::Status {
+                        to: Status::Active | Status::Trialing,
+                        at,
+                        ..
+                    } => Some(*at),
+                    _ => None,
+                })
+                .unwrap_or_else(common_clock::now);
+            return mark_subscription_started_at_tx(
+                conn,
+                &*self.store.hooks.credit,
+                row.tenant_id,
+                row.id,
+                StartTransition::Cycle(patch),
+                at,
+            )
+            .await;
+        }
+        db(patch.patch(conn).await)
+    }
+
+    /// The period a cancellation ends, as its give-back reads it (R-077, R18), and what every
+    /// ending does; the give-back itself follows the step's documents.
+    async fn end_cancelled_tx(
+        &self,
+        conn: &mut PgConn,
+        row: &SubscriptionRow,
+        facts: &Facts<StoreFee>,
+        ending: Option<Ending>,
+        at: DateTime<Utc>,
+    ) -> StoreResult<(SubscriptionDetails, DateTime<Utc>)> {
+        let ended = ending.map_or(at, |ending| ending.at);
+        let mut details = self
+            .store
+            .get_subscription_details_with_conn(conn, row.tenant_id, row.id)
+            .await?;
+        // The period holding the ending, however late the step runs: on a period's first
+        // midnight, that period, billed already and never used. Backdated before the stored
+        // period, it reaches to that period's end: the periods billed since come back too.
+        let unended = Facts {
+            ending: None,
+            ..facts.clone()
+        };
+        if let Some((start, end)) = evaluate(&unended, ended, None, &StorePricer)
+            .map_err(pricing_error)?
+            .state
+            .current_period
+        {
+            details.subscription.current_period_start = start;
+            details.subscription.current_period_end = match (end, row.current_period_end) {
+                (Some(end), Some(stored)) => Some(end.max(stored)),
+                (end, _) => end,
+            };
+        }
+        self.end_ended_tx(conn, row, ended).await?;
+        Ok((details, ended))
+    }
+
+    /// What every ending does at its instant: changes still pending withdrawn, the
+    /// subscription's credit ended before its last documents settle (OQ18).
+    async fn end_ended_tx(
+        &self,
+        conn: &mut PgConn,
+        row: &SubscriptionRow,
+        ended: DateTime<Utc>,
+    ) -> StoreResult<()> {
+        crate::services::facts::pending::withdraw_pending_of_tx(
+            conn,
+            row.tenant_id,
+            row.id,
+            crate::services::facts::pending::CHANGES,
+            "Subscription terminated",
+        )
+        .await?;
+        crate::services::credit::subscription_end::end_subscription_credit_tx(
+            conn,
+            &*self.store.hooks.credit,
+            row.tenant_id,
+            row.id,
+            ended,
+            common_clock::now(),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// A cancellation's logs and outbox, once its documents are written: the churn its
+    /// `Cancelled` event carries, unless an invoice booked it.
+    async fn cancelled_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        row: &SubscriptionRow,
+        at: DateTime<Utc>,
+        settling: Settling,
+    ) -> StoreResult<()> {
+        let date = at.date_naive();
+        if let Err(error) = self
+            .create_churn_mrr_log(conn, row.tenant_id, row.id, date)
+            .await
+        {
+            log::error!(
+                "Failed to create churn MRR log for subscription {}: {error:?}",
+                row.id
+            );
+        }
+        if let Some((record, notes)) = settling {
+            self.record_settling_cancellation_tx(conn, row.id, date, &record, &notes)
+                .await?;
+        }
+        let activity = Activity::new(
+            ActivityType::SubscriptionCancelled,
+            EntityType::Subscription,
+            row.id.as_uuid(),
+        )
+        .agg_customer(row.customer_id);
+        self.store
+            .record_tx(conn, row.tenant_id, actor, AuditInput::Activity(activity))
+            .await?;
+        let reason = db(SubscriptionEndingRow::list_of(conn, row.id).await)?
+            .into_iter()
+            .find(|ending| ending.kind == ENDING_CANCEL)
+            .and_then(|ending| ending.reason);
+        self.emit_subscription_cancelled_tx(conn, row.tenant_id, row.id, reason)
+            .await
+    }
+
+    /// A fixed term's completion: its `Ended` event and churn, and the outbox.
+    async fn completed_tx(
+        &self,
+        conn: &mut PgConn,
+        row: &SubscriptionRow,
+        at: DateTime<Utc>,
+    ) -> StoreResult<()> {
+        let current =
+            db(SubscriptionRow::get_subscription_by_id(conn, &row.tenant_id, row.id).await)?
+                .subscription;
+        self.churn_ended_subscription(conn, &current, at.date_naive())
+            .await?;
+        self.emit_subscription_ended_tx(conn, row.tenant_id, row.id)
+            .await
+    }
+
+    /// Each amendment written ahead taking effect by `at`, not yet recorded, that opened no plan
+    /// window: written with the fees then in force, it moves the subscription onto the shortest
+    /// cadence of those in force on its day, as an immediate amendment that day would (R-084).
+    async fn realign_amendments_tx(
+        &self,
+        conn: &mut PgConn,
+        row: &SubscriptionRow,
+        at: DateTime<Utc>,
+    ) -> StoreResult<()> {
+        let in_force = db(SubscriptionChangeRow::list_in_force(
+            conn,
+            &row.tenant_id,
+            row.id,
+            SubscriptionChangeKindEnum::Amendment,
+            at.naive_utc(),
+        )
+        .await)?;
+        for change in in_force {
+            if db(SubscriptionEventRow::change_applied(conn, row.id, change.id).await)? {
+                continue;
+            }
+            let opened_window = change
+                .written_facts
+                .clone()
+                .and_then(|record| {
+                    serde_json::from_value::<crate::services::facts::pending::WrittenFacts>(record)
+                        .ok()
+                })
+                .is_some_and(|written| written.plan_window.is_some());
+            if !opened_window {
+                crate::services::facts::pending::record_amendment_cadence_tx(
+                    conn,
+                    row.tenant_id,
+                    row.id,
+                    change.effective_at.date(),
+                )
+                .await?;
+            }
+        }
+        Ok(())
     }
 
     /// The Switch row of each amendment written ahead that took effect by `at`, once; true when
-    /// one took effect since the last run, read from the change's MIGRATED record.
+    /// one took effect since the last step.
     async fn record_amendments_tx(
         &self,
         conn: &mut PgConn,
         row: &SubscriptionRow,
         at: DateTime<Utc>,
     ) -> StoreResult<bool> {
-        let in_force = db(ScheduledEventRow::list_migrated_in_force(
+        let in_force = db(SubscriptionChangeRow::list_in_force(
             conn,
             &row.tenant_id,
             row.id,
-            ScheduledEventTypeEnum::ApplyAmendment,
+            SubscriptionChangeKindEnum::Amendment,
             at.naive_utc(),
         )
         .await)?;
         let mut amended = false;
-        for event in in_force {
-            if db(SubscriptionEventRow::change_applied(conn, row.id, event.id).await)? {
+        for change in in_force {
+            if db(SubscriptionEventRow::change_applied(conn, row.id, change.id).await)? {
                 continue;
             }
             db(SubscriptionEventRow {
@@ -264,12 +1103,12 @@ impl Services {
                 details: Some(serde_json::json!({
                     "kind": "amendment",
                     "mode": "end_of_period",
-                    "event": event.id.as_uuid().to_string(),
+                    "event": change.id.as_uuid().to_string(),
                 })),
                 created_at: common_clock::now().naive_utc(),
                 mrr_delta: None,
                 bi_mrr_movement_log_id: None,
-                applies_to: event.scheduled_time.date(),
+                applies_to: change.effective_at.date(),
             }
             .insert(conn)
             .await)?;
@@ -280,7 +1119,7 @@ impl Services {
                 &Actor::System,
                 row.tenant_id,
                 row.id,
-                event.scheduled_time.date(),
+                change.effective_at.date(),
             )
             .await?;
             let activity = Activity::new(
@@ -289,7 +1128,7 @@ impl Services {
                 row.id.as_uuid(),
             )
             .with_metadata(serde_json::json!({
-                "effective_date": event.scheduled_time.date().to_string(),
+                "effective_date": change.effective_at.date().to_string(),
             }))
             .agg_customer(row.customer_id);
             self.store
@@ -332,26 +1171,12 @@ impl Services {
             "old_plan_version_id": from.to_string(),
         });
         // The change written ahead it applies, no longer pending once named here.
-        let scheduled = db(ScheduledEventRow::list_migrated_in_force(
-            conn,
-            &row.tenant_id,
-            row.id,
-            ScheduledEventTypeEnum::ApplyPlanChange,
-            on.and_time(chrono::NaiveTime::MIN),
-        )
-        .await)?
-        .into_iter()
-        .find(|event| {
-            event.scheduled_time.date() == on
-                && event
-                    .event_data
-                    .pointer("/ApplyPlanChange/new_plan_version_id")
-                    .and_then(serde_json::Value::as_str)
-                    .and_then(|id| id.parse::<PlanVersionId>().ok())
-                    == Some(to)
-        });
-        if let Some(event) = scheduled {
-            details["event"] = serde_json::Value::String(event.id.as_uuid().to_string());
+        let scheduled = written_ahead_change(conn, row, to, on).await?;
+        let written_ahead = scheduled.is_some();
+        if let Some(change) = scheduled {
+            details["event"] = serde_json::Value::String(change.id.as_uuid().to_string());
+            // Settled now and again once a draft billing an old fee is issued, as an immediate one.
+            details["outgoing"] = serde_json::Value::String("settled".to_owned());
         }
         for (key, value) in crate::services::invoice_lines::minimum::outgoing_terms_record(
             outgoing_minimum.as_ref(),
@@ -371,6 +1196,12 @@ impl Services {
         }
         .insert(conn)
         .await)?;
+        // A change written ahead gives back what a fee of the old plan billed past the switch (a
+        // year on a monthly period), as an immediate change settles itself that day (R-077).
+        if written_ahead {
+            self.settle_plan_change_ending_tx(conn, actor, row.tenant_id, row.id, on)
+                .await?;
+        }
         self.store
             .hooks
             .signals
@@ -410,7 +1241,7 @@ impl Services {
         let row =
             db(SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id).await)?
                 .subscription;
-        if !crate::services::credit::coupon_grant::has_started(&row) {
+        if !has_started(&row) {
             return Ok(());
         }
         let created = db(
@@ -456,11 +1287,180 @@ impl Services {
         }
         Ok(())
     }
+
+    /// The subscription stepped at `issued_at`, a past moment, its documents settled then: the
+    /// lifecycle replayed (sandbox seeding, imports of history). Returns the last document it
+    /// wrote.
+    pub(in crate::services) async fn replay_subscription_at_tx(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        issued_at: DateTime<Utc>,
+        delivery: InvoiceDelivery,
+    ) -> StoreResult<Option<DetailedInvoice>> {
+        if issued_at > common_clock::now() {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "a subscription period cannot be billed at a future moment".to_owned(),
+            )));
+        }
+        let lock = db(SubscriptionRow::lock_customer_of(conn, subscription_id).await)?;
+        let stepped = self
+            .step_subscription_tx(
+                conn,
+                &Actor::System,
+                tenant_id,
+                subscription_id,
+                issued_at,
+                Issue::SettleAt(issued_at),
+            )
+            .await?;
+        db(diesel_models::query::credit_inputs::bump_customer(conn, &lock).await)?;
+        let mut invoices = stepped.map(|stepped| stepped.invoices).unwrap_or_default();
+        for invoice in &invoices {
+            delivery
+                .apply_tx(conn, tenant_id, invoice.invoice.id)
+                .await?;
+        }
+        Ok(invoices.pop())
+    }
+}
+
+impl ServicesEdge {
+    /// The subscription's lifecycle replayed up to `issued_at`, a past moment, each document due
+    /// by then issued at it.
+    pub async fn bill_subscription_period_at(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        issued_at: DateTime<Utc>,
+        delivery: InvoiceDelivery,
+    ) -> StoreResult<Option<DetailedInvoice>> {
+        let mut conn = self.store.get_conn().await?;
+        self.services
+            .transaction_reading_usage_first(&mut conn, |services, conn| {
+                async move {
+                    services
+                        .replay_subscription_at_tx(
+                            conn,
+                            tenant_id,
+                            subscription_id,
+                            issued_at,
+                            delivery,
+                        )
+                        .await
+                }
+                .scope_boxed()
+            })
+            .await
+    }
+}
+
+/// The plan change written ahead that a switch to `to` on `on` applies.
+async fn written_ahead_change(
+    conn: &mut PgConn,
+    row: &SubscriptionRow,
+    to: PlanVersionId,
+    on: NaiveDate,
+) -> StoreResult<Option<SubscriptionChangeRow>> {
+    Ok(db(SubscriptionChangeRow::list_in_force(
+        conn,
+        &row.tenant_id,
+        row.id,
+        SubscriptionChangeKindEnum::PlanChange,
+        on.and_time(chrono::NaiveTime::MIN),
+    )
+    .await)?
+    .into_iter()
+    .find(|change| {
+        change.effective_at.date() == on
+            && change
+                .change
+                .pointer("/ApplyPlanChange/new_plan_version_id")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|id| id.parse::<PlanVersionId>().ok())
+                == Some(to)
+    }))
+}
+
+/// Whether a switch of `transitions` applies a change written ahead and is still to record: its
+/// settlement reads metering (R-077).
+async fn settles_a_switch(
+    conn: &mut PgConn,
+    row: &SubscriptionRow,
+    transitions: &[Transition],
+) -> StoreResult<bool> {
+    for transition in transitions {
+        if let Transition::Plan { to, at, .. } = *transition {
+            let on = at.date_naive();
+            if !db(SubscriptionEventRow::switch_recorded(conn, row.id, to, on).await)?
+                && written_ahead_change(conn, row, to, on).await?.is_some()
+            {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+/// Each amendment written ahead for a period's end, still to take effect, waits for the first
+/// renewal on or after its day: a change since may have moved that end past it (R-106).
+async fn defer_amendments_tx(
+    conn: &mut PgConn,
+    row: &SubscriptionRow,
+    now: DateTime<Utc>,
+) -> StoreResult<()> {
+    let pending = db(SubscriptionChangeRow::list_pending(
+        conn,
+        &row.tenant_id,
+        row.id,
+        &[SubscriptionChangeKindEnum::Amendment],
+    )
+    .await)?;
+    if pending.is_empty() {
+        return Ok(());
+    }
+    let loaded = load_facts(conn, row.tenant_id, row.id, now.date_naive(), None).await?;
+    for change in &pending {
+        crate::services::facts::pending::defer_to_renewal_tx(conn, change, &loaded.facts, now)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Every document of the subscription, one per slot (R-051, R-052): a written one is never due
+/// again, refreshed while a draft, else corrected. An adjustment is the controller's only for a
+/// change left to it; any other change settled its day in its own transaction (R-120).
+async fn written_slots(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    evaluation: &billing_core::evaluate::Evaluation,
+) -> StoreResult<Vec<DocumentSlot>> {
+    let mut written: Vec<DocumentSlot> =
+        db(InvoiceRow::written_slots_of(conn, tenant_id, subscription_id).await)?
+            .into_iter()
+            .filter_map(|(kind, on)| match kind {
+                InvoiceKind::Recurring => Some(DocumentSlot::Recurring { period_start: on }),
+                InvoiceKind::Final => Some(DocumentSlot::Final),
+                InvoiceKind::Adjustment => Some(DocumentSlot::Adjustment { on }),
+                InvoiceKind::OneOff | InvoiceKind::UsageThreshold => None,
+            })
+            .collect();
+    let left = db(SubscriptionChangeRow::settlements_due(conn, subscription_id).await)?;
+    written.extend(
+        evaluation
+            .charges
+            .iter()
+            .map(|charge| charge.document)
+            .filter(|slot| matches!(slot, DocumentSlot::Adjustment { on } if !left.contains(on))),
+    );
+    Ok(written)
 }
 
 /// The latest day on or before `today` a fee row, a seat step or a minimum started or ended on:
 /// the change an MRR movement belongs to.
-fn latest_change<F>(facts: &billing_core::facts::Facts<F>, today: NaiveDate) -> Option<NaiveDate> {
+fn latest_change<F>(facts: &Facts<F>, today: NaiveDate) -> Option<NaiveDate> {
     facts
         .fees
         .iter()

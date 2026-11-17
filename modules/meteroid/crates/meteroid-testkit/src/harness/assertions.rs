@@ -1,6 +1,6 @@
 //! Fluent assertion helpers for test validation.
 
-use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
+use diesel_models::enums::SubscriptionStatusEnum;
 use diesel_models::subscriptions::SubscriptionRow;
 use meteroid_store::domain::Invoice;
 use meteroid_store::domain::enums::{InvoicePaymentStatus, InvoiceStatusEnum};
@@ -10,6 +10,19 @@ use super::TestEnv;
 // =============================================================================
 // SUBSCRIPTION ASSERTIONS
 // =============================================================================
+
+/// The cycle a subscription is in, as the store derives it: whole periods from its billing start
+/// to its current period; none before billing starts.
+pub fn derived_cycle_index(sub: &SubscriptionRow) -> Option<i32> {
+    sub.billing_start_date.map(|start| {
+        meteroid_store::utils::periods::calculate_elapsed_cycles(
+            start,
+            sub.current_period_start,
+            &sub.period.clone().into(),
+            u32::from(sub.billing_day_anchor.unsigned_abs()),
+        ) as i32
+    })
+}
 
 /// Fluent assertion builder for subscription state.
 pub struct SubscriptionAssert<'a> {
@@ -49,20 +62,6 @@ impl<'a> SubscriptionAssert<'a> {
             self.format_msg(&format!(
                 "Expected status {:?}, got {:?}",
                 expected, self.sub.status
-            ))
-        );
-        self
-    }
-
-    /// Assert the subscription has a specific next_cycle_action.
-    pub fn has_next_action(self, expected: Option<CycleActionEnum>) -> Self {
-        assert_eq!(
-            self.sub.next_cycle_action,
-            expected,
-            "{}",
-            self.format_msg(&format!(
-                "Expected next_cycle_action {:?}, got {:?}",
-                expected, self.sub.next_cycle_action
             ))
         );
         self
@@ -114,15 +113,16 @@ impl<'a> SubscriptionAssert<'a> {
         self
     }
 
-    /// Assert cycle index.
+    /// Assert the cycle the subscription is in (see [`derived_cycle_index`]).
     pub fn has_cycle_index(self, expected: i32) -> Self {
+        let cycle = derived_cycle_index(self.sub);
         assert_eq!(
-            self.sub.cycle_index,
+            cycle,
             Some(expected),
             "{}",
             self.format_msg(&format!(
                 "Expected cycle_index={}, got {:?}",
-                expected, self.sub.cycle_index
+                expected, cycle
             ))
         );
         self
@@ -192,11 +192,10 @@ impl<'a> SubscriptionAssert<'a> {
         self
     }
 
-    /// Shorthand: Assert subscription is Active with RenewSubscription action.
+    /// Shorthand: Assert subscription is Active.
     #[allow(clippy::wrong_self_convention)]
     pub fn is_active(self) -> Self {
         self.has_status(SubscriptionStatusEnum::Active)
-            .has_next_action(Some(CycleActionEnum::RenewSubscription))
     }
 
     /// Shorthand: Assert subscription is TrialActive.
@@ -209,14 +208,12 @@ impl<'a> SubscriptionAssert<'a> {
     #[allow(clippy::wrong_self_convention)]
     pub fn is_pending_activation(self) -> Self {
         self.has_status(SubscriptionStatusEnum::PendingActivation)
-            .has_next_action(None)
     }
 
     /// Shorthand: Assert subscription is TrialExpired.
     #[allow(clippy::wrong_self_convention)]
     pub fn is_trial_expired(self) -> Self {
         self.has_status(SubscriptionStatusEnum::TrialExpired)
-            .has_next_action(None)
     }
 }
 

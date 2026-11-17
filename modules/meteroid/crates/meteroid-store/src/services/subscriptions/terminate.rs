@@ -1,28 +1,24 @@
 use crate::StoreResult;
 use crate::domain::SubscriptionDetails;
-use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
+use crate::domain::entity_activity::Actor;
 use crate::errors::StoreError;
-use crate::repositories::SubscriptionInterface;
-use crate::repositories::entity_activity::EntityActivityInterface;
-use crate::services::credit::scope::ends_credit;
-use crate::services::credit::subscription_end::end_subscription_credit_tx;
+use crate::services::Services;
 use crate::services::subscriptions::mrr::subscription_movement;
 use crate::services::subscriptions::plan_change_credit::CancellationRecord;
-use crate::services::{InvoiceBillingMode, Services};
 use crate::store::PgConn;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
-use common_domain::ids::{BaseId, SubscriptionId, TenantId};
-use diesel_models::enums::{MrrMovementType, SubscriptionEventType, SubscriptionStatusEnum};
+use common_domain::ids::{SubscriptionId, TenantId};
+use diesel_models::enums::{MrrMovementType, SubscriptionEventType};
 use diesel_models::invoices::InvoiceRow;
-use diesel_models::scheduled_events::ScheduledEventRow;
 use diesel_models::subscription_events::SubscriptionEventRow;
-use diesel_models::subscriptions::{SubscriptionCycleRowPatch, SubscriptionRow};
+use diesel_models::subscription_facts::{ENDING_CANCEL, SubscriptionEndingRow};
+use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
 use uuid::Uuid;
 
-/// Whether terminations issue final invoices. Off in the release that teaches every reader the
-/// final invoice (so a binary rolled back to it never bills a final window twice), on after it.
-const ISSUES_FINAL_INVOICES: bool = false;
+/// Whether terminations issue final invoices: the hours of an ending's day after its invoice was
+/// issued are billed on one of its own (R-016).
+const ISSUES_FINAL_INVOICES: bool = true;
 
 /// Whether terminations issue final invoices.
 pub(in crate::services) fn issues_final_invoices() -> bool {
@@ -60,250 +56,45 @@ pub(in crate::services) async fn ends_with_final_invoice(
     .is_some())
 }
 
+/// Whether the recurring invoice of the day the subscription's cancellation ends takes no more fee
+/// lines, so what the ending cuts goes on a final invoice of its own (R-016): written before the
+/// cancellation was requested, or, for a backdated one, kept: any but a draft it closes.
+pub(in crate::services) async fn ending_day_invoiced(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    endings: &[SubscriptionEndingRow],
+) -> StoreResult<bool> {
+    let Some(cancel) = endings.iter().find(|row| row.kind == ENDING_CANCEL) else {
+        return Ok(false);
+    };
+    Ok(InvoiceRow::find_existing_recurring_invoice(
+        conn,
+        tenant_id,
+        subscription_id,
+        cancel.at.date(),
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?
+    .is_some_and(|invoice| {
+        use diesel_models::enums::InvoiceStatusEnum;
+        if cancel.is_backdated_cancellation() {
+            // Written after the request (a voided period billed again), a draft is its own.
+            !matches!(
+                invoice.status,
+                InvoiceStatusEnum::Draft | InvoiceStatusEnum::Closed
+            ) || invoice.created_at >= cancel.requested_at
+        } else {
+            invoice.created_at < cancel.requested_at
+        }
+    }))
+}
+
 impl Services {
-    /// `usage_cutoff` is the exact termination instant for an immediate cancellation; the terminal
-    /// period bills usage up to it. `None` (date-effective cancel, pause, natural completion) settles
-    /// at `date`'s midnight, preserving the date-granular period boundary.
-    pub(in crate::services) async fn terminate_subscription(
-        &self,
-        conn: &mut PgConn,
-        actor: &Actor,
-        tenant_id: TenantId,
-        subscription_id: SubscriptionId,
-        date: NaiveDate,
-        terminate_with_state: SubscriptionStatusEnum,
-        usage_cutoff: Option<NaiveDateTime>,
-    ) -> StoreResult<bool> {
-        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
-        Box::pin(async move {
-            let lock = SubscriptionRow::lock_customer_of(conn, subscription_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-            // Never re-terminate an already-terminal subscription: a late scheduled cancellation must
-            // not corrupt a subscription that already Completed/Aborted, nor double-book churn MRR.
-            // Returns whether a transition actually happened, so callers only emit a webhook on a real
-            // change (not on this idempotent no-op).
-            let current_status = SubscriptionRow::get_status(conn, &tenant_id, subscription_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-            if current_status.is_terminal() {
-                log::info!(
-                    "Skipping termination of subscription {}: already in terminal state {:?}",
-                    subscription_id,
-                    current_status
-                );
-                return Ok(false);
-            }
-
-            // Read while the period is still the one the earlier release may have left.
-            let before = SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-            crate::services::invoice_lines::cadence::record_cadence_origins_tx(
-                conn,
-                &lock,
-                crate::services::invoice_lines::cadence::CadenceSubject::of_row(
-                    &before.subscription,
-                ),
-                date,
-            )
-            .await?;
-
-            // Snapshot the subscription (with its still-current billing period, components
-            // and minimum) before the patch below opens the period — the cancellation
-            // refund prorates against this original window.
-            let original_details: Option<SubscriptionDetails> =
-                if terminate_with_state == SubscriptionStatusEnum::Cancelled {
-                    Some(
-                        self.store
-                            .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
-                            .await?,
-                    )
-                } else {
-                    None
-                };
-
-            // Capture before the patch so the pending-checkout guard below doesn't depend on the
-            // patch leaving the column untouched; reuse the snapshot on the cancellation path.
-            let pending_checkout = match &original_details {
-                Some(details) => details.subscription.pending_checkout,
-                None => {
-                    SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?
-                        .subscription
-                        .pending_checkout
-                }
-            };
-
-            // While the period is still open, as an immediate plan change before it rotates the
-            // plan: the packs settle the usage up to the end, then the final invoice takes that
-            // over and draws the rest, whether it is issued now or after its grace period.
-            let ended_at = usage_cutoff.map_or_else(
-                || date.and_time(chrono::NaiveTime::MIN).and_utc(),
-                |cutoff| cutoff.and_utc(),
-            );
-            let settling = match &original_details {
-                Some(details) => {
-                    self.issue_cancellation_refund(conn, actor, details, date, ended_at)
-                        .await?
-                }
-                None => None,
-            };
-
-            // Persist the settlement instant only for an immediate cancel (the sole caller that supplies
-            // a sub-day cutoff); the terminal period then bills usage up to it. Date-effective cancels,
-            // pause, and natural completion leave it unchanged (null) and keep the date-granular midnight
-            // period boundary — so the column also stays a clean "immediate-termination instant" marker.
-            let terminated_at = usage_cutoff.map(Some);
-
-            let patch = SubscriptionCycleRowPatch {
-                id: subscription_id,
-                tenant_id,
-                status: Some(terminate_with_state.clone()),
-                next_cycle_action: Some(None),
-                current_period_start: Some(date),
-                current_period_end: Some(None),
-                cycle_index: None, // we don't increase the cycle index on termination
-                pending_checkout: None,
-                processing_started_at: None, // no need to clear on termination
-                billing_start_date: None,
-                billing_day_anchor: None,
-                terminated_at,
-            };
-
-            patch.patch(conn).await?;
-
-            // Cancel all pending subscription-level events (lifecycle + EndTrial).
-            // Billing events (FinalizeInvoice, RetryPayment) are preserved.
-            let cancelled_count = ScheduledEventRow::cancel_pending_subscription_events(
-                conn,
-                subscription_id,
-                &tenant_id,
-                &format!(
-                    "Subscription terminated with status {:?}",
-                    terminate_with_state
-                ),
-            )
-            .await
-            .map_err(Into::<error_stack::Report<StoreError>>::into)?
-                + crate::services::facts::pending::withdraw_pending_of_tx(
-                    conn,
-                    tenant_id,
-                    subscription_id,
-                    crate::services::facts::pending::CHANGES,
-                    "Subscription terminated",
-                )
-                .await?;
-
-            if cancelled_count > 0 {
-                log::info!(
-                    "Cancelled {} pending lifecycle events for terminated subscription {}",
-                    cancelled_count,
-                    subscription_id,
-                );
-            }
-
-            // Before the final invoice, so its settlement already sees the credit lapsing.
-            if ends_credit(&terminate_with_state) {
-                end_subscription_credit_tx(
-                    conn,
-                    &*self.store.hooks.credit,
-                    tenant_id,
-                    subscription_id,
-                    ended_at,
-                    common_clock::now(),
-                )
-                .await?;
-            }
-
-            // A subscription still pending checkout was never activated: no active period to bill, so
-            // skip billing — cancelling it must not create (and finalize) an invoice. Mirrors the
-            // creation-time guard on `pending_checkout`.
-            // A period already billed (or voided) is not billed again, so no invoice books the churn.
-            let period_already_billed =
-                InvoiceRow::find_existing_recurring_invoice(conn, tenant_id, subscription_id, date)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?
-                    .is_some();
-            // Ended before its start date: no period ever opened, nothing to bill.
-            let never_started = current_status == SubscriptionStatusEnum::PendingActivation;
-            let invoice_created = if pending_checkout || never_started {
-                false
-            } else {
-                // The period opened today was invoiced already and holds its key: what it consumed
-                // until now goes on a final invoice of its own. First, so the period's own invoice,
-                // billed below if still a draft, no longer reads its usage past the period's start.
-                if period_already_billed && final_window_open(date, usage_cutoff) {
-                    self.bill_final_invoice_tx(conn, actor, tenant_id, subscription_id)
-                        .await?;
-                }
-                let billed = self
-                    .bill_subscription_tx(
-                        conn,
-                        actor,
-                        tenant_id,
-                        subscription_id,
-                        InvoiceBillingMode::AwaitGracePeriodIfApplicable,
-                    )
-                    .await?;
-                billed.is_some() && !period_already_billed
-            };
-
-            // Create churn MRR movement log only when no invoice was created.
-            // When an invoice IS created, `process_mrr` (called during invoice insertion)
-            // already handles the MRR delta and movement logs for the Cancelled event.
-            if !invoice_created
-                && terminate_with_state == SubscriptionStatusEnum::Cancelled
-                && let Err(e) = self
-                    .create_churn_mrr_log(conn, tenant_id, subscription_id, date)
-                    .await
-            {
-                log::error!(
-                    "Failed to create churn MRR log for subscription {}: {:?}",
-                    subscription_id,
-                    e
-                );
-            }
-
-            // Last, as the churn log above: the CANCELLED event is locked no earlier than before.
-            if let Some((record, notes)) = settling {
-                self.record_settling_cancellation_tx(conn, subscription_id, date, &record, &notes)
-                    .await?;
-            }
-
-            // Attribute the terminal transition to the actor that scheduled it (propagated
-            // from the scheduled event); System when it was an internal/automated trigger.
-            let activity_type = match terminate_with_state {
-                SubscriptionStatusEnum::Cancelled => Some(ActivityType::SubscriptionCancelled),
-                SubscriptionStatusEnum::Paused => Some(ActivityType::SubscriptionPaused),
-                _ => None,
-            };
-            if let Some(activity_type) = activity_type {
-                let customer_id =
-                    SubscriptionRow::get_customer_id(conn, &tenant_id, subscription_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-                let activity = Activity::new(
-                    activity_type,
-                    EntityType::Subscription,
-                    subscription_id.as_uuid(),
-                )
-                .agg_customer(customer_id);
-                self.store
-                    .record_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
-                    .await?;
-            }
-
-            Ok(true)
-        })
-        .await
-    }
-
     /// Credits what a cancellation mid-period leaves unused: each fee's lines by their unused time
     /// (R-077), a shortfall charged up front, its period packs capped by their unused paid credit.
     /// Returns what to record for the period's drafts, credited once issued.
-    async fn issue_cancellation_refund(
+    pub(in crate::services) async fn issue_cancellation_refund(
         &self,
         conn: &mut PgConn,
         actor: &Actor,
@@ -348,7 +139,7 @@ impl Services {
         .await
     }
 
-    async fn create_churn_mrr_log(
+    pub(in crate::services) async fn create_churn_mrr_log(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,

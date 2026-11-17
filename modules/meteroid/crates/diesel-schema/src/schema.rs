@@ -142,10 +142,6 @@ pub mod sql_types {
     pub struct CustomerVatValidationStatusEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "CycleActionEnum"))]
-    pub struct CycleActionEnum;
-
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "DeadLetterStatusEnum"))]
     pub struct DeadLetterStatusEnum;
 
@@ -298,14 +294,6 @@ pub mod sql_types {
     pub struct SandboxSeedStatusEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "ScheduledEventStatus"))]
-    pub struct ScheduledEventStatus;
-
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "ScheduledEventTypeEnum"))]
-    pub struct ScheduledEventTypeEnum;
-
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "slot_transaction_status"))]
     pub struct SlotTransactionStatus;
 
@@ -316,6 +304,10 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "SubscriptionActivationConditionEnum"))]
     pub struct SubscriptionActivationConditionEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "SubscriptionChangeKindEnum"))]
+    pub struct SubscriptionChangeKindEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "SubscriptionEventType"))]
@@ -711,8 +703,8 @@ diesel::table! {
         change_date -> Nullable<Date>,
         success_url -> Nullable<Text>,
         cancel_url -> Nullable<Text>,
-        pre_payment_coupon_code -> Nullable<Varchar>,
-        pre_payment_coupon_ids -> Nullable<Array<Nullable<Uuid>>>,
+        coupon_code_before_payment -> Nullable<Varchar>,
+        coupon_ids_before_payment -> Nullable<Array<Nullable<Uuid>>>,
     }
 }
 
@@ -901,7 +893,17 @@ diesel::table! {
         lease_until -> Nullable<Timestamptz>,
         attempts -> Int4,
         last_error -> Nullable<Text>,
+        first_failed_at -> Nullable<Timestamptz>,
+        last_failed_at -> Nullable<Timestamptz>,
         updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    billing_controller_release (released_at) {
+        tenant_id -> Nullable<Uuid>,
+        released_at -> Timestamptz,
+        released_by -> Nullable<Text>,
     }
 }
 
@@ -2602,37 +2604,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::ScheduledEventTypeEnum;
-    use super::sql_types::ScheduledEventStatus;
-    use super::sql_types::ActorTypeEnum;
-
-    scheduled_event (id) {
-        id -> Uuid,
-        subscription_id -> Uuid,
-        tenant_id -> Uuid,
-        event_type -> ScheduledEventTypeEnum,
-        scheduled_time -> Timestamp,
-        priority -> Int4,
-        event_data -> Jsonb,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        status -> ScheduledEventStatus,
-        retries -> Int4,
-        last_retry_at -> Nullable<Timestamp>,
-        error -> Nullable<Text>,
-        processed_at -> Nullable<Timestamp>,
-        source -> Text,
-        created_by_customer -> Bool,
-        actor_type -> ActorTypeEnum,
-        actor_uuid -> Nullable<Uuid>,
-        actor_alias -> Nullable<Text>,
-        next_attempt_at -> Nullable<Timestamp>,
-        written_facts -> Nullable<Jsonb>,
-    }
-}
-
-diesel::table! {
     segment (id) {
         id -> Uuid,
         tenant_id -> Uuid,
@@ -2700,7 +2671,6 @@ diesel::table! {
     use super::sql_types::BillingPeriodEnum;
     use super::sql_types::SubscriptionActivationConditionEnum;
     use super::sql_types::SubscriptionStatusEnum;
-    use super::sql_types::CycleActionEnum;
 
     subscription (id) {
         id -> Uuid,
@@ -2724,20 +2694,14 @@ diesel::table! {
         activation_condition -> SubscriptionActivationConditionEnum,
         billing_start_date -> Nullable<Date>,
         conn_meta -> Nullable<Jsonb>,
-        cycle_index -> Nullable<Int4>,
         status -> SubscriptionStatusEnum,
         current_period_start -> Date,
         current_period_end -> Nullable<Date>,
-        next_cycle_action -> Nullable<CycleActionEnum>,
-        last_error -> Nullable<Text>,
-        error_count -> Int4,
-        next_retry -> Nullable<Timestamp>,
         auto_advance_invoices -> Bool,
         charge_automatically -> Bool,
         purchase_order -> Nullable<Text>,
         quote_id -> Nullable<Uuid>,
         backdate_invoices -> Bool,
-        processing_started_at -> Nullable<Timestamp>,
         payment_methods_config -> Nullable<Jsonb>,
         imported_at -> Nullable<Timestamp>,
         custom_properties -> Jsonb,
@@ -2750,6 +2714,12 @@ diesel::table! {
         lifecycle_suspended -> Bool,
         reconcile_from -> Nullable<Date>,
         next_wake_at -> Nullable<Timestamptz>,
+        reconcile_arrears_from -> Nullable<Date>,
+        billing_failures -> Int4,
+        billing_first_failed_at -> Nullable<Timestamptz>,
+        billing_last_failed_at -> Nullable<Timestamptz>,
+        billing_last_error -> Nullable<Text>,
+        billing_retry_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -2805,6 +2775,44 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::SubscriptionChangeKindEnum;
+    use super::sql_types::ActorTypeEnum;
+
+    subscription_change (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        subscription_id -> Uuid,
+        kind -> SubscriptionChangeKindEnum,
+        effective_at -> Timestamp,
+        change -> Jsonb,
+        written_facts -> Nullable<Jsonb>,
+        withdrawn_at -> Nullable<Timestamp>,
+        withdrawn_reason -> Nullable<Text>,
+        source -> Text,
+        created_by_customer -> Bool,
+        actor_type -> ActorTypeEnum,
+        actor_uuid -> Nullable<Uuid>,
+        actor_alias -> Nullable<Text>,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::SubscriptionChangeKindEnum;
+
+    subscription_settlement_due (subscription_id, effective_on) {
+        subscription_id -> Uuid,
+        effective_on -> Date,
+        tenant_id -> Uuid,
+        kind -> SubscriptionChangeKindEnum,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::SubscriptionFeeBillingPeriod;
 
     subscription_component (id) {
@@ -2837,6 +2845,8 @@ diesel::table! {
         actor_uuid -> Nullable<Uuid>,
         actor_alias -> Nullable<Text>,
         created_at -> Timestamp,
+        requested_at -> Timestamp,
+        id -> Uuid,
     }
 }
 
@@ -3366,7 +3376,6 @@ diesel::joinable!(role -> organization (organization_id));
 diesel::joinable!(sandbox_pool_tenant -> tenant (tenant_id));
 diesel::joinable!(sandbox_seed -> tenant (tenant_id));
 diesel::joinable!(schedule -> plan_version (plan_version_id));
-diesel::joinable!(scheduled_event -> subscription (subscription_id));
 diesel::joinable!(segment -> tenant (tenant_id));
 diesel::joinable!(sent_email -> entity_activity (id));
 diesel::joinable!(sent_email -> invoicing_entity (invoicing_entity_id));
@@ -3382,6 +3391,7 @@ diesel::joinable!(subscription_add_on -> price (price_id));
 diesel::joinable!(subscription_add_on -> product (product_id));
 diesel::joinable!(subscription_add_on -> subscription (subscription_id));
 diesel::joinable!(subscription_adjustment -> subscription (subscription_id));
+diesel::joinable!(subscription_change -> subscription (subscription_id));
 diesel::joinable!(subscription_component -> price (price_id));
 diesel::joinable!(subscription_component -> price_component (price_component_id));
 diesel::joinable!(subscription_component -> product (product_id));

@@ -262,7 +262,6 @@ impl SubscriptionComponentRow {
 
         let active_statuses = vec![
             SubscriptionStatusEnum::PendingActivation,
-            SubscriptionStatusEnum::PendingCharge,
             SubscriptionStatusEnum::TrialActive,
             SubscriptionStatusEnum::Active,
         ];

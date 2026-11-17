@@ -1,10 +1,10 @@
-//! Row locks never form a cycle with the customer lock, a busy customer never stalls other
-//! renewals, and metering failing between the passes of locked work is recorded like any failure.
-use chrono::{Duration, NaiveDate, NaiveDateTime, Utc};
+//! Row locks never form a cycle with the customer lock, and metering failing between the passes
+//! of locked work is the customer's failed run, recorded on its controller row like any failure.
+use chrono::{Duration, NaiveDate, NaiveDateTime};
 use common_domain::actor::Actor;
 use common_domain::ids::{BaseId, CustomerId, SubscriptionId};
 use common_eventbus::{Event, EventBus, EventBusError, EventData, EventHandler};
-use diesel::sql_types::{BigInt, Integer, Nullable, Text, Timestamp};
+use diesel::sql_types::{BigInt, Integer};
 use diesel_async::{RunQueryDsl, SimpleAsyncConnection};
 use diesel_models::customer_credit::CustomerCreditGrantRow;
 use diesel_models::enums::SubscriptionStatusEnum;
@@ -15,12 +15,9 @@ use meteroid_store::clients::usage::{
     IngestEventsResult, MutableMockUsageClient, UsageClient, UsageData, WindowedUsageData,
 };
 use meteroid_store::domain::checkout_sessions::CheckoutType;
-use meteroid_store::domain::enums::{CustomerType, InvoiceStatusEnum};
-use meteroid_store::domain::{
-    BillableMetric, CreateCheckoutSession, CustomerNew, CustomerTaxStatus, Invoice, UsagePeriod,
-};
+use meteroid_store::domain::enums::InvoiceStatusEnum;
+use meteroid_store::domain::{BillableMetric, CreateCheckoutSession, Invoice, UsagePeriod};
 use meteroid_store::errors::StoreError;
-use meteroid_store::repositories::CustomersInterface;
 use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
 use meteroid_store::store::PgPool;
 use meteroid_store::{Services, Store};
@@ -31,7 +28,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::data::ids::{
     CUST_UBER_ID, CUST_UBER_PAYMENT_METHOD_ID, METRIC_BANDWIDTH, PLAN_VERSION_PAID_TRIAL_ID,
-    PLAN_VERSION_USAGE_ALPHA_ID, PRODUCT_PLATFORM_FEE_ID, TENANT_ID, USER_ID,
+    PLAN_VERSION_USAGE_ALPHA_ID, PRODUCT_PLATFORM_FEE_ID, TENANT_ID,
 };
 use crate::harness::{TestEnv, subscription};
 use crate::helpers::credit::{Grant, fund_grant};
@@ -249,29 +246,42 @@ async fn waiting_on_a_lock(env: &TestEnv) {
 }
 
 #[derive(diesel::QueryableByName)]
-struct EventState {
-    #[diesel(sql_type = Text)]
-    status: String,
+struct ControllerState {
     #[diesel(sql_type = Integer)]
-    retries: i32,
-    #[diesel(sql_type = Nullable<Text>)]
-    error: Option<String>,
-    #[diesel(sql_type = Timestamp)]
-    scheduled_time: NaiveDateTime,
-    #[diesel(sql_type = Nullable<Timestamp>)]
-    next_attempt_at: Option<NaiveDateTime>,
+    attempts: i32,
 }
 
-async fn finalization_event(env: &TestEnv, invoice: &Invoice) -> EventState {
+/// The customer's billing controller row: its failed runs.
+async fn controller_of(env: &TestEnv) -> ControllerState {
     diesel::sql_query(format!(
-        "SELECT status::text AS status, retries, error, scheduled_time, next_attempt_at \
-         FROM scheduled_event \
-         WHERE event_type = 'FINALIZE_INVOICE' AND event_data::text LIKE '%{}%'",
-        invoice.id.as_uuid()
+        "SELECT attempts FROM billing_controller \
+         WHERE tenant_id = '{}' AND customer_id = '{}'",
+        TENANT_ID.as_uuid(),
+        CUST_UBER_ID.as_uuid()
     ))
     .get_result(&mut env.conn().await)
     .await
-    .expect("the draft's scheduled finalization")
+    .expect("the customer's billing controller")
+}
+
+async fn finalize_after(env: &TestEnv, invoice: &Invoice) -> Option<NaiveDateTime> {
+    diesel_models::invoices::InvoiceRow::find_by_id(&mut env.conn().await, TENANT_ID, invoice.id)
+        .await
+        .expect("the invoice")
+        .finalize_after
+}
+
+/// Whether a churn movement was booked for the subscription.
+async fn churned(env: &TestEnv, subscription_id: SubscriptionId) -> bool {
+    use diesel::{ExpressionMethods, QueryDsl};
+    use diesel_models::schema::bi_mrr_movement_log::dsl as m;
+    m::bi_mrr_movement_log
+        .filter(m::subscription_id.eq(subscription_id))
+        .select(m::movement_type)
+        .load::<diesel_models::enums::MrrMovementType>(&mut env.conn().await)
+        .await
+        .expect("movements")
+        .contains(&diesel_models::enums::MrrMovementType::Churn)
 }
 
 /// An insert referencing a row takes KEY SHARE on it: a subscription or grant locked by another
@@ -303,11 +313,9 @@ async fn rows_referencing_a_locked_subscription_or_grant_never_wait_on_its_lock(
         .await
         .batch_execute(&format!(
             "SET lock_timeout = '3s'; BEGIN; \
-             INSERT INTO scheduled_event (id, subscription_id, tenant_id, event_type, \
-               scheduled_time, priority, event_data, created_at, updated_at, status, retries, \
-               source, created_by_customer, actor_type) \
-             VALUES (gen_random_uuid(), '{subscription}', '{tenant}', 'CANCEL_SUBSCRIPTION', \
-               '2099-01-01', 0, '{{}}', now(), now(), 'CANCELED', 0, 'test', false, 'SYSTEM'); \
+             INSERT INTO subscription_event (id, subscription_id, event_type, created_at, \
+               applies_to) \
+             VALUES (gen_random_uuid(), '{subscription}', 'SWITCH', now(), '2099-01-01'); \
              INSERT INTO customer_credit_grant_product (tenant_id, grant_id, product_id) \
              VALUES ('{tenant}', '{grant}', '{product}'); \
              ROLLBACK;",
@@ -392,455 +400,160 @@ async fn a_checkout_waits_for_its_customer_before_locking_its_session() {
         .expect("the checkout");
 }
 
-/// Metering failing between the passes of a renewal is a failed renewal: counted, retried with a
-/// backoff, and Errored after the last retry, as when it failed under the locks.
+/// Metering failing between the passes of a step is that subscription's failure (R-121): recorded
+/// on the subscription and retried after a backoff, its customer's run completing; the
+/// subscription keeps its status and books no churn, however many times it fails.
 #[tokio::test]
-async fn a_metering_failure_between_renewal_passes_is_a_cycle_error() {
+async fn a_metering_failure_between_step_passes_is_a_controller_failure() {
     let (env, metering, subscription_id) = alpha(true).await;
+    let status = env.get_subscription(subscription_id).await.status;
+    assert_eq!(status, SubscriptionStatusEnum::Active);
     metering.set(FAILS);
 
-    env.services()
-        .get_and_process_cycle_transitions()
+    let before = common_clock::now();
+    let run = env
+        .services()
+        .run_billing_controller(100)
         .await
-        .expect("a failing renewal is recorded, not raised");
+        .expect("a failing step is recorded, not raised");
+    assert_eq!(run.failed, 0, "the customer's run completes");
+    assert_eq!(controller_of(&env).await.attempts, 0);
     let failed = env.get_subscription(subscription_id).await;
-    assert_eq!(failed.error_count, 1);
+    assert_eq!(failed.billing_failures, 1);
     assert!(
-        failed
-            .next_retry
-            .is_some_and(|at| at > Utc::now().naive_utc()),
+        failed.next_wake_at.is_some_and(|at| at > before),
         "retried after a backoff"
     );
     assert!(
         failed
-            .last_error
+            .billing_last_error
             .as_deref()
             .is_some_and(|error| error.contains("metering is down")),
         "{:?}",
-        failed.last_error
+        failed.billing_last_error
     );
-    assert_ne!(failed.status, SubscriptionStatusEnum::Errored);
+    assert_eq!(failed.status, status);
 
     sql(
         &env,
         &format!(
-            "UPDATE subscription SET error_count = 9, next_retry = now() - interval '1 minute', \
-             processing_started_at = NULL WHERE id = '{}'",
+            "UPDATE subscription SET billing_failures = 9, next_wake_at = now() - interval '1 minute' \
+             WHERE id = '{}'",
             subscription_id.as_uuid()
         ),
     )
     .await;
+    sql(
+        &env,
+        &format!(
+            "UPDATE billing_controller SET next_wake_at = now() - interval '1 minute' \
+             WHERE customer_id = '{}'",
+            CUST_UBER_ID.as_uuid()
+        ),
+    )
+    .await;
+    let before = common_clock::now();
     env.services()
-        .get_and_process_cycle_transitions()
+        .run_billing_controller(100)
         .await
-        .expect("the last retry is recorded, not raised");
-    let errored = env.get_subscription(subscription_id).await;
-    assert_eq!(errored.error_count, 10);
-    assert_eq!(errored.status, SubscriptionStatusEnum::Errored);
+        .expect("the tenth failure is recorded, not raised");
+    let failed = env.get_subscription(subscription_id).await;
+    assert_eq!(failed.billing_failures, 10);
+    assert!(
+        failed
+            .next_wake_at
+            .is_some_and(|at| at >= before + Duration::days(1)),
+        "retried daily past the fifth"
+    );
+    assert_eq!(failed.status, status);
+    assert!(!churned(&env, subscription_id).await, "no churn booked");
 }
 
-/// A metering service that cannot apply usage filters yet (mid-deploy) defers the renewal without
-/// counting a failure: the subscription never runs out of retries over it.
+/// A metering service that cannot apply usage filters yet (mid-deploy) defers the subscription's
+/// step five minutes, counted as no failure.
 #[tokio::test]
-async fn a_metering_service_without_usage_filters_defers_the_renewal() {
+async fn a_metering_service_without_usage_filters_defers_the_run() {
     let (env, metering, subscription_id) = alpha(true).await;
     metering.set(NOT_READY);
-    sql(
-        &env,
-        &format!(
-            "UPDATE subscription SET error_count = 9 WHERE id = '{}'",
-            subscription_id.as_uuid()
-        ),
-    )
-    .await;
 
+    let before = common_clock::now();
     env.services()
-        .get_and_process_cycle_transitions()
+        .run_billing_controller(100)
         .await
-        .expect("a deferred renewal is recorded, not raised");
+        .expect("a deferred step is recorded, not raised");
+    let after = common_clock::now();
     let deferred = env.get_subscription(subscription_id).await;
-    assert_eq!(deferred.error_count, 9, "not counted as a failure");
-    assert_ne!(deferred.status, SubscriptionStatusEnum::Errored);
     assert!(
-        deferred
-            .next_retry
-            .is_some_and(|at| at > Utc::now().naive_utc()),
-        "tried again later"
+        deferred.next_wake_at.is_some_and(|at| {
+            at >= before + Duration::minutes(5) && at <= after + Duration::minutes(5)
+        }),
+        "tried again in five minutes: {:?}",
+        deferred.next_wake_at
     );
-    assert!(
-        deferred
-            .last_error
-            .as_deref()
-            .is_some_and(|error| error.contains("usage filters")),
-        "{:?}",
-        deferred.last_error
-    );
+    assert_eq!(deferred.billing_failures, 0, "no failure counted");
+    assert_eq!(deferred.status, SubscriptionStatusEnum::Active);
 }
 
-/// A renewal whose every pass misses metering (the metric is redefined after each read) runs out
-/// of passes: a failed renewal, recorded and retried.
+/// A step whose every pass misses metering (the metric is redefined after each read) runs out of
+/// passes: the subscription's failure, recorded and retried.
 #[tokio::test]
-async fn a_renewal_out_of_metering_passes_is_a_cycle_error() {
+async fn a_step_out_of_metering_passes_is_a_controller_failure() {
     let (env, metering, subscription_id) = alpha(true).await;
     metering.set(REDEFINES);
 
     env.services()
-        .get_and_process_cycle_transitions()
+        .run_billing_controller(100)
         .await
-        .expect("a renewal out of passes is recorded, not raised");
+        .expect("a step out of passes is recorded, not raised");
     let failed = env.get_subscription(subscription_id).await;
-    assert_eq!(failed.error_count, 1);
-    assert!(failed.next_retry.is_some());
+    assert_eq!(failed.billing_failures, 1);
+    assert!(failed.next_wake_at.is_some());
     assert!(
         failed
-            .last_error
+            .billing_last_error
             .as_deref()
             .is_some_and(|error| error.contains("kept reading metering")),
         "{:?}",
-        failed.last_error
+        failed.billing_last_error
     );
+    assert_eq!(failed.status, SubscriptionStatusEnum::Active);
 }
 
-/// Metering failing between the passes of a scheduled finalization fails the event: retried,
-/// then Failed after the last retry, never left Processing.
+/// Metering failing between the passes of a draft's finalization fails the deadline step, logged
+/// on its customer while the pass goes on: the draft stays a draft, its `finalize_after` still
+/// set, and a later pass finalizes it.
 #[tokio::test]
-async fn a_metering_failure_between_scheduled_finalization_passes_fails_the_event() {
+async fn a_metering_failure_between_finalization_passes_leaves_the_deadline_due() {
     let (env, metering, subscription_id) = alpha(true).await;
     env.process_cycle_transitions().await;
     let february = invoice_of(&env, subscription_id, 2).await;
     assert_eq!(february.status, InvoiceStatusEnum::Draft);
+    assert!(finalize_after(&env, &february).await.is_some());
     metering.set(FAILS);
 
     env.services()
-        .get_and_process_due_events()
+        .run_invoice_deadlines()
         .await
-        .expect("the events run");
-    let retried = finalization_event(&env, &february).await;
-    assert_eq!(
-        (retried.status.as_str(), retried.retries),
-        ("PENDING", 1),
-        "{:?}",
-        retried.error
-    );
-    assert!(
-        retried
-            .error
-            .as_deref()
-            .is_some_and(|error| error.contains("metering is down"))
-    );
-
-    sql(
-        &env,
-        &format!(
-            "UPDATE scheduled_event SET retries = 5, next_attempt_at = now() - interval '1 minute' \
-             WHERE event_type = 'FINALIZE_INVOICE' AND event_data::text LIKE '%{}%'",
-            february.id.as_uuid()
-        ),
-    )
-    .await;
-    env.services()
-        .get_and_process_due_events()
-        .await
-        .expect("the events run");
-    assert_eq!(finalization_event(&env, &february).await.status, "FAILED");
+        .expect("a failing customer does not stop the pass");
     assert_eq!(
         invoice_of(&env, subscription_id, 2).await.status,
         InvoiceStatusEnum::Draft
     );
-}
-
-/// A retried event keeps the date it takes effect on (a cancellation or pause reads it as its
-/// effective date): only its next attempt moves, and it is not claimed before then.
-#[tokio::test]
-async fn a_retried_event_keeps_its_effective_date() {
-    let (env, metering, subscription_id) = alpha(true).await;
-    env.process_cycle_transitions().await;
-    let february = invoice_of(&env, subscription_id, 2).await;
-    let due = finalization_event(&env, &february).await.scheduled_time;
-    metering.set(FAILS);
-
-    env.services()
-        .get_and_process_due_events()
-        .await
-        .expect("the events run");
-    let retried = finalization_event(&env, &february).await;
-    assert_eq!((retried.status.as_str(), retried.retries), ("PENDING", 1));
-    assert_eq!(retried.scheduled_time, due, "the effective date stays");
     assert!(
-        retried
-            .next_attempt_at
-            .is_some_and(|at| at > Utc::now().naive_utc())
+        finalize_after(&env, &february).await.is_some(),
+        "still due, rolled back with the failed step"
     );
 
     metering.set(READS);
     env.services()
-        .get_and_process_due_events()
+        .run_invoice_deadlines()
         .await
-        .expect("the events run");
-    assert_eq!(
-        finalization_event(&env, &february).await.retries,
-        1,
-        "not claimed before its next attempt"
-    );
-    sql(
-        &env,
-        &format!(
-            "UPDATE scheduled_event SET next_attempt_at = now() - interval '1 minute' \
-             WHERE event_type = 'FINALIZE_INVOICE' AND event_data::text LIKE '%{}%'",
-            february.id.as_uuid()
-        ),
-    )
-    .await;
-    env.services()
-        .get_and_process_due_events()
-        .await
-        .expect("the events run");
-    let done = finalization_event(&env, &february).await;
-    assert_eq!(done.status, "COMPLETED");
-    assert_eq!(done.scheduled_time, due);
+        .expect("the finalizations run");
     assert_eq!(
         invoice_of(&env, subscription_id, 2).await.status,
         InvoiceStatusEnum::Finalized
     );
-}
-
-/// A metering service that cannot apply usage filters yet defers a scheduled event without
-/// counting a failure, as it does a renewal: an event on its last retry is not failed over it.
-#[tokio::test]
-async fn a_metering_service_without_usage_filters_defers_the_event_uncounted() {
-    let (env, metering, subscription_id) = alpha(true).await;
-    env.process_cycle_transitions().await;
-    let february = invoice_of(&env, subscription_id, 2).await;
-    let due = finalization_event(&env, &february).await.scheduled_time;
-    sql(
-        &env,
-        &format!(
-            "UPDATE scheduled_event SET retries = 5 \
-             WHERE event_type = 'FINALIZE_INVOICE' AND event_data::text LIKE '%{}%'",
-            february.id.as_uuid()
-        ),
-    )
-    .await;
-    metering.set(NOT_READY);
-
-    env.services()
-        .get_and_process_due_events()
-        .await
-        .expect("the events run");
-    let deferred = finalization_event(&env, &february).await;
-    assert_eq!((deferred.status.as_str(), deferred.retries), ("PENDING", 5));
-    assert_eq!(deferred.scheduled_time, due);
-    assert!(
-        deferred
-            .next_attempt_at
-            .is_some_and(|at| at > Utc::now().naive_utc()),
-        "tried again later"
-    );
-    assert!(
-        deferred
-            .error
-            .as_deref()
-            .is_some_and(|error| error.contains("usage filters")),
-        "{:?}",
-        deferred.error
-    );
-}
-
-/// A cancellation dated Jan 31 in retry backoff across the Feb 1 renewal: the renewal waits for it,
-/// so February is never billed and the cancellation takes effect on Jan 31.
-#[tokio::test]
-async fn a_renewal_waits_for_a_change_dated_in_its_period() {
-    use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
-
-    let (env, _metering, subscription_id) = alpha(true).await;
-    let cancel_on = NaiveDate::from_ymd_opt(2024, 1, 31).unwrap();
-    env.services()
-        .cancel_subscription(
-            Actor::System,
-            subscription_id,
-            TENANT_ID,
-            None,
-            CancellationEffectiveAt::Date(cancel_on),
-        )
-        .await
-        .expect("cancellation scheduled");
-    let cancellation = |set: &str| {
-        format!(
-            "UPDATE scheduled_event SET {set} \
-             WHERE event_type = 'CANCEL_SUBSCRIPTION' AND subscription_id = '{}'",
-            subscription_id.as_uuid()
-        )
-    };
-    sql(
-        &env,
-        &cancellation("retries = 1, next_attempt_at = now() + interval '1 hour'"),
-    )
-    .await;
-
-    env.services()
-        .get_and_process_cycle_transitions()
-        .await
-        .expect("a waiting renewal is recorded, not raised");
-    let waiting = env.get_subscription(subscription_id).await;
-    assert_eq!(
-        waiting.current_period_start,
-        NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-        "not renewed"
-    );
-    assert_eq!(waiting.error_count, 0, "not a failure");
-    assert!(
-        waiting
-            .next_retry
-            .is_some_and(|at| at > Utc::now().naive_utc() + Duration::minutes(59))
-    );
-    assert!(
-        waiting
-            .last_error
-            .as_deref()
-            .is_some_and(|error| error.contains("has not applied yet")),
-        "{:?}",
-        waiting.last_error
-    );
-
-    sql(
-        &env,
-        &cancellation("next_attempt_at = now() - interval '1 minute'"),
-    )
-    .await;
-    env.services()
-        .get_and_process_due_events()
-        .await
-        .expect("the events run");
-    env.services()
-        .get_and_process_cycle_transitions()
-        .await
-        .expect("the cycle runs");
-    let cancelled = env.get_subscription(subscription_id).await;
-    assert_eq!(cancelled.status, SubscriptionStatusEnum::Cancelled);
-    assert_eq!(
-        cancelled.current_period_start, cancel_on,
-        "effective on Jan 31"
-    );
-    assert!(
-        env.get_invoices(subscription_id)
-            .await
-            .iter()
-            .all(|invoice| invoice.billing_period_start
-                < NaiveDate::from_ymd_opt(2024, 2, 1).unwrap()),
-        "February is never billed"
-    );
-}
-
-/// Eight customers held by other transactions own the oldest-due renewals: the worker defers them
-/// (no error, a short jittered retry) instead of claiming them first again, so a ninth customer's
-/// renewal goes through on the same tick or the next.
-#[tokio::test]
-async fn busy_customers_never_stall_the_renewals_behind_them() {
-    let env = crate::harness::test_env_with_usage(Metering::new()).await;
-    let mut busy = Vec::new();
-    for index in 0..8 {
-        let customer = env
-            .store()
-            .insert_customer(
-                meteroid_store::domain::entity_activity::Actor::User { id: USER_ID },
-                CustomerNew {
-                    name: format!("Busy {index}"),
-                    customer_type: CustomerType::Company,
-                    first_name: None,
-                    last_name: None,
-                    alias: None,
-                    billing_email: None,
-                    invoicing_emails: vec![format!("busy{index}@example.test")],
-                    phone: None,
-                    currency: "EUR".to_string(),
-                    billing_address: None,
-                    shipping_address: None,
-                    invoicing_entity_id: None,
-                    force_created_date: None,
-                    tax_status: CustomerTaxStatus::Taxable,
-                    exemption_reason: None,
-                    vat_number: None,
-                    legal_number: None,
-                    buyer_reference: None,
-                    custom_taxes: vec![],
-                    connected_account_id: None,
-                    custom_properties: serde_json::json!({}),
-                    preferred_locales: vec![],
-                },
-                TENANT_ID,
-            )
-            .await
-            .expect("a customer")
-            .id;
-        let subscription_id = subscription()
-            .customer(customer)
-            .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
-            .no_auto_advance()
-            .create(env.services())
-            .await;
-        busy.push((customer, subscription_id));
-    }
-    let free_subscription = subscription()
-        .start_date(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap())
-        .no_auto_advance()
-        .create(env.services())
-        .await;
-    let free_period_end = env
-        .get_subscription(free_subscription)
-        .await
-        .current_period_end;
-
-    let mut holder = env.conn().await;
-    let customers = busy
-        .iter()
-        .map(|(customer, _)| format!("'{}'", customer.as_uuid()))
-        .collect::<Vec<_>>()
-        .join(", ");
-    holder
-        .batch_execute(&format!(
-            "BEGIN; SELECT id FROM customer WHERE id IN ({customers}) FOR UPDATE;"
-        ))
-        .await
-        .expect("other transactions take the eight customers");
-
-    let before = Utc::now().naive_utc();
-    let mut ticks = 0;
-    while env
-        .get_subscription(free_subscription)
-        .await
-        .current_period_end
-        == free_period_end
-    {
-        assert!(
-            ticks < 2,
-            "the free customer's renewal waits behind the busy customers"
-        );
-        ticks += 1;
-        // A tick of the worker: it claims again at once while a batch comes back full.
-        for _ in 0..10 {
-            let tick = env
-                .services()
-                .get_and_process_cycle_transitions()
-                .await
-                .expect("a tick");
-            if !tick.has_more {
-                break;
-            }
-        }
-    }
-
-    for (_, subscription_id) in &busy {
-        let deferred = env.get_subscription(*subscription_id).await;
-        assert_eq!(deferred.error_count, 0, "a busy customer is not a failure");
-        assert!(deferred.processing_started_at.is_none());
-        let retry = deferred.next_retry.expect("deferred");
-        assert!(
-            retry >= before + Duration::seconds(30)
-                && retry <= Utc::now().naive_utc() + Duration::seconds(90),
-            "deferred by 30 to 90 seconds: {retry}"
-        );
-    }
-    holder.batch_execute("COMMIT").await.unwrap();
+    assert_eq!(finalize_after(&env, &february).await, None);
 }
 
 #[derive(Default)]

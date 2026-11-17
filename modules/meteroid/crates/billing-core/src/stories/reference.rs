@@ -436,11 +436,12 @@ impl<'a> Reference<'a> {
 }
 
 /// What each pack lineage bills over a story's life (R-103): reconcile never gives a pack back,
-/// so each charge bills the most its facts owed at a pass, counting the documents issued by then.
+/// so each charge bills the most its facts owed at a pass, counting the documents issued by then;
+/// a pack starting inside a period another pack of its lineage billed bills its own price too.
 pub fn packs_billed(built: &Built) -> BTreeMap<Fee, i64> {
     let last = Reference::new(built.last());
     let horizon = last.end + Days::new(400);
-    let mut most: BTreeMap<(Fee, Period), i64> = BTreeMap::new();
+    let mut most: BTreeMap<(Fee, Period, NaiveDate), i64> = BTreeMap::new();
     for (j, (at, facts)) in built.snapshots.iter().enumerate() {
         let next = built.snapshots.get(j + 1).map(|(next, _)| *next);
         if next == Some(*at) {
@@ -450,10 +451,10 @@ pub fn packs_billed(built: &Built) -> BTreeMap<Fee, i64> {
             Some(next) => midnight(day) < next,
             None => midnight(day) <= built.until,
         };
-        let mut owed: BTreeMap<(Fee, Period), i64> = BTreeMap::new();
+        let mut owed: BTreeMap<(Fee, Period, NaiveDate), i64> = BTreeMap::new();
         for (lineage, key, day, amount) in Reference::until(facts, horizon).packs() {
             if due(day) {
-                *owed.entry((lineage, key)).or_default() += amount;
+                *owed.entry((lineage, key, day)).or_default() += amount;
             }
         }
         for (charge, amount) in owed {
@@ -462,7 +463,7 @@ pub fn packs_billed(built: &Built) -> BTreeMap<Fee, i64> {
         }
     }
     let mut by: BTreeMap<Fee, i64> = BTreeMap::new();
-    for ((lineage, _), amount) in most {
+    for ((lineage, _, _), amount) in most {
         *by.entry(lineage).or_default() += amount;
     }
     by

@@ -1,12 +1,12 @@
 //! `migrations::run` brings databases migrated by the legacy public repository, by this repository
 //! before the bridge, and fresh ones to the same schema, and does nothing on a second run.
-use crate::release_migrations::{catalog, client, migrate, postgres};
 use diesel::migration::{Migration, MigrationSource};
 use diesel::pg::Pg;
 use diesel::{Connection, PgConnection};
 use diesel_migrations::{FileBasedMigrations, MigrationHarness};
 use meteroid::migrations;
 use meteroid_store::store::{PgConfig, PgPool, diesel_make_pg_pool};
+use meteroid_testkit::release::{catalog, client, migrate, postgres};
 use std::collections::{BTreeSet, HashMap};
 use tokio_postgres::Client;
 

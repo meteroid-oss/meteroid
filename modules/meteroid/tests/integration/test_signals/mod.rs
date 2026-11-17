@@ -17,14 +17,11 @@ use meteroid_store::clients::usage::{
 use meteroid_store::domain::customer_summary::{CustomerSummary, RenewalMode, SummaryParts};
 use meteroid_store::domain::entitlements::{self, FeatureNew, FeatureType};
 use meteroid_store::domain::enums::{InvoicePaymentStatus, InvoiceStatusEnum, InvoiceType};
-use meteroid_store::domain::scheduled_events::{ScheduledEventData, ScheduledEventNew};
 use meteroid_store::domain::{InvoiceNew, UsagePeriod};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
-use meteroid_store::repositories::{
-    EntitlementsInterface, InvoiceInterface, SubscriptionInterface,
-};
+use meteroid_store::repositories::{EntitlementsInterface, InvoiceInterface};
 use meteroid_store::services::fx::reporting_fx;
 use rstest::rstest;
 use rust_decimal::Decimal;
@@ -163,24 +160,14 @@ async fn record_failed_payment(env: &TestEnv, invoice: InvoiceId, at: NaiveDateT
 
 async fn schedule_retry(
     env: &TestEnv,
-    subscription: SubscriptionId,
+    _subscription: SubscriptionId,
     invoice: InvoiceId,
     at: NaiveDateTime,
 ) {
-    env.store()
-        .schedule_events(
-            &mut env.conn().await,
-            vec![ScheduledEventNew {
-                subscription_id: subscription,
-                tenant_id: TENANT_ID,
-                scheduled_time: at,
-                event_data: ScheduledEventData::RetryPayment {
-                    invoice_id: invoice,
-                },
-                source: "dunning".to_string(),
-                created_by: Actor::System,
-            }],
-        )
+    use diesel_models::schema::invoice::dsl as i;
+    diesel::update(i::invoice.filter(i::id.eq(invoice)))
+        .set(i::next_payment_attempt_at.eq(Some(at)))
+        .execute(&mut env.conn().await)
         .await
         .unwrap();
 }

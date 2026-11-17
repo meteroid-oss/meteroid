@@ -31,7 +31,7 @@ use meteroid_store::domain::subscription_amendment::{
     AddExtraComponent, AddOnChanges, ComponentChanges, EditComponent, EditSubscriptionAddOn,
     SubscriptionAmendment,
 };
-use meteroid_store::domain::subscription_changes::PlanChangeMode;
+use meteroid_store::domain::subscription_changes::{ChangeDocument, PlanChangeMode};
 use meteroid_store::domain::subscription_components::{
     ComponentParameterization, ComponentParameters, CreateSubscriptionComponents,
 };
@@ -59,10 +59,10 @@ use meteroid_store::services::{facts_shadow, timeline_shadow};
 use rust_decimal::Decimal;
 
 use super::reference::{
-    Action, Catalog, Model, Off, PlanSpec, fee_line, midnight, plan_name, rounded, seats_line,
-    units_line,
+    Action, Catalog, CouponSpec, Model, Off, PlanSpec, fee_line, midnight, plan_name, rounded,
+    seats_line, units_line,
 };
-use crate::model::harness::{Diff, race};
+use crate::model::harness::{Diff, race, timed};
 use crate::scenarios::kit::{Halyard, Tax};
 
 const PROPERTY: &str = "units";
@@ -83,6 +83,9 @@ pub struct Engine {
     /// What an action found wrong as it ran, reported by the next comparison.
     pending: Vec<Diff>,
     one_time: usize,
+    /// When each draft issued by hand began to be issued: it is dated the moment asked, the
+    /// notes written before it by the clock.
+    issuing: std::collections::HashMap<InvoiceId, chrono::NaiveDateTime>,
 }
 
 fn err<E: std::fmt::Debug>(e: E) -> String {
@@ -139,17 +142,12 @@ impl Engine {
             companion: None,
             pending: vec![],
             one_time: 0,
+            issuing: std::collections::HashMap::new(),
         }
     }
 
     async fn settle(&self) -> Result<(), String> {
-        let run = || async {
-            self.h
-                .services()
-                .get_and_process_due_events()
-                .await
-                .map_err(err)
-        };
+        let run = || async { self.h.services().run_invoice_deadlines().await.map_err(err) };
         // The controller renews the companion one period a run: it runs until it finds no work.
         let rounds = if self.companion.is_some() { 40 } else { 1 };
         for _ in 0..rounds {
@@ -181,9 +179,9 @@ impl Engine {
     pub async fn apply(&mut self, action: &Action, model: &Model) -> Result<(), String> {
         self.pending.clear();
         clock(action.at());
-        let outcome = self.run(action, model).await;
-        let settled = self.settle().await;
-        self.drain(2).await;
+        let outcome = timed("apply: store calls", self.run(action, model)).await;
+        let settled = timed("apply: controller passes", self.settle()).await;
+        timed("apply: outbox and orchestration", self.drain(2)).await;
         outcome.and(settled)
     }
 
@@ -324,16 +322,30 @@ impl Engine {
                     )
                     .await
                     .map_err(err)?;
-                let charged = match result.adjustment_invoice_id {
+                // R-011: a change in a free trial bills on the opening invoice, as its preview says.
+                let opening = model.trialing(day);
+                let document = if opening {
+                    ChangeDocument::OpeningInvoice
+                } else {
+                    ChangeDocument::Adjustment
+                };
+                let billed_on = if opening {
+                    result.first_invoice_id
+                } else {
+                    result.adjustment_invoice_id
+                };
+                let charged = match billed_on {
                     Some(id) => self.h.invoice(id).await.subtotal,
                     None => 0,
                 };
-                let previewed = preview.proration.map_or(0, |p| p.charges_total_cents);
-                if charged != previewed {
+                let (previewed, described) = preview
+                    .proration
+                    .map_or((0, document), |p| (p.charges_total_cents, p.document));
+                if charged != previewed || described != document {
                     self.pending.push((
                         "preview".to_owned(),
                         format!(
-                            "plan change on {day}: the preview charged {previewed}, the adjustment invoice bills {charged}"
+                            "plan change on {day}: the preview charged {previewed} on {described:?}, the {document:?} bills {charged}"
                         ),
                     ));
                 }
@@ -480,15 +492,16 @@ impl Engine {
                 };
                 self.amend_add_on(add_on_changes, day).await?;
             }
-            Action::CancelAtEnd { end, .. } => {
+            Action::CancelAtEnd { end, at, .. } => {
                 self.h
                     .services()
-                    .cancel_subscription(
+                    .cancel_subscription_at(
                         Actor::System,
                         self.sub(),
                         tenant,
                         None,
                         CancellationEffectiveAt::Date(*end),
+                        *at,
                     )
                     .await
                     .map_err(err)?;
@@ -546,6 +559,8 @@ impl Engine {
             }
             Action::FinalizeAll { at } => {
                 for invoice in self.with_status(InvoiceStatusEnum::Draft).await {
+                    self.issuing
+                        .insert(invoice.id, common_clock::now().naive_utc());
                     self.h
                         .services()
                         .finalize_invoice_at(
@@ -562,6 +577,8 @@ impl Engine {
             Action::Finalize { at, pick } => {
                 let drafts = self.with_status(InvoiceStatusEnum::Draft).await;
                 if let Some(invoice) = pick_of(&drafts, *pick) {
+                    self.issuing
+                        .insert(invoice.id, common_clock::now().naive_utc());
                     self.h
                         .services()
                         .finalize_invoice_at(
@@ -1339,10 +1356,9 @@ impl Engine {
             .sum()
     }
 
-    /// R-020, R-089: the coupon takes its share off each of its period invoices (recurring and
-    /// final ones), never off a change's documents nor off the minimum's shortfall (the minimum
-    /// is a floor on what is paid, R-022). Its invoices are counted as issued, in the order
-    /// finalized: a void gives its use back to the next one issued (R-096).
+    /// R-020, R-089: the coupon takes its share off each period invoice, never off a change's
+    /// documents nor the minimum's shortfall (R-022); its uses go to the oldest periods first,
+    /// whatever order the drafts are issued in, and a void gives its use back (R-096).
     async fn coupon_differences(&self, model: &Model) -> Vec<Diff> {
         let Some(coupon) = model.catalog().coupon else {
             return vec![];
@@ -1365,28 +1381,54 @@ impl Engine {
             .collect();
         events.sort_by_key(|(at, void, i)| (*at, *void, i.created_at, i.id.as_uuid()));
         let mut used: u32 = 0;
+        // R-089: an invoice the coupon lasts is one of its invoices, whatever it took off (a
+        // percentage of a few cents truncates to none, KW-01).
+        let mut counted: Vec<InvoiceId> = vec![];
         let mut found = vec![];
-        for (_, void, invoice) in events {
+        let period = |invoice: &Invoice| {
+            matches!(
+                invoice.invoice_type,
+                InvoiceType::Recurring | InvoiceType::Final
+            ) && invoice.subtotal - Self::shortfall(invoice) > 0
+        };
+        let place = |invoice: &Invoice| {
+            (
+                invoice.billing_period_start,
+                invoice.created_at,
+                invoice.id.as_uuid(),
+            )
+        };
+        for (at, void, invoice) in events {
             if void {
-                if invoice.discount != 0 {
+                if counted.contains(&invoice.id) {
                     used = used.saturating_sub(1);
                 }
                 continue;
             }
             let base = invoice.subtotal - Self::shortfall(invoice);
-            let period = matches!(
-                invoice.invoice_type,
-                InvoiceType::Recurring | InvoiceType::Final
-            );
             let off = match coupon.off {
                 // KW-01: a percentage truncates to the minor unit, where R-001 would round.
                 Off::Percent(p) => base * p / 100,
                 Off::Fixed(amount) => amount.min(base),
             };
-            let applies = period && base > 0 && coupon.invoices.is_none_or(|n| used < n);
+            let ahead = invoices
+                .iter()
+                .filter(|other| {
+                    period(other)
+                        && place(other) < place(invoice)
+                        && other.created_at <= at
+                        && other.finalized_at.is_none_or(|issued| issued > at)
+                })
+                .count();
+            let ahead = u32::try_from(ahead).unwrap_or(u32::MAX);
+            let applies = period(invoice)
+                && coupon
+                    .invoices
+                    .is_none_or(|n| used.saturating_add(ahead) < n);
             let expected = if applies { off } else { 0 };
-            if invoice.discount != 0 {
+            if applies {
                 used += 1;
+                counted.push(invoice.id);
             }
             if invoice.discount != expected {
                 found.push(format!(
@@ -1416,9 +1458,45 @@ impl Engine {
         }
     }
 
+    /// The period invoices holding or owed one of a limited coupon's uses at `at` (R-089): those
+    /// issued by then that took one, then the open drafts, oldest period first, while one is left.
+    fn coupon_uses_at(
+        &self,
+        coupon: &CouponSpec,
+        invoices: &[Invoice],
+        at: chrono::NaiveDateTime,
+    ) -> Option<Vec<InvoiceId>> {
+        let n = usize::try_from(coupon.invoices?).unwrap_or(usize::MAX);
+        let period = |invoice: &&Invoice| {
+            matches!(
+                invoice.invoice_type,
+                InvoiceType::Recurring | InvoiceType::Final
+            ) && invoice.subtotal - Self::shortfall(invoice) > 0
+                && invoice.subscription_id == self.sub
+                && invoice.status != InvoiceStatusEnum::Closed
+                && invoice.voided_at.is_none_or(|voided| voided > at)
+        };
+        let mut owed: Vec<InvoiceId> = invoices
+            .iter()
+            .filter(period)
+            .filter(|i| i.discount != 0 && i.finalized_at.is_some_and(|issued| issued <= at))
+            .map(|i| i.id)
+            .collect();
+        let mut open: Vec<&Invoice> = invoices
+            .iter()
+            .filter(period)
+            .filter(|i| i.created_at <= at && i.finalized_at.is_none_or(|issued| issued > at))
+            .collect();
+        open.sort_by_key(|i| (i.billing_period_start, i.created_at, i.id.as_uuid()));
+        let left = n.saturating_sub(owed.len());
+        owed.extend(open.into_iter().take(left).map(|i| i.id));
+        Some(owed)
+    }
+
     /// R-022 as decided: a period pays at least its minimum, prorated by its days. Its spend is
     /// the lines of its days net of coupons and of the engine's notes, gross of credit; the
-    /// shortfall line, never discounted, brings it to the minimum.
+    /// shortfall line, never discounted, brings it to the minimum. A period a backdated ending
+    /// cut keeps the true-up it closed with, and pays more only past it, by its committed days.
     async fn minimum_differences(&self, model: &Model) -> Vec<Diff> {
         let Some(minimum) = model.catalog().minimum else {
             return vec![];
@@ -1446,9 +1524,15 @@ impl Engine {
                     .iter()
                     .any(|line| from <= line.start_date && line.start_date < to)
             };
+            // A backdated ending's final invoice, dated the day it is issued, trues up the period
+            // its ending cut (R-016, R-022). Issuing a draft dates it that day: a recurring
+            // invoice carries the period it opens after, never the one its issue day ends.
+            let ended_on_to = model.sub().ended == Some(to);
             let carries = |i: &Invoice| {
                 (matches!(i.invoice_type, InvoiceType::Recurring | InvoiceType::Final)
-                    && (i.billing_period_start == to || i.invoice_date == to))
+                    && i.billing_period_start == to)
+                    || (i.invoice_type == InvoiceType::Final
+                        && (i.invoice_date == to || ended_on_to))
                     || i.line_items.iter().any(|line| {
                         line.name == MINIMUM_LINE && from <= line.start_date && line.start_date < to
                     })
@@ -1467,24 +1551,71 @@ impl Engine {
                 })
         };
         let mut found = vec![];
+        let floor_of = |from: NaiveDate, to: NaiveDate, full: i64| {
+            rounded(
+                i128::from(minimum) * i128::from((to - from).num_days().max(0)),
+                i128::from(full),
+            )
+        };
         for (from, to, full) in &model.sub().periods {
             if forgiven(*from, *to) {
                 continue;
             }
-            let floor = rounded(
-                i128::from(minimum) * i128::from((*to - *from).num_days()),
-                i128::from(*full),
-            );
+            let cut = model.sub().cut.filter(|cut| cut < to);
+            let floor = floor_of(*from, *to, *full);
+            // Its close counted the notes issued by then. A renewal is stamped finalized at its
+            // period's instant, though written after that day's notes; a draft issued by hand
+            // later, at the moment asked, though written after the notes issued before it.
+            let closed_at = all
+                .iter()
+                .filter(|i| {
+                    i.status != InvoiceStatusEnum::Void
+                        && i.line_items.iter().any(|line| {
+                            line.name == MINIMUM_LINE
+                                && line.start_date == *from
+                                && line.end_date == *to
+                        })
+                })
+                .filter_map(|i| {
+                    let written = self.issuing.get(&i.id).copied().unwrap_or(i.created_at);
+                    i.finalized_at.map(|at| at.max(written))
+                })
+                .max();
+            let ended_by = model.sub().ended.is_some_and(|ended| ended <= *to);
+            // What the ending gives back of the period counts whenever it is issued: its own
+            // document trues the period up again (R-022).
+            let counts = |note: &CreditNote| {
+                ended_by
+                    || note.origin == CreditNoteOrigin::Cancellation
+                    || closed_at.is_none_or(|at| note.finalized_at.unwrap_or(note.created_at) <= at)
+            };
+            // A use a void gave a draft of the period after its close leaves its true-up as
+            // that close counted it (R-022, R-089).
+            let owed_at_close = closed_at.and_then(|at| {
+                let coupon = model.catalog().coupon?;
+                Some((at, self.coupon_uses_at(&coupon, &all, at)?))
+            });
+            let late_use = |invoice: &Invoice| {
+                owed_at_close.as_ref().is_some_and(|(at, owed)| {
+                    invoice.discount != 0
+                        && invoice.created_at <= *at
+                        && invoice.finalized_at.is_some_and(|issued| issued > *at)
+                        && !owed.contains(&invoice.id)
+                })
+            };
             let mut spend = 0;
+            let mut gross = 0;
             let mut paid = 0;
+            let mut closed_with = 0;
             for invoice in &invoices {
+                let late = cut.is_none() && late_use(invoice);
                 for line in &invoice.line_items {
                     if line.start_date < *from || line.start_date >= *to {
                         continue;
                     }
                     let credited: i64 = notes
                         .iter()
-                        .filter(|note| note.invoice_id == invoice.id)
+                        .filter(|note| note.invoice_id == invoice.id && counts(note))
                         .flat_map(|note| &note.line_items)
                         .filter(|c| c.local_id == line.local_id)
                         .map(|c| c.amount_total.abs())
@@ -1492,10 +1623,69 @@ impl Engine {
                     // A shortfall is never credited back (R-022): paid net of any note on it.
                     if line.name == MINIMUM_LINE {
                         paid += line.amount_total - credited;
+                        if line.end_date == *to {
+                            closed_with += line.amount_total - credited;
+                        }
                     } else {
-                        spend += line.amount_total - credited;
+                        let discount = if late {
+                            line.amount_subtotal - line.taxable_amount
+                        } else {
+                            0
+                        };
+                        spend += line.amount_total - credited + discount;
+                        gross += line.amount_total;
                     }
                 }
+            }
+            if let Some(cut) = cut {
+                // Its close trued up the whole floor against a spend no later note had reduced,
+                // unless the ending closed that renewal, a draft, unissued (R-080). A document
+                // voided after the close was spend when it counted (R-096).
+                let renewed = all
+                    .iter()
+                    .filter(|i| {
+                        i.invoice_type == InvoiceType::Recurring && i.billing_period_start == *to
+                    })
+                    .filter_map(|i| {
+                        let written = self.issuing.get(&i.id).copied().unwrap_or(i.created_at);
+                        i.finalized_at.map(|at| at.max(written))
+                    })
+                    .min();
+                let voided_later: i64 = all
+                    .iter()
+                    .filter(|i| {
+                        renewed.is_some_and(|close| {
+                            i.status == InvoiceStatusEnum::Void
+                                && i.finalized_at.is_some_and(|issued| issued <= close)
+                                && i.voided_at.is_some_and(|voided| voided > close)
+                        })
+                    })
+                    .flat_map(|i| &i.line_items)
+                    .filter(|line| {
+                        line.name != MINIMUM_LINE
+                            && *from <= line.start_date
+                            && line.start_date < *to
+                    })
+                    .map(|line| line.amount_total)
+                    .sum();
+                let (least, most) = (
+                    (floor - gross - voided_later).max(0),
+                    (floor - spend - voided_later).max(0),
+                );
+                let unissued = all.iter().any(|i| {
+                    i.status == InvoiceStatusEnum::Closed
+                        && (i.billing_period_start == *to || i.invoice_date == *to)
+                });
+                let closed =
+                    (least..=most).contains(&closed_with) || (closed_with == 0 && unissued);
+                let prorated = floor_of(*from, cut.max(*from), *full);
+                let owed = closed_with.max((prorated - spend).max(0));
+                if !closed || paid != owed {
+                    found.push(format!(
+                        "{from}..{to} cut on {cut}: spend {spend} net of coupons and notes ({gross} gross), minimum {floor}, {prorated} by its committed days: trued up {closed_with} at its close (between {least} and {most}), shortfall paid {paid}, expected {owed}"
+                    ));
+                }
+                continue;
             }
             let owed = (floor - spend).max(0);
             if paid != owed {
@@ -1541,6 +1731,9 @@ impl Engine {
     /// The scheduled events, the billing controller and the period's billing a second time:
     /// none may write.
     pub async fn rerun_workers(&self, action: &Action) -> Result<(), String> {
+        // At the action's instant again: a draft refreshed an hour before by the previous action
+        // turns stale within the milliseconds the first pass took, and is refreshed on its hour.
+        clock(action.at());
         self.settle().await?;
         if let (Action::Advance { at }, Some(sub), None) = (action, self.sub, self.companion)
             && let Ok(Some(invoice)) = self
@@ -1592,7 +1785,7 @@ impl Engine {
     }
 
     /// The credit invariants, and conservation: no note takes more from a line than it billed,
-    /// and no fee period is billed whole on two live documents (R-080).
+    /// and no fee period is billed whole on two issued documents (R-080).
     pub async fn invariants(&self) -> Vec<String> {
         let mut conn = self.h.env.conn().await;
         let mut found =
@@ -1627,12 +1820,21 @@ impl Engine {
                 }
             }
         }
-        let live: Vec<&Invoice> = invoices.iter().filter(|i| issued(i)).collect();
+        // A draft's line of a charge a change ended is taken back when the draft is issued
+        // (R-080): only issued documents can bill a period twice.
+        let live: Vec<&Invoice> = invoices
+            .iter()
+            .filter(|i| issued(i) && i.status != InvoiceStatusEnum::Draft)
+            .collect();
         let mut seen: Vec<(String, NaiveDate, NaiveDate, i64, InvoiceId)> = vec![];
         for invoice in &live {
             for line in &invoice.line_items {
-                // Seats bought twice in a period are two purchases of the same days.
-                if line.amount_subtotal <= 0 || line.name.contains("seats") {
+                // Seats bought twice in a period are two purchases of the same days, so two
+                // identical "3 seat upgrade" lines are two purchases, not one billed twice.
+                if line.amount_subtotal <= 0
+                    || line.name.contains("seats")
+                    || line.name.ends_with("seat upgrade")
+                {
                     continue;
                 }
                 let credited = notes.iter().any(|note| {

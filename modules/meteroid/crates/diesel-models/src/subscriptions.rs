@@ -5,7 +5,7 @@ use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 
 use crate::enums::{
-    BillingPeriodEnum, CycleActionEnum, SubscriptionActivationConditionEnum, SubscriptionStatusEnum,
+    BillingPeriodEnum, SubscriptionActivationConditionEnum, SubscriptionStatusEnum,
 };
 use common_domain::ids::{
     CustomerId, InvoicingEntityId, PlanId, PlanVersionId, QuoteId, SubscriptionId, TenantId,
@@ -37,20 +37,14 @@ pub struct SubscriptionRow {
     pub activation_condition: SubscriptionActivationConditionEnum,
     pub billing_start_date: Option<NaiveDate>,
     pub conn_meta: Option<serde_json::Value>,
-    pub cycle_index: Option<i32>,
     pub status: SubscriptionStatusEnum,
     pub current_period_start: NaiveDate,
     pub current_period_end: Option<NaiveDate>,
-    pub next_cycle_action: Option<CycleActionEnum>,
-    pub last_error: Option<String>,
-    pub error_count: i32,
-    pub next_retry: Option<NaiveDateTime>,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub purchase_order: Option<String>,
     pub quote_id: Option<QuoteId>,
     pub backdate_invoices: bool,
-    pub processing_started_at: Option<NaiveDateTime>,
     pub payment_methods_config: Option<serde_json::Value>,
     pub imported_at: Option<NaiveDateTime>,
     pub custom_properties: serde_json::Value,
@@ -69,6 +63,14 @@ pub struct SubscriptionRow {
     pub reconcile_from: Option<NaiveDate>,
     /// When the facts next change the derived state (`lifecycle::derived`).
     pub next_wake_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The watermark of what a period bills at its end, earlier for an import's period.
+    pub reconcile_arrears_from: Option<NaiveDate>,
+    /// The billing steps failed in a row, never a status: retried forever.
+    pub billing_failures: i32,
+    pub billing_first_failed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub billing_last_failed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub billing_last_error: Option<String>,
+    pub billing_retry_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Insertable, Debug, Clone)]
@@ -93,11 +95,9 @@ pub struct SubscriptionRowNew {
     pub trial_duration: Option<i32>,
     pub activation_condition: SubscriptionActivationConditionEnum,
     pub billing_start_date: Option<NaiveDate>,
-    pub cycle_index: Option<i32>,
     pub status: SubscriptionStatusEnum,
     pub current_period_start: NaiveDate,
     pub current_period_end: Option<NaiveDate>,
-    pub next_cycle_action: Option<CycleActionEnum>,
     pub auto_advance_invoices: bool,
     pub charge_automatically: bool,
     pub purchase_order: Option<String>,
@@ -159,13 +159,10 @@ pub struct SubscriptionForDisplayRow {
 pub struct SubscriptionCycleRowPatch {
     pub id: SubscriptionId,
     pub tenant_id: TenantId,
-    pub cycle_index: Option<i32>,
     pub status: Option<SubscriptionStatusEnum>,
-    pub next_cycle_action: Option<Option<CycleActionEnum>>,
     pub current_period_start: Option<NaiveDate>,
     pub current_period_end: Option<Option<NaiveDate>>,
     pub pending_checkout: Option<bool>,
-    pub processing_started_at: Option<Option<NaiveDateTime>>,
     pub billing_start_date: Option<NaiveDate>,
     pub billing_day_anchor: Option<i16>,
     pub terminated_at: Option<Option<NaiveDateTime>>,
@@ -181,20 +178,6 @@ pub struct SubscriptionCadenceRowPatch {
     pub period: BillingPeriodEnum,
     pub current_period_start: NaiveDate,
     pub current_period_end: Option<NaiveDate>,
-    pub cycle_index: Option<i32>,
-    pub next_cycle_action: Option<CycleActionEnum>,
-}
-
-#[derive(AsChangeset)]
-#[diesel(table_name = crate::schema::subscription)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct SubscriptionCycleErrorRowPatch {
-    pub id: SubscriptionId,
-    pub tenant_id: TenantId,
-    pub last_error: Option<Option<String>>,
-    pub next_retry: Option<Option<NaiveDateTime>>,
-    pub error_count: Option<i32>,
-    pub status: Option<SubscriptionStatusEnum>,
 }
 
 #[derive(AsChangeset, Debug, Clone)]

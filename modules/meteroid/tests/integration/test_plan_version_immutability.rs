@@ -199,7 +199,10 @@ async fn a_priced_product_refuses_another_fee_structure(#[future] test_env: Test
         .await;
     match refused {
         Ok(done) => panic!("a priced product took another fee structure: {done:?}"),
-        Err(err) => assert!(format!("{err:?}").contains("R-098"), "{err:?}"),
+        Err(err) => assert!(
+            format!("{err:?}").contains("fee_structure cannot change"),
+            "{err:?}"
+        ),
     }
 
     let renamed = store

@@ -90,13 +90,7 @@ impl Engine {
     }
 
     async fn due_events(&self) -> Result<(), String> {
-        let run = || async {
-            self.h
-                .services()
-                .get_and_process_due_events()
-                .await
-                .map_err(err)
-        };
+        let run = || async { self.h.services().run_invoice_deadlines().await.map_err(err) };
         for _ in 0..4 {
             let (a, b) = super::super::harness::race(run(), run()).await?;
             if a.unwrap_or(0) + b.unwrap_or(0) == 0 {
@@ -153,10 +147,10 @@ impl Engine {
                     .await
                     .map_err(err)?;
             }
-            Action::CancelAtEnd { end, .. } => {
+            Action::CancelAtEnd { end, at, .. } => {
                 self.h
                     .services()
-                    .cancel_subscription(
+                    .cancel_subscription_at(
                         Actor::System,
                         self.sub.expect("started"),
                         tenant,
@@ -164,6 +158,7 @@ impl Engine {
                         meteroid_store::repositories::subscriptions::CancellationEffectiveAt::Date(
                             *end,
                         ),
+                        *at,
                     )
                     .await
                     .map_err(err)?;

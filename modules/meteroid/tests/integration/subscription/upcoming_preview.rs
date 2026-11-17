@@ -166,8 +166,8 @@ async fn the_preview_at_a_free_trials_end_bills_no_trial_usage() {
     assert_eq!(content.total, 0, "every next-invoice preview agrees");
 }
 
-/// MT-16, after a plan change scheduled for the trial's end: the change leaves the EndTrial
-/// transition, so the preview still opens cycle 0 and bills none of the trial's usage.
+/// MT-16, after a plan change scheduled for the trial's end: the trial still ends there, so the
+/// preview opens the first period and bills none of the trial's usage.
 #[tokio::test]
 async fn a_plan_change_at_a_free_trials_end_previews_no_trial_usage() {
     let f = fixture().await;
@@ -219,60 +219,6 @@ async fn a_plan_change_at_a_free_trials_end_previews_no_trial_usage() {
         .map(|line| line.amount_subtotal)
         .sum();
     assert_eq!(trial_usage, 0, "{:?}", forecast.content.invoice_lines);
-}
-
-/// A scheduled pause previews the last invoice before it, titled as a pause, not a final invoice.
-#[tokio::test]
-async fn a_scheduled_pause_previews_the_last_invoice_before_it() {
-    use meteroid_store::domain::scheduled_events::{ScheduledEventData, ScheduledEventNew};
-    use meteroid_store::repositories::SubscriptionInterface;
-
-    let f = fixture().await;
-    let sub_id = subscribe(&f.setup, Utc::now().date_naive() - Days::new(3), None).await;
-    let details = f
-        .setup
-        .store
-        .get_subscription_details(TENANT_ID, sub_id)
-        .await
-        .expect("details");
-    let pause_on = details.subscription.current_period_end.expect("period end") - Days::new(5);
-    let mut conn = f.setup.store.get_conn().await.expect("connection");
-    f.setup
-        .store
-        .schedule_events(
-            &mut conn,
-            vec![ScheduledEventNew {
-                subscription_id: sub_id,
-                tenant_id: TENANT_ID,
-                scheduled_time: pause_on.and_hms_opt(0, 0, 0).unwrap(),
-                event_data: ScheduledEventData::PauseSubscription,
-                source: "test".to_string(),
-                created_by: Actor::System,
-            }],
-        )
-        .await
-        .expect("pause");
-    drop(conn);
-
-    let auth = crate::meteroid_it::svc_auth::login(f.setup.channel.clone()).await;
-    let invoice = crate::meteroid_it::clients::AllClients::from_channel(
-        f.setup.channel.clone(),
-        auth.token.as_str(),
-        "TESTORG",
-        "testslug",
-    )
-    .subscriptions
-    .get_upcoming_invoice(api::GetUpcomingInvoiceRequest {
-        subscription_id: sub_id.to_string(),
-    })
-    .await
-    .expect("upcoming invoice")
-    .into_inner()
-    .invoice
-    .expect("invoice");
-    assert_eq!(invoice.change, api::UpcomingInvoiceChange::Pause as i32);
-    assert_eq!(invoice.invoice_date, pause_on.to_string());
-    assert!(!invoice.not_invoiced);
 }
 
 /// RF-33, RF-36: a cancellation before the period's end is the final invoice, on that date. It
