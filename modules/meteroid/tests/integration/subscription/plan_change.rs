@@ -3107,11 +3107,11 @@ async fn test_schedule_plan_change_during_trial(#[future] test_env: TestEnv) {
 // CANCELLING SUBSCRIPTION + PLAN CHANGE
 // =============================================================================
 
-/// Customer schedules cancellation, then changes mind and does a plan change instead.
-/// The plan change should replace the pending cancellation event.
+/// A plan change never undoes a scheduled cancellation (R-092): one dated on or after it is
+/// refused, the cancellation stays and applies.
 #[rstest]
 #[tokio::test]
-async fn test_plan_change_replaces_pending_cancellation(#[future] test_env: TestEnv) {
+async fn a_plan_change_after_a_scheduled_cancellation_is_refused(#[future] test_env: TestEnv) {
     let env = test_env.await;
 
     let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
@@ -3124,10 +3124,6 @@ async fn test_plan_change_replaces_pending_cancellation(#[future] test_env: Test
         .create(env.services())
         .await;
 
-    let sub = env.get_subscription(sub_id).await;
-    sub.assert().is_active();
-
-    // Schedule cancellation at end of period
     env.services()
         .cancel_subscription(
             common_domain::actor::Actor::System,
@@ -3139,12 +3135,8 @@ async fn test_plan_change_replaces_pending_cancellation(#[future] test_env: Test
         .await
         .expect("cancel_subscription failed");
 
-    // Sub is still Active (cancellation is scheduled, not immediate)
-    let sub = env.get_subscription(sub_id).await;
-    sub.assert().is_active();
-
-    // Now customer changes mind: schedule plan change to Pro (should replace cancellation)
-    env.services()
+    let refused = env
+        .services()
         .schedule_plan_change(
             common_domain::actor::Actor::System,
             sub_id,
@@ -3152,10 +3144,12 @@ async fn test_plan_change_replaces_pending_cancellation(#[future] test_env: Test
             PLAN_VERSION_PRO_ID,
             vec![],
         )
-        .await
-        .expect("plan change should replace pending cancellation");
+        .await;
+    assert!(
+        refused.is_err(),
+        "a plan change taking effect once cancelled is refused"
+    );
 
-    // Only the plan change event should be pending (cancellation replaced)
     let mut conn = env.conn().await;
     let pending =
         diesel_models::scheduled_events::ScheduledEventRow::get_pending_events_for_subscription(
@@ -3163,42 +3157,20 @@ async fn test_plan_change_replaces_pending_cancellation(#[future] test_env: Test
         )
         .await
         .expect("query pending events");
+    assert_eq!(pending.len(), 1, "the cancellation is still pending");
 
-    assert_eq!(
-        pending.len(),
-        1,
-        "should have exactly one pending event (plan change, not cancellation)"
-    );
-
-    // Execute: should apply plan change, not cancel
     env.process_cycles().await;
 
     let sub = env.get_subscription(sub_id).await;
-    assert_eq!(
-        sub.plan_version_id, PLAN_VERSION_PRO_ID,
-        "should be on Pro after plan change (cancellation was replaced)"
-    );
+    assert_eq!(sub.plan_version_id, PLAN_VERSION_STARTER_ID);
     sub.assert()
-        .is_active()
-        .has_cycle_index(1)
-        .has_period_start(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap());
-
-    // Pro invoice should exist
-    let invoices = env.get_invoices(sub_id).await;
-    invoices.assert().has_count(2);
-    invoices
-        .assert()
-        .invoice_at(1)
-        .with_context("Pro invoice after replacing cancellation")
-        .is_finalized_unpaid()
-        .has_total(12400); // Pro: €99 + €25 = €124
+        .has_status(diesel_models::enums::SubscriptionStatusEnum::Cancelled);
 }
 
-/// Immediate plan change on a subscription with pending cancellation.
-/// The cancellation event should be cancelled by the immediate plan change.
+/// An immediate plan change before a scheduled cancellation keeps the cancellation (R-092).
 #[rstest]
 #[tokio::test]
-async fn test_immediate_plan_change_cancels_pending_cancellation(#[future] test_env: TestEnv) {
+async fn an_immediate_plan_change_keeps_a_scheduled_cancellation(#[future] test_env: TestEnv) {
     let env = test_env.await;
 
     let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
@@ -3212,7 +3184,6 @@ async fn test_immediate_plan_change_cancels_pending_cancellation(#[future] test_
         .create(env.services())
         .await;
 
-    // Schedule cancellation
     env.services()
         .cancel_subscription(
             common_domain::actor::Actor::System,
@@ -3224,7 +3195,6 @@ async fn test_immediate_plan_change_cancels_pending_cancellation(#[future] test_
         .await
         .expect("cancel_subscription failed");
 
-    // Immediate plan change should override cancellation
     let result = env
         .services()
         .apply_plan_change_immediate_at(
@@ -3236,16 +3206,12 @@ async fn test_immediate_plan_change_cancels_pending_cancellation(#[future] test_
             change_date,
         )
         .await
-        .expect("immediate plan change should succeed despite pending cancellation");
-
-    // Adjustment invoice should exist (upgrade proration)
+        .expect("immediate plan change should succeed before the cancellation");
     assert!(result.adjustment_invoice_id.is_some());
 
     let sub = env.get_subscription(sub_id).await;
     assert_eq!(sub.plan_version_id, PLAN_VERSION_PRO_ID);
-    sub.assert().is_active();
 
-    // No pending events should remain (cancellation was cleared)
     let mut conn = env.conn().await;
     let pending =
         diesel_models::scheduled_events::ScheduledEventRow::get_pending_events_for_subscription(
@@ -3253,10 +3219,119 @@ async fn test_immediate_plan_change_cancels_pending_cancellation(#[future] test_
         )
         .await
         .expect("query pending events");
+    assert_eq!(pending.len(), 1, "the cancellation is still pending");
+    assert_eq!(
+        pending[0].event_type,
+        diesel_models::enums::ScheduledEventTypeEnum::CancelSubscription
+    );
+}
 
+/// An immediate change dated after the subscription's cancellation is refused (R-092).
+#[rstest]
+#[tokio::test]
+async fn an_immediate_change_dated_after_the_cancellation_is_refused(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    env.services()
+        .cancel_subscription(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::Date(NaiveDate::from_ymd_opt(2024, 1, 20).unwrap()),
+        )
+        .await
+        .expect("cancel_subscription failed");
+
+    let refused = env
+        .services()
+        .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+            NaiveDate::from_ymd_opt(2024, 1, 25).unwrap(),
+        )
+        .await;
     assert!(
-        pending.is_empty(),
-        "should have no pending events after immediate plan change"
+        refused.is_err(),
+        "a change dated after the cancellation is refused"
+    );
+    assert_eq!(
+        env.get_subscription(sub_id).await.plan_version_id,
+        PLAN_VERSION_STARTER_ID
+    );
+}
+
+/// A plan change ending a paid trial keeps a scheduled cancellation, its trial end alone goes
+/// (R-092).
+#[rstest]
+#[tokio::test]
+async fn an_immediate_change_during_a_paid_trial_keeps_a_scheduled_cancellation(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_TRIAL_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .trial_days(14)
+        .create(env.services())
+        .await;
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .is_trial_active();
+
+    env.services()
+        .cancel_subscription(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::EndOfBillingPeriod,
+        )
+        .await
+        .expect("cancel_subscription failed");
+
+    env.services()
+        .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+            NaiveDate::from_ymd_opt(2024, 1, 5).unwrap(),
+        )
+        .await
+        .expect("an immediate change before the cancellation goes through");
+
+    let mut conn = env.conn().await;
+    let pending =
+        diesel_models::scheduled_events::ScheduledEventRow::get_pending_events_for_subscription(
+            &mut conn, sub_id, &TENANT_ID,
+        )
+        .await
+        .expect("query pending events");
+    assert!(
+        pending.iter().any(|event| event.event_type
+            == diesel_models::enums::ScheduledEventTypeEnum::CancelSubscription),
+        "the cancellation is still pending: {pending:?}"
+    );
+    assert!(
+        pending.iter().all(|event| event.event_type
+            != diesel_models::enums::ScheduledEventTypeEnum::EndTrial),
+        "the trial end went with the trial"
     );
 }
 

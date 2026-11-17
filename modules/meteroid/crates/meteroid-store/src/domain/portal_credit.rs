@@ -208,12 +208,7 @@ pub fn apply_discounts(
                 currency: coupon_currency,
                 amount,
             } if coupon_currency.eq_ignore_ascii_case(currency) => {
-                let left = if coupon.coupon.applies_once() {
-                    amount - coupon.applied_coupon.applied_amount.unwrap_or_default()
-                } else {
-                    *amount
-                };
-                let off = left
+                let off = amount
                     .to_subunit_opt(precision)
                     .unwrap_or(0)
                     .clamp(0, net.max(0));

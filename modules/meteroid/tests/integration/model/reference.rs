@@ -767,6 +767,10 @@ impl Model {
                 Ok(())
             }
             Action::ChangeAtEnd { sub, to, .. } => {
+                // R-092: a plan change never undoes a scheduled cancellation.
+                if self.subs[*sub].scheduled == Some(Scheduled::Cancel) {
+                    return Err(Refused("a plan change after a scheduled cancellation"));
+                }
                 self.subs[*sub].scheduled = Some(Scheduled::Change(*to));
                 Ok(())
             }

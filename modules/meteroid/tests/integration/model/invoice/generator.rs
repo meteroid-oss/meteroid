@@ -127,8 +127,7 @@ fn plan(fee: u8, billing: u8, rate: u8) -> PlanSpec {
     }
 }
 
-/// At most one coupon of each kind. A fixed coupon lasts one invoice or all of them: over
-/// several, the engine spends its amount once across them, a behaviour no rule states yet.
+/// At most one coupon of each kind, each lasting one invoice, a few, or all of them.
 fn catalog(currency: u8, plans: [u8; 6], percent: u8, fixed: u8, taxes: u8) -> Catalog {
     let mut coupons = vec![];
     if percent % 5 >= 2 {
@@ -140,7 +139,7 @@ fn catalog(currency: u8, plans: [u8; 6], percent: u8, fixed: u8, taxes: u8) -> C
     if !fixed.is_multiple_of(3) {
         coupons.push(CouponSpec {
             discount: Discount::Fixed(FIXED[usize::from(fixed / 3) % FIXED.len()]),
-            cycles: [None, Some(1)][usize::from(fixed / 12) % 2],
+            cycles: [None, Some(1), Some(2), Some(3)][usize::from(fixed / 12) % 4],
         });
     }
     let first = usize::from(taxes / 3) % TAXES.len();

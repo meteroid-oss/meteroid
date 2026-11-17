@@ -744,7 +744,7 @@ impl Services {
                 use diesel_models::subscriptions::SubscriptionCycleRowPatch;
 
                 // Cancel the EndTrial scheduled event
-                ScheduledEventRow::cancel_pending_subscription_events(
+                ScheduledEventRow::cancel_pending_trial_end_and_plan_changes(
                     conn,
                     event.subscription_id,
                     &event.tenant_id,

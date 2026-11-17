@@ -15,6 +15,7 @@ use rust_decimal::Decimal;
 use crate::data::ids::*;
 use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
 use meteroid_store::domain::coupons::{CouponDiscount, CouponNew};
+use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 
 // =============================================================================
 // BASIC COUPON TESTS
@@ -302,6 +303,78 @@ async fn test_coupon_no_recurring_limit_applies_forever(#[future] test_env: Test
             .has_total(3920)
             .has_coupons_count(1);
     }
+}
+
+/// A €10 fixed coupon lasting 2 invoices takes €10 off each of them, never one €10 spread
+/// over both; the third bills in full.
+/// Rules: R-089
+#[rstest]
+#[tokio::test]
+async fn test_fixed_coupon_gives_its_amount_on_each_invoice_it_lasts(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+
+    let coupon_id = env
+        .create_coupon(CouponNew {
+            code: "FIXED10X2".to_string(),
+            description: "€10 off two invoices".to_string(),
+            tenant_id: TENANT_ID,
+            discount: CouponDiscount::Fixed {
+                amount: Decimal::from(10),
+                currency: "EUR".to_string(),
+            },
+            expires_at: None,
+            redemption_limit: None,
+            recurring_value: Some(2),
+            reusable: false,
+            plan_ids: vec![],
+        })
+        .await;
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_PAID_FREE_TRIAL_ID) // €49/month
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .coupon(coupon_id)
+        .create(env.services())
+        .await;
+
+    for cycle in 0..3 {
+        if cycle > 0 {
+            env.process_cycles().await;
+        }
+        let (discount, total, coupons) = if cycle < 2 {
+            (1000, 3900, 1)
+        } else {
+            (0, 4900, 0)
+        };
+        let invoices = env.get_invoices(sub_id).await;
+        invoices.assert().has_count(cycle + 1);
+        invoices
+            .assert()
+            .invoice_at(cycle)
+            .with_context(format!("R-089: invoice {cycle}"))
+            .has_subtotal(4900)
+            .has_discount(discount)
+            .has_total(total)
+            .has_coupons_count(coupons);
+        env.run_outbox_and_orchestration().await;
+    }
+
+    let details = env
+        .store()
+        .get_subscription_details(TENANT_ID, sub_id)
+        .await
+        .expect("subscription details");
+    let applied = &details.applied_coupons[0].applied_coupon;
+    assert_eq!(applied.applied_count, Some(2), "R-089: two invoices");
+    assert_eq!(
+        applied.applied_amount,
+        Some(Decimal::from(20)),
+        "R-089: the amount given is reported in full"
+    );
 }
 
 // =============================================================================

@@ -235,7 +235,7 @@ impl Services {
                     .await?;
                     let customer_id = ctx.subscription_details.subscription.customer_id;
 
-                    ScheduledEventRow::cancel_pending_lifecycle_events(
+                    ScheduledEventRow::cancel_pending_plan_changes(
                         conn,
                         subscription_id,
                         &tenant_id,
@@ -261,6 +261,9 @@ impl Services {
                             "Subscription has no current_period_end".to_string(),
                         ))
                     })?;
+
+                    refuse_after_a_cancellation(conn, tenant_id, subscription_id, effective_date)
+                        .await?;
 
                     let events = self
                         .store
@@ -616,6 +619,7 @@ impl Services {
                     .await?;
                 refuse_while_a_paid_change_is_pending(conn, tenant_id, subscription_id, None)
                     .await?;
+                refuse_after_a_cancellation(conn, tenant_id, subscription_id, change_date).await?;
                 let customer_id = prepared.subscription_details.customer.id;
 
                 let is_free_trial = prepared.is_free_trial();
@@ -976,7 +980,7 @@ impl Services {
                 .await?
         };
 
-        ScheduledEventRow::cancel_pending_lifecycle_events(
+        ScheduledEventRow::cancel_pending_plan_changes(
             conn,
             subscription_id,
             &tenant_id,
@@ -1249,7 +1253,7 @@ impl Services {
             } else {
                 // Paid trial: keep billing period (already being billed), just transition status.
                 // Cancel the EndTrial scheduled event (this IS a real event for paid trials).
-                ScheduledEventRow::cancel_pending_subscription_events(
+                ScheduledEventRow::cancel_pending_trial_end_and_plan_changes(
                     conn,
                     subscription_id,
                     &tenant_id,
@@ -1688,6 +1692,33 @@ impl PreparedPlanChange {
             entitlements: Vec::new(),
             minimum,
         })
+    }
+}
+
+/// A plan change taking effect once the subscription is cancelled changes nothing (R-092).
+async fn refuse_after_a_cancellation(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    effective_date: NaiveDate,
+) -> StoreResult<()> {
+    let cancellations = ScheduledEventRow::list_pending_cancellations_for_subscriptions(
+        conn,
+        &[subscription_id],
+        &tenant_id,
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?;
+    match cancellations
+        .first()
+        .filter(|(_, at)| at.date() <= effective_date)
+    {
+        Some((_, cancels_at)) => Err(Report::new(StoreError::InvalidArgument(format!(
+            "The subscription is cancelled on {}, before this plan change would take effect on \
+             {effective_date}",
+            cancels_at.date()
+        )))),
+        None => Ok(()),
     }
 }
 

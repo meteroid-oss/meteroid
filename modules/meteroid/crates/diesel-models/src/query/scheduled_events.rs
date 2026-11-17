@@ -495,6 +495,80 @@ impl ScheduledEventRow {
             .into_db_result()
     }
 
+    /// Cancel the pending plan changes and pauses a new plan change replaces. A scheduled
+    /// cancellation stays: a plan change never undoes it (R-092).
+    pub async fn cancel_pending_plan_changes(
+        conn: &mut PgConn,
+        subscription_id_param: SubscriptionId,
+        tenant_id_param: &TenantId,
+        reason: &str,
+    ) -> DbResult<usize> {
+        Self::cancel_pending_of(
+            conn,
+            subscription_id_param,
+            tenant_id_param,
+            reason,
+            &[
+                ScheduledEventTypeEnum::ApplyPlanChange,
+                ScheduledEventTypeEnum::PauseSubscription,
+            ],
+        )
+        .await
+    }
+
+    /// [`Self::cancel_pending_plan_changes`] for a plan change ending a paid trial: its trial end
+    /// goes too. A scheduled cancellation stays (R-092).
+    pub async fn cancel_pending_trial_end_and_plan_changes(
+        conn: &mut PgConn,
+        subscription_id_param: SubscriptionId,
+        tenant_id_param: &TenantId,
+        reason: &str,
+    ) -> DbResult<usize> {
+        Self::cancel_pending_of(
+            conn,
+            subscription_id_param,
+            tenant_id_param,
+            reason,
+            &[
+                ScheduledEventTypeEnum::ApplyPlanChange,
+                ScheduledEventTypeEnum::PauseSubscription,
+                ScheduledEventTypeEnum::EndTrial,
+            ],
+        )
+        .await
+    }
+
+    async fn cancel_pending_of(
+        conn: &mut PgConn,
+        subscription_id_param: SubscriptionId,
+        tenant_id_param: &TenantId,
+        reason: &str,
+        types: &[ScheduledEventTypeEnum],
+    ) -> DbResult<usize> {
+        use crate::schema::scheduled_event::dsl::{
+            error, event_type, scheduled_event, status, subscription_id, tenant_id, updated_at,
+        };
+
+        let query = diesel::update(scheduled_event)
+            .filter(subscription_id.eq(subscription_id_param))
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(status.eq(ScheduledEventStatus::Pending))
+            .filter(event_type.eq_any(types))
+            .set((
+                status.eq(ScheduledEventStatus::Canceled),
+                error.eq(Some(reason.to_string())),
+                updated_at.eq(common_domain::clock::now().naive_utc()),
+            ));
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while canceling pending plan changes")
+            .into_db_result()
+    }
+
     /// Cancel all pending user-initiated lifecycle events for a subscription (plan change, pause, cancel).
     /// EndTrial is excluded: it's an internal timer that must always fire to transition out of TrialActive.
     pub async fn cancel_pending_lifecycle_events(

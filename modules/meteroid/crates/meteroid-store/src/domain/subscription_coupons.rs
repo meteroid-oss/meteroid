@@ -1,4 +1,4 @@
-use crate::domain::coupons::{Coupon, CouponDiscount};
+use crate::domain::coupons::Coupon;
 use crate::errors::StoreErrorReport;
 use chrono::NaiveDateTime;
 use common_domain::ids::{AppliedCouponId, CouponId, CustomerId, PlanId, SubscriptionId};
@@ -59,36 +59,18 @@ pub struct AppliedCouponDetailed {
 }
 
 impl AppliedCouponDetailed {
-    /// Credit coupons pay out through the customer's wallet, never as an invoice discount.
+    /// Credit coupons pay out through the customer's wallet, never as an invoice discount. A
+    /// fixed coupon is limited by its invoices only, never by what it gave so far (R-089).
     pub fn is_invoice_applicable(&self) -> bool {
         !self.coupon.discount.is_credit()
             && self.applied_coupon.is_active
             && !self.reached_recurring_limit()
-            && !self.amount_is_fully_consumed()
     }
 
     fn reached_recurring_limit(&self) -> bool {
         self.coupon
             .recurring_value
             .is_some_and(|x| x <= self.applied_coupon.applied_count.unwrap_or(0))
-    }
-
-    fn amount_is_fully_consumed(&self) -> bool {
-        match &self.coupon.discount {
-            CouponDiscount::Percentage(_) | CouponDiscount::Credit { .. } => false,
-            CouponDiscount::Fixed { amount, .. } => {
-                // todo currency conversion?
-                let fully_consumed = &self
-                    .applied_coupon
-                    .applied_amount
-                    .unwrap_or(Decimal::from(0))
-                    >= amount;
-
-                let applies_once = self.coupon.applies_once();
-
-                applies_once && fully_consumed
-            }
-        }
     }
 }
 

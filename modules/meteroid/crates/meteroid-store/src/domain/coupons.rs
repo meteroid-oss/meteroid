@@ -81,10 +81,6 @@ impl Coupon {
         self.expires_at.is_some_and(|x| x <= now)
     }
 
-    pub fn applies_once(&self) -> bool {
-        self.redemption_limit.is_some_and(|x| x == 1)
-    }
-
     pub fn currency(&self) -> Option<&str> {
         self.discount.currency()
     }

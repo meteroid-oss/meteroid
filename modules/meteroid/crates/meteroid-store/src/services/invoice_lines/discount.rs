@@ -1,7 +1,7 @@
 use crate::domain::coupons::{AppliedCouponsDiscount, CouponDiscount};
 use crate::domain::{AppliedCouponDetailed, CouponLineItem, LineItem};
 use common_domain::ids::BaseId;
-use common_utils::decimals::{ToSubunit, ToUnit};
+use common_utils::decimals::ToSubunit;
 use common_utils::integers::ToNonNegativeU64;
 use itertools::Itertools;
 use rust_decimal::Decimal;
@@ -102,14 +102,8 @@ pub fn calculate_coupons_discount(
                 // todo domain should use Currency type instead of string
                 let cur = meteroid_money::iso::find(currency).unwrap_or(meteroid_money::iso::USD);
 
-                let consumed_amount = &applicable_coupon
-                    .applied_coupon
-                    .applied_amount
-                    .unwrap_or(Decimal::ZERO);
-
-                let discount_subunits = (amount - consumed_amount)
-                    .to_subunit_opt(cur.exponent as u8)
-                    .unwrap_or(0);
+                // R-089: its whole amount on every invoice it lasts; `applied_amount` is no budget.
+                let discount_subunits = amount.to_subunit_opt(cur.exponent as u8).unwrap_or(0);
 
                 Decimal::from(discount_subunits).min(subtotal_subunits)
             }
@@ -137,33 +131,24 @@ pub fn calculate_coupons_discount(
 }
 
 /// What `coupons` will take off `subtotal` on the invoice that follows one which consumed
-/// `consumed`. Replays the state update finalization makes (see `refresh_applied_coupons`) so a
-/// coupon that has reached its cycle limit, or a fixed amount partly spent, is accounted for.
+/// `consumed`. Counts the application finalization records (see `refresh_applied_coupons`) so a
+/// coupon that has reached its cycle limit is accounted for.
 pub fn calculate_next_invoice_coupons_discount(
     subtotal: i64,
     invoice_currency: &str,
     coupons: &[AppliedCouponDetailed],
     consumed: &[CouponLineItem],
 ) -> i64 {
-    let precision =
-        crate::constants::Currencies::resolve_currency_precision(invoice_currency).unwrap_or(2);
-
     let next: Vec<AppliedCouponDetailed> = coupons
         .iter()
         .cloned()
         .map(|mut c| {
-            if let Some(line) = consumed
+            if consumed
                 .iter()
-                .find(|l| l.applied_coupon_id == c.applied_coupon.id)
+                .any(|l| l.applied_coupon_id == c.applied_coupon.id)
             {
                 let applied = &mut c.applied_coupon;
                 applied.applied_count = Some(applied.applied_count.unwrap_or(0) + 1);
-                if c.coupon.recurring_value.is_some_and(|x| x >= 1) {
-                    applied.applied_amount = Some(
-                        applied.applied_amount.unwrap_or(Decimal::ZERO)
-                            + line.consumed_value().to_unit(precision),
-                    );
-                }
             }
             c
         })
@@ -361,6 +346,65 @@ mod tests {
 
         assert_eq!(
             calculate_next_invoice_coupons_discount(5_000, "USD", &[once], &today.applied_coupons),
+            0
+        );
+    }
+
+    /// Rules: R-089
+    #[test]
+    fn a_fixed_coupon_gives_its_whole_amount_on_each_invoice_it_lasts() {
+        let mut fixed = applied_coupon(
+            "TWICE",
+            CouponDiscount::Fixed {
+                currency: "USD".to_string(),
+                amount: Decimal::from(10),
+            },
+        );
+        fixed.coupon.recurring_value = Some(2);
+
+        let mut taken = vec![];
+        for _ in 0..3 {
+            let invoice = calculate_coupons_discount(3_000, "USD", std::slice::from_ref(&fixed));
+            taken.push(invoice.discount_subunit);
+            // What finalization records: one more invoice, and the amount given.
+            if invoice.discount_subunit > 0 {
+                let applied = &mut fixed.applied_coupon;
+                applied.applied_count = Some(applied.applied_count.unwrap_or(0) + 1);
+                applied.applied_amount = Some(
+                    applied.applied_amount.unwrap_or_default()
+                        + Decimal::new(invoice.discount_subunit, 2),
+                );
+            }
+        }
+        assert_eq!(taken, vec![1_000, 1_000, 0]);
+    }
+
+    /// Rules: R-089
+    #[test]
+    fn next_invoice_discount_keeps_a_fixed_coupon_whole() {
+        let mut fixed = applied_coupon(
+            "TWICE",
+            CouponDiscount::Fixed {
+                currency: "USD".to_string(),
+                amount: Decimal::from(10),
+            },
+        );
+        fixed.coupon.recurring_value = Some(2);
+        let today = calculate_coupons_discount(3_000, "USD", std::slice::from_ref(&fixed));
+        assert_eq!(today.discount_subunit, 1_000);
+
+        assert_eq!(
+            calculate_next_invoice_coupons_discount(
+                3_000,
+                "USD",
+                std::slice::from_ref(&fixed),
+                &today.applied_coupons
+            ),
+            1_000
+        );
+        fixed.applied_coupon.applied_count = Some(1);
+        assert_eq!(
+            calculate_next_invoice_coupons_discount(3_000, "USD", &[fixed], &today.applied_coupons),
             0
         );
     }

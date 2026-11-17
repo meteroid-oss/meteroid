@@ -1,9 +1,11 @@
 use crate::StoreResult;
 use crate::domain::credit::{CreditCost, GrantClassification, GrantScope};
+use crate::domain::credit_exhausted::{CreditExhaustedRule, UsageAtZero};
 use crate::domain::entity_activity::Actor;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
-    CouponLineItem, DetailedInvoice, Invoice, InvoiceLinesPatch, LineItem, SubscriptionDetails,
+    CouponLineItem, DetailedInvoice, Invoice, InvoiceLinesPatch, LineItem, LineItemKind,
+    SubscriptionDetails,
 };
 use crate::errors::StoreError;
 use crate::repositories::credit::allocation::{Allocation, CreditRequest, GrantPool};
@@ -22,10 +24,13 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use common_domain::ids::{AppliedCouponId, BaseId, InvoiceId, SubscriptionId, TenantId};
 use common_utils::decimals::ToUnit;
 use diesel_models::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRow};
+use diesel_models::customer_credit::CustomerCreditAccountRow;
 use diesel_models::customers::CustomerRow;
+use diesel_models::enums::CreditExhaustedRuleEnum;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowIdentityPatch, InvoiceRowLinesPatch};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::lock::CustomerLock;
+use diesel_models::plan_versions::PlanVersionRow;
 use diesel_models::{DbResult, PgConn};
 use error_stack::Report;
 use scoped_futures::ScopedFutureExt;
@@ -472,6 +477,7 @@ impl Services {
             let will_close = refreshed_lines_empty
                 && invoice.invoice_type.bills_subscription_usage()
                 && may_close_empty_recurring;
+            let mut past_cap = Vec::new();
             if !will_close {
                 self.apply_customer_credit_tx(
                     conn,
@@ -482,6 +488,9 @@ impl Services {
                     issue.credit_time(),
                 )
                 .await?;
+                if self.store.hooks.credit.available() {
+                    past_cap = usage_past_cap_tx(conn, &invoice, &patch).await?;
+                }
             }
 
             let row_patch: InvoiceRowLinesPatch = patch.try_into()?;
@@ -572,6 +581,9 @@ impl Services {
             let invoice_details = self
                 .increment_and_finalize(conn, lock, actor, invoice, applied_coupons_amounts, &issue)
                 .await?;
+            for (denomination, amount) in past_cap {
+                metrics::billed_past_cap(&denomination, amount);
+            }
 
             Ok(invoice_details)
         })
@@ -1086,6 +1098,8 @@ async fn refresh_applied_coupons(
             .await?;
 
     for applied_coupon_detailed in applied_coupons_detailed {
+        // The amount given is reported, never a budget (R-089); only coupons of a limited
+        // duration have always recorded it, so forever ones still do not.
         let amount_delta = if applied_coupon_detailed
             .coupon
             .recurring_value
@@ -1123,6 +1137,86 @@ enum CreditBilling {
         grants: credit::LockedGrants,
         periods: credit::BilledPeriods,
     },
+}
+
+/// What the invoice bills beyond credit above its plan's `InvoiceUpTo` cap, per denomination, as
+/// the wallet holding it applies the cap (R-090). Read only for a plan with a cap.
+async fn usage_past_cap_tx(
+    conn: &mut PgConn,
+    invoice: &Invoice,
+    patch: &InvoiceLinesPatch,
+) -> StoreResult<Vec<(String, i64)>> {
+    let (Some(plan_version_id), true) = (
+        invoice.plan_version_id,
+        invoice.invoice_type.bills_subscription_usage(),
+    ) else {
+        return Ok(vec![]);
+    };
+    let version =
+        PlanVersionRow::find_by_id_and_tenant_id(conn, plan_version_id, invoice.tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+    if version.credit_exhausted_rule != Some(CreditExhaustedRuleEnum::InvoiceUpTo) {
+        return Ok(vec![]);
+    }
+    let billed = billed_beyond_credit(&patch.line_items, &invoice.currency, patch.applied_credits);
+    if billed.is_empty() {
+        return Ok(vec![]);
+    }
+    let rule = CreditExhaustedRule::from_row(
+        CreditExhaustedRuleEnum::InvoiceUpTo,
+        &version.credit_exhausted_caps,
+    );
+    let wallets =
+        CustomerCreditAccountRow::list_for_customer(conn, invoice.tenant_id, invoice.customer_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+    Ok(billed
+        .into_iter()
+        .filter_map(|(denomination, amount)| {
+            let usage_at_zero = wallets
+                .iter()
+                .find(|wallet| wallet.currency.trim().eq_ignore_ascii_case(&denomination))
+                .map_or(UsageAtZero::FollowPlan, |wallet| {
+                    wallet.usage_at_zero.into()
+                });
+            let cap = usage_at_zero.allowance(Some(&rule), &denomination)?;
+            (amount > cap).then(|| (denomination, amount - cap))
+        })
+        .collect())
+}
+
+/// Usage billed beyond credit, by upper-case denomination: what a credit unit's grants left
+/// uncovered, and the invoice currency's usage after promotional credit less the paid credit the
+/// invoice drew, as if that paid usage first (an undercount when it paid fees or tax).
+fn billed_beyond_credit(
+    lines: &[LineItem],
+    currency: &str,
+    applied_credits: i64,
+) -> std::collections::BTreeMap<String, i64> {
+    let mut billed = std::collections::BTreeMap::new();
+    let mut usage = 0_i64;
+    for line in lines
+        .iter()
+        .filter(|line| line.metric_id.is_some() && line.kind == LineItemKind::Regular)
+    {
+        match &line.credit_unit {
+            Some(unit) => {
+                let entry = billed
+                    .entry(unit.code.trim().to_uppercase())
+                    .or_insert(0_i64);
+                *entry = entry.saturating_add((unit.consumed - unit.covered).max(0));
+            }
+            None => usage = usage.saturating_add(line.taxable_amount.max(0)),
+        }
+    }
+    let usage = usage.saturating_sub(applied_credits.max(0));
+    if usage > 0 {
+        let entry = billed.entry(currency.trim().to_uppercase()).or_insert(0);
+        *entry = entry.saturating_add(usage);
+    }
+    billed.retain(|_, amount| *amount > 0);
+    billed
 }
 
 /// A subscription's recurring or final invoice whose usage periods an invoice bills: the invoice
@@ -1186,5 +1280,70 @@ mod tests {
 
         let future = fixed_now() + chrono::Duration::seconds(1);
         assert!(Issue::resolve(IssueAt::At(future), day(1), false, false, fixed_now()).is_err());
+    }
+
+    fn usage_line(taxable: i64, unit: Option<(&str, i64, i64)>) -> LineItem {
+        LineItem {
+            local_id: "usage".to_owned(),
+            name: "Tokens".to_owned(),
+            charge_type: None,
+            amount_subtotal: taxable,
+            tax_rate: rust_decimal::Decimal::ZERO,
+            taxable_amount: taxable,
+            tax_amount: 0,
+            amount_total: taxable,
+            tax_details: vec![],
+            quantity: None,
+            unit_price: None,
+            start_date: day(1),
+            end_date: day(31),
+            sub_lines: Vec::new(),
+            is_prorated: false,
+            price_component_id: None,
+            sub_component_id: None,
+            sub_add_on_id: None,
+            product_id: None,
+            metric_id: Some(common_domain::ids::BillableMetricId::new()),
+            description: None,
+            group_by_dimensions: None,
+            kind: LineItemKind::Regular,
+            credit_grant_amount: None,
+            credit_grant_expiry: None,
+            credit_grant_included: false,
+            taxed_at_purchase: false,
+            tax_inclusive_quote: None,
+            credit_unit: unit.map(|(code, consumed, covered)| crate::domain::LineCreditUnit {
+                unit_id: common_domain::ids::CreditUnitId::new(),
+                code: code.to_owned(),
+                precision: 0,
+                rate: rust_decimal::Decimal::ONE,
+                price_rate: None,
+                unit_price: None,
+                sub_lines: vec![],
+                consumed,
+                covered,
+            }),
+            credit_grant_unit: None,
+            credit_grant_rollover: None,
+            promotional_credit: None,
+            subscription_id: None,
+            usage_ends_at: None,
+        }
+    }
+
+    /// Rules: R-090
+    #[test]
+    fn usage_beyond_credit_is_measured_per_denomination() {
+        let lines = [
+            usage_line(4_000, None),
+            usage_line(1_500, Some(("tok", 900, 600))),
+            usage_line(0, Some(("SEAT", 50, 50))),
+        ];
+        let billed = billed_beyond_credit(&lines, "eur", 1_000);
+        assert_eq!(
+            billed.into_iter().collect::<Vec<_>>(),
+            vec![("EUR".to_owned(), 3_000), ("TOK".to_owned(), 300)]
+        );
+        assert!(billed_beyond_credit(&lines[..1], "EUR", 5_000).is_empty());
     }
 }

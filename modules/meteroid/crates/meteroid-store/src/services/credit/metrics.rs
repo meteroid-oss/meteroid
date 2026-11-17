@@ -107,6 +107,20 @@ static REVERSAL_EXCESS_MINOR: LazyLock<Counter<u64>> = LazyLock::new(|| {
     )
 });
 
+static INVOICES_PAST_CAP: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    counter(
+        "credit_invoices_billed_past_cap",
+        "Issued invoices billing usage beyond credit above the plan's cap, by denomination",
+    )
+});
+
+static BILLED_PAST_CAP_MINOR: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    counter(
+        "credit_billed_past_cap_minor",
+        "Usage billed beyond credit above the plan's cap, in minor units, by denomination",
+    )
+});
+
 fn label(key: &'static str, value: &'static str) -> KeyValue {
     KeyValue::new(key, value)
 }
@@ -218,6 +232,16 @@ pub fn reversal_excess(currency: &str, disputed: bool, amount: i64) {
     );
 }
 
+/// Usage that slipped the `InvoiceUpTo` gate and is billed all the same (R-090).
+pub fn billed_past_cap(denomination: &str, amount: i64) {
+    if amount <= 0 {
+        return;
+    }
+    let denomination = [KeyValue::new("denomination", denomination.to_owned())];
+    INVOICES_PAST_CAP.add(1, &denomination);
+    BILLED_PAST_CAP_MINOR.add(minor(amount), &denomination);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,5 +258,7 @@ mod tests {
         estimate_drift(105, 100);
         estimate_drift(0, 0);
         estimate_drift(i64::MAX, 1);
+        billed_past_cap("EUR", 120);
+        billed_past_cap("EUR", 0);
     }
 }

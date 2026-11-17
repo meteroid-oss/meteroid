@@ -370,7 +370,8 @@ impl Model {
     }
 
     /// R-020: percentage coupons first, then fixed ones, each on what the previous left, never
-    /// above the subtotal; a coupon discounts as many invoices as its duration.
+    /// above the subtotal; a coupon discounts as many invoices as its duration, a fixed one its
+    /// whole amount on each (R-089).
     fn discount(&mut self, subtotal: i64) -> i64 {
         let mut order: Vec<usize> = (0..self.uses.len())
             .filter(|&c| {
