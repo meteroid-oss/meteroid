@@ -4,18 +4,19 @@ use crate::invoices::mapping as invoice_mapping;
 use common_domain::ids::{CreditNoteId, CustomerId, InvoiceId, TenantId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::creditnotes::v1::{
-    CreateCreditNoteRequest, CreateCreditNoteResponse, CreditType, DeleteDraftCreditNoteRequest,
-    DeleteDraftCreditNoteResponse, FinalizeCreditNoteRequest, FinalizeCreditNoteResponse,
-    GetCreditNoteRequest, GetCreditNoteResponse, ListCreditNoteRefundsRequest,
-    ListCreditNoteRefundsResponse, ListCreditNotesByCustomerIdRequest,
-    ListCreditNotesByCustomerIdResponse, ListCreditNotesByInvoiceIdRequest,
-    ListCreditNotesByInvoiceIdResponse, ListCreditNotesRequest, ListCreditNotesResponse,
-    PreviewCreditNoteSvgRequest, PreviewCreditNoteSvgResponse,
+    CreateCreditNoteRequest, CreateCreditNoteResponse, CreditNoteKind, CreditType,
+    DeleteDraftCreditNoteRequest, DeleteDraftCreditNoteResponse, FinalizeCreditNoteRequest,
+    FinalizeCreditNoteResponse, GetCreditNoteRequest, GetCreditNoteResponse,
+    ListCreditNoteRefundsRequest, ListCreditNoteRefundsResponse,
+    ListCreditNotesByCustomerIdRequest, ListCreditNotesByCustomerIdResponse,
+    ListCreditNotesByInvoiceIdRequest, ListCreditNotesByInvoiceIdResponse, ListCreditNotesRequest,
+    ListCreditNotesResponse, PreviewCreditNoteSvgRequest, PreviewCreditNoteSvgResponse,
     RequestCreditNotePdfGenerationRequest, RequestCreditNotePdfGenerationResponse,
     SyncCreditNoteToPennylaneRequest, SyncCreditNoteToPennylaneResponse, VoidCreditNoteRequest,
     VoidCreditNoteResponse, credit_notes_service_server::CreditNotesService,
 };
 use meteroid_grpc_mapping::utils::PaginationExt;
+use meteroid_store::domain::enums::OperatorNoteKind;
 use meteroid_store::domain::{CreditNote as DomainCreditNote, CreditNoteStatus};
 use meteroid_store::repositories::CreditNoteInterface;
 use meteroid_store::repositories::InvoiceInterface;
@@ -306,6 +307,13 @@ impl CreditNotesService for CreditNoteServiceComponents {
                 CreditNoteApiError::InvalidArgument(format!("Invalid custom_properties JSON: {e}"))
             })?;
 
+        let kind = match CreditNoteKind::try_from(credit_note_req.kind)
+            .map_err(|_| CreditNoteApiError::InvalidArgument("Invalid kind".to_string()))?
+        {
+            CreditNoteKind::Goodwill => OperatorNoteKind::Goodwill,
+            CreditNoteKind::Correction => OperatorNoteKind::Correction,
+        };
+
         let params = CreateCreditNoteParams {
             invoice_id,
             line_items,
@@ -329,6 +337,7 @@ impl CreditNotesService for CreditNoteServiceComponents {
                     tenant_id,
                     params,
                     true,
+                    kind,
                 )
                 .await
                 .map_err(Into::<CreditNoteApiError>::into)?;
@@ -336,14 +345,14 @@ impl CreditNotesService for CreditNoteServiceComponents {
         } else if req.finalize {
             let cn = self
                 .store
-                .create_and_finalize_credit_note(actor.clone(), tenant_id, params)
+                .create_operator_credit_note(actor.clone(), tenant_id, params, kind, true)
                 .await
                 .map_err(Into::<CreditNoteApiError>::into)?;
             (cn, None)
         } else {
             let cn = self
                 .store
-                .create_credit_note(actor.clone(), tenant_id, params)
+                .create_operator_credit_note(actor.clone(), tenant_id, params, kind, false)
                 .await
                 .map_err(Into::<CreditNoteApiError>::into)?;
             (cn, None)

@@ -2627,6 +2627,68 @@ async fn a_hand_written_note_is_not_a_plan_change_note(#[future] test_env: TestE
     );
 }
 
+/// An operator's note marked as a correction counts like the engine's (R-082): a change crediting
+/// 16 of 31 days of the line gives back the 5.16 less the 1.00 already corrected, never twice.
+#[rstest]
+#[tokio::test]
+async fn an_operators_correction_is_not_credited_again_by_a_change(#[future] test_env: TestEnv) {
+    use meteroid_store::domain::enums::OperatorNoteKind;
+    use meteroid_store::repositories::credit_notes::{CreateCreditNoteParams, CreditLineItem};
+
+    let env = test_env.await;
+    halyard(&env, CreditExpiry::BillingPeriod).await;
+    let sub_id = start(&env, CUST_UBER_ID, STUDIO, date(2024, 1, 1)).await;
+    let january = invoice(&env, sub_id, 0).await;
+    pay(&env, &january).await;
+    let seats = january
+        .line_items
+        .iter()
+        .find(|line| line.name == "Seats")
+        .expect("seats")
+        .local_id
+        .clone();
+    env.store()
+        .create_operator_credit_note(
+            Actor::System,
+            TENANT_ID,
+            CreateCreditNoteParams {
+                invoice_id: january.id,
+                line_items: vec![CreditLineItem::Amount {
+                    local_id: seats,
+                    amount_cents: 100,
+                }],
+                reason: Some("Seats removed early".to_owned()),
+                memo: None,
+                credit_type: CreditType::CreditToBalance,
+                custom_properties: None,
+            },
+            OperatorNoteKind::Correction,
+            true,
+        )
+        .await
+        .expect("correction note");
+
+    change_on(&env, sub_id, SCALE, date(2024, 1, 16)).await;
+
+    let notes = env
+        .store()
+        .list_credit_notes_by_invoice_id(TENANT_ID, january.id)
+        .await
+        .expect("notes");
+    let mut seat_credits: Vec<i64> = notes
+        .iter()
+        .flat_map(|note| note.line_items.iter())
+        .filter(|line| line.name == "Seats")
+        .map(|line| line.amount_subtotal)
+        .collect();
+    seat_credits.sort();
+    assert_eq!(
+        seat_credits,
+        vec![-416, -100],
+        "516 owed, 100 already corrected"
+    );
+}
+
 /// A French customer (20% VAT) with a 20% coupon: January bills 29.00 and 10.00 less 5.80 and
 /// 2.00 off, taxed 4.64 and 1.60. Studio -> Scale on Jan 16 gives back 16 of 31 days of each line
 /// at its own discount and tax.

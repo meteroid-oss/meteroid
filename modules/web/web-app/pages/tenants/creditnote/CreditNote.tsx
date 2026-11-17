@@ -56,6 +56,7 @@ import {
   voidCreditNote,
 } from '@/rpc/api/creditnotes/v1/creditnotes-CreditNotesService_connectquery'
 import {
+  CreditNoteKind,
   CreditNoteStatus,
   CreditType,
   DetailedCreditNote,
@@ -67,7 +68,6 @@ import { parseAndFormatDate } from '@/utils/date'
 import { useTypedParams } from '@/utils/params'
 
 import { resizeSvgContent } from '../invoice/utils'
-
 
 export const CreditNote = () => {
   const { creditNoteId } = useTypedParams<{ creditNoteId: string }>()
@@ -224,7 +224,7 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
         queryKey: createConnectQueryKey({
           schema: getCreditNote,
           input: { id: creditNoteId },
-          cardinality: 'finite'
+          cardinality: 'finite',
         }),
       })
     },
@@ -240,14 +240,14 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
         queryKey: createConnectQueryKey({
           schema: getCreditNote,
           input: { id: creditNoteId },
-          cardinality: 'finite'
+          cardinality: 'finite',
         }),
       })
       await queryClient.invalidateQueries({
         queryKey: createConnectQueryKey({
           schema: listCreditNotes,
           input: {},
-          cardinality: 'finite'
+          cardinality: 'finite',
         }),
       })
     },
@@ -263,7 +263,7 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
         queryKey: createConnectQueryKey({
           schema: listCreditNotes,
           input: {},
-          cardinality: 'finite'
+          cardinality: 'finite',
         }),
       })
       navigate(`${basePath}/credit-notes`)
@@ -451,6 +451,10 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
             <FlexDetails title="Credit note number" value={creditNote.creditNoteNumber} />
             <FlexDetails title="Type" value={<CreditTypeLabel type={creditNote.creditType} />} />
             <FlexDetails
+              title="Kind"
+              value={creditNote.kind === CreditNoteKind.CORRECTION ? 'Correction' : 'Goodwill'}
+            />
+            <FlexDetails
               title="Related invoice"
               value={
                 <Link
@@ -607,7 +611,6 @@ const CreditNoteView = ({ creditNote, creditNoteId }: Props) => {
     </Flex>
   )
 }
-
 
 const CreditNoteRefunds: React.FC<{ creditNote: DetailedCreditNote }> = ({ creditNote }) => {
   const [showRefundDialog, setShowRefundDialog] = useState(false)
@@ -829,7 +832,9 @@ const CreditNoteLineItems: React.FC<{ items: LineItem[]; currency: string }> = (
                     {packCreditText(item, currency, units, 'Reverses')}
                   </div>
                 )}
-                {item.creditUnit && <NamedCreditUnitUsageNote credit={item.creditUnit} className="mt-1" />}
+                {item.creditUnit && (
+                  <NamedCreditUnitUsageNote credit={item.creditUnit} className="mt-1" />
+                )}
               </div>
               <div className="text-right">
                 <div className="text-[13px] font-medium">

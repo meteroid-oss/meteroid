@@ -78,6 +78,16 @@ message DetailedCreditNote {
   // The promotional credit given back to the customer's grants (tax included on a tax-inclusive
   // line): as the ledger booked it on GetCreditNote of an issued note, else the lines' estimate.
   int64 promotional_credit_restored_cents = 35;
+  // CORRECTION for the engine's notes and an operator's correction: a later change in the period
+  // counts it and never credits the same days again.
+  CreditNoteKind kind = 36;
+}
+
+// An operator's credit note is goodwill unless it corrects what was billed (days refunded by
+// hand): a correction is counted by a later plan change or cancellation in the period.
+enum CreditNoteKind {
+  GOODWILL = 0;
+  CORRECTION = 1;
 }
 
 enum CreditType {
@@ -112,4 +122,5 @@ message NewCreditNote {
   CreditType credit_type = 5;
   // JSON-encoded object of custom property values, validated against the tenant's credit note definitions.
   optional string custom_properties = 6;
+  CreditNoteKind kind = 7;
 }

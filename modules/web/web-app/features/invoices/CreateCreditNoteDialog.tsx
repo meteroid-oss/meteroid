@@ -46,7 +46,7 @@ import {
   createCreditNote,
   listCreditNotesByInvoiceId,
 } from '@/rpc/api/creditnotes/v1/creditnotes-CreditNotesService_connectquery'
-import { CreditNoteStatus, CreditType } from '@/rpc/api/creditnotes/v1/models_pb'
+import { CreditNoteKind, CreditNoteStatus, CreditType } from '@/rpc/api/creditnotes/v1/models_pb'
 import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 import { getInvoice } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
 import { DetailedInvoice, InvoicePaymentStatus, LineItem } from '@/rpc/api/invoices/v1/models_pb'
@@ -190,6 +190,14 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
     )
     return invoice.lineItems.filter(item => selected.has(item.id))
   }, [scope, lineItems, invoice.lineItems])
+  // A fee credited by hand usually refunds days a later change would refund again: a correction.
+  const suggestedKind = creditedLines.some(
+    line => line.priceComponentId !== undefined && line.metricId === undefined
+  )
+    ? CreditNoteKind.CORRECTION
+    : CreditNoteKind.GOODWILL
+  const [chosenKind, setChosenKind] = useState<CreditNoteKind | undefined>(undefined)
+  const kind = chosenKind ?? suggestedKind
   const ctbBlocked = creditToBalanceBlocked(creditedLines)
   const refundOfSoldCredit = disposition === 'refund' && creditedLines.some(sellsCredit)
   const reissueDisabled = reissueBlocked(scope, disposition, creditedLines)
@@ -427,6 +435,7 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
         memo: memo || undefined,
         creditType: dispositionToCreditType(disposition),
         customProperties: serializeCustomProperties(customPropsForm.getValues('customProperties')),
+        kind,
       },
       finalize: true,
       reissueAsDraft: scope === 'full' && reissue,
@@ -845,6 +854,44 @@ export const CreateCreditNoteDialog: React.FC<CreateCreditNoteDialogProps> = ({
                 </Label>
               </div>
             )}
+
+            {/* Correction or goodwill */}
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">What this credit is</Label>
+              <RadioGroup
+                value={String(kind)}
+                onValueChange={v => setChosenKind(Number(v) as CreditNoteKind)}
+              >
+                <div className="flex items-start space-x-2">
+                  <RadioGroupItem
+                    value={String(CreditNoteKind.CORRECTION)}
+                    id="kind-correction"
+                    className="mt-1"
+                  />
+                  <Label htmlFor="kind-correction" className="text-sm font-normal cursor-pointer">
+                    A correction of what was billed
+                    <span className="block text-xs text-muted-foreground">
+                      A later plan change or cancellation in this period will not credit these days
+                      again.
+                    </span>
+                  </Label>
+                </div>
+                <div className="flex items-start space-x-2">
+                  <RadioGroupItem
+                    value={String(CreditNoteKind.GOODWILL)}
+                    id="kind-goodwill"
+                    className="mt-1"
+                  />
+                  <Label htmlFor="kind-goodwill" className="text-sm font-normal cursor-pointer">
+                    Goodwill
+                    <span className="block text-xs text-muted-foreground">
+                      Given on top: a later plan change or cancellation in this period still credits
+                      its unused time, within what the line has left.
+                    </span>
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
 
             {/* Reason */}
             <div className="space-y-2">

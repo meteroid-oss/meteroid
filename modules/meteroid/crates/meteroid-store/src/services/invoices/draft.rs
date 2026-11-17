@@ -615,6 +615,7 @@ impl Services {
         tenant_id: TenantId,
         params: crate::repositories::credit_notes::CreateCreditNoteParams,
         reissue_as_draft: bool,
+        kind: crate::domain::enums::OperatorNoteKind,
     ) -> Result<(crate::domain::CreditNote, Option<Invoice>), StoreErrorReport> {
         use crate::repositories::credit_notes::{
             create_user_credit_note_tx, finalize_credit_note_tx,
@@ -632,7 +633,7 @@ impl Services {
                         params,
                         false,
                         false,
-                        crate::domain::enums::CreditNoteOrigin::Manual,
+                        kind.into(),
                     )
                     .await?;
                     let invoice_id = draft.invoice_id;

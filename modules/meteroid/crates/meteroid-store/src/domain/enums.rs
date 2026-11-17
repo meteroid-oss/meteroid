@@ -151,10 +151,31 @@ pub enum CreditNoteOrigin {
     LatePack,
     UnappliedChange,
     Void,
+    /// An operator's note correcting what was billed (days refunded by hand), counted like the
+    /// engine's.
+    Correction,
+}
+
+/// What an operator's credit note is (R-082): goodwill caps what a later change can take back;
+/// a correction is counted like the engine's notes, so no later change refunds it again.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Default)]
+pub enum OperatorNoteKind {
+    #[default]
+    Goodwill,
+    Correction,
+}
+
+impl From<OperatorNoteKind> for CreditNoteOrigin {
+    fn from(kind: OperatorNoteKind) -> Self {
+        match kind {
+            OperatorNoteKind::Goodwill => Self::Manual,
+            OperatorNoteKind::Correction => Self::Correction,
+        }
+    }
 }
 
 impl CreditNoteOrigin {
-    /// Whether the engine issued it, correcting what a charge billed.
+    /// Whether it corrects what a charge billed: the engine's notes, and an operator's correction.
     pub fn corrects(self) -> bool {
         !matches!(self, Self::Manual)
     }

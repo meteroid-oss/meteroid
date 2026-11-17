@@ -190,6 +190,7 @@ pub enum CreditNoteOriginEnum {
     LatePack,
     UnappliedChange,
     Void,
+    Correction,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, Eq, PartialEq)]

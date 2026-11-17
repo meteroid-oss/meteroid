@@ -133,6 +133,11 @@ pub fn detailed_domain_to_server(
         discount_cents: reductions.discount,
         promotional_credit_cents: reductions.promotional_credit,
         promotional_credit_restored_cents: promotional_credit_restored,
+        kind: if detailed.credit_note.origin.corrects() {
+            v1::CreditNoteKind::Correction
+        } else {
+            v1::CreditNoteKind::Goodwill
+        } as i32,
     })
 }
 

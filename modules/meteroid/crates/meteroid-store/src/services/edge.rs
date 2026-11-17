@@ -1945,6 +1945,7 @@ impl ServicesEdge {
         tenant_id: TenantId,
         params: crate::repositories::credit_notes::CreateCreditNoteParams,
         reissue_as_draft: bool,
+        kind: crate::domain::enums::OperatorNoteKind,
     ) -> StoreResult<(crate::domain::CreditNote, Option<Invoice>)> {
         self.services
             .create_and_finalize_credit_note_with_reissue(
@@ -1952,6 +1953,7 @@ impl ServicesEdge {
                 tenant_id,
                 params,
                 reissue_as_draft,
+                kind,
             )
             .await
     }

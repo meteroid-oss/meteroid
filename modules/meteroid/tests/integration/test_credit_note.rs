@@ -1913,6 +1913,7 @@ async fn test_cn_with_reissue_unpaid_full_dc_happy_path() {
                 custom_properties: None,
             },
             true,
+            meteroid_store::domain::enums::OperatorNoteKind::Goodwill,
         )
         .await
         .unwrap();
@@ -1967,6 +1968,7 @@ async fn test_cn_with_reissue_rejected_if_already_reissued() {
                 custom_properties: None,
             },
             true,
+            meteroid_store::domain::enums::OperatorNoteKind::Goodwill,
         )
         .await
         .unwrap();
@@ -2010,6 +2012,7 @@ async fn test_cn_with_reissue_rejected_when_partial() {
                 custom_properties: None,
             },
             true,
+            meteroid_store::domain::enums::OperatorNoteKind::Goodwill,
         )
         .await
         .expect_err("partial CN + reissue must fail");
@@ -2052,6 +2055,7 @@ async fn test_cn_with_reissue_paid_full_refund_happy_path() {
                 custom_properties: None,
             },
             true,
+            meteroid_store::domain::enums::OperatorNoteKind::Goodwill,
         )
         .await
         .unwrap();
@@ -2097,6 +2101,7 @@ async fn test_cn_with_reissue_paid_full_ctb_happy_path() {
                 custom_properties: None,
             },
             true,
+            meteroid_store::domain::enums::OperatorNoteKind::Goodwill,
         )
         .await
         .unwrap();

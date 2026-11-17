@@ -133,6 +133,16 @@ pub trait CreditNoteInterface {
         params: CreateCreditNoteParams,
     ) -> StoreResult<CreditNote>;
 
+    /// An operator's note of `kind`, finalized or left a draft.
+    async fn create_operator_credit_note(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        params: CreateCreditNoteParams,
+        kind: crate::domain::enums::OperatorNoteKind,
+        finalize: bool,
+    ) -> StoreResult<CreditNote>;
+
     /// Create and finalize a credit note in a single transaction. Used by interactive
     /// UI paths so the user never sees a Draft CN (which would be a footgun: actions
     /// like settling the parent invoice and offering reissue only fire on finalize).
@@ -2065,10 +2075,22 @@ impl CreditNoteInterface for Store {
         tenant_id: TenantId,
         params: CreateCreditNoteParams,
     ) -> StoreResult<CreditNote> {
+        self.create_operator_credit_note(actor, tenant_id, params, Default::default(), false)
+            .await
+    }
+
+    async fn create_operator_credit_note(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        params: CreateCreditNoteParams,
+        kind: crate::domain::enums::OperatorNoteKind,
+        finalize: bool,
+    ) -> StoreResult<CreditNote> {
         self.transaction(|conn| {
             let actor = &actor;
             async move {
-                create_user_credit_note_tx(
+                let note = create_user_credit_note_tx(
                     self,
                     conn,
                     tenant_id,
@@ -2076,9 +2098,14 @@ impl CreditNoteInterface for Store {
                     params,
                     false,
                     false,
-                    crate::domain::enums::CreditNoteOrigin::Manual,
+                    kind.into(),
                 )
-                .await
+                .await?;
+                if finalize {
+                    finalize_credit_note_tx(self, conn, tenant_id, actor, note.id).await
+                } else {
+                    Ok(note)
+                }
             }
             .scope_boxed()
         })
@@ -2091,25 +2118,8 @@ impl CreditNoteInterface for Store {
         tenant_id: TenantId,
         params: CreateCreditNoteParams,
     ) -> StoreResult<CreditNote> {
-        self.transaction(|conn| {
-            let actor = &actor;
-            async move {
-                let draft = create_user_credit_note_tx(
-                    self,
-                    conn,
-                    tenant_id,
-                    actor,
-                    params,
-                    false,
-                    false,
-                    crate::domain::enums::CreditNoteOrigin::Manual,
-                )
-                .await?;
-                finalize_credit_note_tx(self, conn, tenant_id, actor, draft.id).await
-            }
-            .scope_boxed()
-        })
-        .await
+        self.create_operator_credit_note(actor, tenant_id, params, Default::default(), true)
+            .await
     }
 
     async fn list_credit_notes(
