@@ -29,6 +29,7 @@ fn lines_patch(invoice: &Invoice) -> InvoiceRowLinesPatch {
         line_items: invoice.line_items.clone(),
         amount_due: invoice.amount_due,
         subtotal: invoice.subtotal,
+        discount: invoice.discount,
         subtotal_recurring: invoice.subtotal_recurring,
         total: invoice.total,
         tax_amount: invoice.tax_amount,

@@ -63,8 +63,16 @@ impl Services {
                     )
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+                    crate::services::facts::pending::withdraw_pending_of_tx(
+                        conn,
+                        tenant_id,
+                        subscription_id,
+                        crate::services::facts::pending::CHANGES,
+                        "Replaced by subscription cancellation",
+                    )
+                    .await?;
 
-                    let now = common_domain::clock::now().naive_utc();
+                    let now = common_clock::now().naive_utc();
 
                     // A never-activated subscription (awaiting checkout / pending activation) was
                     // never counted in the active population: abort it immediately with no CANCELLED
@@ -137,7 +145,7 @@ impl Services {
                                 tenant_id,
                                 subscription_id,
                                 ended_at,
-                                common_domain::clock::now(),
+                                common_clock::now(),
                             )
                             .await?;
                         }
@@ -210,7 +218,7 @@ impl Services {
                         subscription_id,
                         event_type: SubscriptionEventType::Cancelled.into(),
                         details: None,
-                        created_at: common_domain::clock::now().naive_utc(),
+                        created_at: common_clock::now().naive_utc(),
                         mrr_delta: Some(-(mrr as i64)),
                         bi_mrr_movement_log_id: None,
                         applies_to: billing_end_date,

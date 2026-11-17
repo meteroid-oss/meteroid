@@ -1,4 +1,4 @@
-//! Credit settlement of one document (Phase 5.2): promotional credit off the charges after
+//! Credit settlement of one document: promotional credit off the charges after
 //! discount and before tax (R-021, R1), the lines it moves taxed again by their rates, then paid
 //! credit on what is left with tax. Drafts, previews and forecasts call [`settle`]; finalize runs
 //! the same steps with the ledger's draws in between.
@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
+use common_domain::ids::CreditGrantId;
 
 use crate::allocation::allocate_covered;
 use crate::credit::SettleError;
@@ -273,7 +273,7 @@ pub fn line_allocation(
     request: &Request,
     allocation: &Allocation,
     base: impl Fn(usize, &Line) -> i64,
-) -> Vec<(Uuid, Option<String>, i64)> {
+) -> Vec<(CreditGrantId, Option<String>, i64)> {
     let mut out = Vec::new();
     for (grant_id, columns) in &allocation.placed {
         let mut placed: BTreeMap<Option<String>, i64> = BTreeMap::new();
@@ -482,7 +482,7 @@ impl Document {
         of_line: &[Option<usize>],
         request: &Request,
         paid: &Allocation,
-    ) -> Vec<(Uuid, Option<String>, i64)> {
+    ) -> Vec<(CreditGrantId, Option<String>, i64)> {
         line_allocation(&self.lines, of_line, request, paid, |_, line| line.total)
     }
 }
@@ -538,16 +538,88 @@ pub fn estimate(
             Pool::Promotional => after_settlements(request, charges, &in_pool(Pool::Paid))?,
             Pool::All | Pool::Paid => request.clone(),
         };
-        let kept = assign_settled(&in_pool(pool), &ahead)?;
+        let kept = assign_settled(&in_pool(pool), &usage_only(&ahead)?)?;
         (ahead, kept)
     };
     let rest = ahead.remainder(&kept)?;
     let fresh = if rest.requested_minor <= 0 {
         Allocation::default()
     } else {
-        allocate(&grants.drawable, &rest, grants.at, pool)?
+        let drawable = returned_to_drawable(grants, pool, &kept)?;
+        allocate(&drawable, &rest, grants.at, pool)?
     };
     Ok(Drawn { kept, fresh })
+}
+
+/// The drawable grants once what each settlement of `pool` held beyond what the document keeps
+/// is back on its grant, as finalizing returns it before drawing: spendable again unless lapsed.
+fn returned_to_drawable(
+    grants: &Grants,
+    pool: Pool,
+    kept: &Allocation,
+) -> Result<Vec<Grant>, Overflow> {
+    let mut drawable = grants.drawable.clone();
+    let mut returned: Vec<(&Grant, i64)> = Vec::new();
+    for settled in grants
+        .settled
+        .iter()
+        .filter(|settled| pool.admits(settled.grant.classification))
+    {
+        match returned
+            .iter_mut()
+            .find(|(grant, _)| grant.id == settled.grant.id)
+        {
+            Some((_, held)) => *held = held.checked_add(settled.amount).ok_or(Overflow)?,
+            None => returned.push((&settled.grant, settled.amount)),
+        }
+    }
+    for (grant, held) in returned {
+        let kept_of = kept
+            .draws
+            .iter()
+            .filter(|(id, _)| *id == grant.id)
+            .try_fold(0_i64, |sum, (_, amount)| sum.checked_add(*amount))
+            .ok_or(Overflow)?;
+        let excess = held.checked_sub(kept_of).ok_or(Overflow)?;
+        let back = Grant {
+            remaining_minor: excess,
+            ..grant.clone()
+        };
+        if !back.spendable_at(grants.at) {
+            continue;
+        }
+        match drawable.iter_mut().find(|drawn| drawn.id == grant.id) {
+            Some(drawn) => {
+                drawn.remaining_minor =
+                    drawn.remaining_minor.checked_add(excess).ok_or(Overflow)?;
+            }
+            None => drawable.push(back),
+        }
+    }
+    Ok(drawable)
+}
+
+/// What settled credit may keep of `request`: its usage, never a fee billed beside it (R10).
+fn usage_only(request: &Request) -> Result<Request, Overflow> {
+    let usage = request
+        .demands
+        .iter()
+        .filter(|demand| demand.usage)
+        .try_fold(0_i64, |sum, demand| {
+            sum.checked_add(demand.amount_minor.max(0))
+        })
+        .ok_or(Overflow)?;
+    Ok(Request {
+        requested_minor: usage.min(request.requested_minor.max(0)),
+        demands: request
+            .demands
+            .iter()
+            .map(|demand| Demand {
+                amount_minor: if demand.usage { demand.amount_minor } else { 0 },
+                ..*demand
+            })
+            .collect(),
+    })
 }
 
 /// Which total paid credit pays: the lines' fold (R-076), or the document's header as promotional
@@ -605,7 +677,7 @@ pub struct Settlement {
 }
 
 /// Settles `document` against `grants` in one pass: promotional credit before tax, tax by `rates`
-/// on what is left, then paid credit (Phase 5.2). The same inputs give the same settlement, so an
+/// on what is left, then paid credit. The same inputs give the same settlement, so an
 /// amount-dependent rate is resolved again on the result and settled anew.
 pub fn settle(
     document: &Document,
@@ -659,6 +731,7 @@ mod tests {
     use chrono::TimeZone;
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
+    use uuid::Uuid;
 
     fn at() -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 3, 15, 0, 0, 0).unwrap()
@@ -746,7 +819,7 @@ mod tests {
 
     fn grant(id: u128, remaining: i64, classification: Classification) -> Grant {
         Grant {
-            id: Uuid::from_u128(id),
+            id: Uuid::from_u128(id).into(),
             scope: Scope {
                 subscription: None,
                 application: Application::Invoice,
@@ -831,7 +904,7 @@ mod tests {
             "the net, not the 6,400 charged"
         );
         let allocation = Allocation {
-            draws: vec![(Uuid::from_u128(1), 4_387)],
+            draws: vec![(Uuid::from_u128(1).into(), 4_387)],
             covered: vec![4_387],
             placed: Vec::new(),
         };
@@ -1080,6 +1153,93 @@ mod tests {
         // 25.02 left with 5.00 of tax: the settlement pays it, the cent over is not kept.
         assert_eq!(settlement.totals.total, 3_002);
         assert_eq!(settlement.paid.drawn.kept.total().unwrap(), 3_002);
+    }
+
+    /// 20.00 of paid credit settled a period's usage, and the invoice bills 30.00 of fees and
+    /// 10.00 of that usage: it keeps 10.00 of the settlement for the usage, never for the fees;
+    /// the other 10.00 goes back to its grant, so the fees draw the wallet's 25.00 and 5.00 of it
+    /// afresh, as finalizing returns then draws them.
+    /// Rules: R10
+    #[test]
+    fn a_kept_settlement_pays_usage_only() {
+        let mut metered = line("usage", 1_000, usage());
+        metered.recurring = false;
+        let document = document(vec![line("fee", 3_000, LineKind::Fee), metered], 0, false);
+        let grants = Grants {
+            drawable: vec![grant(1, 2_500, Classification::Paid)],
+            settled: vec![Settled {
+                window: None,
+                grant: grant(2, 0, Classification::Paid),
+                amount: 2_000,
+            }],
+            at: at(),
+        };
+        let settlement = settle(
+            &document,
+            &grants,
+            &Rates(vec![Vec::new(), Vec::new()]),
+            &Cash::none(TotalBasis::Folded),
+        )
+        .unwrap();
+        assert_eq!(
+            settlement.paid.drawn.kept.draws,
+            vec![(Uuid::from_u128(2).into(), 1_000)]
+        );
+        assert_eq!(
+            settlement.paid.drawn.fresh.draws,
+            vec![
+                (Uuid::from_u128(1).into(), 2_500),
+                (Uuid::from_u128(2).into(), 500)
+            ]
+        );
+        assert_eq!(settlement.applied, 4_000);
+    }
+
+    /// G (10.00, lapsed) and H (30.00, spent) settled 40.00 of usage at G's lapse; the invoice
+    /// bills 32.00 of it after a coupon, and a 40.00 fee. It keeps G's 10.00 and 22.00 of H's;
+    /// the 8.00 H gets back is spendable, so the fee draws it: 72.00 requested, 40.00 drawn.
+    /// Rules: R10
+    #[test]
+    fn excess_returned_to_a_spendable_grant_pays_the_fee() {
+        let lapsed = Grant {
+            lapses_at: Some(at() - chrono::Duration::days(5)),
+            ..grant(1, 0, Classification::Paid)
+        };
+        let spent = grant(2, 0, Classification::Paid);
+        let demand = |usage: bool, amount_minor: i64| Demand {
+            subscription: None,
+            product: None,
+            usage,
+            amount_minor,
+            dated_before: usage.then(|| at() - chrono::Duration::days(1)),
+        };
+        let request = Request {
+            requested_minor: 7_200,
+            demands: vec![demand(true, 3_200), demand(false, 4_000)],
+        };
+        let grants = Grants {
+            drawable: Vec::new(),
+            settled: vec![
+                Settled {
+                    window: None,
+                    grant: lapsed.clone(),
+                    amount: 1_000,
+                },
+                Settled {
+                    window: None,
+                    grant: spent.clone(),
+                    amount: 3_000,
+                },
+            ],
+            at: at(),
+        };
+        let drawn = estimate(&grants, Pool::Paid, &request, &[]).unwrap();
+        assert_eq!(
+            drawn.kept.draws,
+            vec![(lapsed.id, 1_000), (spent.id, 2_200)]
+        );
+        assert_eq!(drawn.fresh.draws, vec![(spent.id, 800)]);
+        assert_eq!(drawn.held().unwrap().total().unwrap(), 4_000);
     }
 
     #[test]

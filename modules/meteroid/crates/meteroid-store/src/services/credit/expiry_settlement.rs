@@ -73,7 +73,7 @@ pub(crate) async fn lapse_expired_credit(store: &Store, page: i64) -> StoreResul
     {
         log::error!("credit of ended subscriptions was not ended: {error:?}");
     }
-    let now = common_domain::clock::now();
+    let now = common_clock::now();
     if let Err(error) = return_orphaned_settlements(store, page, now).await {
         log::error!("orphaned usage settlements were not returned: {error:?}");
     }
@@ -157,7 +157,7 @@ async fn settle_due_candidate(
 pub(crate) async fn repair_credit(store: &Store, page: i64) -> StoreResult<()> {
     let page = page.max(1);
     super::subscription_end::end_credit_of_ended_subscriptions(store, page).await?;
-    return_orphaned_settlements(store, page, common_domain::clock::now()).await?;
+    return_orphaned_settlements(store, page, common_clock::now()).await?;
     Ok(())
 }
 
@@ -194,7 +194,7 @@ pub(crate) async fn lapse_expired_credit_for(
     customer_id: CustomerId,
     as_of: DateTime<Utc>,
 ) -> StoreResult<usize> {
-    if as_of > common_domain::clock::now() {
+    if as_of > common_clock::now() {
         return Err(invalid("credit cannot be lapsed at a future moment"));
     }
     let mut conn = store.get_conn().await?;

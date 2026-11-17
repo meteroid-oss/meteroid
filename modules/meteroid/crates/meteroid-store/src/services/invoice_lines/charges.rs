@@ -25,7 +25,6 @@ impl Lineages {
     }
 
     /// From each row's lineage root, closed rows' included.
-    #[cfg(feature = "facts-shadow")]
     pub(crate) fn of_roots(roots: impl IntoIterator<Item = (uuid::Uuid, uuid::Uuid)>) -> Self {
         Self(core::Lineages(roots.into_iter().collect()))
     }
@@ -68,11 +67,11 @@ fn charged_line(line: &LineItem) -> core::ChargedLine {
             LineItemKind::Credit => core::LineKind::Credit,
             LineItemKind::MinimumShortfall => core::LineKind::MinimumShortfall,
         },
-        subscription: line.subscription_id.map(|id| id.as_uuid()),
-        component: line.sub_component_id.map(|id| id.as_uuid()),
-        add_on: line.sub_add_on_id.map(|id| id.as_uuid()),
-        product: line.product_id.map(|id| id.as_uuid()),
-        metric: line.metric_id.map(|id| id.as_uuid()),
+        subscription: line.subscription_id,
+        component: line.sub_component_id,
+        add_on: line.sub_add_on_id,
+        product: line.product_id,
+        metric: line.metric_id,
         dimensions: line
             .group_by_dimensions
             .iter()
@@ -95,7 +94,7 @@ pub(crate) fn charge_key(line: &LineItem, lineages: &Lineages) -> ChargeKey {
 /// id stays [`charge_key`]'s (R-075).
 pub(crate) fn evaluated_charge_key(line: &LineItem, lineages: &Lineages) -> ChargeKey {
     let mut charged = charged_line(line);
-    charged.credit_unit = line.credit_unit.as_ref().map(|unit| unit.unit_id.as_uuid());
+    charged.credit_unit = line.credit_unit.as_ref().map(|unit| unit.unit_id);
     core::charge_key(&charged, &lineages.0)
 }
 
@@ -193,6 +192,6 @@ mod tests {
         let lineage = HashMap::from([(computed.local_id.clone(), root.to_string())]);
         let read_back = charge_key(&computed, &Lineages::of_lines([&computed], &lineage));
         assert_eq!(read_back.line_id(), computed.local_id);
-        assert_eq!(read_back.fee, Fee::Component(root.as_uuid()));
+        assert_eq!(read_back.fee, Fee::Component(root));
     }
 }

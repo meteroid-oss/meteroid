@@ -51,6 +51,8 @@ pub enum LeaderLock {
     TelemetryReport = 92_000_021,
     /// Daily recompute of every customer's billing controller wake.
     BillingControllerSweep = 92_000_022,
+    /// The billing worker's start-up migration of pending changes into facts.
+    PendingChangesMigration = 92_000_023,
 }
 
 impl LeaderLock {

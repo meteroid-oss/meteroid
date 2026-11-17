@@ -411,7 +411,7 @@ impl PaymentReminderSequenceRow {
         .bind::<sql_types::Uuid, _>(tenant_id.as_uuid())
         .bind::<sql_types::Uuid, _>(id.as_uuid())
         .bind::<sql_types::Array<sql_types::Uuid>, _>(customers)
-        .bind::<sql_types::Timestamp, _>(common_domain::clock::now().naive_utc())
+        .bind::<sql_types::Timestamp, _>(common_clock::now().naive_utc())
         .get_results(conn)
         .await
         .attach("Error while clearing customer reminder overrides")

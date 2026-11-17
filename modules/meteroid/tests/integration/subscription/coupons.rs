@@ -1816,3 +1816,228 @@ async fn test_fixed_coupon_exceeds_subtotal_capped(#[future] test_env: TestEnv) 
         .has_discount(4900) // Capped at subtotal (not $100)
         .has_total(0); // $0 - fully discounted
 }
+
+/// What a finalized invoice's header says it discounted, from its lines: subtotal, discount,
+/// total, and the subtotal less the lines' taxable amounts.
+fn discounted(invoice: &meteroid_store::domain::Invoice) -> (i64, i64, i64, i64) {
+    let taxable: i64 = invoice.line_items.iter().map(|l| l.taxable_amount).sum();
+    (
+        invoice.subtotal,
+        invoice.discount,
+        invoice.total,
+        invoice.subtotal - taxable,
+    )
+}
+
+/// A 50.00 monthly fee and bandwidth at 0.10 a unit, January's usage as `usage` reads it.
+async fn fee_and_usage_env() -> (
+    TestEnv,
+    meteroid_store::clients::usage::MutableMockUsageClient,
+    common_domain::ids::PlanVersionId,
+) {
+    use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId};
+    use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
+    use meteroid_store::domain::UsagePricingModel;
+
+    let usage = meteroid_store::clients::usage::MutableMockUsageClient::new();
+    let env = crate::harness::test_env_with_seed_and_usage(
+        crate::meteroid_it::container::SeedLevel::PLANS,
+        std::sync::Arc::new(usage.clone()),
+    )
+    .await;
+    env.set_consolidate_and_grace(false, 0).await;
+    let plan = PlanVersionId::new();
+    crate::data::plans::PlanSeed::new(PlanId::new(), "Fee and usage", plan)
+        .components(vec![
+            crate::data::plans::SeedComp::rate(
+                PriceComponentId::new(),
+                "Platform Fee",
+                PRODUCT_PLATFORM_FEE_ID,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Monthly,
+                Decimal::from(50),
+            ),
+            crate::data::plans::SeedComp::usage(
+                PriceComponentId::new(),
+                "Bandwidth",
+                PRODUCT_BANDWIDTH_ID,
+                METRIC_BANDWIDTH,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Monthly,
+                UsagePricingModel::PerUnit {
+                    rate: Decimal::new(10, 2),
+                },
+            ),
+        ])
+        .seed(&mut env.conn().await)
+        .await
+        .unwrap();
+    (env, usage, plan)
+}
+
+/// 400 bandwidth units over January 2024.
+fn january_usage(usage: &meteroid_store::clients::usage::MutableMockUsageClient) {
+    use meteroid_store::clients::usage::{GroupedUsageData, MockUsageDataParams, UsageData};
+    let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
+    let (start, end) = (
+        day(1, 1).and_time(chrono::NaiveTime::MIN),
+        day(2, 1).and_time(chrono::NaiveTime::MIN),
+    );
+    usage.set_usage(
+        MockUsageDataParams {
+            metric_id: METRIC_BANDWIDTH,
+            period_start: start,
+            period_end: end,
+        },
+        UsageData {
+            data: vec![GroupedUsageData {
+                value: Decimal::from(400),
+                dimensions: std::collections::HashMap::new(),
+            }],
+            period: meteroid_store::domain::UsagePeriod { start, end },
+        },
+    );
+}
+
+async fn february_of(
+    env: &TestEnv,
+    sub_id: common_domain::ids::SubscriptionId,
+) -> meteroid_store::domain::Invoice {
+    env.get_invoices(sub_id)
+        .await
+        .into_iter()
+        .find(|invoice| {
+            invoice.billing_period_start == NaiveDate::from_ymd_opt(2024, 2, 1).unwrap()
+        })
+        .expect("the Feb 1 invoice")
+}
+
+/// A 20 % coupon on the 50.00 fee and its usage: February's draft is written before January's
+/// 400 units are read, then refreshed and finalized with them. Its header discounts what its lines
+/// do, 20 % of 9000 = 1800, never the draft's 1000.
+/// Rules: R-076, R-070
+#[tokio::test]
+async fn a_draft_finalized_with_more_usage_discounts_its_header_as_its_lines() {
+    let (env, usage, plan) = fee_and_usage_env().await;
+    let coupon = env.create_percentage_coupon("TWENTYOFF", 20).await;
+    let sub_id = subscription()
+        .plan_version(plan)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .coupon(coupon)
+        .create(env.services())
+        .await;
+    env.set_consolidate_and_grace(false, 24).await;
+    env.process_cycle_transitions().await;
+    january_usage(&usage);
+    let draft = february_of(&env, sub_id).await;
+    env.services()
+        .refresh_invoice_data(draft.id, TENANT_ID)
+        .await
+        .expect("refresh the draft");
+    assert_eq!(
+        discounted(&february_of(&env, sub_id).await),
+        (9_000, 1_800, 7_200, 1_800),
+        "refreshed"
+    );
+    env.set_consolidate_and_grace(false, 0).await;
+    env.manual_finalize_invoice(draft.id)
+        .await
+        .expect("finalize the draft");
+
+    let february = february_of(&env, sub_id).await;
+    assert_eq!(
+        february.status,
+        meteroid_store::domain::enums::InvoiceStatusEnum::Finalized
+    );
+    assert_eq!(discounted(&february), (9_000, 1_800, 7_200, 1_800));
+}
+
+/// A 10 % coupon for one invoice, taken by January's: February is drafted undiscounted, then
+/// January is voided, which frees the coupon (R-089). February is finalized discounted, 900 off
+/// 9000, in its header as in its lines.
+/// Rules: R-076, R-089
+#[tokio::test]
+async fn a_draft_finalized_after_a_void_frees_its_coupon_discounts_its_header() {
+    let (env, usage, plan) = fee_and_usage_env().await;
+    january_usage(&usage);
+    let coupon = env
+        .create_limited_percentage_coupon("TENONCE", 10, Some(1))
+        .await;
+    let sub_id = subscription()
+        .plan_version(plan)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .coupon(coupon)
+        .create(env.services())
+        .await;
+    env.run_outbox_and_orchestration().await;
+    let january = env.get_invoices(sub_id).await[0].clone();
+    assert_eq!(january.discount, 500);
+    env.process_cycle_transitions().await;
+    assert_eq!(
+        discounted(&february_of(&env, sub_id).await).1,
+        0,
+        "drafted undiscounted"
+    );
+    env.try_void_invoice(january.id)
+        .await
+        .expect("void January");
+    env.process_due_events().await;
+
+    let february = february_of(&env, sub_id).await;
+    assert_eq!(
+        february.status,
+        meteroid_store::domain::enums::InvoiceStatusEnum::Finalized
+    );
+    assert_eq!(discounted(&february), (9_000, 900, 8_100, 900));
+}
+
+/// A 25 % coupon for one invoice, January's draft and February's open at once: February,
+/// finalized first, takes it, 25 % of 9000 = 2250; January, finalized after, is none of its
+/// invoices and goes out at its 5000, its lines as undiscounted as its header.
+/// Rules: R-089, R-076, R-070
+#[tokio::test]
+async fn the_draft_finalized_second_under_a_one_invoice_coupon_spreads_no_discount() {
+    let (env, usage, plan) = fee_and_usage_env().await;
+    january_usage(&usage);
+    let coupon = env
+        .create_limited_percentage_coupon("QUARTERONCE", 25, Some(1))
+        .await;
+    let sub_id = subscription()
+        .plan_version(plan)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .no_auto_advance()
+        .coupon(coupon)
+        .create(env.services())
+        .await;
+    env.process_cycle_transitions().await;
+    let january = env.get_invoices(sub_id).await[0].clone();
+    assert_eq!(
+        january.status,
+        meteroid_store::domain::enums::InvoiceStatusEnum::Draft
+    );
+    let february = february_of(&env, sub_id).await;
+    env.manual_finalize_invoice(february.id)
+        .await
+        .expect("finalize February");
+    env.manual_finalize_invoice(january.id)
+        .await
+        .expect("finalize January");
+
+    let invoices = env.get_invoices(sub_id).await;
+    let of = |id| {
+        discounted(
+            invoices
+                .iter()
+                .find(|invoice| invoice.id == id)
+                .expect("the invoice"),
+        )
+    };
+    assert_eq!(of(february.id), (9_000, 2_250, 6_750, 2_250));
+    assert_eq!(of(january.id), (5_000, 0, 5_000, 0));
+}

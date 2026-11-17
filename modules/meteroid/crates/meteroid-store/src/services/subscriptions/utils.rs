@@ -653,7 +653,7 @@ pub async fn apply_coupons(
         subscription_coupons,
         subscriptions,
         tenant_id,
-        common_domain::clock::now(),
+        common_clock::now(),
     )
     .await
 }
@@ -696,7 +696,7 @@ pub async fn apply_coupons_without_validation(
         controls,
         subscription_coupons,
         tenant_id,
-        common_domain::clock::now(),
+        common_clock::now(),
     )
     .await
 }
@@ -999,7 +999,7 @@ pub async fn calculate_coupons_discount(
                         .get_historical_rate(
                             currency,
                             subscription_currency,
-                            common_domain::clock::now().date_naive(),
+                            common_clock::now().date_naive(),
                         )
                         .await?
                         .ok_or(StoreError::ValueNotFound(format!(
@@ -1263,14 +1263,19 @@ impl SubscriptionDetails {
     }
 }
 
+/// Whether the subscription's trial bills: its trial fact (R-100), else its plan version's.
 pub async fn is_paid_trial(
     conn: &mut PgConn,
+    subscription_id: SubscriptionId,
     plan_version_id: PlanVersionId,
     tenant_id: TenantId,
     has_trial: bool,
 ) -> StoreResult<bool> {
     if !has_trial {
         return Ok(false);
+    }
+    if let Some(free) = super::recorded_trial_free_tx(conn, subscription_id).await? {
+        return Ok(!free);
     }
 
     let plan_with_version = PlanRow::get_with_version(conn, plan_version_id, tenant_id).await?;

@@ -18,7 +18,7 @@ impl CheckoutSessionRowNew {
         diesel::insert_into(cs::checkout_session)
             .values((
                 self,
-                crate::schema::checkout_session::created_at.eq(common_domain::clock::now()),
+                crate::schema::checkout_session::created_at.eq(common_clock::now()),
             ))
             .on_conflict(cs::id)
             .do_nothing()
@@ -34,7 +34,7 @@ impl CheckoutSessionRowNew {
 
         let query = diesel::insert_into(cs_dsl::checkout_session).values((
             self,
-            crate::schema::checkout_session::created_at.eq(common_domain::clock::now()),
+            crate::schema::checkout_session::created_at.eq(common_clock::now()),
         ));
 
         crate::debug_sql(&query);
@@ -61,7 +61,7 @@ impl CheckoutSessionRow {
         )
         .set((
             cs::status.eq(CheckoutSessionStatusEnum::Completed),
-            cs::completed_at.eq(common_domain::clock::now()),
+            cs::completed_at.eq(common_clock::now()),
         ))
         .execute(conn)
         .await

@@ -178,7 +178,7 @@ impl Services {
                             conn,
                             invoice_id,
                             tenant_id,
-                            Some(common_domain::clock::now().naive_utc()),
+                            Some(common_clock::now().naive_utc()),
                         )
                         .await
                         .map_err(Into::<error_stack::Report<crate::errors::StoreError>>::into)?;
@@ -238,7 +238,7 @@ impl Services {
                     // Nothing to pay: paid the moment it was issued, not when this event ran.
                     let paid_at = current
                         .finalized_at
-                        .unwrap_or_else(|| common_domain::clock::now().naive_utc());
+                        .unwrap_or_else(|| common_clock::now().naive_utc());
                     let invoice = self
                         .apply_invoice_paid_tx(conn, tenant_id, invoice.id, Some(paid_at))
                         .await?;

@@ -131,10 +131,7 @@ fn parse_row(
         .timestamp
         .and_then(|idx| record.get(idx))
         .filter(|s| !s.is_empty())
-        .map_or_else(
-            || common_domain::clock::now().to_rfc3339(),
-            |s| s.to_string(),
-        );
+        .map_or_else(|| common_clock::now().to_rfc3339(), |s| s.to_string());
 
     let mut properties = HashMap::new();
     for (idx, value) in record.iter().enumerate() {

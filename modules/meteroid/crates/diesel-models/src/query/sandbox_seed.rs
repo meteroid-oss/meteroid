@@ -22,7 +22,7 @@ impl SandboxSeedRow {
             .set((
                 s::status.eq(SandboxSeedStatusEnum::InProgress),
                 s::failure_reason.eq(None::<String>),
-                s::started_at.eq(common_domain::clock::wall().naive_utc()),
+                s::started_at.eq(common_clock::wall().naive_utc()),
                 s::finished_at.eq(None::<chrono::NaiveDateTime>),
             ));
         crate::debug_sql(&query);
@@ -54,7 +54,7 @@ impl SandboxSeedRow {
             .set((
                 s::status.eq(status),
                 s::failure_reason.eq(failure_reason),
-                s::finished_at.eq(common_domain::clock::wall().naive_utc()),
+                s::finished_at.eq(common_clock::wall().naive_utc()),
             ));
         crate::debug_sql(&query);
         query
@@ -75,14 +75,11 @@ impl SandboxSeedRow {
 
         let query = diesel::update(s::sandbox_seed)
             .filter(s::status.eq(SandboxSeedStatusEnum::InProgress))
-            .filter(
-                s::started_at
-                    .lt(common_domain::clock::wall().naive_utc() - chrono::Duration::hours(1)),
-            )
+            .filter(s::started_at.lt(common_clock::wall().naive_utc() - chrono::Duration::hours(1)))
             .set((
                 s::status.eq(SandboxSeedStatusEnum::Failed),
                 s::failure_reason.eq(failure_reason),
-                s::finished_at.eq(common_domain::clock::wall().naive_utc()),
+                s::finished_at.eq(common_clock::wall().naive_utc()),
             ))
             .returning(s::tenant_id);
         crate::debug_sql(&query);

@@ -302,7 +302,7 @@ impl ServicesEdge {
             customer_id,
             code,
             subscription_id,
-            common_domain::clock::now(),
+            common_clock::now(),
             false,
         )
         .await
@@ -319,7 +319,7 @@ impl ServicesEdge {
         at: DateTime<Utc>,
         replayed: bool,
     ) -> StoreResult<CouponCreditRedemption> {
-        if at > common_domain::clock::now() {
+        if at > common_clock::now() {
             return Err(invalid("a code cannot be redeemed at a future moment"));
         }
         // Promotional-credit codes are stored upper-case and redeemed whatever the case.

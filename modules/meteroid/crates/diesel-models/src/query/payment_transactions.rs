@@ -33,7 +33,7 @@ impl PaymentTransactionRowNew {
 
         let query = diesel::insert_into(payment_transaction).values((
             self,
-            crate::schema::payment_transaction::created_at.eq(common_domain::clock::now()),
+            crate::schema::payment_transaction::created_at.eq(common_clock::now()),
         ));
 
         crate::debug_sql(&query);
@@ -557,7 +557,7 @@ impl PaymentTransactionRow {
         }
 
         diesel::update(payment_transaction.filter(id.eq_any(due)))
-            .set(last_reconciled_at.eq(common_domain::clock::now()))
+            .set(last_reconciled_at.eq(common_clock::now()))
             .returning(PaymentTransactionRow::as_returning())
             .get_results(conn)
             .await
@@ -611,7 +611,7 @@ impl PaymentTransactionRow {
         }
 
         diesel::update(payment_transaction.filter(id.eq_any(due)))
-            .set(last_reconciled_at.eq(common_domain::clock::now()))
+            .set(last_reconciled_at.eq(common_clock::now()))
             .returning(PaymentTransactionRow::as_returning())
             .get_results(conn)
             .await

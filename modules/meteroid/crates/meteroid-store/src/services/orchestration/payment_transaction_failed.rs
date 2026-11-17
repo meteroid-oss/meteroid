@@ -309,7 +309,7 @@ impl Services {
                             false,
                             true,
                             ReopenedReminders::Restart,
-                            common_domain::clock::now().naive_utc(),
+                            common_clock::now().naive_utc(),
                         )
                         .await
                 }
@@ -359,7 +359,7 @@ impl Services {
         }
 
         let scheduled_time =
-            (common_domain::clock::now() + chrono::Duration::days(*delay_days)).naive_utc();
+            (common_clock::now() + chrono::Duration::days(*delay_days)).naive_utc();
 
         self.store
             .schedule_events(
@@ -525,7 +525,7 @@ async fn rearm_retries_where(
         retries.push(ScheduledEventNew {
             subscription_id,
             tenant_id,
-            scheduled_time: common_domain::clock::now().naive_utc(),
+            scheduled_time: common_clock::now().naive_utc(),
             event_data: ScheduledEventData::RetryPayment { invoice_id },
             source: "dunning".to_string(),
             created_by: Actor::System,

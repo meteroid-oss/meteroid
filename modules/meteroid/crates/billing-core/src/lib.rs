@@ -13,14 +13,18 @@ pub mod evaluate;
 pub mod facts;
 pub mod issued;
 pub mod merge;
+pub mod minimum;
 pub mod pricer;
 pub mod pricing;
 pub mod proration;
 pub mod reconcile;
 pub mod rounding;
+#[cfg(test)]
+mod stories;
 pub mod tax;
 pub mod timeline;
 pub mod totals;
+pub mod transition;
 
 pub use allocation::{allocate_covered, largest_remainder, split};
 pub use charge::{ChargeKey, ChargeKind, Denomination, Fee, line_ids};
@@ -29,7 +33,8 @@ pub use facts::{DatedFact, FactRef, Facts};
 pub use issued::{IssuedKind, IssuedLine, shortfall_credits};
 pub use pricer::{CreditGrant, Pricer, Rate, UsageReads};
 pub use pricing::PricingError;
-pub use proration::DayFraction;
+pub use proration::{DayFraction, DaySpan};
 pub use reconcile::{Adjustment, Expected, TakeBack, Term, expected, net_by_fee, reconcile};
 pub use rounding::{div_round, round_to_minor, scale};
 pub use totals::{LineAmounts, Totals, amount_due};
+pub use transition::{Deadlines, Due, Step, Stored, Transition};

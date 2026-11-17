@@ -1,8 +1,8 @@
 //! Coupons: what they take off a subtotal, and how that discount is spread over the lines.
 
+use common_domain::ids::CouponId;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
-use uuid::Uuid;
 
 use common_utils::decimals::ToSubunit;
 use common_utils::integers::ToNonNegativeU64;
@@ -82,7 +82,7 @@ pub enum CouponValue {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Coupon {
     /// The coupon's own id, which orders coupons of one kind.
-    pub coupon_id: Uuid,
+    pub coupon_id: CouponId,
     pub value: CouponValue,
 }
 
@@ -156,10 +156,11 @@ pub fn calculate_coupons_discount(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
 
     fn coupon(id: u128, value: CouponValue) -> Coupon {
         Coupon {
-            coupon_id: Uuid::from_u128(id),
+            coupon_id: Uuid::from_u128(id).into(),
             value,
         }
     }

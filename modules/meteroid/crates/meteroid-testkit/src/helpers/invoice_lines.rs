@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::data::ids::METRIC_DATABASE_SIZE;
 
 pub fn line(name: &str, cents: i64, metric: bool) -> LineItem {
-    let today = common_domain::clock::now().date_naive();
+    let today = common_clock::now().date_naive();
     LineItem {
         local_id: Uuid::new_v4().to_string(),
         name: name.to_owned(),

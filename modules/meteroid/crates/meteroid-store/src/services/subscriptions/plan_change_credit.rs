@@ -9,13 +9,11 @@ use crate::StoreResult;
 use crate::domain::credit_notes::CreditNote;
 use crate::domain::credit_units::CreditUnitRef;
 use crate::domain::entity_activity::Actor;
-use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::invoice_lines::LineItem;
 use crate::domain::subscription_changes::{PackChange, PackChangeKind};
-use crate::domain::subscription_changes::{ProrationLineItem, ProrationResult};
 use crate::domain::{
     Invoice, LineItemKind, Subscription, SubscriptionAddOn, SubscriptionComponent,
-    SubscriptionDetails, SubscriptionFee,
+    SubscriptionDetails,
 };
 use crate::errors::StoreError;
 use crate::repositories::credit::customer_credit::{
@@ -25,32 +23,30 @@ use crate::repositories::credit::customer_credit::{
 use crate::repositories::credit_notes::CreditLineItem;
 use crate::services::Services;
 use crate::services::credit::expiry_settlement::{read_ending_usage, settle_ending_grants_tx};
+use crate::services::evaluate::change::{Change, GiveBack, change_credits};
 use crate::services::invoice_lines::minimum;
 use crate::services::served_usage::UsageReads;
 use crate::services::subscriptions::amendment::{
     PeriodCreditContext, gather_period_credit_context,
 };
-use crate::services::subscriptions::fee_terms::{FeeHistory, ending_credits};
 use crate::services::subscriptions::plan_change::PreparedPlanChange;
 use crate::services::subscriptions::proration::{
-    DayFraction, capped_pack_fee_credit, component_advance_amount_cents, is_period_tied,
+    DayFraction, capped_pack_fee_credit, is_period_tied,
 };
-use crate::services::subscriptions::utils::scale_fee;
 use crate::store::PgConn;
 use chrono::{DateTime, NaiveDate, Utc};
 use common_domain::ids::{
-    BaseId, CreditGrantId, CreditNoteId, CustomerId, InvoiceId, PriceComponentId,
-    SubscriptionAddOnId, SubscriptionId, TenantId,
+    BaseId, CreditGrantId, CreditNoteId, CustomerId, InvoiceId, SubscriptionAddOnId,
+    SubscriptionId, TenantId,
 };
 use diesel_models::customer_credit::CustomerCreditGrantRow;
 use diesel_models::lock::CustomerLock;
-use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
 use diesel_models::subscription_events::SettlingEnding;
 use error_stack::Report;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::{Decimal, RoundingStrategy};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub(crate) use crate::domain::credit::{
     CANCELLATION_NOTE_REASON, LATE_PAYMENT_NOTE_REASON, PLAN_CHANGE_NOTE_REASON,
@@ -176,14 +172,15 @@ pub(crate) struct Ending {
     /// Whether a shortfall that prepaid the period (invoices written before the true-up) is
     /// credited by the time left (cancellation only).
     pub credits_minimum: bool,
-    /// The lineages of the fixed fees it ends, whose lines give back what they billed past it.
-    pub fees: BTreeSet<String>,
     /// Packs tied to the period.
     pub tied_packs: HashSet<String>,
-    /// Seats added mid-period are billed on lines naming only the plan component.
-    pub plan_components: HashMap<String, PriceComponentId>,
     /// How far back, in months, a line billing it in advance may start.
     pub reach_months: u32,
+    /// The change its fees' give-backs are reconciled from, once its facts are written; without
+    /// one (a preview's) they give back nothing here.
+    pub from_facts: Option<Change>,
+    /// An immediate amendment's: its notes are the amendment's.
+    pub amendment: bool,
 }
 
 impl Ending {
@@ -195,7 +192,6 @@ impl Ending {
             .collect();
         let mut ending = Self::of_components(
             PeriodCreditRemoval::PlanChange,
-            &prepared.proration.lines,
             &prepared.subscription_details,
             &carried,
             at,
@@ -211,14 +207,14 @@ impl Ending {
         }
         self.reach_months = add_ons
             .iter()
-            .map(|a| a.period.as_months().max(0) as u32)
+            .map(|a| reach(&a.period))
             .fold(self.reach_months, u32::max);
     }
 
-    /// An immediate cancellation: every component and add-on ends. A true-up is never credited; a
-    /// shortfall that prepaid the period before the true-up gives its unused days back like a fee.
+    /// An immediate cancellation: every component and add-on ends, each fee giving back its
+    /// unused time as the facts read it. A true-up is never credited; a shortfall that prepaid the
+    /// period before the true-up gives its unused days back like a fee.
     pub(crate) fn of_cancellation(
-        proration: &ProrationResult,
         details: &SubscriptionDetails,
         at: NaiveDate,
         settle_at: DateTime<Utc>,
@@ -226,7 +222,6 @@ impl Ending {
     ) -> Self {
         let mut ending = Self::of_components(
             PeriodCreditRemoval::Cancellation,
-            &proration.lines,
             details,
             &[],
             at,
@@ -234,57 +229,56 @@ impl Ending {
         );
         ending.end_add_ons(&details.add_ons);
         ending.credits_minimum = credits_minimum;
+        ending.from_facts = Some(Change::of_ending(at, settle_at));
         ending
     }
 
     fn of_components(
         kind: PeriodCreditRemoval,
-        lines: &[ProrationLineItem],
         details: &SubscriptionDetails,
         carried: &[String],
         at: NaiveDate,
         settle_at: DateTime<Utc>,
     ) -> Self {
-        let fees = lines
-            .iter()
-            .filter(|l| l.amount_cents < 0)
-            .filter_map(|l| l.net_key.clone())
-            .collect();
         let components = &details.price_components;
         Ending {
             kind,
             at,
             settle_at,
             credits_minimum: false,
-            fees,
             tied_packs: components
                 .iter()
                 .filter(|c| is_period_tied(&c.fee))
                 .map(|c| c.lineage().to_string())
                 .filter(|lineage| !carried.contains(lineage))
                 .collect(),
-            plan_components: components
-                .iter()
-                .filter_map(|c| Some((c.lineage().to_string(), c.price_component_id?)))
-                .collect(),
             reach_months: components
                 .iter()
-                .map(|c| c.period.as_months().max(0) as u32)
+                .map(|c| reach(&c.period))
                 .max()
                 .unwrap_or(0),
+            from_facts: None,
+            amendment: false,
         }
     }
 
     /// What the plan switch at `at` recorded: the components it closed whose lineage stops
-    /// there (one carried over continues it), with their fees.
+    /// there (one carried over continues it).
     async fn of_switch(
         conn: &mut PgConn,
-        tenant_id: TenantId,
         subscription_id: SubscriptionId,
         at: NaiveDate,
-        precision: u8,
     ) -> StoreResult<Self> {
         use diesel_models::subscription_components::SubscriptionComponentRow;
+        if diesel_models::subscription_events::SubscriptionEventRow::settling_switches_are_amendments(
+            conn,
+            subscription_id,
+            at,
+        )
+        .await?
+        {
+            return Self::of_amendment(conn, subscription_id, at).await;
+        }
         let rows = SubscriptionComponentRow::list_component_history_for_period(
             conn,
             &subscription_id,
@@ -297,76 +291,21 @@ impl Ending {
             at,
             settle_at: midnight(at),
             credits_minimum: false,
-            fees: BTreeSet::new(),
             tied_packs: HashSet::new(),
-            plan_components: HashMap::new(),
             reach_months: 0,
+            from_facts: Some(Change::of_rows(at, GiveBack::Unused, "plan change").read_now()),
+            amendment: false,
         };
-        // The seats the change read before its new plan's seats were recorded; a switch of an
-        // earlier release recorded none, its seats are read at the instant it ran.
-        let switches =
-            diesel_models::subscription_events::SubscriptionEventRow::list_settling_switch_records(
-                conn,
-                subscription_id,
-                at,
-            )
-            .await?;
-        let mut recorded_seats: HashMap<String, u32> = HashMap::new();
-        for seats in switches.iter().filter_map(|(_, seats)| seats.as_ref()) {
-            let seats: BTreeMap<String, u32> =
-                serde_json::from_value(seats.clone()).map_err(|error| {
-                    Report::new(StoreError::SerdeError(
-                        "plan switch seats".to_owned(),
-                        error,
-                    ))
-                })?;
-            for (unit, count) in seats {
-                recorded_seats.entry(unit).or_insert(count);
-            }
-        }
-        let changed_at = switches
-            .iter()
-            .map(|(created_at, _)| *created_at)
-            .max()
-            .unwrap_or_else(|| midnight(at).naive_utc());
         for row in rows.into_iter().filter(|row| row.effective_to == Some(at)) {
-            let mut component: SubscriptionComponent = row.try_into()?;
-            if let SubscriptionFee::Slot {
-                unit,
-                initial_slots,
-                ..
-            } = &mut component.fee
-            {
-                *initial_slots = match recorded_seats.get(unit.as_str()) {
-                    Some(count) => *count,
-                    None => SlotTransactionRow::fetch_active_slots(
-                        conn,
-                        tenant_id,
-                        subscription_id,
-                        unit.clone(),
-                        changed_at,
-                    )
-                    .await?
-                    .unwrap_or(0)
-                    .max(0) as u32,
-                };
-            }
+            let component: SubscriptionComponent = row.try_into()?;
             let root = component.lineage();
             if SubscriptionComponentRow::lineage_ended_on(conn, root).await? != Some(at) {
                 continue;
             }
-            let key = root.to_string();
-            ending.reach_months = ending
-                .reach_months
-                .max(component.period.as_months().max(0) as u32);
-            if let Some(plan_component) = component.price_component_id {
-                ending.plan_components.insert(key.clone(), plan_component);
-            }
+            ending.reach_months = ending.reach_months.max(reach(&component.period));
             if is_period_tied(&component.fee) {
-                ending.tied_packs.insert(key);
-                continue;
+                ending.tied_packs.insert(root.to_string());
             }
-            ending.add_priced_fee(key, &component.fee, &component.period, precision);
         }
         let add_ons = SubscriptionAddOnRow::list_add_on_history_for_period(
             conn,
@@ -388,31 +327,76 @@ impl Ending {
             if continued.contains(&add_on.lineage()) {
                 continue;
             }
-            let key = add_on.lineage().to_string();
-            ending.reach_months = ending
-                .reach_months
-                .max(add_on.period.as_months().max(0) as u32);
+            ending.reach_months = ending.reach_months.max(reach(&add_on.period));
             if is_period_tied(&add_on.fee) {
-                ending.tied_packs.insert(key);
-                continue;
+                ending.tied_packs.insert(add_on.lineage().to_string());
             }
-            let fee = scale_fee(&add_on.fee, add_on.quantity);
-            ending.add_priced_fee(key, &fee, &add_on.period, precision);
         }
         Ok(ending)
     }
+}
 
-    fn add_priced_fee(
-        &mut self,
-        key: String,
-        fee: &SubscriptionFee,
-        period: &SubscriptionFeeBillingPeriod,
-        precision: u8,
-    ) {
-        if component_advance_amount_cents(fee, period, precision) > 0 {
-            self.fees.insert(key);
-        }
+impl Ending {
+    /// What an immediate amendment at `at` settles on invoices issued after it: each fee it
+    /// changed reconciled as the amendment reconciles it, latest lines first, its packs left out.
+    async fn of_amendment(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+        at: NaiveDate,
+    ) -> StoreResult<Self> {
+        use diesel_models::subscription_components::SubscriptionComponentRow;
+        let (from, until) = (at.pred_opt().unwrap_or(at), at.succ_opt().unwrap_or(at));
+        let components = SubscriptionComponentRow::list_component_history_for_period(
+            conn,
+            &subscription_id,
+            from,
+            until,
+        )
+        .await?
+        .into_iter()
+        .filter(|row| row.effective_to == Some(at))
+        .map(|row| {
+            reach(&crate::domain::enums::SubscriptionFeeBillingPeriod::from(
+                row.period,
+            ))
+        });
+        let add_ons = SubscriptionAddOnRow::list_add_on_history_for_period(
+            conn,
+            &subscription_id,
+            from,
+            until,
+        )
+        .await?
+        .into_iter()
+        .filter(|row| row.effective_to == Some(at))
+        .map(|row| {
+            reach(&crate::domain::enums::SubscriptionFeeBillingPeriod::from(
+                row.period,
+            ))
+        });
+        Ok(Ending {
+            kind: PeriodCreditRemoval::PlanChange,
+            at,
+            settle_at: midnight(at),
+            credits_minimum: false,
+            tied_packs: HashSet::new(),
+            reach_months: components.chain(add_ons).max().unwrap_or(0),
+            from_facts: Some(
+                Change::of_rows(at, GiveBack::LatestFirst, "amendment")
+                    .without_packs()
+                    .read_now(),
+            ),
+            amendment: true,
+        })
     }
+}
+
+/// How many months back an ending of a fee of `period` reaches: its own period's, none for a fee
+/// billed once.
+fn reach(period: &crate::domain::enums::SubscriptionFeeBillingPeriod) -> u32 {
+    period
+        .as_billing_period_opt()
+        .map_or(0, |period| period.as_months())
 }
 
 /// The invoices an ending is settled against.
@@ -451,12 +435,11 @@ impl EndingScope {
     }
 }
 
-/// What an immediate change would settle of the old plan, as a preview reads it.
+/// What an immediate change would settle of the old plan's packs, as a preview reads it: their
+/// fees' give-backs are the facts' (`change_documents`).
 #[derive(Debug, Clone, Default)]
 pub(crate) struct OutgoingEstimate {
     pub packs: Vec<OutgoingPack>,
-    /// Subtotal of the old fixed fees credited back.
-    pub fee_credits: i64,
 }
 
 /// The lines a plan change already credited, with how much: the notes its switches recorded.
@@ -527,21 +510,18 @@ fn credit_items(credits: Vec<(String, i64)>) -> Vec<CreditLineItem> {
         .collect()
 }
 
-/// The old fees' credits: what reconcile takes back of what their lines billed (R-080).
-fn fee_credit_items(
-    ending: &Ending,
+/// The old fees' credits on the lines of `ctx`, reconciled from the ending's facts (R-077,
+/// R-080); none before they are written, as a preview's packs are read without them.
+fn ending_fee_items(
     ctx: &PeriodCreditContext,
-    history: Option<&FeeHistory>,
+    from_facts: Option<&[(InvoiceId, CreditLineItem)]>,
 ) -> Vec<CreditLineItem> {
-    history.map_or_else(Vec::new, |history| {
-        ending_credits(
-            history,
-            ending.at,
-            &ending.fees,
-            &ending.plan_components,
-            ctx,
-        )
-    })
+    from_facts
+        .unwrap_or_default()
+        .iter()
+        .filter(|(_, item)| ctx.line_to_invoice.contains_key(item.local_id()))
+        .map(|(_, item)| item.clone())
+        .collect()
 }
 
 /// On a cancellation, the credit of a shortfall charged up front that prepaid its period (R-077).
@@ -705,7 +685,12 @@ impl Services {
         prepared: &PreparedPlanChange,
         change_date: NaiveDate,
     ) -> StoreResult<Vec<CreditNoteId>> {
-        let ending = Ending::of_change(prepared, change_date);
+        let mut ending = Ending::of_change(prepared, change_date);
+        ending.from_facts = Some(Change::of_rows(
+            change_date,
+            GiveBack::Unused,
+            "plan change",
+        ));
         let Some(scope) =
             EndingScope::of_subscription(&prepared.subscription_details.subscription, &ending)
         else {
@@ -726,12 +711,11 @@ impl Services {
         conn: &mut PgConn,
         actor: &Actor,
         details: &SubscriptionDetails,
-        proration: &ProrationResult,
         at: NaiveDate,
         settle_at: DateTime<Utc>,
     ) -> StoreResult<Vec<CreditNoteId>> {
         let prepaid = minimum::up_front_shortfalls_prepaid(conn, details).await?;
-        let ending = Ending::of_cancellation(proration, details, at, settle_at, prepaid);
+        let ending = Ending::of_cancellation(details, at, settle_at, prepaid);
         let Some(scope) = EndingScope::of_subscription(&details.subscription, &ending) else {
             return Ok(vec![]);
         };
@@ -829,10 +813,7 @@ impl Services {
         )
         .await?
         .subscription;
-        let precision =
-            crate::constants::Currencies::resolve_currency_precision(&subscription.currency)
-                .unwrap_or(2);
-        let ending = Ending::of_switch(conn, tenant_id, subscription_id, at, precision).await?;
+        let ending = Ending::of_switch(conn, subscription_id, at).await?;
         let scope = EndingScope {
             tenant_id,
             customer_id: subscription.customer_id,
@@ -853,6 +834,43 @@ impl Services {
         )
         .await?;
         Ok(notes)
+    }
+
+    /// Settles what an amendment scheduled for the period's end on `at` ended, as an immediate
+    /// amendment that day does: a longer period of a fee it changed gives back what was billed
+    /// past `at`. Idempotent.
+    pub(crate) async fn settle_scheduled_amendment_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        at: NaiveDate,
+    ) -> StoreResult<Vec<CreditNote>> {
+        let subscription = diesel_models::subscriptions::SubscriptionRow::get_subscription_by_id(
+            conn,
+            &tenant_id,
+            subscription_id,
+        )
+        .await?
+        .subscription;
+        let mut ending = Ending::of_amendment(conn, subscription_id, at).await?;
+        ending.from_facts = Some(
+            Change::of_rows(at, GiveBack::LatestFirst, "amendment")
+                .without_packs()
+                .without_documents(),
+        );
+        let scope = EndingScope {
+            tenant_id,
+            customer_id: subscription.customer_id,
+            subscription_id,
+            currency: subscription.currency,
+            from: at
+                .checked_sub_months(chrono::Months::new(ending.reach_months.max(1)))
+                .unwrap_or(at),
+            to: at.succ_opt().unwrap_or(at),
+        };
+        self.settle_ending_tx(conn, actor, &scope, &ending).await
     }
 
     /// Settles what the immediate cancellation of `subscription_id` on `at` ended and no
@@ -887,22 +905,8 @@ impl Services {
             .store
             .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
             .await?;
-        let precision = crate::constants::Currencies::resolve_currency_precision(
-            &details.subscription.currency,
-        )
-        .unwrap_or(2);
-        let grid = crate::services::subscriptions::proration::OwnGrid::read(
-            conn,
-            &details.subscription,
-            (record.period_start, record.period_end),
-            at,
-        )
-        .await?;
-        let proration = crate::services::subscriptions::terminate::cancellation_proration(
-            &details, grid, at, precision,
-        );
         let prepaid = minimum::up_front_shortfalls_prepaid(conn, &details).await?;
-        let ending = Ending::of_cancellation(&proration, &details, at, record.settle_at, prepaid);
+        let ending = Ending::of_cancellation(&details, at, record.settle_at, prepaid);
         let scope = EndingScope {
             tenant_id,
             customer_id: details.subscription.customer_id,
@@ -999,7 +1003,7 @@ impl Services {
     ) -> StoreResult<usize> {
         use diesel_models::subscription_events::SubscriptionEventRow;
         use scoped_futures::ScopedFutureExt;
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
         let mut issued = 0;
         let mut after = None;
         loop {
@@ -1065,7 +1069,7 @@ impl Services {
                                     kind,
                                     due.subscription_id,
                                     due.applies_to,
-                                    common_domain::clock::now().naive_utc(),
+                                    common_clock::now().naive_utc(),
                                     due.invoices_changed,
                                 )
                                 .await?;
@@ -1097,7 +1101,7 @@ impl Services {
                             kind,
                             due.subscription_id,
                             due.applies_to,
-                            common_domain::clock::now().naive_utc(),
+                            common_clock::now().naive_utc(),
                             false,
                         )
                         .await?;
@@ -1119,6 +1123,7 @@ impl Services {
         };
         use crate::domain::enums::CreditNoteOrigin;
         let (reason, origin) = match ending.kind {
+            _ if ending.amendment => ("Subscription amendment", CreditNoteOrigin::Amendment),
             PeriodCreditRemoval::PlanChange => {
                 (PLAN_CHANGE_NOTE_REASON, CreditNoteOrigin::PlanChange)
             }
@@ -1166,30 +1171,86 @@ impl Services {
         prepared: &PreparedPlanChange,
         change_date: NaiveDate,
     ) -> StoreResult<OutgoingEstimate> {
+        Ok(self.outgoing_packs_read(prepared, change_date).await?.0)
+    }
+
+    /// What the old packs' fees give back on the change's notes, settled in a transaction nested
+    /// in `conn`'s and rolled back: a quote counts them as the change issues them. Metering is
+    /// the caller's: served, or read between passes.
+    pub(crate) async fn outgoing_pack_credits_tx(
+        &self,
+        conn: &mut PgConn,
+        prepared: &PreparedPlanChange,
+        change_date: NaiveDate,
+    ) -> StoreResult<Vec<(InvoiceId, CreditLineItem)>> {
         let ending = Ending::of_change(prepared, change_date);
         let Some(scope) =
             EndingScope::of_subscription(&prepared.subscription_details.subscription, &ending)
         else {
-            return Ok(OutgoingEstimate::default());
+            return Ok(Vec::new());
+        };
+        let read: PassResult<Vec<OutgoingPack>> = PassResult::default();
+        let (scope, ending, slot) = (&scope, &ending, &read);
+        let outcome = self
+            .store
+            .transaction_with(conn, |conn| {
+                use scoped_futures::ScopedFutureExt;
+                async move {
+                    let packs = self
+                        .plan_ending_tx(conn, scope, ending)
+                        .await?
+                        .map(|planned| planned.packs)
+                        .unwrap_or_default();
+                    slot.set(packs)?;
+                    Err::<(), _>(Report::new(StoreError::InvalidArgument(
+                        "a quoted change is rolled back".to_owned(),
+                    )))
+                }
+                .scope_boxed()
+            })
+            .await;
+        let packs = match (read.take()?, outcome) {
+            (Some(packs), _) => packs,
+            (None, Err(error)) => return Err(error),
+            (None, Ok(())) => Vec::new(),
+        };
+        Ok(packs
+            .into_iter()
+            .filter(|pack| pack.fee_credit > 0)
+            .map(|pack| {
+                (
+                    pack.invoice_id,
+                    CreditLineItem::Amount {
+                        local_id: pack.line_local_id,
+                        amount_cents: pack.fee_credit,
+                    },
+                )
+            })
+            .collect())
+    }
+
+    /// [`Self::estimate_outgoing_packs`] and the metering its last pass was served.
+    async fn outgoing_packs_read(
+        &self,
+        prepared: &PreparedPlanChange,
+        change_date: NaiveDate,
+    ) -> StoreResult<(OutgoingEstimate, UsageReads)> {
+        let ending = Ending::of_change(prepared, change_date);
+        let Some(scope) =
+            EndingScope::of_subscription(&prepared.subscription_details.subscription, &ending)
+        else {
+            return Ok(Default::default());
         };
         let estimate = PassResult::default();
         let (scope, ending, slot) = (&scope, &ending, &estimate);
         let mut conn = self.store.get_conn().await?;
-        let outcome = self
-            .transaction_reading_usage_first(&mut conn, |services, conn| {
+        let (outcome, reads) = self
+            .transaction_keeping_usage_reads(&mut conn, |services, conn| {
                 use scoped_futures::ScopedFutureExt;
                 async move {
                     slot.clear()?;
                     let estimate = match services.plan_ending_tx(conn, scope, ending).await? {
                         Some(planned) => OutgoingEstimate {
-                            fee_credits: planned
-                                .fee_items
-                                .iter()
-                                .map(|item| match item {
-                                    CreditLineItem::Amount { amount_cents, .. } => *amount_cents,
-                                    _ => 0,
-                                })
-                                .sum(),
                             packs: planned.packs,
                         },
                         None => OutgoingEstimate::default(),
@@ -1201,32 +1262,17 @@ impl Services {
                 }
                 .scope_boxed()
             })
-            .await;
+            .await?;
         match (estimate.take()?, outcome) {
-            (Some(estimate), _) => Ok(estimate),
+            (Some(estimate), _) => Ok((estimate, reads)),
             (None, Err(error)) => Err(error),
-            (None, Ok(())) => Ok(OutgoingEstimate::default()),
+            (None, Ok(())) => Ok((OutgoingEstimate::default(), reads)),
         }
     }
 
-    /// The adjustment invoice an immediate change would issue, priced after the old plan is
-    /// settled (as the change does) in a nested transaction rolled back: the amount a checkout
-    /// charges. Nothing it wrote survives. Outermost, its metering is read before the customer
-    /// lock; nested in a caller's transaction, under the caller's locks.
-    pub(crate) async fn dry_run_plan_change_adjustment_tx(
-        &self,
-        conn: &mut PgConn,
-        prepared: &PreparedPlanChange,
-        new_plan_version_id: common_domain::ids::PlanVersionId,
-        change_date: NaiveDate,
-    ) -> StoreResult<crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent> {
-        self.dry_run_plan_change_adjustment_reads(conn, prepared, new_plan_version_id, change_date)
-            .await
-            .map(|(computed, _)| computed)
-    }
-
     /// The metering an immediate plan change reads, read outside any transaction or lock: the
-    /// checkout that applies it is served these under its locks. None for a free trial.
+    /// checkout that applies it is served these under its locks, as its old packs' settlement
+    /// reads them. None for a free trial.
     pub(crate) async fn plan_change_checkout_usage(
         &self,
         tenant_id: TenantId,
@@ -1245,75 +1291,14 @@ impl Services {
                 change_date,
             )
             .await?;
+        drop(conn);
         if prepared.is_free_trial() {
             return Ok(None);
         }
-        let (_, reads) = self
-            .dry_run_plan_change_adjustment_reads(
-                &mut conn,
-                &prepared,
-                new_plan_version_id,
-                change_date,
-            )
-            .await?;
-        Ok(Some(reads))
+        Ok(Some(
+            self.outgoing_packs_read(&prepared, change_date).await?.1,
+        ))
     }
-
-    async fn dry_run_plan_change_adjustment_reads(
-        &self,
-        conn: &mut PgConn,
-        prepared: &PreparedPlanChange,
-        new_plan_version_id: common_domain::ids::PlanVersionId,
-        change_date: NaiveDate,
-    ) -> StoreResult<(
-        crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent,
-        UsageReads,
-    )> {
-        let subscription = &prepared.subscription_details.subscription;
-        let computed = PassResult::default();
-        let slot = &computed;
-        let (outcome, reads) = self
-            .transaction_keeping_usage_reads(conn, |services, conn| {
-                use scoped_futures::ScopedFutureExt;
-                async move {
-                    slot.clear()?;
-                    services
-                        .execute_plan_change_tx(
-                            conn,
-                            &Actor::System,
-                            prepared,
-                            subscription.id,
-                            subscription.tenant_id,
-                            new_plan_version_id,
-                            change_date,
-                        )
-                        .await?;
-                    let content = services
-                        .compute_adjustment_invoice_content(
-                            conn,
-                            subscription.tenant_id,
-                            subscription,
-                            &prepared.subscription_details.customer,
-                            &prepared.charges(),
-                        )
-                        .await?;
-                    slot.set(content.computed)?;
-                    Err::<(), _>(Report::new(StoreError::InvalidArgument(
-                        "plan change preview rolled back".to_owned(),
-                    )))
-                }
-                .scope_boxed()
-            })
-            .await?;
-        match (computed.take()?, outcome) {
-            (Some(computed), _) => Ok((computed, reads)),
-            (None, Err(error)) => Err(error),
-            (None, Ok(())) => Err(Report::new(StoreError::InvalidArgument(
-                "the plan change preview computed nothing".to_owned(),
-            ))),
-        }
-    }
-
     /// Locks the customer, the scope's invoices and the grants of each denomination the ended
     /// packs funded, in the credit lock order, then settles those packs' usage up to the change.
     /// None, without a lock, when nothing is left to settle.
@@ -1330,7 +1315,7 @@ impl Services {
             ..
         } = *scope;
         let at = ending.settle_at;
-        let now = common_domain::clock::now();
+        let now = common_clock::now();
 
         // Usage is read before the grant locks; under the customer lock every caller holds, it is
         // served by a pass that ran before it (`transaction_reading_usage_first`).
@@ -1338,10 +1323,18 @@ impl Services {
             gather_period_credit_context(conn, tenant_id, subscription_id, scope.from, scope.to)
                 .await?;
         let settled = Settled::read(conn, tenant_id, subscription_id, &unlocked).await?;
-        let history = if ending.fees.is_empty() {
-            None
-        } else {
-            Some(FeeHistory::read(conn, tenant_id, subscription_id, ending.at).await?)
+        let from_facts = match &ending.from_facts {
+            Some(change) => Some(
+                change_credits(
+                    conn,
+                    tenant_id,
+                    subscription_id,
+                    change,
+                    self.usage_client.as_ref(),
+                )
+                .await?,
+            ),
+            None => None,
         };
         let grants =
             CustomerCreditGrantRow::list_for_customer(conn, tenant_id, customer_id).await?;
@@ -1359,7 +1352,7 @@ impl Services {
             !lines.is_empty()
         });
         if owed_packs.is_empty()
-            && fee_credit_items(ending, &unlocked, history.as_ref()).is_empty()
+            && ending_fee_items(&unlocked, from_facts.as_deref()).is_empty()
             && shortfall_credit_items(ending, &unlocked, &settled).is_empty()
         {
             return Ok(None);
@@ -1452,7 +1445,21 @@ impl Services {
                 });
             }
         }
-        let mut fee_items = fee_credit_items(ending, &ctx, history.as_ref());
+        // Read again under the locks: an invoice issued meanwhile is credited too.
+        let from_facts = match &ending.from_facts {
+            Some(change) => Some(
+                change_credits(
+                    conn,
+                    tenant_id,
+                    subscription_id,
+                    change,
+                    self.usage_client.as_ref(),
+                )
+                .await?,
+            ),
+            None => None,
+        };
+        let mut fee_items = ending_fee_items(&ctx, from_facts.as_deref());
         fee_items.extend(shortfall_credit_items(ending, &ctx, &settled));
         Ok(Some(PlannedEnding {
             lock,
@@ -1524,7 +1531,7 @@ impl Services {
                 &*self.store.hooks.credit,
                 tenant,
                 &touched,
-                common_domain::clock::now(),
+                common_clock::now(),
             )
             .await?;
         }
@@ -1745,7 +1752,7 @@ impl Services {
                 &*self.store.hooks.credit,
                 tenant_id,
                 &touched,
-                common_domain::clock::now(),
+                common_clock::now(),
             )
             .await?;
         }
@@ -1827,7 +1834,7 @@ impl Services {
         let mut conn = self.store.get_conn().await?;
         let notes = CustomerCreditGrantRow::list_forgiven_purchase_notes(
             &mut conn,
-            common_domain::clock::now(),
+            common_clock::now(),
             limit,
         )
         .await?;
@@ -1917,7 +1924,7 @@ mod tests {
             remaining,
             priority: 100,
             classification: classification.to_owned(),
-            effective_at: common_domain::clock::now(),
+            effective_at: common_clock::now(),
             expires_at: None,
             source_kind: source::CREDIT_PURCHASE.to_owned(),
             source_id: uuid::Uuid::now_v7(),
@@ -1927,7 +1934,7 @@ mod tests {
             reason: "Credit purchased on a paid invoice".to_owned(),
             reference: None,
             created_by: None,
-            created_at: common_domain::clock::now(),
+            created_at: common_clock::now(),
             cost_minor: cost,
             cost_currency: None,
             rollover: None,

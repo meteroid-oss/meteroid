@@ -20,7 +20,7 @@ pub fn take_mismatches() -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The grid a record bills on: the latest change of cadence before it ended, else the billing
+/// The grid a record bills on: the change of cadence in force when it started, else the billing
 /// start's, at its own cadence.
 fn grid_of<T: SubscriptionFeeInterface>(
     record: &T,
@@ -29,9 +29,7 @@ fn grid_of<T: SubscriptionFeeInterface>(
     anchor: u32,
 ) -> Option<Grid> {
     let months = record.period_ref().as_billing_period_opt()?.as_months();
-    match runs
-        .iter()
-        .find(|run| record.effective_to().is_none_or(|to| to > run.switched_on))
+    match crate::utils::periods::run_in_force(runs, record.effective_from(), record.effective_to())
     {
         Some(run) => Grid::from_origin(run.origin, anchor, months),
         None => crate::utils::periods::base_grid(billing_start, billing_from, anchor, months),
@@ -40,7 +38,7 @@ fn grid_of<T: SubscriptionFeeInterface>(
 
 /// Checks that each period `periods` bills for `record` on the invoice of `invoice_date` is one of
 /// the record's windows as its life read when billed: within one grid period, from its start or the
-/// record's, to its end or the record's.
+/// record's, to its end, the record's or the fixed term's.
 pub(crate) fn check<T: SubscriptionFeeInterface>(
     details: &SubscriptionDetails,
     record: &T,
@@ -80,7 +78,8 @@ pub(crate) fn check<T: SubscriptionFeeInterface>(
             || Some(period.start) == trial_end;
         let ends = period.end == grid_period.1
             || Some(period.end) == to
-            || (completed && side == "arrears" && period.end == invoice_date);
+            || Some(period.end) == sub.end_date
+            || (completed && period.end == invoice_date);
         if !(starts && ends && period.end <= grid_period.1) {
             differences.push(format!(
                 "{} {} {side} {}..{} on the invoice of {invoice_date} is no window of its fee: \
@@ -110,6 +109,14 @@ pub(crate) async fn check_origins(
     runs: &[CadenceRun],
 ) -> crate::StoreResult<()> {
     let sub = &details.subscription;
+    // An ending's invoice comes before the renewals that place a switch's grid; read off them
+    // or the switches alone, its origin bills no renewal: not checked.
+    if sub.current_period_end.is_none()
+        || sub.terminated_at.is_some()
+        || sub.end_date.is_some_and(|end| end <= invoice_date)
+    {
+        return Ok(());
+    }
     let switches: Vec<billing_core::timeline::CadenceSwitch> =
         crate::services::invoice_lines::cadence::cadence_switches(conn, sub.id, invoice_date)
             .await?
@@ -132,7 +139,17 @@ pub(crate) async fn check_origins(
             .iter()
             .find(|(on, _)| *on == run.switched_on)
             .map(|(_, origin)| (*origin).min(invoice_date.max(run.switched_on)));
-        if by_rule != Some(run.origin) {
+        // Origins a whole number of the new cadence's periods apart start one grid.
+        let one_grid = by_rule.is_some_and(|origin| {
+            switches
+                .iter()
+                .find(|switch| switch.on == run.switched_on)
+                .and_then(|switch| {
+                    Grid::from_origin(origin, u32::from(sub.billing_day_anchor), switch.after)
+                })
+                .is_some_and(|grid| grid.is_boundary(run.origin))
+        });
+        if by_rule != Some(run.origin) && !one_grid {
             let difference = format!(
                 "{} switched on {} runs from {} on the invoice of {invoice_date}, the rule says {by_rule:?} ({switches:?}, period {}..{:?})",
                 sub.id,

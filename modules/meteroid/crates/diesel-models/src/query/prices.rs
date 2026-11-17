@@ -1,5 +1,5 @@
 use crate::errors::IntoDbResult;
-use crate::prices::{PriceRow, PriceRowNew};
+use crate::prices::{PriceRow, PriceRowNew, PriceSuccessorRowNew};
 use crate::{DbResult, PgConn};
 use common_domain::ids::{PriceId, ProductId, TenantId};
 use diesel::{ExpressionMethods, QueryDsl, SelectableHelper};
@@ -31,6 +31,24 @@ impl PriceRowNew {
             .get_results(conn)
             .await
             .attach("Error while batch inserting prices")
+            .into_db_result()
+    }
+}
+
+impl PriceSuccessorRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<PriceRow> {
+        use crate::schema::price::dsl::price;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::insert_into(price)
+            .values(self)
+            .returning(PriceRow::as_returning());
+        crate::debug_sql(&query);
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while inserting a price successor")
             .into_db_result()
     }
 }
@@ -91,6 +109,7 @@ impl PriceRow {
             .filter(p_dsl::product_id.eq(product_id))
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .filter(p_dsl::archived_at.is_null())
+            .filter(p_dsl::supersedes.is_null())
             .select(PriceRow::as_select());
 
         crate::debug_sql(&query);
@@ -100,6 +119,26 @@ impl PriceRow {
             .await
             .attach("Error while listing prices by product id")
             .into_db_result()
+    }
+
+    /// Whether the product has any price, an archived one included.
+    pub async fn any_of_product(
+        conn: &mut PgConn,
+        product_id: ProductId,
+        tenant_id: TenantId,
+    ) -> DbResult<bool> {
+        use crate::schema::price::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        diesel::select(diesel::dsl::exists(
+            p_dsl::price
+                .filter(p_dsl::product_id.eq(product_id))
+                .filter(p_dsl::tenant_id.eq(tenant_id)),
+        ))
+        .get_result(conn)
+        .await
+        .attach("Error while checking a product's prices")
+        .into_db_result()
     }
 
     pub async fn list_by_ids(
@@ -142,6 +181,7 @@ impl PriceRow {
             .filter(p_dsl::currency.eq(currency))
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .filter(p_dsl::archived_at.is_null())
+            .filter(p_dsl::supersedes.is_null())
             .distinct_on(p_dsl::product_id)
             .order((p_dsl::product_id, p_dsl::created_at.desc()))
             .select(PriceRow::as_select());
@@ -155,26 +195,35 @@ impl PriceRow {
             .into_db_result()
     }
 
-    pub async fn update_pricing(
+    /// The successors of lineage roots `roots`, by root then first day then insertion (R-097).
+    pub async fn successors_of(
         conn: &mut PgConn,
-        id: PriceId,
+        roots: &[PriceId],
         tenant_id: TenantId,
-        pricing: serde_json::Value,
-    ) -> DbResult<PriceRow> {
+    ) -> DbResult<Vec<PriceRow>> {
         use crate::schema::price::dsl as p_dsl;
         use diesel_async::RunQueryDsl;
 
-        let query = diesel::update(p_dsl::price)
-            .filter(p_dsl::id.eq(id))
+        if roots.is_empty() {
+            return Ok(vec![]);
+        }
+        let query = p_dsl::price
+            .filter(p_dsl::supersedes.eq_any(roots))
             .filter(p_dsl::tenant_id.eq(tenant_id))
-            .set(p_dsl::pricing.eq(pricing));
+            .order((
+                p_dsl::supersedes,
+                p_dsl::effective_from,
+                p_dsl::created_at,
+                p_dsl::id,
+            ))
+            .select(PriceRow::as_select());
 
         crate::debug_sql(&query);
 
         query
-            .get_result(conn)
+            .load(conn)
             .await
-            .attach("Error while updating price pricing")
+            .attach("Error while listing price successors")
             .into_db_result()
     }
 
@@ -182,7 +231,7 @@ impl PriceRow {
         use crate::schema::price::dsl as p_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
         let query = diesel::update(p_dsl::price)
             .filter(p_dsl::id.eq(id))
             .filter(p_dsl::tenant_id.eq(tenant_id))

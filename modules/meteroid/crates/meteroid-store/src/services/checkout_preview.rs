@@ -1,6 +1,5 @@
 use crate::StoreResult;
 use crate::domain::Product;
-use crate::domain::enums::InvoiceType;
 use crate::domain::plan_minimums::{CreateMinimumScope, MinimumScope};
 use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use crate::domain::subscription_coupons::AppliedCoupon;
@@ -148,7 +147,7 @@ impl Services {
 
         let billing_start_date = session
             .billing_start_date
-            .unwrap_or_else(|| common_domain::clock::now().date_naive());
+            .unwrap_or_else(|| common_clock::now().date_naive());
 
         let plan_trial_days = plan_version.trial_duration_days.map(|d| d as u32);
 
@@ -224,7 +223,7 @@ impl Services {
             plan_description: plan_with_version.plan.description.clone(),
             plan_version_id: session.subscription_plan_version_id()?,
             version,
-            created_at: common_domain::clock::now().naive_utc(),
+            created_at: common_clock::now().naive_utc(),
             net_terms,
             invoice_memo: session.invoice_memo.clone(),
             invoice_threshold: session.invoice_threshold,
@@ -491,7 +490,7 @@ impl Services {
             plan_description: plan_with_version.plan.description.clone(),
             plan_version_id: sub.plan_version_id,
             version,
-            created_at: common_domain::clock::now().naive_utc(),
+            created_at: common_clock::now().naive_utc(),
             net_terms,
             invoice_memo: sub.invoice_memo.clone(),
             invoice_threshold: sub.invoice_threshold,
@@ -557,14 +556,7 @@ impl Services {
         );
 
         let content = self
-            .compute_invoice(
-                conn,
-                &current_period_start,
-                &details,
-                None,
-                None,
-                InvoiceType::Recurring,
-            )
+            .preview_new_subscription_invoice(conn, &details)
             .await?;
 
         Ok((content, details))
@@ -587,7 +579,7 @@ impl Services {
             fee: resolved.fee,
             period: resolved.period,
             price_id: resolved.price_id,
-            effective_from: common_domain::clock::now().naive_utc().date(),
+            effective_from: common_clock::now().naive_utc().date(),
             effective_to: None,
             lineage_id: None,
             added_by_amendment: false,
@@ -664,7 +656,7 @@ impl Services {
                     fee: resolved.fee,
                     period: resolved.period,
                     price_id: resolved.price_id,
-                    effective_from: common_domain::clock::now().naive_utc().date(),
+                    effective_from: common_clock::now().naive_utc().date(),
                     effective_to: None,
                     lineage_id: None,
                     added_by_amendment: false,
@@ -707,7 +699,7 @@ impl Services {
             fee: resolved.fee.clone(),
             period: resolved.period,
             price_id: resolved.existing_price_id(),
-            effective_from: common_domain::clock::now().naive_utc().date(),
+            effective_from: common_clock::now().naive_utc().date(),
             effective_to: None,
             lineage_id: None,
             added_by_amendment: false,
@@ -911,9 +903,9 @@ impl Services {
                 fee: resolved.fee,
                 product_id: resolved.product_id,
                 price_id: resolved.price_id,
-                created_at: common_domain::clock::now().naive_utc(),
+                created_at: common_clock::now().naive_utc(),
                 quantity: create_ao.quantity,
-                effective_from: common_domain::clock::now().naive_utc().date(),
+                effective_from: common_clock::now().naive_utc().date(),
                 effective_to: None,
                 lineage_id: None,
                 added_by_amendment: false,
@@ -984,7 +976,7 @@ impl Services {
         coupon: crate::domain::Coupon,
         subscription: &Subscription,
     ) -> AppliedCouponDetailed {
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
 
         let preview_applied = AppliedCoupon {
             id: AppliedCouponId::new(),

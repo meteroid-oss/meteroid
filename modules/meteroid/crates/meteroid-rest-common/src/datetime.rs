@@ -15,7 +15,7 @@ pub struct ApiDateTime(DateTime<Utc>);
 
 impl ApiDateTime {
     pub fn now() -> Self {
-        Self(common_domain::clock::now())
+        Self(common_clock::now())
     }
 
     pub fn to_utc(self) -> DateTime<Utc> {

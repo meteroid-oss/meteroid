@@ -76,6 +76,43 @@ impl DayFraction {
     }
 }
 
+/// `[from, until)` of the period `[start, end)`: what is left of an amount for the period at
+/// `from` less what is left at `until`, each rounded once, so the spans tiling a period add up to
+/// its amount exactly (R-079).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DaySpan {
+    pub period: (NaiveDate, NaiveDate),
+    pub from: NaiveDate,
+    pub until: NaiveDate,
+}
+
+impl DaySpan {
+    pub fn prorate(&self, amount_minor: i64) -> i64 {
+        let (start, end) = self.period;
+        if end <= start {
+            return 0;
+        }
+        let left = |at: NaiveDate| {
+            DayFraction::remaining(start, end, at.clamp(start, end)).prorate(amount_minor)
+        };
+        left(self.from) - left(self.until)
+    }
+
+    pub fn is_whole(&self) -> bool {
+        self.from <= self.period.0 && self.period.1 <= self.until
+    }
+
+    /// The share of the period's days it covers.
+    pub fn fraction(&self) -> DayFraction {
+        let (start, end) = self.period;
+        if end <= start {
+            return DayFraction::NONE;
+        }
+        let (from, until) = (self.from.clamp(start, end), self.until.clamp(start, end));
+        DayFraction::new((until - from).num_days(), (end - start).num_days())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,6 +146,29 @@ mod tests {
                 .of(DayFraction::new(1, 3))
                 .prorate(600),
             100
+        );
+    }
+
+    /// [Feb 8, Feb 15) of February 2024: 9900 × 22/29 (7510.34 → 7510) − 9900 × 15/29
+    /// (5120.69 → 5121) = 2389, where 9900 × 7/29 rounds to 2390.
+    #[test]
+    fn a_span_bills_what_is_left_at_its_start_less_what_is_left_at_its_end() {
+        let february = DaySpan {
+            period: (date(2024, 2, 1), date(2024, 3, 1)),
+            from: date(2024, 2, 8),
+            until: date(2024, 2, 15),
+        };
+        assert_eq!(february.prorate(9_900), 2_389);
+        assert_eq!(february.fraction(), DayFraction::new(7, 29));
+        assert!(!february.is_whole());
+        let rest = DaySpan {
+            until: date(2024, 3, 1),
+            ..february
+        };
+        assert_eq!(
+            rest.prorate(9_900),
+            DayFraction::remaining(date(2024, 2, 1), date(2024, 3, 1), date(2024, 2, 8))
+                .prorate(9_900)
         );
     }
 

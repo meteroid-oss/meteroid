@@ -603,6 +603,7 @@ name = "billing-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "common-domain",
  "common-utils",
  "ordermap",
  "proptest",
@@ -1295,6 +1296,14 @@ dependencies = [
 name = "common-build-info"
 version = "0.1.0"
 dependencies = [
+ "workspace-hack",
+]
+
+[[package]]
+name = "common-clock"
+version = "0.1.0"
+dependencies = [
+ "chrono",
  "workspace-hack",
 ]
 
@@ -2013,6 +2022,7 @@ name = "diesel-models"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "common-clock",
  "common-domain",
  "diesel",
  "diesel-async",
@@ -4736,6 +4746,7 @@ dependencies = [
  "bytes",
  "chrono",
  "clickhouse",
+ "common-clock",
  "common-config",
  "common-domain",
  "common-eventbus",
@@ -4810,6 +4821,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "chrono",
+ "common-clock",
  "common-domain",
  "common-eventbus",
  "common-grpc",
@@ -4875,6 +4887,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "chrono",
+ "common-clock",
  "common-config",
  "common-domain",
  "common-eventbus",
@@ -4972,6 +4985,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
+ "common-clock",
  "common-domain",
  "common-grpc",
  "common-grpc-error-as-tonic-macros",
@@ -5193,6 +5207,7 @@ dependencies = [
  "bytes",
  "cached",
  "chrono",
+ "common-clock",
  "common-domain",
  "common-grpc",
  "common-grpc-error-as-tonic-macros",
@@ -5240,6 +5255,7 @@ dependencies = [
  "axum",
  "axum-valid",
  "chrono",
+ "common-clock",
  "common-domain",
  "common-grpc",
  "http",
@@ -5292,6 +5308,7 @@ dependencies = [
  "chacha20poly1305",
  "chrono",
  "chrono-tz",
+ "common-clock",
  "common-domain",
  "common-eventbus",
  "common-logging",
@@ -5401,10 +5418,12 @@ dependencies = [
  "async-trait",
  "axum",
  "backon",
+ "billing-core",
  "bollard",
  "bytes",
  "chrono",
  "clickhouse",
+ "common-clock",
  "common-config",
  "common-domain",
  "common-grpc",
@@ -5520,6 +5539,7 @@ dependencies = [
  "bytes",
  "cached",
  "chrono",
+ "common-clock",
  "common-domain",
  "common-eventbus",
  "common-grpc-error-as-tonic-macros",

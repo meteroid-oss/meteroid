@@ -1,4 +1,4 @@
-//! A subscription recorded as dated facts (Phase 7): each path that acts records what it decided,
+//! A subscription recorded as dated facts: each path that acts records what it decided,
 //! next to the events and state that still drive billing. Nothing bills from them yet. Scheduled
 //! cancellations and invoice deadlines are recorded with their events (`record_scheduled_facts`).
 use chrono::{Days, NaiveDate, NaiveDateTime};
@@ -21,12 +21,51 @@ use crate::errors::StoreError;
 use crate::services::Services;
 use crate::store::PgConn;
 
+pub mod pending;
+
 fn months(cadence: &DbBillingPeriod) -> u32 {
     BillingPeriodEnum::from(cadence.clone()).as_months()
 }
 
 fn db<T>(result: diesel_models::DbResult<T>) -> StoreResult<T> {
     result.map_err(Into::<Report<StoreError>>::into)
+}
+
+/// Ends the fee rows `ids` on `on`, one a change written for a later date ends later included
+/// (R-106). A row ended by then would leave two rows of one fee in force: an invariant error.
+pub(crate) async fn close_components_tx(
+    conn: &mut PgConn,
+    ids: &[common_domain::ids::SubscriptionPriceComponentId],
+    on: NaiveDate,
+) -> StoreResult<()> {
+    use diesel_models::subscription_components::SubscriptionComponentRow;
+    let closed = db(SubscriptionComponentRow::close_components(conn, ids, on).await)?;
+    all_closed("component", ids, closed)
+}
+
+/// [`close_components_tx`] for add-on rows.
+pub(crate) async fn close_add_ons_tx(
+    conn: &mut PgConn,
+    ids: &[common_domain::ids::SubscriptionAddOnId],
+    on: NaiveDate,
+) -> StoreResult<()> {
+    use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
+    let closed = db(SubscriptionAddOnRow::close_addons(conn, ids, on).await)?;
+    all_closed("add-on", ids, closed)
+}
+
+fn all_closed<T: Eq + std::hash::Hash + std::fmt::Debug>(
+    kind: &str,
+    ids: &[T],
+    closed: usize,
+) -> StoreResult<()> {
+    let expected = ids.iter().collect::<std::collections::HashSet<_>>().len();
+    if closed == expected {
+        return Ok(());
+    }
+    Err(Report::new(StoreError::BillingInvariantViolated(format!(
+        "{closed} of the {expected} {kind} rows to close were open: {ids:?}"
+    ))))
 }
 
 /// The facts of subscriptions just inserted: their first plan window, trial, a start that needs no
@@ -36,7 +75,7 @@ pub(crate) async fn record_inserted_tx(
     actor: &Actor,
     inserted: &[(&SubscriptionRowNew, bool)],
 ) -> StoreResult<()> {
-    let now = common_domain::clock::now().naive_utc();
+    let now = common_clock::now().naive_utc();
     let mut windows = Vec::new();
     let mut trials = Vec::new();
     let mut starts = Vec::new();
@@ -131,24 +170,56 @@ pub(crate) async fn settle_start_tx(
             tenant_id,
             at,
             settled_by: by.as_str().to_owned(),
-            created_at: common_domain::clock::now().naive_utc(),
+            created_at: common_clock::now().naive_utc(),
         }],
     )
     .await)
 }
 
-/// A plan change applied on `on`, read from the subscription it left: its plan window from then,
-/// and the trial it ends. `starts_billing`: it ended a free trial, billing starting on `on`.
+/// A plan change applied on `on` to `plan_version_id` on `cadence`: its plan window from then, and
+/// the trial it ends. `starts_billing`: it ended a free trial, billing starting on `on`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn record_plan_change_tx(
     conn: &mut PgConn,
     tenant_id: TenantId,
     subscription_id: SubscriptionId,
     on: NaiveDate,
+    plan_version_id: common_domain::ids::PlanVersionId,
+    cadence: DbBillingPeriod,
     starts_billing: bool,
 ) -> StoreResult<()> {
     let sub = db(SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id).await)?
         .subscription;
     db(SubscriptionTrialRow::end_by(conn, subscription_id, on).await)?;
+    let (windows, from) = windows_before(conn, subscription_id, on).await?;
+    let origin = if starts_billing {
+        from
+    } else {
+        decided_origin(conn, &sub, &windows, from, &cadence).await?
+    };
+    db(SubscriptionPlanWindowRow::open(
+        conn,
+        SubscriptionPlanWindowRowNew {
+            id: uuid::Uuid::now_v7(),
+            tenant_id,
+            subscription_id,
+            plan_version_id,
+            from_date: from,
+            cadence,
+            cadence_origin: origin,
+        },
+    )
+    .await)?;
+    Ok(())
+}
+
+/// The windows a plan change on `on` follows, and the day the window it opens starts: a window
+/// opened on or after `on` is replaced.
+async fn windows_before(
+    conn: &mut PgConn,
+    subscription_id: SubscriptionId,
+    on: NaiveDate,
+) -> StoreResult<(Vec<SubscriptionPlanWindowRow>, NaiveDate)> {
     let mut windows =
         db(SubscriptionPlanWindowRow::list_by_subscription(conn, subscription_id).await)?;
     let from = match windows.last() {
@@ -159,52 +230,7 @@ pub(crate) async fn record_plan_change_tx(
         }
         _ => on,
     };
-    let origin = if starts_billing {
-        from
-    } else {
-        decided_origin(conn, &sub, &windows, from, &sub.period).await?
-    };
-    db(SubscriptionPlanWindowRow::open(
-        conn,
-        SubscriptionPlanWindowRowNew {
-            id: uuid::Uuid::now_v7(),
-            tenant_id,
-            subscription_id,
-            plan_version_id: sub.plan_version_id,
-            from_date: from,
-            cadence: sub.period.clone(),
-            cadence_origin: origin,
-        },
-    )
-    .await)?;
-    Ok(())
-}
-
-/// The subscription moved onto `period` from `on` as if created with the fees it bills then: its
-/// grid keeps its origin.
-pub(crate) async fn record_cadence_change_tx(
-    conn: &mut PgConn,
-    subscription_id: SubscriptionId,
-    on: NaiveDate,
-    period: DbBillingPeriod,
-) -> StoreResult<()> {
-    let Some(open) = db(SubscriptionPlanWindowRow::open_of(conn, subscription_id).await)? else {
-        return Ok(());
-    };
-    db(SubscriptionPlanWindowRow::open(
-        conn,
-        SubscriptionPlanWindowRowNew {
-            id: uuid::Uuid::now_v7(),
-            tenant_id: open.tenant_id,
-            subscription_id,
-            plan_version_id: open.plan_version_id,
-            from_date: on,
-            cadence: period,
-            cadence_origin: open.cadence_origin,
-        },
-    )
-    .await)?;
-    Ok(())
+    Ok((windows, from))
 }
 
 /// Where the grid of a window opening on `on` with `cadence` after `before` starts: the grid in

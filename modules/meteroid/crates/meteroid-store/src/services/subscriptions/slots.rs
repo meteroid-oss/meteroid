@@ -4,11 +4,9 @@ use crate::StoreResult;
 use crate::constants::Currencies;
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
 use crate::domain::payment_transactions::PaymentNextAction;
-use crate::domain::slot_transactions::{
-    SlotUpdatePreview, SlotUpgradeBillingMode, UpdateSlotsResult,
-};
+use crate::domain::slot_transactions::{SlotUpgradeBillingMode, UpdateSlotsResult};
 use crate::domain::{
-    ChargeType, LineItem, PaymentTransaction, Period, SlotForTransaction, SubscriptionFee,
+    ChargeType, LineItem, PaymentTransaction, SlotForTransaction, SubscriptionFee,
     SubscriptionFeeInterface,
 };
 use crate::errors::StoreError;
@@ -16,13 +14,12 @@ use crate::repositories::SubscriptionInterface;
 use crate::repositories::customers::CustomersInterface;
 use crate::repositories::entity_activity::EntityActivityInterface;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
+use crate::repositories::subscriptions::SubscriptionSlotsInterface as RepoInterface;
 use crate::repositories::subscriptions::slots::validate_slot_limits;
-use crate::repositories::subscriptions::{
-    SubscriptionInterfaceAuto, SubscriptionSlotsInterface as RepoInterface,
-};
 use crate::services::Services;
+use crate::services::evaluate::change::{Bought, seat_purchase};
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
-use crate::services::subscriptions::plan_change::calculate_components_mrr_with_slots;
+use crate::services::subscriptions::proration::DaySpan;
 use crate::store::PgConn;
 use crate::utils::local_id::LocalId;
 use chrono::{NaiveDateTime, NaiveTime};
@@ -83,13 +80,13 @@ impl Services {
 
                 let slot = services.extract_slot(&subscription_details, price_component_id)?;
 
-                let now = at_ts.unwrap_or(common_domain::clock::now().naive_utc());
+                let now = at_ts.unwrap_or(common_clock::now().naive_utc());
                 let now_date = now.date();
-                let (period_start, period_end) = services
+                let left = services
                     .slot_fee_period(conn, &subscription_details, price_component_id, now_date)
                     .await?;
+                let period_end = left.until;
 
-                let unit_rate = slot.unit_rate;
                 let customer_id = subscription.customer_id;
 
                 let result = if delta < 0 {
@@ -125,14 +122,18 @@ impl Services {
                             ))
                         })?;
 
-                    let prorated = services.calculate_slot_upgrade_amount(
-                        period_start,
-                        now_date,
-                        period_end,
-                        delta,
-                        &unit_rate,
-                        currency.precision as u32,
-                    )?;
+                    // Held from the day their step is written, at most the fee period's end.
+                    let on = now_date.min(period_end);
+                    let prorated = services
+                        .seat_purchase_amount(
+                            conn,
+                            &subscription_details,
+                            price_component_id,
+                            delta,
+                            on,
+                            currency.precision as u32,
+                        )
+                        .await?;
 
                     match billing_mode {
                         SlotUpgradeBillingMode::OnCheckout => {
@@ -159,7 +160,7 @@ impl Services {
                                     delta,
                                     &slot,
                                     prorated,
-                                    now_date,
+                                    on,
                                     period_end,
                                     at_ts,
                                 )
@@ -176,7 +177,7 @@ impl Services {
                                     delta,
                                     &slot,
                                     prorated,
-                                    now_date,
+                                    on,
                                     period_end,
                                     at_ts,
                                 )
@@ -228,21 +229,40 @@ impl Services {
         .await
     }
 
-    fn calculate_slot_upgrade_amount(
+    /// What `delta` seats bought on `on` bill, from the facts as if held from that day: the slot
+    /// fee's charge for its period less what its lines billed (R-079, R-080), in major units.
+    pub(in crate::services) async fn seat_purchase_amount(
         &self,
-        period_start: chrono::NaiveDate,
-        now: chrono::NaiveDate,
-        period_end: chrono::NaiveDate,
+        conn: &mut PgConn,
+        details: &crate::domain::SubscriptionDetails,
+        price_component_id: PriceComponentId,
         delta: i32,
-        unit_rate: &Decimal,
+        on: chrono::NaiveDate,
         precision: u32,
     ) -> StoreResult<Decimal> {
-        Ok(slot_upgrade_amount(
-            period_start,
-            now,
-            period_end,
-            delta,
-            unit_rate,
+        let component = details
+            .price_components
+            .iter()
+            .find(|c| c.price_component_id() == Some(price_component_id))
+            .ok_or_else(|| {
+                StoreError::ValueNotFound(format!(
+                    "Price component {price_component_id} not found in subscription"
+                ))
+            })?;
+        let bought = Bought {
+            lineage: billing_core::charge::Fee::Component(component.lineage()),
+            seats: u64::try_from(delta).unwrap_or(0),
+        };
+        let purchase = seat_purchase(
+            conn,
+            details.subscription.tenant_id,
+            details.subscription.id,
+            on,
+            &bought,
+        )
+        .await?;
+        Ok(Decimal::new(
+            purchase.map_or(0, |purchase| purchase.amount.max(0)),
             precision,
         ))
     }
@@ -364,31 +384,24 @@ impl Services {
                 .prev_active_slots
                 + delta;
 
-            // The added slots are active immediately, so the subscription MRR grows now.
-            // Recompute it (live slot counts) before `subscription_details` is consumed.
+            // The added slots are active immediately, so the subscription MRR grows now: the
+            // writer's, from the seat step just written.
             let old_mrr = subscription_details.subscription.mrr_cents as i64;
-            let precision =
-                Currencies::resolve_currency_precision(&subscription_details.subscription.currency)
-                    .unwrap_or(2);
-            let component_lines = calculate_components_mrr_with_slots(
+            self.derive_state_tx(
                 conn,
+                &crate::domain::entity_activity::Actor::System,
                 tenant_id,
                 subscription_id,
-                &subscription_details.price_components,
-                precision,
+                crate::services::evaluate::bill::midnight(start_date),
             )
             .await?;
-            // Stated as stored, so the delta against `old_mrr` is like for like.
-            let new_mrr = self
-                .restate_subscription_mrr(
-                    conn,
-                    &mut subscription_details,
-                    component_lines,
-                    precision,
-                    start_date,
-                )
-                .await?;
-            let mrr_delta = new_mrr - old_mrr;
+            let new_mrr =
+                SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?
+                    .subscription
+                    .mrr_cents;
+            subscription_details.subscription.mrr_cents = new_mrr.max(0) as u64;
 
             let invoice_id = self
                 .create_slot_upgrade_invoice(
@@ -404,18 +417,15 @@ impl Services {
                 )
                 .await?;
 
-            // Book the slot expansion: a Switch event (mrr_delta None, so process_mrr
-            // never books it) plus the sole movement writer.
-            if mrr_delta != 0 {
-                SubscriptionRow::update_subscription_mrr_delta(conn, subscription_id, mrr_delta)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+            // The expansion's record: a Switch event (mrr_delta None, so process_mrr never
+            // books it); the writer booked the movement.
+            if new_mrr != old_mrr {
                 SubscriptionEventRow {
                     id: Uuid::now_v7(),
                     subscription_id,
                     event_type: SubscriptionEventType::Switch,
                     details: Some(serde_json::json!({ "kind": "slots", "mode": "immediate" })),
-                    created_at: common_domain::clock::now().naive_utc(),
+                    created_at: common_clock::now().naive_utc(),
                     mrr_delta: None,
                     bi_mrr_movement_log_id: None,
                     applies_to: start_date,
@@ -423,14 +433,6 @@ impl Services {
                 .insert(conn)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
-                self.create_movement_mrr_log(
-                    conn,
-                    tenant_id,
-                    subscription_id,
-                    start_date,
-                    mrr_delta,
-                )
-                .await?;
             }
 
             Ok(UpdateSlotsResult {
@@ -444,15 +446,16 @@ impl Services {
         .await
     }
 
-    /// The slot fee's period around `on` on its own grid (R-084): a fee billed off the
-    /// subscription's cadence prorates an upgrade, and steps a downgrade down, over its own period.
+    /// What is left from `on` of the slot fee's period on its own grid (R-084), up to the term's
+    /// end: a fee billed off the subscription's cadence prorates an upgrade, and steps a downgrade
+    /// down, over its own period.
     async fn slot_fee_period(
         &self,
         conn: &mut PgConn,
         details: &crate::domain::SubscriptionDetails,
         price_component_id: PriceComponentId,
         on: chrono::NaiveDate,
-    ) -> StoreResult<(chrono::NaiveDate, chrono::NaiveDate)> {
+    ) -> StoreResult<DaySpan> {
         let subscription = &details.subscription;
         let current_end = subscription.current_period_end.ok_or_else(|| {
             StoreError::InvalidArgument(
@@ -476,9 +479,8 @@ impl Services {
             on,
         )
         .await?;
-        Ok(crate::services::subscriptions::proration::own_period(
-            grid, on,
-        )(&period))
+        let own = crate::services::subscriptions::proration::own_period(grid, on)(&period);
+        Ok(grid.left(own, on))
     }
 
     fn extract_slot(
@@ -589,7 +591,7 @@ impl Services {
     ///
     /// Shared by the apply route (`create_slot_upgrade_invoice_internal`) and the
     /// preview (`preview_slot_update`) so the previewed charge equals what is billed.
-    async fn compute_slot_upgrade_invoice_content(
+    pub(in crate::services) async fn compute_slot_upgrade_invoice_content(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
@@ -648,7 +650,8 @@ impl Services {
             amount_total: 0,
             is_prorated: true,
             price_component_id: Some(price_component_id),
-            sub_component_id: None,
+            // The seats bill the slot fee's charge for its period: reconcile reads them on it.
+            sub_component_id: Some(slot_component.id),
             sub_add_on_id: None,
             product_id: slot_component.product_id(),
             metric_id: None,
@@ -868,122 +871,6 @@ impl Services {
             .await
     }
 
-    pub async fn preview_slot_update(
-        &self,
-        tenant_id: TenantId,
-        subscription_id: SubscriptionId,
-        price_component_id: PriceComponentId,
-        delta: i32,
-    ) -> StoreResult<SlotUpdatePreview> {
-        if delta == 0 {
-            return Err(StoreError::InvalidArgument(
-                "Delta cannot be zero - no slot change requested".to_string(),
-            )
-            .into());
-        }
-
-        let subscription_details = self
-            .store
-            .get_subscription_details(tenant_id, subscription_id)
-            .await?;
-
-        let subscription = &subscription_details.subscription;
-
-        let slot = self.extract_slot(&subscription_details, price_component_id)?;
-
-        let now = common_domain::clock::now().naive_utc();
-        let now_date = now.date();
-
-        let mut conn = self.store.get_conn().await?;
-        let (period_start, period_end) = self
-            .slot_fee_period(
-                &mut conn,
-                &subscription_details,
-                price_component_id,
-                now_date,
-            )
-            .await?;
-
-        let current_slots = self
-            .store
-            .get_active_slots_value_with_conn(
-                &mut conn,
-                tenant_id,
-                subscription_id,
-                slot.unit.clone(),
-                None,
-            )
-            .await? as i32;
-
-        let new_slots = current_slots + delta;
-
-        // Validate limits
-        validate_slot_limits(&slot, delta, current_slots)?;
-
-        let effective_at = if delta > 0 { now_date } else { period_end };
-
-        // Get currency precision for proper rounding
-        let currency = Currencies::resolve_currency(&subscription.currency).ok_or_else(|| {
-            StoreError::ValueNotFound(format!("Currency {} not found", subscription.currency))
-        })?;
-
-        let (prorated_amount, full_period_amount, adjustment_invoice) = if delta > 0 {
-            let prorated = self.calculate_slot_upgrade_amount(
-                period_start,
-                now_date,
-                period_end,
-                delta,
-                &slot.unit_rate,
-                currency.precision as u32,
-            )?;
-            let full_period = round_money(
-                Decimal::from(delta) * slot.unit_rate,
-                currency.precision as u32,
-            );
-            // Compute the taxed invoice through the exact path the apply route bills.
-            let invoice = self
-                .compute_slot_upgrade_invoice_content(
-                    &mut conn,
-                    tenant_id,
-                    &subscription_details,
-                    price_component_id,
-                    delta,
-                    slot.unit.as_str(),
-                    prorated,
-                    now_date,
-                    period_end,
-                )
-                .await?;
-            (prorated, full_period, Some(invoice))
-        } else {
-            // For downgrades, show what they'll save
-            let full_period_reduction = round_money(
-                Decimal::from(-delta) * slot.unit_rate,
-                currency.precision as u32,
-            );
-            (Decimal::ZERO, -full_period_reduction, None)
-        };
-
-        let days_remaining = period_end.signed_duration_since(now_date).num_days() as i32;
-        let days_total = period_end.signed_duration_since(period_start).num_days() as i32;
-
-        Ok(SlotUpdatePreview {
-            current_slots,
-            new_slots,
-            delta,
-            unit: slot.unit.clone(),
-            unit_rate: slot.unit_rate,
-            prorated_amount,
-            full_period_amount,
-            days_remaining,
-            days_total,
-            effective_at,
-            current_period_end: period_end,
-            next_invoice_delta: prorated_amount,
-            adjustment_invoice,
-        })
-    }
-
     pub async fn complete_slot_upgrade_checkout(
         &self,
         tenant_id: TenantId,
@@ -1022,15 +909,15 @@ impl Services {
                     )
                     .await?;
 
-                    let now = at_ts.unwrap_or(common_domain::clock::now().naive_utc());
+                    let now = at_ts.unwrap_or(common_clock::now().naive_utc());
                     let now_date = now.date();
 
                     let slot = self.extract_slot(&subscription_details, price_component_id)?;
-                    let (period_start, period_end) = self
+                    let left = self
                         .slot_fee_period(conn, &subscription_details, price_component_id, now_date)
                         .await?;
+                    let period_end = left.until;
 
-                    let unit_rate = slot.unit_rate;
                     let unit_name = slot.unit.clone();
 
                     // Get currency precision for proper rounding
@@ -1043,14 +930,17 @@ impl Services {
                             ))
                         })?;
 
-                    let prorated = self.calculate_slot_upgrade_amount(
-                        period_start,
-                        now_date,
-                        period_end,
-                        delta,
-                        &unit_rate,
-                        currency.precision as u32,
-                    )?;
+                    let on = now_date.min(period_end);
+                    let prorated = self
+                        .seat_purchase_amount(
+                            conn,
+                            &subscription_details,
+                            price_component_id,
+                            delta,
+                            on,
+                            currency.precision as u32,
+                        )
+                        .await?;
 
                     let active_slots = self
                         .store
@@ -1074,7 +964,7 @@ impl Services {
                             delta,
                             &unit_name,
                             prorated,
-                            now_date,
+                            on,
                             period_end,
                         )
                         .await?;
@@ -1324,63 +1214,4 @@ fn round_money(amount: Decimal, precision: u32) -> Decimal {
         precision,
         rust_decimal::RoundingStrategy::MidpointAwayFromZero,
     )
-}
-
-/// The upgrade of `delta` slots for the whole days left of the period, half-up.
-fn slot_upgrade_amount(
-    period_start: chrono::NaiveDate,
-    now: chrono::NaiveDate,
-    period_end: chrono::NaiveDate,
-    delta: i32,
-    unit_rate: &Decimal,
-    precision: u32,
-) -> Decimal {
-    let full_period = Period {
-        start: period_start,
-        end: period_end,
-    };
-    let partial_period = Period {
-        start: now,
-        end: period_end,
-    };
-
-    let proration_factor =
-        crate::utils::periods::calculate_proration_factor(&partial_period, &full_period);
-    let base_amount = Decimal::from(delta) * unit_rate;
-
-    let prorated = if let Some(factor) = proration_factor {
-        factor.prorate_decimal(base_amount)
-    } else {
-        base_amount
-    };
-
-    round_money(prorated.max(Decimal::ZERO), precision)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::slot_upgrade_amount;
-    use chrono::NaiveDate;
-    use rust_decimal_macros::dec;
-
-    /// One day left of a 28-day February on a 0.70 seat is 0.025: half-up 0.03 (OQ14), where
-    /// half-even with a float factor billed 0.02.
-    #[test]
-    fn a_half_cent_slot_upgrade_rounds_half_up() {
-        let day = |d| NaiveDate::from_ymd_opt(2026, 2, d).unwrap();
-        let end = NaiveDate::from_ymd_opt(2026, 3, 1).unwrap();
-        assert_eq!(
-            slot_upgrade_amount(day(1), day(28), end, 1, &dec!(0.70), 2),
-            dec!(0.03)
-        );
-        assert_eq!(
-            slot_upgrade_amount(day(1), day(1), end, 2, &dec!(0.70), 2),
-            dec!(1.40)
-        );
-        // 3.78 for one day of 28 is 0.135 exactly: 0.14, where dividing first read 0.1349… (0.13).
-        assert_eq!(
-            slot_upgrade_amount(day(1), day(28), end, 1, &dec!(3.78), 2),
-            dec!(0.14)
-        );
-    }
 }

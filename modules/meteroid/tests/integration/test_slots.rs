@@ -390,13 +390,13 @@ async fn test_currency_precision(services: &Services, store: &Store, _conn: &mut
     .await;
 
     let result = services
-        .update_subscription_slots(
+        .update_subscription_slots_for_test(
             TENANT_ID,
             subscription_id,
             slot_component_id,
             1,
             SlotUpgradeBillingMode::Optimistic,
-            common_domain::actor::Actor::System,
+            NaiveDate::from_ymd_opt(2024, 1, 15).map(|t| t.and_time(NaiveTime::MIN)),
         )
         .await
         .expect("Failed to upgrade slots");
@@ -406,17 +406,12 @@ async fn test_currency_precision(services: &Services, store: &Store, _conn: &mut
         .await
         .expect("Failed to get invoice");
 
-    // Verify amounts are in subunits (cents for USD)
-    assert!(invoice.total > 0, "Total should be positive");
-    assert!(invoice.subtotal > 0, "Subtotal should be positive");
-
-    // Verify line item amount is correctly calculated
+    // Five 25.50 seats, a sixth from Jan 15, 17 of 31 days left: 15300 × 17/31 (8390.32 → 8390)
+    // − 12750 × 17/31 (6991.94 → 6992) = 1398 minor units (R-079).
     let line_item = &invoice.line_items[0];
     assert_eq!(line_item.quantity, Some(Decimal::from(1)));
-    assert!(
-        line_item.amount_subtotal > 0,
-        "Line item subtotal should be positive"
-    );
+    assert_eq!(line_item.amount_subtotal, 1398);
+    assert_eq!(invoice.subtotal, 1398);
 }
 
 async fn test_input_validation(services: &Services, _store: &Store, _conn: &mut PgConn) {

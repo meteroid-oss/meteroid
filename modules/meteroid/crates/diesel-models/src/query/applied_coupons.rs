@@ -18,7 +18,7 @@ impl AppliedCouponRowNew {
 
         let query = diesel::insert_into(ac::applied_coupon).values((
             self,
-            crate::schema::applied_coupon::created_at.eq(common_domain::clock::now().naive_utc()),
+            crate::schema::applied_coupon::created_at.eq(common_clock::now().naive_utc()),
         ));
 
         crate::debug_sql(&query);
@@ -61,7 +61,7 @@ impl AppliedCouponRow {
                     (
                         *row,
                         crate::schema::applied_coupon::created_at
-                            .eq(common_domain::clock::now().naive_utc()),
+                            .eq(common_clock::now().naive_utc()),
                     )
                 })
                 .collect::<Vec<_>>(),
@@ -105,7 +105,7 @@ impl AppliedCouponRow {
             fn coalesce_numeric(x: diesel::sql_types::Nullable<diesel::sql_types::Numeric>, y: diesel::sql_types::Numeric) -> diesel::sql_types::Numeric;
         }
 
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
         let amount_delta = amount_delta.unwrap_or(Decimal::ZERO);
 
         if amount_delta > Decimal::ZERO {

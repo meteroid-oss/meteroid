@@ -341,6 +341,7 @@ async fn customer_and_tenant_writers_bump_their_tokens() -> TestResult {
                 MatrixPriceUpdate {
                     add_rows: vec![],
                     remove_rows: vec![],
+                    effective_on: None,
                 },
                 Uuid::nil(),
             )

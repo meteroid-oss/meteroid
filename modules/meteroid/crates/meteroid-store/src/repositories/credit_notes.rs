@@ -446,6 +446,7 @@ fn negate_line_items(
                 promotional_credit: credited.promotional_credit,
                 subscription_id: item.subscription_id,
                 usage_ends_at: None,
+                usage_breakdown: None,
             }
         })
         .collect()
@@ -610,13 +611,13 @@ async fn apply_credit_note_to_invoice_tx(
         .await
         .map_err(Into::<Report<StoreError>>::into)?
         .and_then(|payment| payment.processed_at)
-        .map_or_else(common_domain::clock::now, |at| at.and_utc());
+        .map_or_else(common_clock::now, |at| at.and_utc());
         crate::services::credit::mint::mint_purchased_credit_tx(
             conn,
             &*store.hooks.credit,
             &invoice,
             paid_at,
-            common_domain::clock::now(),
+            common_clock::now(),
         )
         .await?;
         let event = InvoiceEvent {
@@ -838,7 +839,7 @@ async fn clamp_refund_to_unspent_purchased_credit(
     line_items_to_credit: &[LineItem],
     resolved: &mut HashMap<String, ResolvedCredit>,
 ) -> StoreResult<()> {
-    let now = common_domain::clock::now();
+    let now = common_clock::now();
     let lines = financial::purchase_lines_tx(conn, lock, invoice).await?;
     let finalized = if lines.iter().any(|line| line.bonus.is_some()) {
         crate::services::credit::mint::credited_by_finalized_notes_tx(conn, invoice, None).await?
@@ -1014,12 +1015,14 @@ pub(crate) async fn create_user_credit_note_tx(
             }
         }
         CreditType::CreditToBalance => {
-            // Credit that paid the whole invoice makes it paid, marked so yet or not.
+            // Credit that paid the invoice, whole or in part, makes it paid or partly paid,
+            // marked so yet or not.
             if !matches!(
                 invoice.payment_status,
                 InvoicePaymentStatus::Paid | InvoicePaymentStatus::PartiallyPaid
             ) && !payment_in_flight
                 && invoice.amount_due > 0
+                && invoice.amount_due >= invoice.total
             {
                 bail!(StoreError::InvalidArgument(
                     "CreditToBalance credit notes can only be created for paid or partially paid invoices, or while a payment is in flight".to_string()
@@ -1217,7 +1220,7 @@ async fn finalize_credit_note_decision_tx(
     let credit_note_number = format_document_number(
         credit_note_number_value,
         &invoicing_entity.credit_note_number_pattern,
-        common_domain::clock::now().date_naive(),
+        common_clock::now().date_naive(),
     );
 
     CreditNoteRow::finalize_with_number(conn, credit_note_id, tenant_id, &credit_note_number)
@@ -1962,7 +1965,7 @@ impl CreditNoteInterface for Store {
                         was_paid,
                         was_paid,
                         ReopenedReminders::Restart,
-                        common_domain::clock::now().naive_utc(),
+                        common_clock::now().naive_utc(),
                     )
                     .await?;
 

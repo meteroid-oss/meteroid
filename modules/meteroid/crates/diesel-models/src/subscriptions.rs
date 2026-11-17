@@ -65,6 +65,10 @@ pub struct SubscriptionRow {
     pub usage_filter_since: Option<NaiveDateTime>,
     /// Trigger-maintained: true while the tenant is not ACTIVE.
     pub lifecycle_suspended: bool,
+    /// The reconcile watermark: periods ending by it were settled before billing from facts.
+    pub reconcile_from: Option<NaiveDate>,
+    /// When the facts next change the derived state (`lifecycle::derived`).
+    pub next_wake_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Insertable, Debug, Clone)]

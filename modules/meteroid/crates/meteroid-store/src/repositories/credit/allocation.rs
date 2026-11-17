@@ -57,12 +57,12 @@ impl From<GrantClassification> for core::Classification {
 impl From<&GrantScope> for core::Scope {
     fn from(scope: &GrantScope) -> Self {
         core::Scope {
-            subscription: scope.subscription_id.map(|id| id.as_uuid()),
+            subscription: scope.subscription_id,
             application: match scope.application {
                 CreditApplication::Invoice => core::Application::Invoice,
                 CreditApplication::Usage => core::Application::Usage,
             },
-            products: scope.product_ids.iter().map(|id| id.as_uuid()).collect(),
+            products: scope.product_ids.clone(),
         }
     }
 }
@@ -152,11 +152,6 @@ impl CreditRequest {
         self
     }
 
-    pub(crate) fn capped(mut self, requested_minor: i64) -> Self {
-        self.requested_minor = self.requested_minor.min(requested_minor).max(0);
-        self
-    }
-
     /// What is left to pay once `allocation` paid its share.
     pub fn remainder(&self, allocation: &Allocation) -> StoreResult<Self> {
         core::Request::from(self)
@@ -169,8 +164,8 @@ impl CreditRequest {
 impl From<&CreditDemand> for core::Demand {
     fn from(demand: &CreditDemand) -> Self {
         core::Demand {
-            subscription: demand.subscription_id.map(|id| id.as_uuid()),
-            product: demand.product_id.map(|id| id.as_uuid()),
+            subscription: demand.subscription_id,
+            product: demand.product_id,
             usage: demand.usage,
             amount_minor: demand.amount_minor,
             dated_before: demand.dated_before,
@@ -181,8 +176,8 @@ impl From<&CreditDemand> for core::Demand {
 impl From<core::Demand> for CreditDemand {
     fn from(demand: core::Demand) -> Self {
         CreditDemand {
-            subscription_id: demand.subscription.map(SubscriptionId::from),
-            product_id: demand.product.map(ProductId::from),
+            subscription_id: demand.subscription,
+            product_id: demand.product,
             usage: demand.usage,
             amount_minor: demand.amount_minor,
             dated_before: demand.dated_before,
@@ -236,17 +231,9 @@ impl Allocation {
 impl From<&Allocation> for core::Allocation {
     fn from(allocation: &Allocation) -> Self {
         core::Allocation {
-            draws: allocation
-                .draws
-                .iter()
-                .map(|(id, amount)| (id.as_uuid(), *amount))
-                .collect(),
+            draws: allocation.draws.clone(),
             covered: allocation.covered.clone(),
-            placed: allocation
-                .placed
-                .iter()
-                .map(|(id, columns)| (id.as_uuid(), columns.clone()))
-                .collect(),
+            placed: allocation.placed.clone(),
         }
     }
 }
@@ -254,17 +241,9 @@ impl From<&Allocation> for core::Allocation {
 impl From<core::Allocation> for Allocation {
     fn from(allocation: core::Allocation) -> Self {
         Allocation {
-            draws: allocation
-                .draws
-                .into_iter()
-                .map(|(id, amount)| (CreditGrantId::from(id), amount))
-                .collect(),
+            draws: allocation.draws,
             covered: allocation.covered,
-            placed: allocation
-                .placed
-                .into_iter()
-                .map(|(id, columns)| (CreditGrantId::from(id), columns))
-                .collect(),
+            placed: allocation.placed,
         }
     }
 }
@@ -300,7 +279,7 @@ impl GrantCandidate {
 impl From<&GrantCandidate> for core::Grant {
     fn from(grant: &GrantCandidate) -> Self {
         core::Grant {
-            id: grant.id.as_uuid(),
+            id: grant.id,
             scope: (&grant.scope).into(),
             remaining_minor: grant.remaining_minor,
             priority: grant.priority,
@@ -326,7 +305,7 @@ fn draw_key(grant: &CreditGrant) -> core::DrawKey {
         classification: grant.classification.into(),
         effective_at: grant.effective_at,
         created_at: grant.created_at,
-        id: grant.id.as_uuid(),
+        id: grant.id,
     }
 }
 

@@ -188,7 +188,7 @@ pub mod usage {
             _ => Ok(Period {
                 start: subscription.current_period_start,
                 end: subscription.current_period_end.unwrap_or_else(|| {
-                    common_domain::clock::now().date_naive() + chrono::Duration::days(1)
+                    common_clock::now().date_naive() + chrono::Duration::days(1)
                 }),
             }),
         }

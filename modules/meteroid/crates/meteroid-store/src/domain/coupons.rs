@@ -100,7 +100,7 @@ impl Coupon {
         &self,
         subscription_currency: &str,
     ) -> Result<(), CouponValidationError> {
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
 
         if self.is_expired(now) {
             return Err(CouponValidationError::Expired);
@@ -334,7 +334,7 @@ impl TryInto<CouponRowPatch> for CouponPatch {
             tenant_id: self.tenant_id,
             description: self.description,
             discount: json_discount,
-            updated_at: common_domain::clock::now().naive_utc(),
+            updated_at: common_clock::now().naive_utc(),
         })
     }
 }

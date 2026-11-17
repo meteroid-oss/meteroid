@@ -33,6 +33,4 @@ serde_json = { workspace = true }
 diesel = ["dep:diesel", "dep:diesel-derive-newtype"]
 utoipa = ["dep:utoipa"]
 tonic = ["dep:tonic"]
-# Lets tests move `clock::now`; only the test harness enables it.
-test-clock = []
 default = []

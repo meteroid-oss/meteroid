@@ -1,11 +1,10 @@
 //! Usage for `evaluate`, in two passes: the first lists the windows it needs, they are read through
 //! the store's usage client, the second prices them. Run inside `transaction_reading_usage_first`
-//! the reads are planned before its locks: a pass not served them is redone (Phase 4.6).
+//! the reads are planned before its locks: a pass not served them is redone.
 
 use billing_core::evaluate::{Evaluation, UsageNeed, evaluate};
 use billing_core::pricer::{Usage, UsageRead, UsageReads};
 use chrono::{DateTime, Utc};
-use common_domain::ids::BaseId;
 use error_stack::Report;
 
 use super::load::LoadedFacts;
@@ -32,7 +31,7 @@ pub async fn read_one(
     let metric = loaded
         .metrics
         .iter()
-        .find(|metric| metric.id.as_uuid() == read.metric)
+        .find(|metric| metric.id == read.metric)
         .ok_or_else(|| {
             Report::new(StoreError::ValueNotFound(format!(
                 "metric with id {}",
@@ -83,4 +82,88 @@ pub async fn evaluate_reading_usage(
     let reads = read_usage(client, loaded, &needs).await?;
     evaluate(&loaded.facts, now, Some(&reads), &StorePricer)
         .map_err(crate::services::invoice_lines::fees::pricing_error)
+}
+
+/// What a usage line was priced over, to read its usage again grouped by its metric's
+/// breakdown key: its metric, the window its charges read, and the cells a matrix prices.
+pub(super) struct BreakdownRead {
+    metric: common_domain::ids::BillableMetricId,
+    window: billing_core::pricer::UsageWindow,
+    matrix: Option<Vec<crate::domain::price_components::MatrixRow>>,
+}
+
+impl BreakdownRead {
+    /// None for a line of no usage fee, or of usage read over no window.
+    pub(super) fn of(
+        charges: &[&billing_core::evaluate::Charge],
+        fee: &super::pricer::StoreFee,
+    ) -> Option<Self> {
+        let crate::domain::SubscriptionFee::Usage {
+            metric_id, model, ..
+        } = &fee.fee
+        else {
+            return None;
+        };
+        let windows = charges.iter().filter_map(|charge| charge.usage);
+        let from = windows.clone().map(|window| window.from).min()?;
+        let until = windows.map(|window| window.until).max()?;
+        Some(BreakdownRead {
+            metric: *metric_id,
+            window: billing_core::pricer::UsageWindow { from, until },
+            matrix: match model {
+                crate::domain::UsagePricingModel::Matrix { rates } => Some(rates.clone()),
+                _ => None,
+            },
+        })
+    }
+}
+
+/// Breaks each usage line down by its metric's breakdown key, as the per-operation path does:
+/// read apart from the usage it was priced on. A breakdown bills nothing, so a line it cannot
+/// be read for goes out without it.
+pub(super) async fn attach_breakdowns(
+    client: &dyn UsageClient,
+    loaded: &LoadedFacts,
+    lines: &mut [(crate::domain::LineItem, Option<BreakdownRead>)],
+) {
+    for (line, read) in lines.iter_mut() {
+        let Some(read) = read else {
+            continue;
+        };
+        let Some(metric) = loaded
+            .metrics
+            .iter()
+            .find(|metric| metric.id == read.metric)
+        else {
+            continue;
+        };
+        let Some(key) = metric.usage_breakdown_key.as_deref() else {
+            continue;
+        };
+        let period = UsagePeriod {
+            start: read.window.from.naive_utc(),
+            end: read.window.until.naive_utc(),
+        };
+        if period.end <= period.start {
+            continue;
+        }
+        match client
+            .fetch_usage_grouped_by(&loaded.tenant_id, &loaded.customer_id, metric, key, period)
+            .await
+        {
+            Ok(usage) => {
+                line.usage_breakdown = crate::services::invoice_lines::component::line_breakdown(
+                    line.group_by_dimensions.as_ref(),
+                    metric,
+                    key,
+                    read.matrix.as_deref(),
+                    &usage.data,
+                );
+            }
+            Err(error) => log::warn!(
+                "Billing metric {} without its usage breakdown: {error:?}",
+                metric.id
+            ),
+        }
+    }
 }

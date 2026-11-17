@@ -2,19 +2,22 @@
 //! subscription, the fee's lineage, the period and the kind of charge (R-075).
 
 use chrono::NaiveDate;
+use common_domain::ids::{
+    BillableMetricId, CreditUnitId, ProductId, SubscriptionAddOnId, SubscriptionId,
+    SubscriptionPriceComponentId,
+};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashSet};
-use uuid::Uuid;
 
 /// The fee a charge comes from, by the root of its lineage, so an override bills under the key
 /// of the fee it replaced.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Fee {
-    Component(Uuid),
-    AddOn(Uuid),
+    Component(SubscriptionPriceComponentId),
+    AddOn(SubscriptionAddOnId),
     /// The subscription's minimum commitment, by the product its shortfall is split to.
     Minimum {
-        product: Option<Uuid>,
+        product: Option<ProductId>,
     },
     /// A line attached to no fee of the subscription.
     Unattached,
@@ -24,7 +27,7 @@ pub enum Fee {
 pub enum ChargeKind {
     Fee,
     Usage {
-        metric: Uuid,
+        metric: BillableMetricId,
         dimensions: BTreeMap<String, String>,
     },
     Shortfall,
@@ -36,12 +39,12 @@ pub enum ChargeKind {
 pub enum Denomination {
     #[default]
     Money,
-    CreditUnit(Uuid),
+    CreditUnit(CreditUnitId),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ChargeKey {
-    pub subscription: Option<Uuid>,
+    pub subscription: Option<SubscriptionId>,
     pub fee: Fee,
     /// The period the charge bills, `[from, until)`.
     pub from: NaiveDate,
@@ -59,13 +62,13 @@ impl ChargeKey {
     fn canonical(&self) -> String {
         let subscription = self
             .subscription
-            .map(|id| id.to_string())
+            .map(|id| id.as_hyphenated().to_string())
             .unwrap_or_default();
         let fee = match &self.fee {
-            Fee::Component(id) => format!("component:{id}"),
-            Fee::AddOn(id) => format!("add_on:{id}"),
+            Fee::Component(id) => format!("component:{}", id.as_hyphenated()),
+            Fee::AddOn(id) => format!("add_on:{}", id.as_hyphenated()),
             Fee::Minimum { product: None } => "minimum".to_owned(),
-            Fee::Minimum { product: Some(id) } => format!("minimum:{id}"),
+            Fee::Minimum { product: Some(id) } => format!("minimum:{}", id.as_hyphenated()),
             Fee::Unattached => "unattached".to_owned(),
         };
         let kind = match &self.kind {
@@ -73,7 +76,7 @@ impl ChargeKey {
             ChargeKind::Usage { metric, dimensions } => {
                 let dimensions: Vec<String> =
                     dimensions.iter().map(|(k, v)| format!("{k}={v}")).collect();
-                format!("usage:{metric}:{}", dimensions.join("&"))
+                format!("usage:{}:{}", metric.as_hyphenated(), dimensions.join("&"))
             }
             ChargeKind::Shortfall => "shortfall".to_owned(),
             ChargeKind::Credit => "credit".to_owned(),
@@ -81,7 +84,7 @@ impl ChargeKey {
         // Money keeps the ids lines had before credit units were keyed.
         let denomination = match self.denomination {
             Denomination::Money => String::new(),
-            Denomination::CreditUnit(unit) => format!("|credit_unit:{unit}"),
+            Denomination::CreditUnit(unit) => format!("|credit_unit:{}", unit.as_hyphenated()),
         };
         format!(
             "v1|{subscription}|{fee}|{}..{}|{kind}{denomination}",
@@ -130,11 +133,12 @@ pub fn line_ids<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
 
     fn key(from: (i32, u32, u32)) -> ChargeKey {
         ChargeKey {
-            subscription: Some(Uuid::from_u128(1)),
-            fee: Fee::Component(Uuid::from_u128(2)),
+            subscription: Some(Uuid::from_u128(1).into()),
+            fee: Fee::Component(Uuid::from_u128(2).into()),
             from: NaiveDate::from_ymd_opt(from.0, from.1, from.2).unwrap(),
             until: NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
             kind: ChargeKind::Fee,
@@ -165,7 +169,7 @@ mod tests {
     fn a_charge_in_credits_is_another_charge() {
         let money = key((2024, 1, 1));
         let credits = ChargeKey {
-            denomination: Denomination::CreditUnit(Uuid::from_u128(9)),
+            denomination: Denomination::CreditUnit(Uuid::from_u128(9).into()),
             ..money.clone()
         };
         assert_ne!(money.line_id(), credits.line_id());
@@ -176,7 +180,7 @@ mod tests {
     fn dimensions_are_keyed_in_order() {
         let usage = |pairs: &[(&str, &str)]| ChargeKey {
             kind: ChargeKind::Usage {
-                metric: Uuid::from_u128(3),
+                metric: Uuid::from_u128(3).into(),
                 dimensions: pairs
                     .iter()
                     .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))

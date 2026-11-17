@@ -708,7 +708,7 @@ impl CustomerEmailsInterface for Store {
                     .get_email_settings_tx(conn, tenant_id, invoicing_entity_id)
                     .await?;
                 let after = apply_patch(before.clone(), patch)?;
-                let now = common_domain::clock::now().naive_utc();
+                let now = common_clock::now().naive_utc();
                 // `disabled_kinds` only seeds a missing row: an existing row keeps its own set.
                 let row = settings_row_new(tenant_id, &after)
                     .upsert_settings(conn, now)
@@ -779,7 +779,7 @@ impl CustomerEmailsInterface for Store {
                 } else {
                     seed.disabled_kinds.insert(kind);
                 }
-                let now = common_domain::clock::now().naive_utc();
+                let now = common_clock::now().naive_utc();
                 let row = settings_row_new(tenant_id, &seed)
                     .set_kind_enabled(conn, &kind.to_string(), enabled, now)
                     .await
@@ -954,7 +954,7 @@ impl CustomerEmailsInterface for Store {
             dedupe_key,
             state,
             sent_email_id,
-            common_domain::clock::now().naive_utc(),
+            common_clock::now().naive_utc(),
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
@@ -963,7 +963,7 @@ impl CustomerEmailsInterface for Store {
 
     async fn mark_claim_unknown(&self, tenant_id: TenantId, dedupe_key: &str) -> StoreResult<bool> {
         let mut conn = self.get_conn().await?;
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
         let updated = EmailSendClaimRow::mark_unknown(
             &mut conn,
             tenant_id,
@@ -1073,7 +1073,7 @@ impl CustomerEmailsInterface for Store {
                     kind: kind.to_string(),
                     mode: mode.into(),
                     audience: audience_json.clone(),
-                    updated_at: common_domain::clock::now().naive_utc(),
+                    updated_at: common_clock::now().naive_utc(),
                 }
                 .upsert(conn)
                 .await

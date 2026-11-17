@@ -810,7 +810,7 @@ impl Services {
                         }
                     }
                 };
-                let today = common_domain::clock::now()
+                let today = common_clock::now()
                     .with_timezone(&settings.send_window().tz)
                     .date_naive();
                 let summary = invoice_summary(invoice, invoice.amount_due, None);
@@ -1159,7 +1159,7 @@ impl Services {
         whitelabel: bool,
         test_mode: bool,
     ) -> StoreResult<EmailRenderInput> {
-        let today = common_domain::clock::now().date_naive();
+        let today = common_clock::now().date_naive();
         let due = today + chrono::Days::new(entity.net_terms.max(0) as u64);
         let number = "INV-2026-0042".to_string();
         let currency = entity.accounting_currency.clone();

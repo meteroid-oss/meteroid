@@ -644,6 +644,9 @@ impl MockUsageClient {
     }
 }
 
+/// Rows of reads grouped by a property, by metric and property.
+type GroupedReads = HashMap<(BillableMetricId, String), Vec<GroupedUsageData>>;
+
 /// A usage mock whose data can be mutated after construction; clones share one store, so a test's
 /// handle and the one inside the `Store` see the same mutations. Lets a test model usage imported
 /// *late* (during the grace period, after the draft exists), which [`MockUsageClient`] cannot.
@@ -659,9 +662,24 @@ pub struct MutableMockUsageClient {
     windowed: std::sync::Arc<std::sync::Mutex<HashMap<BillableMetricId, Vec<WindowedUsagePoint>>>>,
     activity: std::sync::Arc<std::sync::Mutex<Vec<CustomerActivity>>>,
     activity_pages: std::sync::Arc<std::sync::Mutex<Vec<Vec<CustomerActivity>>>>,
+    /// Rows a read grouped by a property returns on any non-empty window, by metric and property.
+    grouped: std::sync::Arc<std::sync::Mutex<GroupedReads>>,
 }
 
 impl MutableMockUsageClient {
+    /// The rows a read of `metric_id` grouped by `group_by` returns on any non-empty window.
+    pub fn set_grouped_usage(
+        &self,
+        metric_id: BillableMetricId,
+        group_by: &str,
+        rows: Vec<GroupedUsageData>,
+    ) {
+        self.grouped
+            .lock()
+            .unwrap()
+            .insert((metric_id, group_by.to_owned()), rows);
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -773,11 +791,22 @@ impl UsageClient for MutableMockUsageClient {
         tenant_id: &TenantId,
         customer_id: &CustomerId,
         metric: &BillableMetric,
-        _group_by: &str,
+        group_by: &str,
         period: UsagePeriod,
     ) -> StoreResult<UsageData> {
-        self.fetch_usage(tenant_id, customer_id, metric, period)
-            .await
+        let grouped = self
+            .grouped
+            .lock()
+            .unwrap()
+            .get(&(metric.id, group_by.to_owned()))
+            .cloned();
+        match grouped {
+            Some(data) if period.end > period.start => Ok(UsageData { data, period }),
+            _ => {
+                self.fetch_usage(tenant_id, customer_id, metric, period)
+                    .await
+            }
+        }
     }
 
     async fn fetch_total_usage(

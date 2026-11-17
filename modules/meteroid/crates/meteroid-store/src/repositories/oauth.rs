@@ -124,12 +124,9 @@ pub(crate) async fn get_verifier(store: &Store, state: SecretString) -> StoreRes
     tokio::spawn(async move {
         let mut conn = pool.get().await.expect("failed to get connection");
 
-        OauthVerifierRow::delete(
-            &mut conn,
-            common_domain::clock::now().sub(verifier_ttl).naive_utc(),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)
+        OauthVerifierRow::delete(&mut conn, common_clock::now().sub(verifier_ttl).naive_utc())
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
     });
 
     let mut conn = store.get_conn().await?;
@@ -137,7 +134,7 @@ pub(crate) async fn get_verifier(store: &Store, state: SecretString) -> StoreRes
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-    if verifiers.created_at + verifier_ttl < common_domain::clock::now().naive_utc() {
+    if verifiers.created_at + verifier_ttl < common_clock::now().naive_utc() {
         return Err(StoreError::OauthError("expired verifier".into()).into());
     }
 

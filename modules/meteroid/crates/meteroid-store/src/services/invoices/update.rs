@@ -164,8 +164,7 @@ impl Services {
                     })
                 })
                 .transpose()?,
-            manually_edited_at: billing_content_edited
-                .then(|| common_domain::clock::now().naive_utc()),
+            manually_edited_at: billing_content_edited.then(|| common_clock::now().naive_utc()),
             customer_details_overridden_at,
         };
 
@@ -256,14 +255,14 @@ impl Services {
                 }
                 details.billing_address = billing_address;
                 details.vat_number = vat_number;
-                details.snapshot_at = common_domain::clock::now().naive_utc();
+                details.snapshot_at = common_clock::now().naive_utc();
                 invoice.customer_details = details;
 
                 // An override exists only where the result actually diverges from the customer
                 // record; echoing back the displayed values must leave the draft tracking.
                 match &live_customer {
                     Some(live) if invoice.customer_details.matches_record(live) => Some(None),
-                    _ => Some(Some(common_domain::clock::now().naive_utc())),
+                    _ => Some(Some(common_clock::now().naive_utc())),
                 }
             }
         };
@@ -449,7 +448,7 @@ impl Services {
                 invoice.subscription_id,
                 &lines,
             ),
-            at: common_domain::clock::now(),
+            at: common_clock::now(),
             book: None,
         };
         let mut promotional_credits = 0;

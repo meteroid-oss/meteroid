@@ -673,7 +673,7 @@ impl CustomerRow {
                         ELSE "customer"."preferred_locales"
                     END"#,
                 )),
-                updated_at.eq(common_domain::clock::now().naive_utc()),
+                updated_at.eq(common_clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -796,7 +796,7 @@ impl CustomerRow {
         let query = diesel::update(c_dsl::customer)
             .filter(c_dsl::id.eq(id))
             .filter(c_dsl::tenant_id.eq(tenant_id))
-            .set(c_dsl::archived_at.eq(common_domain::clock::now().naive_utc()));
+            .set(c_dsl::archived_at.eq(common_clock::now().naive_utc()));
 
         crate::debug_sql(&query);
 
@@ -850,7 +850,7 @@ impl CustomerRow {
         let query = query
             .set((
                 c_dsl::current_payment_method_id.eq(Some(payment_method_id)),
-                c_dsl::updated_at.eq(Some(common_domain::clock::now().naive_utc())),
+                c_dsl::updated_at.eq(Some(common_clock::now().naive_utc())),
             ))
             .returning(CustomerRow::as_returning());
 
@@ -903,7 +903,7 @@ impl CustomerRow {
             .set((
                 c_dsl::payment_reminders_opt_out.eq(opt_out),
                 c_dsl::payment_reminder_sequence_id.eq(sequence_id),
-                c_dsl::updated_at.eq(common_domain::clock::now().naive_utc()),
+                c_dsl::updated_at.eq(common_clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -952,7 +952,7 @@ impl CustomerRow {
             .filter(c_dsl::id.eq_any(customer_ids))
             .set((
                 c_dsl::owner_user_id.eq(owner_user_id_param),
-                c_dsl::updated_at.eq(common_domain::clock::now().naive_utc()),
+                c_dsl::updated_at.eq(common_clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -984,7 +984,7 @@ impl CustomerRow {
         )
         .bind::<sql_types::Uuid, _>(user_id)
         .bind::<sql_types::Uuid, _>(org_id)
-        .bind::<sql_types::Timestamp, _>(common_domain::clock::now().naive_utc())
+        .bind::<sql_types::Timestamp, _>(common_clock::now().naive_utc())
         .execute(conn)
         .await
         .attach("Error while clearing customer owner for removed member")

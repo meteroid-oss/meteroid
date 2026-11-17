@@ -3,10 +3,13 @@
 use crate::StoreResult;
 use crate::domain::{InvoiceLinesPatch, LineItem, LineItemKind};
 use crate::errors::StoreError;
+#[cfg(test)]
 use crate::repositories::credit::allocation::CreditRequest;
 use crate::services::credit::forecast::CreditBooks;
 use crate::services::credit::invalid;
+#[cfg(test)]
 use crate::services::credit::promotional::LineScope;
+#[cfg(test)]
 use crate::services::credit::scope::LineOwners;
 use crate::store::PgConn;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -108,6 +111,7 @@ pub(crate) fn credit_request(
 }
 
 /// [`credit_request`], with the demand each line falls under (None for a credit purchase).
+#[cfg(test)]
 pub(crate) fn credit_request_of_lines(
     lines: &[LineItem],
     owners: &LineOwners,
@@ -249,6 +253,7 @@ mod tests {
             line_items: Vec::new(),
             amount_due: 700,
             subtotal: 1_000,
+            discount: 0,
             subtotal_recurring: 1_000,
             total: 1_000,
             tax_amount: 0,

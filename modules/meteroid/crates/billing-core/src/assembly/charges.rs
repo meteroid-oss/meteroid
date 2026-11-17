@@ -3,6 +3,10 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::NaiveDate;
+use common_domain::ids::{
+    BillableMetricId, CreditUnitId, ProductId, SubscriptionAddOnId, SubscriptionId,
+    SubscriptionPriceComponentId,
+};
 use uuid::Uuid;
 
 use crate::charge::{ChargeKey, ChargeKind, Denomination, Fee, line_ids};
@@ -28,16 +32,16 @@ pub enum LineKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChargedLine {
     pub kind: LineKind,
-    pub subscription: Option<Uuid>,
-    pub component: Option<Uuid>,
-    pub add_on: Option<Uuid>,
-    pub product: Option<Uuid>,
-    pub metric: Option<Uuid>,
+    pub subscription: Option<SubscriptionId>,
+    pub component: Option<SubscriptionPriceComponentId>,
+    pub add_on: Option<SubscriptionAddOnId>,
+    pub product: Option<ProductId>,
+    pub metric: Option<BillableMetricId>,
     pub dimensions: BTreeMap<String, String>,
     pub from: NaiveDate,
     pub until: NaiveDate,
     /// The unit a usage line's price is in, when credits.
-    pub credit_unit: Option<Uuid>,
+    pub credit_unit: Option<CreditUnitId>,
 }
 
 pub fn charge_key(line: &ChargedLine, lineages: &Lineages) -> ChargeKey {
@@ -45,8 +49,8 @@ pub fn charge_key(line: &ChargedLine, lineages: &Lineages) -> ChargeKey {
         (LineKind::MinimumShortfall, _, _) => Fee::Minimum {
             product: line.product,
         },
-        (_, Some(component), _) => Fee::Component(lineages.root(component)),
-        (_, None, Some(add_on)) => Fee::AddOn(lineages.root(add_on)),
+        (_, Some(component), _) => Fee::Component(lineages.root(*component).into()),
+        (_, None, Some(add_on)) => Fee::AddOn(lineages.root(*add_on).into()),
         (_, None, None) => Fee::Unattached,
     };
     let kind = match (&line.kind, line.metric) {
@@ -93,11 +97,11 @@ pub fn disambiguate(ids: &[&str], key: impl Fn(usize) -> ChargeKey) -> Vec<(usiz
 mod tests {
     use super::*;
 
-    fn seats(component: Uuid) -> ChargedLine {
+    fn seats(component: SubscriptionPriceComponentId) -> ChargedLine {
         let day = |d| NaiveDate::from_ymd_opt(2026, 1, d).unwrap();
         ChargedLine {
             kind: LineKind::Regular,
-            subscription: Some(Uuid::from_u128(9)),
+            subscription: Some(Uuid::from_u128(9).into()),
             component: Some(component),
             add_on: None,
             product: None,
@@ -113,16 +117,19 @@ mod tests {
     fn a_row_bills_under_its_lineage_root() {
         let (row, root) = (Uuid::from_u128(1), Uuid::from_u128(2));
         let lineages = Lineages(HashMap::from([(row, root)]));
-        assert_eq!(charge_key(&seats(row), &lineages).fee, Fee::Component(root));
         assert_eq!(
-            charge_key(&seats(root), &Lineages::default()),
-            charge_key(&seats(row), &lineages)
+            charge_key(&seats(row.into()), &lineages).fee,
+            Fee::Component(root.into())
+        );
+        assert_eq!(
+            charge_key(&seats(root.into()), &Lineages::default()),
+            charge_key(&seats(row.into()), &lineages)
         );
     }
 
     #[test]
     fn a_repeated_id_takes_its_next_occurrence() {
-        let line = seats(Uuid::from_u128(1));
+        let line = seats(Uuid::from_u128(1).into());
         let id = charge_key(&line, &Lineages::default()).line_id();
         let renamed = disambiguate(&[&id, "other", &id], |_| {
             charge_key(&line, &Lineages::default())

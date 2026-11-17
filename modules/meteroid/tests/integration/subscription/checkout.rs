@@ -669,3 +669,78 @@ async fn test_checkout_with_card_requiring_action_stays_draft(#[future] test_env
         .assert()
         .is_pending_activation();
 }
+
+/// Created Jan 1, 2024 awaiting its checkout, paid on Mar 10: it bills from its start, as the
+/// previous release did. The checkout bills January, 3500, and the renewals then catch up February
+/// and March, 3500 each: the months it waited through are billed.
+/// Rules: R-102
+#[rstest]
+#[tokio::test]
+async fn a_checkout_paid_late_bills_from_the_start(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+    let at = |m: u32, d: u32| {
+        NaiveDate::from_ymd_opt(2024, m, d)
+            .unwrap()
+            .and_hms_opt(9, 0, 0)
+            .unwrap()
+            .and_utc()
+    };
+    env.set_now(at(1, 1));
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID) // 35.00 a month
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_checkout()
+        .no_trial()
+        .auto_charge()
+        .create(env.services())
+        .await;
+    env.process_cycles().await;
+
+    env.set_now(at(3, 10));
+    let mut conn = env.conn().await;
+    let (_, outcome) = env
+        .services()
+        .complete_subscription_checkout_tx(
+            &mut conn,
+            TENANT_ID,
+            sub_id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            3500,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("the checkout");
+    drop(conn);
+    assert_eq!(outcome, CheckoutPaymentOutcome::Settled);
+    for _ in 0..3 {
+        env.process_cycles().await;
+    }
+
+    let mut billed: Vec<(NaiveDate, NaiveDate, NaiveDate, i64)> = env
+        .get_invoices(sub_id)
+        .await
+        .iter()
+        .flat_map(|invoice| {
+            invoice.line_items.iter().map(move |line| {
+                (
+                    invoice.billing_period_start,
+                    line.start_date,
+                    line.end_date,
+                    line.amount_subtotal,
+                )
+            })
+        })
+        .collect();
+    billed.sort();
+    let day = |m: u32| NaiveDate::from_ymd_opt(2024, m, 1).unwrap();
+    assert_eq!(
+        billed,
+        vec![
+            (day(1), day(1), day(2), 3500),
+            (day(2), day(2), day(3), 3500),
+            (day(3), day(3), day(4), 3500),
+        ]
+    );
+}

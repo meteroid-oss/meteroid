@@ -41,13 +41,13 @@ impl ScheduledEventRow {
         tenant_id_param: &TenantId,
     ) -> DbResult<Vec<ScheduledEventRow>> {
         use crate::schema::scheduled_event::dsl::{
-            scheduled_event, scheduled_time, status, subscription_id, tenant_id,
+            scheduled_event, scheduled_time, subscription_id, tenant_id,
         };
 
         let query = scheduled_event
             .filter(subscription_id.eq(subscription_id_param))
             .filter(tenant_id.eq(tenant_id_param))
-            .filter(status.eq(ScheduledEventStatus::Pending))
+            .filter(still_pending())
             .order_by(scheduled_time.asc());
 
         crate::debug_sql(&query);
@@ -68,7 +68,7 @@ impl ScheduledEventRow {
         tenant_id_param: &TenantId,
     ) -> DbResult<Vec<ScheduledEventRow>> {
         use crate::schema::scheduled_event::dsl::{
-            event_type, scheduled_event, scheduled_time, status, subscription_id, tenant_id,
+            event_type, scheduled_event, scheduled_time, subscription_id, tenant_id,
         };
 
         let visible_types = vec![
@@ -82,7 +82,7 @@ impl ScheduledEventRow {
         let query = scheduled_event
             .filter(subscription_id.eq(subscription_id_param))
             .filter(tenant_id.eq(tenant_id_param))
-            .filter(status.eq(ScheduledEventStatus::Pending))
+            .filter(still_pending())
             .filter(event_type.eq_any(visible_types))
             .order_by(scheduled_time.asc());
 
@@ -274,10 +274,10 @@ impl ScheduledEventRow {
                       priority, event_data, created_at, updated_at, status,
                       retries, last_retry_at, error, processed_at, source,
                       created_by_customer, actor_type, actor_uuid, actor_alias,
-                      next_attempt_at
+                      next_attempt_at, written_facts
         "#;
 
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
 
         let query = diesel::sql_query(raw_sql)
             .bind::<sql_types::Timestamp, _>(now)
@@ -305,7 +305,7 @@ impl ScheduledEventRow {
             .filter(id.eq_any(event_id_param))
             .set((
                 status.eq(ScheduledEventStatus::Processing),
-                updated_at.eq(common_domain::clock::now().naive_utc()),
+                updated_at.eq(common_clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -327,12 +327,14 @@ impl ScheduledEventRow {
             id, processed_at, scheduled_event, status, updated_at,
         };
 
+        // A change written as facts keeps its MIGRATED record (rollback, the API's pending list).
         let query = diesel::update(scheduled_event)
             .filter(id.eq_any(event_id_param))
+            .filter(status.ne(ScheduledEventStatus::Migrated))
             .set((
                 status.eq(ScheduledEventStatus::Completed),
-                processed_at.eq(Some(common_domain::clock::now().naive_utc())),
-                updated_at.eq(common_domain::clock::now().naive_utc()),
+                processed_at.eq(Some(common_clock::now().naive_utc())),
+                updated_at.eq(common_clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -358,7 +360,7 @@ impl ScheduledEventRow {
             .set((
                 status.eq(ScheduledEventStatus::Failed),
                 error.eq(Some(error_message)),
-                updated_at.eq(common_domain::clock::now().naive_utc()),
+                updated_at.eq(common_clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -371,25 +373,88 @@ impl ScheduledEventRow {
             .into_db_result()
     }
 
+    /// Records why an event did nothing, its status kept.
+    pub async fn record_error(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+        event_id_param: &ScheduledEventId,
+        error_message: &str,
+    ) -> DbResult<()> {
+        use crate::schema::scheduled_event::dsl::{
+            error, id, scheduled_event, tenant_id, updated_at,
+        };
+
+        let query = diesel::update(scheduled_event)
+            .filter(id.eq(event_id_param))
+            .filter(tenant_id.eq(tenant_id_param))
+            .set((
+                error.eq(Some(error_message)),
+                updated_at.eq(common_clock::now().naive_utc()),
+            ));
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while recording an event's error")
+            .map(|_| ())
+            .into_db_result()
+    }
+
+    /// Marks an event written as facts, with the rows it wrote; returns whether it was still
+    /// pending, or claimed (a straggler an old replica left `PROCESSING` is migrated, not applied).
+    pub async fn mark_as_migrated(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+        event_id_param: &ScheduledEventId,
+        written: Option<serde_json::Value>,
+    ) -> DbResult<bool> {
+        use crate::schema::scheduled_event::dsl::{
+            id, processed_at, scheduled_event, status, tenant_id, updated_at, written_facts,
+        };
+
+        let now = common_clock::now().naive_utc();
+        let query = diesel::update(scheduled_event)
+            .filter(id.eq(event_id_param))
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(status.eq_any([
+                ScheduledEventStatus::Pending,
+                ScheduledEventStatus::Processing,
+            ]))
+            .set((
+                status.eq(ScheduledEventStatus::Migrated),
+                processed_at.eq(Some(now)),
+                updated_at.eq(now),
+                written_facts.eq(written),
+            ));
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while marking event as migrated")
+            .map(|updated| updated > 0)
+            .into_db_result()
+    }
+
     /// Cleanup stale PROCESSING events. If an event has been in PROCESSING state
-    /// for more than 5 minutes, reset it to PENDING for retry (worker likely crashed).
+    /// for longer than [`CLAIM_TIMEOUT_MINUTES`], reset it to PENDING for retry (worker likely
+    /// crashed).
     pub async fn retry_timeout_events(conn: &mut PgConn) -> DbResult<()> {
         use crate::schema::scheduled_event::dsl::{
             error, last_retry_at, next_attempt_at, retries, scheduled_event, status, updated_at,
         };
 
-        let now = common_domain::clock::now().naive_utc();
-        let timeout_threshold = now.checked_sub_signed(chrono::Duration::minutes(5));
-        if timeout_threshold.is_none() {
-            return Ok(());
-        }
+        let now = common_clock::now().naive_utc();
 
         let query = diesel::update(scheduled_event)
             .filter(
                 status
                     .eq(ScheduledEventStatus::Processing)
                     // Use updated_at (when marked PROCESSING), not scheduled_time
-                    .and(updated_at.le(timeout_threshold.unwrap())),
+                    .and(updated_at.le(stale_claims_before(now))),
             )
             .set((
                 status.eq(ScheduledEventStatus::Pending),
@@ -427,9 +492,9 @@ impl ScheduledEventRow {
                 status.eq(ScheduledEventStatus::Pending),
                 next_attempt_at.eq(Some(retry_time)),
                 retries.eq(retries + 1),
-                last_retry_at.eq(Some(common_domain::clock::now().naive_utc())),
+                last_retry_at.eq(Some(common_clock::now().naive_utc())),
                 error.eq(Some(error_message)),
-                updated_at.eq(common_domain::clock::now().naive_utc()),
+                updated_at.eq(common_clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -460,7 +525,7 @@ impl ScheduledEventRow {
                 status.eq(ScheduledEventStatus::Pending),
                 next_attempt_at.eq(Some(retry_time)),
                 error.eq(Some(error_message)),
-                updated_at.eq(common_domain::clock::now().naive_utc()),
+                updated_at.eq(common_clock::now().naive_utc()),
             ))
             .execute(conn)
             .await
@@ -483,7 +548,7 @@ impl ScheduledEventRow {
             .set((
                 status.eq(ScheduledEventStatus::Canceled),
                 error.eq(Some(reason.to_string())),
-                updated_at.eq(common_domain::clock::now().naive_utc()),
+                updated_at.eq(common_clock::now().naive_utc()),
             ))
             .returning(crate::schema::scheduled_event::subscription_id);
 
@@ -562,7 +627,7 @@ impl ScheduledEventRow {
             .set((
                 status.eq(ScheduledEventStatus::Canceled),
                 error.eq(Some(reason.to_string())),
-                updated_at.eq(common_domain::clock::now().naive_utc()),
+                updated_at.eq(common_clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -600,7 +665,7 @@ impl ScheduledEventRow {
             .set((
                 status.eq(ScheduledEventStatus::Canceled),
                 error.eq(Some(reason.to_string())),
-                updated_at.eq(common_domain::clock::now().naive_utc()),
+                updated_at.eq(common_clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -644,7 +709,7 @@ impl ScheduledEventRow {
             .set((
                 status.eq(ScheduledEventStatus::Canceled),
                 error.eq(Some(reason.to_string())),
-                updated_at.eq(common_domain::clock::now().naive_utc()),
+                updated_at.eq(common_clock::now().naive_utc()),
             ));
 
         crate::debug_sql(&query);
@@ -661,6 +726,258 @@ impl ScheduledEventRow {
     }
 }
 
+impl ScheduledEventRow {
+    /// The changes written as facts the state has not applied yet, of `types`, earliest first.
+    /// Read under the customer's lock, as every write of them.
+    pub async fn list_migrated_pending(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+        subscription_id_param: SubscriptionId,
+        types: &[ScheduledEventTypeEnum],
+    ) -> DbResult<Vec<ScheduledEventRow>> {
+        use crate::schema::scheduled_event::dsl::{
+            event_type, scheduled_event, scheduled_time, status, subscription_id, tenant_id,
+        };
+
+        let query = scheduled_event
+            .filter(subscription_id.eq(subscription_id_param))
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(status.eq(ScheduledEventStatus::Migrated))
+            .filter(not_applied())
+            .filter(event_type.eq_any(types))
+            .order_by(scheduled_time.asc());
+
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing the changes written as facts still to apply")
+            .into_db_result()
+    }
+
+    /// Every plan change and amendment still pending, or claimed longer ago than the claim
+    /// timeout, of the tenants the billing worker runs: what the deploy-time migration writes as
+    /// facts. A fresher claim is an old replica's, still applying it.
+    pub async fn list_pending_changes(
+        conn: &mut PgConn,
+    ) -> DbResult<Vec<(TenantId, ScheduledEventId)>> {
+        use crate::schema::scheduled_event::dsl::{
+            event_type, id, scheduled_event, scheduled_time, status, tenant_id, updated_at,
+        };
+
+        let claimed_before = stale_claims_before(common_clock::now().naive_utc());
+        let query = scheduled_event
+            .filter(
+                status.eq(ScheduledEventStatus::Pending).or(status
+                    .eq(ScheduledEventStatus::Processing)
+                    .and(updated_at.le(claimed_before))),
+            )
+            .filter(event_type.eq_any([
+                ScheduledEventTypeEnum::ApplyPlanChange,
+                ScheduledEventTypeEnum::ApplyAmendment,
+            ]))
+            .filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
+                BILLED_TENANT_SQL,
+            ))
+            .order_by(scheduled_time.asc())
+            .select((tenant_id, id));
+
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing the pending changes")
+            .into_db_result()
+    }
+
+    /// Whether the subscription was ever paused: a pause has no fact (R29).
+    pub async fn was_paused(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+        subscription_id_param: SubscriptionId,
+    ) -> DbResult<bool> {
+        use crate::schema::scheduled_event::dsl::{
+            event_type, scheduled_event, status, subscription_id, tenant_id,
+        };
+        use diesel::dsl::exists;
+
+        diesel::select(exists(
+            scheduled_event
+                .filter(subscription_id.eq(subscription_id_param))
+                .filter(tenant_id.eq(tenant_id_param))
+                .filter(event_type.eq(ScheduledEventTypeEnum::PauseSubscription))
+                .filter(status.eq(ScheduledEventStatus::Completed)),
+        ))
+        .get_result(conn)
+        .await
+        .attach("Error while looking for a pause")
+        .into_db_result()
+    }
+
+    /// The changes of `kind` written as facts that took effect by `at`, earliest first.
+    pub async fn list_migrated_in_force(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+        subscription_id_param: SubscriptionId,
+        kind: ScheduledEventTypeEnum,
+        at: NaiveDateTime,
+    ) -> DbResult<Vec<ScheduledEventRow>> {
+        use crate::schema::scheduled_event::dsl::{
+            event_type, scheduled_event, scheduled_time, status, subscription_id, tenant_id,
+        };
+
+        let query = scheduled_event
+            .filter(subscription_id.eq(subscription_id_param))
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(status.eq(ScheduledEventStatus::Migrated))
+            .filter(scheduled_time.le(at))
+            .filter(event_type.eq(kind))
+            .order_by(scheduled_time.asc());
+
+        crate::debug_sql(&query);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing the changes written as facts in force")
+            .into_db_result()
+    }
+
+    /// Cancels a change written as facts before the state applied it; returns whether it had not.
+    pub async fn withdraw_migrated(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+        event_id_param: &ScheduledEventId,
+        reason: &str,
+    ) -> DbResult<bool> {
+        use crate::schema::scheduled_event::dsl::{
+            error, id, scheduled_event, status, tenant_id, updated_at,
+        };
+
+        let now = common_clock::now().naive_utc();
+        let query = diesel::update(scheduled_event)
+            .filter(id.eq(event_id_param))
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(status.eq(ScheduledEventStatus::Migrated))
+            .filter(not_applied())
+            .set((
+                status.eq(ScheduledEventStatus::Canceled),
+                error.eq(Some(reason.to_string())),
+                updated_at.eq(now),
+            ));
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while withdrawing a change written as facts")
+            .map(|updated| updated > 0)
+            .into_db_result()
+    }
+
+    /// Moves the subscription's pending `EndTrial` to `to`; returns it and the time it had.
+    pub async fn move_pending_end_trial(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+        subscription_id_param: SubscriptionId,
+        to: NaiveDateTime,
+    ) -> DbResult<Option<(ScheduledEventId, NaiveDateTime)>> {
+        use crate::schema::scheduled_event::dsl::{
+            event_type, id, scheduled_event, scheduled_time, status, subscription_id, tenant_id,
+            updated_at,
+        };
+
+        let pending: Option<(ScheduledEventId, NaiveDateTime)> = scheduled_event
+            .filter(subscription_id.eq(subscription_id_param))
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(event_type.eq(ScheduledEventTypeEnum::EndTrial))
+            .filter(status.eq(ScheduledEventStatus::Pending))
+            .select((id, scheduled_time))
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while reading the pending trial end")
+            .into_db_result()?;
+        let Some((event, was)) = pending else {
+            return Ok(None);
+        };
+        diesel::update(scheduled_event)
+            .filter(id.eq(event))
+            .filter(tenant_id.eq(tenant_id_param))
+            .set((
+                scheduled_time.eq(to),
+                updated_at.eq(common_clock::now().naive_utc()),
+            ))
+            .execute(conn)
+            .await
+            .attach("Error while moving the trial end")
+            .into_db_result()?;
+        Ok(Some((event, was)))
+    }
+
+    /// Puts a pending event back on `at` (a moved trial end, when its change is cancelled).
+    pub async fn reschedule_pending(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+        event_id_param: ScheduledEventId,
+        at: NaiveDateTime,
+    ) -> DbResult<()> {
+        use crate::schema::scheduled_event::dsl::{
+            id, scheduled_event, scheduled_time, status, tenant_id, updated_at,
+        };
+
+        diesel::update(scheduled_event)
+            .filter(id.eq(event_id_param))
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(status.eq(ScheduledEventStatus::Pending))
+            .set((
+                scheduled_time.eq(at),
+                updated_at.eq(common_clock::now().naive_utc()),
+            ))
+            .execute(conn)
+            .await
+            .attach("Error while rescheduling an event")
+            .map(|_| ())
+            .into_db_result()
+    }
+}
+
+/// How long a claim (`PROCESSING`) holds before it is taken for a crashed worker's.
+pub const CLAIM_TIMEOUT_MINUTES: i64 = 5;
+
+/// Claims made before this are stale at `now`.
+pub fn stale_claims_before(now: NaiveDateTime) -> NaiveDateTime {
+    now - chrono::Duration::minutes(CLAIM_TIMEOUT_MINUTES)
+}
+
+/// The tenants the billing worker runs (`find_and_claim_due_events`): active, and not a sandbox
+/// still being seeded.
+const BILLED_TENANT_SQL: &str = "EXISTS (SELECT 1 FROM tenant t \
+     WHERE t.id = scheduled_event.tenant_id AND t.status = 'ACTIVE') \
+     AND NOT EXISTS (SELECT 1 FROM sandbox_seed sd \
+     WHERE sd.tenant_id = scheduled_event.tenant_id AND sd.status = 'IN_PROGRESS')";
+
+/// A change written as facts the derived state has not applied yet: no Switch row names it.
+const NOT_APPLIED_SQL: &str = "NOT EXISTS (SELECT 1 FROM subscription_event ev \
+     WHERE ev.subscription_id = scheduled_event.subscription_id AND ev.event_type = 'SWITCH' \
+       AND ev.details ->> 'event' = scheduled_event.id::text)";
+
+/// Pending, or written as facts and not applied yet: a scheduled change shows as pending until
+/// the state takes it, whether its event waits or its rows do.
+fn still_pending() -> diesel::expression::SqlLiteral<diesel::sql_types::Bool> {
+    diesel::dsl::sql::<diesel::sql_types::Bool>(&format!(
+        "(scheduled_event.status = 'PENDING' \
+          OR (scheduled_event.status = 'MIGRATED' AND {NOT_APPLIED_SQL}))"
+    ))
+}
+
+fn not_applied() -> diesel::expression::SqlLiteral<diesel::sql_types::Bool> {
+    diesel::dsl::sql::<diesel::sql_types::Bool>(NOT_APPLIED_SQL)
+}
+
 impl ScheduledEventRowNew {
     pub async fn insert_batch(
         conn: &mut PgConn,
@@ -675,7 +992,7 @@ impl ScheduledEventRowNew {
                     (
                         row,
                         crate::schema::scheduled_event::created_at
-                            .eq(common_domain::clock::now().naive_utc()),
+                            .eq(common_clock::now().naive_utc()),
                     )
                 })
                 .collect::<Vec<_>>(),

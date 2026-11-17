@@ -811,11 +811,7 @@ impl CustomersInterface for Store {
                             if currency_patched {
                                 self.hooks
                                     .credit
-                                    .wallet_price_changed(
-                                        conn,
-                                        &[&lock],
-                                        common_domain::clock::now(),
-                                    )
+                                    .wallet_price_changed(conn, &[&lock], common_clock::now())
                                     .await?;
                             }
                             credit_inputs::bump_customer(conn, &lock).await?;
@@ -1048,7 +1044,7 @@ impl CustomersInterface for Store {
                     if updated.currency != previous_currency {
                         self.hooks
                             .credit
-                            .wallet_price_changed(conn, &[&lock], common_domain::clock::now())
+                            .wallet_price_changed(conn, &[&lock], common_clock::now())
                             .await?;
                     }
                     credit_inputs::bump_customer(conn, &lock).await?;
@@ -1609,7 +1605,7 @@ async fn bump_written_customers(
     let locks: Vec<&CustomerLock> = locks.iter().collect();
     // An upsert may change existing customers' currency.
     controls
-        .wallet_price_changed(conn, &locks, common_domain::clock::now())
+        .wallet_price_changed(conn, &locks, common_clock::now())
         .await?;
     Ok(credit_inputs::bump_customers(conn, &locks).await?)
 }

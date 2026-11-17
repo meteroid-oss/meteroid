@@ -1555,7 +1555,7 @@ pub struct UsageOwed {
 impl UsageOwed {
     fn core(&self) -> billing_core::credit::owed::UsageOwed {
         billing_core::credit::owed::UsageOwed {
-            product: self.product_id.map(|id| id.as_uuid()),
+            product: self.product_id,
             base_minor: self.base_minor,
             tax_inclusive: self.tax_inclusive,
             taxes: self
@@ -1623,7 +1623,7 @@ impl From<billing_core::credit::owed::UsageCharge> for UsageCharge {
         UsageCharge {
             demand: charge.demand,
             owed: UsageOwed {
-                product_id: charge.owed.product.map(ProductId::from),
+                product_id: charge.owed.product,
                 base_minor: charge.owed.base_minor,
                 tax_inclusive: charge.owed.tax_inclusive,
                 taxes: charge
@@ -1663,7 +1663,7 @@ pub(crate) fn core_settled(
     held.iter()
         .map(
             |(window, grant, amount)| billing_core::credit::owed::Settled {
-                window: window.map(|(subscription_id, start)| (subscription_id.as_uuid(), start)),
+                window: *window,
                 grant: grant.into(),
                 amount: *amount,
             },
@@ -2437,6 +2437,202 @@ pub(crate) async fn net_settlements_then_draw_tx(
         time,
     )
     .await?;
+    crate::services::credit::follow_grants_given_back_tx(
+        conn,
+        controls,
+        lock,
+        given_to,
+        Some(invoice_id),
+    )
+    .await?;
+    kept.then(fresh)
+}
+
+/// What finalizing an invoice may keep and draw, read under the locks it holds.
+#[derive(Debug, Clone)]
+pub(crate) struct FinalizingGrants {
+    /// As `billing_core::credit::settle` reads them.
+    pub grants: billing_core::credit::Grants,
+    /// What each grant holds of the settlements the invoice took over, by the window it paid.
+    settled: Vec<(Option<SettledWindow>, GrantCandidate, i64)>,
+}
+
+/// The grants an invoice settles against at finalization: the open usage settlements of the
+/// periods it bills (`billed`, under the grant locks the caller took before deciding anything),
+/// taken over by it first, then the drawable grants of the customer and of `subscriptions`,
+/// locked. An invoice that drew already, or whose credit was returned, settles nothing again.
+pub(crate) async fn finalizing_grants_tx(
+    conn: &mut PgConn,
+    lock: &CustomerLock,
+    invoice_id: InvoiceId,
+    currency: &str,
+    billed: Option<(&LockedGrants, &BilledPeriods)>,
+    mut subscriptions: Vec<SubscriptionId>,
+    at: DateTime<Utc>,
+) -> StoreResult<FinalizingGrants> {
+    let (tenant_id, customer_id) = (lock.tenant_id(), lock.customer_id());
+    let currency = normalized_currency(currency);
+    let drew =
+        CustomerCreditEntryRow::list_by_invoice_in_currency(conn, tenant_id, invoice_id, &currency)
+            .await?
+            .into_iter()
+            .filter(|e| pays(e, DrawSource::Invoice))
+            .collect::<Vec<_>>();
+    if drew
+        .iter()
+        .any(|e| e.kind == LedgerEntryKind::DrawReversal.as_db_str())
+    {
+        return Err(precondition(
+            "this invoice's credit was already returned; it cannot draw again",
+        ));
+    }
+    if !drew.is_empty() {
+        return Err(precondition("this invoice drew its credit already"));
+    }
+    let settled = match billed {
+        Some((grants, periods)) => {
+            let mut accounts = grants
+                .iter()
+                .map(|scoped| scoped.grant.account_id)
+                .collect::<Vec<_>>();
+            accounts.sort_by_key(|id| id.as_uuid());
+            accounts.dedup();
+            for (subscription_id, period_start) in &periods.periods {
+                CreditUsageSettlementRow::attach_open_to_invoice(
+                    conn,
+                    tenant_id,
+                    *subscription_id,
+                    *period_start,
+                    &accounts,
+                    invoice_id,
+                )
+                .await?;
+            }
+            // Open settlements are in the live set, never cached: a ledger change.
+            diesel_models::query::credit_inputs::record_ledger_change(conn, lock).await?;
+            let movements = CustomerCreditEntryRow::list_by_invoice(conn, tenant_id, invoice_id)
+                .await?
+                .into_iter()
+                .filter(|e| grants.iter().any(|scoped| scoped.grant.id == e.grant_id))
+                .collect::<Vec<_>>();
+            let settlements =
+                CreditUsageSettlementRow::list_by_invoice(conn, tenant_id, invoice_id).await?;
+            settled_in_pool(&movements, &settlements, grants, GrantPool::All)?
+        }
+        None => Vec::new(),
+    };
+    subscriptions.sort_by_key(|id| id.as_uuid());
+    subscriptions.dedup();
+    let drawable =
+        match CustomerCreditAccountRow::find_by_currency(conn, tenant_id, customer_id, &currency)
+            .await?
+        {
+            Some(account) => candidates(
+                &CustomerCreditGrantRow::lock_drawable(
+                    conn,
+                    lock,
+                    account.id,
+                    SubscriptionFilter::CustomerWideOr(subscriptions),
+                )
+                .await?,
+            )?,
+            None => Vec::new(),
+        };
+    Ok(FinalizingGrants {
+        grants: billing_core::credit::Grants {
+            drawable: drawable.iter().map(Into::into).collect(),
+            settled: core_settled(&settled),
+            at,
+        },
+        settled,
+    })
+}
+
+/// Writes what an invoice holds from `pool` as one settlement of it decided
+/// (`billing_core::credit::settle`): the settlements it took over keep `drawn.kept`, the rest
+/// goes back to the grants that paid them; `drawn.fresh` is drawn. Returns what it holds.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn write_invoice_draws_tx(
+    conn: &mut PgConn,
+    controls: &dyn CreditControlHooks,
+    lock: &CustomerLock,
+    invoice_id: InvoiceId,
+    finalizing: &FinalizingGrants,
+    pool: GrantPool,
+    drawn: &billing_core::credit::settle::Drawn,
+    time: MovementTime,
+) -> StoreResult<Allocation> {
+    let tenant_id = lock.tenant_id();
+    let kept: Allocation = drawn.kept.clone().into();
+    let fresh: Allocation = drawn.fresh.clone().into();
+
+    let mut held: Vec<(CreditGrantId, i64)> = Vec::new();
+    for (_, candidate, amount) in &finalizing.settled {
+        if !pool.admits(candidate.classification) {
+            continue;
+        }
+        match held.iter_mut().find(|(id, _)| *id == candidate.id) {
+            Some((_, sum)) => *sum = sum.checked_add(*amount).ok_or_else(overflow)?,
+            None => held.push((candidate.id, *amount)),
+        }
+    }
+    let mut touched = Vec::new();
+    let mut given_to = Vec::new();
+    for (grant_id, held) in held {
+        let keeps = kept
+            .draws
+            .iter()
+            .find(|(id, _)| *id == grant_id)
+            .map_or(0, |(_, amount)| *amount);
+        let amount = held - keeps;
+        if amount <= 0 {
+            continue;
+        }
+        let grant = CustomerCreditGrantRow::move_remaining(conn, grant_id, amount).await?;
+        record_entry(
+            conn,
+            &grant,
+            Movement::document(
+                LedgerEntryKind::DrawReversal,
+                amount,
+                excess_source(invoice_id),
+                time.at,
+                Some(invoice_id),
+                None,
+            )
+            .paying(DrawSource::UsageSettlement),
+        )
+        .await?;
+        let grant = lapse_given_back_tx(conn, grant, amount, GivenBack::Draws, time.at).await?;
+        touched.push(grant.account_id);
+        given_to.push(grant.id);
+    }
+    balance_changed_tx(conn, controls, tenant_id, &touched, time.now).await?;
+
+    let mut touched = Vec::with_capacity(fresh.draws.len());
+    for (grant_id, amount) in &fresh.draws {
+        if *amount <= 0 {
+            continue;
+        }
+        let drawn_at = not_before_last_movement_tx(conn, *grant_id, time.at).await?;
+        let grant = CustomerCreditGrantRow::move_remaining(conn, *grant_id, -amount).await?;
+        touched.push(grant.account_id);
+        record_entry(
+            conn,
+            &grant,
+            Movement::document(
+                LedgerEntryKind::Draw,
+                -amount,
+                invoice_id.as_uuid(),
+                drawn_at,
+                Some(invoice_id),
+                None,
+            )
+            .paying(DrawSource::Invoice),
+        )
+        .await?;
+    }
+    balance_changed_tx(conn, controls, tenant_id, &touched, time.now).await?;
     crate::services::credit::follow_grants_given_back_tx(
         conn,
         controls,

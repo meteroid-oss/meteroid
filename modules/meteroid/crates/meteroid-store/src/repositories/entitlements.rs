@@ -667,7 +667,7 @@ impl EntitlementsInterface for Store {
             product_id: update.product_id,
             config_options: config_options_patch,
             status: None,
-            updated_at: Some(common_domain::clock::now()),
+            updated_at: Some(common_clock::now()),
         };
 
         drop(conn);
@@ -940,7 +940,7 @@ impl EntitlementsInterface for Store {
         let patch = EntitlementRowPatch {
             mode: None,
             value: patch_value,
-            updated_at: Some(common_domain::clock::now()),
+            updated_at: Some(common_clock::now()),
         };
 
         drop(conn);
@@ -2369,8 +2369,8 @@ mod tests {
             description: None,
             feature_type,
             status: FeatureStatusEnum::Active,
-            created_at: common_domain::clock::now(),
-            updated_at: common_domain::clock::now(),
+            created_at: common_clock::now(),
+            updated_at: common_clock::now(),
             entitlement: None,
         }
     }
@@ -2388,8 +2388,8 @@ mod tests {
             entity,
             mode,
             value,
-            created_at: common_domain::clock::now(),
-            updated_at: common_domain::clock::now(),
+            created_at: common_clock::now(),
+            updated_at: common_clock::now(),
         }
     }
 
@@ -2702,14 +2702,14 @@ mod tests {
                 EntitlementModeEnum::Stack,
                 metered(first == aid_on),
             );
-            a.created_at = common_domain::clock::now() - chrono::Duration::seconds(60);
+            a.created_at = common_clock::now() - chrono::Duration::seconds(60);
             let mut b = make_entitlement(
                 fid,
                 EntitlementEntityId::AddOn(second),
                 EntitlementModeEnum::Stack,
                 metered(second == aid_on),
             );
-            b.created_at = common_domain::clock::now();
+            b.created_at = common_clock::now();
             let result = resolve(vec![a, b], features.clone(), &multi);
             assert_eq!(result.len(), 1);
             let ResolvedEntitlementValue::Metered { enabled, .. } = &result[0].value else {
@@ -2972,7 +2972,7 @@ mod tests {
                 enabled: true,
             },
         );
-        a.created_at = common_domain::clock::now() - chrono::Duration::seconds(60);
+        a.created_at = common_clock::now() - chrono::Duration::seconds(60);
         let mut b = make_entitlement(
             fid,
             EntitlementEntityId::Plan(PlanId::new()),
@@ -2988,7 +2988,7 @@ mod tests {
                 enabled: true,
             },
         );
-        b.created_at = common_domain::clock::now();
+        b.created_at = common_clock::now();
 
         let result = resolve(vec![a, b], features, &std::collections::HashSet::new());
         assert_eq!(result.len(), 1);
@@ -3010,14 +3010,14 @@ mod tests {
             EntitlementModeEnum::Override,
             EntitlementValue::Boolean { enabled: true },
         );
-        a.created_at = common_domain::clock::now() - chrono::Duration::seconds(60);
+        a.created_at = common_clock::now() - chrono::Duration::seconds(60);
         let mut b = make_entitlement(
             fid,
             EntitlementEntityId::AddOn(AddOnId::new()),
             EntitlementModeEnum::Override,
             EntitlementValue::Boolean { enabled: false },
         );
-        b.created_at = common_domain::clock::now();
+        b.created_at = common_clock::now();
 
         let result = resolve(vec![a, b], features, &std::collections::HashSet::new());
         assert_eq!(result.len(), 1);
@@ -3055,7 +3055,7 @@ mod tests {
                 enabled: true,
             },
         );
-        winner.created_at = common_domain::clock::now() - chrono::Duration::seconds(60);
+        winner.created_at = common_clock::now() - chrono::Duration::seconds(60);
         let mut loser = make_entitlement(
             fid,
             EntitlementEntityId::Plan(losing_plan_id),
@@ -3071,7 +3071,7 @@ mod tests {
                 enabled: true,
             },
         );
-        loser.created_at = common_domain::clock::now();
+        loser.created_at = common_clock::now();
         let result = resolve(
             vec![winner, loser],
             features,
@@ -3115,7 +3115,7 @@ mod tests {
                 enabled: true,
             },
         );
-        a.created_at = common_domain::clock::now() - chrono::Duration::seconds(60);
+        a.created_at = common_clock::now() - chrono::Duration::seconds(60);
         let mut b = make_entitlement(
             fid,
             EntitlementEntityId::AddOn(second_addon),
@@ -3131,7 +3131,7 @@ mod tests {
                 enabled: true,
             },
         );
-        b.created_at = common_domain::clock::now();
+        b.created_at = common_clock::now();
         let mut multi = std::collections::HashSet::new();
         multi.insert(first_addon);
         multi.insert(second_addon);

@@ -470,3 +470,289 @@ async fn a_regenerated_invoice_bills_its_charges_under_the_same_line_ids() {
 
     assert_eq!(ids(&regenerated.invoice), ids(&voided));
 }
+
+/// Starter (29.00 fee, 10.00 seats) from Jan 1, a 31.00 fee in arrears added on Jan 1 and removed
+/// on Jan 20: Feb 1 bills its 19 days, 3100 × 19/31 = 1900, with February's fees. That invoice is
+/// voided: March bills March alone, the voided arrears forgiven, never billed again. Two seats
+/// bought on Feb 16 bill what they add to February's seats, 1000 − 1000 × 14/29 (483) = 517 and
+/// 3000 × 14/29 = 1448 owed, 1965 less the voided 1000: 965, never the voided seat again.
+/// Rules: R-096
+#[tokio::test]
+async fn a_void_forgives_the_arrears_it_billed() {
+    use meteroid_store::domain::enums::{BillingPeriodEnum, BillingType, FeeTypeEnum};
+    use meteroid_store::domain::price_components::{PriceEntry, PriceInput, ProductRef};
+    use meteroid_store::domain::prices::{FeeStructure, Pricing};
+    use meteroid_store::domain::subscription_amendment::{
+        AddExtraComponent, AddOnChanges, ComponentChanges, SubscriptionAmendment,
+    };
+    use meteroid_store::domain::subscription_changes::PlanChangeMode;
+    use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
+
+    let env = test_env_with_seed(SeedLevel::PLANS).await;
+    let id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(day(1, 1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let amend = |component_changes| SubscriptionAmendment {
+        apply_mode: PlanChangeMode::Immediate,
+        component_changes,
+        add_on_changes: AddOnChanges::default(),
+    };
+    env.services()
+        .apply_amendment_immediate_at(
+            Actor::System,
+            id,
+            TENANT_ID,
+            amend(ComponentChanges {
+                edited: vec![],
+                added: vec![AddExtraComponent {
+                    name: "Overage Fee".to_string(),
+                    product: ProductRef::New {
+                        name: "Overage Fee Product".to_string(),
+                        fee_type: FeeTypeEnum::ExtraRecurring,
+                        fee_structure: FeeStructure::ExtraRecurring {
+                            billing_type: BillingType::Arrears,
+                        },
+                    },
+                    price_entry: PriceEntry::New(PriceInput {
+                        cadence: BillingPeriodEnum::Monthly,
+                        currency: "EUR".to_string(),
+                        pricing: Pricing::ExtraRecurring {
+                            unit_price: rust_decimal::Decimal::new(3100, 2),
+                            quantity: 1,
+                        },
+                        credit_unit: None,
+                    }),
+                }],
+                removed: vec![],
+            }),
+            day(1, 1),
+        )
+        .await
+        .expect("add the arrears fee");
+    let overage = env
+        .store()
+        .get_subscription_details(TENANT_ID, id)
+        .await
+        .expect("details")
+        .price_components
+        .into_iter()
+        .find(|component| component.name == "Overage Fee")
+        .expect("the arrears fee")
+        .id;
+    env.services()
+        .apply_amendment_immediate_at(
+            Actor::System,
+            id,
+            TENANT_ID,
+            amend(ComponentChanges {
+                edited: vec![],
+                added: vec![],
+                removed: vec![overage],
+            }),
+            day(1, 20),
+        )
+        .await
+        .expect("remove the arrears fee");
+
+    env.process_cycles().await;
+    let february = env
+        .get_invoices(id)
+        .await
+        .into_iter()
+        .find(|invoice| invoice.billing_period_start == day(2, 1))
+        .expect("the Feb 1 invoice");
+    env.try_void_invoice(february.id)
+        .await
+        .expect("void the Feb 1 invoice");
+    env.services()
+        .update_subscription_slots_for_test(
+            TENANT_ID,
+            id,
+            COMP_STARTER_SEATS_ID,
+            2,
+            meteroid_store::domain::SlotUpgradeBillingMode::Optimistic,
+            Some(day(2, 16).and_time(chrono::NaiveTime::MIN)),
+        )
+        .await
+        .expect("add 2 seats");
+    env.process_cycles().await;
+
+    let documents: Vec<String> = env
+        .get_invoices(id)
+        .await
+        .iter()
+        .flat_map(|invoice| {
+            invoice.line_items.iter().map(move |line| {
+                format!(
+                    "{:?} {:?} {}: {} {}..{} {}",
+                    invoice.status,
+                    invoice.invoice_type,
+                    invoice.billing_period_start,
+                    line.name,
+                    line.start_date,
+                    line.end_date,
+                    line.amount_subtotal
+                )
+            })
+        })
+        .collect();
+    assert_eq!(
+        documents,
+        [
+            "Finalized Recurring 2024-01-01: Platform Fee 2024-01-01..2024-02-01 2900",
+            "Finalized Recurring 2024-01-01: Seats 2024-01-01..2024-02-01 1000",
+            "Void Recurring 2024-02-01: Platform Fee 2024-02-01..2024-03-01 2900",
+            "Void Recurring 2024-02-01: Seats 2024-02-01..2024-03-01 1000",
+            "Void Recurring 2024-02-01: Overage Fee 2024-01-01..2024-01-20 1900",
+            "Finalized OneOff 2024-02-16: 2 Seats upgrade 2024-02-16..2024-03-01 965",
+            "Finalized Recurring 2024-03-01: Platform Fee 2024-03-01..2024-04-01 2900",
+            "Finalized Recurring 2024-03-01: Seats 2024-03-01..2024-04-01 3000",
+        ]
+    );
+}
+
+/// January's invoice voided and regenerated, the regenerated one issued, then cancelled from
+/// Jan 16: the regenerated invoice replaces the void, so its unused 16 of 31 days come back once,
+/// on it, 2900 × 16/31 = 1497 and 1000 × 16/31 = 516; the voided invoice keeps its own note alone.
+/// Rules: R-096, R-077
+#[tokio::test]
+async fn cancelling_a_regenerated_period_credits_its_unused_days_once() {
+    let env = test_env_with_seed(SeedLevel::PLANS).await;
+    let id = starter_with_voided_first_period(&env).await;
+    let voided = env.get_invoices(id).await[0].id;
+    let regenerated = env
+        .services()
+        .regenerate_invoice(Actor::System, TENANT_ID, voided)
+        .await
+        .expect("regenerate")
+        .invoice
+        .id;
+    env.process_due_events().await;
+    let rebill = env
+        .get_invoices(id)
+        .await
+        .into_iter()
+        .find(|i| i.id == regenerated)
+        .expect("the regenerated invoice");
+    assert_eq!(rebill.status, InvoiceStatusEnum::Finalized);
+    let voided_notes = env
+        .store()
+        .list_credit_notes_by_invoice_id(TENANT_ID, voided)
+        .await
+        .expect("the void's notes")
+        .len();
+
+    env.services()
+        .cancel_subscription(
+            Actor::System,
+            id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::Date(day(1, 16)),
+        )
+        .await
+        .expect("cancel mid-period");
+    env.process_due_events().await;
+    env.process_due_events().await;
+
+    let notes = env
+        .store()
+        .list_credit_notes_by_invoice_id(TENANT_ID, regenerated)
+        .await
+        .expect("credit notes");
+    let mut lines: Vec<(String, i64)> = notes
+        .iter()
+        .flat_map(|note| note.line_items.iter())
+        .map(|line| (line.name.clone(), line.amount_subtotal))
+        .collect();
+    lines.sort();
+    assert_eq!(notes.len(), 1, "{lines:?}");
+    assert_eq!(
+        lines,
+        vec![
+            ("Platform Fee".to_owned(), -1_497),
+            ("Seats".to_owned(), -516)
+        ]
+    );
+    assert_eq!(
+        env.store()
+            .list_credit_notes_by_invoice_id(TENANT_ID, voided)
+            .await
+            .expect("the void's notes")
+            .len(),
+        voided_notes,
+        "the voided invoice keeps its own note alone"
+    );
+}
+
+/// Starter with January voided, five seats added from Jan 11 (4065 − 677 = 3388), cancelled
+/// from Jan 17: of the 2903 owed back by unused time the voided seat's 484 is forgiven and the
+/// added seats give back 2419, keeping 969; with the voided seat's 516, the 1485 owed.
+/// Rules: R-096, R-077
+#[tokio::test]
+async fn a_void_forgives_only_its_own_document_when_its_period_is_cancelled() {
+    let env = test_env_with_seed(SeedLevel::PLANS).await;
+    let id = starter_with_voided_first_period(&env).await;
+    let voided = env.get_invoices(id).await[0].id;
+    let voided_notes = env
+        .store()
+        .list_credit_notes_by_invoice_id(TENANT_ID, voided)
+        .await
+        .expect("the void's notes")
+        .len();
+    env.services()
+        .update_subscription_slots_for_test(
+            TENANT_ID,
+            id,
+            COMP_STARTER_SEATS_ID,
+            5,
+            meteroid_store::domain::SlotUpgradeBillingMode::Optimistic,
+            Some(day(1, 11).and_time(chrono::NaiveTime::MIN)),
+        )
+        .await
+        .expect("add 5 seats");
+    let step = env
+        .get_invoices(id)
+        .await
+        .into_iter()
+        .find(|invoice| invoice.id != voided)
+        .expect("the seats' invoice");
+    assert_eq!(step.subtotal, 3_388);
+
+    env.services()
+        .cancel_subscription(
+            Actor::System,
+            id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::Date(day(1, 17)),
+        )
+        .await
+        .expect("cancel mid-period");
+    env.process_due_events().await;
+    env.process_due_events().await;
+
+    let notes = env
+        .store()
+        .list_credit_notes_by_invoice_id(TENANT_ID, step.id)
+        .await
+        .expect("credit notes");
+    let given: Vec<i64> = notes
+        .iter()
+        .flat_map(|note| note.line_items.iter())
+        .map(|line| line.amount_subtotal)
+        .collect();
+    assert_eq!(given, vec![-2_419]);
+    assert_eq!(
+        env.store()
+            .list_credit_notes_by_invoice_id(TENANT_ID, voided)
+            .await
+            .expect("the void's notes")
+            .len(),
+        voided_notes
+    );
+}

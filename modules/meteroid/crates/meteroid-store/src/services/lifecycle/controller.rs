@@ -1,4 +1,4 @@
-//! The billing controller (Phase 6): one writer per customer. A customer runs when its next wake
+//! The billing controller: one writer per customer. A customer runs when its next wake
 //! is due or an input changed (`credit_inputs::bump_customer` marks it dirty), under a lease, and
 //! takes its due steps in order, each by the function its own request path uses: scheduled
 //! changes, then renewals, then what they made due (finalize after grace, payment retries), credit
@@ -16,6 +16,7 @@ use diesel_models::scheduled_events::ScheduledEventRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
 use futures::StreamExt;
+use scoped_futures::ScopedFutureExt;
 
 /// How long a run holds its customer: another replica takes it over past it.
 const LEASE: Duration = Duration::minutes(5);
@@ -58,7 +59,7 @@ pub struct ControllerSweep {
 impl Services {
     /// Runs the customers whose wake is due or whose inputs changed, up to `limit`.
     pub(crate) async fn run_billing_controller(&self, limit: i64) -> StoreResult<ControllerRun> {
-        let now = common_domain::clock::now();
+        let now = common_clock::now();
         let claimed = {
             let mut conn = self.store.get_conn().await?;
             BillingControllerRow::claim_due(&mut conn, now, now + LEASE, limit.max(1))
@@ -78,7 +79,7 @@ impl Services {
     /// Runs one customer's due steps, then records its next wake. False when it failed.
     async fn run_customer(&self, row: BillingControllerRow) -> bool {
         let (tenant_id, customer_id) = (row.tenant_id, row.customer_id);
-        let started = common_domain::clock::now();
+        let started = common_clock::now();
         let steps = tokio::time::timeout(
             RUN_TIMEOUT,
             self.customer_steps(tenant_id, customer_id, started),
@@ -96,7 +97,7 @@ impl Services {
                 } else {
                     self.next_wake(tenant_id, customer_id)
                         .await
-                        .map(|wake| wake.map(|at| at.max(common_domain::clock::now() + RECHECK)))
+                        .map(|wake| wake.map(|at| at.max(common_clock::now() + RECHECK)))
                 };
                 match wake {
                     Ok(wake) => {
@@ -108,7 +109,7 @@ impl Services {
                                 customer_id,
                                 row.dirty_since,
                                 wake,
-                                common_domain::clock::now(),
+                                common_clock::now(),
                             )
                             .await
                             .map_err(Into::<Report<StoreError>>::into)
@@ -125,8 +126,13 @@ impl Services {
             Ok(done) => done,
             Err(error) => {
                 log::error!("billing controller run of customer {customer_id} failed: {error:?}");
-                let now = common_domain::clock::now();
-                let retry_at = now + backoff(row.attempts.saturating_add(1));
+                let now = common_clock::now();
+                // The same inputs break the invariant again: the daily sweep looks once more.
+                let retry_at = if super::violates_invariant(&error) {
+                    now + Duration::days(1)
+                } else {
+                    now + backoff(row.attempts.saturating_add(1))
+                };
                 let recorded = async {
                     let mut conn = self.store.get_conn().await?;
                     BillingControllerRow::fail(
@@ -165,6 +171,9 @@ impl Services {
         let mut more = self.due_events_of(customer).await?;
         more |= self.due_cycles_of(customer).await?;
         more |= self.due_events_of(customer).await?;
+        // A change the facts date inside a period applies at its wake; one at a period's end
+        // waits for the renewal above, which applies it in its own transaction.
+        more |= self.derive_states_of(customer, now).await?;
         // Credit, endings and drafts see the customer once every due transition is applied: a
         // subscription ending is ended before its credit lapses as an expiry.
         if more {
@@ -218,6 +227,61 @@ impl Services {
                 // Another writer holds the customer: the subscription defers itself.
                 Ok(Visit::CustomerBusy) => {}
                 Err(error) => log::error!("subscription {subscription_id} not advanced: {error:?}"),
+            }
+        }
+        Ok(took)
+    }
+
+    /// The derived state of each subscription whose facts changed it by `now`; true when it took
+    /// any (what it made due runs next, at once).
+    async fn derive_states_of(
+        &self,
+        (tenant_id, customer_id): (TenantId, CustomerId),
+        now: DateTime<Utc>,
+    ) -> StoreResult<bool> {
+        let due = {
+            let mut conn = self.store.get_conn().await?;
+            SubscriptionRow::list_due_derivations(
+                &mut conn,
+                tenant_id,
+                customer_id,
+                now,
+                STEP_BUDGET as i64,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+        };
+        let mut took = false;
+        for subscription_id in due {
+            let derived = self
+                .store
+                .transaction(|conn| {
+                    async move {
+                        let lock = SubscriptionRow::lock_customer_of(conn, subscription_id)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+                        let step = self
+                            .derive_state_tx(
+                                conn,
+                                &common_domain::actor::Actor::System,
+                                tenant_id,
+                                subscription_id,
+                                common_clock::now(),
+                            )
+                            .await?;
+                        diesel_models::query::credit_inputs::bump_customer(conn, &lock)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+                        Ok(step)
+                    }
+                    .scope_boxed()
+                })
+                .await;
+            match derived {
+                Ok(step) => took |= step.is_some_and(|step| !step.transitions.is_empty()),
+                Err(error) => {
+                    log::error!("subscription {subscription_id} state not derived: {error:?}")
+                }
             }
         }
         Ok(took)
@@ -301,7 +365,7 @@ impl Services {
         tenant_id: TenantId,
         customer_id: CustomerId,
     ) -> StoreResult<Option<DateTime<Utc>>> {
-        let now = common_domain::clock::now();
+        let now = common_clock::now();
         let due = {
             let mut conn = self.store.get_conn().await?;
             DueTimes::of_customer(&mut conn, tenant_id, customer_id, now)
@@ -338,7 +402,7 @@ impl Services {
             let mut lost = 0;
             for (tenant_id, customer_id) in customers {
                 sweep.customers += 1;
-                let now = common_domain::clock::now();
+                let now = common_clock::now();
                 let wake = self.next_wake(tenant_id, customer_id).await?;
                 let previous = {
                     let mut conn = self.store.get_conn().await?;
@@ -374,10 +438,17 @@ fn wake_of(due: &DueTimes, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
         // A forgiven late pack is credited back at the lapse, the rest settled after the grace.
         if lapse > now { lapse } else { lapse + grace }
     });
-    [due.transition, due.event, lapse, due.ending, due.draft]
-        .into_iter()
-        .flatten()
-        .min()
+    [
+        due.transition,
+        due.event,
+        lapse,
+        due.ending,
+        due.draft,
+        due.derive,
+    ]
+    .into_iter()
+    .flatten()
+    .min()
 }
 
 /// A failing run waits longer each time, up to an hour.

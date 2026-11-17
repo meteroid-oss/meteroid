@@ -124,7 +124,7 @@ pub(super) async fn take_back_returned_credit_tx(
         lock,
         note.id,
         &movements,
-        common_domain::clock::now(),
+        common_clock::now(),
     )
     .await?;
     let returned = movements
@@ -145,7 +145,7 @@ pub(super) async fn take_back_returned_credit_tx(
             grant.id,
             grant.amount,
             note.id,
-            common_domain::clock::now(),
+            common_clock::now(),
         )
         .await?;
     }
@@ -192,7 +192,7 @@ async fn take_back_retired_balance_credit_tx(
         grant.id,
         note.credited_amount_cents,
         note.id,
-        common_domain::clock::now(),
+        common_clock::now(),
     )
     .await
 }
@@ -249,7 +249,7 @@ async fn return_credit_tx(
                 note.id,
                 GrantPool::Paid,
                 &request,
-                common_domain::clock::now(),
+                common_clock::now(),
             )
             .await?;
             line_allocation::record_line_allocation_tx(
@@ -277,7 +277,7 @@ async fn return_credit_tx(
         return Ok(());
     }
     let cost = CreditCost::at_face(amount, &currency);
-    let now = common_domain::clock::now();
+    let now = common_clock::now();
     let credited_at = credit_at.map_or(now, |at| at.min(now));
     credit::fund_tx(
         conn,
@@ -343,7 +343,7 @@ async fn return_promotional_credit_tx(
         note.id,
         GrantPool::Promotional,
         &request,
-        common_domain::clock::now(),
+        common_clock::now(),
     )
     .await?;
     if given_back > 0 {
@@ -487,7 +487,7 @@ async fn reverse_purchased_credit_tx(
             grant.id,
             reversed,
             note.id,
-            common_domain::clock::now(),
+            common_clock::now(),
         )
         .await?;
     }
@@ -510,7 +510,7 @@ async fn purchased_credit_reversals_tx(
     } else {
         HashMap::new()
     };
-    let now = common_domain::clock::now();
+    let now = common_clock::now();
     let mut reversals = Vec::new();
     for PurchaseLine { grant, bonus } in lines {
         let Some(line_id) = grant.line_local_id.clone() else {
@@ -632,7 +632,7 @@ pub(crate) async fn reverse_missed_refund_credit_tx(
                 grant.id,
                 take,
                 note.id,
-                common_domain::clock::now(),
+                common_clock::now(),
             )
             .await?;
         }
@@ -821,10 +821,10 @@ pub(crate) async fn restore_invoice_credit_tx(
             amount_minor: amount,
             classification: GrantClassification::Paid,
             priority: credit::DEFAULT_PRIORITY,
-            effective_at: common_domain::clock::now(),
+            effective_at: common_clock::now(),
             expires_at: None,
-            occurred_at: common_domain::clock::now(),
-            now: common_domain::clock::now(),
+            occurred_at: common_clock::now(),
+            now: common_clock::now(),
             source_kind: source::INVOICE_VOID_RESTORE,
             source_id: invoice.id.as_uuid(),
             cost: Some(CreditCost::at_face(amount, currency)),

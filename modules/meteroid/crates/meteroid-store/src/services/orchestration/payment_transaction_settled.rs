@@ -177,12 +177,7 @@ impl Services {
         self.transaction_reading_usage_first(&mut conn, |services, conn| {
             async move {
                 services
-                    .on_invoice_payment_settled_tx(
-                        conn,
-                        event,
-                        invoice_id,
-                        common_domain::clock::now(),
-                    )
+                    .on_invoice_payment_settled_tx(conn, event, invoice_id, common_clock::now())
                     .await
             }
             .scope_boxed()
@@ -329,7 +324,7 @@ impl Services {
 
                     // Use current date instead of invoice_date: async payments
                     // (SEPA) can settle days later, after the billing period rolls over.
-                    let change_date = common_domain::clock::now().date_naive();
+                    let change_date = common_clock::now().date_naive();
                     // A savepoint: a change that can no longer apply never rolls the payment back;
                     // the invoice it paid is credited to the customer's balance instead.
                     let legacy = &invoice;
@@ -419,7 +414,7 @@ impl Services {
                         let billing_start_date = subscription
                             .subscription
                             .billing_start_date
-                            .unwrap_or(common_domain::clock::now().date_naive());
+                            .unwrap_or(common_clock::now().date_naive());
 
                         let current_period_start;
                         let current_period_end;
@@ -480,7 +475,7 @@ impl Services {
                             event.tenant_id,
                             session_id,
                             *subscription_id,
-                            common_domain::clock::now(),
+                            common_clock::now(),
                         )
                         .await?;
                     }
@@ -617,7 +612,7 @@ impl Services {
                             recomputed.payment_status == InvoicePaymentStatus::Paid,
                             true,
                             ReopenedReminders::after_reversal(event.reversal_kind),
-                            common_domain::clock::now().naive_utc(),
+                            common_clock::now().naive_utc(),
                         )
                         .await?;
 
@@ -935,6 +930,7 @@ impl Services {
 
                             let is_paid_trial_flag = is_paid_trial(
                                 conn,
+                                subscription.subscription.id,
                                 subscription.subscription.plan_version_id,
                                 event.tenant_id,
                                 session.trial_duration_days.is_some(),
@@ -1017,10 +1013,11 @@ impl Services {
                                 let billing_start_date = subscription
                                     .subscription
                                     .billing_start_date
-                                    .unwrap_or_else(|| common_domain::clock::now().date_naive());
+                                    .unwrap_or_else(|| common_clock::now().date_naive());
 
                                 let is_paid_trial_flag = is_paid_trial(
                                     conn,
+                                    subscription.subscription.id,
                                     subscription.subscription.plan_version_id,
                                     event.tenant_id,
                                     subscription.subscription.trial_duration.is_some(),
@@ -1082,7 +1079,7 @@ impl Services {
                             let today = match session.change_date {
                                 Some(d) if d >= current_period_start => d,
                                 other => {
-                                    let now = common_domain::clock::now().date_naive();
+                                    let now = common_clock::now().date_naive();
                                     log::warn!(
                                         "Plan-change checkout {} priced at {other:?} but the period rolled over (starts {current_period_start}); applying at {now}",
                                         checkout_session_id
@@ -1221,86 +1218,35 @@ impl Services {
                                 ))
                             })?;
 
-                            let addon_ids: Vec<_> =
-                                create_add_ons.add_ons.iter().map(|a| a.add_on_id).collect();
-                            let addons = {
-                                let rows = diesel_models::add_ons::AddOnRow::list_by_ids(
-                                    conn,
-                                    &addon_ids,
-                                    &event.tenant_id,
-                                )
-                                .await
-                                .map_err(Into::<Report<StoreError>>::into)?;
-                                crate::repositories::add_ons::enrich_add_ons(
-                                    conn,
-                                    rows,
-                                    event.tenant_id,
-                                )
-                                .await?
-                            };
-
-                            let product_ids: Vec<_> =
-                                addons.iter().map(|a| a.product_id).collect();
-                            let price_ids: Vec<_> = addons.iter().map(|a| a.price_id).collect();
-                            let (prices_by_id, products_by_id) =
-                                crate::repositories::subscriptions::fetch_prices_and_products(
+                            // Bought the day its charge was priced: its rows and its invoice from
+                            // then, written here only, as the completion left them unwritten.
+                            let addon_effective_from = priced_on;
+                            let rows =
+                                crate::repositories::subscription_add_ons::checkout_add_on_rows(
                                     conn,
                                     event.tenant_id,
-                                    price_ids.into_iter(),
-                                    product_ids.into_iter(),
+                                    subscription_id,
+                                    &create_add_ons.add_ons,
+                                    addon_effective_from,
                                 )
                                 .await?;
-
-                            let units = crate::repositories::credit_units::load_add_on_credit_units(
-                                conn,
-                                event.tenant_id,
-                                &prices_by_id,
-                                &create_add_ons.add_ons,
-                            )
-                            .await?;
-
-                            let addon_effective_from = session.change_date.unwrap_or(priced_on);
-
-                            crate::repositories::subscription_add_ons::resolve_and_insert_checkout_addons(
-                                conn,
-                                subscription_id,
-                                &addons,
-                                &create_add_ons.add_ons,
-                                &products_by_id,
-                                &prices_by_id,
-                                &units,
-                                addon_effective_from,
-                            )
-                            .await?;
-
-                            // Create prorated one-off invoice for the addon purchase
                             let result = services
                                 .compute_addon_purchase_invoice(
                                     conn,
                                     event.tenant_id,
                                     subscription_id,
-                                    &create_add_ons.add_ons,
-                                    &addons,
-                                    &products_by_id,
-                                    &prices_by_id,
-                                    &units,
-                                    priced_on,
+                                    &rows,
+                                    addon_effective_from,
                                 )
                                 .await?;
-
-                            let content =
-                                crate::services::invoices::AdjustmentInvoiceContent {
-                                    computed: result.invoice_content,
-                                    invoicing_entity: None,
-                                };
-
                             let draft = services
-                                .create_adjustment_invoice_from_content(
+                                .record_addon_purchase_tx(
                                     conn,
-                                    &result.subscription,
-                                    &result.customer,
-                                    &result.proration,
-                                    content,
+                                    event.tenant_id,
+                                    subscription_id,
+                                    &rows,
+                                    addon_effective_from,
+                                    result,
                                 )
                                 .await?;
 
@@ -1332,7 +1278,7 @@ impl Services {
                         event.tenant_id,
                         checkout_session_id,
                         subscription_id,
-                        common_domain::clock::now(),
+                        common_clock::now(),
                     )
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
@@ -1555,7 +1501,7 @@ impl Services {
                     invoice_id,
                     Some(crate::services::credit::collected_payment::Collection {
                         payment: transaction_id,
-                        at: processed_at.map_or_else(common_domain::clock::now, |at| at.and_utc()),
+                        at: processed_at.map_or_else(common_clock::now, |at| at.and_utc()),
                     }),
                     crate::domain::wallet_events::CreditUnrecoveredCause::PaymentReversed,
                     None,
@@ -1594,7 +1540,7 @@ fn can_never_apply(error: &Report<StoreError>) -> bool {
 fn collected_at(event: &PaymentTransactionEvent) -> chrono::DateTime<Utc> {
     event
         .processed_at
-        .map_or_else(common_domain::clock::now, |at| at.and_utc())
+        .map_or_else(common_clock::now, |at| at.and_utc())
 }
 
 /// The coupons an activation's charge was priced with, kept on the session when the charge was
@@ -1636,7 +1582,7 @@ async fn apply_priced_coupons_tx(
             applied_amount: None,
             applied_count: None,
             last_applied_at: None,
-            effective_from: common_domain::clock::now().date_naive(),
+            effective_from: common_clock::now().date_naive(),
         })
         .collect();
     if missing.is_empty() {

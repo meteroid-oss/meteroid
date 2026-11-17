@@ -97,4 +97,7 @@ pub struct ComponentPeriods {
     /// removed mid-period). Kept separate from `proration_factor` so it never
     /// affects the advance line of a component billed on the same period.
     pub arrear_proration_factor: Option<crate::services::proration::DayFraction>,
+    /// The share of its period's days the arrear window holds when a fee billed whole would be
+    /// prorated over it (cut short, or started after its period does): a capacity's allowance.
+    pub arrear_share: Option<crate::services::proration::DayFraction>,
 }

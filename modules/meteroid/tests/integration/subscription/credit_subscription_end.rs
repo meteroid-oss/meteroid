@@ -460,6 +460,17 @@ async fn a_cancellation_while_the_period_invoice_is_a_draft_credits_it_once_issu
         1
     );
     assert_ledger_balances(env.store(), TENANT_ID, CUST_UBER_ID).await;
+    // Each fee the facts put on a written document is billed once over them all: February's
+    // 29.00 and 10.00 for [Feb 1, Feb 15) are the draft's 2900 and 1000 less the note's 1500 and 517.
+    let mut conn = env.conn().await;
+    let invoices = env.get_invoices(sub_id).await;
+    assert_eq!(
+        crate::helpers::facts::owed_on_written_documents(
+            &mut conn, TENANT_ID, sub_id, &invoices, true
+        )
+        .await,
+        vec![]
+    );
 }
 
 /// Studio cancelled on Feb 15 while February's invoice is a draft; a card charge captured later

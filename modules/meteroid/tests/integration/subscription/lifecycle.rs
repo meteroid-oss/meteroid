@@ -7,12 +7,27 @@
 //!
 //! Ported from test_subscription_lifecycle.rs
 
-use chrono::NaiveDate;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use chrono::{NaiveDate, NaiveTime};
+use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId};
+use meteroid_store::clients::usage::{
+    GroupedUsageData, MockUsageClient, MockUsageDataParams, MutableMockUsageClient, UsageData,
+};
+use meteroid_store::domain::{BillingType, Invoice, UsagePeriod};
 use meteroid_store::services::CheckoutPaymentOutcome;
 use rstest::rstest;
+use rust_decimal::Decimal;
 
 use crate::data::ids::*;
-use crate::harness::{InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env};
+use crate::data::plans::{PlanSeed, SeedComp};
+use crate::harness::{
+    InvoicesAssertExt, SubscriptionAssertExt, TestEnv, subscription, test_env,
+    test_env_with_seed_and_usage,
+};
+use crate::meteroid_it::container::SeedLevel;
+use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
 use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
 
 // =============================================================================
@@ -926,11 +941,11 @@ async fn test_oncheckout_no_trial_full_flow(#[future] test_env: TestEnv) {
 /// Timeline (monthly billing, billing_day=1):
 /// - Creation (2024-01-01): Active, cycle_index=0, period=[Jan1, Feb1], Invoice 1 ($35)
 /// - process_cycles #1: RenewSubscription fires; end_date(Feb15) truncates [Feb1, Mar1] → [Feb1, Feb15];
-///   EndSubscription scheduled; Invoice 2 created ($35, billed for advance period [Feb1, Mar1])
+///   EndSubscription scheduled; Invoice 2 bills [Feb1, Feb15), its share of February
 /// - process_cycles #2: EndSubscription fires → Completed;
 ///   No Invoice 3 (advance_period=None for completed subscriptions)
 ///
-/// Key assertion: billing ends after end_date — no invoice is created beyond Invoice 2.
+/// Rules: R-079, R-084
 #[rstest]
 #[tokio::test]
 async fn test_lifecycle_end_date_billing_terminates(#[future] test_env: TestEnv) {
@@ -980,22 +995,26 @@ async fn test_lifecycle_end_date_billing_terminates(#[future] test_env: TestEnv)
         .has_next_action(Some(CycleActionEnum::EndSubscription))
         .has_cycle_index(1)
         .has_period_start(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap())
-        // Period is truncated to end_date in the DB (even though billing uses the full advance period)
         .has_period_end(end_date);
 
-    // Invoice 2 created for the second billing cycle.
-    // Note: the billing advance period [Feb1, Mar1] is used even though the subscription
-    // ends Feb 15 — mid-period end_date truncation does not retroactively prorate
-    // non-zero-index billing cycles.
+    // February's window is [Feb1, Feb15): 3500 × 14/29 = 1689.66 → 1690.
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(2);
     invoices
         .assert()
         .invoice_at(1)
-        .with_context("Invoice 2: second billing cycle (billed at period start)")
+        .with_context("Invoice 2: the term's last period, cut at its end")
         .is_finalized_unpaid()
         .has_billing_period_start(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap())
-        .has_total(3500);
+        .has_total(1690);
+    assert_eq!(
+        lines_of(&invoices[0]),
+        vec![line("Subscription Rate", (2024, 1, 1), (2024, 2, 1), 3500)]
+    );
+    assert_eq!(
+        lines_of(&invoices[1]),
+        vec![line("Subscription Rate", (2024, 2, 1), (2024, 2, 15), 1690)]
+    );
 
     // === Phase 3: EndSubscription fires — subscription completes with no new invoice ===
     env.process_cycles().await;
@@ -1010,4 +1029,290 @@ async fn test_lifecycle_end_date_billing_terminates(#[future] test_env: TestEnv)
     // so the billing layer treats the subscription as completed and skips advance billing.
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(2);
+}
+
+type Line = (String, NaiveDate, NaiveDate, i64);
+
+fn line(name: &str, from: (i32, u32, u32), to: (i32, u32, u32), amount: i64) -> Line {
+    let day = |(y, m, d): (i32, u32, u32)| NaiveDate::from_ymd_opt(y, m, d).unwrap();
+    (name.to_string(), day(from), day(to), amount)
+}
+
+/// Each line of `invoice` as (name, start, end, subtotal), sorted.
+fn lines_of(invoice: &Invoice) -> Vec<Line> {
+    let mut lines: Vec<Line> = invoice
+        .line_items
+        .iter()
+        .map(|l| (l.name.clone(), l.start_date, l.end_date, l.amount_subtotal))
+        .collect();
+    lines.sort();
+    lines
+}
+
+fn bandwidth(usage: &MutableMockUsageClient, from: NaiveDate, to: NaiveDate, units: i64) {
+    let (start, end) = (from.and_time(NaiveTime::MIN), to.and_time(NaiveTime::MIN));
+    usage.set_usage(
+        MockUsageDataParams {
+            metric_id: METRIC_BANDWIDTH,
+            period_start: start,
+            period_end: end,
+        },
+        UsageData {
+            data: vec![GroupedUsageData {
+                value: Decimal::from(units),
+                dimensions: HashMap::new(),
+            }],
+            period: UsagePeriod { start, end },
+        },
+    );
+}
+
+/// A term ending on a period boundary bills its periods whole.
+/// Rules: R-084
+#[rstest]
+#[tokio::test]
+async fn test_fixed_term_ending_on_a_boundary_bills_whole_periods(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+        .start_date(day(1, 1))
+        .end_date(day(3, 1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    env.process_cycles().await;
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .has_next_action(Some(CycleActionEnum::EndSubscription))
+        .has_period_end(day(3, 1));
+    env.process_cycles().await;
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .has_status(SubscriptionStatusEnum::Completed);
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    assert_eq!(
+        lines_of(&invoices[0]),
+        vec![line("Subscription Rate", (2024, 1, 1), (2024, 2, 1), 3500)]
+    );
+    assert_eq!(
+        lines_of(&invoices[1]),
+        vec![line("Subscription Rate", (2024, 2, 1), (2024, 3, 1), 3500)]
+    );
+}
+
+/// A term ending inside the first period bills that period up to the end only.
+/// Rules: R-079, R-084
+#[rstest]
+#[tokio::test]
+async fn test_fixed_term_ending_in_the_first_period_bills_up_to_its_end(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+        .start_date(day(1, 1))
+        .end_date(day(1, 20))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .has_next_action(Some(CycleActionEnum::EndSubscription))
+        .has_period_end(day(1, 20));
+    env.process_cycles().await;
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .has_status(SubscriptionStatusEnum::Completed);
+
+    // [Jan1, Jan20) of January: 3500 × 19/31 = 2145.16 → 2145.
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(1);
+    assert_eq!(
+        lines_of(&invoices[0]),
+        vec![line("Subscription Rate", (2024, 1, 1), (2024, 1, 20), 2145)]
+    );
+}
+
+/// A term ending mid-period bills its last advance up to the end, and its completion settles the
+/// usage up to the end.
+/// Rules: R-011, R-016, R-079, R-084
+#[tokio::test]
+async fn test_fixed_term_ending_mid_period_settles_usage_up_to_its_end() {
+    let usage = MutableMockUsageClient::new();
+    let env = test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(usage.clone())).await;
+    let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
+    bandwidth(&usage, day(1, 1), day(2, 1), 100);
+    bandwidth(&usage, day(2, 1), day(2, 15), 40);
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_USAGE_ID) // 20.00/month + bandwidth at 0.10
+        .start_date(day(1, 1))
+        .end_date(day(2, 15))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    env.process_cycles().await;
+    env.process_cycles().await;
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .has_status(SubscriptionStatusEnum::Completed);
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(3);
+    assert_eq!(
+        lines_of(&invoices[0]),
+        vec![line("Platform Fee", (2024, 1, 1), (2024, 2, 1), 2000)]
+    );
+    // [Feb1, Feb15) in advance: 2000 × 14/29 = 965.52 → 966; January's 100 units, 1000.
+    assert_eq!(
+        lines_of(&invoices[1]),
+        vec![
+            line("Bandwidth", (2024, 1, 1), (2024, 2, 1), 1000),
+            line("Platform Fee", (2024, 2, 1), (2024, 2, 15), 966),
+        ]
+    );
+    // The completion settles the 40 units of [Feb1, Feb15): 400.
+    assert_eq!(
+        lines_of(&invoices[2]),
+        vec![line("Bandwidth", (2024, 2, 1), (2024, 2, 15), 400)]
+    );
+}
+
+/// A fixed fee billed in arrears bills its last window up to the term's end, prorated as a
+/// cancellation that day would.
+/// Rules: R-002, R-016, R-084
+#[tokio::test]
+async fn test_fixed_term_ending_mid_period_bills_fixed_arrears_up_to_its_end() {
+    let env =
+        test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(MockUsageClient::noop())).await;
+    let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
+    let plan = PlanVersionId::new();
+    PlanSeed::new(PlanId::new(), "Term with arrears", plan)
+        .components(vec![
+            SeedComp::rate(
+                PriceComponentId::new(),
+                "Platform Fee",
+                PRODUCT_PLATFORM_FEE_ID,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Monthly,
+                Decimal::new(3000, 2),
+            ),
+            SeedComp::extra_recurring(
+                PriceComponentId::new(),
+                "Support",
+                PRODUCT_RECURRING_ARREARS_ID,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Monthly,
+                Decimal::new(1000, 2),
+                1,
+                BillingType::Arrears,
+            ),
+        ])
+        .seed(&mut env.conn().await)
+        .await
+        .unwrap();
+
+    let sub_id = subscription()
+        .plan_version(plan)
+        .start_date(day(1, 1))
+        .end_date(day(2, 15))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    env.process_cycles().await;
+    env.process_cycles().await;
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .has_status(SubscriptionStatusEnum::Completed);
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(3);
+    assert_eq!(
+        lines_of(&invoices[0]),
+        vec![line("Platform Fee", (2024, 1, 1), (2024, 2, 1), 3000)]
+    );
+    // [Feb1, Feb15) in advance: 3000 × 14/29 = 1448.28 → 1448; January's support whole, 1000.
+    assert_eq!(
+        lines_of(&invoices[1]),
+        vec![
+            line("Platform Fee", (2024, 2, 1), (2024, 2, 15), 1448),
+            line("Support", (2024, 1, 1), (2024, 2, 1), 1000),
+        ]
+    );
+    // February's support for [Feb1, Feb15): 1000 × 14/29 = 482.76 → 483.
+    assert_eq!(
+        lines_of(&invoices[2]),
+        vec![line("Support", (2024, 2, 1), (2024, 2, 15), 483)]
+    );
+}
+
+/// An annual term ending mid-year bills its last year up to the end.
+/// Rules: R-079, R-084
+#[rstest]
+#[tokio::test]
+async fn test_fixed_term_ending_mid_year_bills_its_share_of_the_year(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let day = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).unwrap();
+    let plan = PlanVersionId::new();
+    PlanSeed::new(PlanId::new(), "Annual term", plan)
+        .components(vec![SeedComp::rate(
+            PriceComponentId::new(),
+            "Platform Fee",
+            PRODUCT_PLATFORM_FEE_ID,
+            PriceId::new(),
+            DieselBillingPeriodEnum::Annual,
+            Decimal::new(120_000, 2),
+        )])
+        .seed(&mut env.conn().await)
+        .await
+        .unwrap();
+
+    let sub_id = subscription()
+        .plan_version(plan)
+        .start_date(day(2024, 1, 1))
+        .end_date(day(2025, 4, 1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    env.process_cycles().await;
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .has_next_action(Some(CycleActionEnum::EndSubscription))
+        .has_period_end(day(2025, 4, 1));
+    env.process_cycles().await;
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .has_status(SubscriptionStatusEnum::Completed);
+
+    let invoices = env.get_invoices(sub_id).await;
+    invoices.assert().has_count(2);
+    assert_eq!(
+        lines_of(&invoices[0]),
+        vec![line("Platform Fee", (2024, 1, 1), (2025, 1, 1), 120_000)]
+    );
+    // [2025-01-01, 2025-04-01) is 31 + 28 + 31 = 90 of 2025's 365 days:
+    // 120000 × 90/365 = 29589.04 → 29589.
+    assert_eq!(
+        lines_of(&invoices[1]),
+        vec![line("Platform Fee", (2025, 1, 1), (2025, 4, 1), 29_589)]
+    );
 }

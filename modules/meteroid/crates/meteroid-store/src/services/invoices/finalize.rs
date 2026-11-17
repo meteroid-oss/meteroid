@@ -8,7 +8,7 @@ use crate::domain::{
     SubscriptionDetails,
 };
 use crate::errors::StoreError;
-use crate::repositories::credit::allocation::{Allocation, CreditRequest, GrantPool};
+use crate::repositories::credit::allocation::{CreditRequest, GrantPool};
 use crate::repositories::credit::customer_credit as credit;
 use crate::repositories::credit::line_allocation;
 use crate::repositories::subscriptions::SubscriptionInterface;
@@ -417,7 +417,7 @@ impl Services {
                 invoice.invoice_date,
                 invoice.manual,
                 backdate_invoices,
-                common_domain::clock::now(),
+                common_clock::now(),
             )?;
 
             if refresh_invoice_lines && let Some(subscription_id) = invoice.subscription_id {
@@ -590,9 +590,10 @@ impl Services {
         .await
     }
 
-    /// Draws the invoice's customer credit: promotional credit before tax, re-taxing the lines
-    /// whose share moved since the estimate, then paid credit on the unpaid remainder of the total
-    /// (after cash already committed). A replay reuses the credit the invoice already drew.
+    /// Draws the invoice's customer credit from one settlement of the whole document
+    /// (`billing_core::credit::settle`): promotional credit before tax, the lines it moves taxed
+    /// again, then paid credit on the unpaid remainder of the total (after cash already committed).
+    /// The ledger writes what that settlement decided, pool by pool.
     pub(super) async fn apply_customer_credit_tx(
         &self,
         conn: &mut PgConn,
@@ -602,6 +603,8 @@ impl Services {
         refreshed: bool,
         time: credit::MovementTime,
     ) -> StoreResult<()> {
+        use billing_core::credit::settle as core;
+
         let already_paid = patch
             .total
             .saturating_sub(patch.amount_due)
@@ -639,51 +642,81 @@ impl Services {
                     .map(|line| (line.local_id.clone(), line.promotional_credit.unwrap_or(0)))
                     .collect()
             });
-        let (request, of_line) = document.promotional_request(shown.as_ref(), line_scope)?;
-        let charges = document.usage_charges(&request, &of_line, line_scope);
-        let promotional = self
-            .draw_credit_tx(
-                conn,
-                lock,
-                invoice,
-                &billing,
-                GrantPool::Promotional,
-                &request,
-                &charges,
-                time,
-            )
-            .await?;
-        document.take_promotional(&of_line, &promotional)?;
+        let settling = document.core(line_scope);
+        let rates = crate::services::credit::document::rates(document.lines.as_slice());
+        let mut subscriptions: Vec<SubscriptionId> = settling
+            .lines
+            .iter()
+            .filter_map(|line| line.subscription)
+            .collect();
+        subscriptions.extend(invoice.subscription_id);
+        let billed = match &billing {
+            CreditBilling::Plain => None,
+            CreditBilling::Periods { grants, periods } => Some((grants, periods)),
+        };
+        let finalizing = credit::finalizing_grants_tx(
+            conn,
+            lock,
+            invoice.id,
+            &invoice.currency,
+            billed,
+            subscriptions,
+            time.at,
+        )
+        .await?;
+        let settlement = core::settle(
+            &settling,
+            &finalizing.grants,
+            &rates,
+            &core::Cash {
+                already_paid,
+                committed,
+                shown,
+                total: core::TotalBasis::Header,
+            },
+        )
+        .map_err(crate::services::credit::document::settle_error)?;
+
+        let promotional = credit::write_invoice_draws_tx(
+            conn,
+            &*self.store.hooks.credit,
+            lock,
+            invoice.id,
+            &finalizing,
+            GrantPool::Promotional,
+            &settlement.promotional.drawn,
+            time,
+        )
+        .await?;
+        // What was drawn is what the settlement held, in release too.
+        if promotional.total().ok() != settlement.promotional.held.total().ok() {
+            return Err(crate::services::credit::document::settle_error(
+                billing_core::credit::SettleError::Unbalanced,
+            ));
+        }
+        document.write(&settlement.document, settlement.repriced.as_ref());
 
         patch.applied_credits = 0;
         patch.amount_due = billing_core::amount_due(patch.total, already_paid, 0);
-        let (request, of_line) = value_application::credit_request_of_lines(
-            &patch.line_items,
-            &owners,
-            invoice.subscription_id,
-            patch.total,
-            already_paid,
-        )?;
-        let request = request.capped(patch.amount_due.saturating_sub(committed));
-        let paid = self
-            .draw_credit_tx(
-                conn,
-                lock,
-                invoice,
-                &billing,
-                GrantPool::Paid,
-                &request,
-                &[],
-                time,
-            )
-            .await?;
+        let paid = credit::write_invoice_draws_tx(
+            conn,
+            &*self.store.hooks.credit,
+            lock,
+            invoice.id,
+            &finalizing,
+            GrantPool::Paid,
+            &settlement.paid.drawn,
+            time,
+        )
+        .await?;
+        let request: CreditRequest = settlement.paid.request.clone().into();
         line_allocation::record_line_allocation_tx(
             conn,
             invoice.tenant_id,
             invoice.id,
             None,
             &patch.line_items,
-            &of_line,
+            &settlement.paid.of_line,
             &request,
             &paid,
             |line| line.amount_total,
@@ -817,53 +850,6 @@ impl Services {
         })
     }
 
-    /// Draws `pool`'s share of `request` for the invoice, taking its periods' settlements over
-    /// first when it bills any; `charges` are the usage charges of a promotional request.
-    #[allow(clippy::too_many_arguments)]
-    async fn draw_credit_tx(
-        &self,
-        conn: &mut PgConn,
-        lock: &CustomerLock,
-        invoice: &Invoice,
-        billing: &CreditBilling,
-        pool: GrantPool,
-        request: &CreditRequest,
-        charges: &[credit::UsageCharge],
-        time: credit::MovementTime,
-    ) -> StoreResult<Allocation> {
-        match billing {
-            CreditBilling::Plain => {
-                credit::draw_for_invoice_tx(
-                    conn,
-                    &*self.store.hooks.credit,
-                    lock,
-                    invoice.id,
-                    &invoice.currency,
-                    pool,
-                    request,
-                    time,
-                )
-                .await
-            }
-            CreditBilling::Periods { grants, periods } => {
-                credit::net_settlements_then_draw_tx(
-                    conn,
-                    &*self.store.hooks.credit,
-                    lock,
-                    invoice.id,
-                    &invoice.currency,
-                    grants,
-                    periods,
-                    pool,
-                    request,
-                    charges,
-                    time,
-                )
-                .await
-            }
-        }
-    }
-
     /// The usage windows a subscription's recurring invoice bills, and the periods of them and of
     /// its usage lines, whose settlements it takes over.
     async fn billed_windows_tx(
@@ -894,7 +880,7 @@ impl Services {
                 conn,
                 &details,
                 &mut windows,
-                common_domain::clock::now(),
+                common_clock::now(),
             )
             .await?;
         }
@@ -1326,6 +1312,7 @@ mod tests {
             promotional_credit: None,
             subscription_id: None,
             usage_ends_at: None,
+            usage_breakdown: None,
         }
     }
 

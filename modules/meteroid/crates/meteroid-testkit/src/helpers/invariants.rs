@@ -27,7 +27,7 @@ const SHOWN: usize = 20;
 /// Each invariant: a name and a query over tenant `$1` returning one `message` per violation.
 /// `$2`/`$3` are the tenant's invoices and the source of their usage settlement excess returns,
 /// `$4`/`$5` its settlements and the source of their give-backs (computed in Rust, as UUIDv5),
-/// `$6` the present (`common_domain::clock::now`).
+/// `$6` the present (`common_clock::now`).
 const CHECKS: &[(&str, &str)] = &[
     (
         "I1 balance = sum of movements",
@@ -570,12 +570,21 @@ const CHECKS: &[(&str, &str)] = &[
     // Facts are checked on subscriptions the store created (a CREATED event); fixtures inserting
     // subscription rows by hand record none.
     (
-        "I27 a live subscription's open plan window is its plan and cadence, and its windows tile",
-        "SELECT format('%s subscription %s on plan version %s %s: open window %s', s.status, s.id,
-                       s.plan_version_id, s.period,
+        "I27 a live subscription's plan window in its current period is its plan and cadence, and its windows tile",
+        "SELECT format('%s subscription %s on plan version %s %s: window in force %s', s.status,
+                       s.id, s.plan_version_id, s.period,
                        coalesce(w.plan_version_id::text || ' ' || w.cadence::text, 'none')) AS message
          FROM subscription s
-         LEFT JOIN subscription_plan_window w ON w.subscription_id = s.id AND w.to_date IS NULL
+         LEFT JOIN LATERAL (
+             SELECT pw.id, pw.plan_version_id, pw.cadence
+             FROM subscription_plan_window pw
+             WHERE pw.subscription_id = s.id
+             ORDER BY pw.from_date < coalesce(s.current_period_end, 'infinity'::date) DESC,
+                      CASE WHEN pw.from_date < coalesce(s.current_period_end, 'infinity'::date)
+                           THEN pw.from_date END DESC NULLS LAST,
+                      pw.from_date
+             LIMIT 1
+         ) w ON TRUE
          WHERE s.tenant_id = $1
            AND s.status NOT IN ('CANCELLED', 'ABORTED', 'COMPLETED', 'SUPERSEDED', 'ERRORED')
            AND EXISTS (SELECT 1 FROM subscription_event e
@@ -710,7 +719,7 @@ async fn violations_in_snapshot(conn: &mut PgConn, tenant: Uuid) -> Vec<Invarian
             .bind::<Array<diesel::sql_types::Uuid>, _>(&excess)
             .bind::<Array<diesel::sql_types::Uuid>, _>(&settlements)
             .bind::<Array<diesel::sql_types::Uuid>, _>(&give_back)
-            .bind::<diesel::sql_types::Timestamptz, _>(common_domain::clock::now())
+            .bind::<diesel::sql_types::Timestamptz, _>(common_clock::now())
             .load(conn)
             .await
             .unwrap_or_else(|error| panic!("invariant query `{name}` failed: {error:?}"));

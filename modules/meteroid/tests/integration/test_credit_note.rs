@@ -2766,3 +2766,98 @@ async fn test_debt_cancellation_written_without_the_cancelled_amount_still_cance
         meteroid_store::domain::enums::InvoicePaymentStatus::Unpaid
     );
 }
+
+/// Starter's January (29.00 + 10.00) credited in full with the default kind and reissued, the copy
+/// issued, cancelled from Jan 16: the reissue corrects the original, so only the copy gives back
+/// its unused 16 of 31 days, 1497 and 516.
+/// Rules: R-082, R-077
+#[tokio::test]
+async fn a_reissued_invoice_gives_back_only_its_unused_days() {
+    use common_domain::actor::Actor;
+    use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
+
+    let env = crate::harness::test_env_with_seed(SeedLevel::PLANS).await;
+    let at = |d: u32| {
+        NaiveDate::from_ymd_opt(2024, 1, d)
+            .unwrap()
+            .and_hms_opt(1, 0, 0)
+            .unwrap()
+            .and_utc()
+    };
+    env.set_now(at(1));
+    let id = crate::harness::subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let original = env.get_invoices(id).await[0].clone();
+    assert_eq!(original.total, 3_900);
+    env.set_now(at(5));
+    let (_, copy) = env
+        .services()
+        .create_and_finalize_credit_note_with_reissue(
+            Actor::System,
+            TENANT_ID,
+            CreateCreditNoteParams {
+                invoice_id: original.id,
+                line_items: vec![],
+                reason: Some("Wrong billing details".to_string()),
+                memo: None,
+                credit_type: CreditType::DebtCancellation,
+                custom_properties: None,
+            },
+            true,
+            meteroid_store::domain::enums::OperatorNoteKind::default(),
+        )
+        .await
+        .expect("credit and reissue");
+    let copy = copy.expect("the reissued draft");
+    env.manual_finalize_invoice(copy.id)
+        .await
+        .expect("issue the copy");
+
+    env.services()
+        .cancel_subscription(
+            Actor::System,
+            id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::Date(NaiveDate::from_ymd_opt(2024, 1, 16).unwrap()),
+        )
+        .await
+        .expect("cancel mid-period");
+    env.set_now(at(16));
+    env.process_due_events().await;
+    env.process_due_events().await;
+
+    let lines_of = |notes: Vec<meteroid_store::domain::CreditNote>| {
+        let mut lines: Vec<(String, i64)> = notes
+            .iter()
+            .flat_map(|note| note.line_items.iter())
+            .map(|line| (line.name.clone(), line.amount_subtotal))
+            .collect();
+        lines.sort();
+        lines
+    };
+    let on_copy = env
+        .store()
+        .list_credit_notes_by_invoice_id(TENANT_ID, copy.id)
+        .await
+        .expect("notes on the copy");
+    assert_eq!(on_copy.len(), 1);
+    assert_eq!(
+        lines_of(on_copy),
+        vec![
+            ("Platform Fee".to_owned(), -1_497),
+            ("Seats".to_owned(), -516)
+        ]
+    );
+    let on_original = env
+        .store()
+        .list_credit_notes_by_invoice_id(TENANT_ID, original.id)
+        .await
+        .expect("notes on the original");
+    assert_eq!(on_original.len(), 1, "the reissue's note alone");
+}

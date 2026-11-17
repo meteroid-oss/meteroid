@@ -15,6 +15,10 @@ pub(crate) fn pricing_error(error: pricing::PricingError) -> Report<StoreError> 
         pricing::PricingError::InvalidPackCredit => Report::new(StoreError::InvalidArgument(
             "a credit pack must grant a non-negative amount of credit, with no more decimal places than its currency or credit unit allows".to_owned(),
         )),
+        pricing::PricingError::InvalidPrice => Report::new(StoreError::InvalidArgument(
+            "a package must hold at least one unit, and no two tiers may start on the same unit"
+                .to_owned(),
+        )),
     }
 }
 

@@ -273,7 +273,7 @@ impl CustomerCreditWalletsInterface for Store {
     ) -> StoreResult<Vec<CreditWallet>> {
         let mut conn = self.get_conn().await?;
         CustomerRow::find_by_id(&mut conn, &customer_id, &tenant_id).await?;
-        let now = common_domain::clock::now();
+        let now = common_clock::now();
         let balances = balances_tx(&mut conn, tenant_id, customer_id, now).await?;
         let units = wallet_units(&mut conn, tenant_id, &balances).await?;
         let rules = plan_rules_of(&mut conn, tenant_id, customer_id).await?;
@@ -294,7 +294,7 @@ impl CustomerCreditWalletsInterface for Store {
         else {
             return Ok(None);
         };
-        let now = common_domain::clock::now();
+        let now = common_clock::now();
         let balances = balances_tx(&mut conn, tenant_id, account.customer_id, now).await?;
         let Some(balance) = balances
             .iter()
@@ -318,7 +318,7 @@ impl CustomerCreditWalletsInterface for Store {
         CustomerCreditAccountRow::find_by_id(&mut conn, tenant_id, wallet_id)
             .await?
             .ok_or_else(|| Report::new(StoreError::ValueNotFound("wallet".to_owned())))?;
-        let now = common_domain::clock::now();
+        let now = common_clock::now();
         let rolling = rolling_tx(&mut conn, &[wallet_id], now).await?;
         let rows = CustomerCreditStatementRow::list_for_accounts(
             &mut conn,
@@ -463,7 +463,7 @@ impl CustomerCreditWalletsInterface for Store {
             return Ok((Vec::new(), 0));
         };
         let ids = vec![account.id];
-        let now = common_domain::clock::now();
+        let now = common_clock::now();
         let rolling = rolling_tx(&mut conn, &ids, now).await?;
         let rows = CustomerCreditStatementRow::list_for_accounts(
             &mut conn,
@@ -575,7 +575,7 @@ impl CustomerCreditWalletsInterface for Store {
                             reason,
                             actor_id: command.actor_id,
                         },
-                        common_domain::clock::now(),
+                        common_clock::now(),
                     )
                     .await
                 }
@@ -669,8 +669,8 @@ async fn fund_wallet(
     scope: GrantScope,
     explicit_at: Option<DateTime<Utc>>,
 ) -> StoreResult<FundedCustomerCreditWallet> {
-    let at = explicit_at.unwrap_or_else(common_domain::clock::now);
-    if at > common_domain::clock::now() {
+    let at = explicit_at.unwrap_or_else(common_clock::now);
+    if at > common_clock::now() {
         return Err(invalid("credit cannot be added at a future moment"));
     }
     let reason = command.reason.trim().to_owned();
@@ -827,7 +827,7 @@ async fn grants_page(
     limit: i64,
     offset: i64,
 ) -> StoreResult<(Vec<CustomerCreditGrant>, u64)> {
-    let now = common_domain::clock::now();
+    let now = common_clock::now();
     let subscription = subscription.map(|filter| match filter {
         GrantSubscriptionFilter::Of(id) => DbGrantSubscriptionFilter::Of(id),
         GrantSubscriptionFilter::UsableBy(id) => DbGrantSubscriptionFilter::UsableBy(id),
@@ -1160,8 +1160,8 @@ mod tests {
             entry_reason: None,
             grant_reference: Some("REF-1".to_owned()),
             created_by: None,
-            occurred_at: common_domain::clock::now(),
-            recorded_at: common_domain::clock::now(),
+            occurred_at: common_clock::now(),
+            recorded_at: common_clock::now(),
             sequence: 1,
             balance_after: 40,
             cost_minor: Some(-24),

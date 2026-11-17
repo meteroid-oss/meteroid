@@ -1,4 +1,4 @@
--- One writer per customer (Phase 6): the controller runs a customer's billing steps when its
+-- One writer per customer: the controller runs a customer's billing steps when its
 -- next wake is due or an input changed (dirty), under a lease so replicas never run it twice.
 CREATE TABLE billing_controller (
     tenant_id    UUID        NOT NULL REFERENCES tenant (id) ON DELETE CASCADE,

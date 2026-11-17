@@ -13,8 +13,13 @@ use meteroid_grpc::meteroid::portal::checkout::v1 as portal;
 use meteroid_store::domain::checkout_sessions::{CheckoutCompletionResult, CheckoutType};
 use meteroid_store::domain::{CreateCheckoutSession, InvoicePaymentStatus};
 use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
+use meteroid_store::repositories::credit_notes::CreditNoteInterface;
 
 async fn leetcode_session(env: &TestEnv) -> CheckoutSessionId {
+    leetcode_session_until(env, None).await
+}
+
+async fn leetcode_session_until(env: &TestEnv, end_date: Option<NaiveDate>) -> CheckoutSessionId {
     env.store()
         .create_checkout_session(CreateCheckoutSession {
             tenant_id: TENANT_ID,
@@ -24,7 +29,7 @@ async fn leetcode_session(env: &TestEnv) -> CheckoutSessionId {
             billing_day_anchor: Some(15),
             net_terms: None,
             trial_duration_days: Some(0),
-            end_date: None,
+            end_date,
             auto_advance_invoices: true,
             charge_automatically: true,
             invoice_memo: None,
@@ -336,4 +341,301 @@ async fn an_add_on_covered_by_customer_credit_is_billed_and_paid_by_it(
         5_000 - total
     );
     assert_ledger_balances(env.store(), TENANT_ID, CUST_UBER_ID).await;
+}
+
+/// An add-on bought through checkout and removed later in its period gives back its unused time
+/// (R-014): its invoice line names the stored add-on, so the removal finds what it billed.
+#[rstest]
+#[tokio::test]
+async fn an_add_on_bought_through_checkout_and_removed_gives_back_its_unused_time(
+    #[future] test_env: TestEnv,
+) {
+    use meteroid_store::domain::enums::InvoiceType;
+    use meteroid_store::domain::subscription_amendment::{
+        AddOnChanges, ComponentChanges, SubscriptionAmendment,
+    };
+    use meteroid_store::domain::subscription_changes::PlanChangeMode;
+    let env = test_env.await;
+    env.seed_payments().await;
+    let day = |d: u32| NaiveDate::from_ymd_opt(2024, 3, d).unwrap();
+    env.set_now(day(10).and_hms_opt(9, 0, 0).unwrap().and_utc());
+    let subscription_id = crate::harness::subscription()
+        .start_date(day(1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let add_on = rate_add_on(&env, 1_000).await;
+    let session = env
+        .services()
+        .create_addon_purchase_checkout_session(
+            TENANT_ID,
+            subscription_id,
+            add_on,
+            PLAN_VERSION_1_LEETCODE_ID,
+            CUST_UBER_ID,
+            None,
+        )
+        .await
+        .expect("add-on checkout session")
+        .id;
+    // 10.00 a month, bought on March 10: 22 of 31 days.
+    let billed = 710;
+    let result = env
+        .services()
+        .complete_checkout(
+            TENANT_ID,
+            session,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            billed as u64,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("checkout");
+    assert!(
+        matches!(result, CheckoutCompletionResult::Completed { .. }),
+        "{result:?}"
+    );
+    let purchase = env
+        .get_invoices(subscription_id)
+        .await
+        .into_iter()
+        .find(|invoice| invoice.invoice_type == InvoiceType::Adjustment)
+        .expect("the add-on's invoice");
+    assert_eq!(
+        purchase
+            .line_items
+            .iter()
+            .map(|l| (l.amount_subtotal, l.start_date, l.end_date))
+            .collect::<Vec<_>>(),
+        vec![(
+            billed,
+            day(10),
+            NaiveDate::from_ymd_opt(2024, 4, 1).unwrap()
+        )]
+    );
+    let stored = {
+        let mut conn = env.conn().await;
+        diesel_models::subscription_add_ons::SubscriptionAddOnRow::list_by_subscription_id_active(
+            &mut conn,
+            &TENANT_ID,
+            &subscription_id,
+            None,
+        )
+        .await
+        .expect("add-ons")
+    };
+    assert_eq!(stored.len(), 1);
+
+    env.set_now(day(20).and_hms_opt(9, 0, 0).unwrap().and_utc());
+    let balance = env.invoice_credit_balance_minor(CUST_UBER_ID).await;
+    let removal = env
+        .services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            subscription_id,
+            TENANT_ID,
+            SubscriptionAmendment {
+                apply_mode: PlanChangeMode::Immediate,
+                component_changes: ComponentChanges::default(),
+                add_on_changes: AddOnChanges {
+                    added: vec![],
+                    edited: vec![],
+                    removed: vec![stored[0].id],
+                },
+            },
+            day(20),
+        )
+        .await
+        .expect("remove the add-on");
+
+    assert_eq!(
+        removal.credit_note_ids.len(),
+        1,
+        "the unused time is given back"
+    );
+    let notes = env
+        .store()
+        .list_credit_notes_by_invoice_id(TENANT_ID, purchase.id)
+        .await
+        .expect("credit notes");
+    // From March 20: 12 of 31 days of 10.00, untaxed, credited to the balance it was paid from.
+    assert_eq!(
+        notes
+            .iter()
+            .map(|note| (note.subtotal, note.total, note.credited_amount_cents))
+            .collect::<Vec<_>>(),
+        vec![(-387, -387, 387)]
+    );
+    assert_eq!(
+        env.invoice_credit_balance_minor(CUST_UBER_ID).await - balance,
+        387
+    );
+}
+
+/// An add-on checkout opened on March 10 and paid on the 11th is bought on the 11th: its row and its
+/// invoice from then, 1000 × 21/31 = 677.42 → 677. Its row started on the day the session opened
+/// while its invoice billed from the day it was paid, a day no document billed (R-080).
+/// Rules: R-079, R-080
+#[rstest]
+#[tokio::test]
+async fn an_add_on_is_bought_on_the_day_its_checkout_is_paid(#[future] test_env: TestEnv) {
+    use meteroid_store::domain::enums::InvoiceType;
+    let env = test_env.await;
+    env.seed_payments().await;
+    let day = |d: u32| NaiveDate::from_ymd_opt(2024, 3, d).unwrap();
+    env.set_now(day(10).and_hms_opt(9, 0, 0).unwrap().and_utc());
+    let subscription_id = crate::harness::subscription()
+        .start_date(day(1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let add_on = rate_add_on(&env, 1_000).await;
+    let session = env
+        .services()
+        .create_addon_purchase_checkout_session(
+            TENANT_ID,
+            subscription_id,
+            add_on,
+            PLAN_VERSION_1_LEETCODE_ID,
+            CUST_UBER_ID,
+            None,
+        )
+        .await
+        .expect("add-on checkout session")
+        .id;
+
+    env.set_now(day(11).and_hms_opt(8, 0, 0).unwrap().and_utc());
+    let billed = 677;
+    let result = env
+        .services()
+        .complete_checkout(
+            TENANT_ID,
+            session,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            billed as u64,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("checkout");
+    assert!(
+        matches!(result, CheckoutCompletionResult::Completed { .. }),
+        "{result:?}"
+    );
+    let purchase = env
+        .get_invoices(subscription_id)
+        .await
+        .into_iter()
+        .find(|invoice| invoice.invoice_type == InvoiceType::Adjustment)
+        .expect("the add-on's invoice");
+    assert_eq!(
+        (
+            purchase.invoice_date,
+            purchase.subtotal,
+            purchase.discount,
+            purchase.total
+        ),
+        (day(11), billed, 0, billed)
+    );
+    assert_eq!(
+        purchase
+            .line_items
+            .iter()
+            .map(|l| (l.amount_subtotal, l.start_date, l.end_date))
+            .collect::<Vec<_>>(),
+        vec![(
+            billed,
+            day(11),
+            NaiveDate::from_ymd_opt(2024, 4, 1).unwrap()
+        )]
+    );
+    let stored =
+        diesel_models::subscription_add_ons::SubscriptionAddOnRow::list_by_subscription_id(
+            &mut env.conn().await,
+            &TENANT_ID,
+            &subscription_id,
+        )
+        .await
+        .expect("add-ons");
+    assert_eq!(
+        stored
+            .iter()
+            .map(|row| row.effective_from)
+            .collect::<Vec<_>>(),
+        vec![day(11)]
+    );
+}
+
+/// A fixed term ending in the period a checkout opens bills that period up to its end and completes
+/// on it (R-084): LeetCode from Jan 15 (anchor 15) until Jan 25 bills 10 of the period's 31 days.
+#[rstest]
+#[tokio::test]
+async fn a_checkout_whose_term_ends_in_its_first_period_bills_up_to_its_end(
+    #[future] test_env: TestEnv,
+) {
+    use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
+    let env = test_env.await;
+    env.seed_payments().await;
+    let end_date = NaiveDate::from_ymd_opt(2024, 1, 25).unwrap();
+    env.set_now(
+        NaiveDate::from_ymd_opt(2024, 1, 15)
+            .unwrap()
+            .and_hms_opt(10, 0, 0)
+            .unwrap()
+            .and_utc(),
+    );
+    let session = leetcode_session_until(&env, Some(end_date)).await;
+    // 3500 × 10/31 = 1129.03
+    let billed = 1_129;
+    assert_eq!(quote(&env, session).await, (billed, 0, billed));
+
+    let result = env
+        .services()
+        .complete_checkout(
+            TENANT_ID,
+            session,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            billed,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("checkout");
+    let CheckoutCompletionResult::Completed {
+        subscription_id, ..
+    } = result
+    else {
+        panic!("a settled charge completes the checkout: {result:?}")
+    };
+    let invoices = env.get_invoices(subscription_id).await;
+    assert_eq!(
+        invoices
+            .iter()
+            .flat_map(|invoice| &invoice.line_items)
+            .map(|l| (l.start_date, l.end_date, l.amount_subtotal))
+            .collect::<Vec<_>>(),
+        vec![(
+            NaiveDate::from_ymd_opt(2024, 1, 15).unwrap(),
+            end_date,
+            1_129
+        )]
+    );
+    let sub = env.get_subscription(subscription_id).await;
+    assert_eq!(
+        (sub.current_period_end, sub.next_cycle_action),
+        (Some(end_date), Some(CycleActionEnum::EndSubscription))
+    );
+
+    env.set_now(end_date.and_hms_opt(1, 0, 0).unwrap().and_utc());
+    env.process_cycles().await;
+    let sub = env.get_subscription(subscription_id).await;
+    assert_eq!(sub.status, SubscriptionStatusEnum::Completed);
+    assert_eq!(
+        env.get_invoices(subscription_id).await.len(),
+        1,
+        "nothing billed after the term"
+    );
 }

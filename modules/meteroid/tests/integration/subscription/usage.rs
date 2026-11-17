@@ -39,7 +39,10 @@ use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
 
 /// Build a MockUsageClient that returns usage data for METRIC_BANDWIDTH.
-fn build_usage_client(usage_units: Decimal, periods: &[(NaiveDate, NaiveDate)]) -> MockUsageClient {
+pub(super) fn build_usage_client(
+    usage_units: Decimal,
+    periods: &[(NaiveDate, NaiveDate)],
+) -> MockUsageClient {
     let mut data = HashMap::new();
     for &(start, end) in periods {
         data.insert(
@@ -2057,4 +2060,83 @@ async fn test_same_day_cancel_does_not_rebill_one_time_fee() {
         billed, 20000,
         "the setup fee bills exactly once: {summary:?}"
     );
+}
+
+/// A metric broken down by `project`: January's 150 units at 0.10 bill 1500 on the Feb 1 renewal
+/// billed from the facts, its line listing alpha's 120 units (1200) and beta's 30 (300).
+#[tokio::test]
+async fn a_usage_line_billed_from_the_facts_lists_its_usage_breakdown() {
+    use diesel::{ExpressionMethods, QueryDsl};
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::billable_metric::dsl as m;
+
+    let start = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let february = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+    let usage = MutableMockUsageClient::new();
+    let row = |value: i64, dimensions: &[(&str, &str)]| GroupedUsageData {
+        value: Decimal::from(value),
+        dimensions: dimensions
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect(),
+    };
+    let window = UsagePeriod {
+        start: start.and_time(NaiveTime::MIN),
+        end: february.and_time(NaiveTime::MIN),
+    };
+    usage.set_usage(
+        MockUsageDataParams {
+            metric_id: METRIC_BANDWIDTH,
+            period_start: window.start,
+            period_end: window.end,
+        },
+        UsageData {
+            data: vec![row(150, &[])],
+            period: window,
+        },
+    );
+    usage.set_grouped_usage(
+        METRIC_BANDWIDTH,
+        "project",
+        vec![
+            row(120, &[("project", "alpha")]),
+            row(30, &[("project", "beta")]),
+        ],
+    );
+    let env = test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(usage.clone())).await;
+    diesel::update(m::billable_metric.filter(m::id.eq(METRIC_BANDWIDTH)))
+        .set(m::usage_breakdown_key.eq(Some("project")))
+        .execute(&mut env.conn().await)
+        .await
+        .expect("a breakdown key");
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_USAGE_ID)
+        .start_date(start)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    env.process_cycles().await;
+
+    let invoices = env.get_invoices(sub_id).await;
+    let line = invoices
+        .iter()
+        .flat_map(|invoice| &invoice.line_items)
+        .find(|line| line.metric_id == Some(METRIC_BANDWIDTH))
+        .expect("the bandwidth line");
+    assert_eq!(line.amount_subtotal, 1500);
+    let breakdown = line.usage_breakdown.as_ref().expect("its usage breakdown");
+    assert_eq!(breakdown.key, "project");
+    assert_eq!(
+        breakdown
+            .items
+            .iter()
+            .map(|item| (item.value.as_deref(), item.quantity))
+            .collect::<Vec<_>>(),
+        vec![
+            (Some("alpha"), Decimal::from(120)),
+            (Some("beta"), Decimal::from(30))
+        ]
+    );
+    assert_eq!(breakdown.allocate(line.amount_subtotal), vec![1200, 300]);
 }

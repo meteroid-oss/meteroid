@@ -603,6 +603,69 @@ async fn partially_covered_usage_bills_and_taxes_only_the_overage() {
     );
 }
 
+/// The money the unit wallet leaves uncovered settles once with the money wallets: 1.00 of
+/// promotional credit off the 3.00 overage before tax, then paid credit on the 2.00 left. Each
+/// draw lands on the ledger as that settlement decided it.
+/// Rules: R1, R8, R-039, I3
+#[tokio::test]
+async fn the_overage_of_credit_priced_usage_draws_promotional_then_paid_money() {
+    let s = unit_scenario(Options::default()).await;
+    s.close_period().await;
+    let grant = s.fund_units(60_000, None).await;
+    let promo = crate::helpers::credit::fund_promotional_grant(
+        s.env.store(),
+        TENANT_ID,
+        s.customer_id,
+        None,
+        Grant::invoice(100),
+    )
+    .await;
+    let money = fund(s.env.store(), TENANT_ID, s.customer_id, None, 500).await;
+    for funded in [promo, money] {
+        crate::helpers::credit::effective_from_fixture_start(s.env.store(), funded).await;
+    }
+    set_period_usage(&s.usage, 300);
+
+    let invoice = s.finalize().await;
+    assert_eq!(invoice.line_items.len(), 1);
+    let (line, credit) = credit_line(&invoice);
+    assert_eq!((credit.consumed, credit.covered), (90_000, 60_000));
+    assert_eq!(
+        (
+            line.amount_subtotal,
+            line.taxable_amount,
+            line.tax_amount,
+            line.amount_total,
+            line.promotional_credit
+        ),
+        (300, 200, 0, 200, Some(100))
+    );
+    assert_eq!(
+        (
+            invoice.subtotal,
+            invoice.promotional_credits,
+            invoice.tax_amount,
+            invoice.total,
+            invoice.applied_credits,
+            invoice.amount_due
+        ),
+        (300, 100, 0, 200, 200, 0)
+    );
+    assert_eq!(
+        s.movements(grant).await[1..].to_vec(),
+        vec![("DRAW".to_owned(), -60_000, Some(invoice.id))]
+    );
+    assert_eq!(
+        s.movements(promo).await[1..].to_vec(),
+        vec![("DRAW".to_owned(), -100, Some(invoice.id))]
+    );
+    assert_eq!(
+        s.movements(money).await[1..].to_vec(),
+        vec![("DRAW".to_owned(), -200, Some(invoice.id))]
+    );
+    assert_eq!(s.remaining(money).await, 300);
+}
+
 /// Without a unit wallet every credit is billed in money; the customer's money wallet then pays
 /// that money like any usage, and nothing else.
 #[tokio::test]

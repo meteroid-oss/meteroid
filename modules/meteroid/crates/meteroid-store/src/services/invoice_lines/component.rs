@@ -20,8 +20,9 @@ use crate::services::Services;
 use crate::services::clients::usage::{GroupedUsageData, UsageData};
 use crate::store::PgConn;
 use common_domain::ids::{BillableMetricId, SubscriptionAddOnId, SubscriptionPriceComponentId};
+use common_utils::decimals::{MAX_QUANTITY_SCALE, round_quantity};
 use error_stack::{Report, ResultExt};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Key to match existing line items during invoice refresh
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -286,7 +287,7 @@ impl Services {
 
                     lines.extend(capacity_overage_lines(
                         *metric_id,
-                        *included,
+                        Decimal::from(*included),
                         overage_rate,
                         &usage.data,
                         &arrear_period,
@@ -659,22 +660,36 @@ pub(crate) fn breakdown_lines(
     matrix_rates: Option<&[MatrixRow]>,
     usage: &[GroupedUsageData],
 ) {
-    let matrix_keys = matrix_dimension_keys(matrix_rates.unwrap_or_default());
-    let line_of: HashMap<Vec<(&str, &str)>, usize> = lines
-        .iter()
-        .enumerate()
-        .map(|(index, line)| {
-            let dimensions = line
-                .group_by_dimensions
-                .iter()
-                .flatten()
-                .map(|(key, value)| (key.as_str(), value.as_str()));
-            (sorted_dimensions(dimensions), index)
-        })
-        .collect();
+    for line in lines.iter_mut() {
+        if let Some(breakdown) = line_breakdown(
+            line.group_by_dimensions.as_ref(),
+            metric,
+            breakdown_key,
+            matrix_rates,
+            usage,
+        ) {
+            line.usage_breakdown = Some(breakdown);
+        }
+    }
+}
 
-    let mut totals: Vec<HashMap<Option<&str>, (Decimal, Decimal)>> =
-        vec![HashMap::new(); lines.len()];
+/// The breakdown of the one line of group `dimensions` (see [`breakdown_lines`]); none when no
+/// usage of its group was read.
+pub(crate) fn line_breakdown(
+    dimensions: Option<&HashMap<String, String>>,
+    metric: &BillableMetric,
+    breakdown_key: &str,
+    matrix_rates: Option<&[MatrixRow]>,
+    usage: &[GroupedUsageData],
+) -> Option<UsageBreakdown> {
+    let matrix_keys = matrix_dimension_keys(matrix_rates.unwrap_or_default());
+    let line_dimensions = sorted_dimensions(
+        dimensions
+            .into_iter()
+            .flatten()
+            .map(|(key, value)| (key.as_str(), value.as_str())),
+    );
+    let mut totals: HashMap<Option<&str>, (Decimal, Decimal)> = HashMap::new();
     for row in usage {
         let quantity = unrounded_units(metric.unit_conversion_factor, row.value);
         if quantity <= Decimal::ZERO {
@@ -692,62 +707,59 @@ pub(crate) fn breakdown_lines(
             }
             None => quantity,
         };
-        let line_dimensions = sorted_dimensions(
+        let row_dimensions = sorted_dimensions(
             row.dimensions
                 .iter()
                 .map(|(key, value)| (key.as_str(), value.as_str()))
                 .filter(|(key, _)| *key != breakdown_key && !matrix_keys.contains(key)),
         );
-        let Some(index) = line_of.get(&line_dimensions) else {
+        if row_dimensions != line_dimensions {
             continue;
-        };
+        }
         // A blank value counts as no value, so both land in the same item.
         let value = row
             .dimensions
             .get(breakdown_key)
             .map(String::as_str)
             .filter(|value| !value.trim().is_empty());
-        let total = totals[*index].entry(value).or_default();
+        let total = totals.entry(value).or_default();
         total.0 += quantity;
         total.1 += weight;
     }
-
-    for (line, totals) in lines.iter_mut().zip(totals) {
-        if totals.is_empty() {
-            continue;
-        }
-        let mut items = totals
-            .into_iter()
-            .map(|(value, (quantity, weight))| UsageBreakdownItem {
-                value: value.map(str::to_owned),
-                quantity,
-                weight,
-                others: false,
-            })
-            .collect::<Vec<_>>();
-        items.sort_by(|a, b| {
-            b.weight
-                .cmp(&a.weight)
-                .then_with(|| b.quantity.cmp(&a.quantity))
-                .then_with(|| a.value.cmp(&b.value))
-        });
-        if items.len() > MAX_BREAKDOWN_ITEMS {
-            let rest = items.split_off(MAX_BREAKDOWN_ITEMS - 1);
-            items.push(UsageBreakdownItem {
-                value: None,
-                quantity: rest.iter().map(|item| item.quantity).sum(),
-                weight: rest.iter().map(|item| item.weight).sum(),
-                others: true,
-            });
-        }
-        for item in &mut items {
-            item.quantity = round_quantity(item.quantity, MAX_QUANTITY_SCALE);
-        }
-        line.usage_breakdown = Some(UsageBreakdown {
-            key: breakdown_key.to_owned(),
-            items,
+    if totals.is_empty() {
+        return None;
+    }
+    let mut items = totals
+        .into_iter()
+        .map(|(value, (quantity, weight))| UsageBreakdownItem {
+            value: value.map(str::to_owned),
+            quantity,
+            weight,
+            others: false,
+        })
+        .collect::<Vec<_>>();
+    items.sort_by(|a, b| {
+        b.weight
+            .cmp(&a.weight)
+            .then_with(|| b.quantity.cmp(&a.quantity))
+            .then_with(|| a.value.cmp(&b.value))
+    });
+    if items.len() > MAX_BREAKDOWN_ITEMS {
+        let rest = items.split_off(MAX_BREAKDOWN_ITEMS - 1);
+        items.push(UsageBreakdownItem {
+            value: None,
+            quantity: rest.iter().map(|item| item.quantity).sum(),
+            weight: rest.iter().map(|item| item.weight).sum(),
+            others: true,
         });
     }
+    for item in &mut items {
+        item.quantity = round_quantity(item.quantity, MAX_QUANTITY_SCALE);
+    }
+    Some(UsageBreakdown {
+        key: breakdown_key.to_owned(),
+        items,
+    })
 }
 
 fn sorted_dimensions<'a>(
@@ -847,7 +859,7 @@ pub(crate) fn usage_lines(
 /// The overage lines of a capacity fee for the usage of one window.
 pub(crate) fn capacity_overage_lines(
     metric_id: BillableMetricId,
-    included: u64,
+    included: Decimal,
     overage_rate: &Decimal,
     usage: &[GroupedUsageData],
     arrear_period: &Period,
@@ -891,6 +903,7 @@ impl InvoiceLineInner {
             sublines: line.sublines.into_iter().map(Into::into).collect(),
             metric_id,
             group_by_dimensions: line.dimensions,
+            usage_breakdown: None,
         }
     }
 

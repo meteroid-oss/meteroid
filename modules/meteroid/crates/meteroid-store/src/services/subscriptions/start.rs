@@ -37,6 +37,23 @@ pub(crate) enum StartTransition {
     Cycle(SubscriptionCycleRowPatch),
 }
 
+/// The opening period of a subscription whose fixed term ends in it stops at its end date and
+/// completes there, as a renewal's does (R-084).
+pub(crate) fn cut_at_term_end(
+    end_date: Option<NaiveDate>,
+    current_period_end: Option<NaiveDate>,
+    next_cycle_action: Option<CycleActionEnum>,
+) -> (Option<NaiveDate>, Option<CycleActionEnum>) {
+    match (end_date, current_period_end) {
+        (Some(end_date), Some(end))
+            if end_date <= end && next_cycle_action == Some(CycleActionEnum::RenewSubscription) =>
+        {
+            (Some(end_date), Some(CycleActionEnum::EndSubscription))
+        }
+        _ => (current_period_end, next_cycle_action),
+    }
+}
+
 pub(crate) async fn mark_subscription_started_tx(
     conn: &mut PgConn,
     controls: &dyn CreditControlHooks,
@@ -50,7 +67,7 @@ pub(crate) async fn mark_subscription_started_tx(
         tenant_id,
         subscription_id,
         transition,
-        common_domain::clock::now(),
+        common_clock::now(),
     )
     .await
 }
@@ -71,6 +88,16 @@ pub(crate) async fn mark_subscription_started_at_tx(
         StartTransition::TrialExpiredToActive { .. } => Some(StartSettledBy::Payment),
         StartTransition::Cycle(_) => None,
     };
+    let end_date = match &transition {
+        StartTransition::Cycle(_) => None,
+        _ => {
+            SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .subscription
+                .end_date
+        }
+    };
     match transition {
         StartTransition::Activate {
             current_period_start,
@@ -80,6 +107,8 @@ pub(crate) async fn mark_subscription_started_at_tx(
             status,
             by: _,
         } => {
+            let (current_period_end, next_cycle_action) =
+                cut_at_term_end(end_date, current_period_end, next_cycle_action);
             SubscriptionRow::activate_subscription(
                 conn,
                 &subscription_id,
@@ -98,6 +127,8 @@ pub(crate) async fn mark_subscription_started_at_tx(
             next_cycle_action,
             cycle_index,
         } => {
+            let (current_period_end, next_cycle_action) =
+                cut_at_term_end(end_date, current_period_end, next_cycle_action);
             SubscriptionRow::transition_trial_expired_to_active(
                 conn,
                 &subscription_id,
@@ -172,7 +203,7 @@ impl crate::services::ServicesEdge {
         crate::domain::CreatedSubscription,
         Option<crate::domain::DetailedInvoice>,
     )> {
-        if start > common_domain::clock::now() {
+        if start > common_clock::now() {
             return Err(Report::new(StoreError::InvalidArgument(
                 "a subscription cannot be started at a future moment".to_owned(),
             )));

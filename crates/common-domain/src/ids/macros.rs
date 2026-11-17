@@ -1,7 +1,7 @@
 #[macro_export]
 macro_rules! id_type {
     ($id_name:ident, $id_prefix:literal) => {
-        #[derive(Debug, PartialEq, Eq, Clone, Hash, serde::Serialize, Copy)]
+        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash, serde::Serialize, Copy)]
         #[cfg_attr(feature = "diesel", derive(diesel_derive_newtype::DieselNewType))]
         pub struct $id_name(uuid::Uuid);
 

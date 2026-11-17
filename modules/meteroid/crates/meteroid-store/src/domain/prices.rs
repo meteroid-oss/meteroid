@@ -139,8 +139,11 @@ impl Pricing {
 
 /// Refuses a credit pack that cannot fund an exact amount: the granted credit must be a whole,
 /// non-negative number of minor units of the price currency, with a positive quantity and a
-/// usable expiry.
+/// usable expiry. Refuses a usage price no quantity can be billed under.
 pub fn validate_pricing(pricing: &Pricing, currency: &str) -> Result<(), StoreError> {
+    if let Pricing::Usage(model) = pricing {
+        return validate_usage_model(model);
+    }
     let Pricing::Credit {
         unit_price,
         quantity,
@@ -165,6 +168,26 @@ pub fn validate_pricing(pricing: &Pricing, currency: &str) -> Result<(), StoreEr
         unit_precision,
     )?;
     validate_credit_rollover(*unit_price, *expiry, rollover.as_ref(), precision)
+}
+
+/// Refuses a usage price no quantity can be billed under, as the pricer would: a package of no
+/// units, or two tiers starting on the same unit.
+fn validate_usage_model(model: &UsagePricingModel) -> Result<(), StoreError> {
+    let invalid = |message: &str| Err(StoreError::InvalidArgument(message.to_owned()));
+    match model {
+        UsagePricingModel::Package { block_size: 0, .. } => {
+            invalid("a package must hold at least one unit")
+        }
+        UsagePricingModel::Tiered { tiers, .. } | UsagePricingModel::Volume { tiers, .. } => {
+            let mut starts: Vec<u64> = tiers.iter().map(|tier| tier.first_unit).collect();
+            starts.sort_unstable();
+            if starts.windows(2).any(|pair| pair[0] == pair[1]) {
+                return invalid("no two tiers may start on the same unit");
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
 }
 
 /// A one-time grant has no next period to carry its credit into.
@@ -394,6 +417,8 @@ pub struct MatrixPriceUpdate {
     pub add_rows: Vec<MatrixRowAdd>,
     /// Dimension combinations to remove from all matrix prices.
     pub remove_rows: Vec<MatrixDimensionKey>,
+    /// The day the new rates take over, today or later; today when None (R-097).
+    pub effective_on: Option<chrono::NaiveDate>,
 }
 
 #[derive(Clone, Debug)]
@@ -828,7 +853,7 @@ mod tests {
     }
 
     fn credits_unit() -> crate::domain::credit_units::CreditUnit {
-        let now = common_domain::clock::now();
+        let now = common_clock::now();
         crate::domain::credit_units::CreditUnit {
             id: CreditUnitId::new(),
             tenant_id: TenantId::new(),
@@ -1606,6 +1631,48 @@ mod tests {
             validate_pricing(&pack(dec!(600), unit), "USD").is_ok(),
             "credit units are not money"
         );
+    }
+
+    /// A package of no units, or two tiers starting on the same unit, prices no quantity: refused
+    /// when the price is saved, as the pricer refuses it.
+    /// Rules: R-107
+    #[test]
+    fn a_usage_price_no_quantity_can_be_billed_under_is_refused() {
+        let package = |block_size| {
+            Pricing::Usage(UsagePricingModel::Package {
+                block_size,
+                rate: dec!(5),
+            })
+        };
+        assert!(validate_pricing(&package(20), "EUR").is_ok());
+        assert!(validate_pricing(&package(0), "EUR").is_err());
+        let tier = |first_unit| TierRow {
+            first_unit,
+            rate: dec!(1),
+            flat_fee: None,
+            flat_cap: None,
+        };
+        for (tiers, distinct) in [
+            (vec![tier(100), tier(0)], true),
+            (vec![tier(0), tier(100), tier(0)], false),
+        ] {
+            for pricing in [
+                Pricing::Usage(UsagePricingModel::Tiered {
+                    tiers: tiers.clone(),
+                    block_size: None,
+                }),
+                Pricing::Usage(UsagePricingModel::Volume {
+                    tiers: tiers.clone(),
+                    block_size: None,
+                }),
+            ] {
+                assert_eq!(
+                    validate_pricing(&pricing, "EUR").is_ok(),
+                    distinct,
+                    "{pricing:?}"
+                );
+            }
+        }
     }
 
     #[test]

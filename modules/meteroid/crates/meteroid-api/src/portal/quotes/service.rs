@@ -38,7 +38,7 @@ impl PortalQuoteService for PortalQuoteServiceComponents {
 
         // Check if quote is still valid
         if let Some(expires_at) = detailed_quote.quote.expires_at
-            && expires_at < common_domain::clock::now().naive_utc()
+            && expires_at < common_clock::now().naive_utc()
         {
             return Err(PortalQuoteApiError::QuoteExpired.into());
         }
@@ -210,7 +210,7 @@ impl PortalQuoteService for PortalQuoteServiceComponents {
 
         // Check if quote has expired
         if let Some(expires_at) = quote.expires_at
-            && expires_at < common_domain::clock::now().naive_utc()
+            && expires_at < common_clock::now().naive_utc()
         {
             return Err(PortalQuoteApiError::QuoteExpired.into());
         }

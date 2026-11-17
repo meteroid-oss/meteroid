@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Days, NaiveDate, Utc};
+use chrono::{DateTime, Days, Months, NaiveDate, Utc};
+use common_domain::ids::{BillableMetricId, CreditUnitId, ProductId};
 use proptest::prelude::*;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
@@ -16,16 +17,24 @@ use crate::timeline::Grid;
 struct TestFee {
     /// A whole period's price, per seat.
     price: i64,
-    metric: Option<Uuid>,
+    metric: Option<BillableMetricId>,
     /// Per unit of usage.
     unit: i64,
     /// Priced in credits of this unit.
-    credit_unit: Option<Uuid>,
+    credit_unit: Option<CreditUnitId>,
     /// A pack's credit for a whole period, per seat.
     grant: Option<i64>,
-    once_product: Option<Uuid>,
+    once_product: Option<ProductId>,
     /// Its price is out of range.
     overflows: bool,
+    /// Billed whole, never prorated (a capacity, a pack with its own duration).
+    whole: bool,
+    /// Units of usage included before `unit` applies, for a whole period (a capacity's).
+    included: i64,
+    /// Graduated: past this many billable units, each costs the second figure.
+    tier: Option<(i64, i64)>,
+    /// Priced once per period, not part by part.
+    per_period: bool,
 }
 
 impl TestFee {
@@ -38,8 +47,12 @@ impl TestFee {
 struct TestPricer;
 
 impl Pricer<TestFee> for TestPricer {
-    fn metrics(&self, fee: &TestFee) -> Vec<Uuid> {
+    fn metrics(&self, fee: &TestFee) -> Vec<BillableMetricId> {
         fee.metric.into_iter().collect()
+    }
+
+    fn per_part(&self, fee: &TestFee) -> bool {
+        !fee.per_period
     }
 
     fn rates(&self, segment: &Segment<'_, TestFee>) -> Result<Vec<Rate>, PricingError> {
@@ -54,17 +67,22 @@ impl Pricer<TestFee> for TestPricer {
                 let seats = i64::try_from(fee.seats.unwrap_or(1)).unwrap();
                 Ok(Rate {
                     fee: fee.lineage.clone(),
-                    kind: ChargeKind::Fee,
+                    kind: if fee.fee.grant.is_some() {
+                        ChargeKind::Credit
+                    } else {
+                        ChargeKind::Fee
+                    },
                     quantity: Some(Decimal::from(seats)),
                     amount: fee.fee.price * seats,
                     denomination: fee.fee.denomination(),
-                    prorated: true,
+                    prorated: !fee.fee.whole,
                     credit_grant: fee.fee.grant.map(|grant| CreditGrant {
                         amount: grant * seats,
                         denomination: Denomination::Money,
-                        prorated: true,
+                        prorated: !fee.fee.whole,
                     }),
                     once_per_product: fee.fee.once_product,
+                    shown: Default::default(),
                 })
             })
             .collect()
@@ -89,6 +107,18 @@ impl Pricer<TestFee> for TestPricer {
                     window: *window,
                 })?;
                 let total: Decimal = usage.iter().map(|(_, quantity)| *quantity).sum();
+                let included = fee
+                    .allowance
+                    .prorate_decimal(Decimal::from(fee.fee.included));
+                let billable = (total - included).max(Decimal::ZERO);
+                let amount = match fee.fee.tier {
+                    Some((upto, after)) => {
+                        let upto = Decimal::from(upto);
+                        billable.min(upto) * Decimal::from(fee.fee.unit)
+                            + (billable - upto).max(Decimal::ZERO) * Decimal::from(after)
+                    }
+                    None => billable * Decimal::from(fee.fee.unit),
+                };
                 Some(Ok(Rate {
                     fee: fee.lineage.clone(),
                     kind: ChargeKind::Usage {
@@ -96,11 +126,12 @@ impl Pricer<TestFee> for TestPricer {
                         dimensions: BTreeMap::new(),
                     },
                     quantity: Some(total),
-                    amount: (total * Decimal::from(fee.fee.unit)).to_i64().unwrap(),
+                    amount: amount.round().to_i64().unwrap(),
                     denomination: fee.fee.denomination(),
                     prorated: false,
                     credit_grant: None,
                     once_per_product: None,
+                    shown: Default::default(),
                 }))
             })
             .collect()
@@ -115,8 +146,8 @@ fn at(y: i32, m: u32, day: u32, h: u32) -> DateTime<Utc> {
     d(y, m, day).and_hms_opt(h, 0, 0).unwrap().and_utc()
 }
 
-fn id(n: u128) -> Uuid {
-    Uuid::from_u128(n)
+fn id<T: From<Uuid>>(n: u128) -> T {
+    Uuid::from_u128(n).into()
 }
 
 const SUBSCRIPTION: u128 = 1;
@@ -164,6 +195,7 @@ fn fixed(row: u128, of: u128, from: NaiveDate, cadence: u32, price: i64) -> FeeF
         to: None,
         billing: Billing::Advance,
         cadence,
+        plan_component: true,
         fee: TestFee {
             price,
             ..TestFee::default()
@@ -179,6 +211,7 @@ fn metered(row: u128, of: u128, from: NaiveDate, cadence: u32, unit: i64) -> Fee
         to: None,
         billing: Billing::Arrears,
         cadence,
+        plan_component: true,
         fee: TestFee {
             metric: Some(id(METRIC)),
             unit,
@@ -305,6 +338,8 @@ fn a_free_trial_bills_nothing_then_bills_from_its_end() {
     }));
 }
 
+/// Unsettled after its free trial, a subscription bills its first period on the checkout's
+/// invoice, and no renewal after it however long the checkout waits.
 #[test]
 fn a_free_trial_ended_before_its_checkout_settled_expires() {
     let mut facts = subscription(d(2024, 1, 1), 1, 1);
@@ -323,6 +358,17 @@ fn a_free_trial_ended_before_its_checkout_settled_expires() {
     assert_eq!(expired.state.status, Status::TrialExpired);
     assert!(expired.state.pending_checkout);
     assert_eq!(of(&expired, 1)[0].amount, 1_700);
+
+    let months_later = run(&facts, at(2024, 4, 10, 0));
+    assert_eq!(months_later.state.status, Status::TrialExpired);
+    let charges = of(&months_later, 1);
+    assert_eq!(periods(&charges), vec![(d(2024, 1, 15), d(2024, 2, 1))]);
+    assert_eq!(charges[0].document, recurring(d(2024, 1, 15)));
+
+    facts.start.settled = Some(at(2024, 4, 10, 0));
+    let paid = run(&facts, at(2024, 4, 10, 1));
+    assert_eq!(paid.state.status, Status::Active);
+    assert_eq!(of(&paid, 1).len(), 4);
 }
 
 /// A paid trial bills like any period; only the status tells it apart.
@@ -341,15 +387,44 @@ fn a_paid_trial_bills_from_the_start() {
     assert_eq!(of(&evaluation, 1)[0].document, recurring(d(2024, 1, 1)));
 }
 
+/// The checkout's invoice is computed before the payment settling the start: the first period
+/// is billed from the start's date, flagged, and nothing after it until the start settles.
+/// Rules: R-084
 #[test]
-fn a_checkout_start_not_settled_is_pending_and_bills_nothing() {
+fn a_checkout_start_not_settled_bills_its_first_period_alone() {
     let mut facts = subscription(d(2024, 1, 1), 1, 1);
     facts.start.settled = None;
     facts.fees.push(fixed(10, 1, d(2024, 1, 1), 1, 3_100));
-    let evaluation = run(&facts, at(2024, 1, 10, 0));
-    assert!(evaluation.charges.is_empty());
-    assert_eq!(evaluation.state.status, Status::Pending);
-    assert!(evaluation.state.pending_checkout);
+    facts.fees.push(metered(20, 2, d(2024, 1, 1), 1, 1));
+    let pending = run(&facts, at(2024, 3, 10, 0));
+    assert_eq!(pending.state.status, Status::Pending);
+    assert!(pending.state.pending_checkout);
+    assert_eq!(pending.state.current_period, Some((d(2024, 1, 1), None)));
+    assert_eq!(
+        periods(&of(&pending, 1)),
+        vec![(d(2024, 1, 1), d(2024, 2, 1))]
+    );
+    assert!(
+        pending
+            .charges
+            .iter()
+            .all(|charge| charge.document == recurring(d(2024, 1, 1)))
+    );
+    assert!(pending.usage_needed.is_empty());
+
+    // Settled months later, it bills from its start's date on.
+    facts.start.settled = Some(at(2024, 3, 10, 0));
+    let settled = run(&facts, at(2024, 3, 10, 1));
+    assert_eq!(settled.state.status, Status::Active);
+    assert!(!settled.state.pending_checkout);
+    assert_eq!(
+        periods(&of(&settled, 1))[..3],
+        [
+            (d(2024, 1, 1), d(2024, 2, 1)),
+            (d(2024, 2, 1), d(2024, 3, 1)),
+            (d(2024, 3, 1), d(2024, 4, 1)),
+        ]
+    );
 
     let mut later = subscription(d(2024, 3, 1), 1, 1);
     later.fees.push(fixed(10, 1, d(2024, 3, 1), 1, 3_100));
@@ -357,6 +432,97 @@ fn a_checkout_start_not_settled_is_pending_and_bills_nothing() {
     assert_eq!(before.state.status, Status::Pending);
     assert!(!before.state.pending_checkout);
     assert_eq!(before.next_wake, Some(at(2024, 3, 1, 0)));
+}
+
+/// Rules: R-013
+#[test]
+fn a_cancellation_before_the_checkout_settled_bills_nothing() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.start.settled = None;
+    facts.fees.push(fixed(10, 1, d(2024, 1, 1), 1, 3_100));
+    facts.ending = Some(Ending {
+        at: at(2024, 1, 5, 12),
+        kind: EndingKind::Cancel,
+    });
+    let evaluation = run(&facts, at(2024, 1, 10, 0));
+    assert!(evaluation.charges.is_empty());
+    assert_eq!(evaluation.state.status, Status::Cancelled);
+}
+
+/// A cancellation on Mar 20 still to come leaves a pending checkout its opening invoice: January
+/// whole, 3100, on the invoice of Jan 1, and nothing after it until the start settles.
+/// Rules: R-013
+#[test]
+fn a_cancellation_still_to_come_leaves_a_pending_checkout_its_opening_invoice() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.start.settled = None;
+    facts.fees.push(fixed(10, 1, d(2024, 1, 1), 1, 3_100));
+    facts.ending = Some(Ending {
+        at: at(2024, 3, 20, 0),
+        kind: EndingKind::Cancel,
+    });
+    let pending = run(&facts, at(2024, 1, 10, 0));
+    assert_eq!(pending.state.status, Status::Pending);
+    assert!(pending.state.pending_checkout);
+    let charges: Vec<_> = pending
+        .charges
+        .iter()
+        .map(|c| (c.key.from, c.key.until, c.amount, c.document))
+        .collect();
+    assert_eq!(
+        charges,
+        vec![(
+            d(2024, 1, 1),
+            d(2024, 2, 1),
+            3_100,
+            recurring(d(2024, 1, 1))
+        )]
+    );
+
+    // Still unsettled once the cancellation applies: it never started, nothing is billed.
+    let ended = run(&facts, at(2024, 3, 21, 0));
+    assert!(ended.charges.is_empty());
+    assert_eq!(ended.state.status, Status::Cancelled);
+}
+
+/// A cancellation on Jan 20 still to come leaves the current period January's, as stored: it ends
+/// the subscription on its date, and the charges stop there. Once it applies, the period ends.
+/// Rules: R-016
+#[test]
+fn a_cancellation_still_to_come_leaves_the_current_period_whole() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.fees.push(fixed(10, 1, d(2024, 1, 1), 1, 3_100));
+    facts.ending = Some(Ending {
+        at: at(2024, 1, 20, 0),
+        kind: EndingKind::Cancel,
+    });
+    let before = run(&facts, at(2024, 1, 10, 0));
+    assert_eq!(before.state.status, Status::Active);
+    assert_eq!(
+        before.state.current_period,
+        Some((d(2024, 1, 1), Some(d(2024, 2, 1))))
+    );
+    assert_eq!(before.next_wake, Some(at(2024, 1, 20, 0)));
+    let after = run(&facts, at(2024, 1, 21, 0));
+    assert_eq!(after.state.status, Status::Cancelled);
+    assert_eq!(after.state.current_period, Some((d(2024, 1, 20), None)));
+}
+
+/// A fixed term ending on Jan 20 cuts the period it ends in, as its renewal stores it.
+/// Rules: R-084
+#[test]
+fn a_fixed_term_cuts_the_current_period_at_its_end() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.fees.push(fixed(10, 1, d(2024, 1, 1), 1, 3_100));
+    facts.ending = Some(Ending {
+        at: at(2024, 1, 20, 0),
+        kind: EndingKind::Complete,
+    });
+    let before = run(&facts, at(2024, 1, 10, 0));
+    assert_eq!(
+        before.state.current_period,
+        Some((d(2024, 1, 1), Some(d(2024, 1, 20))))
+    );
 }
 
 /// A monthly plan switched to a yearly one on July 1, the change's origin: six monthly
@@ -432,6 +598,611 @@ fn a_change_of_cadence_mid_period_bills_its_stub_on_the_new_grid() {
     assert_eq!(new[1].document, recurring(d(2024, 4, 1)));
 }
 
+/// A yearly fee of 120.00 amended to 10.00 a month on March 15, its lineage kept, the plan moving
+/// onto the monthly grid: the year bills 12000 less what is left of it at the 15th (12000 ×
+/// 292/366 = 9574), so 2426; the monthly run starts on its own grid, its stub to April 1 priced
+/// and keyed over March, 1000 × 17/31 = 548, then 1000 on each renewal under its own month.
+/// Rules: R-079, R-084
+#[test]
+fn a_fee_changing_cadence_on_its_lineage_bills_the_new_cadence_on_its_own_periods() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 12);
+    facts
+        .plan_windows
+        .push(plan(101, d(2024, 3, 15), 1, d(2024, 1, 1)));
+    facts.fees.push(FeeFact {
+        to: Some(d(2024, 3, 15)),
+        ..fixed(10, 1, d(2024, 1, 1), 12, 12_000)
+    });
+    facts.fees.push(fixed(20, 1, d(2024, 3, 15), 1, 1_000));
+    let evaluation = run(&facts, at(2025, 1, 10, 0));
+    let year = (d(2024, 1, 1), d(2025, 1, 1));
+    let mut expected = vec![
+        (
+            year,
+            (d(2024, 1, 1), d(2024, 3, 15)),
+            2_426,
+            recurring(d(2024, 1, 1)),
+        ),
+        (
+            (d(2024, 3, 1), d(2024, 4, 1)),
+            (d(2024, 3, 15), d(2024, 4, 1)),
+            548,
+            DocumentSlot::Adjustment { on: d(2024, 3, 15) },
+        ),
+    ];
+    for month in 4..=12 {
+        let until = d(2024, month, 1)
+            .checked_add_months(Months::new(1))
+            .unwrap();
+        expected.push((
+            (d(2024, month, 1), until),
+            (d(2024, month, 1), until),
+            1_000,
+            recurring(d(2024, month, 1)),
+        ));
+    }
+    expected.push((
+        (d(2025, 1, 1), d(2025, 2, 1)),
+        (d(2025, 1, 1), d(2025, 2, 1)),
+        1_000,
+        recurring(d(2025, 1, 1)),
+    ));
+    let charges: Vec<_> = of(&evaluation, 1)
+        .iter()
+        .map(|c| ((c.key.from, c.key.until), c.window, c.amount, c.document))
+        .collect();
+    assert_eq!(charges, expected);
+}
+
+/// 29.00 a month from Jan 1, 2025, amended to 500.00 a year on Feb 16 and to 49.99 a month from
+/// Apr 1, its lineage kept. The year's stub, 50000 × 319/365 − 50000 × 275/365 = 6028 of the
+/// 43699 billed, is a run of its own; April is the monthly run's own charge, 4999. With the
+/// year's line voided, its void forgives the year alone and April bills 4999; keyed under the
+/// year, April fell under the void and billed nothing.
+/// Rules: R-084, R-096
+#[test]
+fn a_run_of_another_cadence_on_a_lineage_is_no_part_of_a_voided_period() {
+    let mut facts = subscription(d(2025, 1, 1), 1, 1);
+    facts.fees.push(FeeFact {
+        to: Some(d(2025, 2, 16)),
+        ..fixed(10, 1, d(2025, 1, 1), 1, 2_900)
+    });
+    facts.fees.push(FeeFact {
+        to: Some(d(2025, 4, 1)),
+        ..fixed(11, 1, d(2025, 2, 16), 12, 50_000)
+    });
+    facts.fees.push(fixed(12, 1, d(2025, 4, 1), 1, 4_999));
+    let evaluation = run(&facts, at(2025, 4, 2, 0));
+    let year = ChargeKey {
+        subscription: Some(id(SUBSCRIPTION)),
+        fee: lineage(1),
+        from: d(2025, 1, 1),
+        until: d(2026, 1, 1),
+        kind: ChargeKind::Fee,
+        denomination: Denomination::Money,
+    };
+    let april = ChargeKey {
+        from: d(2025, 4, 1),
+        until: d(2025, 5, 1),
+        ..year.clone()
+    };
+    let expected: Vec<Expected> = evaluation
+        .expected()
+        .into_iter()
+        .filter(|e| e.key == year || e.key == april)
+        .collect();
+    assert_eq!(
+        expected,
+        vec![
+            Expected {
+                key: year.clone(),
+                amount: 6_028
+            },
+            Expected {
+                key: april.clone(),
+                amount: 4_999
+            },
+        ]
+    );
+    let mut voided = line("year".to_owned(), &year, 43_699);
+    voided.from = d(2025, 2, 16);
+    voided.voided = true;
+    assert_eq!(
+        reconcile(&expected, &[voided], TakeBack::LatestFirst),
+        vec![Adjustment::Bill {
+            key: april,
+            amount: 4_999
+        }]
+    );
+}
+
+/// 500.00 a month in arrears from Jan 2, 2025, changed on Apr 5 to 29.00 a year in advance on
+/// its lineage (origin May 2), amended on Apr 10 to 49.99 a year, cancelled from May 5. The
+/// stubs to May 2, 215 and 126, are the year's: April's arrears charge bills none of their days.
+/// The cancellation gives back the year from May 2 alone, 4999 − 4999 × 3/365 = 4958; read as
+/// April's, the narrower period, the 126 stub of a year fully used came back too.
+/// Rules: R-077, R-080, R-084
+#[test]
+fn a_line_counts_for_the_charge_billing_its_days_not_the_narrowest_holding_it() {
+    let mut facts = subscription(d(2025, 1, 2), 2, 1);
+    facts
+        .plan_windows
+        .push(plan(101, d(2025, 4, 5), 12, d(2025, 5, 2)));
+    facts.fees.push(FeeFact {
+        to: Some(d(2025, 4, 5)),
+        billing: Billing::Arrears,
+        ..fixed(10, 1, d(2025, 1, 2), 1, 50_000)
+    });
+    facts.fees.push(FeeFact {
+        to: Some(d(2025, 4, 10)),
+        ..fixed(11, 1, d(2025, 4, 5), 12, 2_900)
+    });
+    facts.fees.push(fixed(12, 1, d(2025, 4, 10), 12, 4_999));
+    facts.ending = Some(Ending {
+        at: midnight(d(2025, 5, 5)),
+        kind: EndingKind::Cancel,
+    });
+    let evaluation = run(&facts, at(2025, 5, 5, 1));
+    let key = |from: NaiveDate, until: NaiveDate| ChargeKey {
+        subscription: Some(id(SUBSCRIPTION)),
+        fee: lineage(1),
+        from,
+        until,
+        kind: ChargeKind::Fee,
+        denomination: Denomination::Money,
+    };
+    let (april, stub_year, year) = (
+        key(d(2025, 4, 2), d(2025, 5, 2)),
+        key(d(2024, 5, 2), d(2025, 5, 2)),
+        key(d(2025, 5, 2), d(2026, 5, 2)),
+    );
+    let stub = |id: &str, from: NaiveDate, subtotal: i64| IssuedLine {
+        from,
+        until: d(2025, 5, 2),
+        ..line(id.to_owned(), &stub_year, subtotal)
+    };
+    let issued = [
+        line(
+            "april".to_owned(),
+            &key(d(2025, 4, 2), d(2025, 4, 5)),
+            5_000,
+        ),
+        stub("change", d(2025, 4, 5), 215),
+        stub("amendment", d(2025, 4, 10), 126),
+        line("year".to_owned(), &year, 4_999),
+    ];
+    let expected: Vec<Expected> = evaluation
+        .expected()
+        .into_iter()
+        .filter(|e| [&april, &stub_year, &year].contains(&&e.key))
+        .collect();
+    assert_eq!(
+        expected.iter().map(|e| e.amount).collect::<Vec<_>>(),
+        vec![341, 5_000, 41]
+    );
+    let keys: Vec<&ChargeKey> = expected.iter().map(|e| &e.key).collect();
+    let mut adjustments = Vec::new();
+    for charge in &expected {
+        let owned: Vec<IssuedLine> = issued
+            .iter()
+            .filter(|l| owner(l, keys.iter().copied(), &evaluation.charges) == Some(&charge.key))
+            .cloned()
+            .collect();
+        adjustments.extend(reconcile(
+            std::slice::from_ref(charge),
+            &owned,
+            TakeBack::Unused(d(2025, 5, 5)),
+        ));
+    }
+    assert_eq!(
+        adjustments,
+        vec![Adjustment::Credit {
+            line: "year".to_owned(),
+            amount: 4_958
+        }]
+    );
+}
+
+/// A monthly fee of 10.00 amended to 120.00 a year on March 15, its lineage kept, the year's
+/// grid from April 1: March bills 1000 less 1000 × 17/31 = 548, so 452; the stub to April 1 is
+/// priced over the year it falls in, 12000 × 17/366 = 557, under that year's key; then the year.
+/// Rules: R-079, R-084
+#[test]
+fn a_fee_changing_to_a_longer_cadence_on_its_lineage_prices_its_stub_over_its_own_year() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts
+        .plan_windows
+        .push(plan(101, d(2024, 3, 15), 12, d(2024, 4, 1)));
+    facts.fees.push(FeeFact {
+        to: Some(d(2024, 3, 15)),
+        ..fixed(10, 1, d(2024, 1, 1), 1, 1_000)
+    });
+    facts.fees.push(fixed(20, 1, d(2024, 3, 15), 12, 12_000));
+    let evaluation = run(&facts, at(2024, 4, 10, 0));
+    let march = (d(2024, 3, 1), d(2024, 4, 1));
+    let charges: Vec<_> = of(&evaluation, 1)
+        .iter()
+        .map(|c| ((c.key.from, c.key.until), c.window, c.amount, c.document))
+        .collect();
+    assert_eq!(
+        charges,
+        vec![
+            (
+                (d(2024, 1, 1), d(2024, 2, 1)),
+                (d(2024, 1, 1), d(2024, 2, 1)),
+                1_000,
+                recurring(d(2024, 1, 1))
+            ),
+            (
+                (d(2024, 2, 1), d(2024, 3, 1)),
+                (d(2024, 2, 1), d(2024, 3, 1)),
+                1_000,
+                recurring(d(2024, 2, 1))
+            ),
+            (
+                march,
+                (d(2024, 3, 1), d(2024, 3, 15)),
+                452,
+                recurring(d(2024, 3, 1))
+            ),
+            (
+                (d(2023, 4, 1), d(2024, 4, 1)),
+                (d(2024, 3, 15), d(2024, 4, 1)),
+                557,
+                DocumentSlot::Adjustment { on: d(2024, 3, 15) }
+            ),
+            (
+                (d(2024, 4, 1), d(2025, 4, 1)),
+                (d(2024, 4, 1), d(2025, 4, 1)),
+                12_000,
+                recurring(d(2024, 4, 1))
+            ),
+        ]
+    );
+}
+
+/// A yearly 120.00 add-on bought Jan 1 on a monthly plan, the plan moving to quarterly on March
+/// 15 (origin April 1): the add-on keeps its year, billed nor given back at the change, and renews
+/// Jan 1; the quarterly fee the change writes bills 3000 × 17/91 = 560, then quarters from April 1.
+/// Rules: R-084
+#[test]
+fn a_fee_kept_through_a_change_of_cadence_keeps_its_grid() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts
+        .plan_windows
+        .push(plan(101, d(2024, 3, 15), 3, d(2024, 4, 1)));
+    facts.fees.push(FeeFact {
+        to: Some(d(2024, 3, 15)),
+        ..fixed(10, 1, d(2024, 1, 1), 1, 1_000)
+    });
+    facts.fees.push(fixed(20, 2, d(2024, 3, 15), 3, 3_000));
+    let mut add_on = fixed(30, 3, d(2024, 1, 1), 12, 12_000);
+    add_on.lineage = Fee::AddOn(id(3));
+    add_on.plan_component = false;
+    facts.fees.push(add_on);
+    let evaluation = run(&facts, at(2025, 1, 10, 0));
+    let charges = |fee: &Fee| -> Vec<_> {
+        evaluation
+            .charges
+            .iter()
+            .filter(|c| c.key.fee == *fee)
+            .map(|c| ((c.key.from, c.key.until), c.window, c.amount, c.document))
+            .collect()
+    };
+    assert_eq!(
+        charges(&Fee::AddOn(id(3))),
+        vec![
+            (
+                (d(2024, 1, 1), d(2025, 1, 1)),
+                (d(2024, 1, 1), d(2025, 1, 1)),
+                12_000,
+                recurring(d(2024, 1, 1))
+            ),
+            (
+                (d(2025, 1, 1), d(2026, 1, 1)),
+                (d(2025, 1, 1), d(2026, 1, 1)),
+                12_000,
+                recurring(d(2025, 1, 1))
+            ),
+        ]
+    );
+    let quarter =
+        |from: NaiveDate, until: NaiveDate| ((from, until), (from, until), 3_000, recurring(from));
+    assert_eq!(
+        charges(&lineage(2)),
+        vec![
+            (
+                (d(2024, 1, 1), d(2024, 4, 1)),
+                (d(2024, 3, 15), d(2024, 4, 1)),
+                560,
+                DocumentSlot::Adjustment { on: d(2024, 3, 15) }
+            ),
+            quarter(d(2024, 4, 1), d(2024, 7, 1)),
+            quarter(d(2024, 7, 1), d(2024, 10, 1)),
+            quarter(d(2024, 10, 1), d(2025, 1, 1)),
+            quarter(d(2025, 1, 1), d(2025, 4, 1)),
+        ]
+    );
+}
+
+/// Usage at 0.10 a unit, yearly from Feb 15, 2023, then monthly from Feb 16, 2024 (origin Mar
+/// 15), then quarterly from Mar 16 (origin Apr 15), cancelled on Apr 15 at 01:00. The quarter's
+/// window [Mar 16, Apr 15) ends on its own grid's boundary, though keyed on the year it falls in:
+/// it reads to Apr 15's midnight, 30 units, 300; the hour of Apr 15 is read once, 1 unit, 10.
+/// Rules: R-016, R-084
+#[test]
+fn an_ending_on_its_own_boundary_reads_the_window_keyed_on_a_longer_period_to_midnight() {
+    let mut facts = subscription(d(2023, 2, 15), 15, 12);
+    facts
+        .plan_windows
+        .push(plan(101, d(2024, 2, 16), 1, d(2024, 3, 15)));
+    facts
+        .plan_windows
+        .push(plan(102, d(2024, 3, 16), 3, d(2024, 4, 15)));
+    facts.fees.push(FeeFact {
+        to: Some(d(2024, 2, 16)),
+        ..metered(10, 1, d(2023, 2, 15), 12, 10)
+    });
+    facts.fees.push(FeeFact {
+        to: Some(d(2024, 3, 16)),
+        ..metered(20, 1, d(2024, 2, 16), 1, 10)
+    });
+    facts.fees.push(metered(30, 1, d(2024, 3, 16), 3, 10));
+    facts.ending = Some(Ending {
+        at: at(2024, 4, 15, 1),
+        kind: EndingKind::Cancel,
+    });
+    let usage = reads(&[
+        (read(at(2024, 3, 16, 0), at(2024, 4, 15, 0)), 30),
+        (read(at(2024, 3, 16, 0), at(2024, 4, 15, 1)), 31),
+        (read(at(2024, 4, 15, 0), at(2024, 4, 15, 1)), 1),
+    ]);
+    let evaluation = evaluate(&facts, at(2024, 4, 15, 1), Some(&usage), &TestPricer).unwrap();
+    let charges: Vec<_> = of(&evaluation, 1)
+        .iter()
+        .filter(|c| c.key.from >= d(2024, 3, 16))
+        .map(|c| ((c.key.from, c.key.until), c.usage, c.amount, c.document))
+        .collect();
+    assert_eq!(
+        charges,
+        vec![
+            (
+                (d(2024, 3, 16), d(2024, 4, 15)),
+                Some(UsageWindow {
+                    from: at(2024, 3, 16, 0),
+                    until: at(2024, 4, 15, 0)
+                }),
+                300,
+                recurring(d(2024, 4, 15))
+            ),
+            (
+                (d(2024, 4, 15), d(2024, 4, 15)),
+                Some(UsageWindow {
+                    from: at(2024, 4, 15, 0),
+                    until: at(2024, 4, 15, 1)
+                }),
+                10,
+                DocumentSlot::Final
+            ),
+        ]
+    );
+}
+
+/// Usage at 0.10 a unit from Jan 1, a second row over it from Jan 2 with the first left open,
+/// cancelled on Jan 2 at 02:00: Jan 1 is the first row's, 24 units, 240; Jan 2's two hours the
+/// second row's, read once on the final usage, 2 units, 20.
+/// Rules: R-016
+#[test]
+fn a_row_taking_over_on_the_ending_day_reads_that_morning_once() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.fees.push(metered(10, 1, d(2024, 1, 1), 1, 10));
+    facts.fees.push(metered(20, 1, d(2024, 1, 2), 1, 10));
+    facts.ending = Some(Ending {
+        at: at(2024, 1, 2, 2),
+        kind: EndingKind::Cancel,
+    });
+    let usage = reads(&[
+        (read(at(2024, 1, 1, 0), at(2024, 1, 2, 0)), 24),
+        (read(at(2024, 1, 1, 0), at(2024, 1, 2, 2)), 26),
+        (read(at(2024, 1, 2, 0), at(2024, 1, 2, 2)), 2),
+    ]);
+    let evaluation = evaluate(&facts, at(2024, 1, 2, 2), Some(&usage), &TestPricer).unwrap();
+    let charges: Vec<_> = of(&evaluation, 1)
+        .iter()
+        .map(|c| ((c.key.from, c.key.until), c.usage, c.amount))
+        .collect();
+    assert_eq!(
+        charges,
+        vec![
+            (
+                (d(2024, 1, 1), d(2024, 1, 2)),
+                Some(UsageWindow {
+                    from: at(2024, 1, 1, 0),
+                    until: at(2024, 1, 2, 0)
+                }),
+                240
+            ),
+            (
+                (d(2024, 1, 2), d(2024, 1, 2)),
+                Some(UsageWindow {
+                    from: at(2024, 1, 2, 0),
+                    until: at(2024, 1, 2, 2)
+                }),
+                20
+            ),
+        ]
+    );
+}
+
+/// Usage at 0.10 a unit from Jan 1, a row at 0.20 over it from Jan 10 until Jan 20, cancelled on
+/// Jan 20 at 02:00: Jan 10 to 20 is the second row's, 100 units, 2000; Jan 20's two hours go back
+/// to the first row, read on the final usage, 2 units, 20.
+/// Rules: R-016
+#[test]
+fn a_row_resuming_on_the_ending_day_bills_that_morning() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.fees.push(metered(10, 1, d(2024, 1, 1), 1, 10));
+    facts.fees.push(FeeFact {
+        to: Some(d(2024, 1, 20)),
+        ..metered(20, 1, d(2024, 1, 10), 1, 20)
+    });
+    facts.ending = Some(Ending {
+        at: at(2024, 1, 20, 2),
+        kind: EndingKind::Cancel,
+    });
+    let usage = reads(&[
+        (read(at(2024, 1, 1, 0), at(2024, 1, 10, 0)), 90),
+        (read(at(2024, 1, 10, 0), at(2024, 1, 20, 0)), 100),
+        (read(at(2024, 1, 20, 0), at(2024, 1, 20, 2)), 2),
+    ]);
+    let evaluation = evaluate(&facts, at(2024, 1, 20, 2), Some(&usage), &TestPricer).unwrap();
+    let charges: Vec<_> = of(&evaluation, 1)
+        .iter()
+        .map(|c| ((c.key.from, c.key.until), c.usage, c.amount))
+        .collect();
+    assert_eq!(
+        charges,
+        vec![
+            (
+                (d(2024, 1, 1), d(2024, 1, 10)),
+                Some(UsageWindow {
+                    from: at(2024, 1, 1, 0),
+                    until: at(2024, 1, 10, 0)
+                }),
+                900
+            ),
+            (
+                (d(2024, 1, 10), d(2024, 1, 20)),
+                Some(UsageWindow {
+                    from: at(2024, 1, 10, 0),
+                    until: at(2024, 1, 20, 0)
+                }),
+                2_000
+            ),
+            (
+                (d(2024, 1, 20), d(2024, 1, 20)),
+                Some(UsageWindow {
+                    from: at(2024, 1, 20, 0),
+                    until: at(2024, 1, 20, 2)
+                }),
+                20
+            ),
+        ]
+    );
+}
+
+/// Usage at 0.10 a unit, monthly from Jan 1, then quarterly on its lineage from Jan 2, cancelled
+/// on Feb 1 at 02:00: Feb 1 is no boundary of its quarter [Jan 1, Apr 1), so the window from Jan
+/// 2, keyed on January, reads to the ending's instant, 30 units and the two hours, 320.
+/// Rules: R-016, R-084
+#[test]
+fn an_ending_inside_its_own_grid_period_reads_to_the_instant_though_keyed_on_a_shorter_one() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.fees.push(FeeFact {
+        to: Some(d(2024, 1, 2)),
+        ..metered(10, 1, d(2024, 1, 1), 1, 10)
+    });
+    facts.fees.push(metered(20, 1, d(2024, 1, 2), 3, 10));
+    facts.ending = Some(Ending {
+        at: at(2024, 2, 1, 2),
+        kind: EndingKind::Cancel,
+    });
+    let usage = reads(&[
+        (read(at(2024, 1, 1, 0), at(2024, 1, 2, 0)), 1),
+        (read(at(2024, 1, 2, 0), at(2024, 2, 1, 0)), 30),
+        (read(at(2024, 1, 2, 0), at(2024, 2, 1, 2)), 32),
+        (read(at(2024, 2, 1, 0), at(2024, 2, 1, 2)), 2),
+    ]);
+    let evaluation = evaluate(&facts, at(2024, 2, 1, 2), Some(&usage), &TestPricer).unwrap();
+    let charges: Vec<_> = of(&evaluation, 1)
+        .iter()
+        .map(|c| ((c.key.from, c.key.until), c.usage, c.amount))
+        .collect();
+    assert_eq!(
+        charges,
+        vec![
+            (
+                (d(2024, 1, 1), d(2024, 1, 2)),
+                Some(UsageWindow {
+                    from: at(2024, 1, 1, 0),
+                    until: at(2024, 1, 2, 0)
+                }),
+                10
+            ),
+            (
+                (d(2024, 1, 2), d(2024, 2, 1)),
+                Some(UsageWindow {
+                    from: at(2024, 1, 2, 0),
+                    until: at(2024, 2, 1, 2)
+                }),
+                320
+            ),
+        ]
+    );
+}
+
+/// 29.00 a year from Jan 13, 2025, amended to 29.00 a month on Jan 15 and to 123.45 a year on
+/// Jan 18, each amendment moving the subscription's cadence, its grid kept. The years bill under
+/// the year: 2900 − 2900 × 363/365 = 16, and from Jan 18 12345 × 360/365 = 12176; the month's 3
+/// days under its month, over January, 2900 × 29/31 − 2900 × 26/31 = 2713 − 2432 = 281.
+/// Rules: R-084, R-079
+#[test]
+fn a_year_after_a_month_nested_in_it_is_priced_over_the_year() {
+    let mut facts = subscription(d(2025, 1, 13), 13, 12);
+    facts.plan_windows[0].to = Some(d(2025, 1, 15));
+    facts.plan_windows.push(PlanWindow {
+        to: Some(d(2025, 1, 18)),
+        ..plan(100, d(2025, 1, 15), 1, d(2025, 1, 13))
+    });
+    facts
+        .plan_windows
+        .push(plan(100, d(2025, 1, 18), 12, d(2025, 1, 13)));
+    facts.fees.push(FeeFact {
+        to: Some(d(2025, 1, 15)),
+        ..fixed(10, 1, d(2025, 1, 13), 12, 2_900)
+    });
+    facts.fees.push(FeeFact {
+        to: Some(d(2025, 1, 18)),
+        ..fixed(11, 1, d(2025, 1, 15), 1, 2_900)
+    });
+    facts.fees.push(fixed(12, 1, d(2025, 1, 18), 12, 12_345));
+    let evaluation = run(&facts, at(2025, 1, 20, 0));
+    let year = (d(2025, 1, 13), d(2026, 1, 13));
+    let charges: Vec<_> = of(&evaluation, 1)
+        .iter()
+        .map(|c| ((c.key.from, c.key.until), c.window, c.amount))
+        .collect();
+    assert_eq!(
+        charges,
+        vec![
+            (year, (d(2025, 1, 13), d(2025, 1, 15)), 16),
+            (
+                (d(2025, 1, 13), d(2025, 2, 13)),
+                (d(2025, 1, 15), d(2025, 1, 18)),
+                281
+            ),
+            (year, (d(2025, 1, 18), d(2026, 1, 13)), 12_176),
+        ]
+    );
+}
+
+/// A half-yearly subscription switched to monthly on November 14: it is then in November, the
+/// new grid's month inside the half-year that started June 1.
+/// Rules: R-084
+#[test]
+fn a_change_to_a_shorter_cadence_moves_the_current_period_onto_the_new_grid() {
+    let mut facts = subscription(d(2024, 6, 1), 1, 6);
+    facts
+        .plan_windows
+        .push(plan(101, d(2024, 11, 14), 1, d(2024, 6, 1)));
+    facts.fees.push(fixed(10, 1, d(2024, 6, 1), 6, 6_000));
+    let evaluation = run(&facts, at(2024, 11, 20, 0));
+    assert_eq!(
+        evaluation.state.current_period,
+        Some((d(2024, 11, 1), Some(d(2024, 12, 1))))
+    );
+}
+
 fn seats(quantities: &[(NaiveDate, u64)]) -> Facts<TestFee> {
     let mut facts = subscription(d(2024, 1, 1), 1, 1);
     facts.fees.push(fixed(10, 1, d(2024, 1, 1), 1, 100));
@@ -475,6 +1246,7 @@ fn line(id: String, key: &ChargeKey, subtotal: i64) -> IssuedLine {
         already_credited: 0,
         corrected: 0,
         settled: None,
+        voided: false,
     }
 }
 
@@ -594,7 +1366,8 @@ fn an_ending_mid_period_cuts_fees_at_its_date_and_usage_at_its_instant() {
         unread.usage_needed,
         vec![UsageNeed {
             fee: lineage(2),
-            read: window
+            read: window,
+            document: recurring(d(2024, 1, 20)),
         }]
     );
 
@@ -674,6 +1447,143 @@ fn an_ending_on_a_renewal_bills_the_days_usage_on_a_final_invoice() {
     assert!(reconcile(&evaluation.expected(), &lines, TakeBack::LatestFirst).is_empty());
 }
 
+/// Started and cancelled on January 1 with nothing billed in advance: no invoice opened that
+/// day, so the day's usage opens it rather than a final invoice.
+/// Rules: R-016
+#[test]
+fn an_ending_the_day_billing_started_bills_usage_alone_on_its_opening_invoice() {
+    let ending = Ending {
+        at: at(2024, 1, 1, 10),
+        kind: EndingKind::Cancel,
+    };
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.fees.push(metered(20, 2, d(2024, 1, 1), 1, 10));
+    facts.ending = Some(ending);
+    let morning = read(at(2024, 1, 1, 0), at(2024, 1, 1, 10));
+    let usage = reads(&[(morning, 3)]);
+    let evaluation = evaluate(&facts, at(2024, 1, 2, 0), Some(&usage), &TestPricer).unwrap();
+    let metered = of(&evaluation, 2);
+    assert_eq!(periods(&metered), vec![(d(2024, 1, 1), d(2024, 1, 1))]);
+    assert_eq!(
+        (metered[0].amount, metered[0].document),
+        (30, recurring(d(2024, 1, 1)))
+    );
+
+    // An advance fee opened the day's invoice: the usage goes on a final one.
+    facts.fees.push(fixed(10, 1, d(2024, 1, 1), 1, 3_100));
+    let evaluation = evaluate(&facts, at(2024, 1, 2, 0), Some(&usage), &TestPricer).unwrap();
+    assert_eq!(of(&evaluation, 2)[0].document, DocumentSlot::Final);
+}
+
+/// A metered fee repriced from 0.10 to 0.20 a unit on Jan 20, the day a cancellation ends the
+/// subscription at 14:00: the old row reads its days to that midnight, 7 units for 70, and the
+/// new row the morning to the instant, on a line of that day alone, 3 units for 60. Removed
+/// that day instead, the fee bills nothing of the morning.
+/// Rules: R-016, R-075
+#[test]
+fn the_ending_days_usage_is_priced_by_the_row_in_force_that_day() {
+    let ending = Ending {
+        at: at(2024, 1, 20, 14),
+        kind: EndingKind::Cancel,
+    };
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.ending = Some(ending);
+    let mut old = metered(20, 2, d(2024, 1, 1), 1, 10);
+    old.to = Some(d(2024, 1, 20));
+    facts.fees.push(old);
+    let mut removed = facts.clone();
+    facts.fees.push(metered(21, 2, d(2024, 1, 20), 1, 20));
+    let days = read(at(2024, 1, 1, 0), at(2024, 1, 20, 0));
+    let morning = read(at(2024, 1, 20, 0), ending.at);
+    let usage = reads(&[(days, 7), (morning, 3)]);
+    let charges = |facts: &Facts<TestFee>| -> Vec<_> {
+        evaluate(facts, at(2024, 1, 25, 0), Some(&usage), &TestPricer)
+            .unwrap()
+            .charges
+            .iter()
+            .map(|c| ((c.key.from, c.key.until), c.usage, c.amount, c.document))
+            .collect()
+    };
+    assert_eq!(
+        charges(&facts),
+        vec![
+            (
+                (d(2024, 1, 1), d(2024, 1, 20)),
+                Some(days.window),
+                70,
+                recurring(d(2024, 1, 20))
+            ),
+            (
+                (d(2024, 1, 20), d(2024, 1, 20)),
+                Some(morning.window),
+                60,
+                recurring(d(2024, 1, 20))
+            ),
+        ]
+    );
+    removed.ending = Some(ending);
+    assert_eq!(
+        charges(&removed),
+        vec![(
+            (d(2024, 1, 1), d(2024, 1, 20)),
+            Some(days.window),
+            70,
+            recurring(d(2024, 1, 20))
+        )]
+    );
+}
+
+/// A metered fee removed on January 15: its usage to then rides February's renewal, as an
+/// arrears fee's would.
+/// Rules: R-011
+#[test]
+fn arrears_ended_with_their_fee_ride_the_next_renewal() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    let mut removed = metered(20, 2, d(2024, 1, 1), 1, 10);
+    removed.to = Some(d(2024, 1, 15));
+    facts.fees.push(removed);
+    let mut arrears = fixed(30, 3, d(2024, 1, 1), 1, 3_100);
+    arrears.billing = Billing::Arrears;
+    arrears.to = Some(d(2024, 1, 15));
+    facts.fees.push(arrears);
+    let half = read(at(2024, 1, 1, 0), at(2024, 1, 15, 0));
+    let usage = reads(&[(half, 4)]);
+    let evaluation = evaluate(&facts, at(2024, 2, 2, 0), Some(&usage), &TestPricer).unwrap();
+    let metered = of(&evaluation, 2);
+    assert_eq!(periods(&metered), vec![(d(2024, 1, 1), d(2024, 1, 15))]);
+    assert_eq!(metered[0].document, recurring(d(2024, 2, 1)));
+    let fee = of(&evaluation, 3);
+    assert_eq!(fee[0].window, (d(2024, 1, 1), d(2024, 1, 15)));
+    assert_eq!(fee[0].document, recurring(d(2024, 2, 1)));
+}
+
+/// A one-time price bills once, on its day, keyed on that day as its line is; one added later
+/// bills on that day's adjustment invoice.
+/// Rules: R-075
+#[test]
+fn a_one_time_fee_bills_on_its_day() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    let mut setup = fixed(10, 1, d(2024, 1, 1), 1, 5_000);
+    setup.billing = Billing::OneTime;
+    facts.fees.push(setup);
+    let mut later = fixed(20, 2, d(2024, 1, 10), 1, 2_000);
+    later.billing = Billing::OneTime;
+    facts.fees.push(later);
+    let evaluation = run(&facts, at(2024, 3, 1, 0));
+    let setup = of(&evaluation, 1);
+    assert_eq!(periods(&setup), vec![(d(2024, 1, 1), d(2024, 1, 1))]);
+    assert_eq!(
+        (setup[0].amount, setup[0].document),
+        (5_000, recurring(d(2024, 1, 1)))
+    );
+    let later = of(&evaluation, 2);
+    assert_eq!(periods(&later), vec![(d(2024, 1, 10), d(2024, 1, 10))]);
+    assert_eq!(
+        later[0].document,
+        DocumentSlot::Adjustment { on: d(2024, 1, 10) }
+    );
+}
+
 /// Rules: R-084
 #[test]
 fn a_yearly_fee_on_a_monthly_plan_bills_its_own_grid() {
@@ -735,7 +1645,8 @@ fn a_fee_due_between_renewals_rides_the_next_renewal() {
         evaluation.usage_needed,
         vec![UsageNeed {
             fee: lineage(2),
-            read: read(at(2024, 3, 1, 0), at(2024, 4, 1, 0))
+            read: read(at(2024, 3, 1, 0), at(2024, 4, 1, 0)),
+            document: recurring(d(2024, 4, 1)),
         }]
     );
 }
@@ -751,6 +1662,501 @@ fn a_fee_added_mid_period_bills_what_is_left_on_an_adjustment_invoice() {
     assert_eq!(
         charges[0].document,
         DocumentSlot::Adjustment { on: d(2024, 1, 10) }
+    );
+}
+
+/// A capacity billed whole changed on January 17 bills its difference for what is left of the
+/// month, as any change does; billed whole again at the renewal.
+/// Rules: R15, R-079
+#[test]
+fn a_change_mid_period_prorates_a_fee_billed_whole() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    let mut small = fixed(10, 1, d(2024, 1, 1), 1, 3_100);
+    small.fee.whole = true;
+    small.to = Some(d(2024, 1, 17));
+    let mut large = fixed(11, 1, d(2024, 1, 17), 1, 6_200);
+    large.fee.whole = true;
+    facts.fees.extend([small, large]);
+    let evaluation = run(&facts, at(2024, 2, 10, 0));
+    let charges = of(&evaluation, 1);
+    let amounts: Vec<(i64, DocumentSlot)> =
+        charges.iter().map(|c| (c.amount, c.document)).collect();
+    assert_eq!(
+        amounts,
+        vec![
+            (3_100, recurring(d(2024, 1, 1))),
+            (1_500, DocumentSlot::Adjustment { on: d(2024, 1, 17) }),
+            (6_200, recurring(d(2024, 2, 1))),
+        ]
+    );
+}
+
+/// A capacity billed whole, ended on January 17 by a change of plan, owes what it used: 3100 less
+/// what is left of January, 3100 × 15/31 = 1500, so 1600. A cancellation or a fixed term ending
+/// that day cuts it the same.
+/// Rules: R-002, R-077, R-084
+#[test]
+fn a_fee_billed_whole_cut_short_owes_what_it_used() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    let mut capacity = fixed(10, 1, d(2024, 1, 1), 1, 3_100);
+    capacity.fee.whole = true;
+    capacity.to = Some(d(2024, 1, 17));
+    facts.fees.push(capacity);
+    let amounts = |facts: &Facts<TestFee>| -> Vec<i64> {
+        of(&run(facts, at(2024, 1, 20, 0)), 1)
+            .iter()
+            .map(|charge| charge.amount)
+            .collect()
+    };
+    assert_eq!(amounts(&facts), vec![1_600]);
+
+    let mut cancelled = facts.clone();
+    cancelled.fees[0].to = None;
+    cancelled.ending = Some(Ending {
+        at: midnight(d(2024, 1, 17)),
+        kind: EndingKind::Cancel,
+    });
+    assert_eq!(amounts(&cancelled), vec![1_600]);
+
+    let mut completed = facts.clone();
+    completed.fees[0].to = None;
+    completed.end_date = Some(d(2024, 1, 17));
+    assert_eq!(amounts(&completed), vec![1_600]);
+}
+
+/// A 31.00 fee in arrears ended on January 17 owes what it used, 3100 less 3100 × 15/31 = 1500,
+/// so 1600, billed whole or prorated, when its row, a cancellation or a fixed term ends it.
+/// Rules: R-002, R-016, R-084
+#[test]
+fn arrears_cut_short_owe_what_they_used() {
+    for whole in [false, true] {
+        let mut facts = subscription(d(2024, 1, 1), 1, 1);
+        let mut arrears = fixed(10, 1, d(2024, 1, 1), 1, 3_100);
+        arrears.billing = Billing::Arrears;
+        arrears.fee.whole = whole;
+        arrears.to = Some(d(2024, 1, 17));
+        facts.fees.push(arrears);
+        let amounts = |facts: &Facts<TestFee>| -> Vec<i64> {
+            of(&run(facts, at(2024, 2, 2, 0)), 1)
+                .iter()
+                .map(|charge| charge.amount)
+                .collect()
+        };
+        assert_eq!(amounts(&facts), vec![1_600], "removed, whole {whole}");
+
+        let mut cancelled = facts.clone();
+        cancelled.fees[0].to = None;
+        cancelled.ending = Some(Ending {
+            at: midnight(d(2024, 1, 17)),
+            kind: EndingKind::Cancel,
+        });
+        assert_eq!(amounts(&cancelled), vec![1_600], "cancelled, whole {whole}");
+
+        let mut completed = facts.clone();
+        completed.fees[0].to = None;
+        completed.end_date = Some(d(2024, 1, 17));
+        assert_eq!(amounts(&completed), vec![1_600], "completed, whole {whole}");
+    }
+}
+
+/// The usage of `facts`' fee 1 evaluated on Feb 2 with `entries` read, by charge period.
+fn usage_charges(
+    facts: &Facts<TestFee>,
+    entries: &[(UsageRead, i64)],
+) -> Vec<((NaiveDate, NaiveDate), i64)> {
+    let usage = reads(entries);
+    let evaluation = evaluate(facts, at(2024, 2, 2, 0), Some(&usage), &TestPricer).unwrap();
+    of(&evaluation, 1)
+        .iter()
+        .filter(|charge| charge.usage.is_some())
+        .map(|charge| ((charge.key.from, charge.key.until), charge.amount))
+        .collect()
+}
+
+/// A lineage of two rows split on Jan 16, 900 units read on each part and 1800 over January.
+fn split_usage(fee: TestFee) -> (Facts<TestFee>, Vec<(UsageRead, i64)>) {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    let row = |id, from| FeeFact {
+        fee: fee.clone(),
+        ..metered(id, 1, from, 1, fee.unit)
+    };
+    facts.fees.push(FeeFact {
+        to: Some(d(2024, 1, 16)),
+        ..row(10, d(2024, 1, 1))
+    });
+    facts.fees.push(row(11, d(2024, 1, 16)));
+    let entries = vec![
+        (read(at(2024, 1, 1, 0), at(2024, 1, 16, 0)), 900),
+        (read(at(2024, 1, 16, 0), at(2024, 2, 1, 0)), 900),
+        (read(at(2024, 1, 1, 0), at(2024, 2, 1, 0)), 1_800),
+    ];
+    (facts, entries)
+}
+
+/// A capacity of 1000 units at 0.10 over, its row replaced on Jan 16 with 900 units used on each
+/// side: the allowance is counted once over January, (1800 − 1000) × 10 = 8000, never twice.
+/// Rules: R-097
+#[test]
+fn a_capacity_split_mid_period_counts_its_allowance_once() {
+    let (facts, entries) = split_usage(TestFee {
+        metric: Some(id(METRIC)),
+        unit: 10,
+        included: 1_000,
+        per_period: true,
+        ..TestFee::default()
+    });
+    assert_eq!(
+        usage_charges(&facts, &entries),
+        vec![((d(2024, 1, 1), d(2024, 2, 1)), 8_000)]
+    );
+}
+
+/// Graduated tiers of 0.10 up to 1000 units and 0.05 past them, the row replaced on Jan 16 with
+/// 900 units used on each side: the tiers run over January, 1000 × 10 + 800 × 5 = 14000.
+/// Rules: R-097
+#[test]
+fn graduated_tiers_split_mid_period_run_over_the_whole_period() {
+    let (facts, entries) = split_usage(TestFee {
+        metric: Some(id(METRIC)),
+        unit: 10,
+        tier: Some((1_000, 5)),
+        per_period: true,
+        ..TestFee::default()
+    });
+    assert_eq!(
+        usage_charges(&facts, &entries),
+        vec![((d(2024, 1, 1), d(2024, 2, 1)), 14_000)]
+    );
+}
+
+/// Usage priced by the unit keeps each row's own price: 900 units at 0.10, then 900 at 0.20.
+/// Rules: R-097
+#[test]
+fn usage_by_the_unit_split_mid_period_bills_each_part_at_its_price() {
+    let (mut facts, entries) = split_usage(TestFee {
+        metric: Some(id(METRIC)),
+        unit: 10,
+        ..TestFee::default()
+    });
+    facts.fees[1].fee.unit = 20;
+    assert_eq!(
+        usage_charges(&facts, &entries),
+        vec![
+            ((d(2024, 1, 1), d(2024, 1, 16)), 9_000),
+            ((d(2024, 1, 16), d(2024, 2, 1)), 18_000),
+        ]
+    );
+}
+
+/// A capacity of 310 units at 0.10 over, ended on Jan 17 by a fixed term or a cancellation:
+/// its fee is prorated to 16 of 31 days, and its allowance with it, 160 units, so 200 used owe
+/// 40 × 10 = 400; run to the period's end, the same 200 owe nothing.
+/// Rules: R-002, R-084
+#[test]
+fn a_capacity_cut_short_prorates_its_allowance_with_its_fee() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.fees.push(FeeFact {
+        billing: Billing::Advance,
+        fee: TestFee {
+            metric: Some(id(METRIC)),
+            unit: 10,
+            included: 310,
+            per_period: true,
+            ..TestFee::default()
+        },
+        ..metered(10, 1, d(2024, 1, 1), 1, 10)
+    });
+    let to_17 = (read(at(2024, 1, 1, 0), at(2024, 1, 17, 0)), 200);
+    let whole = (read(at(2024, 1, 1, 0), at(2024, 2, 1, 0)), 200);
+    assert_eq!(
+        usage_charges(&facts, &[whole]),
+        vec![((d(2024, 1, 1), d(2024, 2, 1)), 0)]
+    );
+
+    let mut completed = facts.clone();
+    completed.end_date = Some(d(2024, 1, 17));
+    assert_eq!(
+        usage_charges(&completed, &[to_17]),
+        vec![((d(2024, 1, 1), d(2024, 1, 17)), 400)]
+    );
+
+    let mut cancelled = facts.clone();
+    cancelled.ending = Some(Ending {
+        at: midnight(d(2024, 1, 17)),
+        kind: EndingKind::Cancel,
+    });
+    assert_eq!(
+        usage_charges(&cancelled, &[to_17]),
+        vec![((d(2024, 1, 1), d(2024, 1, 17)), 400)]
+    );
+}
+
+/// A capacity of 310 units at 0.10 over, cancelled at an instant: on Jan 17 at 10:00 its fee
+/// holds 16 of 31 days, 160 units, so 200 used owe 400; on Feb 1 at 10:00 the ending day's usage
+/// is in a period its fee holds no day of, so its 20 units owe 200.
+/// Rules: R-002, R-016
+#[test]
+fn a_cancellations_last_usage_counts_the_allowance_its_fee_holds() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.fees.push(FeeFact {
+        billing: Billing::Advance,
+        fee: TestFee {
+            metric: Some(id(METRIC)),
+            unit: 10,
+            included: 310,
+            per_period: true,
+            ..TestFee::default()
+        },
+        ..metered(10, 1, d(2024, 1, 1), 1, 10)
+    });
+    let cancelled = |at: DateTime<Utc>| Facts {
+        ending: Some(Ending {
+            at,
+            kind: EndingKind::Cancel,
+        }),
+        ..facts.clone()
+    };
+    assert_eq!(
+        usage_charges(
+            &cancelled(at(2024, 1, 17, 10)),
+            &[(read(at(2024, 1, 1, 0), at(2024, 1, 17, 10)), 200)]
+        ),
+        vec![((d(2024, 1, 1), d(2024, 1, 17)), 400)]
+    );
+    assert_eq!(
+        usage_charges(
+            &cancelled(at(2024, 2, 1, 10)),
+            &[
+                (read(at(2024, 1, 1, 0), at(2024, 2, 1, 0)), 200),
+                (read(at(2024, 2, 1, 0), at(2024, 2, 1, 10)), 20),
+            ]
+        ),
+        vec![
+            ((d(2024, 1, 1), d(2024, 2, 1)), 0),
+            ((d(2024, 2, 1), d(2024, 2, 1)), 200)
+        ]
+    );
+}
+
+/// Started January 10 on a grid anchored on the 1st, a 31.00 fee in arrears bills its first
+/// period's 22 of January's 31 days on February 1, 3100 × 22/31 = 2200, as the advance stub is
+/// prorated; then whole periods.
+/// Rules: R-002, R-084
+#[test]
+fn a_first_partial_periods_fixed_arrears_are_prorated() {
+    let mut facts = subscription(d(2024, 1, 10), 1, 1);
+    let mut arrears = fixed(10, 1, d(2024, 1, 10), 1, 3_100);
+    arrears.billing = Billing::Arrears;
+    facts.fees.push(arrears);
+    let evaluation = run(&facts, at(2024, 3, 1, 0));
+    let charges = of(&evaluation, 1);
+    assert_eq!(
+        charges
+            .iter()
+            .map(|charge| (charge.key.from, charge.amount, charge.document))
+            .collect::<Vec<_>>(),
+        vec![
+            (d(2024, 1, 10), 2_200, recurring(d(2024, 2, 1))),
+            (d(2024, 2, 1), 3_100, recurring(d(2024, 3, 1))),
+        ]
+    );
+}
+
+/// Started January 10 on a grid anchored on the 1st, a capacity of 31.00 for 310 units bills its
+/// first period's 22 of 31 days, 2200, and includes 220 units: 240 used owe 20 × 10 = 200. In
+/// arrears its fee is the same 2200; then whole periods, 3100 with 310 units.
+/// Rules: R-002, R-084
+#[test]
+fn a_first_partial_period_prorates_a_capacitys_fee_and_allowance() {
+    for billing in [Billing::Advance, Billing::Arrears] {
+        let mut facts = subscription(d(2024, 1, 10), 1, 1);
+        facts.fees.push(FeeFact {
+            billing: Billing::Advance,
+            fee: TestFee {
+                metric: Some(id(METRIC)),
+                unit: 10,
+                included: 310,
+                per_period: true,
+                ..TestFee::default()
+            },
+            ..metered(10, 1, d(2024, 1, 10), 1, 10)
+        });
+        let mut fee = fixed(20, 2, d(2024, 1, 10), 1, 3_100);
+        fee.fee.whole = true;
+        fee.billing = billing;
+        facts.fees.push(fee);
+        let usage = reads(&[
+            (read(at(2024, 1, 10, 0), at(2024, 2, 1, 0)), 240),
+            (read(at(2024, 2, 1, 0), at(2024, 3, 1, 0)), 320),
+        ]);
+        let evaluation = evaluate(&facts, at(2024, 3, 1, 0), Some(&usage), &TestPricer).unwrap();
+        let amounts = |fee: u128| -> Vec<(NaiveDate, i64)> {
+            of(&evaluation, fee)
+                .iter()
+                .map(|charge| (charge.key.from, charge.amount))
+                .collect()
+        };
+        assert_eq!(
+            amounts(2)[..2],
+            [(d(2024, 1, 10), 2_200), (d(2024, 2, 1), 3_100)],
+            "{billing:?}"
+        );
+        assert_eq!(
+            amounts(1),
+            vec![(d(2024, 1, 10), 200), (d(2024, 2, 1), 100)],
+            "{billing:?}"
+        );
+    }
+}
+
+/// A pack with its own duration added on January 17 is bought whole, keyed on its day as its
+/// line is; from February it bills its period.
+/// Rules: R-075
+#[test]
+fn a_pack_bought_whole_at_a_change_is_keyed_on_its_day() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    let mut pack = fixed(10, 1, d(2024, 1, 17), 1, 5_000);
+    pack.fee.whole = true;
+    pack.fee.grant = Some(5_000);
+    facts.fees.push(pack);
+    let evaluation = run(&facts, at(2024, 2, 10, 0));
+    let charges = of(&evaluation, 1);
+    assert_eq!(
+        periods(&charges),
+        vec![
+            (d(2024, 1, 17), d(2024, 1, 17)),
+            (d(2024, 2, 1), d(2024, 3, 1))
+        ]
+    );
+    assert_eq!(charges[0].amount, 5_000);
+    assert_eq!(
+        charges[0].credit_grant.map(|grant| grant.amount),
+        Some(5_000)
+    );
+}
+
+/// A pack bought whole on Jan 17, recurring or once: keyed on its day and billing that day alone,
+/// as the change's line shows it, so that line bills the charge and a second change that day
+/// finds it billed.
+/// Rules: R-075
+#[test]
+fn a_pack_bought_whole_at_a_change_bills_its_day_alone() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    for (row, billing) in [(10, Billing::Advance), (20, Billing::OneTime)] {
+        let mut pack = fixed(row, row, d(2024, 1, 17), 1, 5_000);
+        pack.fee.whole = true;
+        pack.fee.grant = Some(5_000);
+        pack.billing = billing;
+        facts.fees.push(pack);
+    }
+    let evaluation = run(&facts, at(2024, 1, 20, 0));
+    for fee in [10, 20] {
+        let charges = of(&evaluation, fee);
+        let day = (d(2024, 1, 17), d(2024, 1, 17));
+        assert_eq!(
+            charges
+                .iter()
+                .map(|c| ((c.key.from, c.key.until), c.window, c.amount))
+                .collect::<Vec<_>>(),
+            vec![(day, day, 5_000)],
+            "{fee}"
+        );
+        let as_shown = line("pack".into(), &charges[0].key, 5_000);
+        assert!(as_shown.bills(&charges[0].key));
+    }
+}
+
+/// A 50.00 pack repriced to 80.00 on January 17 is never netted: bought whole, the new pack bills
+/// 8000 on its day, granting 8000; tied to its period, its stub, 8000 × 15/31 = 3871. The old
+/// pack is given back by its credit's settlement alone: no charge of the change takes it back,
+/// nor one of a pack ended that day.
+/// Rules: R-103, OQ1, R-075
+#[test]
+fn a_pack_is_never_netted() {
+    let charges = |whole: bool, repriced: bool| -> Vec<_> {
+        let mut facts = subscription(d(2024, 1, 1), 1, 1);
+        let mut old = fixed(10, 1, d(2024, 1, 1), 1, 5_000);
+        old.fee.whole = whole;
+        old.fee.grant = Some(5_000);
+        old.to = Some(d(2024, 1, 17));
+        facts.fees.push(old);
+        if repriced {
+            let mut new = fixed(11, 1, d(2024, 1, 17), 1, 8_000);
+            new.fee.whole = whole;
+            new.fee.grant = Some(8_000);
+            facts.fees.push(new);
+        }
+        of(&run(&facts, at(2024, 1, 20, 0)), 1)
+            .iter()
+            .map(|c| {
+                (
+                    (c.key.from, c.key.until),
+                    c.amount,
+                    c.credit_grant.map(|g| g.amount),
+                )
+            })
+            .collect()
+    };
+    let january = (d(2024, 1, 1), d(2024, 2, 1));
+    let day = (d(2024, 1, 17), d(2024, 1, 17));
+    assert_eq!(
+        charges(true, true),
+        vec![(january, 5_000, Some(5_000)), (day, 8_000, Some(8_000))]
+    );
+    assert_eq!(charges(true, false), vec![(january, 5_000, Some(5_000))]);
+    assert_eq!(
+        charges(false, true),
+        vec![(january, 5_000, Some(5_000)), (january, 3_871, Some(3_871))]
+    );
+}
+
+/// The new plan's one-time fee bills nothing on a change: a plan's setup is billed with the
+/// subscription's start.
+/// Rules: R-093
+#[test]
+fn a_plan_change_bills_no_one_time_fee() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    facts.plan_windows[0].to = Some(d(2024, 2, 1));
+    facts
+        .plan_windows
+        .push(plan(101, d(2024, 2, 1), 1, d(2024, 1, 1)));
+    let mut setup = fixed(10, 1, d(2024, 2, 1), 1, 5_000);
+    setup.billing = Billing::OneTime;
+    facts.fees.push(setup);
+    assert!(of(&run(&facts, at(2024, 3, 1, 0)), 1).is_empty());
+}
+
+/// An amendment on Mar 15 moving a yearly plan onto the monthly grid, the version kept, and adding
+/// a 50.00 one-time add-on: the add-on bills 5000 on that day's adjustment invoice. A plan's
+/// one-time fee is left out only on a change of plan version.
+/// Rules: R-093, R-075
+#[test]
+fn a_one_time_add_on_bought_with_a_change_of_cadence_bills() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 12);
+    facts
+        .plan_windows
+        .push(plan(100, d(2024, 3, 15), 1, d(2024, 1, 1)));
+    facts.fees.push(fixed(10, 1, d(2024, 1, 1), 12, 12_000));
+    let mut add_on = fixed(20, 2, d(2024, 3, 15), 1, 5_000);
+    add_on.lineage = Fee::AddOn(id(2));
+    add_on.billing = Billing::OneTime;
+    add_on.plan_component = false;
+    add_on.fee.whole = true;
+    facts.fees.push(add_on);
+    let evaluation = run(&facts, at(2024, 3, 20, 0));
+    let charges: Vec<_> = evaluation
+        .charges
+        .iter()
+        .filter(|c| c.key.fee == Fee::AddOn(id(2)))
+        .map(|c| ((c.key.from, c.key.until), c.amount, c.document))
+        .collect();
+    assert_eq!(
+        charges,
+        vec![(
+            (d(2024, 3, 15), d(2024, 3, 15)),
+            5_000,
+            DocumentSlot::Adjustment { on: d(2024, 3, 15) }
+        )]
     );
 }
 
@@ -835,6 +2241,53 @@ fn a_minimum_commits_its_period_when_the_period_closes() {
     );
 }
 
+/// A yearly 366.00 fee in arrears removed on Mar 15, its year not settled by a watermark on
+/// Jun 1: it owes 36600 × 74/366 = 7400, once, on the first renewal past the watermark, Jul 1;
+/// Apr 1, the next renewal, was the per-operation code's. Its usage likewise.
+/// Rules: R-011, R-094
+#[test]
+fn arrears_ended_before_the_watermark_ride_the_first_renewal_past_it() {
+    let mut facts = subscription(d(2024, 1, 1), 1, 1);
+    let mut arrears = fixed(10, 1, d(2024, 1, 1), 12, 36_600);
+    arrears.billing = Billing::Arrears;
+    arrears.to = Some(d(2024, 3, 15));
+    facts.fees.push(arrears);
+    let mut removed = metered(20, 2, d(2024, 1, 1), 12, 10);
+    removed.to = Some(d(2024, 3, 15));
+    facts.fees.push(removed);
+    facts.reconcile_from = Some(d(2024, 6, 1));
+    let used = read(at(2024, 1, 1, 0), at(2024, 3, 15, 0));
+    let evaluation = evaluate(
+        &facts,
+        at(2024, 7, 2, 0),
+        Some(&reads(&[(used, 4)])),
+        &TestPricer,
+    )
+    .unwrap();
+    let charges: Vec<_> = evaluation
+        .charges
+        .iter()
+        .map(|c| (c.key.fee.clone(), c.window, c.amount, c.document))
+        .collect();
+    assert_eq!(
+        charges,
+        vec![
+            (
+                lineage(1),
+                (d(2024, 1, 1), d(2024, 3, 15)),
+                7_400,
+                recurring(d(2024, 7, 1))
+            ),
+            (
+                lineage(2),
+                (d(2024, 1, 1), d(2024, 3, 15)),
+                40,
+                recurring(d(2024, 7, 1))
+            ),
+        ]
+    );
+}
+
 #[test]
 fn a_watermark_leaves_out_the_periods_it_settled() {
     let mut facts = subscription(d(2024, 1, 1), 1, 1);
@@ -854,11 +2307,13 @@ fn a_watermark_leaves_out_the_periods_it_settled() {
         vec![
             UsageNeed {
                 fee: lineage(2),
-                read: read(at(2024, 3, 1, 0), at(2024, 4, 1, 0))
+                read: read(at(2024, 3, 1, 0), at(2024, 4, 1, 0)),
+                document: recurring(d(2024, 4, 1)),
             },
             UsageNeed {
                 fee: lineage(2),
-                read: read(at(2024, 4, 1, 0), at(2024, 5, 1, 0))
+                read: read(at(2024, 4, 1, 0), at(2024, 5, 1, 0)),
+                document: recurring(d(2024, 5, 1)),
             },
         ]
     );
@@ -876,7 +2331,8 @@ fn an_open_usage_window_is_only_reported() {
         evaluation.usage_needed,
         vec![UsageNeed {
             fee: lineage(2),
-            read: window
+            read: window,
+            document: recurring(d(2024, 2, 1)),
         }]
     );
     assert_eq!(evaluation.next_wake, Some(at(2024, 2, 1, 0)));
@@ -940,7 +2396,7 @@ prop_compose! {
             until: start_date + Days::new(days),
             free,
         });
-        let billing_start = facts.billing_start().unwrap_or(start_date);
+        let billing_start = facts.billing_start();
         let old = if facts.bills_from_trial_end() {
             Grid::from_trial_end(billing_start, anchor, cadence)
         } else {
@@ -949,13 +2405,18 @@ prop_compose! {
         .unwrap();
         if let Some((offset, after)) = switch {
             let on = start_date + Days::new(offset);
-            // R-084: the first boundary on or after the change of the grid in force before it.
+            // R-084: the change's first renewal, on the grid in force before it or sooner on its own.
             let origin = if after == cadence {
                 start_date
             } else if old.is_boundary(on) {
                 on
             } else {
-                old.period_containing(on).unwrap().1
+                let next = old.period_containing(on).unwrap().1;
+                Grid::from_origin(next, anchor, after)
+                    .unwrap()
+                    .period_containing(on)
+                    .unwrap()
+                    .1
             };
             facts.plan_windows[0].to = Some(on);
             facts.plan_windows.push(plan(101, on, after, origin));
@@ -1056,6 +2517,11 @@ proptest! {
 
     #[test]
     fn fee_charges_due_by_an_instant_never_change_later(case in case()) {
+        // An ending before the start settles takes back the checkout's invoice (R-013).
+        prop_assume!(
+            case.facts.start.settled.is_some()
+                || case.facts.ending.is_none_or(|ending| ending.at > case.t1)
+        );
         let early = run(&case.facts, case.t0);
         let late = run(&case.facts, case.t1);
         let due: Vec<&Charge> = fee_charges(&late)
@@ -1104,28 +2570,55 @@ proptest! {
         let usage = all_reads(&open, case.t1);
         let without = evaluate(&open, case.t1, Some(&usage), &TestPricer).unwrap();
         let with = evaluate(&marked, case.t1, Some(&usage), &TestPricer).unwrap();
+        // What rode a renewal the watermark settled rides the first one past it instead, or the
+        // ending's document.
+        let moved = |at: DocumentSlot, to: DocumentSlot| match (at, to) {
+            _ if at == to => true,
+            (DocumentSlot::Recurring { period_start: a }, DocumentSlot::Final) => a <= watermark,
+            (
+                DocumentSlot::Recurring { period_start: a },
+                DocumentSlot::Recurring { period_start: b },
+            ) => a <= watermark && b > a && b >= watermark,
+            _ => false,
+        };
+        let unplaced = |charge: &Charge| Charge {
+            document: DocumentSlot::Final,
+            ..charge.clone()
+        };
         let from_mark = |evaluation: &Evaluation| -> Vec<Charge> {
             evaluation
                 .charges
                 .iter()
                 .filter(|charge| charge.key.from >= watermark)
-                .cloned()
+                .map(unplaced)
                 .collect()
         };
         prop_assert_eq!(from_mark(&with), from_mark(&without));
+        let placed_alike = |charge: &Charge, among: &[Charge]| {
+            among
+                .iter()
+                .any(|other| unplaced(other) == unplaced(charge) && moved(other.document, charge.document))
+        };
         for charge in &with.charges {
-            prop_assert!(without.charges.contains(charge));
+            prop_assert!(placed_alike(charge, &without.charges), "{:?}", charge);
             if charge.usage.is_none() {
                 prop_assert!(charge.key.until > watermark, "{:?}", charge);
             }
         }
         for charge in &without.charges {
             if charge.usage.is_none() && charge.key.until > watermark {
-                prop_assert!(with.charges.contains(charge), "{:?}", charge);
+                prop_assert!(
+                    with.charges.iter().any(|other| unplaced(other) == unplaced(charge)
+                        && moved(charge.document, other.document)),
+                    "{:?}",
+                    charge
+                );
             }
         }
         for need in &with.usage_needed {
-            prop_assert!(without.usage_needed.contains(need));
+            prop_assert!(without.usage_needed.iter().any(|other| other.fee == need.fee
+                && other.read == need.read
+                && moved(other.document, need.document)));
         }
         prop_assert_eq!(with.state, without.state);
     }

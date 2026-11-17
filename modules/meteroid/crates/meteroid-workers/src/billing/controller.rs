@@ -13,6 +13,22 @@ const STUCK_EVENTS_EVERY: Duration = Duration::from_secs(60);
 /// Runs the customers whose billing is due, as long as there are some (every replica: the claim
 /// leases each customer to one).
 pub async fn run_worker(services: Arc<Services>) {
+    // A pending plan change or amendment the release before this one scheduled becomes facts
+    // before anything bills: the next release, which drops scheduled_event, finds none.
+    match services.migrate_pending_changes().await {
+        Ok(None) => log::info!("pending changes migrated by another replica"),
+        Ok(Some(migration)) if migration.unresolved.is_empty() => {
+            if migration.written > 0 {
+                log::info!("{} pending changes written as facts", migration.written);
+            }
+        }
+        Ok(Some(migration)) => log::error!(
+            "{} pending changes cannot be written as facts: {:?}",
+            migration.unresolved.len(),
+            migration.unresolved
+        ),
+        Err(err) => log::error!("pending changes not written as facts: {err:?}"),
+    }
     let mut consecutive_errors: u32 = 0;
     let mut stuck_checked = Instant::now();
     loop {

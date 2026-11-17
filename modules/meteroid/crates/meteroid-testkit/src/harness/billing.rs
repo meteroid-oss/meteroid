@@ -105,20 +105,20 @@ impl TestEnv {
     }
 
     /// Process all pending cycle transitions and due events.
-    /// Moves the present to `at` (see `common_domain::clock`); time keeps passing from there.
+    /// Moves the present to `at` (see `common_clock`); time keeps passing from there.
     pub fn set_now(&self, at: chrono::DateTime<chrono::Utc>) {
-        common_domain::clock::test::set(at);
+        common_clock::test::set(at);
     }
 
     /// Moves the present forward by `by`.
     pub fn advance(&self, by: chrono::Duration) {
-        common_domain::clock::test::advance(by);
+        common_clock::test::advance(by);
     }
 
     /// Lives through every day until `until`, as the workers would: each day the clock is moved
     /// to it, then due cycles, scheduled events and their outbox work run until nothing is left.
     pub async fn run_until(&self, until: chrono::NaiveDate) {
-        let mut day = common_domain::clock::now().date_naive();
+        let mut day = common_clock::now().date_naive();
         while day < until {
             day = day.succ_opt().expect("a next day");
             self.set_now(day.and_hms_opt(1, 0, 0).expect("1:00").and_utc());

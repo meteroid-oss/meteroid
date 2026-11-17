@@ -2174,6 +2174,18 @@ async fn a_change_during_grace_is_settled_once_the_draft_is_issued(#[future] tes
     assert_eq!(notes_on(&env, &february).await, 1);
     crate::helpers::credit::assert_ledger_balances(env.store(), TENANT_ID, CUST_UBER_ID).await;
     assert_revenue_sane(&env, CUST_UBER_ID).await;
+    // Each fee the facts put on a written document is billed once over them all: Studio's fees for
+    // [Feb 1, Feb 15) on the draft, 2900 − 1500 and 1000 − 517, Large's from Feb 15 on the change's
+    // adjustment.
+    let mut conn = env.conn().await;
+    let invoices = env.get_invoices(sub_id).await;
+    assert_eq!(
+        crate::helpers::facts::owed_on_written_documents(
+            &mut conn, TENANT_ID, sub_id, &invoices, true
+        )
+        .await,
+        vec![]
+    );
 }
 
 /// Without auto-advance, February's draft bills January's 100.00 of bandwidth, Scale's fees and
@@ -4103,6 +4115,27 @@ async fn seats_bought_the_day_of_a_change_count_once_the_draft_is_issued(
         vec![Some(midnight(today))]
     };
     assert_eq!(included, expected);
+    // Each fee the facts put on a written document is billed once over them all: the old plan's
+    // fees up to the change on the draft net of its note, the new plan's from the change on its
+    // adjustment. On the period's first day the facts put Large's 1000.00 pack on the draft's
+    // period; the change's adjustment bills it once, on that charge's key (R-075).
+    let mut conn = env.conn().await;
+    let invoices = env.get_invoices(sub_id).await;
+    let owed = crate::helpers::facts::owed_on_written_documents(
+        &mut conn, TENANT_ID, sub_id, &invoices, true,
+    )
+    .await;
+    if today == period_start {
+        let packs: Vec<(NaiveDate, NaiveDate, i64)> = invoices
+            .iter()
+            .filter(|i| i.invoice_type == meteroid_store::domain::enums::InvoiceType::Adjustment)
+            .flat_map(|i| &i.line_items)
+            .filter(|l| l.kind == meteroid_store::domain::LineItemKind::Credit)
+            .map(|l| (l.start_date, l.end_date, l.amount_subtotal))
+            .collect();
+        assert_eq!(packs, vec![(period_start, period_end, 100_000)]);
+    }
+    assert_eq!(owed, vec![]);
 }
 
 /// Round 5, item 8. A card payment that asked for 3DS goes processing; the webhook saying so is

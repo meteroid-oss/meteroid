@@ -164,8 +164,9 @@ pub struct CadenceSwitch {
     pub recorded: Option<NaiveDate>,
 }
 
-/// Where each change of cadence's grid starts, earliest first: its recorded origin, else the
-/// first boundary on or after the change of the grid in force before it.
+/// Where each change of cadence's grid starts, earliest first: its recorded origin, else its first
+/// renewal, the change's day on a boundary of the grid in force before it, else the first boundary
+/// after it of the new cadence's grid through that grid's next boundary.
 pub fn cadence_origins(
     billing_start: NaiveDate,
     anchor: u32,
@@ -181,10 +182,13 @@ pub fn cadence_origins(
         let origin = switch.recorded.or_else(|| {
             let grid = grid?;
             if grid.is_boundary(switch.on) {
-                Some(switch.on)
-            } else {
-                grid.period_containing(switch.on).map(|(_, end)| end)
+                return Some(switch.on);
             }
+            let (_, next) = grid.period_containing(switch.on)?;
+            // A shorter cadence renews before the old period ends.
+            Grid::from_origin(next, anchor, switch.after)?
+                .period_containing(switch.on)
+                .map(|(_, renewal)| renewal)
         });
         if let Some(origin) = origin {
             origins.push((switch.on, origin));
@@ -378,6 +382,43 @@ mod tests {
                     until: d(2024, 2, 20)
                 },
             ]
+        );
+    }
+
+    fn switch(on: NaiveDate, before: u32, after: u32) -> CadenceSwitch {
+        CadenceSwitch {
+            on,
+            before,
+            after,
+            recorded: None,
+        }
+    }
+
+    /// A change of cadence's grid starts on its first renewal: a yearly subscription switched to
+    /// months or quarters on Mar 15 renews on Apr 1, not at the year's end; a monthly one switched
+    /// to a year on Jan 15 renews on Feb 1, and back to months on May 10, on Jun 1.
+    #[test]
+    fn a_change_of_cadence_runs_from_its_first_renewal() {
+        for months in [1, 3] {
+            assert_eq!(
+                cadence_origins(d(2024, 1, 1), 1, &[switch(d(2024, 3, 15), 12, months)]),
+                vec![(d(2024, 3, 15), d(2024, 4, 1))]
+            );
+        }
+        assert_eq!(
+            cadence_origins(
+                d(2024, 1, 1),
+                1,
+                &[switch(d(2024, 1, 15), 1, 12), switch(d(2024, 5, 10), 12, 1)]
+            ),
+            vec![
+                (d(2024, 1, 15), d(2024, 2, 1)),
+                (d(2024, 5, 10), d(2024, 6, 1))
+            ]
+        );
+        assert_eq!(
+            cadence_origins(d(2024, 1, 1), 1, &[switch(d(2025, 1, 1), 12, 1)]),
+            vec![(d(2025, 1, 1), d(2025, 1, 1))]
         );
     }
 

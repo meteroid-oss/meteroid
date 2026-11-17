@@ -1,0 +1,16 @@
+[package]
+name = "common-clock"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The present as billing reads it, movable in tests."
+
+[dependencies]
+chrono = { workspace = true, features = ["clock"] }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[features]
+# Lets tests move `now`; only the test harness enables it.
+test-clock = []
+default = []

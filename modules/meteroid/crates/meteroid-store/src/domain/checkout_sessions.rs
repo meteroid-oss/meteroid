@@ -92,9 +92,7 @@ impl CheckoutSession {
 
     pub fn is_expired(&self) -> bool {
         self.status == CheckoutSessionStatus::Expired
-            || self
-                .expires_at
-                .is_some_and(|exp| common_domain::clock::now() > exp)
+            || self.expires_at.is_some_and(|exp| common_clock::now() > exp)
     }
 
     pub fn is_completed(&self) -> bool {
@@ -282,7 +280,7 @@ impl CreateCheckoutSession {
     pub fn try_into_row(self) -> Result<CheckoutSessionRowNew, crate::errors::StoreError> {
         let expires_at = self
             .expires_in_hours
-            .map(|h| common_domain::clock::now() + Duration::hours(h as i64));
+            .map(|h| common_clock::now() + Duration::hours(h as i64));
 
         let components = self
             .components

@@ -10,7 +10,7 @@ use crate::services::credit::{invalid, precondition};
 use billing_core::assembly::tax_inclusive::SubLinePrice;
 use billing_core::credit::SettleError;
 use billing_core::document as core;
-use common_domain::ids::BaseId;
+use common_domain::ids::SubscriptionId;
 use error_stack::Report;
 use rust_decimal::Decimal;
 
@@ -70,7 +70,7 @@ fn write_sub_lines(sub_lines: &mut [SubLineItem], prices: &[SubLinePrice]) {
 }
 
 /// `item` as the core reads it, billing `subscription` (resolved by `line_subscription`).
-pub(crate) fn line_of(item: &LineItem, subscription: Option<uuid::Uuid>) -> core::Line {
+pub(crate) fn line_of(item: &LineItem, subscription: Option<SubscriptionId>) -> core::Line {
     let kind = if item.kind == LineItemKind::Credit {
         core::LineKind::Credit
     } else if item.metric_id.is_some() && item.kind == LineItemKind::Regular {
@@ -84,7 +84,7 @@ pub(crate) fn line_of(item: &LineItem, subscription: Option<uuid::Uuid>) -> core
         id: item.local_id.clone(),
         kind,
         subscription,
-        product: item.credit_product().map(|id| id.as_uuid()),
+        product: item.credit_product(),
         recurring: item.metric_id.is_none(),
         figures: core::Figures {
             subtotal: item.amount_subtotal,
@@ -126,7 +126,7 @@ pub(crate) fn lines_of(items: &[LineItem], scope: LineScope<'_>) -> Vec<core::Li
         .map(|item| {
             line_of(
                 item,
-                line_subscription(item, scope.subscription_id, scope.owners).map(|id| id.as_uuid()),
+                line_subscription(item, scope.subscription_id, scope.owners),
             )
         })
         .collect()

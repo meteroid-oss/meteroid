@@ -57,6 +57,172 @@ pub(crate) fn assert_reconciles(invoice: &Invoice) {
     assert_eq!(lines_total, invoice.total, "the lines add up to the total");
 }
 
+/// What finalizing `invoice` wrote on the ledger, as (grant, kind, amount), by kind then amount.
+async fn movements_of(
+    setup: &MeteroidSetup,
+    invoice: &Invoice,
+) -> TestResult<Vec<(CreditGrantId, String, i64)>> {
+    let mut conn = setup.store.get_conn().await.map_err(test_error)?;
+    let mut movements: Vec<(CreditGrantId, String, i64)> =
+        diesel_models::customer_credit::CustomerCreditEntryRow::list_by_invoice(
+            &mut conn, TENANT_ID, invoice.id,
+        )
+        .await
+        .map_err(test_error)?
+        .into_iter()
+        .map(|entry| (entry.grant_id, entry.kind, entry.amount))
+        .collect();
+    movements.sort_by(|a, b| (&a.1, a.2).cmp(&(&b.1, b.2)));
+    Ok(movements)
+}
+
+/// Each line as (subtotal, taxable, tax, total, promotional credit).
+fn figures(invoice: &Invoice) -> Vec<(i64, i64, i64, i64, Option<i64>)> {
+    invoice
+        .line_items
+        .iter()
+        .map(|line| {
+            (
+                line.amount_subtotal,
+                line.taxable_amount,
+                line.tax_amount,
+                line.amount_total,
+                line.promotional_credit,
+            )
+        })
+        .collect()
+}
+
+/// The invoice as (subtotal, promotional, tax, total, applied, due).
+fn totals(invoice: &Invoice) -> (i64, i64, i64, i64, i64, i64) {
+    (
+        invoice.subtotal,
+        invoice.promotional_credits,
+        invoice.tax_amount,
+        invoice.total,
+        invoice.applied_credits,
+        invoice.amount_due,
+    )
+}
+
+/// One settlement of the invoice draws both pools: 30.00 of promotional credit off the 100.00
+/// before tax (20% of 70.00 is 14.00), then 50.00 of paid credit off the 84.00, 34.00 left due.
+/// Rules: R1, R8, R-021, I3
+#[tokio::test]
+async fn one_settlement_draws_promotional_then_paid_credit() -> TestResult {
+    let setup = setup().await;
+    let promo = promotional(&setup, Grant::invoice(3_000)).await;
+    let cash = paid(&setup, Grant::invoice(5_000)).await;
+    let invoice = taxed_draft(&setup, vec![taxed("Seats", 10_000)], false).await?;
+
+    let finalized = finalize(&setup, invoice.id).await?.invoice;
+    assert_eq!(
+        figures(&finalized),
+        vec![(10_000, 7_000, 1_400, 8_400, Some(3_000))]
+    );
+    assert_eq!(
+        totals(&finalized),
+        (10_000, 3_000, 1_400, 8_400, 5_000, 3_400)
+    );
+    assert_reconciles(&finalized);
+    assert_eq!(
+        movements_of(&setup, &finalized).await?,
+        vec![
+            (cash, "DRAW".to_owned(), -5_000),
+            (promo, "DRAW".to_owned(), -3_000),
+        ]
+    );
+    assert_eq!(remaining(&setup, promo).await, 0);
+    assert_eq!(remaining(&setup, cash).await, 0);
+    assert_ledger_balances(&setup.store, TENANT_ID, CUST_UBER_ID).await;
+    Ok(())
+}
+
+/// 20.00 of paid credit on a 120.00 invoice pays 20.00 of it; 100.00 is left due.
+/// Rules: R1, I3
+#[tokio::test]
+async fn paid_credit_pays_part_of_an_invoice() -> TestResult {
+    let setup = setup().await;
+    let cash = paid(&setup, Grant::invoice(2_000)).await;
+    let invoice = taxed_draft(&setup, vec![taxed("Seats", 10_000)], false).await?;
+
+    let finalized = finalize(&setup, invoice.id).await?.invoice;
+    assert_eq!(
+        figures(&finalized),
+        vec![(10_000, 10_000, 2_000, 12_000, None)]
+    );
+    assert_eq!(
+        totals(&finalized),
+        (10_000, 0, 2_000, 12_000, 2_000, 10_000)
+    );
+    assert_reconciles(&finalized);
+    assert_eq!(
+        movements_of(&setup, &finalized).await?,
+        vec![(cash, "DRAW".to_owned(), -2_000)]
+    );
+    assert_eq!(remaining(&setup, cash).await, 0);
+    assert_ledger_balances(&setup.store, TENANT_ID, CUST_UBER_ID).await;
+    Ok(())
+}
+
+/// 200.00 of paid credit pays a 120.00 invoice whole and keeps 80.00.
+/// Rules: R1, I2, I3
+#[tokio::test]
+async fn paid_credit_pays_a_whole_invoice() -> TestResult {
+    let setup = setup().await;
+    let cash = paid(&setup, Grant::invoice(20_000)).await;
+    let invoice = taxed_draft(&setup, vec![taxed("Seats", 10_000)], false).await?;
+
+    let finalized = finalize(&setup, invoice.id).await?.invoice;
+    assert_eq!(
+        figures(&finalized),
+        vec![(10_000, 10_000, 2_000, 12_000, None)]
+    );
+    assert_eq!(totals(&finalized), (10_000, 0, 2_000, 12_000, 12_000, 0));
+    assert_reconciles(&finalized);
+    assert_eq!(
+        movements_of(&setup, &finalized).await?,
+        vec![(cash, "DRAW".to_owned(), -12_000)]
+    );
+    assert_eq!(remaining(&setup, cash).await, 8_000);
+    assert_ledger_balances(&setup.store, TENANT_ID, CUST_UBER_ID).await;
+    Ok(())
+}
+
+/// 120.00 quoted tax included: 50.00 of promotional credit off the quote leaves 70.00, 58.33 net
+/// and 11.67 of tax (the line nets to 99.99, its net share of the credit 41.66); 30.00 of paid
+/// credit then pays 30.00 of the 70.00.
+/// Rules: R1, R-031, I3, I23
+#[tokio::test]
+async fn one_settlement_of_a_tax_inclusive_invoice() -> TestResult {
+    let setup = setup().await;
+    let promo = promotional(&setup, Grant::invoice(5_000)).await;
+    let cash = paid(&setup, Grant::invoice(3_000)).await;
+    let invoice = taxed_draft(&setup, vec![quoted("Seats", 12_000)], true).await?;
+
+    let finalized = finalize(&setup, invoice.id).await?.invoice;
+    assert_eq!(
+        figures(&finalized),
+        vec![(9_999, 5_833, 1_167, 7_000, Some(5_000))]
+    );
+    assert_eq!(
+        totals(&finalized),
+        (9_999, 4_166, 1_167, 7_000, 3_000, 4_000)
+    );
+    assert_reconciles(&finalized);
+    assert_eq!(
+        movements_of(&setup, &finalized).await?,
+        vec![
+            (promo, "DRAW".to_owned(), -5_000),
+            (cash, "DRAW".to_owned(), -3_000),
+        ]
+    );
+    assert_eq!(remaining(&setup, promo).await, 0);
+    assert_eq!(remaining(&setup, cash).await, 0);
+    assert_ledger_balances(&setup.store, TENANT_ID, CUST_UBER_ID).await;
+    Ok(())
+}
+
 #[tokio::test]
 async fn promotional_credit_comes_off_before_tax() -> TestResult {
     let setup = setup().await;

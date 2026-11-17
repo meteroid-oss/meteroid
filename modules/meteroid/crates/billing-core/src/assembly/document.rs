@@ -32,10 +32,10 @@ pub struct Assembled {
 /// earlier estimate gets back what that estimate took off it, so assembling is idempotent.
 pub fn assemble(lines: Vec<Line>, inputs: &AssemblyInputs) -> Assembled {
     let mut lines = lines;
+    // The discount is spread afresh: a line kept from an earlier estimate keeps none of its share.
     for line in &mut lines {
-        if let Some(share) = line.promotional.take() {
-            line.taxable += share;
-        }
+        line.promotional = None;
+        line.taxable = line.figures.subtotal;
     }
     let (coupons, discount) = match inputs.discount {
         Some(discount) => (Vec::new(), discount),
@@ -129,7 +129,7 @@ mod tests {
     fn coupons_apply_in_order_and_spread_over_the_lines() {
         let coupons = vec![
             Coupon {
-                coupon_id: Uuid::from_u128(1),
+                coupon_id: Uuid::from_u128(1).into(),
                 value: CouponValue::Fixed {
                     amount: Decimal::from(5),
                     currency: "USD".to_owned(),
@@ -137,7 +137,7 @@ mod tests {
                 },
             },
             Coupon {
-                coupon_id: Uuid::from_u128(2),
+                coupon_id: Uuid::from_u128(2).into(),
                 value: CouponValue::Percentage(Decimal::from(10)),
             },
         ];
@@ -169,6 +169,23 @@ mod tests {
         kept[0].taxable -= 300;
         kept[0].promotional = Some(300);
         assert_eq!(assemble(kept, &inputs(Vec::new())), first);
+    }
+
+    /// A line kept from a draft a 25 % coupon discounted, 5000 taxable 3750, assembled once the
+    /// coupon is no longer the invoice's: taxable 5000 again, none of the earlier share left.
+    #[test]
+    fn a_kept_line_sheds_a_discount_the_invoice_no_longer_takes() {
+        let discounted = assemble(
+            vec![line(5_000)],
+            &inputs(vec![Coupon {
+                coupon_id: Uuid::from_u128(1).into(),
+                value: CouponValue::Percentage(Decimal::from(25)),
+            }]),
+        );
+        assert_eq!(discounted.lines[0].taxable, 3_750);
+        let assembled = assemble(discounted.lines, &inputs(Vec::new()));
+        assert_eq!(assembled.discount, 0);
+        assert_eq!(assembled.lines[0].taxable, 5_000);
     }
 
     #[test]

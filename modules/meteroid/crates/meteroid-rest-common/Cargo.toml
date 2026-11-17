@@ -10,6 +10,7 @@ async-trait.workspace = true
 axum = { workspace = true, features = ["default", "macros", "http2"] }
 axum-valid = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
+common-clock = { workspace = true }
 common-domain = { workspace = true, features = ["utoipa", "tonic"] }
 common-grpc = { workspace = true, features = ["server"] }
 http = { workspace = true }

@@ -13,7 +13,9 @@ use crate::errors::StoreError;
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::services::InvoiceDelivery;
 use crate::services::Services;
-use crate::services::checkout_completion::{ChargeNeeded, PaymentCoupons};
+use crate::services::checkout_completion::{
+    ChargeNeeded, PaymentCoupons, payment_method_not_found,
+};
 use crate::store::PgConn;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use common_domain::ids::{
@@ -267,7 +269,7 @@ impl Services {
         let charge = self.load_unsent_charge(&mut conn, &row).await;
         drop(conn);
 
-        let age = common_domain::clock::now() - row.created_at;
+        let age = common_clock::now() - row.created_at;
         let charge = match charge {
             Ok(charge) => charge,
             Err(e) if age >= longest_charge_replay_window() => {
@@ -906,7 +908,7 @@ impl Services {
         at: DateTime<Utc>,
         delivery: InvoiceDelivery,
     ) -> StoreResult<PaymentTransaction> {
-        if at > common_domain::clock::now() {
+        if at > common_clock::now() {
             return Err(Report::new(StoreError::InvalidArgument(
                 "an invoice cannot be charged at a future moment".to_owned(),
             )));

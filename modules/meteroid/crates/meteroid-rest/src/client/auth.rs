@@ -89,7 +89,7 @@ async fn stored_token(token: &str, app_state: &AppState) -> Result<TokenGrant, R
         })?
         .ok_or(Rejection::unauthorized("Invalid token"))?;
 
-    match portal_token.status(common_domain::clock::wall()) {
+    match portal_token.status(common_clock::wall()) {
         PortalTokenStatus::Active => {}
         PortalTokenStatus::Expired => return Err(Rejection::expired()),
         PortalTokenStatus::Revoked => return Err(Rejection::unauthorized("Invalid token")),

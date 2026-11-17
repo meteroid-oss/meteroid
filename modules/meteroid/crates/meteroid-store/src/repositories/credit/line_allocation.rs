@@ -27,9 +27,6 @@ pub(crate) fn line_allocation(
         &allocation.into(),
         |index, _| base(&lines[index]),
     )
-    .into_iter()
-    .map(|(grant_id, line, amount)| (CreditGrantId::from(grant_id), line, amount))
-    .collect()
 }
 
 /// Records [`line_allocation`] for `invoice_id` (or the note giving credit back on it). The caller

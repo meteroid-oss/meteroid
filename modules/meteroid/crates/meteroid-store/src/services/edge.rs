@@ -114,6 +114,28 @@ impl ServicesEdge {
             .await
     }
 
+    /// The invoice of the stored subscription's period starting `invoice_date`, from its facts.
+    pub async fn compute_period_invoice(
+        &self,
+        invoice_date: &NaiveDate,
+        subscription_details: &SubscriptionDetails,
+    ) -> StoreResult<ComputedInvoiceContent> {
+        self.services
+            .compute_invoice_from_facts(
+                &mut self.get_conn().await?,
+                invoice_date,
+                subscription_details,
+                None,
+                None,
+                crate::domain::enums::InvoiceType::Recurring,
+                crate::services::invoice_lines::credit_units::CreditUnitCover::Estimate {
+                    invoice_id: None,
+                },
+                None,
+            )
+            .await
+    }
+
     /// The next invoice as `upcoming_invoice_forecast` estimates it.
     pub async fn compute_upcoming_invoice(
         &self,
@@ -462,7 +484,7 @@ impl ServicesEdge {
                         charge,
                         crate::services::DefaultMethodAdoption::Paid {
                             on_session: true,
-                            started_at: common_domain::clock::now(),
+                            started_at: common_clock::now(),
                         },
                     )
                     .await?,
@@ -521,7 +543,7 @@ impl ServicesEdge {
                         payment: transaction.id,
                         at: transaction
                             .processed_at
-                            .map_or_else(common_domain::clock::now, |at| at.and_utc()),
+                            .map_or_else(common_clock::now, |at| at.and_utc()),
                     }),
                     crate::domain::wallet_events::CreditUnrecoveredCause::PaymentReversed,
                     None,
@@ -858,9 +880,12 @@ impl ServicesEdge {
                 "Plan version not found".to_string(),
             ))?;
 
-            let is_free_trial = subscription.trial_duration.is_some() && plan_version.trial_is_free;
-            let is_paid_trial =
-                subscription.trial_duration.is_some() && !plan_version.trial_is_free;
+            let trial_is_free =
+                crate::services::subscriptions::recorded_trial_free_tx(conn, subscription.id)
+                    .await?
+                    .unwrap_or(plan_version.trial_is_free);
+            let is_free_trial = subscription.trial_duration.is_some() && trial_is_free;
+            let is_paid_trial = subscription.trial_duration.is_some() && !trial_is_free;
 
             // Handle coupon if provided - lock and validate before any charging
             if let Some(code) = coupon_code.filter(|code| !code.trim().is_empty()) {
@@ -902,7 +927,7 @@ impl ServicesEdge {
                         applied_amount: None,
                         applied_count: None,
                         last_applied_at: None,
-                        effective_from: common_domain::clock::now().date_naive(),
+                        effective_from: common_clock::now().date_naive(),
                     };
 
                     apply_coupons_without_validation(conn, &*self.store.hooks.credit, &[&applied_coupon], tenant_id).await?;
@@ -1636,31 +1661,53 @@ impl ServicesEdge {
             )
             .await?;
         prepared.ensure_immediate_allowed()?;
-
-        if prepared.is_free_trial() {
-            let preview_details =
-                prepared.build_trial_change_preview(change_date, new_plan_version_id)?;
-            self.services
-                .compute_invoice(
-                    &mut conn,
-                    &preview_details.subscription.current_period_start,
-                    &preview_details,
-                    None,
-                    None,
-                    crate::domain::enums::InvoiceType::Recurring,
-                )
-                .await
-                .change_context(StoreError::InvoiceComputationError)
-        } else {
-            self.services
-                .dry_run_plan_change_adjustment_tx(
-                    &mut conn,
-                    &prepared,
-                    new_plan_version_id,
-                    change_date,
-                )
-                .await
+        // The old packs' settlement reads metering: each pass records what it was not served,
+        // read between passes, outside its transaction.
+        let mut passes = crate::services::served_usage::UsagePasses::default();
+        loop {
+            let usage = passes.next_pass()?;
+            let quoted = self
+                .services
+                .reading_usage(usage.clone())
+                .plan_change_quote(&mut conn, &prepared, new_plan_version_id, change_date)
+                .await;
+            if passes
+                .served(self.services.usage_client.as_ref(), &usage)
+                .await?
+            {
+                return quoted;
+            }
         }
+    }
+
+    /// What buying the add-ons of an add-on purchase checkout bills, priced on `change_date` as
+    /// the purchase prices it, and the add-ons it stores.
+    pub async fn compute_addon_purchase_checkout_invoice(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        add_ons: &[crate::domain::subscription_add_ons::CreateSubscriptionAddOn],
+        change_date: NaiveDate,
+    ) -> StoreResult<(
+        ComputedInvoiceContent,
+        Vec<crate::domain::subscription_add_ons::SubscriptionAddOn>,
+    )> {
+        let mut conn = self.get_conn().await?;
+        self.services
+            .add_on_purchase_quote(&mut conn, tenant_id, subscription_id, add_ons, change_date)
+            .await
+    }
+
+    /// The first invoice of the subscription `details` describe, not created yet: what its
+    /// checkout charges.
+    pub async fn compute_new_subscription_invoice(
+        &self,
+        details: &SubscriptionDetails,
+    ) -> StoreResult<ComputedInvoiceContent> {
+        let mut conn = self.get_conn().await?;
+        self.services
+            .preview_new_subscription_invoice(&mut conn, details)
+            .await
     }
 
     pub async fn apply_plan_change_immediate(
@@ -3038,7 +3085,7 @@ impl ServicesEdge {
                     tenant_id,
                     checkout_session_id,
                     subscription_id,
-                    common_domain::clock::now(),
+                    common_clock::now(),
                 )
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
@@ -3086,14 +3133,7 @@ impl ServicesEdge {
 
             let invoice_content = self
                 .services
-                .compute_invoice(
-                    conn,
-                    &preview_details.subscription.current_period_start,
-                    &preview_details,
-                    None,
-                    None,
-                    crate::domain::enums::InvoiceType::Recurring,
-                )
+                .preview_new_subscription_invoice(conn, &preview_details)
                 .await
                 .change_context(StoreError::InvoiceComputationError)?;
 
@@ -3224,7 +3264,7 @@ impl ServicesEdge {
 
             let start_date = session
                 .billing_start_date
-                .unwrap_or_else(|| common_domain::clock::now().date_naive());
+                .unwrap_or_else(|| common_clock::now().date_naive());
 
             let create_subscription = session.to_create_subscription(start_date, coupon_ids)?;
 
@@ -3395,7 +3435,7 @@ impl ServicesEdge {
                 tenant_id,
                 checkout_session_id,
                 created_subscription.id,
-                common_domain::clock::now(),
+                common_clock::now(),
             )
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
@@ -3585,7 +3625,7 @@ impl ServicesEdge {
         };
         use crate::repositories::checkout_sessions::CheckoutSessionsInterface;
 
-        let today = common_domain::clock::now().date_naive();
+        let today = common_clock::now().date_naive();
 
         let session = CreateCheckoutSession {
             tenant_id,
@@ -3639,9 +3679,6 @@ impl ServicesEdge {
     ) -> Result<CheckoutCompletionResult, StoreErrorReport> {
         // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
         Box::pin(async move {
-            use crate::repositories::subscription_add_ons::resolve_and_insert_checkout_addons;
-            use crate::repositories::subscriptions::fetch_prices_and_products;
-
             let subscription_id = session.subscription_id.ok_or_else(|| {
                 Report::new(StoreError::InvalidArgument(
                     "Session has no linked subscription for addon purchase flow".to_string(),
@@ -3654,80 +3691,25 @@ impl ServicesEdge {
                 ))
             })?;
 
-            let addon_ids: Vec<_> = create_add_ons.add_ons.iter().map(|a| a.add_on_id).collect();
-            let addons = {
-                let rows =
-                    diesel_models::add_ons::AddOnRow::list_by_ids(conn, &addon_ids, &tenant_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-                crate::repositories::add_ons::enrich_add_ons(conn, rows, tenant_id).await?
-            };
-
-            let product_ids: Vec<_> = addons.iter().map(|a| a.product_id).collect();
-            let price_ids: Vec<_> = addons.iter().map(|a| a.price_id).collect();
-            let (prices_by_id, products_by_id) = fetch_prices_and_products(
-                conn,
-                tenant_id,
-                price_ids.into_iter(),
-                product_ids.into_iter(),
-            )
-            .await?;
-
-            let units = crate::repositories::credit_units::load_add_on_credit_units(
-                conn,
-                tenant_id,
-                &prices_by_id,
-                &create_add_ons.add_ons,
-            )
-            .await?;
-
-            let addon_effective_from = session
-                .change_date
-                .unwrap_or_else(|| common_domain::clock::now().naive_utc().date());
-
-            resolve_and_insert_checkout_addons(
-                conn,
-                subscription_id,
-                &addons,
-                &create_add_ons.add_ons,
-                &products_by_id,
-                &prices_by_id,
-                &units,
-                addon_effective_from,
-            )
-            .await?;
-            crate::services::subscriptions::cadence::realign_cadence_tx(
+            // Bought the day it is paid, as the quote prices it. The rows are written once the
+            // charge settles: an accepted one leaves them to its settlement.
+            let addon_effective_from = common_clock::now().date_naive();
+            let rows = crate::repositories::subscription_add_ons::checkout_add_on_rows(
                 conn,
                 tenant_id,
                 subscription_id,
+                &create_add_ons.add_ons,
                 addon_effective_from,
             )
             .await?;
-
-            // Add-ons are now attached; the whole flow runs in one transaction, so this
-            // `subscription.updated` commits (and is published) iff the purchase does.
-            self.services
-                .emit_subscription_updated_tx(
-                    conn,
-                    tenant_id,
-                    subscription_id,
-                    crate::domain::outbox_event::SubscriptionUpdateType::Amended,
-                )
-                .await?;
-
             let result = self
                 .services
                 .compute_addon_purchase_invoice(
                     conn,
                     tenant_id,
                     subscription_id,
-                    &create_add_ons.add_ons,
-                    &addons,
-                    &products_by_id,
-                    &prices_by_id,
-                    &units,
-                    // Interactive: priced today, like the checkout preview.
-                    common_domain::clock::now().date_naive(),
+                    &rows,
+                    addon_effective_from,
                 )
                 .await?;
 
@@ -3756,15 +3738,13 @@ impl ServicesEdge {
             if charge_amount <= 0 {
                 let draft = self
                     .services
-                    .create_adjustment_invoice_from_content(
+                    .record_addon_purchase_tx(
                         conn,
-                        &result.subscription,
-                        &result.customer,
-                        &result.proration,
-                        crate::services::invoices::AdjustmentInvoiceContent {
-                            computed: result.invoice_content,
-                            invoicing_entity: None,
-                        },
+                        tenant_id,
+                        subscription_id,
+                        &rows,
+                        addon_effective_from,
+                        result,
                     )
                     .await?;
                 if let Some(invoice) = draft {
@@ -3784,7 +3764,7 @@ impl ServicesEdge {
                     tenant_id,
                     checkout_session_id,
                     subscription_id,
-                    common_domain::clock::now(),
+                    common_clock::now(),
                 )
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
@@ -3809,21 +3789,15 @@ impl ServicesEdge {
                 charge_result.payment_intent.status == crate::domain::PaymentStatusEnum::Settled;
 
             if payment_settled {
-                use crate::services::invoices::AdjustmentInvoiceContent;
-
-                let content = AdjustmentInvoiceContent {
-                    computed: result.invoice_content,
-                    invoicing_entity: None,
-                };
-
                 let draft = self
                     .services
-                    .create_adjustment_invoice_from_content(
+                    .record_addon_purchase_tx(
                         conn,
-                        &result.subscription,
-                        &result.customer,
-                        &result.proration,
-                        content,
+                        tenant_id,
+                        subscription_id,
+                        &rows,
+                        addon_effective_from,
+                        result,
                     )
                     .await?;
 
@@ -3848,7 +3822,7 @@ impl ServicesEdge {
                     tenant_id,
                     checkout_session_id,
                     subscription_id,
-                    common_domain::clock::now(),
+                    common_clock::now(),
                 )
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
@@ -3943,23 +3917,13 @@ impl ServicesEdge {
             )));
         }
 
-        // Free trial: compute exact amount via virtual preview, charge,
-        // then execute plan change + create invoice.
+        // Free trial: the new plan's first invoice, priced from the facts with the change's rows
+        // laid over them; charged, then the plan change is executed and the invoice created.
         if is_free_trial {
-            let preview_details =
-                prepared.build_trial_change_preview(change_date, new_plan_version_id)?;
             let invoice_content = self
                 .services
-                .compute_invoice(
-                    conn,
-                    &preview_details.subscription.current_period_start,
-                    &preview_details,
-                    None,
-                    None,
-                    crate::domain::enums::InvoiceType::Recurring,
-                )
-                .await
-                .change_context(StoreError::InvoiceComputationError)?;
+                .plan_change_quote(conn, &prepared, new_plan_version_id, change_date)
+                .await?;
 
             let charge_amount = invoice_content.amount_due;
 
@@ -3991,7 +3955,7 @@ impl ServicesEdge {
                     tenant_id,
                     checkout_session_id,
                     subscription_id,
-                    common_domain::clock::now(),
+                    common_clock::now(),
                 )
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
@@ -4150,7 +4114,7 @@ impl ServicesEdge {
                     tenant_id,
                     checkout_session_id,
                     subscription_id,
-                    common_domain::clock::now(),
+                    common_clock::now(),
                 )
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
@@ -4161,15 +4125,14 @@ impl ServicesEdge {
                 })
             }
         } else {
-            // Normal plan change. Priced as the change would issue it (old plan settled first, so
-            // its period credit never pays the new charges), in a savepoint rolled back: nothing
-            // is applied, granted or credited before the payment settles.
+            // Normal plan change. Priced as the change issues it, from the facts with its rows
+            // laid over them: nothing is applied, granted or credited before the payment settles.
             let actor = Actor::Customer {
                 id: session.customer_id,
             };
             let served = self.services.served_only(usage);
             let quote = served
-                .dry_run_plan_change_adjustment_tx(conn, &prepared, new_plan_version_id, change_date)
+                .plan_change_quote(conn, &prepared, new_plan_version_id, change_date)
                 .await?;
             let amount_due = quote.amount_due;
             if (amount_due - total_amount_confirmation as i64).abs() > 1 {
@@ -4205,7 +4168,7 @@ impl ServicesEdge {
                     tenant_id,
                     checkout_session_id,
                     subscription_id,
-                    common_domain::clock::now(),
+                    common_clock::now(),
                 )
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
@@ -4267,7 +4230,7 @@ impl ServicesEdge {
                     &charge_result,
                     crate::services::DefaultMethodAdoption::Paid {
                             on_session: true,
-                            started_at: common_domain::clock::now(),
+                            started_at: common_clock::now(),
                         },
                 )
                 .await?;
@@ -4285,7 +4248,7 @@ impl ServicesEdge {
                 tenant_id,
                 checkout_session_id,
                 subscription_id,
-                common_domain::clock::now(),
+                common_clock::now(),
             )
             .await
             .map_err(Into::<Report<StoreError>>::into)?;

@@ -357,7 +357,7 @@ impl CustomerCreditGrantRow {
         diesel::insert_into(g::customer_credit_grant)
             .values((
                 row,
-                crate::schema::customer_credit_grant::created_at.eq(common_domain::clock::now()),
+                crate::schema::customer_credit_grant::created_at.eq(common_clock::now()),
             ))
             .on_conflict((g::tenant_id, g::source_kind, g::source_id))
             .do_nothing()
@@ -662,7 +662,7 @@ impl CustomerCreditGrantRow {
         .bind::<sql_types::BigInt, _>(limit)
         .bind::<sql_types::Nullable<sql_types::Uuid>, _>(after_tenant)
         .bind::<sql_types::Nullable<sql_types::Uuid>, _>(after_subscription)
-        .bind::<sql_types::Timestamptz, _>(common_domain::clock::now())
+        .bind::<sql_types::Timestamptz, _>(common_clock::now())
         .bind::<sql_types::Nullable<sql_types::Uuid>, _>(customer)
         .load(conn)
         .await
@@ -1040,7 +1040,7 @@ impl CustomerCreditEntryRow {
         diesel::insert_into(e::customer_credit_entry)
             .values((
                 row,
-                crate::schema::customer_credit_entry::created_at.eq(common_domain::clock::now()),
+                crate::schema::customer_credit_entry::created_at.eq(common_clock::now()),
             ))
             .on_conflict((e::grant_id, e::kind, e::source_id))
             .do_nothing()
@@ -1325,7 +1325,7 @@ impl CreditLineAllocationRowNew {
                         (
                             row,
                             crate::schema::customer_credit_line_allocation::created_at
-                                .eq(common_domain::clock::now()),
+                                .eq(common_clock::now()),
                         )
                     })
                     .collect::<Vec<_>>(),
@@ -1344,7 +1344,7 @@ impl CreditPurchaseRow {
         let row = CreditPurchaseRowNew {
             created_at: row
                 .created_at
-                .or_else(|| Some(common_domain::clock::now().naive_utc())),
+                .or_else(|| Some(common_clock::now().naive_utc())),
             ..row.clone()
         };
         diesel::insert_into(p::customer_credit_purchase)
@@ -1898,7 +1898,7 @@ impl CreditUnrecoveredRow {
             .set((
                 u::reported.eq(self.reported),
                 u::notices.eq(self.notices),
-                u::updated_at.eq(common_domain::clock::now().naive_utc()),
+                u::updated_at.eq(common_clock::now().naive_utc()),
             ))
             .execute(conn)
             .await

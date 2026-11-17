@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Fails when code reads the clock directly: the present comes from `common_domain::clock::now`,
-# which tests can move, and the real time from `common_domain::clock::wall`. SQL that reads the
+# Fails when code reads the clock directly: the present comes from `common_clock::now`,
+# which tests can move, and the real time from `common_clock::wall`. SQL that reads the
 # database's clock is a direct read too, unless clock-sites.allowlist names it.
 set -euo pipefail
 
@@ -40,8 +40,16 @@ while IFS= read -r hit; do
 done <<<"$hits"
 
 if ((${#failures[@]})); then
-  echo "❌ Read the clock through common_domain::clock::now() (or ::wall() for real time), and bind it in SQL:" >&2
+  echo "❌ Read the clock through common_clock::now() (or ::wall() for real time), and bind it in SQL:" >&2
   for f in "${failures[@]}"; do echo "   ${f:0:200}" >&2; done
   exit 1
 fi
-echo "✅ The clock is read through common_domain::clock."
+
+# The core is a pure function of its inputs: the present is passed in, never read.
+CORE="$ROOT/modules/meteroid/crates/billing-core"
+if grep -nE '^\s*common-clock\b' "$CORE/Cargo.toml" >&2 \
+  || grep -rnP "\bcommon_clock\b|\b(Utc|Local)::now\b|SystemTime::now\(" --include='*.rs' "$CORE/src" >&2; then
+  echo "❌ billing-core never reads the clock: pass the instant in." >&2
+  exit 1
+fi
+echo "✅ The clock is read through common_clock."

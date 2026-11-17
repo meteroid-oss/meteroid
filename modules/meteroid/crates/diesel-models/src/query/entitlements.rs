@@ -286,10 +286,7 @@ impl FeatureRow {
         let query = diesel::update(feature)
             .filter(id.eq(param_id))
             .filter(tenant_id.eq(param_tenant_id))
-            .set((
-                status.eq(new_status),
-                updated_at.eq(common_domain::clock::now()),
-            ));
+            .set((status.eq(new_status), updated_at.eq(common_clock::now())));
         crate::debug_sql(&query);
 
         query

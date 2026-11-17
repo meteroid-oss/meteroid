@@ -1,7 +1,6 @@
 use crate::StoreResult;
+use crate::domain::SubscriptionDetails;
 use crate::domain::entity_activity::{Activity, ActivityType, Actor, AuditInput, EntityType};
-use crate::domain::subscription_changes::{ProrationResult, RemovedComponent};
-use crate::domain::{SubscriptionAddOn, SubscriptionDetails};
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::repositories::entity_activity::EntityActivityInterface;
@@ -9,8 +8,6 @@ use crate::services::credit::scope::ends_credit;
 use crate::services::credit::subscription_end::end_subscription_credit_tx;
 use crate::services::subscriptions::mrr::subscription_movement;
 use crate::services::subscriptions::plan_change_credit::CancellationRecord;
-use crate::services::subscriptions::proration::calculate_proration_by;
-use crate::services::subscriptions::utils::scale_fee;
 use crate::services::{InvoiceBillingMode, Services};
 use crate::store::PgConn;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
@@ -26,6 +23,11 @@ use uuid::Uuid;
 /// Whether terminations issue final invoices. Off in the release that teaches every reader the
 /// final invoice (so a binary rolled back to it never bills a final window twice), on after it.
 const ISSUES_FINAL_INVOICES: bool = false;
+
+/// Whether terminations issue final invoices.
+pub(in crate::services) fn issues_final_invoices() -> bool {
+    ISSUES_FINAL_INVOICES
+}
 
 /// Whether an immediate cancellation at `usage_cutoff` left usage to bill on `on`, after midnight.
 fn final_window_open(on: NaiveDate, usage_cutoff: Option<NaiveDateTime>) -> bool {
@@ -184,7 +186,15 @@ impl Services {
                 ),
             )
             .await
-            .map_err(Into::<error_stack::Report<StoreError>>::into)?;
+            .map_err(Into::<error_stack::Report<StoreError>>::into)?
+                + crate::services::facts::pending::withdraw_pending_of_tx(
+                    conn,
+                    tenant_id,
+                    subscription_id,
+                    crate::services::facts::pending::CHANGES,
+                    "Subscription terminated",
+                )
+                .await?;
 
             if cancelled_count > 0 {
                 log::info!(
@@ -202,7 +212,7 @@ impl Services {
                     tenant_id,
                     subscription_id,
                     ended_at,
-                    common_domain::clock::now(),
+                    common_clock::now(),
                 )
                 .await?;
             }
@@ -290,13 +300,9 @@ impl Services {
         .await
     }
 
-    /// Credits the unused, advance-billed part of the period of a subscription cancelled
-    /// mid-period, as an immediate plan change does: notes against the invoices that billed its
-    /// fees, a shortfall charged up front before the true-up, and its period packs, each pack
-    /// capped by its unused paid credit
-    /// once it paid the usage up to `ended_at`. Fees prorate by whole days (the termination day
-    /// counts as unused) while usage runs to the exact instant. Returns what to record for the
-    /// period's invoices still drafts, credited once issued.
+    /// Credits what a cancellation mid-period leaves unused: each fee's lines by their unused time
+    /// (R-077), a shortfall charged up front, its period packs capped by their unused paid credit.
+    /// Returns what to record for the period's drafts, credited once issued.
     async fn issue_cancellation_refund(
         &self,
         conn: &mut PgConn,
@@ -309,13 +315,14 @@ impl Services {
         Box::pin(async move {
             let sub = &details.subscription;
 
-            // Only an open mid-period cancellation can leave unused advance to refund.
+            // Only an open period, or one a backdated cancellation reaches into, can leave unused
+            // advance to refund: from its date, every period issued since comes back too (R-077).
+            // Ending on the period's end still ends a longer fee's period, billed past it.
             let period_start = sub.current_period_start;
             let Some(period_end) = sub.current_period_end else {
                 return Ok(None);
             };
-            // On the period's first day nothing of it was used: the whole period comes back.
-            if termination_date < period_start || termination_date >= period_end {
+            if termination_date > period_end {
                 return Ok(None);
             }
             // A free trial has billed nothing in advance; a paid trial did, like any period.
@@ -325,26 +332,8 @@ impl Services {
                 return Ok(None);
             }
 
-            let precision = crate::constants::Currencies::resolve_currency_precision(&sub.currency)
-                .unwrap_or(2);
-            let grid = crate::services::subscriptions::proration::OwnGrid::read(
-                conn,
-                sub,
-                (period_start, period_end),
-                termination_date,
-            )
-            .await?;
-            let proration = cancellation_proration(details, grid, termination_date, precision);
-            debug_assert!(proration.lines.iter().all(|line| line.amount_cents <= 0));
             let notes = self
-                .settle_cancelled_components_tx(
-                    conn,
-                    actor,
-                    details,
-                    &proration,
-                    termination_date,
-                    ended_at,
-                )
+                .settle_cancelled_components_tx(conn, actor, details, termination_date, ended_at)
                 .await?;
             // An invoice of the period still a draft is credited the same way once issued.
             Ok(Some((
@@ -478,7 +467,7 @@ impl Services {
                     id: Uuid::now_v7(),
                     mrr_delta: None,
                     event_type: SubscriptionEventType::Ended,
-                    created_at: common_domain::clock::now().naive_utc(),
+                    created_at: common_clock::now().naive_utc(),
                     applies_to: completion_date,
                     subscription_id,
                     bi_mrr_movement_log_id: None,
@@ -572,45 +561,5 @@ impl Services {
             }
         );
         Ok(())
-    }
-}
-
-/// The unused part, from `termination_date`, of the period `[period_start, period_end)` that the
-/// subscription's components and add-ons billed in advance: what its cancellation credits.
-pub(crate) fn cancellation_proration(
-    details: &SubscriptionDetails,
-    grid: crate::services::subscriptions::proration::OwnGrid,
-    termination_date: NaiveDate,
-    precision: u8,
-) -> ProrationResult {
-    // Keyed by lineage, so the credit matches the line that originally billed it in advance.
-    let mut removed: Vec<RemovedComponent> = Vec::new();
-    for c in &details.price_components {
-        removed.push(RemovedComponent {
-            name: c.name.clone(),
-            current_fee: c.fee.clone(),
-            current_period: c.period,
-            net_key: Some(c.lineage().to_string()),
-        });
-    }
-    removed.extend(details.add_ons.iter().map(removed_add_on));
-    calculate_proration_by(
-        &[],
-        &[],
-        &removed,
-        grid.current,
-        termination_date,
-        precision,
-        crate::services::subscriptions::proration::stub_on_own_grid(grid, termination_date),
-    )
-}
-
-/// An ending add-on as the proration credits it: its fee for every instance, keyed by lineage.
-pub(crate) fn removed_add_on(add_on: &SubscriptionAddOn) -> RemovedComponent {
-    RemovedComponent {
-        name: add_on.name.clone(),
-        current_fee: scale_fee(&add_on.fee, add_on.quantity),
-        current_period: add_on.period,
-        net_key: Some(add_on.lineage().to_string()),
     }
 }

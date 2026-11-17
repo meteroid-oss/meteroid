@@ -122,8 +122,8 @@ impl SubscriptionComponentRow {
             .into_db_result()
     }
 
-    /// The components not ended by `as_of`; `None`: the open ones, as readers took them before
-    /// rows were dated (they read a date from Phase 7 PR 3).
+    /// The components in force on `as_of`, future-dated ones aside; `None`: the open ones, as
+    /// readers took them before rows were dated.
     pub async fn list_subscription_components_by_subscription(
         conn: &mut PgConn,
         tenant_id_params: &TenantId,
@@ -133,16 +133,22 @@ impl SubscriptionComponentRow {
         use crate::schema::subscription_component::dsl as subscription_component_dsl;
         use diesel_async::RunQueryDsl;
 
-        let query = subscription_component_dsl::subscription_component
+        let mut query = subscription_component_dsl::subscription_component
             .inner_join(crate::schema::subscription::table)
             .filter(subscription_component_dsl::subscription_id.eq(subscription_id))
             .filter(crate::schema::subscription::tenant_id.eq(tenant_id_params))
-            .filter(
-                subscription_component_dsl::effective_to
-                    .is_null()
-                    .or(subscription_component_dsl::effective_to.gt(as_of)),
-            )
-            .select(SubscriptionComponentRow::as_select());
+            .select(SubscriptionComponentRow::as_select())
+            .into_boxed();
+        query = match as_of {
+            Some(on) => query
+                .filter(subscription_component_dsl::effective_from.le(on))
+                .filter(
+                    subscription_component_dsl::effective_to
+                        .is_null()
+                        .or(subscription_component_dsl::effective_to.gt(on)),
+                ),
+            None => query.filter(subscription_component_dsl::effective_to.is_null()),
+        };
 
         crate::debug_sql(&query);
 
@@ -161,11 +167,17 @@ impl SubscriptionComponentRow {
         use crate::schema::subscription_component::dsl as subscription_component_dsl;
         use diesel_async::RunQueryDsl;
 
+        // In force on the subscription's read day: a change dated later shows from its date.
         let query = subscription_component_dsl::subscription_component
             .filter(subscription_component_dsl::subscription_id.eq_any(subscription_ids))
             .inner_join(crate::schema::subscription::table)
             .filter(crate::schema::subscription::tenant_id.eq(tenant_id_param))
-            .filter(subscription_component_dsl::effective_to.is_null())
+            .filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
+                &crate::query::subscription_facts::in_force_sql(
+                    "subscription_component",
+                    "subscription",
+                ),
+            ))
             .select(SubscriptionComponentRow::as_select());
 
         crate::debug_sql(&query);
@@ -215,11 +227,17 @@ impl SubscriptionComponentRow {
         use crate::schema::subscription_component::dsl as sc_dsl;
         use diesel_async::RunQueryDsl;
 
+        // In force on the subscription's read day: a change dated later shows from its date.
         let query = sc_dsl::subscription_component
             .inner_join(crate::schema::subscription::table)
             .filter(sc_dsl::product_id.eq(product_id))
             .filter(crate::schema::subscription::tenant_id.eq(tenant_id))
-            .filter(sc_dsl::effective_to.is_null())
+            .filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
+                &crate::query::subscription_facts::in_force_sql(
+                    "subscription_component",
+                    "subscription",
+                ),
+            ))
             .select(SubscriptionComponentRow::as_select());
 
         crate::debug_sql(&query);
@@ -249,12 +267,18 @@ impl SubscriptionComponentRow {
             SubscriptionStatusEnum::Active,
         ];
 
+        // In force on the subscription's read day: a change dated later shows from its date.
         let query = sc_dsl::subscription_component
             .inner_join(crate::schema::subscription::table)
             .filter(sc_dsl::product_id.eq(product_id))
             .filter(crate::schema::subscription::tenant_id.eq(tenant_id))
             .filter(crate::schema::subscription::status.eq_any(active_statuses))
-            .filter(sc_dsl::effective_to.is_null())
+            .filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
+                &crate::query::subscription_facts::in_force_sql(
+                    "subscription_component",
+                    "subscription",
+                ),
+            ))
             .select(count(sc_dsl::subscription_id).aggregate_distinct());
 
         crate::debug_sql(&query);
@@ -321,22 +345,27 @@ impl SubscriptionComponentRow {
             .into_db_result()
     }
 
-    /// Close active components by setting effective_to.
+    /// Closes the open rows of `ids` on `effective_to`; returns how many were open.
     pub async fn close_components(
         conn: &mut PgConn,
         ids: &[SubscriptionPriceComponentId],
         effective_to: NaiveDate,
-    ) -> DbResult<()> {
+    ) -> DbResult<usize> {
         use crate::schema::subscription_component::dsl as sc_dsl;
         use diesel_async::RunQueryDsl;
 
         if ids.is_empty() {
-            return Ok(());
+            return Ok(0);
         }
 
         let query = diesel::update(sc_dsl::subscription_component)
             .filter(sc_dsl::id.eq_any(ids))
-            .filter(sc_dsl::effective_to.is_null())
+            // The row in force on the day, one a later change already ends included.
+            .filter(
+                sc_dsl::effective_to
+                    .is_null()
+                    .or(sc_dsl::effective_to.gt(effective_to)),
+            )
             .set(sc_dsl::effective_to.eq(effective_to));
 
         crate::debug_sql(&query);
@@ -345,7 +374,6 @@ impl SubscriptionComponentRow {
             .execute(conn)
             .await
             .attach("Error while closing subscription components")
-            .map(|_| ())
             .into_db_result()
     }
 
@@ -394,11 +422,17 @@ impl SubscriptionComponentRow {
             return Ok(vec![]);
         }
 
+        // In force on the subscription's read day: a change dated later shows from its date.
         let query = sc_dsl::subscription_component
             .inner_join(s_dsl::subscription)
             .filter(sc_dsl::subscription_id.eq_any(subscription_ids))
             .filter(s_dsl::tenant_id.eq(tenant_id))
-            .filter(sc_dsl::effective_to.is_null())
+            .filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
+                &crate::query::subscription_facts::in_force_sql(
+                    "subscription_component",
+                    "subscription",
+                ),
+            ))
             .filter(not(sc_dsl::product_id.is_null()))
             .select(sc_dsl::product_id);
 

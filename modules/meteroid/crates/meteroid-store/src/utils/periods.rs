@@ -284,6 +284,22 @@ pub(crate) fn subtract_months_at_billing_day(
         .and_then(|d| d.with_day(d.days_in_month().min(billing_day)))
 }
 
+/// The change of cadence whose grid a record living over `[from, to)` bills on (`runs`, latest
+/// first): the latest on or before its start, as a record kept through a change keeps its grid
+/// (R-084); one with no start, the latest before it ended. None: the billing start's grid.
+pub fn run_in_force(
+    runs: &[CadenceRun],
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+) -> Option<&CadenceRun> {
+    match from {
+        Some(from) => runs.iter().find(|run| run.switched_on <= from),
+        None => runs
+            .iter()
+            .find(|run| to.is_none_or(|to| to > run.switched_on)),
+    }
+}
+
 /// Periods after a change of cadence: they run from `origin` in full lengths of the cadence,
 /// whatever the cadence before.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -570,6 +586,50 @@ impl FeeRun {
         windows
     }
 
+    /// [`Self::arrear_windows`] of a fee: one whose grid the renewals are off (a row kept through a
+    /// change of cadence) settles from the start of its grid period, as arrears settle only on
+    /// its boundaries (R-084).
+    fn fee_arrear_windows(
+        &self,
+        invoice_date: NaiveDate,
+        settles_early: bool,
+    ) -> Vec<(Period, Period)> {
+        let mut windows = self.arrear_windows(invoice_date, settles_early);
+        let settles_the_old_grid = invoice_date == self.grid.origin() && self.grid.runs_backwards();
+        if !settles_the_old_grid
+            && let Some((first, _)) = windows.first_mut()
+            && !self.grid.is_boundary(first.start)
+            && let Some(period) = self.period(first.start)
+        {
+            first.start = period.start;
+        }
+        windows
+    }
+
+    /// Whether a fee ending on `to`, off its grid, settles on the invoice of `invoice_date`: one
+    /// from its end while its last period runs, as no boundary of its own settles it (R-011).
+    pub fn ends_off_grid(&self, to: NaiveDate, invoice_date: NaiveDate) -> bool {
+        to <= invoice_date
+            && !self.grid.is_boundary(to)
+            && to
+                .pred_opt()
+                .and_then(|day| self.period(day))
+                .is_some_and(|last| invoice_date <= last.end)
+    }
+
+    /// The window a fee ending on `to` off its grid settles: its last period up to `to`, with the
+    /// period it is priced over.
+    fn ended_window(&self, to: NaiveDate) -> Option<(Period, Period)> {
+        let last = self.period(to.pred_opt()?)?;
+        Some((
+            Period {
+                start: last.start,
+                end: to,
+            },
+            self.nominal(&last),
+        ))
+    }
+
     /// The advance periods the invoice of `invoice_date` bills: the one starting on it, and any
     /// started since the previous renewal that no renewal billed, none before `not_before`.
     fn advance_periods(&self, invoice_date: NaiveDate, not_before: NaiveDate) -> Vec<Period> {
@@ -590,15 +650,17 @@ impl FeeRun {
     }
 }
 
-/// The periods a fee bills on the invoice of `invoice_date` on its grid: each arrears window cut to
-/// its life and priced over its full period, and each advance period, a first stub priced over the
-/// full period ending with it.
+/// The periods a fee bills on the invoice of `invoice_date` on its grid: its arrears cut to its life
+/// (its last window when it `settles`, see [`FeeRun::ends_off_grid`]), priced over full periods, and
+/// each advance period, a first stub priced over the full period ending with it, cut at `term_end`.
 pub fn component_periods_on(
     run: &FeeRun,
     invoice_date: NaiveDate,
     effective_from: Option<NaiveDate>,
     effective_to: Option<NaiveDate>,
+    term_end: Option<NaiveDate>,
     is_completed: bool,
+    settles: bool,
 ) -> Vec<ComponentPeriods> {
     let mut periods: Vec<ComponentPeriods> = Vec::new();
     // Ended the day it started billing: usage up to the termination instant still settles.
@@ -611,6 +673,7 @@ pub fn component_periods_on(
             proration_factor: None,
             proration_days: None,
             arrear_proration_factor: Some(DayFraction::new(0, 1)),
+            arrear_share: Some(DayFraction::new(0, 1)),
             advance: None,
             arrear: Some(Period {
                 start: invoice_date,
@@ -618,7 +681,14 @@ pub fn component_periods_on(
             }),
         });
     }
-    for (window, nominal) in run.arrear_windows(invoice_date, is_completed) {
+    let arrears = match effective_to
+        .filter(|_| settles && !is_completed)
+        .and_then(|to| run.ended_window(to))
+    {
+        Some(ended) => vec![ended],
+        None => run.fee_arrear_windows(invoice_date, is_completed),
+    };
+    for (window, nominal) in arrears {
         let start = effective_from.map_or(window.start, |from| from.max(window.start));
         let end = effective_to.map_or(window.end, |to| to.min(window.end));
         if start >= end {
@@ -626,33 +696,53 @@ pub fn component_periods_on(
         }
         let days = (end - start).num_days();
         let nominal_days = (nominal.end - nominal.start).num_days();
+        // A fixed term's end leaves an arrears amount whole (R-002).
+        let by_term = term_end == Some(end) && effective_to.is_none_or(|to| to > end);
+        let cut = end < nominal.end || start > nominal.start;
         periods.push(ComponentPeriods {
             proration_factor: None,
             proration_days: None,
-            arrear_proration_factor: (days < nominal_days)
+            arrear_proration_factor: (days < nominal_days && !by_term)
+                .then(|| DayFraction::new(days, nominal_days)),
+            arrear_share: (cut && days < nominal_days)
                 .then(|| DayFraction::new(days, nominal_days)),
             advance: None,
             arrear: Some(Period { start, end }),
         });
     }
-    if !is_completed {
-        let not_before = effective_from.unwrap_or(run.switched_on);
-        for advance in run.advance_periods(invoice_date, not_before) {
-            let nominal = run.nominal(&advance);
-            let proration_factor = calculate_proration_factor(&advance, &nominal);
-            periods.push(ComponentPeriods {
-                proration_days: proration_factor.map(|_| {
-                    (
-                        (advance.end - advance.start).num_days(),
-                        (nominal.end - nominal.start).num_days(),
-                    )
-                }),
-                proration_factor,
-                arrear_proration_factor: None,
-                advance: Some(advance),
-                arrear: None,
-            });
+    let not_before = effective_from.unwrap_or(run.switched_on);
+    for period in run.advance_periods(invoice_date, not_before) {
+        // Ended on the invoice's day, a period begun since the last renewal bills up to it.
+        if is_completed && period.start >= invoice_date {
+            continue;
         }
+        let nominal = run.nominal(&period);
+        let end = if is_completed {
+            period.end.min(invoice_date)
+        } else {
+            period.end
+        };
+        let advance = Period {
+            start: period.start,
+            end: term_end.map_or(end, |term| term.min(end)),
+        };
+        if advance.start >= advance.end {
+            continue;
+        }
+        let proration_factor = calculate_proration_factor(&advance, &nominal);
+        periods.push(ComponentPeriods {
+            proration_days: proration_factor.map(|_| {
+                (
+                    (advance.end - advance.start).num_days(),
+                    (nominal.end - nominal.start).num_days(),
+                )
+            }),
+            proration_factor,
+            arrear_proration_factor: None,
+            arrear_share: None,
+            advance: Some(advance),
+            arrear: None,
+        });
     }
     periods
 }
@@ -1455,5 +1545,46 @@ mod test {
                 p(NaiveDate::from_ymd_opt(2023, 12, 1).unwrap(), d(3, 1))
             )]
         );
+    }
+}
+
+#[cfg(test)]
+mod allowance_tests {
+    use super::{FeeRun, component_periods_on};
+    use crate::services::proration::DayFraction;
+    use chrono::NaiveDate;
+
+    fn d(m: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(2024, m, day).unwrap()
+    }
+
+    /// The share of its period an arrear window gives a capacity's allowance, as the invoice
+    /// prices it: 16 of 31 days cut by a fixed term's end or a cancellation, or for a fee started
+    /// on Jan 16; 22 of 31 days in a first partial period from Jan 10.
+    /// Rules: R-002
+    #[test]
+    fn an_arrear_window_shares_a_capacitys_allowance_as_its_fee_is_prorated() {
+        let share = |start: NaiveDate, invoice: NaiveDate, from, term_end, completed| {
+            let run = FeeRun::from_start((start, start), 1, 1, invoice).unwrap();
+            component_periods_on(&run, invoice, from, None, term_end, completed, false)
+                .into_iter()
+                .find(|periods| periods.arrear.is_some())
+                .map(|periods| periods.arrear_share)
+        };
+        let sixteen = Some(Some(DayFraction::new(16, 31)));
+        assert_eq!(
+            share(d(1, 1), d(1, 17), None, Some(d(1, 17)), true),
+            sixteen
+        );
+        assert_eq!(share(d(1, 1), d(1, 17), None, None, true), sixteen);
+        assert_eq!(
+            share(d(1, 1), d(2, 1), Some(d(1, 16)), None, false),
+            sixteen
+        );
+        assert_eq!(
+            share(d(1, 10), d(2, 1), None, None, false),
+            Some(Some(DayFraction::new(22, 31)))
+        );
+        assert_eq!(share(d(1, 1), d(2, 1), None, None, false), Some(None));
     }
 }

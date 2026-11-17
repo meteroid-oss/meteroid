@@ -21,6 +21,7 @@ log.workspace = true
 rust_decimal = { workspace = true, features = ["db-diesel2-postgres", "serde_json"] }
 tap.workspace = true
 itertools.workspace = true
+common-clock = { workspace = true }
 common-domain = { workspace = true, features = ["diesel"] }
 diesel-derive-newtype.workspace = true
 serde = { workspace = true, features = ["derive"] }

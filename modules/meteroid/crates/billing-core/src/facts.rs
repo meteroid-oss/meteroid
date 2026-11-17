@@ -2,6 +2,9 @@
 //! decided and never changed by the lifecycle. What it bills is `evaluate`'s, from these alone.
 
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
+use common_domain::ids::{
+    AppliedCouponId, PlanVersionId, ProductId, SlotTransactionId, SubscriptionId,
+};
 use uuid::Uuid;
 
 use crate::charge::Fee;
@@ -10,7 +13,7 @@ use crate::charge::Fee;
 /// [`Pricer`](crate::pricer::Pricer) reads.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Facts<F> {
-    pub subscription: Uuid,
+    pub subscription: SubscriptionId,
     pub billing_day_anchor: u32,
     pub start: Start,
     pub trial: Option<Trial>,
@@ -29,9 +32,11 @@ pub struct Facts<F> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Start {
+    /// The billing start when no free trial sets one, however late the start settles: a checkout
+    /// bills the period this date opens (R-084).
     pub date: NaiveDate,
     /// When the start was settled: at insert for an immediate start, else by the checkout or the
-    /// payment that settled it. Its date is the billing start when no free trial sets one.
+    /// payment that settled it. Until then only the opening invoice is billed.
     pub settled: Option<DateTime<Utc>>,
 }
 
@@ -48,7 +53,7 @@ pub struct Trial {
 /// from `cadence_origin` (R-084).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlanWindow {
-    pub plan_version: Uuid,
+    pub plan_version: PlanVersionId,
     pub from: NaiveDate,
     pub to: Option<NaiveDate>,
     pub cadence: u32,
@@ -73,13 +78,17 @@ pub struct FeeFact<F> {
     pub billing: Billing,
     /// Months of the fee's own grid (R-084); a one-time fee's is ignored.
     pub cadence: u32,
+    /// A component of the plan version it was written with, not one an amendment added.
+    pub plan_component: bool,
     pub fee: F,
 }
 
-/// From `at` on, the fee of `lineage` bills `quantity` seats, until a later step.
+/// From `at` on, the fee of `lineage` bills `quantity` seats, until a later step. A change made
+/// during a day counts that whole day, as its purchase bills from its day (OQ24); a renewal
+/// written at that day's midnight bills the seats before it, the change billed apart.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SeatStep {
-    pub id: Uuid,
+    pub id: SlotTransactionId,
     pub lineage: Fee,
     pub at: NaiveDate,
     pub quantity: u64,
@@ -89,7 +98,7 @@ pub struct SeatStep {
 /// issued documents, never kept here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CouponFact {
-    pub id: Uuid,
+    pub id: AppliedCouponId,
     pub from: NaiveDate,
     pub invoices: Option<u32>,
 }
@@ -97,7 +106,7 @@ pub struct CouponFact {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum MinimumScope {
     AllComponents,
-    Product(Uuid),
+    Product(ProductId),
 }
 
 impl MinimumScope {
@@ -226,7 +235,7 @@ impl DatedFact for PlanWindow {
     fn reference(&self) -> FactRef {
         FactRef {
             kind: FactKind::PlanWindow,
-            id: self.plan_version,
+            id: *self.plan_version,
         }
     }
     fn window(&self) -> Span {
@@ -262,7 +271,7 @@ impl DatedFact for SeatStep {
     fn reference(&self) -> FactRef {
         FactRef {
             kind: FactKind::Seat,
-            id: self.id,
+            id: *self.id,
         }
     }
     fn window(&self) -> Span {
@@ -280,7 +289,7 @@ impl DatedFact for CouponFact {
     fn reference(&self) -> FactRef {
         FactRef {
             kind: FactKind::Coupon,
-            id: self.id,
+            id: *self.id,
         }
     }
     fn window(&self) -> Span {
@@ -358,16 +367,18 @@ impl<F> Facts<F> {
         self.trial.as_ref().filter(|trial| trial.free)
     }
 
-    /// Where fees start billing: the end of the free trial, else the settled start; none while a
-    /// start awaits its checkout (R-084).
-    pub fn billing_start(&self) -> Option<NaiveDate> {
+    /// Where fees start billing: the end of the free trial, else the start's date, settled or
+    /// not, however late (R-084, R-102).
+    pub fn billing_start(&self) -> NaiveDate {
         match self.free_trial() {
-            Some(trial) => Some(trial.until.max(self.start.date)),
-            None => self
-                .start
-                .settled
-                .map(|at| at.date_naive().max(self.start.date)),
+            Some(trial) => trial.until.max(self.start.date),
+            None => self.start.date,
         }
+    }
+
+    /// Whether the start was settled by `now`.
+    pub fn settled_by(&self, now: DateTime<Utc>) -> bool {
+        self.start.settled.is_some_and(|at| at <= now)
     }
 
     /// Whether the billing start is a free trial's end, whose first period runs a full cadence on

@@ -10,7 +10,7 @@
 use std::cmp::Ordering;
 
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
+use common_domain::ids::{CreditGrantId, ProductId, SubscriptionId};
 
 /// An amount beyond what minor units in `i64` hold.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,9 +32,9 @@ pub enum Application {
 /// some products (sorted; empty: every product).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Scope {
-    pub subscription: Option<Uuid>,
+    pub subscription: Option<SubscriptionId>,
     pub application: Application,
-    pub products: Vec<Uuid>,
+    pub products: Vec<ProductId>,
 }
 
 /// The grants a draw may take. Money credit is drawn from promotional grants before tax and from
@@ -60,8 +60,8 @@ impl Pool {
 /// one subscription (None: of none) and product (None: lines of no product).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Demand {
-    pub subscription: Option<Uuid>,
-    pub product: Option<Uuid>,
+    pub subscription: Option<SubscriptionId>,
+    pub product: Option<ProductId>,
     pub usage: bool,
     pub amount_minor: i64,
     /// Usage only: the end of the dates it was consumed in. Only credit effective before it pays
@@ -105,11 +105,11 @@ impl Request {
 /// each demand of the request, in the request's order.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Allocation {
-    pub draws: Vec<(Uuid, i64)>,
+    pub draws: Vec<(CreditGrantId, i64)>,
     pub covered: Vec<i64>,
     /// What each grant drawn paid of each demand, then of what no demand names: the revenue
     /// facts place its credit on those lines.
-    pub placed: Vec<(Uuid, Vec<i64>)>,
+    pub placed: Vec<(CreditGrantId, Vec<i64>)>,
 }
 
 impl Allocation {
@@ -153,7 +153,7 @@ impl Allocation {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Grant {
-    pub id: Uuid,
+    pub id: CreditGrantId,
     pub scope: Scope,
     pub remaining_minor: i64,
     pub priority: i32,
@@ -205,7 +205,7 @@ pub struct DrawKey {
     pub classification: Classification,
     pub effective_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
-    pub id: Uuid,
+    pub id: CreditGrantId,
 }
 
 impl From<&Grant> for DrawKey {
@@ -526,16 +526,18 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
     use std::sync::atomic::{AtomicU64, Ordering as Atomic};
+    use uuid::Uuid;
 
     fn at(day: u32) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 9, day, 12, 0, 0).unwrap()
     }
 
     /// Ids as random as the store's: no test may lean on their order.
-    fn id() -> Uuid {
+    fn id<T: From<Uuid>>() -> T {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let n = NEXT.fetch_add(1, Atomic::Relaxed);
         Uuid::from_u128(u128::from(n).wrapping_mul(0x9E37_79B9_7F4A_7C15_F39C_C060_5CED_C835))
+            .into()
     }
 
     fn grant(
@@ -584,7 +586,7 @@ mod tests {
         }
     }
 
-    fn drawn(grants: &[Grant], request: Request, now: DateTime<Utc>) -> Vec<(Uuid, i64)> {
+    fn drawn(grants: &[Grant], request: Request, now: DateTime<Utc>) -> Vec<(CreditGrantId, i64)> {
         allocate(grants, &request, now, Pool::All).unwrap().draws
     }
 
@@ -771,7 +773,7 @@ mod tests {
         assert_eq!(kept.draws, vec![(expired.id, 500)]);
     }
 
-    fn product_demand(product: Uuid, usage: bool, amount_minor: i64) -> Demand {
+    fn product_demand(product: ProductId, usage: bool, amount_minor: i64) -> Demand {
         Demand {
             subscription: None,
             product: Some(product),
@@ -781,7 +783,7 @@ mod tests {
         }
     }
 
-    fn scoped(mut grant: Grant, products: &[Uuid]) -> Grant {
+    fn scoped(mut grant: Grant, products: &[ProductId]) -> Grant {
         let mut products = products.to_vec();
         products.sort();
         products.dedup();
@@ -891,12 +893,12 @@ mod tests {
         assert_eq!(scoped_alone.covered, vec![0, 0, 300]);
     }
 
-    fn of_subscription(mut grant: Grant, subscription: Uuid) -> Grant {
+    fn of_subscription(mut grant: Grant, subscription: SubscriptionId) -> Grant {
         grant.scope.subscription = Some(subscription);
         grant
     }
 
-    fn usage_of(subscription: Uuid, amount_minor: i64) -> Demand {
+    fn usage_of(subscription: SubscriptionId, amount_minor: i64) -> Demand {
         Demand {
             subscription: Some(subscription),
             product: None,

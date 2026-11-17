@@ -898,7 +898,7 @@ impl PortalCheckoutServiceComponents {
                     Status::internal("Session has no linked subscription for addon purchase flow")
                 })?;
 
-                let sub_details = self
+                let mut sub_details = self
                     .store
                     .get_subscription_details_minimal(tenant, subscription_id)
                     .await
@@ -908,7 +908,6 @@ impl PortalCheckoutServiceComponents {
                     Status::internal("AddonPurchase checkout session has no add_ons")
                 })?;
 
-                // Resolve addon fees and compute prorated charge
                 let addon_ids: Vec<_> =
                     create_add_ons.add_ons.iter().map(|a| a.add_on_id).collect();
                 let addons = self
@@ -919,111 +918,20 @@ impl PortalCheckoutServiceComponents {
 
                 let addon_name = addons.first().map(|a| a.name.clone()).unwrap_or_default();
 
-                // Build shared products/prices maps for resolution
-                let mut products_map = std::collections::HashMap::new();
-                let mut prices_map = std::collections::HashMap::new();
-                for addon in &addons {
-                    if let Some(price) = &addon.price {
-                        prices_map.insert(addon.price_id, price.clone());
-                    }
-                    if let Some(fee_structure) = &addon.fee_structure {
-                        products_map.insert(
-                            addon.product_id,
-                            meteroid_store::domain::Product {
-                                id: addon.product_id,
-                                name: addon.name.clone(),
-                                description: None,
-                                created_at: addon.created_at,
-                                updated_at: None,
-                                archived_at: None,
-                                tenant_id: addon.tenant_id,
-                                product_family_id: common_domain::ids::ProductFamilyId::from(
-                                    uuid::Uuid::nil(),
-                                ),
-                                fee_type: addon
-                                    .fee_type
-                                    .unwrap_or(meteroid_store::domain::enums::FeeTypeEnum::Rate),
-                                fee_structure: fee_structure.clone(),
-                                catalog: false,
-                                tax_category_id: None,
-                            },
-                        );
-                    }
-                }
+                // Priced on the day the purchase completes, as its completion prices it.
+                let change_date = common_clock::now().date_naive();
 
-                let units = {
-                    use meteroid_store::repositories::CreditUnitsInterface;
-                    self.store
-                        .get_credit_units_by_ids(
-                            tenant,
-                            prices_map
-                                .values()
-                                .flat_map(meteroid_store::domain::Price::credit_unit_ids)
-                                .chain(
-                                    create_add_ons
-                                        .add_ons
-                                        .iter()
-                                        .flat_map(|a| a.customization.new_credit_unit_ids()),
-                                )
-                                .collect(),
-                        )
-                        .await
-                        .map_err(Into::<PortalCheckoutApiError>::into)?
-                };
-
-                let now = common_domain::clock::now().date_naive();
-
-                let mut sub_details = sub_details;
-
-                for (cs_ao, addon) in create_add_ons.add_ons.iter().zip(addons.iter()) {
-                    let resolved = addon
-                        .resolve_customized(
-                            &products_map,
-                            &prices_map,
-                            &units,
-                            &cs_ao.customization,
-                        )
-                        .map_err(|e| {
-                            Status::internal(format!("Failed to resolve add-on: {}", e))
-                        })?;
-
-                    sub_details.add_ons.push(
-                        meteroid_store::domain::subscription_add_ons::SubscriptionAddOn {
-                            id: common_domain::ids::SubscriptionAddOnId::new(),
-                            subscription_id,
-                            add_on_id: addon.id,
-                            name: resolved.name,
-                            period: resolved.period,
-                            fee: resolved.fee,
-                            created_at: common_domain::clock::now().naive_utc(),
-                            product_id: resolved.product_id,
-                            price_id: resolved.price_id,
-                            quantity: cs_ao.quantity,
-                            effective_from: common_domain::clock::now().naive_utc().date(),
-                            effective_to: None,
-                            lineage_id: None,
-                            added_by_amendment: false,
-                        },
-                    );
-                }
-
-                // Override billing_start_date and cycle_index so that compute_invoice
-                // treats the addon as a first-period item starting now, producing a
-                // prorated advance line (from now to period_end).
-                sub_details.subscription.billing_start_date = Some(now);
-                sub_details.subscription.cycle_index = Some(0);
-
-                let invoice_content = self
+                let (invoice_content, bought) = self
                     .services
-                    .compute_invoice(
-                        &now,
-                        &sub_details,
-                        None,
-                        meteroid_store::domain::enums::InvoiceType::OneOff,
+                    .compute_addon_purchase_checkout_invoice(
+                        tenant,
+                        subscription_id,
+                        &create_add_ons.add_ons,
+                        change_date,
                     )
                     .await
-                    .change_context(StoreError::InvoiceComputationError)
                     .map_err(Into::<PortalCheckoutApiError>::into)?;
+                sub_details.add_ons.extend(bought);
 
                 let ctx = AddOnPurchaseCheckoutContext {
                     add_on_name: addon_name,
@@ -1040,17 +948,23 @@ impl PortalCheckoutServiceComponents {
             }
         };
 
-        let invoice_content = self
-            .services
-            .compute_invoice(
-                &subscription_details.subscription.current_period_start,
-                &subscription_details,
-                None,
-                meteroid_store::domain::enums::InvoiceType::Recurring,
-            )
-            .await
-            .change_context(StoreError::InvoiceComputationError)
-            .map_err(Into::<PortalCheckoutApiError>::into)?;
+        let invoice_content = match proto_checkout_type {
+            CheckoutType::SelfServe => self
+                .services
+                .compute_new_subscription_invoice(&subscription_details)
+                .await
+                .change_context(StoreError::InvoiceComputationError)
+                .map_err(Into::<PortalCheckoutApiError>::into)?,
+            _ => self
+                .services
+                .compute_period_invoice(
+                    &subscription_details.subscription.current_period_start,
+                    &subscription_details,
+                )
+                .await
+                .change_context(StoreError::InvoiceComputationError)
+                .map_err(Into::<PortalCheckoutApiError>::into)?,
+        };
 
         tracing::info!(
             "Invoice content: invoice_lines_count={}, subtotal={}, total={}",

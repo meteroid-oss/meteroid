@@ -357,7 +357,7 @@ mod tests {
             message: Some(Message(serde_json::json!({ "poison": poison }))),
             headers: None,
             read_ct: ReadCt(1),
-            enqueued_at: common_domain::clock::now().naive_utc(),
+            enqueued_at: common_clock::now().naive_utc(),
         }
     }
 

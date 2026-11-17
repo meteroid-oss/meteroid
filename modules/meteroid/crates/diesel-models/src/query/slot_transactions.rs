@@ -182,7 +182,7 @@ GROUP BY lc.prev_active_slots;
             lock.covers(conn, tenant, customer)?;
         }
         let tenant_id = lock.tenant_id();
-        let at_ts = at_ts.unwrap_or_else(|| common_domain::clock::now().naive_utc());
+        let at_ts = at_ts.unwrap_or_else(|| common_clock::now().naive_utc());
 
         let raw_sql = r"
 WITH LatestCheckpoint AS (
@@ -311,6 +311,40 @@ impl SlotTransactionRow {
             .into_db_result()
     }
 
+    /// Adds `delta` to the seat counts `seeds` set from after `after` for `unit`: seats changed
+    /// before a change setting its seats takes effect carry into its count.
+    pub async fn carry_into_seeds(
+        conn: &mut PgConn,
+        seeds: &[common_domain::ids::SlotTransactionId],
+        unit: &str,
+        after: NaiveDateTime,
+        delta: i32,
+    ) -> DbResult<usize> {
+        use crate::schema::slot_transaction;
+        use diesel::prelude::*;
+        use diesel_async::RunQueryDsl;
+
+        if seeds.is_empty() || delta == 0 {
+            return Ok(0);
+        }
+        let query = diesel::update(
+            slot_transaction::table
+                .filter(slot_transaction::id.eq_any(seeds))
+                .filter(slot_transaction::unit.eq(unit))
+                .filter(slot_transaction::delta.eq(0))
+                .filter(slot_transaction::effective_at.gt(after)),
+        )
+        .set(slot_transaction::prev_active_slots.eq(slot_transaction::prev_active_slots + delta));
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while carrying seats into a change's count")
+            .into_db_result()
+    }
+
     pub async fn list_by_subscription_id(
         conn: &mut PgConn,
         tenant_id: common_domain::ids::TenantId,
@@ -380,7 +414,7 @@ impl SlotTransactionRow {
         use diesel::prelude::*;
         use diesel_async::RunQueryDsl;
 
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
 
         let query = diesel::delete(
             slot_transaction::table

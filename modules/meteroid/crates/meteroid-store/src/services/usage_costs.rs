@@ -570,7 +570,7 @@ impl ServicesEdge {
         &self,
         details: &SubscriptionDetails,
     ) -> StoreResult<RunningTotal> {
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
         let computed_at = now.with_nanosecond(0).unwrap_or(now);
         let tenant_id = details.subscription.tenant_id;
         let customer_id = details.subscription.customer_id;
@@ -1181,7 +1181,7 @@ impl ServicesEdge {
         subscription_id: Option<SubscriptionId>,
         span: WalletUsageSpan,
     ) -> StoreResult<WalletDailyUsage> {
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
         let today_ends = (now.date() + Duration::days(1)).and_time(NaiveTime::MIN);
         let (windows, pins) = {
             let mut conn = self.store.get_conn().await?;

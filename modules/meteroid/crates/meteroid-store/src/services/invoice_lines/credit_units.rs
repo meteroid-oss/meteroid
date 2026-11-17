@@ -108,7 +108,7 @@ impl UnitDemand {
         self.uses
             .iter()
             .map(|used| units::UnitUse {
-                subscription: used.subscription_id.as_uuid(),
+                subscription: used.subscription_id,
                 dated_before: used.dated_before,
                 consumed: amount_of(used),
             })
@@ -238,7 +238,7 @@ impl Services {
         }) {
             return Err(invalid("an invoice bills a single customer"));
         }
-        let now = common_domain::clock::now();
+        let now = common_clock::now();
         let unit_ids: Vec<CreditUnitId> = demands.iter().map(|demand| demand.unit_id).collect();
         let plan_version_ids: Vec<PlanVersionId> = targets
             .iter()

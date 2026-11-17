@@ -31,7 +31,7 @@ impl OauthVerifier {
             csrf_token: self.csrf_token.expose_secret().to_string(),
             pkce_verifier: Self::enc(crypt_key, self.pkce_verifier.expose_secret())?,
             data: Some((&self.data).try_into()?),
-            created_at: common_domain::clock::now().naive_utc(),
+            created_at: common_clock::now().naive_utc(),
         })
     }
 

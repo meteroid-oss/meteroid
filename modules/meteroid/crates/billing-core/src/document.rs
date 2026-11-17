@@ -3,9 +3,9 @@
 //! lines at the boundary; everything here is keyed by the line's id.
 
 use chrono::{DateTime, Utc};
+use common_domain::ids::{ProductId, SubscriptionId};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::{Decimal, RoundingStrategy};
-use uuid::Uuid;
 
 use crate::assembly::tax_inclusive::{QuotedLine, SubLinePrice, net_line};
 use crate::rounding::round_to_minor;
@@ -71,9 +71,9 @@ pub struct Line {
     pub id: String,
     pub kind: LineKind,
     /// The subscription it bills, as the store resolved it.
-    pub subscription: Option<Uuid>,
+    pub subscription: Option<SubscriptionId>,
     /// The product credit restricted to products answers to.
-    pub product: Option<Uuid>,
+    pub product: Option<ProductId>,
     /// It bills no metered usage (R-076).
     pub recurring: bool,
     /// As stored: net on a tax-inclusive line that bore tax.
@@ -241,7 +241,7 @@ pub struct Document {
     pub discount: i64,
     pub tax_inclusive: bool,
     /// The subscription of a subscription's document; None for a consolidated one.
-    pub subscription: Option<Uuid>,
+    pub subscription: Option<SubscriptionId>,
     pub header: Header,
 }
 

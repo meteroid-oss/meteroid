@@ -80,7 +80,7 @@ impl PortalJwtClaims {
             }
         };
 
-        let now = common_domain::clock::now().timestamp();
+        let now = common_clock::now().timestamp();
         Ok(Self {
             iat: now as usize,
             exp: expires_in.map(|d| (now + d.num_seconds()) as usize),
@@ -245,8 +245,8 @@ mod tests {
     fn legacy_token_without_scopes_or_aud_decodes() {
         let customer_id = CustomerId::new();
         let token = encode_raw(json!({
-            "iat": common_domain::clock::now().timestamp(),
-            "exp": common_domain::clock::now().timestamp() + 3600,
+            "iat": common_clock::now().timestamp(),
+            "exp": common_clock::now().timestamp() + 3600,
             "tenant_id": TenantId::new(),
             "resource": { "Customer": customer_id },
         }));
@@ -260,8 +260,8 @@ mod tests {
     #[test]
     fn foreign_audience_is_rejected() {
         let token = encode_raw(json!({
-            "iat": common_domain::clock::now().timestamp(),
-            "exp": common_domain::clock::now().timestamp() + 3600,
+            "iat": common_clock::now().timestamp(),
+            "exp": common_clock::now().timestamp() + 3600,
             "aud": "web_api",
             "tenant_id": TenantId::new(),
             "resource": { "Customer": CustomerId::new() },

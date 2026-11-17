@@ -1,11 +1,11 @@
-//! Minimum commitment as a period true-up.
+//! Minimum commitment as a period true-up: what of it to load, and its lines.
 //!
 //! The minimum of a completed period P is trued up on the Recurring invoice that closes P: a
 //! renewal bills the period just ended, a termination the part of it served. P's in-scope spend
 //! is its arrears on that invoice plus what the subscription's other invoices dated in P billed
-//! for P (the advance fees of its opening invoice, immediate increases). Fees count as billed,
-//! never net of credit notes; a cancellation counts only the days served. A product-scoped
-//! minimum bills one line per scoped product, each taxed with its product (OQ17).
+//! for P (the advance fees of its opening invoice, immediate increases). What it counts and owes
+//! is `billing_core::minimum`'s; this module loads its inputs and renders its lines. A
+//! product-scoped minimum bills one line per scoped product, each taxed with its product (OQ17).
 
 use std::collections::HashMap;
 
@@ -19,8 +19,8 @@ use crate::domain::plan_minimums::MinimumScope;
 use crate::domain::subscription_minimums::SubscriptionMinimum;
 use crate::domain::{ChargeType, LineItem, LineItemKind, SubscriptionDetails};
 use crate::errors::StoreError;
-use crate::services::subscriptions::proration::DayFraction;
 use crate::store::PgConn;
+use billing_core::minimum::{self as core, Spend};
 use common_domain::ids::{ProductId, SubscriptionId, TenantId};
 use error_stack::Report;
 
@@ -38,14 +38,10 @@ pub struct PeriodTrueUp {
     /// Exclusive: the invoice date, the period's end or the day it was cut short.
     pub end: NaiveDate,
     pub minimum: SubscriptionMinimum,
-    /// The minimum prorated to the days served.
-    pub floor: i64,
-    /// Spend of the period billed on the subscription's other invoices (only the days served when
-    /// a cancellation cut it short), by product (`None` for a product-less line).
-    pub prior: Vec<(Option<ProductId>, i64)>,
-    /// Shortfall the period's opening invoice prepaid up front (the rule before the true-up, kept
-    /// by invoices written then), for the days served.
-    pub already_billed: i64,
+    /// The period, its floor and what it nets, as the core trues it up.
+    pub true_up: core::TrueUp,
+    /// The lines of the subscription's other invoices billing the period.
+    pub prior: Vec<Spend>,
     /// How that rule dated its shortfalls on the subscription, read only when the period or the
     /// invoice closing it carries one.
     pub up_front: Option<UpFrontShortfall>,
@@ -73,18 +69,60 @@ pub(crate) struct ClosedPeriod {
 }
 
 impl ClosedPeriod {
-    /// The minimum over the period: whole for each grid period served in full, by days otherwise.
+    /// The minimum over the period (`billing_core::minimum::floor`).
     pub(crate) fn floor(&self, minimum: i64) -> i64 {
-        self.served
-            .iter()
-            .map(|(days, nominal_days)| {
-                if days == nominal_days {
-                    minimum
-                } else {
-                    DayFraction::new(*days, *nominal_days).prorate(minimum)
-                }
-            })
-            .sum()
+        core::floor(minimum, &self.served)
+    }
+}
+
+impl PeriodTrueUp {
+    /// The minimum prorated to the days served.
+    pub fn floor(&self) -> i64 {
+        self.true_up.floor
+    }
+}
+
+/// A stored line as the minimum reads it: net of its coupons, gross of promotional credit, in
+/// the figures it was priced in (tax included on a tax-inclusive line); `corrected` what notes
+/// correcting it took back, read against its stored subtotal.
+fn spend_of(line: &LineItem, tax_inclusive: bool, corrected: i64, voided: bool) -> Spend {
+    let promotional = line.promotional_credit.unwrap_or(0);
+    let net = if tax_inclusive {
+        line.amount_total + promotional
+    } else {
+        line.taxable_amount + promotional
+    };
+    Spend {
+        product: line.product_id,
+        from: line.start_date,
+        until: line.end_date,
+        subtotal: line.amount_subtotal,
+        net,
+        corrected,
+        fixed: line.metric_id.is_none(),
+        voided,
+    }
+}
+
+/// A line of the invoice being assembled, its coupons spread over it (`assemble_lines`) and its
+/// tax not resolved yet: its taxable amount is its net, in the figures it was priced in.
+fn assembled_spend(line: &LineItem) -> Spend {
+    Spend {
+        product: line.product_id,
+        from: line.start_date,
+        until: line.end_date,
+        subtotal: line.amount_subtotal,
+        net: line.taxable_amount + line.promotional_credit.unwrap_or(0),
+        corrected: 0,
+        fixed: line.metric_id.is_none(),
+        voided: false,
+    }
+}
+
+fn core_scope(scope: &MinimumScope) -> core::Scope {
+    match scope {
+        MinimumScope::AllComponents => core::Scope::AllComponents,
+        MinimumScope::Products(ids) => core::Scope::Products(ids.clone()),
     }
 }
 
@@ -202,12 +240,6 @@ fn closes_a_period(details: &SubscriptionDetails, cycle_index: u32) -> bool {
     !sub.pending_checkout && (cycle_index > 0 || sub.current_period_end.is_none())
 }
 
-/// The true-up shortfall: what the period's floor asks above its counted spend and above what an
-/// opening invoice already charged for it up front. Never negative: a true-up is never credited.
-pub(crate) fn trued_up_shortfall(floor: i64, counted: i64, already_billed: i64) -> i64 {
-    (floor - counted - already_billed).max(0)
-}
-
 /// Loads the true-up of the period the Recurring invoice dated `invoice_date` closes, `None` when
 /// it closes none or the period ran without a minimum.
 pub(in crate::services) async fn load_period_true_up(
@@ -252,18 +284,11 @@ pub(in crate::services) async fn load_period_true_up(
     }
     let (start, end) = (period.start, period.end);
 
-    // Fees count as billed, never net of credit notes (a goodwill note is not clawed back). A
-    // cancellation gives the unused days of what spans it back: only the days served count.
+    // A cancellation gives the unused days of what spans it back: only the days served count.
     let cut = (sub.status == crate::domain::SubscriptionStatusEnum::Cancelled && period.cut_short)
         .then_some(end);
-    let served_share = |amount: i64, from: NaiveDate, to: NaiveDate| match cut {
-        Some(cut) if from <= cut && cut < to && amount > 0 => {
-            amount - DayFraction::remaining(from, to, cut).prorate(amount)
-        }
-        _ => amount,
-    };
     let mut prior = Vec::new();
-    let mut up_front: HashMap<(NaiveDate, NaiveDate), i64> = HashMap::new();
+    let mut up_front: Vec<(NaiveDate, NaiveDate, i64)> = Vec::new();
     let rows = diesel_models::invoices::InvoiceRow::list_period_spend_invoices(
         conn,
         sub.tenant_id,
@@ -276,49 +301,48 @@ pub(in crate::services) async fn load_period_true_up(
     .map_err(Into::<Report<StoreError>>::into)?;
     for row in rows {
         let invoice: crate::domain::Invoice = row.try_into()?;
-        // A correction re-bills lines its parent's note credited: the parent's lines count.
+        // A copy reissuing an invoice is read with the invoice it corrects.
         if invoice.parent_invoice_id.is_some() {
             continue;
         }
-        let mut lines = invoice.line_items.clone();
-        if invoice.subscription_id.is_none() {
-            let owners =
-                crate::services::credit::scope::LineOwners::load_tx(conn, sub.tenant_id, &lines)
-                    .await?;
-            lines.retain(|line| {
-                crate::services::credit::scope::line_subscription(line, None, &owners)
-                    == Some(sub.id)
-            });
-        }
-        let quoted = |line: &LineItem| {
-            if invoice.tax_inclusive {
-                line.clone().into_tax_inclusive_quote().amount_subtotal
-            } else {
-                line.amount_subtotal
-            }
-        };
-        for line in lines
-            .iter()
-            .filter(|line| line.start_date >= start && line.start_date < end)
+        let (lines, corrected) = period_lines(conn, sub.id, &invoice).await?;
+        let voided = invoice.status == crate::domain::InvoiceStatusEnum::Void
+            || merged_into_void(conn, sub.tenant_id, &invoice).await?;
+        // A copy bills what its parent's correction took back; under a goodwill note of an
+        // earlier release the parent still counts as billed and its copy does not.
+        if corrected.values().any(|amount| *amount > 0)
+            && let Some(copy) = reissued_copy(conn, sub.tenant_id, invoice.id).await?
         {
-            match line.kind {
-                LineItemKind::MinimumShortfall
-                    if is_up_front(line, invoice.billing_period_start) =>
-                {
-                    *up_front
-                        .entry((line.start_date, line.end_date))
-                        .or_insert(0) += quoted(line);
-                }
-                LineItemKind::Regular => {
-                    let amount = if line.metric_id.is_none() {
-                        served_share(quoted(line), line.start_date, line.end_date)
-                    } else {
-                        quoted(line)
-                    };
-                    prior.push((line.product_id, amount));
-                }
-                _ => {}
+            let (copy_lines, copy_corrected) = period_lines(conn, sub.id, &copy).await?;
+            for line in &copy_lines {
+                let voided = copy.status == crate::domain::InvoiceStatusEnum::Void;
+                prior.extend(regular_spend(
+                    line,
+                    &copy,
+                    &copy_corrected,
+                    voided,
+                    start,
+                    end,
+                ));
             }
+        }
+        for line in &lines {
+            if line.start_date < start || line.start_date >= end {
+                continue;
+            }
+            if line.kind == LineItemKind::MinimumShortfall
+                && is_up_front(line, invoice.billing_period_start)
+            {
+                let quoted = if invoice.tax_inclusive {
+                    line.clone().into_tax_inclusive_quote().amount_subtotal
+                } else {
+                    line.amount_subtotal
+                };
+                up_front.push((line.start_date, line.end_date, quoted));
+            }
+            prior.extend(regular_spend(
+                line, &invoice, &corrected, voided, start, end,
+            ));
         }
     }
     let closing_carries_one = invoice.is_some_and(|invoice| {
@@ -336,24 +360,118 @@ pub(in crate::services) async fn load_period_true_up(
             .map_or(&minimum.scope, |m| &m.scope);
         Some(load_up_front_shortfall(conn, sub.tenant_id, sub.id, scope).await?)
     };
-    // An up-front shortfall is split over products like the true-up: its days are cut once.
-    let already_billed = match up_front_rule {
-        Some(UpFrontShortfall::Prepaid) => up_front
-            .into_iter()
-            .map(|((from, to), billed)| served_share(billed, from, to))
-            .sum(),
-        _ => 0,
+    let prepaid = match up_front_rule {
+        Some(UpFrontShortfall::Prepaid) => up_front,
+        _ => Vec::new(),
+    };
+    let true_up = core::TrueUp {
+        start,
+        end,
+        floor,
+        scope: core_scope(&minimum.scope),
+        cut,
+        prepaid,
+        carried: carried_scope_products(details, &minimum.scope),
     };
 
     Ok(Some(PeriodTrueUp {
         start,
         end,
         minimum,
-        floor,
+        true_up,
         prior,
-        already_billed,
         up_front: up_front_rule,
     }))
+}
+
+/// `invoice`'s lines of subscription `subscription_id`, with what notes correcting them took back.
+async fn period_lines(
+    conn: &mut PgConn,
+    subscription_id: SubscriptionId,
+    invoice: &crate::domain::Invoice,
+) -> StoreResult<(Vec<LineItem>, HashMap<String, i64>)> {
+    let mut lines = invoice.line_items.clone();
+    if invoice.subscription_id.is_none() {
+        let owners =
+            crate::services::credit::scope::LineOwners::load_tx(conn, invoice.tenant_id, &lines)
+                .await?;
+        lines.retain(|line| {
+            crate::services::credit::scope::line_subscription(line, None, &owners)
+                == Some(subscription_id)
+        });
+    }
+    let (_, _, corrected, _) =
+        crate::services::subscriptions::amendment::load_credit_matching_context(
+            conn,
+            invoice.tenant_id,
+            invoice,
+        )
+        .await?;
+    Ok((lines, corrected))
+}
+
+/// The live copy reissuing `parent`, if any.
+async fn reissued_copy(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    parent: common_domain::ids::InvoiceId,
+) -> StoreResult<Option<crate::domain::Invoice>> {
+    let db = |e| Into::<Report<StoreError>>::into(e);
+    let Some(id) =
+        diesel_models::invoices::InvoiceRow::find_child_id_by_parent(conn, tenant_id, parent)
+            .await
+            .map_err(db)?
+    else {
+        return Ok(None);
+    };
+    let row = diesel_models::invoices::InvoiceRow::find_by_id(conn, tenant_id, id)
+        .await
+        .map_err(db)?;
+    if !matches!(
+        row.status,
+        diesel_models::enums::InvoiceStatusEnum::Draft
+            | diesel_models::enums::InvoiceStatusEnum::Finalized
+            | diesel_models::enums::InvoiceStatusEnum::Uncollectible
+    ) {
+        return Ok(None);
+    }
+    Ok(Some(row.try_into()?))
+}
+
+/// A regular line of `invoice` dated in `[start, end)` as the minimum reads it.
+fn regular_spend(
+    line: &LineItem,
+    invoice: &crate::domain::Invoice,
+    corrected: &HashMap<String, i64>,
+    voided: bool,
+    start: NaiveDate,
+    end: NaiveDate,
+) -> Option<Spend> {
+    (line.kind == LineItemKind::Regular && line.start_date >= start && line.start_date < end).then(
+        || {
+            spend_of(
+                line,
+                invoice.tax_inclusive,
+                corrected.get(&line.local_id).copied().unwrap_or(0),
+                voided,
+            )
+        },
+    )
+}
+
+/// Whether `invoice` was merged into a consolidated invoice since voided: voided with it.
+async fn merged_into_void(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    invoice: &crate::domain::Invoice,
+) -> StoreResult<bool> {
+    let Some(parent) = invoice.consolidated_into_invoice_id else {
+        return Ok(false);
+    };
+    let row = diesel_models::invoices::InvoiceRow::find_by_id(conn, tenant_id, parent)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    Ok(row.status == diesel_models::enums::InvoiceStatusEnum::Void)
 }
 
 /// A shortfall the rule before the true-up charged up front: dated past its invoice's period start.
@@ -604,27 +722,42 @@ pub(crate) fn outgoing_terms_record(
     ]
 }
 
+/// Drops the true-up lines an earlier computation of the invoice appended, so a refresh
+/// recomputes them; any other shortfall line stays as billed.
+pub fn drop_true_up_lines(
+    invoice_type: &InvoiceType,
+    lines: &mut Vec<LineItem>,
+    invoice_date: NaiveDate,
+    true_up: Option<&PeriodTrueUp>,
+) {
+    if matches!(invoice_type, InvoiceType::Recurring) {
+        lines.retain(|l| !is_true_up(l, invoice_date, true_up));
+    }
+}
+
 /// Appends the true-up of the period the invoice closes when its in-scope spend falls short of
-/// the prorated minimum. An earlier true-up line is dropped first, so a refresh recomputes it.
+/// the prorated minimum, to `lines` its coupons were already spread over: the shortfall is never
+/// discounted (R-023), its amount `billing_core::minimum`'s.
 pub fn append_minimum_shortfall_if_any(
     invoice_type: &InvoiceType,
     subscription_details: &SubscriptionDetails,
     lines: &mut Vec<LineItem>,
-    invoice_date: NaiveDate,
     true_up: Option<&PeriodTrueUp>,
 ) -> StoreResult<()> {
     if !matches!(invoice_type, InvoiceType::Recurring) {
         return Ok(());
     }
-    lines.retain(|l| !is_true_up(l, invoice_date, true_up));
     let Some(true_up) = true_up else {
         return Ok(());
     };
     let scope = &true_up.minimum.scope;
-    let weights = counted_spend(lines, true_up);
-    let counted: i64 = weights.iter().map(|(_, amount)| amount).sum();
-    let shortfall = trued_up_shortfall(true_up.floor, counted, true_up.already_billed);
-    if shortfall == 0 {
+    let document: Vec<Spend> = lines
+        .iter()
+        .filter(|line| line.kind == LineItemKind::Regular)
+        .map(assembled_spend)
+        .collect();
+    let split = true_up.true_up.lines(&document, &true_up.prior);
+    if split.is_empty() {
         return Ok(());
     }
 
@@ -632,16 +765,6 @@ pub fn append_minimum_shortfall_if_any(
     // For a product-scoped minimum, name the covered product(s) on the line so it's clear which
     // commitment is being trued up (e.g. "Minimum commitment (Bandwidth)").
     let name = minimum_line_name(subscription_details, scope);
-    let weights: Vec<(ProductId, i64)> = weights
-        .into_iter()
-        .filter_map(|(product, amount)| product.map(|product| (product, amount)))
-        .collect();
-    let split = split_shortfall(
-        scope,
-        &weights,
-        &carried_scope_products(subscription_details, scope),
-        shortfall,
-    );
     let named_per_product = split.len() > 1;
     for (product_id, amount) in split {
         let name = match product_id.filter(|_| named_per_product) {
@@ -675,29 +798,6 @@ pub(crate) fn is_true_up(
     line.kind == LineItemKind::MinimumShortfall
         && (line.end_date <= invoice_date
             || true_up.is_some_and(|t| t.up_front == Some(UpFrontShortfall::TrueUpOfPeriodBefore)))
-}
-
-/// The period's in-scope spend by product: its lines on this invoice, then on the others.
-fn counted_spend(lines: &[LineItem], true_up: &PeriodTrueUp) -> Vec<(Option<ProductId>, i64)> {
-    let scope = &true_up.minimum.scope;
-    counted_lines(lines, scope)
-        .filter(|line| line.start_date >= true_up.start && line.start_date < true_up.end)
-        .map(|line| (line.product_id, line.amount_subtotal))
-        .chain(
-            true_up
-                .prior
-                .iter()
-                .copied()
-                .filter(|(product, _)| in_scope(scope, *product)),
-        )
-        .collect()
-}
-
-fn in_scope(scope: &MinimumScope, product_id: Option<ProductId>) -> bool {
-    match scope {
-        MinimumScope::AllComponents => true,
-        MinimumScope::Products(_) => product_id.is_some_and(|id| scope.includes(id)),
-    }
 }
 
 fn shortfall_line(
@@ -748,48 +848,14 @@ fn shortfall_line(
     super::charges::identified(line, &super::charges::Lineages::none())
 }
 
-/// How a shortfall is billed: one product-less line for an all-components minimum (the default
-/// tax); for a product-scoped one, a line per scoped product pro rata to what it counted toward
-/// the floor (largest remainder), equally over the scoped products when none counted anything.
+/// How a shortfall is billed (`billing_core::minimum::split`).
 pub(crate) fn split_shortfall(
     scope: &MinimumScope,
     weights: &[(ProductId, i64)],
     carried: &[ProductId],
     shortfall: i64,
 ) -> Vec<(Option<ProductId>, i64)> {
-    let MinimumScope::Products(ids) = scope else {
-        return vec![(None, shortfall)];
-    };
-    let mut by_product: Vec<(ProductId, i64)> = Vec::new();
-    for (product, amount) in weights.iter().filter(|(p, _)| ids.contains(p)) {
-        match by_product.iter_mut().find(|(p, _)| p == product) {
-            Some(entry) => entry.1 += amount,
-            None => by_product.push((*product, *amount)),
-        }
-    }
-    by_product.retain(|(_, amount)| *amount > 0);
-    if by_product.is_empty() {
-        let pool: Vec<ProductId> = if carried.is_empty() {
-            ids.clone()
-        } else {
-            carried.to_vec()
-        };
-        by_product = pool.into_iter().map(|product| (product, 1)).collect();
-    }
-    if by_product.is_empty() {
-        return vec![(None, shortfall)];
-    }
-    let total: i64 = by_product.iter().map(|(_, weight)| weight).sum();
-    let exact: Vec<Decimal> = by_product
-        .iter()
-        .map(|(_, weight)| Decimal::from(shortfall) * Decimal::from(*weight) / Decimal::from(total))
-        .collect();
-    by_product
-        .iter()
-        .zip(meteroid_tax::largest_remainder(&exact))
-        .filter(|(_, amount)| *amount != 0)
-        .map(|((product, _), amount)| (Some(*product), amount))
-        .collect()
+    core::split(&core_scope(scope), weights, carried, shortfall)
 }
 
 /// The scoped products the subscription's components and add-ons are sold under, in scope order.
@@ -872,18 +938,8 @@ fn scope_component_names(
     names
 }
 
-/// The in-scope revenue lines, counted by `amount_subtotal` (GROSS, pre-discount).
-///
-/// The floor is measured against **gross list spend**, before any coupon/discount is applied.
-/// This is the standard B2B "minimum committed spend" semantics: a discount is a
-/// negotiated benefit on actual consumption, not something the floor claws back. Consequences:
-/// - a discount that takes the customer *below* the floor still benefits them (the top-up is
-///   measured against gross spend, not the discounted amount);
-/// - a 100%-off coupon on a product that meets the floor produces **no** shortfall, instead of
-///   silently re-billing the entire minimum.
-///
-/// `amount_subtotal` is unaffected by `distribute_discount` (which only mutates `taxable_amount`),
-/// so this is independent of where the shortfall is appended relative to discount distribution.
+/// The in-scope revenue lines: the opening invoice's for the rule before the true-up, and the
+/// usage a projection extrapolates.
 ///
 /// Scope rules (the synthesized shortfall line is excluded by `kind == Regular`):
 /// - `AllComponents`: every subscription revenue line counts — plan components, overrides,
@@ -929,23 +985,23 @@ pub fn project_minimum_shortfall(
     true_up: &PeriodTrueUp,
 ) -> Option<ShortfallProjection> {
     let scope = &true_up.minimum.scope;
-    let counted: i64 = counted_spend(lines, true_up)
+    let document: Vec<Spend> = lines
+        .iter()
+        .filter(|line| line.kind == LineItemKind::Regular)
+        .map(assembled_spend)
+        .collect();
+    let counted: i64 = true_up
+        .true_up
+        .spend(&document, &true_up.prior)
         .iter()
         .map(|(_, amount)| amount)
         .sum();
     let usage: i64 = counted_lines(lines, scope)
         .filter(|l| l.start_date >= true_up.start && l.start_date < true_up.end)
         .filter(|l| extrapolates(invoice_details, l))
-        .map(|l| l.amount_subtotal)
+        .map(|l| assembled_spend(l).net)
         .sum();
-    project_shortfall(
-        true_up.floor,
-        counted,
-        usage,
-        true_up.already_billed,
-        elapsed,
-    )
-    .map(|p| ShortfallProjection {
+    project_shortfall(&true_up.true_up, counted, usage, elapsed).map(|p| ShortfallProjection {
         scope_product_names: scope_component_names(invoice_details, scope),
         ..p
     })
@@ -978,10 +1034,9 @@ fn extrapolates(details: &SubscriptionDetails, line: &LineItem) -> bool {
 }
 
 fn project_shortfall(
-    floor: i64,
+    true_up: &core::TrueUp,
     counted: i64,
     usage: i64,
-    already_billed: i64,
     elapsed: f64,
 ) -> Option<ShortfallProjection> {
     let elapsed = Decimal::from_f64(elapsed)?.min(Decimal::ONE);
@@ -994,10 +1049,10 @@ fn project_shortfall(
         .to_i64()?;
     let projected = counted.saturating_add(remaining);
     Some(ShortfallProjection {
-        floor_cents: floor,
+        floor_cents: true_up.floor,
         counted_to_date_cents: counted,
         projected_cents: projected,
-        projected_shortfall_cents: trued_up_shortfall(floor, projected, already_billed),
+        projected_shortfall_cents: true_up.shortfall(projected),
         scope_product_names: vec![],
     })
 }
@@ -1129,42 +1184,54 @@ mod tests {
         assert_eq!(counted_total(&lines, &MinimumScope::AllComponents), 1000);
     }
 
+    /// A true-up of September 2024 with `floor`, `prepaid` up front over the month.
+    fn september(floor: i64, prepaid: i64) -> core::TrueUp {
+        let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
+        core::TrueUp {
+            start: day(9, 1),
+            end: day(10, 1),
+            floor,
+            scope: core::Scope::AllComponents,
+            cut: None,
+            prepaid: vec![(day(9, 1), day(10, 1), prepaid)],
+            carried: vec![],
+        }
+    }
+
+    fn project(
+        floor: i64,
+        counted: i64,
+        usage: i64,
+        prepaid: i64,
+        elapsed: f64,
+    ) -> Option<ShortfallProjection> {
+        project_shortfall(&september(floor, prepaid), counted, usage, elapsed)
+    }
+
     #[test]
     fn projected_shortfall_extrapolates_usage_only_net_of_an_up_front_shortfall() {
-        let p = project_shortfall(50_000, 17_000, 3_000, 0, 0.25).unwrap();
+        let p = project(50_000, 17_000, 3_000, 0, 0.25).unwrap();
         assert_eq!(p.counted_to_date_cents, 17_000);
         assert_eq!(p.projected_cents, 26_000);
         assert_eq!(p.projected_shortfall_cents, 24_000);
 
-        let done = project_shortfall(50_000, 17_000, 3_000, 0, 1.0).unwrap();
+        let done = project(50_000, 17_000, 3_000, 0, 1.0).unwrap();
         assert_eq!(done.projected_cents, 17_000);
 
-        let covered = project_shortfall(20_000, 17_000, 3_000, 0, 0.5).unwrap();
+        let covered = project(20_000, 17_000, 3_000, 0, 0.5).unwrap();
         assert_eq!(covered.projected_cents, 20_000);
         assert_eq!(covered.projected_shortfall_cents, 0);
 
-        let paid_up_front = project_shortfall(50_000, 17_000, 3_000, 20_000, 0.25).unwrap();
+        let paid_up_front = project(50_000, 17_000, 3_000, 20_000, 0.25).unwrap();
         assert_eq!(paid_up_front.projected_shortfall_cents, 4_000);
 
-        assert_eq!(project_shortfall(50_000, 17_000, 3_000, 0, 0.0), None);
-        assert_eq!(project_shortfall(50_000, 17_000, 3_000, 0, f64::NAN), None);
-        let third = project_shortfall(50_000, 17_000, 3_000, 0, 1.0 / 3.0).unwrap();
+        assert_eq!(project(50_000, 17_000, 3_000, 0, 0.0), None);
+        assert_eq!(project(50_000, 17_000, 3_000, 0, f64::NAN), None);
+        let third = project(50_000, 17_000, 3_000, 0, 1.0 / 3.0).unwrap();
         assert_eq!(
             third.projected_cents, 23_000,
             "6 000 more usage, rounded once"
         );
-    }
-
-    /// Fee 29.00 in advance, minimum 1 000.00: September's usage of 0 leaves 971.00 to true up.
-    /// An opening invoice that charged 971.00 up front under the earlier rule leaves nothing, or
-    /// what a note gave back of it; a true-up is never negative.
-    #[test]
-    fn the_true_up_nets_what_the_opening_invoice_charged_up_front() {
-        assert_eq!(trued_up_shortfall(100_000, 2_900, 0), 97_100);
-        assert_eq!(trued_up_shortfall(100_000, 2_900, 97_100), 0);
-        assert_eq!(trued_up_shortfall(100_000, 2_900, 97_100 - 68_910), 68_910);
-        assert_eq!(trued_up_shortfall(29_032, 842 + 90_000, 0), 0);
-        assert_eq!(trued_up_shortfall(29_032, 842, 97_100), 0);
     }
 
     /// The rule before the true-up applied its floor on the opening invoice when it billed an
@@ -1228,9 +1295,8 @@ mod tests {
                 scope: MinimumScope::AllComponents,
                 is_override: false,
             },
-            floor: 756,
+            true_up: september(756, 0),
             prior: vec![],
-            already_billed: 0,
             up_front,
         };
         let before = true_up(Some(UpFrontShortfall::TrueUpOfPeriodBefore));
@@ -1249,53 +1315,5 @@ mod tests {
             day(10, 1),
             Some(&before)
         ));
-    }
-
-    /// P's spend is this invoice's lines dated in P (its arrears, not the next period's advance)
-    /// plus what the period's other invoices billed, both within the minimum's scope.
-    #[test]
-    fn counted_spend_takes_the_period_lines_of_this_invoice_and_the_others() {
-        let (a, b) = (ProductId::new(), ProductId::new());
-        let dated = |amount, product, start: NaiveDate, end: NaiveDate| LineItem {
-            start_date: start,
-            end_date: end,
-            ..line(amount, Some(product), None, LineItemKind::Regular)
-        };
-        let day = |m, d| NaiveDate::from_ymd_opt(2026, m, d).unwrap();
-        let lines = vec![
-            dated(90_000, a, day(9, 1), day(10, 1)),
-            dated(2_900, a, day(10, 1), day(11, 1)),
-            dated(500, b, day(9, 1), day(10, 1)),
-            LineItem {
-                start_date: day(9, 1),
-                ..line(7_000, None, None, LineItemKind::MinimumShortfall)
-            },
-        ];
-        let true_up = |scope| PeriodTrueUp {
-            start: day(9, 1),
-            end: day(10, 1),
-            minimum: SubscriptionMinimum {
-                subscription_id: SubscriptionId::new(),
-                amount_subunit: 100_000,
-                scope,
-                is_override: false,
-            },
-            floor: 100_000,
-            prior: vec![(Some(a), 2_900), (Some(b), 1_000), (None, 300)],
-            already_billed: 0,
-            up_front: None,
-        };
-        let sum = |spend: Vec<(Option<ProductId>, i64)>| spend.iter().map(|(_, v)| v).sum::<i64>();
-        assert_eq!(
-            sum(counted_spend(&lines, &true_up(MinimumScope::AllComponents))),
-            90_000 + 500 + 2_900 + 1_000 + 300
-        );
-        assert_eq!(
-            sum(counted_spend(
-                &lines,
-                &true_up(MinimumScope::Products(vec![a]))
-            )),
-            90_000 + 2_900
-        );
     }
 }

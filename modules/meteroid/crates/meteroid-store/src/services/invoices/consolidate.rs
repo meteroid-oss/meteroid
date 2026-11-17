@@ -273,7 +273,7 @@ impl Services {
                     &refreshed,
                     &mut merged,
                     refreshed.iter().all(|m| m.tax_inclusive),
-                    common_domain::clock::now(),
+                    common_clock::now(),
                 )
                 .await?;
             let already_paid: Vec<i64> = refreshed
@@ -548,6 +548,7 @@ impl Services {
                 line_items: lines,
                 amount_due: billing_core::amount_due(totals.total, *paid, applied),
                 subtotal: totals.subtotal,
+                discount: totals.discount,
                 subtotal_recurring: totals.subtotal_recurring,
                 total: totals.total,
                 tax_amount: totals.tax,
@@ -619,7 +620,7 @@ impl Services {
         for (child, child_details) in children.iter().zip(&details) {
             let already_paid = child.total - child.amount_due - child.applied_credits;
             priced.push(
-                self.price_invoice_lines(
+                self.price_from_facts(
                     conn,
                     &child.billing_period_start,
                     child_details,

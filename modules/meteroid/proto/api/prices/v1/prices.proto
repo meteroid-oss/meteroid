@@ -3,6 +3,7 @@ syntax = "proto3";
 package meteroid.api.prices.v1;
 
 import "api/prices/v1/models.proto";
+import "common/v1/date.proto";
 
 message ListPricesByProductRequest {
   string product_id = 1;
@@ -36,6 +37,8 @@ message UpdateMatrixPricesRequest {
   repeated MatrixRowAdd add_rows = 2;
   // Dimension combinations to remove from all matrix prices
   repeated MatrixDimensionKey remove_rows = 3;
+  // The day the new rates take over, today or later; today when absent.
+  optional common.v1.Date effective_on = 4;
 }
 
 message UpdateMatrixPricesResponse {

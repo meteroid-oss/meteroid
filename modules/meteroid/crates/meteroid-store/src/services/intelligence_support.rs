@@ -113,6 +113,8 @@ impl SignalServices {
             .await
     }
 
+    /// The stored subscription's upcoming invoice, from its facts: a change made to
+    /// `subscription_details` in memory is not read.
     pub async fn compute_upcoming_invoice(
         &self,
         conn: &mut PgConn,
@@ -120,6 +122,32 @@ impl SignalServices {
     ) -> StoreResult<ComputedInvoiceContent> {
         self.0
             .compute_upcoming_invoice(conn, subscription_details)
+            .await
+    }
+
+    /// The upcoming invoice once `prepared`, a plan change to `target` not written, is in force,
+    /// from the facts with its rows laid over.
+    pub async fn compute_upcoming_invoice_after_plan_change(
+        &self,
+        conn: &mut PgConn,
+        prepared: &PreparedPlanChange,
+        target: common_domain::ids::PlanVersionId,
+    ) -> StoreResult<ComputedInvoiceContent> {
+        self.0
+            .upcoming_invoice_after_plan_change(conn, prepared, target)
+            .await
+    }
+
+    /// The upcoming invoice with one more `add_on` from the current period, from the facts with
+    /// its row laid over.
+    pub async fn compute_upcoming_invoice_with_add_on(
+        &self,
+        conn: &mut PgConn,
+        subscription_details: &SubscriptionDetails,
+        add_on: common_domain::ids::AddOnId,
+    ) -> StoreResult<ComputedInvoiceContent> {
+        self.0
+            .upcoming_invoice_with_add_on(conn, subscription_details, add_on)
             .await
     }
 }

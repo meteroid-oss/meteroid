@@ -4,8 +4,8 @@
 //! `billing_core::credit::settle`'s; this is the store's side of it.
 use crate::StoreResult;
 use crate::domain::{LineItem, TaxBreakdownItem};
-use crate::repositories::credit::allocation::{Allocation, CreditRequest, GrantPool};
-use crate::repositories::credit::customer_credit::{self, UsageCharge};
+use crate::repositories::credit::allocation::{CreditRequest, GrantPool};
+use crate::repositories::credit::customer_credit;
 use crate::repositories::invoices::{carry_over_tax_findings, compute_tax_breakdown};
 use crate::services::Services;
 use crate::services::credit::document::{self, settle_error};
@@ -17,11 +17,12 @@ use crate::store::PgConn;
 use billing_core::credit::Grants;
 use billing_core::credit::settle as core;
 use billing_core::document::{Document, Header};
-use common_domain::ids::{BaseId, SubscriptionId};
-use std::collections::HashMap;
+use common_domain::ids::SubscriptionId;
 
 #[cfg(test)]
 use crate::domain::LineItemKind;
+#[cfg(test)]
+use crate::repositories::credit::allocation::Allocation;
 #[cfg(test)]
 use crate::repositories::credit::allocation::CreditDemand;
 #[cfg(test)]
@@ -157,7 +158,7 @@ impl TaxedDocument<'_> {
             lines: document::lines_of(self.lines.as_slice(), scope),
             discount: self.discount,
             tax_inclusive: self.tax_inclusive,
-            subscription: scope.subscription_id.map(|id| id.as_uuid()),
+            subscription: scope.subscription_id,
             header: Header {
                 subtotal: *self.subtotal,
                 subtotal_recurring: *self.subtotal_recurring,
@@ -166,45 +167,6 @@ impl TaxedDocument<'_> {
                 total: *self.total,
             },
         }
-    }
-
-    /// What promotional credit may take; within what `shown` gave each line once cash was taken.
-    pub(crate) fn promotional_request(
-        &self,
-        shown: Option<&HashMap<String, i64>>,
-        scope: LineScope<'_>,
-    ) -> StoreResult<Requested> {
-        requested(self.core(scope).promotional_request(shown))
-    }
-
-    pub(crate) fn usage_charges(
-        &self,
-        request: &CreditRequest,
-        of_line: &[Option<usize>],
-        scope: LineScope<'_>,
-    ) -> Vec<UsageCharge> {
-        self.core(scope)
-            .usage_charges(&request.into(), of_line)
-            .into_iter()
-            .map(UsageCharge::from)
-            .collect()
-    }
-
-    /// Lands `allocation` on the lines, taxing again the ones it moves (`Document::reprice`).
-    pub(crate) fn take_promotional(
-        &mut self,
-        of_line: &[Option<usize>],
-        allocation: &Allocation,
-    ) -> StoreResult<Vec<i64>> {
-        let mut settled = self.core(LineScope {
-            owners: &LineOwners::default(),
-            subscription_id: None,
-        });
-        let (shares, repriced) = settled
-            .take_promotional(of_line, &allocation.into(), &document::rates(self.lines))
-            .map_err(settle_error)?;
-        self.write(&settled, repriced.as_ref());
-        Ok(shares)
     }
 
     /// Moves each line to its share and re-taxes the document by its stored rates (OQ14); a
@@ -363,7 +325,7 @@ impl EstimateContext<'_> {
                 let subscriptions = requests
                     .iter()
                     .flat_map(|request| &request.demands)
-                    .filter_map(|demand| demand.subscription.map(SubscriptionId::from))
+                    .filter_map(|demand| demand.subscription)
                     .collect();
                 customer_credit::estimate_drawable_tx(
                     conn,

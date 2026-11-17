@@ -295,11 +295,12 @@ export const MatrixRowsSection = ({ productId, metricId, currencies }: MatrixRow
   }
 
   // Apply after preview
-  const applyAdd = () => {
+  const applyAdd = (effectiveOn: string) => {
     applyMutation.mutate({
       productId,
       addRows: selectedCombos.map(c => makeRowAdd(c, buildPricesMap(c))),
       removeRows: [],
+      effectiveOn: toProtoDate(effectiveOn),
     })
   }
 
@@ -328,11 +329,12 @@ export const MatrixRowsSection = ({ productId, metricId, currencies }: MatrixRow
     })
   }
 
-  const applyRemoveOrphaned = () => {
+  const applyRemoveOrphaned = (effectiveOn: string) => {
     removeApplyMutation.mutate({
       productId,
       addRows: [],
       removeRows: orphanedRows.map(r => makeDimensionKey(r.combo)),
+      effectiveOn: toProtoDate(effectiveOn),
     })
   }
 
@@ -567,6 +569,14 @@ export const MatrixRowsSection = ({ productId, metricId, currencies }: MatrixRow
   )
 }
 
+const today = () => new Date().toISOString().split('T')[0]
+
+// A rate change takes over from a day, today or later; subscriptions keep their rates until then.
+const toProtoDate = (value: string) => {
+  const [year, month, day] = value.split('-').map(Number)
+  return { year, month, day }
+}
+
 function PreviewBanner({
   preview,
   label,
@@ -577,9 +587,10 @@ function PreviewBanner({
   preview: PreviewMatrixUpdateResponse
   label: string
   isBusy: boolean
-  onApply: () => void
+  onApply: (effectiveOn: string) => void
   onCancel: () => void
 }) {
+  const [effectiveOn, setEffectiveOn] = useState(today)
   return (
     <div className="rounded-md border border-border bg-muted/50 p-3 flex flex-col gap-2">
       <p className="text-sm font-medium">{label}</p>
@@ -615,7 +626,18 @@ function PreviewBanner({
         )}
       </div>
       <div className="flex items-center gap-2 pt-1">
-        <Button variant="default" size="sm" disabled={isBusy} onClick={onApply}>
+        <label className="text-xs text-muted-foreground" htmlFor="matrix-effective-on">
+          Effective from
+        </label>
+        <Input
+          id="matrix-effective-on"
+          type="date"
+          className="h-8 w-40"
+          value={effectiveOn}
+          min={today()}
+          onChange={e => setEffectiveOn(e.target.value || today())}
+        />
+        <Button variant="default" size="sm" disabled={isBusy} onClick={() => onApply(effectiveOn)}>
           {isBusy ? 'Applying...' : 'Apply'}
         </Button>
         <Button variant="outline" size="sm" disabled={isBusy} onClick={onCancel}>

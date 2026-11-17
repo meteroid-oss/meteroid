@@ -6,11 +6,13 @@ use std::collections::HashMap;
 use billing_core::charge::{Denomination, Fee};
 use billing_core::issued::{IssuedKind, IssuedLine};
 use chrono::NaiveDate;
-use common_domain::ids::{BaseId, InvoiceId, SubscriptionId, TenantId};
+use common_domain::ids::{InvoiceId, SubscriptionId, TenantId};
+use diesel_models::enums::InvoiceStatusEnum;
 use diesel_models::invoices::InvoiceRow;
 use error_stack::Report;
 
 use crate::StoreResult;
+use crate::domain::enums::InvoiceType;
 use crate::domain::{Invoice, LineItem, LineItemKind};
 use crate::errors::StoreError;
 use crate::services::credit::scope::{LineOwners, line_subscription};
@@ -25,6 +27,8 @@ use crate::store::PgConn;
 pub struct IssuedOn {
     pub invoice: InvoiceId,
     pub line: IssuedLine,
+    /// Its invoice is a draft: billing once issued, credited only then.
+    pub draft: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -34,31 +38,98 @@ pub struct Issued {
     pub unattached: Vec<IssuedOn>,
 }
 
-/// The lines of the issued invoices of `subscription_id` settling periods from `from` on; on a
-/// consolidated parent, only this subscription's.
-pub async fn load_issued(
+/// The lines of the issued invoices of `subscription_id` settling periods from `from` on, its
+/// drafts but `except` too (they bill once issued); on a consolidated parent, only this
+/// subscription's. A voided invoice's lines are read as voided (R-096), unless it is of
+/// `reissuing`, the slot (any period when none) the document computed now bills again, or a live
+/// invoice bills its slot again.
+pub async fn load_billed(
     conn: &mut PgConn,
     tenant_id: TenantId,
     subscription_id: SubscriptionId,
     from: NaiveDate,
+    except: Option<InvoiceId>,
+    reissuing: Option<(InvoiceType, Option<NaiveDate>)>,
 ) -> StoreResult<Issued> {
-    let rows = InvoiceRow::list_issued_of_subscription(conn, tenant_id, subscription_id, from)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+    let rows = InvoiceRow::list_issued_of_subscription(
+        conn,
+        tenant_id,
+        subscription_id,
+        from,
+        true,
+        except,
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?;
+    // A merged draft bills through its consolidated invoice: counted once, as the draft, while
+    // that invoice stands; the one being computed never counts its own parent.
+    let parents: HashMap<InvoiceId, bool> = rows
+        .iter()
+        .filter(|row| row.subscription_id.is_none())
+        .map(|row| (row.id, row.status == InvoiceStatusEnum::Void))
+        .collect();
+    let draft_parents: Vec<InvoiceId> = rows
+        .iter()
+        .filter(|row| row.subscription_id.is_none() && row.status == InvoiceStatusEnum::Draft)
+        .map(|row| row.id)
+        .collect();
+    // A voided recurring or final invoice whose slot a live invoice bills again is replaced by
+    // it: never read, so its forgiveness ends where the slot is billed again (R-096).
+    let reissued: Vec<(InvoiceType, Option<NaiveDate>)> = rows
+        .iter()
+        .filter(|row| row.subscription_id.is_some() && row.status != InvoiceStatusEnum::Void)
+        .filter_map(slot_of)
+        .collect();
+    let rows = rows.into_iter().filter(|row| {
+        row.subscription_id.is_some()
+            && !(row.status == InvoiceStatusEnum::Void
+                && slot_of(row).is_some_and(|slot| reissued.contains(&slot)))
+            && row
+                .consolidated_into_invoice_id
+                .is_none_or(|parent| parents.contains_key(&parent))
+            && !(row.status == InvoiceStatusEnum::Void
+                && reissuing.as_ref().is_some_and(|(kind, period)| {
+                    *kind == InvoiceType::from(row.invoice_type.clone())
+                        && period.is_none_or(|period| period == row.billing_period_start)
+                }))
+    });
     let mut issued = Issued::default();
     for row in rows {
+        // A draft merged into a voided parent was voided with it.
+        let parent = row.consolidated_into_invoice_id;
+        let parent_voided = parent
+            .and_then(|parent| parents.get(&parent).copied())
+            .unwrap_or(false);
         let mut invoice: Invoice = row.try_into()?;
+        if parent_voided {
+            invoice.status = crate::domain::InvoiceStatusEnum::Void;
+        }
         if invoice.subscription_id.is_none() {
             let owners = LineOwners::load_tx(conn, tenant_id, &invoice.line_items).await?;
             invoice
                 .line_items
                 .retain(|line| line_subscription(line, None, &owners) == Some(subscription_id));
         }
-        let (line_lineage, already_credited, corrected, _) =
+        let (line_lineage, mut already_credited, mut corrected, _) =
             load_credit_matching_context(conn, tenant_id, &invoice).await?;
+        // A draft merged into a consolidated invoice is credited by notes against that invoice.
+        if let Some(parent) = parent {
+            let as_parent = Invoice {
+                id: parent,
+                ..invoice.clone()
+            };
+            let (_, credited, by_engine, _) =
+                load_credit_matching_context(conn, tenant_id, &as_parent).await?;
+            for (line, amount) in credited {
+                *already_credited.entry(line).or_insert(0) += amount;
+            }
+            for (line, amount) in by_engine {
+                *corrected.entry(line).or_insert(0) += amount;
+            }
+        }
         let lineages = Lineages::of_lines(&invoice.line_items, &line_lineage);
         for line in &invoice.line_items {
-            let issued_line = issued_line(
+            let issued_line = issued_line_of(
                 line,
                 &invoice,
                 subscription_id,
@@ -70,6 +141,10 @@ pub async fn load_issued(
             let on = IssuedOn {
                 invoice: invoice.id,
                 line: issued_line,
+                draft: match parent {
+                    Some(parent) => draft_parents.contains(&parent),
+                    None => invoice.status == crate::domain::InvoiceStatusEnum::Draft,
+                },
             };
             if on.line.key.fee == Fee::Unattached {
                 issued.unattached.push(on);
@@ -81,9 +156,18 @@ pub async fn load_issued(
     Ok(issued)
 }
 
+/// The slot a recurring invoice (its period) or a final invoice bills, which one invoice holds.
+fn slot_of(row: &InvoiceRow) -> Option<(InvoiceType, Option<NaiveDate>)> {
+    match InvoiceType::from(row.invoice_type.clone()) {
+        InvoiceType::Recurring => Some((InvoiceType::Recurring, Some(row.billing_period_start))),
+        InvoiceType::Final => Some((InvoiceType::Final, None)),
+        _ => None,
+    }
+}
+
 /// A line as reconcile reads it. One priced in a credit unit bills the credits it consumed, in
 /// that unit; the notes on it return money of its overage, never credits, so none count (R-039).
-fn issued_line(
+pub(crate) fn issued_line_of(
     line: &LineItem,
     invoice: &Invoice,
     subscription_id: SubscriptionId,
@@ -93,7 +177,7 @@ fn issued_line(
     corrected: &HashMap<String, i64>,
 ) -> IssuedLine {
     let mut key = evaluated_charge_key(line, lineages);
-    key.subscription = key.subscription.or(Some(subscription_id.as_uuid()));
+    key.subscription = key.subscription.or(Some(subscription_id));
     let in_credits = key.denomination != Denomination::Money;
     let money = |of: &HashMap<String, i64>| {
         if in_credits {
@@ -106,7 +190,7 @@ fn issued_line(
         id: line.local_id.clone(),
         kind: match (&line.kind, line.metric_id) {
             (LineItemKind::Regular, None) => IssuedKind::Fee {
-                price_component: line.price_component_id.map(|id| id.as_uuid()),
+                price_component: line.price_component_id,
                 add_on: line.sub_add_on_id.is_some(),
             },
             (LineItemKind::MinimumShortfall, _) => IssuedKind::Shortfall {
@@ -134,6 +218,7 @@ fn issued_line(
         already_credited: money(already_credited),
         corrected: money(corrected),
         settled: None,
+        voided: invoice.status == crate::domain::InvoiceStatusEnum::Void,
         key,
     }
 }

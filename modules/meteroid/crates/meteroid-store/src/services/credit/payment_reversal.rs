@@ -143,13 +143,7 @@ async fn follow_purchase_money_tx(
         // went back to.
         let reversed = reversed_payment_tx(conn, tenant_id, moved).await?;
         controls
-            .purchase_payment_reversed(
-                conn,
-                lock,
-                &operation,
-                reversed,
-                common_domain::clock::now(),
-            )
+            .purchase_payment_reversed(conn, lock, &operation, reversed, common_clock::now())
             .await?;
     }
 
@@ -178,7 +172,7 @@ async fn follow_purchase_money_tx(
         .await?;
     }
     let mut touched = Vec::new();
-    let now = common_domain::clock::now();
+    let now = common_clock::now();
     let follow_up = match moved {
         None if plan.movements.iter().any(|movement| *movement != 0) => {
             dispute_follow_up_tx(conn, tenant_id, Some(invoice_id), None, now).await?
@@ -270,13 +264,7 @@ pub(crate) async fn suspend_top_up_of_refunded_purchase_tx(
         amount_minor: refunded_minor,
     };
     controls
-        .purchase_payment_reversed(
-            conn,
-            lock,
-            &operation,
-            refunded,
-            common_domain::clock::now(),
-        )
+        .purchase_payment_reversed(conn, lock, &operation, refunded, common_clock::now())
         .await
 }
 

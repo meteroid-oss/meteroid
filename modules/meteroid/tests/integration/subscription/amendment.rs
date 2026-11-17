@@ -468,6 +468,64 @@ async fn test_apply_amendment_add_component_immediate(#[future] test_env: TestEn
         .has_total(2581);
 }
 
+/// On Jan 10 a €50/mo component is added at once from Jan 16, a day still to come: the
+/// subscription's details list the components in force today, Platform Fee and Seats, until Jan 16
+/// lists Support with them. The change bills 16/31 of 5000 = 2581, as on its day.
+#[rstest]
+#[tokio::test]
+async fn a_change_dated_later_shows_in_the_details_from_its_date(#[future] test_env: TestEnv) {
+    use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
+
+    let env = test_env.await;
+    let day = |d: u32| NaiveDate::from_ymd_opt(2024, 1, d).unwrap();
+    env.set_now(day(1).and_hms_opt(9, 0, 0).unwrap().and_utc());
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(day(1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    env.set_now(day(10).and_hms_opt(9, 0, 0).unwrap().and_utc());
+    env.services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            amendment_add_component(
+                PlanChangeMode::Immediate,
+                extra_rate_component("Support", 5000),
+            ),
+            day(16),
+        )
+        .await
+        .expect("a change from Jan 16");
+    let listed = async || {
+        let mut names: Vec<String> = env
+            .store()
+            .get_subscription_details(TENANT_ID, sub_id)
+            .await
+            .expect("details")
+            .price_components
+            .into_iter()
+            .map(|component| component.name)
+            .collect();
+        names.sort();
+        names
+    };
+    assert_eq!(listed().await, ["Platform Fee", "Seats"]);
+
+    env.set_now(day(16).and_hms_opt(9, 0, 0).unwrap().and_utc());
+    assert_eq!(listed().await, ["Platform Fee", "Seats", "Support"]);
+    let invoices = env.get_invoices(sub_id).await;
+    invoices
+        .assert()
+        .has_count(2)
+        .invoice_at(1)
+        .with_context("the change's adjustment")
+        .has_total(2581);
+}
+
 // =============================================================================
 // APPLY IMMEDIATE — REMOVE COMPONENT
 // =============================================================================
@@ -3218,5 +3276,182 @@ async fn a_first_partial_period_prorates_a_fixed_arrears_fee(#[future] test_env:
             NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
             2200
         )
+    );
+}
+
+/// Starter monthly from Jan 1, 2024 with a 366.00 yearly add-on bought that day, its line billed
+/// by the previous release before the watermark on Mar 1. Raised to two on Mar 15: the year's line
+/// settles what was due before the watermark, and the raise, 36600 × 292/366 = 29200, is billed.
+/// Rules: R-094
+#[rstest]
+#[tokio::test]
+async fn an_increase_after_the_watermark_on_a_charge_billed_before_it_is_billed(
+    #[future] test_env: TestEnv,
+) {
+    use diesel::{ExpressionMethods, QueryDsl};
+    use diesel_async::RunQueryDsl;
+    use diesel_models::schema::subscription::dsl as s;
+
+    let env = test_env.await;
+    let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(day(1, 1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let yearly = env
+        .store()
+        .create_add_on_from_ref(
+            "Yearly Support".to_string(),
+            ProductRef::New {
+                name: "Yearly Support Product".to_string(),
+                fee_type: FeeTypeEnum::Rate,
+                fee_structure: FeeStructure::Rate {},
+            },
+            PriceEntry::New(PriceInput {
+                cadence: BillingPeriodEnum::Annual,
+                currency: "EUR".to_string(),
+                pricing: Pricing::Rate {
+                    rate: Decimal::new(36_600, 2),
+                },
+                credit_unit: None,
+            }),
+            None,
+            true,
+            Some(10),
+            TENANT_ID,
+            PRODUCT_FAMILY_ID,
+            vec![],
+        )
+        .await
+        .expect("a yearly add-on")
+        .id;
+    env.services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            add_addon_amendment(PlanChangeMode::Immediate, yearly, 1),
+            day(1, 1),
+        )
+        .await
+        .expect("the yearly add-on");
+    env.process_cycles().await;
+    env.process_cycles().await;
+    diesel::update(s::subscription.filter(s::id.eq(sub_id)))
+        .set(s::reconcile_from.eq(Some(day(3, 1))))
+        .execute(&mut env.conn().await)
+        .await
+        .expect("the watermark");
+    let add_on = {
+        let mut conn = env.conn().await;
+        SubscriptionAddOnRow::list_by_subscription_id_active(&mut conn, &TENANT_ID, &sub_id, None)
+            .await
+            .expect("active add-ons")[0]
+            .id
+    };
+
+    let raised = env
+        .services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            SubscriptionAmendment {
+                apply_mode: PlanChangeMode::Immediate,
+                component_changes: ComponentChanges::default(),
+                add_on_changes: AddOnChanges {
+                    added: vec![],
+                    edited: vec![EditSubscriptionAddOn {
+                        subscription_add_on_id: add_on,
+                        quantity: Some(2),
+                        customization: None,
+                    }],
+                    removed: vec![],
+                },
+            },
+            day(3, 15),
+        )
+        .await
+        .expect("the raise");
+    let adjustment = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .find(|invoice| Some(invoice.id) == raised.adjustment_invoice_id)
+        .expect("an adjustment invoice");
+    assert_eq!(
+        adjustment
+            .line_items
+            .iter()
+            .map(|line| (line.start_date, line.end_date, line.amount_subtotal))
+            .collect::<Vec<_>>(),
+        vec![(
+            day(3, 15),
+            NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            29_200
+        )]
+    );
+    assert!(raised.credit_note_ids.is_empty());
+}
+
+/// Starter from Jan 1, 2024, its first invoice voided at 17:00, then a one-time 99.00 added at
+/// 18:00 the same day: the void forgave January, never the fee added after it. Jan 1 bills 9900.
+/// Rules: R-096, R-093
+#[rstest]
+#[tokio::test]
+async fn a_one_time_fee_added_after_a_void_on_its_day_is_billed(#[future] test_env: TestEnv) {
+    use chrono::{TimeZone, Utc};
+
+    let env = test_env.await;
+    let at = |h| Utc.with_ymd_and_hms(2024, 1, 1, h, 0, 0).unwrap();
+    env.set_now(at(12));
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let first = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .find(|invoice| invoice.status == InvoiceStatusEnum::Finalized)
+        .expect("the first invoice");
+    env.store()
+        .void_invoice_at(
+            common_domain::actor::Actor::System,
+            first.id,
+            TENANT_ID,
+            at(17),
+        )
+        .await
+        .expect("the void");
+    env.set_now(at(18));
+    env.services()
+        .apply_amendment_immediate(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            amendment_add_component(
+                PlanChangeMode::Immediate,
+                extra_onetime_component("Setup", 9900),
+            ),
+        )
+        .await
+        .expect("a one-time 99.00");
+
+    assert_eq!(
+        super::derived_state::documents(&env, sub_id).await,
+        vec![
+            "Recurring 2024-01-01: Platform Fee 2024-01-01..2024-02-01 2900",
+            "Recurring 2024-01-01: Seats 2024-01-01..2024-02-01 1000",
+            "note: Platform Fee 2024-01-01..2024-02-01 -2900",
+            "note: Seats 2024-01-01..2024-02-01 -1000",
+            "Adjustment 2024-01-01: Setup (one-time) 2024-01-01..2024-01-01 9900",
+        ]
     );
 }

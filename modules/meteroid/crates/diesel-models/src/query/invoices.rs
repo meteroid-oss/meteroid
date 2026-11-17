@@ -37,7 +37,7 @@ impl InvoiceRowNew {
 
         let query = diesel::insert_into(invoice).values((
             self,
-            crate::schema::invoice::created_at.eq(common_domain::clock::now()),
+            crate::schema::invoice::created_at.eq(common_clock::now()),
         ));
 
         crate::debug_sql(&query);
@@ -766,7 +766,7 @@ impl InvoiceRow {
                 .map(|row| {
                     (
                         row,
-                        crate::schema::invoice::created_at.eq(common_domain::clock::now()),
+                        crate::schema::invoice::created_at.eq(common_clock::now()),
                     )
                 })
                 .collect::<Vec<_>>(),
@@ -795,7 +795,7 @@ impl InvoiceRow {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
 
         let query = diesel::update(i_dsl::invoice)
             .filter(i_dsl::id.eq(id))
@@ -815,6 +815,8 @@ impl InvoiceRow {
                 i_dsl::invoice_number.eq(new_invoice_number),
                 i_dsl::reference.eq(payment_reference),
                 i_dsl::coupons.eq(coupons),
+                // Finalized: no grace left to wait for.
+                i_dsl::finalize_after.eq(None::<NaiveDateTime>),
             ));
 
         crate::debug_sql(&query);
@@ -907,7 +909,7 @@ impl InvoiceRow {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
         let paid_at = if payment_status == InvoicePaymentStatus::Paid {
             Some(tx_at.unwrap_or(now))
         } else {
@@ -922,6 +924,17 @@ impl InvoiceRow {
                 i_dsl::paid_at.eq(paid_at),
                 i_dsl::updated_at.eq(now),
             ));
+        if paid_at.is_some() {
+            // Paid: no payment attempt left to make.
+            diesel::update(i_dsl::invoice)
+                .filter(i_dsl::id.eq(id))
+                .filter(i_dsl::tenant_id.eq(tenant_id))
+                .set(i_dsl::next_payment_attempt_at.eq(None::<NaiveDateTime>))
+                .execute(conn)
+                .await
+                .attach("Error while clearing an invoice's next payment attempt")
+                .into_db_result()?;
+        }
 
         crate::debug_sql(&query);
 
@@ -941,7 +954,7 @@ impl InvoiceRow {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
 
         let query = diesel::update(i_dsl::invoice)
             .filter(i_dsl::id.eq(id))
@@ -1103,7 +1116,7 @@ impl InvoiceRow {
         use diesel_async::RunQueryDsl;
 
         let new_amount_due = Self::collections(conn, id, tenant_id).await?.amount_due();
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
 
         let query = diesel::update(i_dsl::invoice)
             .filter(i_dsl::id.eq(id))
@@ -1196,7 +1209,7 @@ impl InvoiceRow {
         let query = refreshable_drafts_filter(
             stale_after_hours,
             horizon_days,
-            common_domain::clock::now().naive_utc(),
+            common_clock::now().naive_utc(),
         )
         .select(InvoiceRow::as_select())
         .cursor_paginate(pagination, "id");
@@ -1223,7 +1236,7 @@ impl InvoiceRow {
         let query = refreshable_drafts_filter(
             stale_after_hours,
             horizon_days,
-            common_domain::clock::now().naive_utc(),
+            common_clock::now().naive_utc(),
         )
         .filter(i_dsl::tenant_id.eq(tenant_id))
         .filter(i_dsl::customer_id.eq(customer_id))
@@ -1293,8 +1306,10 @@ impl InvoiceRow {
             .filter(i_dsl::status.eq(InvoiceStatusEnum::Finalized))
             .set((
                 i_dsl::status.eq(InvoiceStatusEnum::Void),
-                i_dsl::updated_at.eq(common_domain::clock::now().naive_utc()),
+                i_dsl::updated_at.eq(common_clock::now().naive_utc()),
                 i_dsl::voided_at.eq(voided_at),
+                i_dsl::finalize_after.eq(None::<NaiveDateTime>),
+                i_dsl::next_payment_attempt_at.eq(None::<NaiveDateTime>),
             ));
 
         crate::debug_sql(&query);
@@ -1324,7 +1339,9 @@ impl InvoiceRow {
             .filter(i_dsl::status.eq(InvoiceStatusEnum::Draft))
             .set((
                 i_dsl::status.eq(InvoiceStatusEnum::Closed),
-                i_dsl::updated_at.eq(common_domain::clock::now().naive_utc()),
+                i_dsl::updated_at.eq(common_clock::now().naive_utc()),
+                i_dsl::finalize_after.eq(None::<NaiveDateTime>),
+                i_dsl::next_payment_attempt_at.eq(None::<NaiveDateTime>),
             ));
 
         crate::debug_sql(&query);
@@ -1359,8 +1376,9 @@ impl InvoiceRow {
             .filter(i_dsl::status.eq(InvoiceStatusEnum::Finalized))
             .set((
                 i_dsl::status.eq(InvoiceStatusEnum::Uncollectible),
-                i_dsl::updated_at.eq(common_domain::clock::now().naive_utc()),
-                i_dsl::marked_as_uncollectible_at.eq(common_domain::clock::now().naive_utc()),
+                i_dsl::updated_at.eq(common_clock::now().naive_utc()),
+                i_dsl::marked_as_uncollectible_at.eq(common_clock::now().naive_utc()),
+                i_dsl::next_payment_attempt_at.eq(None::<NaiveDateTime>),
             ));
 
         crate::debug_sql(&query);
@@ -1519,15 +1537,21 @@ impl InvoiceRow {
             WITH once_credit AS (
                 SELECT sc.id::text AS id, 'sub_component_id' AS line_key
                 FROM subscription_component sc
+                LEFT JOIN price p ON p.id = sc.price_id
                 WHERE sc.subscription_id = $2
                   AND sc.product_id = $3
-                  AND sc.legacy_fee @> '{"Credit": {"once": true}}'
+                  AND (sc.legacy_fee @> '{"Credit": {"once": true}}'
+                       OR (sc.legacy_fee IS NULL
+                           AND p.pricing @> '{"type": "Credit", "once": true}'))
                 UNION ALL
                 SELECT sa.id::text, 'sub_add_on_id'
                 FROM subscription_add_on sa
+                LEFT JOIN price p ON p.id = sa.price_id
                 WHERE sa.subscription_id = $2
                   AND sa.product_id = $3
-                  AND sa.legacy_fee @> '{"Credit": {"once": true}}'
+                  AND (sa.legacy_fee @> '{"Credit": {"once": true}}'
+                       OR (sa.legacy_fee IS NULL
+                           AND p.pricing @> '{"type": "Credit", "once": true}'))
             ), included AS (
                 SELECT g.id, g.invoice_id, g.line_local_id, g.amount
                 FROM customer_credit_grant g
@@ -1600,15 +1624,21 @@ impl InvoiceRow {
             WITH once_credit AS (
                 SELECT sc.id::text AS id, 'sub_component_id' AS line_key
                 FROM subscription_component sc
+                LEFT JOIN price p ON p.id = sc.price_id
                 WHERE sc.subscription_id = $2
                   AND sc.product_id = $3
-                  AND sc.legacy_fee @> '{"Credit": {"once": true}}'
+                  AND (sc.legacy_fee @> '{"Credit": {"once": true}}'
+                       OR (sc.legacy_fee IS NULL
+                           AND p.pricing @> '{"type": "Credit", "once": true}'))
                 UNION ALL
                 SELECT sa.id::text, 'sub_add_on_id'
                 FROM subscription_add_on sa
+                LEFT JOIN price p ON p.id = sa.price_id
                 WHERE sa.subscription_id = $2
                   AND sa.product_id = $3
-                  AND sa.legacy_fee @> '{"Credit": {"once": true}}'
+                  AND (sa.legacy_fee @> '{"Credit": {"once": true}}'
+                       OR (sa.legacy_fee IS NULL
+                           AND p.pricing @> '{"type": "Credit", "once": true}'))
             )
             SELECT EXISTS (
                 SELECT 1
@@ -1702,7 +1732,7 @@ impl InvoiceRow {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
 
         // Credits are recomputed once on the consolidated parent and deducted there; the child
         // never finalizes, so clear its draft-time applied_credits (and re-derive amount_due) to
@@ -2011,6 +2041,69 @@ impl InvoiceRow {
         Ok((first, previous))
     }
 
+    /// The row and end of each line billing one of `rows` on the subscription's invoices dated
+    /// from `from`, void ones aside, and `except` and the recurring or final invoices of the
+    /// period starting `except_period`: what the others billed or will bill, up to when.
+    pub async fn billed_row_ends_since(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_subscription_id: SubscriptionId,
+        from: chrono::NaiveDate,
+        rows: &[uuid::Uuid],
+        except: Option<InvoiceId>,
+        except_period: Option<chrono::NaiveDate>,
+    ) -> DbResult<Vec<(uuid::Uuid, chrono::NaiveDate)>> {
+        use diesel::sql_types;
+        use diesel_async::RunQueryDsl;
+
+        #[derive(diesel::QueryableByName)]
+        struct Billed {
+            #[diesel(sql_type = sql_types::Uuid)]
+            row_id: uuid::Uuid,
+            #[diesel(sql_type = sql_types::Date)]
+            end_date: chrono::NaiveDate,
+        }
+
+        let rows: Vec<String> = rows.iter().map(ToString::to_string).collect();
+        diesel::sql_query(
+            r#"
+            SELECT DISTINCT billed.row_id::uuid AS row_id, billed.end_date::date AS end_date
+            FROM invoice i
+            CROSS JOIN LATERAL (
+                SELECT COALESCE(line->>'sub_component_id', line->>'sub_add_on_id') AS row_id,
+                       line->>'end_date' AS end_date
+                FROM jsonb_array_elements(i.line_items) AS line
+            ) billed
+            WHERE i.tenant_id = $1
+              AND i.subscription_id = $2
+              AND i.invoice_date >= $3
+              AND (i.status <> 'VOID' OR i.consolidated_into_invoice_id IS NOT NULL)
+              AND ($5::uuid IS NULL OR i.id <> $5)
+              AND ($6::date IS NULL
+                   OR NOT (i.invoice_type IN ('RECURRING', 'FINAL')
+                           AND i.billing_period_start = $6))
+              AND billed.row_id = ANY($4)
+              AND billed.end_date IS NOT NULL
+            "#,
+        )
+        .bind::<sql_types::Uuid, _>(param_tenant_id)
+        .bind::<sql_types::Uuid, _>(param_subscription_id)
+        .bind::<sql_types::Date, _>(from)
+        .bind::<sql_types::Array<sql_types::Text>, _>(rows)
+        .bind::<sql_types::Nullable<sql_types::Uuid>, _>(except)
+        .bind::<sql_types::Nullable<sql_types::Date>, _>(except_period)
+        .load::<Billed>(conn)
+        .await
+        .map(|billed| {
+            billed
+                .into_iter()
+                .map(|billed| (billed.row_id, billed.end_date))
+                .collect()
+        })
+        .attach("Error while reading the lines billed since a date")
+        .into_db_result()
+    }
+
     /// The line items of the subscription's recurring invoices for the period starting `on`.
     pub async fn recurring_line_items_on(
         conn: &mut PgConn,
@@ -2284,7 +2377,7 @@ impl InvoiceRowLinesPatch {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
 
         let query = diesel::update(i_dsl::invoice)
             .filter(i_dsl::id.eq(id).and(i_dsl::tenant_id.eq(tenant_id)))

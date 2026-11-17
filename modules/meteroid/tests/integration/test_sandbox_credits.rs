@@ -274,6 +274,10 @@ async fn pulse_future_start_subscription_renews_into_cycle_one() {
              UPDATE invoice SET invoice_date = '{start}', billing_period_start = '{start}'
              WHERE subscription_id = '{id}';
              UPDATE subscription_component SET effective_from = '{start}'
+             WHERE subscription_id = '{id}';
+             UPDATE subscription_start_settled SET at = '{start} 00:00:00'
+             WHERE subscription_id = '{id}';
+             UPDATE subscription_plan_window SET from_date = '{start}', cadence_origin = '{start}'
              WHERE subscription_id = '{id}';",
             created = start - Duration::days(7),
             id = subscription_id.as_uuid()

@@ -7,15 +7,13 @@ use crate::domain::subscription_add_ons::{
 };
 use crate::errors::StoreError;
 use crate::store::PgConn;
-use common_domain::ids::{PriceId, ProductId, SubscriptionId};
-use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
+use common_domain::ids::{PriceId, ProductId, SubscriptionId, TenantId};
+use diesel_models::subscription_add_ons::SubscriptionAddOnRowNew;
 use error_stack::Report;
 use std::collections::HashMap;
 
-/// Resolves checkout add-ons against their catalog definitions and persists them.
-/// Used by both the synchronous checkout completion and the async payment settlement webhook.
-pub(crate) async fn resolve_and_insert_checkout_addons(
-    conn: &mut PgConn,
+/// The rows checkout add-ons are stored as, resolved against their catalog definitions.
+pub(crate) fn resolve_checkout_addons(
     subscription_id: SubscriptionId,
     addons: &[AddOn],
     create_add_ons: &[CreateSubscriptionAddOn],
@@ -23,7 +21,7 @@ pub(crate) async fn resolve_and_insert_checkout_addons(
     prices_by_id: &HashMap<PriceId, Price>,
     units: &crate::domain::credit_units::CreditUnitsById,
     effective_from: chrono::NaiveDate,
-) -> StoreResult<()> {
+) -> StoreResult<Vec<SubscriptionAddOnRowNew>> {
     let mut addon_rows_new: Vec<SubscriptionAddOnRowNew> = Vec::new();
     for cs_ao in create_add_ons {
         let addon = addons
@@ -58,11 +56,47 @@ pub(crate) async fn resolve_and_insert_checkout_addons(
         let row_new: SubscriptionAddOnRowNew = new.try_into()?;
         addon_rows_new.push(row_new);
     }
+    Ok(addon_rows_new)
+}
 
-    let addon_refs: Vec<_> = addon_rows_new.iter().collect();
-    SubscriptionAddOnRow::insert_batch(conn, addon_refs)
+/// The rows buying `create_add_ons` on `effective_from` stores, their catalog read on `conn`:
+/// what a checkout completion inserts, never written.
+pub(crate) async fn checkout_add_on_rows(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+    create_add_ons: &[CreateSubscriptionAddOn],
+    effective_from: chrono::NaiveDate,
+) -> StoreResult<Vec<SubscriptionAddOnRowNew>> {
+    let addon_ids: Vec<_> = create_add_ons.iter().map(|a| a.add_on_id).collect();
+    let rows = diesel_models::add_ons::AddOnRow::list_by_ids(conn, &addon_ids, &tenant_id)
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
-
-    Ok(())
+    let addons = crate::repositories::add_ons::enrich_add_ons(conn, rows, tenant_id).await?;
+    let product_ids: Vec<_> = addons.iter().map(|a| a.product_id).collect();
+    let price_ids: Vec<_> = addons.iter().map(|a| a.price_id).collect();
+    let (prices_by_id, products_by_id) =
+        crate::repositories::subscriptions::fetch_prices_and_products(
+            conn,
+            tenant_id,
+            price_ids.into_iter(),
+            product_ids.into_iter(),
+        )
+        .await?;
+    let units = crate::repositories::credit_units::load_add_on_credit_units(
+        conn,
+        tenant_id,
+        &prices_by_id,
+        create_add_ons,
+    )
+    .await?;
+    resolve_checkout_addons(
+        subscription_id,
+        &addons,
+        create_add_ons,
+        &products_by_id,
+        &prices_by_id,
+        &units,
+        effective_from,
+    )
 }

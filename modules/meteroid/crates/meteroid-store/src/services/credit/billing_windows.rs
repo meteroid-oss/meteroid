@@ -271,7 +271,7 @@ async fn windows_at_unboxed(
         })?
         .precision;
 
-    let closed = load_closed_arrears(conn, upcoming, invoice_date).await?;
+    let closed = load_closed_arrears(conn, upcoming, invoice_date, None).await?;
     let closed_details = closed.details_for(upcoming);
     let runs = crate::services::invoice_lines::cadence::load_cadence_runs(
         conn,

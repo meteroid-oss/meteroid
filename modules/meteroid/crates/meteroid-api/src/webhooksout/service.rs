@@ -67,7 +67,7 @@ fn test_payload(id: EventId, endpoint_id: WebhookEndpointId) -> serde_json::Valu
         "id": id.as_proto(),
         "type": TEST_EVENT_TYPE,
         "data": { "endpoint_id": endpoint_id.as_proto() },
-        "timestamp": common_domain::clock::wall().to_rfc3339_opts(SecondsFormat::Millis, true),
+        "timestamp": common_clock::wall().to_rfc3339_opts(SecondsFormat::Millis, true),
     })
 }
 
@@ -458,8 +458,7 @@ impl WebhooksService for WebhooksServiceComponents {
         let message_id = EventId::new();
         let (event_type, payload) = match req.event_type {
             Some(event_type) => {
-                let timestamp =
-                    common_domain::clock::wall().to_rfc3339_opts(SecondsFormat::Millis, true);
+                let timestamp = common_clock::wall().to_rfc3339_opts(SecondsFormat::Millis, true);
                 let payload = self
                     .catalog
                     .example_payload(&event_type, &message_id.as_proto(), &timestamp)
@@ -506,7 +505,7 @@ impl WebhooksService for WebhooksServiceComponents {
             .webhook_endpoint_daily_stats(
                 tenant_id,
                 endpoint_id,
-                common_domain::clock::now().naive_utc() - STATS_WINDOW,
+                common_clock::now().naive_utc() - STATS_WINDOW,
             )
             .await
             .map_err(Into::<WebhookApiError>::into)?;
@@ -534,10 +533,7 @@ impl WebhooksService for WebhooksServiceComponents {
 
         let endpoints = self
             .store
-            .webhook_endpoints_stats(
-                tenant_id,
-                common_domain::clock::now().naive_utc() - STATS_WINDOW,
-            )
+            .webhook_endpoints_stats(tenant_id, common_clock::now().naive_utc() - STATS_WINDOW)
             .await
             .map_err(Into::<WebhookApiError>::into)?;
 

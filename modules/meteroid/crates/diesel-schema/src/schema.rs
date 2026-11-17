@@ -2299,6 +2299,8 @@ diesel::table! {
         catalog -> Bool,
         credit_unit_id -> Nullable<Uuid>,
         credit_unit_rate -> Nullable<Numeric>,
+        effective_from -> Nullable<Date>,
+        supersedes -> Nullable<Uuid>,
     }
 }
 
@@ -2626,6 +2628,7 @@ diesel::table! {
         actor_uuid -> Nullable<Uuid>,
         actor_alias -> Nullable<Text>,
         next_attempt_at -> Nullable<Timestamp>,
+        written_facts -> Nullable<Jsonb>,
     }
 }
 
@@ -2745,6 +2748,8 @@ diesel::table! {
         usage_filter_value -> Nullable<Text>,
         usage_filter_since -> Nullable<Timestamp>,
         lifecycle_suspended -> Bool,
+        reconcile_from -> Nullable<Date>,
+        next_wake_at -> Nullable<Timestamptz>,
     }
 }
 

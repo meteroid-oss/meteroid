@@ -311,7 +311,7 @@ impl From<&CreditUnitPatch> for CreditUnitRowPatch {
             symbol: patch.symbol.clone(),
             archived_at: patch
                 .archived
-                .map(|archived| archived.then(common_domain::clock::now)),
+                .map(|archived| archived.then(common_clock::now)),
             product_id: patch.product_id,
         }
     }
@@ -548,9 +548,9 @@ mod tests {
             plural_name: "Credits".into(),
             symbol: None,
             precision: 2,
-            created_at: common_domain::clock::now(),
-            updated_at: common_domain::clock::now(),
-            archived_at: Some(common_domain::clock::now()),
+            created_at: common_clock::now(),
+            updated_at: common_clock::now(),
+            archived_at: Some(common_clock::now()),
             product_id: None,
         };
         assert!(archived.ensure_active_for_new_pricing().is_err());

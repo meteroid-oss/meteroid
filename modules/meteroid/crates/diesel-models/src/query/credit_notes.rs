@@ -21,7 +21,7 @@ impl CreditNoteRowNew {
 
         let query = diesel::insert_into(credit_note).values((
             self,
-            crate::schema::credit_note::created_at.eq(common_domain::clock::now()),
+            crate::schema::credit_note::created_at.eq(common_clock::now()),
         ));
 
         crate::debug_sql(&query);
@@ -384,7 +384,7 @@ impl CreditNoteRow {
         use crate::schema::credit_note::dsl as cn_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
 
         let query = diesel::update(cn_dsl::credit_note)
             .filter(cn_dsl::id.eq(id))
@@ -414,7 +414,7 @@ impl CreditNoteRow {
         use crate::schema::credit_note::dsl as cn_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
 
         let query = diesel::update(cn_dsl::credit_note)
             .filter(cn_dsl::id.eq(id))
@@ -440,7 +440,7 @@ impl CreditNoteRow {
         use crate::schema::credit_note::dsl as cn_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
 
         let query = diesel::update(cn_dsl::credit_note)
             .filter(cn_dsl::id.eq(id))
@@ -585,7 +585,7 @@ impl CreditNoteRow {
         use crate::schema::credit_note::dsl as cn_dsl;
         use diesel_async::RunQueryDsl;
 
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
 
         let query = diesel::update(cn_dsl::credit_note)
             .filter(cn_dsl::id.eq(id))

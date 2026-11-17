@@ -4,15 +4,12 @@ use crate::domain::enums::{InvoiceType, SubscriptionStatusEnum};
 use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventData};
 use crate::domain::{Period, SubscriptionDetails};
 use crate::errors::StoreError;
-use crate::repositories::SubscriptionInterface;
 use crate::repositories::billable_metrics::BillableMetricInterface;
 use crate::services::Services;
 use crate::services::clients::usage::{UsageClient, WindowedUsageData};
 use crate::services::credit::forecast::CreditBooks;
 use crate::services::invoice_lines::credit_units::CreditUnitCover;
 use crate::services::invoice_lines::invoice_lines::{BilledSpan, ComputedInvoiceContent};
-use crate::services::lifecycle::billing_events::Applying;
-use crate::services::served_usage::UsagePasses;
 use crate::services::subscriptions::terminate::ends_with_final_invoice;
 use crate::store::PgConn;
 use chrono::NaiveDate;
@@ -21,7 +18,6 @@ use diesel_models::enums::CycleActionEnum;
 use diesel_models::scheduled_events::ScheduledEventRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
-use scoped_futures::ScopedFutureExt;
 use std::sync::Arc;
 
 /// The subscription as its upcoming invoice bills it: dated `current_period_end`, with the next
@@ -33,7 +29,7 @@ pub fn upcoming_invoice_details(details: &SubscriptionDetails) -> (SubscriptionD
     let invoice_date = details
         .subscription
         .current_period_end
-        .unwrap_or_else(|| common_domain::clock::now().date_naive());
+        .unwrap_or_else(|| common_clock::now().date_naive());
     (next, invoice_date)
 }
 
@@ -200,27 +196,37 @@ impl Services {
                         InvoiceType::Recurring,
                     ));
                 }
-                ScheduledEventData::ApplyPlanChange {
-                    new_plan_version_id,
-                    ..
-                } if on == period_end => {
-                    let change = UpcomingChange::PlanChange {
-                        plan_version_id: *new_plan_version_id,
+                ScheduledEventData::ApplyPlanChange { .. }
+                | ScheduledEventData::ApplyAmendment { .. }
+                    if on == period_end =>
+                {
+                    let change = match &event.event_data {
+                        ScheduledEventData::ApplyPlanChange {
+                            new_plan_version_id,
+                            ..
+                        } => UpcomingChange::PlanChange {
+                            plan_version_id: *new_plan_version_id,
+                        },
+                        _ => UpcomingChange::Amendment,
                     };
+                    // Written as facts, the renewal reads its rows: no change to apply first.
+                    if event.status == crate::domain::enums::ScheduledEventStatus::Migrated {
+                        let changed = self.details_on(conn, details, on).await?;
+                        let (renewal, invoice_date) =
+                            upcoming_invoice_details_on(conn, &changed).await?;
+                        return Ok(NextInvoiceBasis {
+                            details: renewal,
+                            invoice_date,
+                            invoice_type: InvoiceType::Recurring,
+                            change: Some(change),
+                            apply: None,
+                        });
+                    }
                     return Ok(NextInvoiceBasis {
                         details: details.clone(),
                         invoice_date,
                         invoice_type: InvoiceType::Recurring,
                         change: Some(change),
-                        apply: Some(event),
-                    });
-                }
-                ScheduledEventData::ApplyAmendment { .. } if on == period_end => {
-                    return Ok(NextInvoiceBasis {
-                        details: details.clone(),
-                        invoice_date,
-                        invoice_type: InvoiceType::Recurring,
-                        change: Some(UpcomingChange::Amendment),
                         apply: Some(event),
                     });
                 }
@@ -252,9 +258,39 @@ impl Services {
         }
     }
 
-    /// The next invoice of `basis`, its credit estimated on `book` when given. A plan change or
-    /// amendment is applied by the lifecycle's own code inside a transaction that is rolled back,
-    /// so the preview bills exactly what executing it will (its parameters, add-ons, seeded seats).
+    /// The subscription as its rows and plan window in force on `on` read it: a renewal on `on`
+    /// after a change written ahead for that day.
+    async fn details_on(
+        &self,
+        conn: &mut PgConn,
+        details: &SubscriptionDetails,
+        on: NaiveDate,
+    ) -> StoreResult<SubscriptionDetails> {
+        let subscription = &details.subscription;
+        let mut renewal = self
+            .store
+            .subscription_details_as_of(conn, subscription.tenant_id, subscription.id, on)
+            .await?;
+        let windows =
+            diesel_models::subscription_facts::SubscriptionPlanWindowRow::list_by_subscription(
+                conn,
+                subscription.id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        if let Some(window) = windows
+            .into_iter()
+            .find(|w| w.from_date <= on && w.to_date.is_none_or(|to| on < to))
+        {
+            renewal.subscription.plan_version_id = window.plan_version_id;
+            renewal.subscription.period = window.cadence.into();
+        }
+        Ok(renewal)
+    }
+
+    /// The next invoice of `basis`, its credit estimated on `book` when given. A change still
+    /// pending as an event is resolved to the rows it writes, laid over the facts and billed
+    /// from them as the renewal will be; nothing is written.
     pub(crate) async fn compute_next_invoice_on(
         &self,
         conn: &mut PgConn,
@@ -272,7 +308,7 @@ impl Services {
         }
         let Some(event) = basis.apply.as_ref() else {
             return self
-                .compute_invoice_on(
+                .compute_invoice_from_facts(
                     conn,
                     &basis.invoice_date,
                     &basis.details,
@@ -284,87 +320,10 @@ impl Services {
                 )
                 .await;
         };
-        // The transaction holds the subscription, so it never reads metering: a pass records the
-        // reads the change prices, they run unlocked, and the next pass is served what they read.
-        let mut passes = UsagePasses::default();
-        loop {
-            let usage = passes.next_pass()?;
-            let content = self
-                .reading_usage(usage.clone())
-                .compute_change_rolled_back(conn, event, book)
-                .await;
-            if passes.served(self.usage_client.as_ref(), &usage).await? {
-                return content;
-            }
-            if let Some(book) = book {
-                book.abandon_document()?;
-            }
-        }
-    }
-
-    async fn compute_change_rolled_back(
-        &self,
-        conn: &mut PgConn,
-        event: &ScheduledEvent,
-        book: Option<&CreditBooks>,
-    ) -> StoreResult<ComputedInvoiceContent> {
-        let mut computed = None;
-        let rolled_back = self
-            .store
-            .transaction_with(conn, |conn| {
-                let computed = &mut computed;
-                async move {
-                    match &event.event_data {
-                        ScheduledEventData::ApplyPlanChange { .. } => {
-                            self.process_apply_plan_change(conn, event, Applying::Preview)
-                                .await?
-                        }
-                        ScheduledEventData::ApplyAmendment { .. } => {
-                            self.process_apply_amendment(conn, event, Applying::Preview)
-                                .await?
-                        }
-                        _ => {
-                            return Err(Report::new(StoreError::InvalidArgument(
-                                "only a plan change or an amendment is applied ahead".into(),
-                            )));
-                        }
-                    }
-                    let changed = self
-                        .store
-                        .get_subscription_details_with_conn(
-                            conn,
-                            event.tenant_id,
-                            event.subscription_id,
-                        )
-                        .await?;
-                    let (renewal, invoice_date) =
-                        upcoming_invoice_details_on(conn, &changed).await?;
-                    *computed = Some(
-                        self.compute_invoice_on(
-                            conn,
-                            &invoice_date,
-                            &renewal,
-                            None,
-                            None,
-                            InvoiceType::Recurring,
-                            CreditUnitCover::Estimate { invoice_id: None },
-                            book,
-                        )
-                        .await?,
-                    );
-                    Err::<(), _>(Report::new(StoreError::FailedPrecondition(
-                        "a previewed change is rolled back".into(),
-                    )))
-                }
-                .scope_boxed()
-            })
-            .await;
-        match (computed, rolled_back) {
-            (Some(content), _) => Ok(content),
-            (None, Err(error)) => Err(error),
-            (None, Ok(())) => Err(Report::new(StoreError::InvoiceComputationError)
-                .attach("a previewed change was not rolled back")),
-        }
+        let overlay = self.overlay_of_change(conn, event).await?;
+        let after = crate::services::evaluate::preview::details_after(&basis.details, &overlay)?;
+        self.preview_next_invoice(conn, &after, &overlay, book)
+            .await
     }
 
     /// Compute the upcoming invoice — i.e. the next invoice that will be generated
@@ -376,15 +335,94 @@ impl Services {
     ) -> StoreResult<ComputedInvoiceContent> {
         let (details, invoice_date) =
             upcoming_invoice_details_on(conn, subscription_details).await?;
-        self.compute_invoice(
+        self.compute_invoice_from_facts(
             conn,
             &invoice_date,
             &details,
             None,
             None,
             crate::domain::enums::InvoiceType::Recurring,
+            CreditUnitCover::Estimate { invoice_id: None },
+            None,
         )
         .await
+    }
+
+    /// The upcoming invoice with `prepared`, a plan change to `target` not written, scheduled for
+    /// the end of the current period: its rows laid over the facts, as a pending change's next
+    /// invoice is previewed. The period's arrears are the old plan's, the next period the target's.
+    pub(in crate::services) async fn upcoming_invoice_after_plan_change(
+        &self,
+        conn: &mut PgConn,
+        prepared: &crate::services::subscriptions::plan_change::PreparedPlanChange,
+        target: common_domain::ids::PlanVersionId,
+    ) -> StoreResult<ComputedInvoiceContent> {
+        let on = prepared
+            .subscription_details
+            .subscription
+            .current_period_end
+            .unwrap_or_else(|| prepared.change_date());
+        let overlay = self.plan_change_overlay(conn, prepared, target, on).await?;
+        let after = crate::services::evaluate::preview::details_after(
+            &prepared.subscription_details,
+            &overlay,
+        )?;
+        self.preview_next_invoice(conn, &after, &overlay, None)
+            .await
+    }
+
+    /// The upcoming invoice with one more `add_on` from the current period's start, priced as an
+    /// attach prices it: its row laid over the facts, never written.
+    pub(in crate::services) async fn upcoming_invoice_with_add_on(
+        &self,
+        conn: &mut PgConn,
+        details: &SubscriptionDetails,
+        add_on: common_domain::ids::AddOnId,
+    ) -> StoreResult<ComputedInvoiceContent> {
+        use crate::domain::subscription_add_ons::{
+            CreateSubscriptionAddOn, SubscriptionAddOnCustomization,
+        };
+        use crate::services::facts::pending::{MinimumChange, PendingFacts};
+        let sub = &details.subscription;
+        let on = sub.current_period_start;
+        let mut change = PendingFacts {
+            event_id: <common_domain::ids::ScheduledEventId as common_domain::ids::BaseId>::new(),
+            tenant_id: sub.tenant_id,
+            subscription_id: sub.id,
+            on,
+            plan_window: None,
+            closes_components: Vec::new(),
+            opens_components: Vec::new(),
+            closes_add_ons: Vec::new(),
+            opens_add_ons: crate::repositories::subscription_add_ons::checkout_add_on_rows(
+                conn,
+                sub.tenant_id,
+                sub.id,
+                &[CreateSubscriptionAddOn {
+                    add_on_id: add_on,
+                    customization: SubscriptionAddOnCustomization::None,
+                    quantity: 1,
+                }],
+                on,
+            )
+            .await?,
+            seat_seeds: Vec::new(),
+            set_seats: Vec::new(),
+            scheduled_at: None,
+            minimum: MinimumChange::Kept,
+        };
+        change.plan_window = crate::services::facts::pending::amendment_cadence_window_tx(
+            conn,
+            sub.tenant_id,
+            sub.id,
+            on,
+            Some(&change),
+        )
+        .await?;
+        let overlay = crate::services::evaluate::load::Overlay::of(change);
+        let after = crate::services::evaluate::preview::details_after(details, &overlay)?;
+        self.preview_next_invoice(conn, &after, &overlay, None)
+            .await
     }
 
     pub async fn get_subscription_component_usage(

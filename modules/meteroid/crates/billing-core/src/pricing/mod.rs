@@ -22,6 +22,9 @@ pub enum PricingError {
     OutOfRange,
     /// A credit pack granting a negative amount, or a fraction of its minor unit.
     InvalidPackCredit,
+    /// A price no quantity can be billed under: a package of no units, or two tiers starting on
+    /// the same unit.
+    InvalidPrice,
 }
 
 /// One row of a tiered or volume price; its last unit is the next row's first.

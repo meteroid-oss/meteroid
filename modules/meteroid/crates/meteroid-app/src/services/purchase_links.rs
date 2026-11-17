@@ -862,7 +862,7 @@ fn verify_license_request(request: &str) -> Result<(InstanceId, String), Purchas
     if request.len() > MAX_LICENSE_REQUEST_LENGTH {
         return Err(invalid());
     }
-    let verified = PurchaseRequest::verify(request, common_domain::clock::wall().timestamp())
+    let verified = PurchaseRequest::verify(request, common_clock::wall().timestamp())
         .map_err(|_| invalid())?;
     let instance_id = InstanceId::parse(&verified.instance_id).map_err(|_| invalid())?;
     Ok((instance_id, verified.instance_public_key))

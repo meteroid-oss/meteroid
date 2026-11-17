@@ -815,3 +815,241 @@ async fn merged_drafts_carry_their_shares_of_the_credit_the_consolidated_invoice
         parent.total
     );
 }
+
+/// A yearly 365.00 support fee in arrears added to the first subscription on Jan 1, removed on
+/// Mar 15: its year [Jan 1 2024, Jan 1 2025) has 366 days, and [Jan 1, Mar 15) bills
+/// 36500 × 74/366 = 7379.78 → 7380 once, on the Apr 1 consolidated renewal, the first invoice
+/// from its end (R-011). That renewal is voided, then the 35.00 rate raised to 65.00 on Apr 16:
+/// what May 1 bills of those arrears, and what the raise bills.
+async fn yearly_arrears_billed_after_a_voided_consolidated_renewal(env: &TestEnv) -> (i64, i64) {
+    use meteroid_store::domain::enums::{BillingPeriodEnum, BillingType, FeeTypeEnum};
+    use meteroid_store::domain::price_components::{PriceEntry, PriceInput, ProductRef};
+    use meteroid_store::domain::prices::{FeeStructure, Pricing};
+    use meteroid_store::domain::subscription_amendment::{
+        AddExtraComponent, AddOnChanges, ComponentChanges, SubscriptionAmendment,
+    };
+    use meteroid_store::domain::subscription_changes::PlanChangeMode;
+    use rust_decimal::Decimal;
+
+    env.set_consolidate_recurring_invoices(true).await;
+    let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
+    let mut subs = Vec::new();
+    for _ in 0..2 {
+        subs.push(
+            subscription()
+                .customer(CUST_UBER_ID)
+                .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+                .start_date(day(1, 1))
+                .on_start()
+                .no_trial()
+                .create(env.services())
+                .await,
+        );
+    }
+    let amend = |component_changes| SubscriptionAmendment {
+        apply_mode: PlanChangeMode::Immediate,
+        component_changes,
+        add_on_changes: AddOnChanges::default(),
+    };
+    env.services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            subs[0],
+            TENANT_ID,
+            amend(ComponentChanges {
+                edited: vec![],
+                added: vec![AddExtraComponent {
+                    name: "Yearly Support".to_string(),
+                    product: ProductRef::New {
+                        name: "Yearly Support Product".to_string(),
+                        fee_type: FeeTypeEnum::ExtraRecurring,
+                        fee_structure: FeeStructure::ExtraRecurring {
+                            billing_type: BillingType::Arrears,
+                        },
+                    },
+                    price_entry: PriceEntry::New(PriceInput {
+                        cadence: BillingPeriodEnum::Annual,
+                        currency: "EUR".to_string(),
+                        pricing: Pricing::ExtraRecurring {
+                            unit_price: Decimal::new(36_500, 2),
+                            quantity: 1,
+                        },
+                        credit_unit: None,
+                    }),
+                }],
+                removed: vec![],
+            }),
+            day(1, 1),
+        )
+        .await
+        .expect("add the yearly support fee");
+    env.process_cycles().await;
+    env.process_cycles().await;
+    let support = env
+        .get_subscription_components(subs[0])
+        .await
+        .into_iter()
+        .find(|c| c.name == "Yearly Support")
+        .expect("yearly support")
+        .id;
+    env.services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            subs[0],
+            TENANT_ID,
+            amend(ComponentChanges {
+                edited: vec![],
+                added: vec![],
+                removed: vec![support],
+            }),
+            day(3, 15),
+        )
+        .await
+        .expect("remove the yearly support fee");
+    env.process_cycles().await;
+
+    let support_lines = |invoices: &[meteroid_store::domain::Invoice], on: NaiveDate| -> i64 {
+        invoices
+            .iter()
+            .filter(|i| i.billing_period_start == on && i.status != InvoiceStatusEnum::Void)
+            .filter(|i| i.consolidated_into_invoice_id.is_none())
+            .flat_map(|i| &i.line_items)
+            .filter(|l| l.name == "Yearly Support")
+            .map(|l| l.amount_subtotal)
+            .sum()
+    };
+    let april: Vec<_> = env
+        .get_customer_invoices(CUST_UBER_ID)
+        .await
+        .into_iter()
+        .filter(|i| i.billing_period_start == day(4, 1) && i.status == InvoiceStatusEnum::Finalized)
+        .filter(|i| i.consolidated_into_invoice_id.is_none())
+        .collect();
+    assert_eq!(support_lines(&april, day(4, 1)), 7380);
+    let billed = april
+        .iter()
+        .find(|i| i.line_items.iter().any(|l| l.name == "Yearly Support"))
+        .expect("the invoice billing April's renewal")
+        .id;
+    env.try_void_invoice(billed).await.expect("void April");
+    let rate = env
+        .get_subscription_components(subs[0])
+        .await
+        .into_iter()
+        .find(|c| c.name == "Subscription Rate")
+        .expect("the rate")
+        .id;
+    env.services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            subs[0],
+            TENANT_ID,
+            amend(ComponentChanges {
+                edited: vec![
+                    meteroid_store::domain::subscription_amendment::EditComponent {
+                        subscription_component_id: rate,
+                        name: None,
+                        price_entry: PriceEntry::New(PriceInput {
+                            cadence: BillingPeriodEnum::Monthly,
+                            currency: "EUR".to_string(),
+                            pricing: Pricing::Rate {
+                                rate: Decimal::new(6_500, 2),
+                            },
+                            credit_unit: None,
+                        }),
+                    },
+                ],
+                added: vec![],
+                removed: vec![],
+            }),
+            day(4, 16),
+        )
+        .await
+        .expect("raise the rate");
+
+    env.process_cycles().await;
+    let may: Vec<_> = env.get_customer_invoices(CUST_UBER_ID).await;
+    let raise = may
+        .iter()
+        .filter(|i| {
+            i.subscription_id == Some(subs[0])
+                && i.invoice_type == meteroid_store::domain::enums::InvoiceType::Adjustment
+        })
+        .flat_map(|i| &i.line_items)
+        .filter(|l| l.name.starts_with("Subscription Rate"))
+        .map(|l| l.amount_subtotal)
+        .sum();
+    (support_lines(&may, day(5, 1)), raise)
+}
+
+/// The facts bill those arrears once, on the voided renewal, never on a later one: May 1 bills
+/// none of them, the void's merged draft still counting. The raise owes April's 3500 − 1750 =
+/// 1750 and 6500 × 15/30 = 3250, 5000 less the voided 3500: 1500, never the voided rate again.
+/// Rules: R-011, R-084, R-096
+#[rstest]
+#[tokio::test]
+async fn test_arrears_of_a_voided_consolidated_renewal_are_billed_once(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    assert_eq!(
+        yearly_arrears_billed_after_a_voided_consolidated_renewal(&env).await,
+        (0, 1_500)
+    );
+}
+
+/// The reconcile watermark's backfill reads a consolidated renewal as issued once its parent is:
+/// February's children stay drafts, merged into a finalized parent, so both subscriptions were
+/// billed by February's start.
+#[rstest]
+#[tokio::test]
+async fn the_reconcile_watermark_counts_a_consolidated_renewal_as_issued(
+    #[future] test_env: TestEnv,
+) {
+    use diesel::prelude::*;
+    use diesel_async::{RunQueryDsl, SimpleAsyncConnection};
+    use diesel_models::schema::subscription::dsl as s;
+
+    let env = test_env.await;
+    env.set_consolidate_recurring_invoices(true).await;
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let mut subs = Vec::new();
+    for _ in 0..2 {
+        subs.push(
+            subscription()
+                .customer(CUST_UBER_ID)
+                .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+                .start_date(start_date)
+                .on_start()
+                .no_trial()
+                .create(env.services())
+                .await,
+        );
+    }
+    env.process_cycles().await;
+    assert_eq!(consolidated_parents(&env, CUST_UBER_ID).await.len(), 1);
+
+    let migration = include_str!(
+        "../../../migrations/diesel/2026-11-15-172649_subscription_reconcile_from/up.sql"
+    );
+    let backfill = &migration[migration.find("UPDATE subscription").expect("the backfill")..];
+    let mut conn = env.conn().await;
+    diesel::update(s::subscription.filter(s::id.eq_any(&subs)))
+        .set(s::reconcile_from.eq(None::<NaiveDate>))
+        .execute(&mut conn)
+        .await
+        .unwrap();
+    conn.batch_execute(backfill)
+        .await
+        .expect("the backfill runs");
+    let watermarks: Vec<Option<NaiveDate>> = s::subscription
+        .filter(s::id.eq_any(&subs))
+        .select(s::reconcile_from)
+        .load(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(
+        watermarks,
+        vec![Some(NaiveDate::from_ymd_opt(2024, 2, 1).unwrap()); 2]
+    );
+}

@@ -315,7 +315,7 @@ impl Services {
             .billing_start_date
             .unwrap_or(sub.subscription.start_date);
 
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
 
         // Validate: end_date must not be before start_date
         if let Some(end_date) = sub.subscription.end_date
@@ -600,6 +600,13 @@ impl Services {
         }
         // OnCheckout with paid trial: stays PendingActivation, checkout will handle billing
 
+        (current_period_end, next_cycle_action) =
+            crate::services::subscriptions::start::cut_at_term_end(
+                sub.subscription.end_date,
+                current_period_end,
+                next_cycle_action,
+            );
+
         let enriched = SubscriptionNewEnriched {
             subscription: &sub.subscription,
             subscription_id,
@@ -837,7 +844,7 @@ impl Services {
             subscription_id: subscription.id,
             event_type: SubscriptionEventType::Created.into(),
             details: None,
-            created_at: common_domain::clock::now().naive_utc(),
+            created_at: common_clock::now().naive_utc(),
             mrr_delta: Some(final_mrr),
             bi_mrr_movement_log_id: None,
             applies_to: subscription.start_date,

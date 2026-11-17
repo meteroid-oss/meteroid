@@ -113,3 +113,4 @@ mod test_minimum_tax;
 mod test_minimum_true_up;
 mod test_mrr_tax_inclusive;
 mod test_plan_minimum;
+mod test_plan_version_immutability;

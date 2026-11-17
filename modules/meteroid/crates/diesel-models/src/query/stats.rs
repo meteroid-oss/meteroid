@@ -28,7 +28,7 @@ impl NewSignupsTrend90DaysRow {
 
         diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)
-            .bind::<sql_types::Date, _>(common_domain::clock::now().date_naive())
+            .bind::<sql_types::Date, _>(common_clock::now().date_naive())
             .get_result::<NewSignupsTrend90DaysRow>(conn)
             .await
             .attach("Error while fetching revenue trend")
@@ -85,7 +85,7 @@ impl DailyNewSignups90DaysRow {
 
         diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)
-            .bind::<sql_types::Date, _>(common_domain::clock::now().date_naive())
+            .bind::<sql_types::Date, _>(common_clock::now().date_naive())
             .get_results::<DailyNewSignups90DaysRow>(conn)
             .await
             .attach("Error while fetching daily new signups 90 days")

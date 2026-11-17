@@ -774,6 +774,7 @@ pub enum ScheduledEventStatus {
     Completed,
     Failed,
     Canceled,
+    Migrated,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]

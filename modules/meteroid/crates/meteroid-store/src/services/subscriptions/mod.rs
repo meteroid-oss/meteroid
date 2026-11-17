@@ -6,7 +6,6 @@ mod effective_plan;
 mod minimum;
 mod mrr;
 
-pub(in crate::services) mod fee_terms;
 pub(in crate::services) mod insert;
 mod late_pack;
 pub mod payment_resolution;
@@ -62,13 +61,28 @@ pub(crate) async fn billing_from_tx(
         .map_or(billing_start, |end| end.max(billing_start)))
 }
 
-/// Whether the subscription's trial is free, as activation decided it: by the plan version it
-/// started on, a trial length set on the subscription alone included; free when the version is
-/// gone.
+/// Whether the subscription's trial is free as its trial fact records it, from the plan version
+/// in force at its start: a later edit of the version never reaches it (R-100).
+pub(crate) async fn recorded_trial_free_tx(
+    conn: &mut crate::store::PgConn,
+    subscription_id: common_domain::ids::SubscriptionId,
+) -> crate::StoreResult<Option<bool>> {
+    Ok(
+        diesel_models::subscription_facts::SubscriptionTrialRow::find(conn, subscription_id)
+            .await?
+            .map(|trial| trial.free),
+    )
+}
+
+/// Whether the subscription's trial is free: its trial fact (R-100); with none, as activation
+/// decided it, by the plan version it started on, free when the version is gone.
 pub(crate) async fn trial_is_free_tx(
     conn: &mut crate::store::PgConn,
     subscription: &crate::domain::Subscription,
 ) -> crate::StoreResult<bool> {
+    if let Some(free) = recorded_trial_free_tx(conn, subscription.id).await? {
+        return Ok(free);
+    }
     let version = trial_plan_version_tx(conn, subscription).await?;
     Ok(
         diesel_models::plans::PlanRow::get_with_version(conn, version, subscription.tenant_id)

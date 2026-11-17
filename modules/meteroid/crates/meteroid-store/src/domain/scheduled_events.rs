@@ -185,6 +185,9 @@ pub enum ComponentMapping {
         name: String,
         fee: SubscriptionFee,
         period: SubscriptionFeeBillingPeriod,
+        /// The seats a change of a seat fee sets, when it sets them; else they carry over (R-108).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seats: Option<u32>,
     },
     /// Component in target plan but not in current (new)
     Added {

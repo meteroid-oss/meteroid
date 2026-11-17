@@ -1,4 +1,4 @@
--- Phase 7, PR 1: a subscription's lifecycle recorded as dated facts, written by the paths that act
+-- A subscription's lifecycle recorded as dated facts, written by the paths that act
 -- next to the events and state that still drive billing. Nothing bills from them yet; the
 -- backfills below are checked by design/pre-release-checks.sql (checks 9 to 14).
 SET LOCAL lock_timeout = '5s';
@@ -15,12 +15,48 @@ CREATE TABLE subscription_trial (
     CONSTRAINT subscription_trial_ends_after_it_starts CHECK (until_date >= from_date)
 );
 
--- The plan version a subscription started on: its first switch's old one, else its current one.
+-- A switch's details name plan versions as UUIDs or, since typed ids, in their public form:
+-- `plv_` and the base62 of the UUID's bits rotated left by 67. div() and mod() stay exact where
+-- `/` rounds a 128-bit quotient.
+CREATE FUNCTION pg_temp.plan_version_of(v TEXT) RETURNS UUID LANGUAGE sql IMMUTABLE AS $$
+SELECT CASE
+    WHEN v IS NULL THEN NULL
+    WHEN v ~* '^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$' THEN v::uuid
+    ELSE (SELECT string_agg(substr('0123456789abcdef',
+                                   mod(div(r, power(16::numeric, 31 - j)), 16)::int + 1, 1),
+                            '' ORDER BY j)
+          FROM generate_series(0, 31) j,
+               (SELECT mod(x, power(2::numeric, 67)) * power(2::numeric, 61)
+                           + div(x, power(2::numeric, 67)) AS r
+                FROM (SELECT sum((strpos('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
+                                         substr(split_part(v, '_', 2), i, 1)) - 1)::numeric
+                                 * power(62::numeric, length(split_part(v, '_', 2)) - i)) AS x
+                      FROM generate_series(1, length(split_part(v, '_', 2))) i) n) rotated)::uuid
+END
+$$;
+
+-- The plan version a subscription started on: its first switch's old one, else, for a switch that
+-- recorded only its new version, the version of the components it closed other than that day's new
+-- versions, else its current one.
 CREATE TEMP TABLE first_plan_switch ON COMMIT DROP AS
 SELECT DISTINCT ON (e.subscription_id)
        e.subscription_id,
        e.applies_to,
-       (e.details ->> 'old_plan_version_id')::uuid AS old_version
+       COALESCE(
+           pg_temp.plan_version_of(e.details ->> 'old_plan_version_id'),
+           (SELECT pc.plan_version_id
+            FROM subscription_component c
+            JOIN price_component pc ON pc.id = c.price_component_id
+            WHERE c.subscription_id = e.subscription_id
+              AND c.effective_to = e.applies_to
+              AND pc.plan_version_id NOT IN (
+                  SELECT pg_temp.plan_version_of(o.details ->> 'new_plan_version_id')
+                  FROM subscription_event o
+                  WHERE o.subscription_id = e.subscription_id AND o.event_type = 'SWITCH'
+                    AND o.applies_to = e.applies_to
+                    AND o.details ->> 'new_plan_version_id' IS NOT NULL)
+            ORDER BY c.effective_from
+            LIMIT 1)) AS old_version
 FROM subscription_event e
 WHERE e.event_type = 'SWITCH'
   AND e.details ->> 'old_plan_version_id' IS DISTINCT FROM e.details ->> 'new_plan_version_id'
@@ -37,9 +73,30 @@ SELECT s.id, s.tenant_id, t.from_date,
 FROM subscription s
 LEFT JOIN first_plan_switch f ON f.subscription_id = s.id
 LEFT JOIN plan_version pv ON pv.id = COALESCE(f.old_version, s.plan_version_id)
+-- What the subscription did decides freeness, never the version's flag edited since (R-100): a
+-- change moving the billing start ended a free trial; an invoice on the trial's first day billed a
+-- paid one; billing first from its end, or waiting to end it, is free.
 CROSS JOIN LATERAL (
-    SELECT COALESCE(pv.trial_is_free, TRUE) AS free,
-           CASE WHEN COALESCE(pv.trial_is_free, TRUE)
+    SELECT CASE
+               WHEN s.billing_start_date = f.applies_to AND s.billing_start_date > s.start_date
+                   THEN TRUE
+               WHEN EXISTS (SELECT 1 FROM invoice i
+                            WHERE i.subscription_id = s.id
+                              AND i.invoice_type = 'RECURRING'
+                              AND i.invoice_date = COALESCE(s.billing_start_date, s.start_date))
+                   THEN FALSE
+               WHEN EXISTS (SELECT 1 FROM invoice i
+                            WHERE i.subscription_id = s.id
+                              AND i.invoice_type = 'RECURRING'
+                              AND i.invoice_date >= COALESCE(s.billing_start_date, s.start_date)
+                                                    + s.trial_duration)
+                   THEN TRUE
+               WHEN s.next_cycle_action = 'END_TRIAL' THEN TRUE
+               ELSE COALESCE(pv.trial_is_free, TRUE) END AS free
+) d
+CROSS JOIN LATERAL (
+    SELECT d.free,
+           CASE WHEN d.free
                      AND s.billing_start_date = f.applies_to
                      AND s.billing_start_date > s.start_date
                 THEN s.start_date
@@ -150,7 +207,7 @@ CREATE TABLE subscription_plan_window_origin_pending (
 CREATE TEMP TABLE plan_window_draft ON COMMIT DROP AS
 WITH switches AS (
     SELECT e.subscription_id, e.applies_to, e.created_at,
-           (e.details ->> 'new_plan_version_id')::uuid AS new_version,
+           pg_temp.plan_version_of(e.details ->> 'new_plan_version_id') AS new_version,
            (e.details ->> 'cadence_origin')::date      AS recorded
     FROM subscription_event e
     WHERE e.event_type = 'SWITCH'

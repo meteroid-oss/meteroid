@@ -91,16 +91,23 @@ impl Services {
     ) -> StoreResult<()> {
         let mut conn = self.store.get_conn().await?;
         // Tenant check.
-        SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, subscription_id)
+        let row = SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, subscription_id)
             .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+            .map_err(Into::<Report<StoreError>>::into)?
+            .subscription;
+        // From today, held inside the stored period: the period the subscription's rows are read
+        // on, before a scheduled change's from its end.
+        let today = common_clock::now().date_naive();
+        let today = row
+            .current_period_end
+            .and_then(|end| end.pred_opt())
+            .map_or(today, |last| today.min(last));
 
         self.store
             .transaction_with(&mut conn, |conn| {
                 async move {
                     let lock = SubscriptionRow::lock_customer_of(conn, subscription_id).await?;
                     diesel_models::query::credit_inputs::bump_customer(conn, &lock).await?;
-                    let today = common_domain::clock::now().date_naive();
                     SubscriptionAdjustmentRow::end_current(conn, &subscription_id, today)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
@@ -152,7 +159,7 @@ impl Services {
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
     ) -> StoreResult<()> {
-        let today = common_domain::clock::now().date_naive();
+        let today = common_clock::now().date_naive();
         let mut details = self
             .store
             .get_subscription_details_with_conn(conn, tenant_id, subscription_id)

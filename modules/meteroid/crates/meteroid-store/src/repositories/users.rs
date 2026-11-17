@@ -550,7 +550,7 @@ impl UserInterface for Store {
             let token = generate_jwt_token(
                 &user.id.as_uuid().to_string(),
                 &self.settings.jwt_secret,
-                common_domain::clock::now() + url_expires_in,
+                common_clock::now() + url_expires_in,
                 Audience::ResetPassword,
                 None,
             )?;
@@ -629,7 +629,7 @@ impl UserInterface for Store {
         let token = generate_jwt_token(
             &email,
             &self.settings.jwt_secret,
-            common_domain::clock::now() + url_expires_in,
+            common_clock::now() + url_expires_in,
             Audience::EmailValidation,
             Some(JwtPayload::EmailValidation {
                 invite_key: invite_key.map(|s| s.expose_secret().to_string()),
@@ -1085,7 +1085,7 @@ fn generate_auth_jwt_token(user_id: &UserId, secret: &SecretString) -> StoreResu
     generate_jwt_token(
         user_id.as_uuid().to_string().as_str(),
         secret,
-        common_domain::clock::now() + chrono::Duration::weeks(1),
+        common_clock::now() + chrono::Duration::weeks(1),
         Audience::WebApi,
         None,
     )
@@ -1213,7 +1213,7 @@ fn generate_mfa_challenge_token(
     generate_jwt_token(
         user_id.as_uuid().to_string().as_str(),
         secret,
-        common_domain::clock::now() + chrono::Duration::minutes(5),
+        common_clock::now() + chrono::Duration::minutes(5),
         Audience::MfaChallenge,
         None,
     )
@@ -1293,7 +1293,7 @@ pub(crate) async fn register_user_internal(
 
                         if invite.accepted_at.is_some()
                             || invite.revoked_at.is_some()
-                            || invite.expires_at < common_domain::clock::now()
+                            || invite.expires_at < common_clock::now()
                         {
                             return Err(StoreError::InvalidArgument(
                                 "Invalid or expired invite link".to_string(),
@@ -1322,7 +1322,7 @@ pub(crate) async fn register_user_internal(
                         OrganizationInviteRow::set_accepted_at(
                             conn,
                             invite_id,
-                            common_domain::clock::now(),
+                            common_clock::now(),
                         )
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;

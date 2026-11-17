@@ -385,3 +385,70 @@ async fn an_immediate_change_credits_the_unused_fee_of_an_add_on_the_target_does
 async fn an_immediate_change_carries_over_an_advance_add_on_the_target_offers() {
     advance_add_on_across_immediate_change(Target::Offers).await;
 }
+
+/// A €20/month add-on on Starter, offered by Starter and Pro. Detached from Starter while it runs,
+/// another add-on attached there, and detached from Pro once a change into Pro was written as
+/// facts: its row stays open at its price. The offer is read when an add-on is added or a change
+/// is written, never after.
+/// Rules: R-099
+#[tokio::test]
+async fn an_offer_edited_after_publication_leaves_running_add_ons_as_they_are() {
+    let env = test_env_with_usage(usage_mock(vec![])).await;
+    let add_on = create_rate_addon(&env, "Premium Support", 2000).await;
+    offer_on(&env, Target::Offers, PLAN_VERSION_STARTER_ID, add_on).await;
+    offer_on(&env, Target::Offers, PLAN_VERSION_PRO_ID, add_on).await;
+    let sub_id = subscribe_with(&env, add_on, day(1, 1)).await;
+    let rows = async || {
+        add_on_rows(&env, sub_id)
+            .await
+            .into_iter()
+            .map(|row| (row.id, row.price_id, row.effective_from, row.effective_to))
+            .collect::<Vec<_>>()
+    };
+    let before = rows().await;
+    assert_eq!(before.len(), 1);
+
+    env.store()
+        .detach_add_on_from_plan_version(PLAN_VERSION_STARTER_ID, add_on, TENANT_ID)
+        .await
+        .expect("detach from Starter");
+    let other = create_rate_addon(&env, "Onboarding", 500).await;
+    offer_on(&env, Target::Offers, PLAN_VERSION_STARTER_ID, other).await;
+    assert_eq!(rows().await, before, "R-099: the row is untouched");
+
+    let event = env
+        .services()
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+        )
+        .await
+        .expect("schedule plan change");
+    // As the previous release left it: pending, written by the migration.
+    super::pending_facts::roll_back_changes_as_facts(&env).await;
+    let written = env
+        .services()
+        .write_pending_event_as_facts(TENANT_ID, event.id)
+        .await
+        .expect("write")
+        .expect("the change resolves");
+    let meteroid_store::services::facts::pending::Migration::Written(facts) = written else {
+        panic!("written once");
+    };
+    assert!(
+        facts.closes_add_ons.is_empty(),
+        "Pro offers it: it carries over"
+    );
+    env.store()
+        .detach_add_on_from_plan_version(PLAN_VERSION_PRO_ID, add_on, TENANT_ID)
+        .await
+        .expect("detach from Pro");
+    assert_eq!(
+        rows().await,
+        before,
+        "R-099: the written change keeps the add-on at its price"
+    );
+}

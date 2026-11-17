@@ -1,18 +1,18 @@
 //! What issued documents billed, line by line (R-077).
 
 use chrono::NaiveDate;
+use common_domain::ids::PriceComponentId;
 use rust_decimal::Decimal;
-use uuid::Uuid;
 
 use crate::DayFraction;
 use crate::allocation::largest_remainder;
-use crate::charge::ChargeKey;
+use crate::charge::{ChargeKey, Fee};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IssuedKind {
     /// A fixed fee, with the plan component it names and whether an add-on billed it.
     Fee {
-        price_component: Option<Uuid>,
+        price_component: Option<PriceComponentId>,
         add_on: bool,
     },
     /// A minimum shortfall, and whether it was charged up front for its period.
@@ -44,9 +44,36 @@ pub struct IssuedLine {
     pub corrected: i64,
     /// What an earlier ending of its fee credited from it, when one did.
     pub settled: Option<i64>,
+    /// On a voided invoice: what it billed counts as billed and forgiven (R-096).
+    pub voided: bool,
 }
 
 impl IssuedLine {
+    /// Whether the line billed the charge `key`: the same subscription, fee, kind and
+    /// denomination, over part of the key's period. A line of no days (an ending's usage on its
+    /// day, R-016) bills only the key of that day, never the period ending on it.
+    pub fn bills(&self, key: &ChargeKey) -> bool {
+        self.key.subscription == key.subscription
+            && self.key.fee == key.fee
+            && self.key.kind == key.kind
+            && self.key.denomination == key.denomination
+            && key.from <= self.from
+            && self.until <= key.until
+            && (self.from < self.until || key.from == key.until)
+    }
+
+    /// Whether the line bills a period of its fee the reconcile watermark settled, one of
+    /// `settled` (`Evaluation::settled`): no charge's, however long a period holds it (R-094).
+    pub fn settled_by(&self, settled: &[(Fee, (NaiveDate, NaiveDate))]) -> bool {
+        let key = &self.key;
+        settled.iter().any(|(fee, (from, until))| {
+            *fee == key.fee
+                && *from <= key.from
+                && key.until <= *until
+                && (key.from < *until || from == until)
+        })
+    }
+
     fn covers(&self, at: NaiveDate) -> bool {
         self.from <= at && at < self.until
     }

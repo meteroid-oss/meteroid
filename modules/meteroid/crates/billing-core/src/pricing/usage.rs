@@ -167,6 +167,9 @@ pub fn usage_lines(
                         fees::volume(usage_units, tiers, precision)?
                     }
                     UsageModel::Package { block_size, rate } => {
+                        if *block_size == 0 {
+                            return Err(PricingError::InvalidPrice);
+                        }
                         // TODO we want some additional data in the frontend to display that "x$ per 20", total usage and block usage
                         let package_size_decimal = Decimal::from(*block_size);
                         let total_packages = (usage_units / package_size_decimal).ceil();
@@ -197,9 +200,9 @@ pub fn usage_lines(
     Ok(lines)
 }
 
-/// The overage lines of a capacity fee for the usage of one window.
+/// The overage lines of a capacity fee for the usage of one window, past `included` units.
 pub fn capacity_overage_lines(
-    included: u64,
+    included: Decimal,
     overage_rate: &Decimal,
     usage: &[GroupedUsage],
     precision: u8,
@@ -209,7 +212,7 @@ pub fn capacity_overage_lines(
         for usage_data in usage {
             let overage_units = usage_data
                 .value
-                .checked_sub(Decimal::from(included))
+                .checked_sub(included)
                 .map(only_positive_decimal)
                 .map(|units| round_billable_quantity(units, *overage_rate, precision))
                 .ok_or(PricingError::OutOfRange)?;
@@ -259,7 +262,8 @@ mod tests {
             value: used,
             dimensions: HashMap::new(),
         }];
-        let lines = capacity_overage_lines(included, &rate, &usage, precision).unwrap();
+        let lines =
+            capacity_overage_lines(Decimal::from(included), &rate, &usage, precision).unwrap();
         assert_eq!(lines.len(), 1);
         (lines[0].sublines[0].total, lines[0].total)
     }
@@ -277,12 +281,63 @@ mod tests {
         assert_eq!(overage_total(dec!(0.02), 20, dec!(15.5), 2), (0, 0));
     }
 
+    fn five_units() -> [GroupedUsage; 1] {
+        [GroupedUsage {
+            value: dec!(5),
+            dimensions: HashMap::new(),
+        }]
+    }
+
+    /// A package of no units prices nothing it could bill: an error, never a division by zero.
+    /// Rules: R-107
+    #[test]
+    fn a_package_with_no_block_size_is_an_error() {
+        let package = UsageModel::Package {
+            block_size: 0,
+            rate: dec!(1),
+        };
+        assert_eq!(
+            usage_lines(&package, &five_units(), 2, |_| None),
+            Err(PricingError::InvalidPrice)
+        );
+    }
+
+    /// Two tiers starting on the same unit leave the price of that unit ambiguous: an error, for
+    /// graduated and volume tiers alike.
+    /// Rules: R-107
+    #[test]
+    fn tiers_starting_on_the_same_unit_are_an_error() {
+        let tier = |first_unit, rate| super::super::Tier {
+            first_unit,
+            rate,
+            flat_fee: None,
+            flat_cap: None,
+        };
+        let tiers = vec![tier(0, dec!(1)), tier(0, dec!(0.5))];
+        for model in [
+            UsageModel::Tiered {
+                tiers: tiers.clone(),
+                block_size: None,
+            },
+            UsageModel::Volume {
+                tiers: tiers.clone(),
+                block_size: None,
+            },
+        ] {
+            assert_eq!(
+                usage_lines(&model, &five_units(), 2, |_| None),
+                Err(PricingError::InvalidPrice),
+                "{model:?}"
+            );
+        }
+    }
+
     #[test]
     fn a_capacity_overage_beyond_the_supported_range_is_refused() {
         let usage = [GroupedUsage {
             value: Decimal::MAX,
             dimensions: HashMap::new(),
         }];
-        assert!(capacity_overage_lines(0, &dec!(10), &usage, 2).is_err());
+        assert!(capacity_overage_lines(Decimal::ZERO, &dec!(10), &usage, 2).is_err());
     }
 }

@@ -1,18 +1,16 @@
 //! The present as billing reads it. Production reads the wall clock; a test built with the
 //! `test-clock` feature can move it, so renewals, expiries and grace periods run on dates the test
 //! chooses instead of rows backdated by SQL. The test clock keeps running from where it was set.
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, SubsecRound, Utc};
 
-/// The current instant.
+/// The current instant, in whole microseconds as the database keeps it: an instant stored by any
+/// path (a bound column truncates, a JSON value cast in SQL rounds) reads back equal to it.
 pub fn now() -> DateTime<Utc> {
     #[cfg(feature = "test-clock")]
-    {
-        Utc::now() + test::offset()
-    }
+    let now = Utc::now() + test::offset();
     #[cfg(not(feature = "test-clock"))]
-    {
-        Utc::now()
-    }
+    let now = Utc::now();
+    now.trunc_subsecs(6)
 }
 
 /// The real instant: expiries that libraries check against the system clock (tokens, signatures),
@@ -50,5 +48,15 @@ pub mod test {
     /// Moves the present forward by `by`.
     pub fn advance(by: Duration) {
         set(super::now() + by);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_present_has_no_sub_microsecond_part() {
+        for _ in 0..1_000 {
+            assert_eq!(super::now().timestamp_subsec_nanos() % 1_000, 0);
+        }
     }
 }

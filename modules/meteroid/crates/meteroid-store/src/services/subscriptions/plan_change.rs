@@ -23,10 +23,8 @@ use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::repositories::entity_activity::EntityActivityInterface;
 use crate::services::Services;
-use crate::services::subscriptions::proration::{
-    OwnGrid, calculate_proration_by, detect_change_direction, pack_charge_line, stub_on_own_grid,
-};
-use crate::services::subscriptions::terminate::removed_add_on;
+use crate::services::evaluate::change::{Change, GiveBack, change_documents};
+use crate::services::subscriptions::proration::{DayFraction, OwnGrid, detect_change_direction};
 use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
 use chrono::{Datelike, NaiveDate, NaiveTime};
@@ -265,31 +263,42 @@ impl Services {
                     refuse_after_a_cancellation(conn, tenant_id, subscription_id, effective_date)
                         .await?;
 
-                    let events = self
-                        .store
-                        .schedule_events(
-                            conn,
-                            vec![ScheduledEventNew {
-                                subscription_id,
-                                tenant_id,
-                                scheduled_time: effective_date.and_time(NaiveTime::MIN),
-                                event_data: ScheduledEventData::ApplyPlanChange {
-                                    source_plan_version_id: Some(
-                                        ctx.subscription_details.subscription.plan_version_id,
-                                    ),
-                                    new_plan_version_id,
-                                    component_mappings,
-                                },
-                                source: "api".to_string(),
-                                created_by: actor.clone(),
-                            }],
-                        )
-                        .await?;
-
-                    let event = events
-                        .into_iter()
-                        .next()
-                        .ok_or_else(|| Report::new(StoreError::InsertError))?;
+                    // Written as facts now, the change's rows dated from the period's end.
+                    crate::services::facts::pending::withdraw_pending_of_tx(
+                        conn,
+                        tenant_id,
+                        subscription_id,
+                        &[diesel_models::enums::ScheduledEventTypeEnum::ApplyPlanChange],
+                        "Replaced by new plan change",
+                    )
+                    .await?;
+                    let event = crate::services::facts::pending::schedule_as_facts_tx(
+                        &self.store,
+                        conn,
+                        ScheduledEventNew {
+                            subscription_id,
+                            tenant_id,
+                            scheduled_time: effective_date.and_time(NaiveTime::MIN),
+                            event_data: ScheduledEventData::ApplyPlanChange {
+                                source_plan_version_id: Some(
+                                    ctx.subscription_details.subscription.plan_version_id,
+                                ),
+                                new_plan_version_id,
+                                component_mappings,
+                            },
+                            source: "api".to_string(),
+                            created_by: actor.clone(),
+                        },
+                    )
+                    .await?;
+                    self.derive_state_tx(
+                        conn,
+                        actor,
+                        tenant_id,
+                        subscription_id,
+                        common_clock::now(),
+                    )
+                    .await?;
 
                     let activity = Activity::new(
                         ActivityType::SubscriptionPlanChangeScheduled,
@@ -335,7 +344,7 @@ impl Services {
         let immediate_allowed = ctx.immediate_allowed();
 
         let effective_date = if is_immediate {
-            common_domain::clock::now().naive_utc().date()
+            common_clock::now().naive_utc().date()
         } else {
             ctx.subscription_details
                 .subscription
@@ -356,6 +365,38 @@ impl Services {
                 )
                 .await?;
             prepared.ensure_immediate_allowed()?;
+            // What the change bills and gives back: its rows laid over the facts at its date; a
+            // change ending a free trial bills the new plan's first invoice.
+            let (charged, credited, incoming) = if prepared.is_free_trial() {
+                let first = self
+                    .plan_change_quote(&mut conn, &prepared, new_plan_version_id, effective_date)
+                    .await?;
+                (
+                    first.subtotal,
+                    0,
+                    pack_charges(&first.invoice_lines, prepared.precision),
+                )
+            } else {
+                let overlay = self
+                    .plan_change_overlay(&mut conn, &prepared, new_plan_version_id, effective_date)
+                    .await?;
+                let documents = self
+                    .preview_change_documents(
+                        &mut conn,
+                        &prepared.subscription_details,
+                        &overlay,
+                        Change::of_rows(effective_date, GiveBack::Unused, "plan change"),
+                        Vec::new(),
+                    )
+                    .await?;
+                let incoming = documents
+                    .adjustment
+                    .as_ref()
+                    .map_or_else(Vec::new, |invoice| {
+                        pack_charges(&invoice.invoice_lines, prepared.precision)
+                    });
+                (documents.charged, documents.credited, incoming)
+            };
             drop(conn);
             let outgoing = if prepared.is_free_trial() {
                 Default::default()
@@ -363,7 +404,7 @@ impl Services {
                 self.estimate_outgoing_packs(&prepared, effective_date)
                     .await?
             };
-            let proration = prepared.proration_summary(&outgoing);
+            let proration = prepared.proration_summary(charged, credited, incoming, &outgoing);
             return Ok(PlanChangePreviewExtended {
                 preview: prepared.preview,
                 proration: Some(proration),
@@ -437,9 +478,9 @@ impl Services {
                         ))
                     })?;
 
-                    if !ScheduledEventRow::cancel_event(conn, &event.id, "Cancelled by user")
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?
+                    if !self
+                        .cancel_pending_change_tx(conn, actor, event, "Cancelled by user")
+                        .await?
                     {
                         return Err(Report::new(StoreError::ValueNotFound(
                             "No pending plan change found for this subscription".to_string(),
@@ -496,10 +537,20 @@ impl Services {
                         )));
                     }
 
-                    if !matches!(
-                        event.status,
-                        diesel_models::enums::ScheduledEventStatus::Pending
-                    ) {
+                    let still_pending = match event.status {
+                        diesel_models::enums::ScheduledEventStatus::Pending => true,
+                        diesel_models::enums::ScheduledEventStatus::Migrated => {
+                            !diesel_models::subscription_events::SubscriptionEventRow::change_applied(
+                                conn,
+                                subscription_id,
+                                event_id,
+                            )
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?
+                        }
+                        _ => false,
+                    };
+                    if !still_pending {
                         return Err(Report::new(StoreError::InvalidArgument(
                             "Only pending events can be cancelled".to_string(),
                         )));
@@ -540,9 +591,9 @@ impl Services {
                         _ => None,
                     };
 
-                    if !ScheduledEventRow::cancel_event(conn, &event_id, "Cancelled by user")
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?
+                    if !self
+                        .cancel_pending_change_tx(conn, actor, &event, "Cancelled by user")
+                        .await?
                     {
                         return Err(Report::new(StoreError::InvalidArgument(
                             "Only pending events can be cancelled".to_string(),
@@ -573,6 +624,38 @@ impl Services {
             .await
     }
 
+    /// Cancels a pending change: its event, or, written as facts, its rows from its date; the
+    /// state is derived again. False when it was no longer pending.
+    pub(in crate::services) async fn cancel_pending_change_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        event: &ScheduledEventRow,
+        reason: &str,
+    ) -> StoreResult<bool> {
+        let cancelled = if matches!(
+            event.status,
+            diesel_models::enums::ScheduledEventStatus::Migrated
+        ) {
+            crate::services::facts::pending::withdraw_pending_tx(conn, event, reason).await?
+        } else {
+            ScheduledEventRow::cancel_event(conn, &event.id, reason)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+        };
+        if cancelled {
+            self.derive_state_tx(
+                conn,
+                actor,
+                event.tenant_id,
+                event.subscription_id,
+                common_clock::now(),
+            )
+            .await?;
+        }
+        Ok(cancelled)
+    }
+
     pub(in crate::services) async fn apply_plan_change_immediate(
         &self,
         typed_actor: Actor,
@@ -581,7 +664,7 @@ impl Services {
         new_plan_version_id: PlanVersionId,
         component_params: Vec<ComponentParameterization>,
     ) -> StoreResult<ImmediatePlanChangeResult> {
-        let today = common_domain::clock::now().naive_utc().date();
+        let today = common_clock::now().naive_utc().date();
         self.apply_plan_change_immediate_at(
             typed_actor,
             subscription_id,
@@ -680,9 +763,9 @@ impl Services {
         .await
     }
 
-    /// Applies the change: the old plan settled first (unused fees credited on notes against the
-    /// invoices that billed them, its packs' period credit removed), so that credit never pays
-    /// the new plan's charges, then invoiced and finalized. Returns the adjustment invoice.
+    /// Applies the change: the old plan settled first (unused fees credited on notes, its packs'
+    /// period credit removed), so that credit never pays the new plan's charges, then what the
+    /// facts owe invoiced and finalized. Returns the adjustment invoice.
     pub(crate) async fn apply_and_invoice_plan_change_tx(
         &self,
         conn: &mut PgConn,
@@ -703,31 +786,39 @@ impl Services {
                 change_date,
             )
             .await?;
-        let charges = prepared.charges();
-        if prepared.is_free_trial() || charges.lines.is_empty() {
+        if prepared.is_free_trial() {
             return Ok((None, notes));
         }
-        let invoice = self
-            .create_adjustment_invoice(
-                conn,
-                subscription.tenant_id,
-                subscription,
-                &prepared.subscription_details.customer,
-                &charges,
-            )
+        let bills = self
+            .plan_change_bills(conn, subscription, change_date)
             .await?;
-        if let Some(invoice) = &invoice {
-            self.finalize_invoice_tx(
+        let invoice = self
+            .issue_change_adjustment_tx(
                 conn,
                 actor,
-                invoice.id,
-                subscription.tenant_id,
-                false,
-                &None,
+                subscription,
+                &prepared.subscription_details.customer,
+                change_date,
+                &bills,
             )
             .await?;
-        }
         Ok((invoice, notes))
+    }
+
+    /// What an immediate plan change on `on` bills, from the facts it wrote: the new fees' stubs
+    /// and, on the period's first day after its invoice, the old fees' arrears (R-011, R-080).
+    pub(crate) async fn plan_change_bills(
+        &self,
+        conn: &mut PgConn,
+        subscription: &crate::domain::Subscription,
+        on: NaiveDate,
+    ) -> StoreResult<Vec<crate::domain::LineItem>> {
+        let change = Change::of_rows(on, GiveBack::Unused, "plan change");
+        Ok(
+            change_documents(conn, subscription.tenant_id, subscription.id, &change, None)
+                .await?
+                .bills,
+        )
     }
 
     /// Prepare phase: validates, loads data, calculates proration.
@@ -864,25 +955,6 @@ impl Services {
             ))));
         }
 
-        // Plan changes never re-charge the new plan's one-time (setup) fees:
-        // those are signup-only, billed at subscription creation. Only recurring
-        // components prorate on an immediate change.
-        let added_recurring: Vec<AddedComponent> = preview
-            .added
-            .iter()
-            .filter(|a| !matches!(a.fee, SubscriptionFee::OneTime { .. }))
-            .cloned()
-            .collect();
-
-        let changed: Vec<MatchedComponent> = preview
-            .matched
-            .iter()
-            .filter(|m| {
-                !m.price_component_id
-                    .is_some_and(|t| carried.contains_key(&t))
-            })
-            .cloned()
-            .collect();
         let ending_add_ons: Vec<SubscriptionAddOn> = ctx
             .subscription_details
             .add_ons
@@ -890,31 +962,6 @@ impl Services {
             .filter(|a| !ctx.compatible_add_on_ids.contains(&a.add_on_id))
             .cloned()
             .collect();
-        let removed: Vec<RemovedComponent> = preview
-            .removed
-            .iter()
-            .cloned()
-            .chain(ending_add_ons.iter().map(removed_add_on))
-            .collect();
-        let mut proration = calculate_proration_by(
-            &changed,
-            &added_recurring,
-            &removed,
-            (period_start, period_end),
-            change_date,
-            precision,
-            stub_on_own_grid(
-                OwnGrid::read(
-                    conn,
-                    &ctx.subscription_details.subscription,
-                    (period_start, period_end),
-                    change_date,
-                )
-                .await?,
-                change_date,
-            ),
-        );
-
         let component_mappings = build_component_mappings(
             &ctx.subscription_details.price_components,
             &ctx.target_components,
@@ -922,24 +969,18 @@ impl Services {
             &ctx.units,
             component_params,
         )?;
-
-        let pack_lines = new_pack_lines(
-            conn,
-            &ctx.subscription_details.subscription,
-            &component_mappings,
-            &new_component_ids,
-            &carried,
-            (period_start, period_end),
-            change_date,
-            precision,
-        )
-        .await?;
-        proration.net_amount_cents += pack_lines.iter().map(|l| l.amount_cents).sum::<i64>();
-        proration.lines.extend(pack_lines);
-
         let free_trial = ctx.subscription_details.subscription.status
             == SubscriptionStatusEnum::TrialActive
             && super::trial_is_free_tx(conn, &ctx.subscription_details.subscription).await?;
+
+        let outgoing = OwnGrid::read(
+            conn,
+            &ctx.subscription_details.subscription,
+            (period_start, period_end),
+            change_date,
+        )
+        .await?;
+        let period = (period_start, period_end, outgoing.billed(change_date).2);
         Ok(PreparedPlanChange {
             free_trial,
             subscription_details: ctx.subscription_details,
@@ -948,7 +989,8 @@ impl Services {
             carried,
             settle_outgoing: true,
             preview,
-            proration,
+            period,
+            change_date,
             direction,
             precision,
             target_minimum: ctx.target_minimum,
@@ -973,12 +1015,6 @@ impl Services {
     ) -> StoreResult<Vec<CreditNoteId>> {
         // Free trials settle nothing: no money changed hands.
         let settles_outgoing = !prepared.is_free_trial() && prepared.settle_outgoing;
-        let credit_note_ids = if !settles_outgoing {
-            Vec::new()
-        } else {
-            self.settle_outgoing_components_tx(conn, actor, prepared, change_date)
-                .await?
-        };
 
         ScheduledEventRow::cancel_pending_plan_changes(
             conn,
@@ -988,6 +1024,15 @@ impl Services {
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
+        // A change written for a later date holds the rows this one closes: it goes first.
+        crate::services::facts::pending::withdraw_pending_of_tx(
+            conn,
+            tenant_id,
+            subscription_id,
+            crate::services::facts::pending::CHANGES,
+            "Replaced by immediate plan change",
+        )
+        .await?;
 
         let component_mappings = &prepared.component_mappings;
         let old_plan_version_id = prepared.subscription_details.subscription.plan_version_id;
@@ -995,15 +1040,6 @@ impl Services {
         let new_period =
             ComponentMapping::derive_billing_period(component_mappings).map(|p| p.into());
 
-        SubscriptionRow::update_plan_version(
-            conn,
-            &subscription_id,
-            &tenant_id,
-            new_plan_version_id,
-            new_period.clone(),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
         self.store
             .hooks
             .signals
@@ -1012,7 +1048,7 @@ impl Services {
                 tenant_id,
                 prepared.subscription_details.subscription.customer_id,
                 subscription_id,
-                common_domain::clock::now().naive_utc(),
+                common_clock::now().naive_utc(),
             )
             .await?;
 
@@ -1029,6 +1065,7 @@ impl Services {
                     name,
                     fee,
                     period,
+                    ..
                 } => {
                     components_to_close.push(*current_component_id);
                     let mut row_new: SubscriptionComponentRowNew = SubscriptionComponentNew {
@@ -1096,9 +1133,8 @@ impl Services {
             }
         }
 
-        SubscriptionComponentRow::close_components(conn, &components_to_close, change_date)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        crate::services::facts::close_components_tx(conn, &components_to_close, change_date)
+            .await?;
 
         if !components_to_insert.is_empty() {
             let refs: Vec<&SubscriptionComponentRowNew> = components_to_insert.iter().collect();
@@ -1149,6 +1185,27 @@ impl Services {
             );
         }
 
+        crate::services::facts::record_plan_change_tx(
+            conn,
+            tenant_id,
+            subscription_id,
+            change_date,
+            new_plan_version_id,
+            new_period
+                .clone()
+                .unwrap_or_else(|| prepared.subscription_details.subscription.period.into()),
+            prepared.is_trial() && prepared.is_free_trial(),
+        )
+        .await?;
+
+        // The old plan's give-backs read the facts just written.
+        let credit_note_ids = if settles_outgoing {
+            self.settle_outgoing_components_tx(conn, actor, prepared, change_date)
+                .await?
+        } else {
+            Vec::new()
+        };
+
         let sub_event = diesel_models::subscription_events::SubscriptionEventRow {
             id: uuid::Uuid::now_v7(),
             subscription_id,
@@ -1170,7 +1227,7 @@ impl Services {
                     "mode": "immediate",
                 })
             }),
-            created_at: common_domain::clock::now().naive_utc(),
+            created_at: common_clock::now().naive_utc(),
             mrr_delta: None,
             bi_mrr_movement_log_id: None,
             applies_to: change_date,
@@ -1179,43 +1236,6 @@ impl Services {
             .insert(conn)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
-
-        let mut sub_details = self
-            .store
-            .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
-            .await?;
-
-        let component_lines = calculate_components_mrr_with_slots(
-            conn,
-            tenant_id,
-            subscription_id,
-            &sub_details.price_components,
-            prepared.precision,
-        )
-        .await?;
-
-        // Both sides of the delta are net: the stored MRR already is, and the recomputed one is
-        // floored by the minimum the change snapshotted and netted of included tax, as at
-        // creation and at a cycle's plan change.
-        let new_mrr = self
-            .restate_subscription_mrr(
-                conn,
-                &mut sub_details,
-                component_lines,
-                prepared.precision,
-                change_date,
-            )
-            .await?;
-        let old_mrr = prepared.subscription_details.subscription.mrr_cents as i64;
-        let mrr_delta = new_mrr - old_mrr;
-
-        if mrr_delta != 0 {
-            SubscriptionRow::update_subscription_mrr_delta(conn, subscription_id, mrr_delta)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-            self.create_movement_mrr_log(conn, tenant_id, subscription_id, change_date, mrr_delta)
-                .await?;
-        }
 
         // Trial → Active transition
         if prepared.is_trial() {
@@ -1228,6 +1248,7 @@ impl Services {
                 // invoice computation aligns with the new period.
                 let new_anchor = change_date.day();
                 let billing_period: crate::domain::enums::BillingPeriodEnum = new_period
+                    .clone()
                     .map(Into::into)
                     .unwrap_or(prepared.subscription_details.subscription.period);
                 let period_range =
@@ -1290,30 +1311,23 @@ impl Services {
             }
         }
 
-        crate::services::facts::record_plan_change_tx(
+        // The plan, its cadence and the period it cuts, the MRR and the outbox: the writer's,
+        // from the facts just written, read at the change's instant.
+        self.derive_state_tx(
             conn,
+            actor,
             tenant_id,
             subscription_id,
-            change_date,
-            prepared.is_trial() && prepared.is_free_trial(),
+            crate::services::evaluate::bill::midnight(change_date),
         )
         .await?;
 
         log::info!(
-            "Applied immediate plan change for subscription {}: plan_version={}, direction={:?}, net_proration={}",
+            "Applied immediate plan change for subscription {}: plan_version={}, direction={:?}",
             subscription_id,
             new_plan_version_id,
             prepared.direction,
-            prepared.proration.net_amount_cents,
         );
-
-        self.emit_subscription_updated_tx(
-            conn,
-            tenant_id,
-            subscription_id,
-            crate::domain::outbox_event::SubscriptionUpdateType::PlanChanged,
-        )
-        .await?;
 
         Ok(credit_note_ids)
     }
@@ -1329,8 +1343,9 @@ pub struct PreparedPlanChange {
     /// False when an earlier release already netted the old plan's credits on the adjustment.
     settle_outgoing: bool,
     preview: PlanChangePreview,
-    /// The old components' credits (negative) and the new components' charges, packs included.
-    pub proration: crate::domain::subscription_changes::ProrationResult,
+    /// The period the change lands in and the share of it left from its day.
+    period: (NaiveDate, NaiveDate, DayFraction),
+    change_date: NaiveDate,
     direction: ChangeDirection,
     precision: u8,
     target_minimum: Option<crate::domain::plan_minimums::PlanMinimum>,
@@ -1342,6 +1357,11 @@ pub struct PreparedPlanChange {
 }
 
 impl PreparedPlanChange {
+    /// What the change maps each component to, as its rows are written from.
+    pub(crate) fn component_mappings(&self) -> &[ComponentMapping] {
+        &self.component_mappings
+    }
+
     /// The seats of each unit the old plan had when the change read them: a deferred settlement
     /// cannot read them back once the new plan's seats are recorded under the same unit.
     pub(crate) fn outgoing_seats(&self) -> BTreeMap<String, u32> {
@@ -1361,23 +1381,6 @@ impl PreparedPlanChange {
             .collect()
     }
 
-    /// What the adjustment invoice bills: the new components' charges, included packs (no
-    /// charge, their credit granted when it is issued) among them. Credits go on credit notes.
-    pub(crate) fn charges(&self) -> crate::domain::subscription_changes::ProrationResult {
-        let lines: Vec<_> = self
-            .proration
-            .lines
-            .iter()
-            .filter(|line| line.amount_cents > 0 || line.pack.is_some())
-            .cloned()
-            .collect();
-        crate::domain::subscription_changes::ProrationResult {
-            net_amount_cents: lines.iter().map(|line| line.amount_cents).sum(),
-            lines,
-            ..self.proration.clone()
-        }
-    }
-
     /// A change paid on an adjustment invoice an earlier release issued: that invoice netted the
     /// old plan's credits as negative lines and billed no pack, so nothing more is settled; the
     /// change inserts the components it billed.
@@ -1392,53 +1395,36 @@ impl PreparedPlanChange {
         }
     }
 
+    /// The day the change was prepared for.
+    pub fn change_date(&self) -> NaiveDate {
+        self.change_date
+    }
+
+    /// The summary of what the change bills (`charged`, the packs it buys among it) and takes
+    /// back: `credited` of its fees, as the facts reconcile them, and the old packs' fees.
     pub(crate) fn proration_summary(
         &self,
+        charged: i64,
+        credited: i64,
+        incoming: Vec<crate::domain::subscription_changes::PackChange>,
         outgoing: &crate::services::subscriptions::plan_change_credit::OutgoingEstimate,
     ) -> ProrationSummary {
-        use crate::domain::subscription_changes::{PackChange, PackChangeKind};
-        let lines = &self.proration.lines;
-        // The credits as the notes would issue them: each billed line's unused time, net.
+        // The credits as the notes would issue them: the fees' unused time and the packs', net.
         let pack_credits: i64 = outgoing.packs.iter().map(|pack| pack.fee_credit).sum();
-        let credits_total_cents = -(outgoing.fee_credits + pack_credits);
-        let charges_total_cents: i64 = lines
-            .iter()
-            .filter(|line| line.amount_cents > 0)
-            .map(|line| line.amount_cents)
-            .sum();
-        let (period_start, period_end, change_date) = (
-            self.proration.period_start,
-            self.proration.period_end,
-            self.proration.change_date,
-        );
-        let mut pack_changes: Vec<PackChange> = lines
-            .iter()
-            .filter_map(|line| {
-                line.pack.as_ref().map(|pack| PackChange {
-                    name: line.name.clone(),
-                    kind: PackChangeKind::Charge,
-                    amount_cents: line.amount_cents,
-                    credit_minor: pack.credit_minor,
-                    credit_unit: pack.unit.clone(),
-                    credit_precision: pack
-                        .unit
-                        .as_ref()
-                        .map_or(self.precision, |unit| unit.precision),
-                    promotional: pack.included,
-                })
-            })
-            .collect();
+        let credits_total_cents = -(credited + pack_credits);
+        let (period_start, period_end, factor) = self.period;
+        let mut pack_changes = incoming;
         pack_changes.extend(outgoing.packs.iter().flat_map(|pack| pack.changes()));
         ProrationSummary {
             credits_total_cents,
-            charges_total_cents,
-            net_amount_cents: charges_total_cents + credits_total_cents,
+            charges_total_cents: charged,
+            net_amount_cents: charged + credits_total_cents,
             // Credits are issued on credit notes, never netted into a charge.
             net_credit_cents: credits_total_cents,
             // Plan changes don't introduce new arrears components, so no deferred amount.
             arrears_charge_cents: 0,
-            proration_factor: self.proration.proration_factor,
-            days_remaining: (period_end - change_date).num_days().max(0) as u32,
+            proration_factor: factor.as_f64(),
+            days_remaining: (period_end - self.change_date).num_days().max(0) as u32,
             days_in_period: (period_end - period_start).num_days().max(0) as u32,
             pack_changes,
         }
@@ -1593,119 +1579,6 @@ impl PreparedPlanChange {
 
     pub fn is_trial(&self) -> bool {
         self.subscription_details.subscription.status == SubscriptionStatusEnum::TrialActive
-    }
-
-    /// Build a virtual SubscriptionDetails representing the post-trial-change state.
-    /// Used with compute_invoice to get exact first-period amount (coupons, tiers, etc.).
-    pub fn build_trial_change_preview(
-        &self,
-        change_date: NaiveDate,
-        new_plan_version_id: PlanVersionId,
-    ) -> StoreResult<crate::domain::SubscriptionDetails> {
-        use crate::domain::scheduled_events::ComponentMapping;
-        use common_domain::ids::{BaseId, SubscriptionPriceComponentId};
-
-        let component_mappings = &self.component_mappings;
-
-        let subscription_id = self.subscription_details.subscription.id;
-
-        let subscription_components: Vec<SubscriptionComponent> = component_mappings
-            .iter()
-            .filter_map(|m| match m {
-                ComponentMapping::Matched {
-                    target_component_id,
-                    product_id,
-                    price_id,
-                    name,
-                    fee,
-                    period,
-                    ..
-                } => Some(SubscriptionComponent {
-                    id: SubscriptionPriceComponentId::new(),
-                    price_component_id: Some(*target_component_id),
-                    product_id: Some(*product_id),
-                    subscription_id,
-                    name: name.clone(),
-                    period: *period,
-                    fee: fee.clone(),
-                    price_id: Some(*price_id),
-                    effective_from: change_date,
-                    effective_to: None,
-                    lineage_id: None,
-                    added_by_amendment: false,
-                }),
-                ComponentMapping::Added {
-                    target_component_id,
-                    product_id,
-                    price_id,
-                    name,
-                    fee,
-                    period,
-                } => Some(SubscriptionComponent {
-                    id: SubscriptionPriceComponentId::new(),
-                    price_component_id: Some(*target_component_id),
-                    product_id: *product_id,
-                    subscription_id,
-                    name: name.clone(),
-                    period: *period,
-                    fee: fee.clone(),
-                    price_id: *price_id,
-                    effective_from: change_date,
-                    effective_to: None,
-                    lineage_id: None,
-                    added_by_amendment: false,
-                }),
-                ComponentMapping::Removed { .. } => None,
-            })
-            .collect();
-
-        let billing_period = subscription_components
-            .iter()
-            .find_map(|c| c.period.as_billing_period_opt())
-            .unwrap_or(self.subscription_details.subscription.period);
-
-        let new_anchor = change_date.day() as u16;
-        let period_range =
-            calculate_advance_period_range(change_date, new_anchor as u32, true, &billing_period);
-
-        let mut virtual_sub = self.subscription_details.subscription.clone();
-        virtual_sub.status = SubscriptionStatusEnum::Active;
-        virtual_sub.plan_version_id = new_plan_version_id;
-        virtual_sub.billing_day_anchor = new_anchor;
-        virtual_sub.billing_start_date = Some(change_date);
-        virtual_sub.current_period_start = change_date;
-        virtual_sub.current_period_end = Some(period_range.end);
-        virtual_sub.cycle_index = Some(0);
-        virtual_sub.period = billing_period;
-        virtual_sub.trial_duration = None;
-        virtual_sub.pending_checkout = false;
-
-        let minimum = self
-            .target_minimum
-            .as_ref()
-            .map(|pm| crate::domain::SubscriptionMinimum {
-                subscription_id: virtual_sub.id,
-                amount_subunit: pm.amount_subunit,
-                scope: pm.scope.clone(),
-                is_override: false,
-            });
-
-        Ok(crate::domain::SubscriptionDetails {
-            subscription: virtual_sub,
-            price_components: subscription_components,
-            add_ons: Vec::new(),
-            trial_config: None,
-            invoicing_entity: self.subscription_details.invoicing_entity.clone(),
-            customer: self.subscription_details.customer.clone(),
-            schedules: Vec::new(),
-            applied_coupons: self.subscription_details.applied_coupons.clone(),
-            metrics: self.subscription_details.metrics.clone(),
-            usage_scopes: self.subscription_details.usage_scopes.clone(),
-            checkout_url: None,
-            pending_events: Vec::new(),
-            entitlements: Vec::new(),
-            minimum,
-        })
     }
 }
 
@@ -2120,6 +1993,9 @@ fn build_component_mappings(
                 })?,
                 price_id,
                 name: target.name.clone(),
+                seats: explicit_params
+                    .and_then(|params| params.initial_slot_count)
+                    .filter(|_| matches!(fee, SubscriptionFee::Slot { .. })),
                 fee,
                 period,
             });
@@ -2162,84 +2038,6 @@ fn same_fee(current: &SubscriptionFee, new: &SubscriptionFee) -> bool {
         (serde_json::to_value(current), serde_json::to_value(new)),
         (Ok(current), Ok(new)) if current == new
     )
-}
-
-/// The adjustment-invoice lines of the target's packs. A `once` pack bills only if no invoice of
-/// the subscription billed its product's one-time credit yet.
-#[allow(clippy::too_many_arguments)]
-async fn new_pack_lines(
-    conn: &mut PgConn,
-    subscription: &crate::domain::Subscription,
-    mappings: &[ComponentMapping],
-    component_ids: &HashMap<PriceComponentId, SubscriptionPriceComponentId>,
-    carried: &HashMap<PriceComponentId, SubscriptionPriceComponentId>,
-    (period_start, period_end): (NaiveDate, NaiveDate),
-    change_date: NaiveDate,
-    precision: u8,
-) -> StoreResult<Vec<crate::domain::subscription_changes::ProrationLineItem>> {
-    use diesel_models::invoices::InvoiceRow;
-    let stub = stub_on_own_grid(
-        OwnGrid::read(conn, subscription, (period_start, period_end), change_date).await?,
-        change_date,
-    );
-    let mut lines = Vec::new();
-    for mapping in mappings {
-        let (target_component_id, product_id, name, fee, period) = match mapping {
-            ComponentMapping::Matched {
-                target_component_id,
-                product_id,
-                name,
-                fee,
-                period,
-                ..
-            } => (target_component_id, Some(*product_id), name, fee, period),
-            ComponentMapping::Added {
-                target_component_id,
-                product_id,
-                name,
-                fee,
-                period,
-                ..
-            } => (target_component_id, *product_id, name, fee, period),
-            ComponentMapping::Removed { .. } => continue,
-        };
-        let SubscriptionFee::Credit { once, .. } = fee else {
-            continue;
-        };
-        if carried.contains_key(target_component_id) {
-            continue;
-        }
-        if *once {
-            let billed = match product_id {
-                Some(product_id) => InvoiceRow::subscription_billed_once_credit(
-                    conn,
-                    subscription.tenant_id,
-                    subscription.id,
-                    product_id,
-                    None,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?,
-                None => true,
-            };
-            if billed {
-                continue;
-            }
-        }
-        let (factor, _) = stub(period);
-        if let Some(line) = pack_charge_line(
-            name,
-            fee,
-            factor,
-            precision,
-            product_id,
-            Some(*target_component_id),
-            component_ids.get(target_component_id).copied(),
-        )? {
-            lines.push(line);
-        }
-    }
-    Ok(lines)
 }
 
 fn build_plan_change_preview(
@@ -2380,7 +2178,7 @@ async fn resolve_preview_slot_counts(
             tenant_id,
             subscription_id,
             unit.clone(),
-            common_domain::clock::now().naive_utc(),
+            common_clock::now().naive_utc(),
         )
         .await
         .map(|slots| slots.unwrap_or(0) as u32)
@@ -2440,7 +2238,7 @@ pub(crate) async fn calculate_components_mrr_with_slots(
                 tenant_id,
                 subscription_id,
                 unit.clone(),
-                common_domain::clock::now().naive_utc(),
+                common_clock::now().naive_utc(),
             )
             .await
             .map(|slots| i64::from(slots.unwrap_or(0)))
@@ -2561,6 +2359,30 @@ pub(crate) async fn refresh_subscription_minimum_on_plan_change(
     Ok(())
 }
 
+/// The packs `lines` bill, as a change's summary shows them bought.
+fn pack_charges(
+    lines: &[crate::domain::LineItem],
+    precision: u8,
+) -> Vec<crate::domain::subscription_changes::PackChange> {
+    use crate::domain::subscription_changes::{PackChange, PackChangeKind};
+    lines
+        .iter()
+        .filter(|line| line.kind == crate::domain::LineItemKind::Credit)
+        .map(|line| PackChange {
+            name: line.name.clone(),
+            kind: PackChangeKind::Charge,
+            amount_cents: line.amount_subtotal,
+            credit_minor: line.credit_grant_amount.unwrap_or(0),
+            credit_unit: line.credit_grant_unit.clone(),
+            credit_precision: line
+                .credit_grant_unit
+                .as_ref()
+                .map_or(precision, |unit| unit.precision),
+            promotional: line.credit_grant_included,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2577,7 +2399,7 @@ mod tests {
                 rate: rust_decimal::Decimal::TEN,
             },
             tenant_id: TenantId::new(),
-            created_at: common_domain::clock::now().naive_utc(),
+            created_at: common_clock::now().naive_utc(),
             archived_at: None,
             catalog: true,
             credit_unit: None,

@@ -32,17 +32,26 @@ impl TestEnv {
             .subscription
     }
 
-    /// Get subscription component rows for a subscription.
+    /// The component rows of a subscription in force in its stored period: a change written for
+    /// the period's end shows once the renewal applies it.
     pub async fn get_subscription_components(
         &self,
         subscription_id: SubscriptionId,
     ) -> Vec<SubscriptionComponentRow> {
+        let end = self
+            .get_subscription(subscription_id)
+            .await
+            .current_period_end;
+        let today = common_clock::now().date_naive();
+        let day = end
+            .and_then(|end| end.pred_opt())
+            .map_or(today, |last| today.min(last));
         let mut conn = self.conn().await;
         SubscriptionComponentRow::list_subscription_components_by_subscription(
             &mut conn,
             &TENANT_ID,
             &subscription_id,
-            None,
+            Some(day),
         )
         .await
         .expect("Failed to get subscription components")

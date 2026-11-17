@@ -1041,11 +1041,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
         let usage = self
             .services
-            .get_subscription_usage(
-                tenant_id,
-                subscription_id,
-                common_domain::clock::now().naive_utc(),
-            )
+            .get_subscription_usage(tenant_id, subscription_id, common_clock::now().naive_utc())
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
 
@@ -1060,9 +1056,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let tenant_id = request.tenant()?;
         let inner = request.into_inner();
         let customer_id = CustomerId::from_proto(&inner.customer_id)?;
-        let (default_from, default_to) = meteroid_store::domain::unattributed_default_range(
-            common_domain::clock::now().date_naive(),
-        );
+        let (default_from, default_to) =
+            meteroid_store::domain::unattributed_default_range(common_clock::now().date_naive());
         let from = chrono::NaiveDate::from_proto_opt(inner.from)?.unwrap_or(default_from);
         let to = chrono::NaiveDate::from_proto_opt(inner.to)?.unwrap_or(default_to);
 
@@ -1133,7 +1128,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .subscription_minimum_progress(
                 tenant_id,
                 subscription_id,
-                common_domain::clock::now().naive_utc(),
+                common_clock::now().naive_utc(),
             )
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
@@ -1167,11 +1162,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let subscription_id = SubscriptionId::from_proto(request.into_inner().subscription_id)?;
         let r = self
             .services
-            .subscription_receivables(
-                tenant_id,
-                subscription_id,
-                common_domain::clock::now().naive_utc(),
-            )
+            .subscription_receivables(tenant_id, subscription_id, common_clock::now().naive_utc())
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
         Ok(Response::new(GetSubscriptionReceivablesResponse {

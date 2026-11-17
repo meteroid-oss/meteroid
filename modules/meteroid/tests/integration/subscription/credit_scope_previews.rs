@@ -549,6 +549,34 @@ async fn the_next_invoice_applies_a_scheduled_plan_change_as_executing_it_will(
         )
         .await
         .expect("schedule the plan change");
+    let seats_on_the_change = async || {
+        env.store()
+            .get_active_slots_value(
+                TENANT_ID,
+                sub_id,
+                "Seats".to_string(),
+                NaiveDate::from_ymd_opt(2024, 2, 1).map(|d| d.and_time(NaiveTime::MIN)),
+            )
+            .await
+            .expect("seats")
+    };
+    assert_eq!(
+        seats_on_the_change().await,
+        5,
+        "the change's seats, written as a fact from its date"
+    );
+    let seat_rows = async || -> i64 {
+        use diesel::{ExpressionMethods, QueryDsl};
+        use diesel_async::RunQueryDsl;
+        use diesel_models::schema::slot_transaction::dsl as t;
+        t::slot_transaction
+            .filter(t::subscription_id.eq(sub_id))
+            .count()
+            .get_result(&mut env.conn().await)
+            .await
+            .expect("seat rows")
+    };
+    let written = seat_rows().await;
 
     let details = env
         .store()
@@ -570,17 +598,8 @@ async fn the_next_invoice_applies_a_scheduled_plan_change_as_executing_it_will(
 
     let unchanged = env.get_subscription(sub_id).await;
     assert_eq!(unchanged.plan_version_id, PLAN_VERSION_1_LEETCODE_ID);
-    let seats = env
-        .store()
-        .get_active_slots_value(
-            TENANT_ID,
-            sub_id,
-            "Seats".to_string(),
-            NaiveDate::from_ymd_opt(2024, 2, 1).map(|d| d.and_time(NaiveTime::MIN)),
-        )
-        .await
-        .expect("seats");
-    assert_eq!(seats, 0, "the preview seeds no seat");
+    assert_eq!(seats_on_the_change().await, 5, "the preview seeds no seat");
+    assert_eq!(seat_rows().await, written, "the preview writes no seat row");
 
     env.process_cycles().await;
     let billed = env.get_invoices(sub_id).await;

@@ -81,11 +81,12 @@ fn volume_charge(usage_units: Decimal, tiers: &[Tier]) -> Option<VolumeCharge> {
 
     let mut iter = sorted_rows.iter().peekable();
     while let Some(tier) = iter.next() {
-        let last_unit: Option<u64> = iter.peek().map(|row| row.first_unit - 1);
-
+        let next = iter.peek().map(|row| row.first_unit);
+        // A bracket ends where the next one starts, so a fraction below it still lands in it.
         if usage_units >= Decimal::from(tier.first_unit)
-            && last_unit.is_none_or(|l| usage_units <= Decimal::from(l))
+            && next.is_none_or(|next| usage_units < Decimal::from(next))
         {
+            let last_unit = next.map(|next| next.saturating_sub(1));
             let mut amount = usage_units * tier.rate;
             if let Some(flat_fee) = tier.flat_fee {
                 amount += flat_fee;
@@ -108,12 +109,23 @@ fn volume_charge(usage_units: Decimal, tiers: &[Tier]) -> Option<VolumeCharge> {
     None
 }
 
+/// Refuses tiers two of which start on the same unit: which one prices it is undefined.
+fn distinct_starts(tiers: &[Tier]) -> Result<(), PricingError> {
+    let mut starts: Vec<u64> = tiers.iter().map(|tier| tier.first_unit).collect();
+    starts.sort_unstable();
+    if starts.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(PricingError::InvalidPrice);
+    }
+    Ok(())
+}
+
 /// `usage_units` priced at the rate of the one tier they land in.
 pub fn volume(
     usage_units: Decimal,
     tiers: &[Tier],
     precision: u8,
 ) -> Result<PricedLine, PricingError> {
+    distinct_starts(tiers)?;
     let charge = volume_charge(usage_units, tiers);
     let amount = charge.as_ref().map_or(Decimal::ZERO, |c| c.amount);
     let unit_price = charge.as_ref().map_or(Decimal::ZERO, |c| c.unit_price);
@@ -148,6 +160,7 @@ pub fn tiered(
     tiers: &[Tier],
     precision: u8,
 ) -> Result<PricedLine, PricingError> {
+    distinct_starts(tiers)?;
     let charges = tiered_charges(usage_units, tiers);
 
     let mut subtotal = Decimal::ZERO;
@@ -301,6 +314,29 @@ mod tests {
             ),
             Ok(Some(dec!(75)))
         );
+    }
+
+    /// A volume bracket runs up to the next one's first unit, exclusive: 99.5 units under tiers
+    /// from 0 at 1.00 and from 100 at 0.50 are all billed at 1.00, 9950, never 0.
+    /// Rules: R-107
+    #[test]
+    fn volume_prices_a_fraction_between_brackets_at_the_lower_tier() {
+        let tiers = [
+            tier(0, dec!(1), None, None),
+            tier(100, dec!(0.5), None, None),
+        ];
+        assert_eq!(volume(dec!(99.5), &tiers, 2).unwrap().total, 9_950);
+        assert_eq!(volume(dec!(100), &tiers, 2).unwrap().total, 5_000);
+        let gigabytes = [
+            tier(0, dec!(0.10), None, None),
+            tier(100, dec!(0.08), None, None),
+        ];
+        assert_eq!(volume(dec!(99.6), &gigabytes, 2).unwrap().total, 996);
+        let from_one = [
+            tier(1, dec!(1), None, None),
+            tier(10, dec!(0.5), None, None),
+        ];
+        assert_eq!(volume(dec!(9.5), &from_one, 2).unwrap().total, 950);
     }
 
     #[test]

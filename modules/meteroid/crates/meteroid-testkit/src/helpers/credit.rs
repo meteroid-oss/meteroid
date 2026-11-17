@@ -272,7 +272,7 @@ pub async fn expire_grant_hours_ago(store: &Store, grant_id: CreditGrantId, hour
                 SET effective_at = LEAST(effective_at, '{FIXTURE_EFFECTIVE_AT}'::timestamptz),
                     expires_at = '{}'::timestamptz WHERE id = '{}';
              SET session_replication_role = origin;",
-            (common_domain::clock::now() - chrono::Duration::hours(hours)).to_rfc3339(),
+            (common_clock::now() - chrono::Duration::hours(hours)).to_rfc3339(),
             grant_id.as_uuid()
         ))
         .await
@@ -390,7 +390,7 @@ pub async fn pack_subscription(
         PlanId::from(derived("credit-pack-plan")),
         PlanVersionId::from(derived("credit-pack-plan-version")),
     );
-    let today = common_domain::clock::now().date_naive();
+    let today = common_clock::now().date_naive();
     conn.transaction(async |tx| {
         PlanRowNew {
             id: plan_id,
@@ -442,11 +442,11 @@ pub async fn pack_subscription(
             tenant_id,
             start_date: today,
             plan_version_id,
-            created_at: common_domain::clock::now().naive_utc(),
+            created_at: common_clock::now().naive_utc(),
             net_terms: 0,
             invoice_memo: None,
             invoice_threshold: None,
-            activated_at: Some(common_domain::clock::now().naive_utc()),
+            activated_at: Some(common_clock::now().naive_utc()),
             currency: currency.to_owned(),
             mrr_cents: 0,
             period: BillingPeriodEnum::Monthly,
@@ -577,7 +577,7 @@ pub async fn add_paid(
             amount_minor: face,
             classification: GrantClassification::Paid,
             priority: 100,
-            expires_at: Some(common_domain::clock::now() + chrono::Duration::days(365)),
+            expires_at: Some(common_clock::now() + chrono::Duration::days(365)),
             idempotency_key: uuid::Uuid::now_v7(),
             reason: "Paid outside Meteroid".to_owned(),
             reference: None,

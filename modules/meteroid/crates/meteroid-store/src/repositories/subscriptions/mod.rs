@@ -217,403 +217,19 @@ impl SubscriptionInterface for Store {
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
     ) -> StoreResult<SubscriptionDetails> {
-        let db_subscription =
-            SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-        let subscription: Subscription = db_subscription.try_into()?;
-
-        let schedules: Vec<Schedule> =
-            ScheduleRow::list_schedules_by_subscription(conn, &tenant_id, &subscription.id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .into_iter()
-                .map(std::convert::TryInto::try_into)
-                .collect::<Result<Vec<_>, Report<_>>>()?;
-
-        // The open components and add-ons, as before rows were dated (Phase 7 PR 3 reads a date).
-        let as_of = None;
-        let subscription_component_rows =
-            SubscriptionComponentRow::list_subscription_components_by_subscription(
-                conn,
-                &tenant_id,
-                &subscription.id,
-                as_of,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        // Partition by price_id presence for resolution
-        let (comp_rows_with_price, comp_rows_without_price): (Vec<_>, Vec<_>) =
-            subscription_component_rows
-                .into_iter()
-                .partition(|row| row.price_id.is_some());
-
-        // Legacy components: deserialize fee JSONB
-        let mut subscription_components: Vec<SubscriptionComponent> = comp_rows_without_price
-            .into_iter()
-            .map(std::convert::TryInto::try_into)
-            .collect::<Result<Vec<_>, Report<_>>>()?;
-
-        let subscription_add_on_rows = SubscriptionAddOnRow::list_by_subscription_id_active(
-            conn,
-            &tenant_id,
-            &subscription.id,
-            as_of,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        let (addon_rows_with_price, addon_rows_without_price): (Vec<_>, Vec<_>) =
-            subscription_add_on_rows
-                .into_iter()
-                .partition(|row| row.price_id.is_some());
-
-        // Legacy add-ons: deserialize fee JSONB
-        let mut subscription_add_ons: Vec<SubscriptionAddOn> = addon_rows_without_price
-            .into_iter()
-            .map(std::convert::TryInto::try_into)
-            .collect::<Result<Vec<_>, Report<_>>>()?;
-
-        // Resolve new-style components and add-ons from Products + Prices
-        if !comp_rows_with_price.is_empty() || !addon_rows_with_price.is_empty() {
-            let (prices_by_id, products_by_id) = fetch_prices_and_products(
-                conn,
-                tenant_id,
-                comp_rows_with_price
-                    .iter()
-                    .filter_map(|r| r.price_id)
-                    .chain(addon_rows_with_price.iter().filter_map(|r| r.price_id)),
-                comp_rows_with_price
-                    .iter()
-                    .filter_map(|r| r.product_id)
-                    .chain(addon_rows_with_price.iter().filter_map(|r| r.product_id)),
-            )
-            .await?;
-            let units = fetch_price_credit_units(conn, tenant_id, &prices_by_id).await?;
-
-            for row in comp_rows_with_price {
-                let resolved = resolve_fee_from_maps(
-                    row.price_id,
-                    row.product_id,
-                    &prices_by_id,
-                    &products_by_id,
-                    &units,
-                );
-
-                let component = if let Some((period, fee)) = resolved {
-                    SubscriptionComponent {
-                        id: row.id,
-                        price_component_id: row.price_component_id,
-                        product_id: row.product_id,
-                        subscription_id: row.subscription_id,
-                        name: row.name,
-                        period,
-                        fee,
-                        price_id: row.price_id,
-                        effective_from: row.effective_from,
-                        effective_to: row.effective_to,
-                        lineage_id: row.lineage_id,
-                        added_by_amendment: row.added_by_amendment,
-                    }
-                } else {
-                    row.try_into()?
-                };
-
-                subscription_components.push(component);
-            }
-
-            for row in addon_rows_with_price {
-                let resolved = resolve_fee_from_maps(
-                    row.price_id,
-                    row.product_id,
-                    &prices_by_id,
-                    &products_by_id,
-                    &units,
-                );
-
-                let add_on = if let Some((period, fee)) = resolved {
-                    SubscriptionAddOn {
-                        id: row.id,
-                        subscription_id: row.subscription_id,
-                        add_on_id: row.add_on_id,
-                        name: row.name,
-                        period,
-                        fee,
-                        created_at: row.created_at,
-                        product_id: row.product_id,
-                        price_id: row.price_id,
-                        quantity: row.quantity,
-                        effective_from: row.effective_from,
-                        effective_to: row.effective_to,
-                        lineage_id: row.lineage_id,
-                        added_by_amendment: row.added_by_amendment,
-                    }
-                } else {
-                    row.try_into()?
-                };
-
-                subscription_add_ons.push(add_on);
-            }
-        }
-
-        let mut metric_ids = subscription_components
-            .iter()
-            .filter_map(SubscriptionComponent::metric_id)
-            .collect::<Vec<_>>();
-
-        metric_ids.extend(
-            subscription_add_ons
-                .iter()
-                .filter_map(|sa| sa.fee.metric_id())
-                .collect::<Vec<_>>(),
-        );
-
-        metric_ids = metric_ids.into_iter().unique().collect::<Vec<_>>();
-
-        let applied_coupons =
-            AppliedCouponDetailedRow::list_by_subscription_id(conn, &subscription.id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .into_iter()
-                .map(std::convert::TryInto::try_into)
-                .collect::<Result<Vec<_>, Report<_>>>()?;
-
-        let usage_scopes =
-            usage_attribution::subscription_usage_scopes(conn, &subscription).await?;
-        let billable_metrics: Vec<BillableMetric> =
-            BillableMetricRow::get_by_ids(conn, &metric_ids, &subscription.tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .into_iter()
-                .map(|row| {
-                    TryInto::<BillableMetric>::try_into(row)
-                        .map(|metric| usage_scopes.apply(metric))
-                })
-                .collect::<Result<Vec<_>, Report<_>>>()?;
-
-        // Look up the linked CheckoutSession to get the checkout URL
-        let checkout_url = if subscription.pending_checkout {
-            use diesel_models::checkout_sessions::CheckoutSessionRow;
-
-            // Find the active checkout session for this subscription
-            let session = CheckoutSessionRow::get_by_subscription(conn, tenant_id, subscription.id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-            if let Some(session) = session {
-                let token = self.checkout_portal_token_tx(conn, &session, false).await?;
-                Some(format!(
-                    "{}/checkout?token={}",
-                    self.settings.public_url, token
-                ))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        let customer: Customer =
-            CustomerRow::find_by_id(conn, &subscription.customer_id, &tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .try_into()?;
-
-        let invoicing_entity: InvoicingEntity =
-            InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
-                conn,
-                customer.invoicing_entity_id,
-                tenant_id,
-            )
+        // Today, held inside the stored period: the rows a change wrote for its end are the next
+        // period's, read once the renewal advances it.
+        let end = SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?
-            .into();
-
-        // The trial of the plan version the subscription started on: a plan change ends it.
-        let trial_config = {
-            let first_switch =
-                diesel_models::subscription_events::SubscriptionEventRow::first_plan_switch(
-                    conn,
-                    subscription.id,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-            let trial_version = first_switch
-                .map(|(version, _)| version)
-                .unwrap_or(subscription.plan_version_id);
-            let plan_with_version = PlanRow::get_with_version(conn, trial_version, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-            if let Some(version) = plan_with_version.version {
-                // The subscription's own trial length, else its plan's.
-                if let Some(duration_days) = subscription
-                    .trial_duration
-                    .filter(|days| *days > 0)
-                    .and_then(|days| i32::try_from(days).ok())
-                    .or(version.trial_duration_days)
-                {
-                    if duration_days > 0 {
-                        // If there's a trialing_plan_id, fetch its name
-                        let trialing_plan_name =
-                            if let Some(trialing_plan_id) = &version.trialing_plan_id {
-                                PlanRow::get_overview_by_id(conn, *trialing_plan_id, tenant_id)
-                                    .await
-                                    .ok()
-                                    .map(|p| p.name)
-                            } else {
-                                None
-                            };
-
-                        let ends_on = subscription
-                            .trial_duration
-                            .filter(|days| *days > 0)
-                            .and_then(|days| {
-                                subscription
-                                    .billing_start_date
-                                    .unwrap_or(subscription.start_date)
-                                    .checked_add_signed(chrono::Duration::days(i64::from(days)))
-                            })
-                            .map(|end| {
-                                first_switch.map_or(end, |(_, switched_on)| end.min(switched_on))
-                            });
-                        Some(TrialConfig {
-                            duration_days: duration_days as u32,
-                            is_free: version.trial_is_free,
-                            ends_on,
-                            trialing_plan_id: version.trialing_plan_id,
-                            trialing_plan_name,
-                        })
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        };
-
-        // Fetch pending user-visible scheduled events (excludes internal billing events)
-        let pending_events = {
-            let event_rows = ScheduledEventRow::get_pending_user_visible_events_for_subscription(
-                conn,
-                subscription.id,
-                &tenant_id,
-            )
+            .subscription
+            .current_period_end;
+        let today = common_clock::now().date_naive();
+        let day = end
+            .and_then(|end| end.pred_opt())
+            .map_or(today, |last| today.min(last));
+        self.subscription_details_as_of(conn, tenant_id, subscription_id, day)
             .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-            let mut events = Vec::new();
-            for row in event_rows {
-                let event: ScheduledEvent = row.try_into()?;
-                let mut pending = PendingScheduledEvent {
-                    id: event.id,
-                    event_type: event.event_type.clone(),
-                    scheduled_date: event.scheduled_time.date(),
-                    new_plan_name: None,
-                    new_plan_version_id: None,
-                    cancel_reason: None,
-                    customer_initiated: event.created_by_customer,
-                    amendment_summary: None,
-                };
-
-                match &event.event_data {
-                    ScheduledEventData::ApplyPlanChange {
-                        new_plan_version_id,
-                        ..
-                    } => {
-                        let plan_with_version =
-                            PlanRow::get_with_version(conn, *new_plan_version_id, tenant_id)
-                                .await
-                                .map_err(Into::<Report<StoreError>>::into)?;
-                        pending.new_plan_name = Some(plan_with_version.plan.name);
-                        pending.new_plan_version_id = Some(*new_plan_version_id);
-                    }
-                    ScheduledEventData::CancelSubscription { reason, .. } => {
-                        pending.cancel_reason = reason.clone();
-                    }
-                    ScheduledEventData::ApplyAmendment {
-                        component_close,
-                        component_insert,
-                        addon_close,
-                        addon_insert,
-                    } => {
-                        let added_component_names =
-                            component_insert.iter().map(|c| c.name.clone()).collect();
-                        let added_add_on_names =
-                            addon_insert.iter().map(|a| a.name.clone()).collect();
-
-                        // Resolve removed names from the subscription's currently-loaded
-                        // components/add-ons (in scope here), avoiding extra DB queries.
-                        let removed_component_names = component_close
-                            .iter()
-                            .filter_map(|id| {
-                                subscription_components
-                                    .iter()
-                                    .find(|c| &c.id == id)
-                                    .map(|c| c.name.clone())
-                            })
-                            .collect();
-                        let removed_add_on_names = addon_close
-                            .iter()
-                            .filter_map(|id| {
-                                subscription_add_ons
-                                    .iter()
-                                    .find(|a| &a.id == id)
-                                    .map(|a| a.name.clone())
-                            })
-                            .collect();
-
-                        pending.amendment_summary = Some(AmendmentSummary {
-                            added_component_names,
-                            removed_component_names,
-                            added_add_on_names,
-                            removed_add_on_names,
-                        });
-                    }
-                    _ => {}
-                }
-
-                events.push(pending);
-            }
-            events
-        };
-
-        let entitlement_rows = EntitlementRow::list_by_entity(
-            conn,
-            tenant_id,
-            EntitlementEntityId::Subscription(subscription.id),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        let entitlements: Vec<Entitlement> = entitlement_rows
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let minimum = load_subscription_minimum(conn, subscription.id).await?;
-
-        Ok(SubscriptionDetails {
-            subscription,
-            price_components: subscription_components,
-            add_ons: subscription_add_ons,
-            applied_coupons,
-            metrics: billable_metrics,
-            usage_scopes,
-            schedules,
-            checkout_url,
-            customer,
-            invoicing_entity,
-            trial_config,
-            pending_events,
-            entitlements,
-            minimum,
-        })
     }
 
     async fn list_subscriptions(
@@ -1072,6 +688,422 @@ impl SubscriptionInterface for Store {
     }
 }
 
+impl Store {
+    /// The subscription as its rows in force on `as_of` read: today's, or a renewal's ahead.
+    pub(crate) async fn subscription_details_as_of(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        as_of: chrono::NaiveDate,
+    ) -> StoreResult<SubscriptionDetails> {
+        let db_subscription =
+            SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+        let subscription: Subscription = db_subscription.try_into()?;
+
+        let schedules: Vec<Schedule> =
+            ScheduleRow::list_schedules_by_subscription(conn, &tenant_id, &subscription.id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(std::convert::TryInto::try_into)
+                .collect::<Result<Vec<_>, Report<_>>>()?;
+
+        // The components and add-ons in force on `as_of`: a change dated later shows from its date.
+        let day = as_of;
+        let as_of = Some(as_of);
+        let subscription_component_rows =
+            SubscriptionComponentRow::list_subscription_components_by_subscription(
+                conn,
+                &tenant_id,
+                &subscription.id,
+                as_of,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        // Partition by price_id presence for resolution
+        let (comp_rows_with_price, comp_rows_without_price): (Vec<_>, Vec<_>) =
+            subscription_component_rows
+                .into_iter()
+                .partition(|row| row.price_id.is_some());
+
+        // Legacy components: deserialize fee JSONB
+        let mut subscription_components: Vec<SubscriptionComponent> = comp_rows_without_price
+            .into_iter()
+            .map(std::convert::TryInto::try_into)
+            .collect::<Result<Vec<_>, Report<_>>>()?;
+
+        let subscription_add_on_rows = SubscriptionAddOnRow::list_by_subscription_id_active(
+            conn,
+            &tenant_id,
+            &subscription.id,
+            as_of,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let (addon_rows_with_price, addon_rows_without_price): (Vec<_>, Vec<_>) =
+            subscription_add_on_rows
+                .into_iter()
+                .partition(|row| row.price_id.is_some());
+
+        // Legacy add-ons: deserialize fee JSONB
+        let mut subscription_add_ons: Vec<SubscriptionAddOn> = addon_rows_without_price
+            .into_iter()
+            .map(std::convert::TryInto::try_into)
+            .collect::<Result<Vec<_>, Report<_>>>()?;
+
+        // Resolve new-style components and add-ons from Products + Prices
+        if !comp_rows_with_price.is_empty() || !addon_rows_with_price.is_empty() {
+            let (prices_by_id, products_by_id) = fetch_prices_and_products(
+                conn,
+                tenant_id,
+                comp_rows_with_price
+                    .iter()
+                    .filter_map(|r| r.price_id)
+                    .chain(addon_rows_with_price.iter().filter_map(|r| r.price_id)),
+                comp_rows_with_price
+                    .iter()
+                    .filter_map(|r| r.product_id)
+                    .chain(addon_rows_with_price.iter().filter_map(|r| r.product_id)),
+            )
+            .await?;
+            let units = fetch_price_credit_units(conn, tenant_id, &prices_by_id).await?;
+
+            for row in comp_rows_with_price {
+                let resolved = resolve_fee_from_maps(
+                    row.price_id,
+                    row.product_id,
+                    &prices_by_id,
+                    &products_by_id,
+                    &units,
+                );
+
+                let component = if let Some((period, fee)) = resolved {
+                    SubscriptionComponent {
+                        id: row.id,
+                        price_component_id: row.price_component_id,
+                        product_id: row.product_id,
+                        subscription_id: row.subscription_id,
+                        name: row.name,
+                        period,
+                        fee,
+                        price_id: row.price_id,
+                        effective_from: row.effective_from,
+                        effective_to: row.effective_to,
+                        lineage_id: row.lineage_id,
+                        added_by_amendment: row.added_by_amendment,
+                    }
+                } else {
+                    row.try_into()?
+                };
+
+                subscription_components.push(component);
+            }
+
+            for row in addon_rows_with_price {
+                let resolved = resolve_fee_from_maps(
+                    row.price_id,
+                    row.product_id,
+                    &prices_by_id,
+                    &products_by_id,
+                    &units,
+                );
+
+                let add_on = if let Some((period, fee)) = resolved {
+                    SubscriptionAddOn {
+                        id: row.id,
+                        subscription_id: row.subscription_id,
+                        add_on_id: row.add_on_id,
+                        name: row.name,
+                        period,
+                        fee,
+                        created_at: row.created_at,
+                        product_id: row.product_id,
+                        price_id: row.price_id,
+                        quantity: row.quantity,
+                        effective_from: row.effective_from,
+                        effective_to: row.effective_to,
+                        lineage_id: row.lineage_id,
+                        added_by_amendment: row.added_by_amendment,
+                    }
+                } else {
+                    row.try_into()?
+                };
+
+                subscription_add_ons.push(add_on);
+            }
+        }
+
+        let mut metric_ids = subscription_components
+            .iter()
+            .filter_map(SubscriptionComponent::metric_id)
+            .collect::<Vec<_>>();
+
+        metric_ids.extend(
+            subscription_add_ons
+                .iter()
+                .filter_map(|sa| sa.fee.metric_id())
+                .collect::<Vec<_>>(),
+        );
+
+        metric_ids = metric_ids.into_iter().unique().collect::<Vec<_>>();
+
+        let applied_coupons =
+            AppliedCouponDetailedRow::list_by_subscription_id(conn, &subscription.id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(std::convert::TryInto::try_into)
+                .collect::<Result<Vec<_>, Report<_>>>()?;
+
+        let usage_scopes =
+            usage_attribution::subscription_usage_scopes(conn, &subscription).await?;
+        let billable_metrics: Vec<BillableMetric> =
+            BillableMetricRow::get_by_ids(conn, &metric_ids, &subscription.tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(|row| {
+                    TryInto::<BillableMetric>::try_into(row)
+                        .map(|metric| usage_scopes.apply(metric))
+                })
+                .collect::<Result<Vec<_>, Report<_>>>()?;
+
+        // Look up the linked CheckoutSession to get the checkout URL
+        let checkout_url = if subscription.pending_checkout {
+            use diesel_models::checkout_sessions::CheckoutSessionRow;
+
+            // Find the active checkout session for this subscription
+            let session = CheckoutSessionRow::get_by_subscription(conn, tenant_id, subscription.id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+            if let Some(session) = session {
+                let token = self.checkout_portal_token_tx(conn, &session, false).await?;
+                Some(format!(
+                    "{}/checkout?token={}",
+                    self.settings.public_url, token
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let customer: Customer =
+            CustomerRow::find_by_id(conn, &subscription.customer_id, &tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .try_into()?;
+
+        let invoicing_entity: InvoicingEntity =
+            InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
+                conn,
+                customer.invoicing_entity_id,
+                tenant_id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into();
+
+        // The trial of the plan version the subscription started on: a plan change ends it. Its
+        // freeness is its fact's, recorded at the start (R-100).
+        let recorded_free =
+            diesel_models::subscription_facts::SubscriptionTrialRow::find(conn, subscription.id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .map(|trial| trial.free);
+        let trial_config = {
+            let first_switch =
+                diesel_models::subscription_events::SubscriptionEventRow::first_plan_switch(
+                    conn,
+                    subscription.id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+            let trial_version = first_switch
+                .map(|(version, _)| version)
+                .unwrap_or(subscription.plan_version_id);
+            let plan_with_version = PlanRow::get_with_version(conn, trial_version, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+            if let Some(version) = plan_with_version.version {
+                // The subscription's own trial length, else its plan's.
+                if let Some(duration_days) = subscription
+                    .trial_duration
+                    .filter(|days| *days > 0)
+                    .and_then(|days| i32::try_from(days).ok())
+                    .or(version.trial_duration_days)
+                {
+                    if duration_days > 0 {
+                        // If there's a trialing_plan_id, fetch its name
+                        let trialing_plan_name =
+                            if let Some(trialing_plan_id) = &version.trialing_plan_id {
+                                PlanRow::get_overview_by_id(conn, *trialing_plan_id, tenant_id)
+                                    .await
+                                    .ok()
+                                    .map(|p| p.name)
+                            } else {
+                                None
+                            };
+
+                        let ends_on = subscription
+                            .trial_duration
+                            .filter(|days| *days > 0)
+                            .and_then(|days| {
+                                subscription
+                                    .billing_start_date
+                                    .unwrap_or(subscription.start_date)
+                                    .checked_add_signed(chrono::Duration::days(i64::from(days)))
+                            })
+                            .map(|end| {
+                                first_switch.map_or(end, |(_, switched_on)| end.min(switched_on))
+                            });
+                        Some(TrialConfig {
+                            duration_days: duration_days as u32,
+                            is_free: recorded_free.unwrap_or(version.trial_is_free),
+                            ends_on,
+                            trialing_plan_id: version.trialing_plan_id,
+                            trialing_plan_name,
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
+        // Fetch pending user-visible scheduled events (excludes internal billing events)
+        let pending_events = {
+            let event_rows = ScheduledEventRow::get_pending_user_visible_events_for_subscription(
+                conn,
+                subscription.id,
+                &tenant_id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+            let mut events = Vec::new();
+            for row in event_rows {
+                let event: ScheduledEvent = row.try_into()?;
+                let mut pending = PendingScheduledEvent {
+                    id: event.id,
+                    event_type: event.event_type.clone(),
+                    scheduled_date: event.scheduled_time.date(),
+                    new_plan_name: None,
+                    new_plan_version_id: None,
+                    cancel_reason: None,
+                    customer_initiated: event.created_by_customer,
+                    amendment_summary: None,
+                };
+
+                match &event.event_data {
+                    ScheduledEventData::ApplyPlanChange {
+                        new_plan_version_id,
+                        ..
+                    } => {
+                        let plan_with_version =
+                            PlanRow::get_with_version(conn, *new_plan_version_id, tenant_id)
+                                .await
+                                .map_err(Into::<Report<StoreError>>::into)?;
+                        pending.new_plan_name = Some(plan_with_version.plan.name);
+                        pending.new_plan_version_id = Some(*new_plan_version_id);
+                    }
+                    ScheduledEventData::CancelSubscription { reason, .. } => {
+                        pending.cancel_reason = reason.clone();
+                    }
+                    ScheduledEventData::ApplyAmendment {
+                        component_close,
+                        component_insert,
+                        addon_close,
+                        addon_insert,
+                    } => {
+                        let added_component_names =
+                            component_insert.iter().map(|c| c.name.clone()).collect();
+                        let added_add_on_names =
+                            addon_insert.iter().map(|a| a.name.clone()).collect();
+
+                        // Resolve removed names from the subscription's currently-loaded
+                        // components/add-ons (in scope here), avoiding extra DB queries.
+                        let removed_component_names = component_close
+                            .iter()
+                            .filter_map(|id| {
+                                subscription_components
+                                    .iter()
+                                    .find(|c| &c.id == id)
+                                    .map(|c| c.name.clone())
+                            })
+                            .collect();
+                        let removed_add_on_names = addon_close
+                            .iter()
+                            .filter_map(|id| {
+                                subscription_add_ons
+                                    .iter()
+                                    .find(|a| &a.id == id)
+                                    .map(|a| a.name.clone())
+                            })
+                            .collect();
+
+                        pending.amendment_summary = Some(AmendmentSummary {
+                            added_component_names,
+                            removed_component_names,
+                            added_add_on_names,
+                            removed_add_on_names,
+                        });
+                    }
+                    _ => {}
+                }
+
+                events.push(pending);
+            }
+            events
+        };
+
+        let entitlement_rows = EntitlementRow::list_by_entity(
+            conn,
+            tenant_id,
+            EntitlementEntityId::Subscription(subscription.id),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let entitlements: Vec<Entitlement> = entitlement_rows
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let minimum = load_subscription_minimum_on(conn, subscription.id, day).await?;
+
+        Ok(SubscriptionDetails {
+            subscription,
+            price_components: subscription_components,
+            add_ons: subscription_add_ons,
+            applied_coupons,
+            metrics: billable_metrics,
+            usage_scopes,
+            schedules,
+            checkout_url,
+            customer,
+            invoicing_entity,
+            trial_config,
+            pending_events,
+            entitlements,
+            minimum,
+        })
+    }
+}
+
 // fn get_event_priority(event_type:  ScheduledEventTypeEnum) -> i32 {
 //     match event_type {
 //         // Highest priority - must happen before other events
@@ -1099,26 +1131,76 @@ impl SubscriptionInterface for Store {
 //     }
 // }
 
+/// The prices `price_ids` name, each as its lineage prices today (R-097), and the products.
 pub(crate) async fn fetch_prices_and_products(
     conn: &mut PgConn,
     tenant_id: TenantId,
     price_ids: impl Iterator<Item = PriceId>,
     product_ids: impl Iterator<Item = ProductId>,
 ) -> StoreResult<(HashMap<PriceId, Price>, HashMap<ProductId, Product>)> {
+    fetch_prices_and_products_on(
+        conn,
+        tenant_id,
+        price_ids,
+        product_ids,
+        common_clock::now().date_naive(),
+    )
+    .await
+}
+
+/// Each lineage root of `roots` with its dated successors, in the order they take over (R-097).
+pub(crate) async fn fetch_price_lineages(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    roots: &[PriceId],
+) -> StoreResult<HashMap<PriceId, Vec<PriceRow>>> {
+    let mut lineages: HashMap<PriceId, Vec<PriceRow>> = HashMap::new();
+    for row in PriceRow::list_by_ids(conn, roots, tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+    {
+        lineages.entry(row.id).or_default().insert(0, row);
+    }
+    for row in PriceRow::successors_of(conn, roots, tenant_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+    {
+        if let Some(root) = row.supersedes {
+            lineages.entry(root).or_default().push(row);
+        }
+    }
+    Ok(lineages)
+}
+
+/// The member of a lineage (root first, successors in order) whose rates are in force on `on`.
+pub(crate) fn price_in_force(lineage: &[PriceRow], on: NaiveDate) -> Option<&PriceRow> {
+    lineage
+        .iter()
+        .rev()
+        .find(|row| row.effective_from.is_none_or(|from| from <= on))
+}
+
+/// [`fetch_prices_and_products`] with each price's lineage read on `on`, keyed by the root.
+pub(crate) async fn fetch_prices_and_products_on(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    price_ids: impl Iterator<Item = PriceId>,
+    product_ids: impl Iterator<Item = ProductId>,
+    on: NaiveDate,
+) -> StoreResult<(HashMap<PriceId, Price>, HashMap<ProductId, Product>)> {
     let price_ids: Vec<PriceId> = price_ids.unique().collect();
     let product_ids: Vec<ProductId> = product_ids.unique().collect();
 
-    let price_rows = PriceRow::list_by_ids(conn, &price_ids, tenant_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-    let prices_by_id: HashMap<PriceId, Price> = price_rows
-        .into_iter()
-        .map(|row| {
-            let id = row.id;
-            Price::try_from(row).map(|p| (id, p))
-        })
-        .collect::<Result<HashMap<_, _>, _>>()?;
+    let lineages = fetch_price_lineages(conn, tenant_id, &price_ids).await?;
+    let mut prices_by_id: HashMap<PriceId, Price> = HashMap::new();
+    for (root, lineage) in lineages {
+        let Some(row) = price_in_force(&lineage, on) else {
+            continue;
+        };
+        let mut price = Price::try_from(row.clone())?;
+        price.id = root;
+        prices_by_id.insert(root, price);
+    }
 
     let product_rows = ProductRow::list_by_ids(conn, &product_ids, tenant_id)
         .await
@@ -1248,6 +1330,39 @@ pub(crate) fn resolve_fee_from_maps(
     let period = fee_type_billing_period(fee_structure)
         .unwrap_or_else(|| price.cadence.as_subscription_billing_period());
     Some((period, fee))
+}
+
+/// The minimum in force on `on`, from the dated minimums.
+pub(crate) async fn load_subscription_minimum_on(
+    conn: &mut PgConn,
+    subscription_id: common_domain::ids::SubscriptionId,
+    on: chrono::NaiveDate,
+) -> StoreResult<Option<crate::domain::subscription_minimums::SubscriptionMinimum>> {
+    use diesel_models::subscription_adjustments::{
+        SubscriptionAdjustmentComponentRow, SubscriptionAdjustmentRow,
+    };
+
+    let Some(row) = SubscriptionAdjustmentRow::list_minimum_facts(conn, subscription_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .find(|row| row.effective_from <= on && row.effective_to.is_none_or(|to| on < to))
+    else {
+        return Ok(None);
+    };
+    let components = if row.includes_all_components {
+        vec![]
+    } else {
+        SubscriptionAdjustmentComponentRow::list_minimum_fact_scopes(conn, subscription_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .filter(|scope| scope.effective_from == row.effective_from)
+            .collect()
+    };
+    Ok(Some(
+        crate::domain::subscription_minimums::SubscriptionMinimum::from_rows(row, components),
+    ))
 }
 
 pub(crate) async fn load_subscription_minimum(

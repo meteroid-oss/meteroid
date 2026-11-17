@@ -3,7 +3,7 @@
 //! dates, is its own demand: only its own and customer-wide credit effective before that end pay it.
 
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
+use common_domain::ids::SubscriptionId;
 
 use crate::credit::allocation::{Allocation, Demand, Overflow, Pool, Request, allocate};
 use crate::credit::owed::assign_settled;
@@ -12,7 +12,7 @@ use crate::credit::settle::{Drawn, Grants};
 /// One subscription's usage of one unit, of lines ending at `dated_before`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UnitUse {
-    pub subscription: Uuid,
+    pub subscription: SubscriptionId,
     pub dated_before: DateTime<Utc>,
     pub consumed: i64,
 }
@@ -67,14 +67,15 @@ mod tests {
     use crate::credit::allocation::{Application, Classification, Grant, Scope};
     use crate::credit::owed::Settled;
     use chrono::TimeZone;
+    use uuid::Uuid;
 
     fn at(day: u32) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 3, day, 0, 0, 0).unwrap()
     }
 
-    fn wallet(id: u128, subscription: Option<Uuid>, remaining: i64) -> Grant {
+    fn wallet(id: u128, subscription: Option<SubscriptionId>, remaining: i64) -> Grant {
         Grant {
-            id: Uuid::from_u128(id),
+            id: Uuid::from_u128(id).into(),
             scope: Scope {
                 subscription,
                 application: Application::Usage,
@@ -93,7 +94,7 @@ mod tests {
     /// A settlement kept pays first, the wallet the rest; another subscription's grant pays none.
     #[test]
     fn kept_settlements_then_the_wallet_cover_the_usage() {
-        let (ours, theirs) = (Uuid::from_u128(1), Uuid::from_u128(2));
+        let (ours, theirs) = (Uuid::from_u128(1).into(), Uuid::from_u128(2).into());
         let uses = [UnitUse {
             subscription: ours,
             dated_before: at(31),
@@ -111,6 +112,6 @@ mod tests {
         let (drawn, covered) = estimate_cover(&uses, &grants).unwrap();
         assert_eq!(covered, vec![800]);
         assert_eq!(drawn.kept.total().unwrap(), 300);
-        assert_eq!(drawn.fresh.draws, vec![(Uuid::from_u128(11), 500)]);
+        assert_eq!(drawn.fresh.draws, vec![(Uuid::from_u128(11).into(), 500)]);
     }
 }

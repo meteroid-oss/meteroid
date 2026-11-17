@@ -354,7 +354,7 @@ impl Services {
             .iter()
             .map(|c| c.id)
             .collect();
-        let closed_components: Vec<SubscriptionComponent> =
+        let mut closed_components: Vec<SubscriptionComponent> =
             SubscriptionComponentRow::list_component_history_for_period(
                 conn,
                 subscription_id,
@@ -372,21 +372,9 @@ impl Services {
             .into_iter()
             .filter(|comp| bills_closed_arrears(&comp.fee))
             .collect();
-        let runs =
-            super::cadence::load_cadence_runs(conn, subscription_details, invoice_date, true)
-                .await?;
-        if bills_arrears_segment(
-            subscription_details,
-            &closed_components,
-            invoice_date,
-            &runs,
-        ) {
-            return Ok(true);
-        }
-
         let active_addon_ids: HashSet<SubscriptionAddOnId> =
             subscription_details.add_ons.iter().map(|a| a.id).collect();
-        let closed_add_ons: Vec<SubscriptionAddOn> =
+        let mut closed_add_ons: Vec<SubscriptionAddOn> =
             SubscriptionAddOnRow::list_add_on_history_for_period(
                 conn,
                 subscription_id,
@@ -402,13 +390,25 @@ impl Services {
             .into_iter()
             .filter(|ao| bills_closed_arrears(&ao.fee))
             .collect();
+        retain_unsettled(
+            conn,
+            subscription_details,
+            &mut closed_components,
+            &mut closed_add_ons,
+            (None, Some(invoice_date)),
+            invoice_date,
+        )
+        .await?;
 
+        let runs =
+            super::cadence::load_cadence_runs(conn, subscription_details, invoice_date, true)
+                .await?;
         Ok(bills_arrears_segment(
             subscription_details,
-            &closed_add_ons,
+            &closed_components,
             invoice_date,
             &runs,
-        ))
+        ) || bills_arrears_segment(subscription_details, &closed_add_ons, invoice_date, &runs))
     }
 
     pub async fn compute_invoice(
@@ -495,7 +495,81 @@ impl Services {
         )
         .await?;
         let credit_at = match cover {
-            CreditUnitCover::Estimate { .. } => common_domain::clock::now(),
+            CreditUnitCover::Estimate { .. } => common_clock::now(),
+            CreditUnitCover::Draw { at, .. } | CreditUnitCover::DrawAsShown { at, .. } => at.at,
+        };
+        self.finish_invoice_content(conn, subscription_details, priced, credit_at, book)
+            .await
+    }
+
+    /// `compute_invoice_on` for a stored subscription's period invoice, its lines from its facts
+    /// (`price_from_facts`).
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::services) async fn compute_invoice_from_facts(
+        &self,
+        conn: &mut PgConn,
+        invoice_date: &NaiveDate,
+        subscription_details: &SubscriptionDetails,
+        prepaid_amount: Option<u64>,
+        invoice: Option<&Invoice>,
+        invoice_type: InvoiceType,
+        cover: CreditUnitCover,
+        book: Option<&CreditBooks>,
+    ) -> StoreResult<ComputedInvoiceContent> {
+        self.compute_invoice_from_facts_with(
+            conn,
+            invoice_date,
+            subscription_details,
+            prepaid_amount,
+            invoice,
+            invoice_type,
+            cover,
+            book,
+            None,
+        )
+        .await
+    }
+
+    /// [`Self::compute_invoice_from_facts`] with a change not yet written laid over the facts:
+    /// `subscription_details` are the subscription as that change leaves it.
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::services) async fn compute_invoice_from_facts_with(
+        &self,
+        conn: &mut PgConn,
+        invoice_date: &NaiveDate,
+        subscription_details: &SubscriptionDetails,
+        prepaid_amount: Option<u64>,
+        invoice: Option<&Invoice>,
+        invoice_type: InvoiceType,
+        cover: CreditUnitCover,
+        book: Option<&CreditBooks>,
+        overlay: Option<&crate::services::evaluate::load::Overlay>,
+    ) -> StoreResult<ComputedInvoiceContent> {
+        let mut priced = match self
+            .price_from_facts_with(
+                conn,
+                invoice_date,
+                subscription_details,
+                prepaid_amount,
+                invoice,
+                invoice_type,
+                book,
+                overlay,
+            )
+            .await?
+        {
+            PricedInvoice::Stored(content) => return Ok(content),
+            PricedInvoice::Lines(priced) => priced,
+        };
+        self.cover_credit_unit_lines_on(
+            conn,
+            cover,
+            &mut [priced.cover_target(subscription_details)],
+            book,
+        )
+        .await?;
+        let credit_at = match cover {
+            CreditUnitCover::Estimate { .. } => common_clock::now(),
             CreditUnitCover::Draw { at, .. } | CreditUnitCover::DrawAsShown { at, .. } => at.at,
         };
         self.finish_invoice_content(conn, subscription_details, priced, credit_at, book)
@@ -572,13 +646,7 @@ impl Services {
             // Reused lines still estimate the customer credit they would draw.
             let already_paid = prepaid_amount.unwrap_or(0) as i64;
             let content = self
-                .estimate_stored_credit(
-                    conn,
-                    invoice,
-                    already_paid,
-                    common_domain::clock::now(),
-                    book,
-                )
+                .estimate_stored_credit(conn, invoice, already_paid, common_clock::now(), book)
                 .await?;
             return Ok(PricedInvoice::Stored(content));
         }
@@ -680,7 +748,13 @@ impl Services {
 
         // Closed pure-arrears components/add-ons still bill their temporal segment
         // [effective_from, effective_to] after a mid-period plan change or amendment.
-        let closed = load_closed_arrears(conn, subscription_details, invoice_date).await?;
+        let closed = load_closed_arrears(
+            conn,
+            subscription_details,
+            invoice_date,
+            invoice.map(|invoice| invoice.id),
+        )
+        .await?;
         let closed_details = closed.details_for(subscription_details);
 
         let historical_lines = self
@@ -863,20 +937,14 @@ impl Services {
         } = priced;
         let mut invoice_lines = invoice_lines;
 
-        // The true-up is appended before coupons and tax: measured on GROSS spend, it is then
-        // discounted and taxed like any other line (a 5.00 coupon on a 9.00 shortfall leaves 4.00).
-        super::minimum::append_minimum_shortfall_if_any(
+        // The true-up is measured on spend net of coupons and appended after them, so a coupon
+        // never discounts it (R-022, R-023); it is taxed like any other line.
+        super::minimum::drop_true_up_lines(
             &invoice_type,
-            subscription_details,
             &mut invoice_lines,
             invoice_date,
             true_up.as_ref(),
-        )?;
-        super::charges::disambiguate(
-            &mut invoice_lines,
-            &super::charges::Lineages::of(subscription_details),
         );
-
         let applicable = super::discount::applicable_coupons(&subscription_details.applied_coupons);
         let assembled = assemble_lines(
             &mut invoice_lines,
@@ -887,6 +955,16 @@ impl Services {
             },
         );
         let discount_total = assembled.discount;
+        super::minimum::append_minimum_shortfall_if_any(
+            &invoice_type,
+            subscription_details,
+            &mut invoice_lines,
+            true_up.as_ref(),
+        )?;
+        super::charges::disambiguate(
+            &mut invoice_lines,
+            &super::charges::Lineages::of(subscription_details),
+        );
 
         let scope = EstimateContext {
             tenant_id: subscription_details.subscription.tenant_id,
@@ -970,7 +1048,7 @@ impl Services {
             invoice_id: None,
             subscription_id: None,
             periods: Vec::new(),
-            at: common_domain::clock::now(),
+            at: common_clock::now(),
             book: None,
         };
         // we add taxes
@@ -1214,6 +1292,7 @@ impl Services {
                 proration_factor: None,
                 proration_days: None,
                 arrear_proration_factor: None,
+                arrear_share: None,
                 advance: Some(Period {
                     start: invoice_date,
                     end: invoice_date,
@@ -1634,7 +1713,93 @@ impl ClosedArrears {
     }
 }
 
+/// The closed arrears records of [`ClosedArrears`], but those another invoice than the period's
+/// own (`except`, being refreshed) billed up to their end: they owe nothing more.
 pub(crate) async fn load_closed_arrears(
+    conn: &mut PgConn,
+    subscription_details: &SubscriptionDetails,
+    invoice_date: NaiveDate,
+    except: Option<InvoiceId>,
+) -> StoreResult<ClosedArrears> {
+    let mut closed = load_all_closed_arrears(conn, subscription_details, invoice_date).await?;
+    retain_unsettled(
+        conn,
+        subscription_details,
+        &mut closed.components,
+        &mut closed.add_ons,
+        (except, Some(invoice_date)),
+        invoice_date,
+    )
+    .await?;
+    Ok(closed)
+}
+
+/// Keeps the closed records no invoice billed up to their end, but `except` and the period's own
+/// invoices of `except_period` (see `InvoiceRow::billed_row_ends_since`). A record ended before
+/// both the previous renewal and its own last period bills nothing on `on`'s invoice: dropped first.
+async fn retain_unsettled(
+    conn: &mut PgConn,
+    subscription_details: &SubscriptionDetails,
+    components: &mut Vec<SubscriptionComponent>,
+    add_ons: &mut Vec<SubscriptionAddOn>,
+    (except, except_period): (Option<InvoiceId>, Option<NaiveDate>),
+    on: NaiveDate,
+) -> StoreResult<()> {
+    use crate::domain::SubscriptionFeeBillingPeriod;
+    use common_domain::ids::BaseId;
+    let sub = &subscription_details.subscription;
+    let (_, previous) =
+        InvoiceRow::recurring_period_starts_around(conn, sub.tenant_id, sub.id, on, on)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+    if let Some(previous) = previous {
+        // Its arrears start at the previous renewal or its own period's start, and an ending off
+        // its grid settles only while its last period runs; a week covers the anchor day's drift.
+        let billable = |to: Option<NaiveDate>, period: &SubscriptionFeeBillingPeriod| {
+            let (Some(to), Some(own)) = (to, period.as_billing_period_opt()) else {
+                return true;
+            };
+            on.checked_sub_months(chrono::Months::new(own.as_months()))
+                .and_then(|start| start.checked_sub_days(chrono::Days::new(7)))
+                .is_none_or(|own_start| to > previous.min(own_start))
+        };
+        components.retain(|c| billable(c.effective_to, &c.period));
+        add_ons.retain(|a| billable(a.effective_to, &a.period));
+    }
+    let closed: Vec<(uuid::Uuid, NaiveDate)> = components
+        .iter()
+        .filter_map(|c| Some((c.id.as_uuid(), c.effective_to?)))
+        .chain(
+            add_ons
+                .iter()
+                .filter_map(|a| Some((a.id.as_uuid(), a.effective_to?))),
+        )
+        .collect();
+    let Some(since) = closed.iter().map(|(_, to)| *to).min() else {
+        return Ok(());
+    };
+    let rows: Vec<uuid::Uuid> = closed.iter().map(|(id, _)| *id).collect();
+    let billed: HashSet<(uuid::Uuid, NaiveDate)> = InvoiceRow::billed_row_ends_since(
+        conn,
+        sub.tenant_id,
+        sub.id,
+        since,
+        &rows,
+        except,
+        except_period,
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?
+    .into_iter()
+    .collect();
+    let unsettled =
+        |id: uuid::Uuid, to: Option<NaiveDate>| to.is_none_or(|to| !billed.contains(&(id, to)));
+    components.retain(|c| unsettled(c.id.as_uuid(), c.effective_to));
+    add_ons.retain(|a| unsettled(a.id.as_uuid(), a.effective_to));
+    Ok(())
+}
+
+async fn load_all_closed_arrears(
     conn: &mut PgConn,
     subscription_details: &SubscriptionDetails,
     invoice_date: NaiveDate,
@@ -1731,8 +1896,8 @@ pub(crate) async fn load_closed_arrears(
 }
 
 /// The periods each record bills on `invoice_date`'s invoice, on its grid (R-084): the latest
-/// change of cadence before it ended (`runs`, latest first), so what a change closed settles on the
-/// grid it ran on; before any change, the billing start's grid of its own cadence. Shared by the
+/// change of cadence on or before its start (`runs`, latest first), so a record kept through a
+/// change keeps its grid; before any change, the billing start's grid of its own cadence. Shared by the
 /// invoice and the live usage windows.
 pub(crate) fn fee_periods<'a, T: SubscriptionFeeInterface>(
     subscription_details: &SubscriptionDetails,
@@ -1756,27 +1921,45 @@ pub(crate) fn fee_periods<'a, T: SubscriptionFeeInterface>(
         else {
             continue;
         };
-        let run = match runs
-            .iter()
-            .find(|run| record.effective_to().is_none_or(|to| to > run.switched_on))
-        {
+        let in_force = crate::utils::periods::run_in_force(
+            runs,
+            record.effective_from(),
+            record.effective_to(),
+        );
+        let run = match in_force {
             Some(run) => FeeRun::of_cadence_run(run, months, anchor),
+            // Kept through a change of cadence, it bills what began since the last renewal, which
+            // is off its grid.
             None => FeeRun::from_start(
                 (billing_start_or_resume_date, billing_from),
                 anchor,
                 months,
                 invoice_date,
-            ),
+            )
+            .map(|run| match runs.first() {
+                Some(latest) => FeeRun {
+                    previous_renewal: latest.previous_renewal,
+                    ..run
+                },
+                None => run,
+            }),
         };
         let Some(run) = run else {
             continue;
         };
+        // Ended off its grid, it settles on the first invoice from its end (R-011); one an invoice
+        // settled is no longer loaded (`load_closed_arrears`).
+        let settles = record
+            .effective_to()
+            .is_some_and(|to| run.ends_off_grid(to, invoice_date));
         for periods in component_periods_on(
             &run,
             invoice_date,
             record.effective_from(),
             record.effective_to(),
+            sub.end_date,
             is_completed,
+            settles,
         ) {
             groups.push((periods, vec![*record]));
         }
@@ -1844,6 +2027,7 @@ fn final_window<'a, T: SubscriptionFeeInterface>(
             proration_factor: None,
             proration_days: None,
             arrear_proration_factor: None,
+            arrear_share: None,
             advance: None,
             arrear: Some(Period { start: on, end: on }),
         },
@@ -1884,7 +2068,8 @@ pub(crate) async fn details_for_span(
 pub enum MeteredFee {
     Usage(UsagePricingModel),
     CapacityOverage {
-        included: u64,
+        /// The units included for the window: the fee's, prorated with it (R-002).
+        included: Decimal,
         overage_rate: Decimal,
     },
 }
@@ -1948,12 +2133,12 @@ pub(crate) fn metered_windows<T: SubscriptionFeeInterface>(
     .into_iter()
     .flat_map(|(periods, components)| {
         components.into_iter().filter_map(move |component| {
-            let period = restrict_arrear_period_by_temporal_bounds(
+            let restricted = restrict_arrear_period_by_temporal_bounds(
                 periods.clone(),
                 component.effective_from(),
                 component.effective_to(),
-            )
-            .arrear?;
+            );
+            let period = restricted.arrear.clone()?;
             match component.fee_ref() {
                 SubscriptionFee::Usage {
                     metric_id,
@@ -1978,7 +2163,11 @@ pub(crate) fn metered_windows<T: SubscriptionFeeInterface>(
                     sub_component_id: component.sub_component_id(),
                     sub_add_on_id: component.sub_add_on_id(),
                     fee: MeteredFee::CapacityOverage {
-                        included: *included,
+                        included: restricted
+                            .arrear_share
+                            .map_or(Decimal::from(*included), |share| {
+                                share.prorate_decimal(Decimal::from(*included))
+                            }),
                         overage_rate: *overage_rate,
                     },
                     period,
@@ -2075,6 +2264,7 @@ pub(crate) fn restrict_arrear_period_by_temporal_bounds(
         if (full_days != 0 && arrear.start >= arrear.end) || arrear.end < arrear.start {
             periods.arrear = None;
             periods.arrear_proration_factor = None;
+            periods.arrear_share = None;
             return periods;
         }
 
@@ -2091,6 +2281,11 @@ pub(crate) fn restrict_arrear_period_by_temporal_bounds(
                     .arrear_proration_factor
                     .map_or(restriction, |factor| factor.of(restriction)),
             );
+            periods.arrear_share = Some(
+                periods
+                    .arrear_share
+                    .map_or(restriction, |share| share.of(restriction)),
+            );
         }
     }
     periods
@@ -2099,7 +2294,7 @@ pub(crate) fn restrict_arrear_period_by_temporal_bounds(
 /// Detect temporal splits and append date range to disambiguate line item names.
 /// A temporal split occurs when multiple sub_component_ids exist for the same price_component_id,
 /// indicating a mid-period plan change with old and new component versions.
-fn apply_temporal_date_range_to_names(lines: &mut [LineItem]) {
+pub(crate) fn apply_temporal_date_range_to_names(lines: &mut [LineItem]) {
     let mut price_component_sub_ids: HashMap<
         PriceComponentId,
         HashSet<SubscriptionPriceComponentId>,
@@ -2204,6 +2399,7 @@ mod tests {
             proration_factor: None,
             proration_days: None,
             arrear_proration_factor: None,
+            arrear_share: None,
         }
     }
 
@@ -2359,7 +2555,7 @@ mod tests {
         );
         assert!(
             !MeteredFee::CapacityOverage {
-                included: 10,
+                included: dec!(10),
                 overage_rate: dec!(2)
             }
             .is_free()
@@ -2428,6 +2624,7 @@ mod tests {
             proration_factor: None,
             proration_days: None,
             arrear_proration_factor: None,
+            arrear_share: None,
         };
         let groups = vec![
             (arrear_periods(date(2026, 2, 10), on), vec![&open, &closed]),

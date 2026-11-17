@@ -173,6 +173,20 @@ struct SharedPostgres {
     base_connection_string: String,
 }
 
+/// The migrated template the test databases are cloned from: `meteroid_template`, or
+/// `METEROID_TEST_TEMPLATE`, so worktrees of different migrations can share one Postgres.
+fn template() -> &'static str {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| {
+        std::env::var("METEROID_TEST_TEMPLATE")
+            .ok()
+            .filter(|name| {
+                !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+            })
+            .unwrap_or_else(|| "meteroid_template".to_owned())
+    })
+}
+
 /// Replace the database name (the URL path) on a Postgres connection string.
 fn with_database(base_url: &str, db_name: &str) -> String {
     let (prefix, _) = base_url
@@ -220,20 +234,22 @@ async fn get_shared_postgres() -> &'static SharedPostgres {
                     .unwrap();
 
                 if template_fingerprint(&mut conn).await.as_deref() != Some(fingerprint.as_str()) {
-                    let template_count: i64 = diesel::dsl::sql::<diesel::sql_types::BigInt>(
-                        "SELECT count(*) FROM pg_database WHERE datname = 'meteroid_template'",
-                    )
-                    .get_result(&mut conn)
-                    .await
-                    .unwrap();
+                    let template_count: i64 =
+                        diesel::dsl::sql::<diesel::sql_types::BigInt>(&format!(
+                            "SELECT count(*) FROM pg_database WHERE datname = '{}'",
+                            template()
+                        ))
+                        .get_result(&mut conn)
+                        .await
+                        .unwrap();
                     if template_count == 0 {
-                        sql_query("CREATE DATABASE meteroid_template")
+                        sql_query(format!("CREATE DATABASE {}", template()))
                             .execute(&mut conn)
                             .await
                             .unwrap();
                     }
 
-                    let template_url = with_database(&base_connection_string, "meteroid_template");
+                    let template_url = with_database(&base_connection_string, template());
                     let template_pool =
                         meteroid_store::store::diesel_make_pg_pool(PgConfig::new(template_url))
                             .expect("Failed to create template pool");
@@ -242,7 +258,8 @@ async fn get_shared_postgres() -> &'static SharedPostgres {
                     drop(template_pool);
 
                     sql_query(format!(
-                        "COMMENT ON DATABASE meteroid_template IS '{fingerprint}'"
+                        "COMMENT ON DATABASE {} IS '{fingerprint}'",
+                        template()
                     ))
                     .execute(&mut conn)
                     .await
@@ -283,7 +300,7 @@ fn migrations_fingerprint() -> String {
 }
 
 async fn template_fingerprint(conn: &mut meteroid_store::store::PgConn) -> Option<String> {
-    database_fingerprint(conn, "meteroid_template").await
+    database_fingerprint(conn, template()).await
 }
 
 async fn database_fingerprint(
@@ -919,18 +936,18 @@ pub fn is_transient_start_error<E: Display + Debug>(e: &E) -> bool {
 /// Create a new test database from the template.
 pub async fn create_test_database() -> TestDatabase {
     let shared = get_shared_postgres().await;
-    clone_database(shared, "meteroid_template", None).await
+    clone_database(shared, template(), None).await
 }
 
 /// A database holding `seed_level`'s data: a clone of a template seeded once per run, which
 /// [`start_meteroid`] and the other starters do not seed again.
 pub async fn create_seeded_test_database(seed_level: SeedLevel) -> TestDatabase {
     let shared = get_shared_postgres().await;
-    let Some(template) = seed_level.template() else {
-        return clone_database(shared, "meteroid_template", None).await;
+    let Some(seeded) = seed_level.template() else {
+        return clone_database(shared, template(), None).await;
     };
-    ensure_seeded_template(shared, seed_level, template).await;
-    clone_database(shared, template, Some(seed_level)).await
+    ensure_seeded_template(shared, seed_level, &seeded).await;
+    clone_database(shared, &seeded, Some(seed_level)).await
 }
 
 async fn clone_database(
@@ -990,7 +1007,8 @@ async fn ensure_seeded_template(shared: &SharedPostgres, seed_level: SeedLevel, 
             .await
             .unwrap();
         sql_query(format!(
-            "CREATE DATABASE {template} TEMPLATE meteroid_template"
+            "CREATE DATABASE {template} TEMPLATE {}",
+            self::template()
         ))
         .execute(&mut conn)
         .await
@@ -1088,13 +1106,14 @@ pub enum SeedLevel {
 }
 
 impl SeedLevel {
-    fn template(self) -> Option<&'static str> {
-        match self {
-            SeedLevel::NONE | SeedLevel::SUBSCRIPTIONS => None,
-            SeedLevel::MINIMAL => Some("meteroid_template_minimal"),
-            SeedLevel::PRODUCT => Some("meteroid_template_product"),
-            SeedLevel::PLANS => Some("meteroid_template_plans"),
-        }
+    fn template(self) -> Option<String> {
+        let level = match self {
+            SeedLevel::NONE | SeedLevel::SUBSCRIPTIONS => return None,
+            SeedLevel::MINIMAL => "minimal",
+            SeedLevel::PRODUCT => "product",
+            SeedLevel::PLANS => "plans",
+        };
+        Some(format!("{}_{level}", template()))
     }
 
     fn seeds(&self) -> Vec<Seed> {

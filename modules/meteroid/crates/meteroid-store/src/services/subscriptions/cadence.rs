@@ -3,17 +3,10 @@
 //! created with that set of fees: a longer fee keeps billing on its own anniversaries.
 
 use chrono::NaiveDate;
-use common_domain::ids::{SubscriptionId, TenantId};
-use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
-use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
-use diesel_models::subscription_components::SubscriptionComponentRow;
-use diesel_models::subscriptions::{SubscriptionCadenceRowPatch, SubscriptionRow};
-use error_stack::Report;
 
 use crate::StoreResult;
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
 use crate::domain::{Period, SubscriptionDetails};
-use crate::errors::StoreError;
 use crate::services::invoice_lines::cadence::{CadenceSubject, cadence_runs_of};
 use crate::store::PgConn;
 use crate::utils::periods::{calculate_elapsed_cycles, find_period_containing_date};
@@ -75,95 +68,6 @@ pub(crate) async fn cadence_after_change(
         .await?
         .is_empty();
     Ok((!switched).then_some(cadence))
-}
-
-/// Moves the subscription onto the shortest cadence of the fees it bills from `on`.
-pub(crate) async fn realign_cadence_tx(
-    conn: &mut PgConn,
-    tenant_id: TenantId,
-    subscription_id: SubscriptionId,
-    on: NaiveDate,
-) -> StoreResult<Option<Cadence>> {
-    let subscription = SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?
-        .subscription;
-    if subscription.status != SubscriptionStatusEnum::Active
-        || subscription.current_period_end.is_none()
-    {
-        return Ok(None);
-    }
-    let components = SubscriptionComponentRow::list_subscription_components_by_subscription(
-        conn,
-        &tenant_id,
-        &subscription_id,
-        None,
-    )
-    .await
-    .map_err(Into::<Report<StoreError>>::into)?;
-    let add_ons = SubscriptionAddOnRow::list_by_subscription_id_active(
-        conn,
-        &tenant_id,
-        &subscription_id,
-        None,
-    )
-    .await
-    .map_err(Into::<Report<StoreError>>::into)?;
-    let cadences: Vec<SubscriptionFeeBillingPeriod> = components
-        .into_iter()
-        .map(|c| c.period.into())
-        .chain(add_ons.into_iter().map(|a| a.period.into()))
-        .collect();
-    let Some(cadence) = realigned_cadence(
-        &subscription.period.clone().into(),
-        subscription
-            .billing_start_date
-            .unwrap_or(subscription.current_period_start),
-        subscription.billing_day_anchor as u32,
-        &cadences,
-        on,
-    ) else {
-        return Ok(None);
-    };
-    if !cadence_runs_of(conn, CadenceSubject::of_row(&subscription), on, true)
-        .await?
-        .is_empty()
-    {
-        return Ok(None);
-    }
-
-    let (end, next_cycle_action) = match subscription.end_date {
-        Some(end_date) if end_date <= cadence.current.end => {
-            (end_date, CycleActionEnum::EndSubscription)
-        }
-        _ => (cadence.current.end, CycleActionEnum::RenewSubscription),
-    };
-    SubscriptionCadenceRowPatch {
-        id: subscription_id,
-        tenant_id,
-        period: cadence.period.into(),
-        current_period_start: cadence.current.start,
-        current_period_end: Some(end),
-        cycle_index: Some(cadence.cycle_index as i32),
-        next_cycle_action: Some(next_cycle_action),
-    }
-    .patch(conn)
-    .await
-    .map_err(Into::<Report<StoreError>>::into)?;
-    crate::services::facts::record_cadence_change_tx(
-        conn,
-        subscription_id,
-        on,
-        cadence.period.into(),
-    )
-    .await?;
-
-    log::info!(
-        "Subscription {subscription_id} now renews {:?}: period [{}, {end})",
-        cadence.period,
-        cadence.current.start,
-    );
-    Ok(Some(cadence))
 }
 
 #[cfg(test)]

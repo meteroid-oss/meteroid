@@ -14,18 +14,32 @@ use chrono::NaiveDate;
 use common_domain::ids::SubscriptionId;
 use diesel::{ExpressionMethods, OptionalExtension, QueryDsl, SelectableHelper};
 
-/// A scope row of the minimum in force.
+/// A scope row of the minimum in force on its subscription's read day: a minimum a scheduled
+/// change dated later shows from its date.
 fn of_open_minimum() -> diesel::expression::SqlLiteral<diesel::sql_types::Bool> {
-    diesel::dsl::sql::<diesel::sql_types::Bool>(
+    let in_force = crate::query::subscription_facts::in_force_sql("a", "s");
+    diesel::dsl::sql::<diesel::sql_types::Bool>(&format!(
         "EXISTS (SELECT 1 FROM subscription_adjustment a \
+         JOIN subscription s ON s.id = a.subscription_id \
          WHERE a.subscription_id = subscription_adjustment_component.subscription_id \
            AND a.kind = subscription_adjustment_component.kind \
            AND a.effective_from = subscription_adjustment_component.effective_from \
-           AND a.effective_to IS NULL)",
-    )
+           AND {in_force})"
+    ))
 }
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
+
+fn minimum_in_force() -> diesel::expression::SqlLiteral<diesel::sql_types::Bool> {
+    let day = crate::query::subscription_facts::read_day_sql("s");
+    diesel::dsl::sql::<diesel::sql_types::Bool>(&format!(
+        "EXISTS (SELECT 1 FROM subscription s \
+         WHERE s.id = subscription_adjustment.subscription_id \
+           AND subscription_adjustment.effective_from <= {day} \
+           AND (subscription_adjustment.effective_to IS NULL \
+                OR subscription_adjustment.effective_to > {day}))"
+    ))
+}
 
 impl SubscriptionAdjustmentRow {
     pub async fn find_by_subscription_id(
@@ -33,11 +47,11 @@ impl SubscriptionAdjustmentRow {
         subscription_id_param: &SubscriptionId,
     ) -> DbResult<Option<SubscriptionAdjustmentRow>> {
         use crate::schema::subscription_adjustment::dsl as m_dsl;
-
+        // In force on the subscription's read day: a scheduled change's minimum shows from its date.
         let query = m_dsl::subscription_adjustment
             .filter(m_dsl::subscription_id.eq(subscription_id_param))
             .filter(m_dsl::kind.eq(AdjustmentKindEnum::Minimum))
-            .filter(m_dsl::effective_to.is_null())
+            .filter(minimum_in_force())
             .select(SubscriptionAdjustmentRow::as_select());
 
         crate::debug_sql(&query);
@@ -98,7 +112,7 @@ impl SubscriptionAdjustmentRow {
         let query = m_dsl::subscription_adjustment
             .filter(m_dsl::subscription_id.eq_any(subscription_ids))
             .filter(m_dsl::kind.eq(AdjustmentKindEnum::Minimum))
-            .filter(m_dsl::effective_to.is_null())
+            .filter(minimum_in_force())
             .select(SubscriptionAdjustmentRow::as_select());
 
         crate::debug_sql(&query);
@@ -117,8 +131,7 @@ impl SubscriptionAdjustmentRowNew {
 
         let query = diesel::insert_into(m_dsl::subscription_adjustment).values((
             self,
-            crate::schema::subscription_adjustment::created_at
-                .eq(common_domain::clock::now().naive_utc()),
+            crate::schema::subscription_adjustment::created_at.eq(common_clock::now().naive_utc()),
         ));
 
         crate::debug_sql(&query);
@@ -147,7 +160,7 @@ impl SubscriptionAdjustmentRowNew {
                     (
                         row,
                         crate::schema::subscription_adjustment::created_at
-                            .eq(common_domain::clock::now().naive_utc()),
+                            .eq(common_clock::now().naive_utc()),
                     )
                 })
                 .collect::<Vec<_>>(),

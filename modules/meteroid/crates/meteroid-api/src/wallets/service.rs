@@ -475,11 +475,7 @@ impl WalletsService for WalletServiceComponents {
             amount_minor: req.amount,
             classification,
             priority: req.priority.unwrap_or(DEFAULT_PRIORITY),
-            expires_at: credit_expiry(
-                req.expires_at,
-                req.expires_in_months,
-                common_domain::clock::now(),
-            )?,
+            expires_at: credit_expiry(req.expires_at, req.expires_in_months, common_clock::now())?,
             idempotency_key: idempotency_key(&req.idempotency_key)?,
             reason: req.reason,
             reference,
@@ -596,7 +592,7 @@ impl WalletsService for WalletServiceComponents {
                     expires_at: credit_expiry(
                         req.expires_at,
                         req.expires_in_months,
-                        common_domain::clock::now(),
+                        common_clock::now(),
                     )?,
                     unit_price: unit_price(req.unit_price.as_deref())?,
                     expected_unit_price: unit_price(req.expected_unit_price.as_deref())?,

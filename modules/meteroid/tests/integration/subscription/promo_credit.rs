@@ -586,9 +586,14 @@ async fn a_future_subscription_gets_its_promo_credit_when_it_starts(#[future] te
     let mut conn = env.conn().await;
     for statement in [
         "UPDATE subscription SET start_date = CURRENT_DATE, billing_start_date = CURRENT_DATE,
-             current_period_start = CURRENT_DATE, current_period_end = CURRENT_DATE
+             current_period_start = CURRENT_DATE, current_period_end = CURRENT_DATE,
+             billing_day_anchor = EXTRACT(DAY FROM CURRENT_DATE)::smallint
          WHERE id = $1",
         "UPDATE subscription_component SET effective_from = CURRENT_DATE WHERE subscription_id = $1",
+        // The recorded facts move with the row.
+        "UPDATE subscription_start_settled SET at = CURRENT_DATE::timestamp WHERE subscription_id = $1",
+        "UPDATE subscription_plan_window SET from_date = CURRENT_DATE, cadence_origin = CURRENT_DATE
+         WHERE subscription_id = $1",
     ] {
         diesel_async::RunQueryDsl::execute(
             diesel::sql_query(statement).bind::<diesel::sql_types::Uuid, _>(sub_id),
@@ -1113,9 +1118,16 @@ async fn every_start_path_funds_promo_credit_once(
             let mut conn = env.conn().await;
             for statement in [
                 "UPDATE subscription SET start_date = CURRENT_DATE, billing_start_date = CURRENT_DATE,
-                     current_period_start = CURRENT_DATE, current_period_end = CURRENT_DATE
+                     current_period_start = CURRENT_DATE, current_period_end = CURRENT_DATE,
+                     billing_day_anchor = EXTRACT(DAY FROM CURRENT_DATE)::smallint
                  WHERE id = $1",
                 "UPDATE subscription_component SET effective_from = CURRENT_DATE
+                 WHERE subscription_id = $1",
+                // The recorded facts move with the row.
+                "UPDATE subscription_start_settled SET at = CURRENT_DATE::timestamp
+                 WHERE subscription_id = $1",
+                "UPDATE subscription_plan_window SET from_date = CURRENT_DATE,
+                     cadence_origin = CURRENT_DATE
                  WHERE subscription_id = $1",
             ] {
                 diesel_async::RunQueryDsl::execute(
@@ -1199,5 +1211,100 @@ async fn every_start_path_funds_promo_credit_once(
         coupon_grants(&env, CUST_UBER_ID).await.len(),
         1,
         "{path:?}: later transitions fund nothing more"
+    );
+}
+
+/// A once credit of 20.00 on an add-on whose row an earlier release wrote without its fee (its
+/// price holds it): billed on February's renewal, it is found billed, as on any row.
+/// Rules: R16, OQ6
+#[rstest]
+#[tokio::test]
+async fn a_once_credit_on_an_add_on_without_its_fee_snapshot_is_found_billed(
+    #[future] test_env: TestEnv,
+) {
+    use diesel::{ExpressionMethods, QueryDsl};
+    use diesel_async::RunQueryDsl;
+    use diesel_models::invoices::InvoiceRow;
+    use diesel_models::schema::subscription_add_on::dsl as a;
+    use meteroid_store::domain::subscription_add_ons::{
+        CreateSubscriptionAddOn, SubscriptionAddOnCustomization,
+    };
+    use meteroid_store::domain::subscription_amendment::{
+        AddOnChanges, ComponentChanges, SubscriptionAmendment,
+    };
+    use meteroid_store::domain::subscription_changes::PlanChangeMode;
+    use meteroid_store::repositories::add_ons::AddOnInterface;
+
+    let env = test_env.await;
+    let start = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(start)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let add_on = env
+        .store()
+        .create_add_on_from_ref(
+            "Welcome pack".to_string(),
+            new_credit_product("Welcome pack"),
+            PriceEntry::New(PriceInput {
+                cadence: BillingPeriodEnum::Monthly,
+                currency: "EUR".to_string(),
+                pricing: once_credit(dec!(20)),
+                credit_unit: None,
+            }),
+            None,
+            true,
+            Some(10),
+            TENANT_ID,
+            PRODUCT_FAMILY_ID,
+            vec![],
+        )
+        .await
+        .expect("a once credit add-on");
+    env.services()
+        .apply_amendment_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            SubscriptionAmendment {
+                apply_mode: PlanChangeMode::Immediate,
+                component_changes: ComponentChanges::default(),
+                add_on_changes: AddOnChanges {
+                    added: vec![CreateSubscriptionAddOn {
+                        add_on_id: add_on.id,
+                        customization: SubscriptionAddOnCustomization::None,
+                        quantity: 1,
+                    }],
+                    edited: vec![],
+                    removed: vec![],
+                },
+            },
+            start,
+        )
+        .await
+        .expect("the add-on");
+    env.process_cycles().await;
+    let product = env.get_invoices(sub_id).await.iter().find_map(|invoice| {
+        invoice
+            .line_items
+            .iter()
+            .find(|line| line.kind == LineItemKind::Credit)
+            .and_then(|line| line.product_id)
+    });
+    let product = product.expect("the once credit billed");
+
+    let mut conn = env.conn().await;
+    diesel::update(a::subscription_add_on.filter(a::subscription_id.eq(sub_id)))
+        .set(a::legacy_fee.eq(None::<serde_json::Value>))
+        .execute(&mut conn)
+        .await
+        .expect("the row as an earlier release wrote it");
+    assert!(
+        InvoiceRow::subscription_billed_once_credit(&mut conn, TENANT_ID, sub_id, product, None)
+            .await
+            .expect("the query")
     );
 }

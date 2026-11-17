@@ -356,13 +356,32 @@ async fn new_cadence(
         .map(|(_, after)| after))
 }
 
-/// The shortest cadences, in months, of the components the switch on `on` closed and opened,
-/// when they differ.
+/// The cadences, in months, the subscription renewed on before the switch on `on` and after it,
+/// when they differ: its plan windows' (an amendment's fees renew on the window's cadence, R-084),
+/// else the shortest of the components the switch closed and opened.
 async fn cadences_around(
     conn: &mut PgConn,
     subscription_id: SubscriptionId,
     on: NaiveDate,
 ) -> StoreResult<Option<(u32, u32)>> {
+    let windows =
+        diesel_models::subscription_facts::SubscriptionPlanWindowRow::list_by_subscription(
+            conn,
+            subscription_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+    let months = |window: &diesel_models::subscription_facts::SubscriptionPlanWindowRow| {
+        crate::domain::enums::BillingPeriodEnum::from(window.cadence.clone()).as_months()
+    };
+    let before = windows
+        .iter()
+        .rfind(|w| w.from_date < on && w.to_date.is_none_or(|to| to >= on))
+        .map(months);
+    let after = windows.iter().rfind(|w| w.from_date == on).map(months);
+    if let (Some(before), Some(after)) = (before, after) {
+        return Ok((before != after).then_some((before, after)));
+    }
     let rows = SubscriptionComponentRow::list_component_history_for_period(
         conn,
         &subscription_id,

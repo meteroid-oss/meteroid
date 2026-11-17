@@ -225,7 +225,7 @@ jobs:
         run: ./ee/modules/billing-rules/check-rule-ids.sh
       - name: Credit input tokens are written only by their bump functions
         run: ./.github/scripts/check-credit-bumps.sh
-      - name: Billing code reads the present through common_domain::clock
+      - name: Billing code reads the present through common_clock
         run: ./.github/scripts/check-clock-sites.sh
 
   lock-sites:
@@ -235,3 +235,11 @@ jobs:
       - uses: actions/checkout@v6
       - name: Check every row lock is in an allowlisted function
         run: ./.github/scripts/check-lock-sites.sh
+
+  fact-writers:
+    name: Fact writers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check every subscription fact is written by an allowlisted function
+        run: ./.github/scripts/check-fact-writers.sh

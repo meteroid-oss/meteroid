@@ -1,14 +1,16 @@
 //! What a fee costs, as `evaluate` asks it: the store's fee type is read only here.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use chrono::{DateTime, NaiveDate, Utc};
+use common_domain::ids::{BillableMetricId, ProductId};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
 use crate::charge::{ChargeKind, Denomination, Fee};
 use crate::facts::Billing;
-use crate::pricing::PricingError;
+use crate::pricing::{PricingError, SubLine};
+use crate::proration::DayFraction;
 
 /// A fee row billing over a segment, with the seats in force for it.
 #[derive(Clone, Debug, PartialEq)]
@@ -19,6 +21,9 @@ pub struct InForce<'a, F> {
     pub cadence: u32,
     pub seats: Option<u64>,
     pub fee: &'a F,
+    /// The share of a whole period's allowance (a capacity's included units) its usage counts:
+    /// whole unless its fixed amount is prorated over the window (R-002).
+    pub allowance: DayFraction,
 }
 
 /// `[from, until)` over which every fact is constant, and the fees billing over it, priced
@@ -39,6 +44,17 @@ pub struct CreditGrant {
     pub prorated: bool,
 }
 
+/// How a rate was priced, as its line shows it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Shown {
+    /// The price of one unit: for a fixed fee over a whole period.
+    pub unit_price: Option<Decimal>,
+    /// The tiers, packages or cells usage went through.
+    pub sub_lines: Vec<SubLine>,
+    /// The group of dimensions usage was read in, absent when not grouped.
+    pub dimensions: Option<HashMap<String, String>>,
+}
+
 /// What a fee bills of one kind: for a whole period of its cadence when `prorated` (a part of
 /// the period bills its share, R-079), else whatever part of it is billed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,7 +70,8 @@ pub struct Rate {
     pub credit_grant: Option<CreditGrant>,
     /// Billed once for the subscription's product, whichever fee bills it first: the issued
     /// documents decide whether it is due, as a minimum's shortfall.
-    pub once_per_product: Option<Uuid>,
+    pub once_per_product: Option<ProductId>,
+    pub shown: Shown,
 }
 
 /// The instants a usage window reads metering over, `[from, until)`.
@@ -66,7 +83,7 @@ pub struct UsageWindow {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct UsageRead {
-    pub metric: Uuid,
+    pub metric: BillableMetricId,
     pub window: UsageWindow,
 }
 
@@ -106,7 +123,14 @@ impl FromIterator<(UsageRead, Usage)> for UsageReads {
 /// stay expressible.
 pub trait Pricer<F> {
     /// The metrics `fee` bills the usage of; none for a fixed fee.
-    fn metrics(&self, fee: &F) -> Vec<Uuid>;
+    fn metrics(&self, fee: &F) -> Vec<BillableMetricId>;
+
+    /// Whether `fee`'s usage prices each part of a period on its own, at that part's row (per
+    /// unit); else the period's usage is priced once, by the row in force at its end, its
+    /// allowance and tiers counted over the whole period (R-097).
+    fn per_part(&self, _fee: &F) -> bool {
+        true
+    }
 
     /// What each fee of `segment` bills that is not usage: one rate per fee and kind.
     fn rates(&self, segment: &Segment<'_, F>) -> Result<Vec<Rate>, PricingError>;

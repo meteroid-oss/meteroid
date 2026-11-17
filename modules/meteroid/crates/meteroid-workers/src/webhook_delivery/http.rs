@@ -73,7 +73,7 @@ pub async fn deliver(
     };
 
     let message_id = request.message_id.to_string();
-    let timestamp = common_domain::clock::wall().timestamp();
+    let timestamp = common_clock::wall().timestamp();
 
     let signing_headers = match build_headers(
         &request.secrets,

@@ -1,4 +1,4 @@
-//! The billing controller (Phase 6): when a customer runs, what a run takes, and the sweep that
+//! The billing controller: when a customer runs, what a run takes, and the sweep that
 //! finds a lost wake.
 use chrono::{NaiveDate, TimeZone, Utc};
 use common_domain::ids::CustomerId;
@@ -95,7 +95,7 @@ async fn a_subscription_behind_catches_up_one_period_per_run(#[future] test_env:
         // Behind, it runs again at once: its wake is the run's own start.
         if env.get_subscription(sub).await.current_period_start < day(2024, 4, 1) {
             let wake = controller(&env, CUST_UBER_ID).await.next_wake_at;
-            assert!(wake.is_some_and(|at| at <= common_domain::clock::now()));
+            assert!(wake.is_some_and(|at| at <= common_clock::now()));
         }
     }
     assert_eq!(runs, 3);
@@ -187,7 +187,7 @@ async fn a_failed_run_waits_for_its_retry(#[future] test_env: TestEnv) {
         .await;
     {
         let mut conn = env.conn().await;
-        let now = common_domain::clock::now();
+        let now = common_clock::now();
         diesel_models::billing_controller::BillingControllerRow::fail(
             &mut conn,
             TENANT_ID,
@@ -224,7 +224,7 @@ async fn an_input_during_a_run_keeps_the_customer_dirty(#[future] test_env: Test
         .create(env.services())
         .await;
     let mut conn = env.conn().await;
-    let now = common_domain::clock::now();
+    let now = common_clock::now();
     let claimed =
         BillingControllerRow::claim_due(&mut conn, now, now + chrono::Duration::minutes(5), 100)
             .await

@@ -380,7 +380,7 @@ impl BillableMetricInterface for Store {
             usage_breakdown_key: update
                 .usage_breakdown_key
                 .map(normalize_usage_breakdown_key),
-            updated_at: Some(common_domain::clock::now().naive_utc()),
+            updated_at: Some(common_clock::now().naive_utc()),
         };
 
         self.transaction_bumping_tenant(tenant_id, |conn| {

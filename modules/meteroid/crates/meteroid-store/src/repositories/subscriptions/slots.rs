@@ -104,7 +104,7 @@ impl Store {
         ts: Option<chrono::NaiveDateTime>,
         status: SlotTransactionStatusEnum,
     ) -> StoreResult<SlotTransactionRow> {
-        let now = ts.unwrap_or(common_domain::clock::now().naive_utc());
+        let now = ts.unwrap_or(common_clock::now().naive_utc());
         let period_end = current_period_end.and_time(NaiveTime::MIN); // TODO MAX => change after the inclusive period update
 
         // Determine effective_at based on upgrade/downgrade
@@ -152,7 +152,14 @@ impl Store {
             invoice_id,
         };
 
-        transaction.insert(conn).await.map_err(Into::into)
+        let transaction = transaction.insert(conn).await?;
+        crate::services::facts::pending::carry_into_set_seats_tx(
+            conn,
+            lock.tenant_id(),
+            &transaction,
+        )
+        .await?;
+        Ok(transaction)
     }
 
     pub(crate) async fn activate_pending_slot_transactions_for_invoice(
@@ -162,11 +169,19 @@ impl Store {
         invoice_id: common_domain::ids::InvoiceId,
         effective_at: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<Vec<SlotTransactionRow>> {
-        let now = effective_at.unwrap_or(common_domain::clock::now().naive_utc());
+        let now = effective_at.unwrap_or(common_clock::now().naive_utc());
 
-        SlotTransactionRow::activate_pending_for_invoice(conn, lock, invoice_id, now)
-            .await
-            .map_err(Into::into)
+        let activated =
+            SlotTransactionRow::activate_pending_for_invoice(conn, lock, invoice_id, now).await?;
+        for transaction in &activated {
+            crate::services::facts::pending::carry_into_set_seats_tx(
+                conn,
+                lock.tenant_id(),
+                transaction,
+            )
+            .await?;
+        }
+        Ok(activated)
     }
 }
 
@@ -186,7 +201,7 @@ impl SubscriptionSlotsInterface for Store {
             tenant_id,
             subscription_id,
             unit,
-            at_ts.unwrap_or_else(|| common_domain::clock::now().naive_utc()),
+            at_ts.unwrap_or_else(|| common_clock::now().naive_utc()),
         )
         .await
         .map(|slots| slots.unwrap_or(0) as u32)

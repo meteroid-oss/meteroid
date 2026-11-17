@@ -62,7 +62,7 @@ pub async fn bump_customers(conn: &mut PgConn, locks: &[&CustomerLock]) -> DbRes
     )
     .bind::<sql_types::Array<sql_types::Uuid>, _>(&tenants)
     .bind::<sql_types::Array<sql_types::Uuid>, _>(&customers)
-    .bind::<sql_types::Timestamptz, _>(common_domain::clock::now())
+    .bind::<sql_types::Timestamptz, _>(common_clock::now())
     .execute(conn)
     .await
     .attach("Error while marking customers' billing controllers")

@@ -724,16 +724,12 @@ async fn test_copy_plan_version_to_draft_carries_minimum() {
     ));
 }
 
-/// The floor is measured on GROSS (pre-discount) component spend, not on the post-discount
-/// amount, and coupons then apply to everything the customer owes, the floor top-up included.
-///
-/// LeetCode = $35.00 recurring, floor = $50.00 (5000 subunit), with a 100% coupon, at the Feb 1
-/// renewal closing January:
-///   - gross counted toward the floor = 3_500 (January's $35 line, `amount_subtotal`)
-///   - shortfall = 5000 - 3500 = 1_500   (NOT 5000, which a post-discount floor would charge)
-///   - the 100% coupon discounts February's fee and the shortfall to a taxable amount of 0
+/// The floor is a floor on what is paid: LeetCode $35.00 under a $50.00 floor and a 100% coupon
+/// counts 0 for January, so the Feb 1 renewal tops up the whole 5000, outside the coupon's base;
+/// the coupon discounts February's fee alone.
+/// Rules: R-022, R-023
 #[tokio::test]
-async fn test_minimum_floor_measured_on_gross_spend() {
+async fn test_minimum_floor_measured_on_spend_net_of_coupons() {
     helpers::init::logging();
     let postgres_connection_string =
         meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
@@ -856,22 +852,23 @@ async fn test_minimum_floor_measured_on_gross_spend() {
 
     assert_eq!(shortfall.len(), 1, "one shortfall line");
     assert_eq!(
-        shortfall[0].amount_subtotal, 1_500,
-        "gross floor: 5000 - 3500 gross spend = 1500 (a post-discount floor would wrongly charge 5000)"
+        shortfall[0].amount_subtotal, 5_000,
+        "January paid nothing of its $35 under the 100% coupon: the whole floor is owed"
     );
     assert_eq!(
-        shortfall[0].taxable_amount, 0,
-        "the 100% coupon also discounts the floor top-up"
+        shortfall[0].taxable_amount, 5_000,
+        "the coupon never discounts the floor top-up"
     );
 
     assert_eq!(
-        result.discount, 5_000,
-        "the 100% coupon discounts the recurring line and the floor top-up"
+        result.discount, 3_500,
+        "the 100% coupon discounts the recurring line alone"
     );
     assert_eq!(
-        result.subtotal, 5_000,
-        "subtotal is the gross sum: 3500 recurring + 1500 shortfall"
+        result.subtotal, 8_500,
+        "subtotal: 3500 recurring + 5000 shortfall"
     );
+    assert_eq!(result.total, 5_000);
 }
 
 /// Zero-usage refresh guard (P0). A minimum-bearing invoice that carries NO usage line must
@@ -1477,12 +1474,12 @@ async fn test_usage_only_minimum_books_mrr_without_an_invoice() {
     );
 }
 
-/// Gross-floor corollary: a 100%-off coupon on spend that ALREADY meets the floor produces NO
-/// shortfall (a post-discount floor would wrongly re-bill the entire minimum). LeetCode $35 with
-/// a $30 floor: gross $35 ≥ $30, so the floor is satisfied and the 100% coupon just zeroes the
-/// payable amount — nothing is clawed back.
+/// A 100%-off coupon leaves nothing paid of spend that would meet the floor before it: LeetCode
+/// $35 with a $30 floor counts 0 for January, so the renewal tops it up by the whole $30, never
+/// discounted, while the coupon zeroes February's fee.
+/// Rules: R-022, R-023
 #[tokio::test]
-async fn test_minimum_no_shortfall_when_gross_meets_floor_under_full_coupon() {
+async fn test_minimum_counts_nothing_a_full_coupon_took_off() {
     let env =
         test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(MockUsageClient::noop())).await;
     let mut conn = env.conn().await;
@@ -1547,18 +1544,20 @@ async fn test_minimum_no_shortfall_when_gross_meets_floor_under_full_coupon() {
         .iter()
         .filter(|l| l.kind == LineItemKind::MinimumShortfall)
         .collect();
-    assert!(
-        shortfall.is_empty(),
-        "gross spend ($35) meets the $30 floor → no top-up, even under a 100% coupon"
+    assert_eq!(
+        shortfall
+            .iter()
+            .map(|l| (l.amount_subtotal, l.taxable_amount))
+            .collect::<Vec<_>>(),
+        vec![(3_000, 3_000)],
+        "January paid nothing of its $35: the whole $30 floor is topped up, undiscounted"
     );
     assert_eq!(
         result.discount, 3_500,
         "the 100% coupon zeroes the recurring line"
     );
-    assert_eq!(
-        result.subtotal, 3_500,
-        "only the gross recurring line, no shortfall"
-    );
+    assert_eq!(result.subtotal, 6_500, "3500 recurring + 3000 shortfall");
+    assert_eq!(result.total, 3_000);
 }
 
 /// Plan-level (`AllComponents`) minimum on Usage Beta (Rate €20 + 2 usage comps). With usage below
@@ -1924,10 +1923,10 @@ async fn test_pure_usage_components_below_minimum_keeps_consumption_lines() {
     );
 }
 
-/// Coupons discount the minimum commitment, not only the usage it tops up (issue #1266).
-/// Pure-usage plan with no usage at all and a €50 floor: the arrears invoice is the €50 top-up
-/// alone, and a €5 (or 10%) coupon must bring it down to €45. Before the fix, the coupon was
-/// computed on the €0 of usage and the customer was billed the full €50.
+/// A coupon never discounts the minimum commitment: the floor is what is paid. Pure-usage plan
+/// with no usage at all and a €50 floor: the arrears invoice is the €50 top-up alone, and a €5
+/// (or 10%) coupon has nothing to take off it.
+/// Rules: R-022, R-023
 #[rstest]
 #[case::fixed(false)]
 #[case::percentage(true)]
@@ -2004,15 +2003,10 @@ async fn test_coupon_discounts_minimum_shortfall_with_zero_usage(#[case] percent
     );
 
     assert_eq!(result.subtotal, 5_000);
-    assert_eq!(result.discount, 500, "the coupon takes €5 off the floor");
+    assert_eq!(result.discount, 0, "the coupon takes nothing off the floor");
     assert_eq!(
-        result.applied_coupons.len(),
-        1,
-        "the coupon shows on the invoice"
-    );
-    assert_eq!(
-        shortfall[0].taxable_amount, 4_500,
-        "€50 floor − €5 coupon = €45 to pay"
+        shortfall[0].taxable_amount, 5_000,
+        "the €50 floor is paid whole"
     );
 }
 
@@ -2024,13 +2018,14 @@ enum FloorCredit {
     UsageOnlyPromotional,
 }
 
-/// The floor top-up is coupon-discounted first; unrestricted promotional credit then pays it
-/// before tax, paid credit pays the taxed total, and usage-only credit never pays it (it has no
-/// metric). €50 − €5 coupon − €20 promotional + €5 tax = €30.
+/// The floor top-up is never coupon-discounted; unrestricted promotional credit pays it before
+/// tax, paid credit pays the taxed total, and usage-only credit never pays it (it has no metric).
+/// €50 − €20 promotional + €6 tax = €36.
+/// Rules: R-022, R-023
 #[rstest]
-#[case::promotional(FloorCredit::Promotional, 2_000, 500, 3_000, 0, 3_000)]
-#[case::promotional_and_paid(FloorCredit::PromotionalAndPaid, 2_000, 500, 3_000, 1_000, 2_000)]
-#[case::usage_only_promotional(FloorCredit::UsageOnlyPromotional, 0, 900, 5_400, 0, 5_400)]
+#[case::promotional(FloorCredit::Promotional, 2_000, 600, 3_600, 0, 3_600)]
+#[case::promotional_and_paid(FloorCredit::PromotionalAndPaid, 2_000, 600, 3_600, 1_000, 2_600)]
+#[case::usage_only_promotional(FloorCredit::UsageOnlyPromotional, 0, 1_000, 6_000, 0, 6_000)]
 #[tokio::test]
 async fn test_coupon_and_credit_on_minimum_shortfall_with_zero_usage(
     #[case] credit: FloorCredit,
@@ -2128,10 +2123,13 @@ async fn test_coupon_and_credit_on_minimum_shortfall_with_zero_usage(
     assert_eq!(shortfall[0].tax_amount, tax_amount, "{credit:?}");
 
     assert_eq!(result.subtotal, 5_000, "{credit:?}");
-    assert_eq!(result.discount, 500, "{credit:?}: 10% off the floor");
+    assert_eq!(
+        result.discount, 0,
+        "{credit:?}: the coupon takes nothing off the floor"
+    );
     assert_eq!(
         result.promotional_credits, promotional_credits,
-        "{credit:?}: promotional credit on the coupon-reduced top-up"
+        "{credit:?}: promotional credit on the top-up"
     );
     assert_eq!(result.tax_amount, tax_amount, "{credit:?}");
     assert_eq!(result.total, total, "{credit:?}");

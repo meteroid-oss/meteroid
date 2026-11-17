@@ -671,7 +671,7 @@ pub(crate) async fn reminder_send_guard(
         if row.stopped_at.is_some() {
             return Ok(Some(SkipReason::Stopped));
         }
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
         if row.paused_until.is_some_and(|until| until > now) {
             return Ok(Some(SkipReason::Paused));
         }

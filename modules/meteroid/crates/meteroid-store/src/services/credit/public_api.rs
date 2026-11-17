@@ -162,7 +162,7 @@ impl ServicesEdge {
     ) -> StoreResult<(Vec<CreditWalletSummary>, u64)> {
         let search = search.map(str::trim).filter(|term| !term.is_empty());
         let status = status.map(WalletStatus::as_db_str);
-        let now = common_domain::clock::now();
+        let now = common_clock::now();
         let live = self.store.hooks.credit.available();
         let mut conn = self.store.get_conn().await?;
         let rows = CustomerCreditRosterRow::list(

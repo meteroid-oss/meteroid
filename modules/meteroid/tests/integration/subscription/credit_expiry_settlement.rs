@@ -3285,3 +3285,179 @@ async fn the_window_taxes_are_resolved_only_when_lapsed_credit_settles_them() {
         }
     }
 }
+
+/// G (10.00 paid, lapsing Jan 20) and H (30.00 paid) settle January's 400 units, 40.00, at G's
+/// lapse. The Feb 1 invoice, under a 20 % coupon, bills that usage 32.00 and February's 50.00 fee
+/// 40.00: it keeps G's 10.00 and 22.00 of H's, and H's 8.00 back pays the fee, 40.00 applied.
+/// Rules: R10
+#[tokio::test]
+async fn the_excess_of_a_settlement_returned_to_a_spendable_grant_pays_the_invoice() {
+    use common_domain::ids::{PlanId, PlanVersionId, PriceComponentId, PriceId};
+    use diesel_async::SimpleAsyncConnection;
+    use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
+    use meteroid_store::domain::UsagePricingModel;
+    use meteroid_store::domain::credit::GrantClassification;
+    use meteroid_store::repositories::credit::customer_credit_wallets::FundCustomerCreditWallet;
+    use meteroid_store::repositories::customers::CustomersInterfaceAuto;
+
+    let usage = MutableMockUsageClient::new();
+    let env = test_env_with_seed_and_usage(SeedLevel::PLANS, Arc::new(usage.clone())).await;
+    env.set_consolidate_and_grace(false, 0).await;
+    let plan = PlanVersionId::new();
+    crate::data::plans::PlanSeed::new(PlanId::new(), "Fee and usage", plan)
+        .components(vec![
+            crate::data::plans::SeedComp::rate(
+                PriceComponentId::new(),
+                "Platform Fee",
+                PRODUCT_PLATFORM_FEE_ID,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Monthly,
+                Decimal::from(50),
+            ),
+            crate::data::plans::SeedComp::usage(
+                PriceComponentId::new(),
+                "Bandwidth",
+                PRODUCT_BANDWIDTH_ID,
+                METRIC_BANDWIDTH,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Monthly,
+                UsagePricingModel::PerUnit {
+                    rate: Decimal::new(10, 2),
+                },
+            ),
+        ])
+        .seed(&mut env.conn().await)
+        .await
+        .unwrap();
+    let coupon = env.create_percentage_coupon("TWENTYOFF", 20).await;
+    let subscription_id = subscription()
+        .customer(CUST_UBER_ID)
+        .plan_version(plan)
+        .start_date(start_date())
+        .on_start()
+        .no_trial()
+        .coupon(coupon)
+        .create(env.services())
+        .await;
+    // The period's usage is read when its draft is drafted, as it is at finalization.
+    let lapse = NaiveDate::from_ymd_opt(2024, 1, 20)
+        .unwrap()
+        .and_time(NaiveTime::MIN);
+    let period_start = start_date().and_time(NaiveTime::MIN);
+    let period_end = NaiveDate::from_ymd_opt(2024, 2, 1)
+        .unwrap()
+        .and_time(NaiveTime::MIN);
+    for end in [lapse, period_end] {
+        usage.set_usage(
+            MockUsageDataParams {
+                metric_id: METRIC_BANDWIDTH,
+                period_start,
+                period_end: end,
+            },
+            UsageData {
+                data: vec![GroupedUsageData {
+                    value: Decimal::from(400),
+                    dimensions: std::collections::HashMap::new(),
+                }],
+                period: UsagePeriod {
+                    start: period_start,
+                    end,
+                },
+            },
+        );
+    }
+
+    env.process_cycle_transitions().await;
+
+    let currency = env
+        .store()
+        .find_customer_by_id(CUST_UBER_ID, TENANT_ID)
+        .await
+        .expect("customer")
+        .currency;
+    let wallet = env
+        .store()
+        .create_customer_credit_wallet(TENANT_ID, CUST_UBER_ID, &currency)
+        .await
+        .expect("open customer credit wallet");
+    let fund = |amount_minor: i64, expires| {
+        let env = &env;
+        let wallet = wallet.id;
+        async move {
+            let grant = env
+                .store()
+                .fund_customer_credit_wallet(FundCustomerCreditWallet {
+                    tenant_id: TENANT_ID,
+                    customer_id: CUST_UBER_ID,
+                    wallet_id: wallet,
+                    amount_minor,
+                    classification: GrantClassification::Paid,
+                    priority: 100,
+                    expires_at: expires,
+                    idempotency_key: uuid::Uuid::now_v7(),
+                    reason: "Integration-test paid credit".to_owned(),
+                    reference: None,
+                    actor_id: None,
+                    cost: None,
+                })
+                .await
+                .expect("fund paid credit")
+                .grant_id;
+            crate::helpers::credit::effective_from_fixture_start(env.store(), grant).await;
+            grant
+        }
+    };
+    let lapsing = fund(1_000, Some(Utc::now() + Duration::hours(1))).await;
+    fund(3_000, None).await;
+    env.conn()
+        .await
+        .batch_execute(&format!(
+            "SET session_replication_role = replica;
+             UPDATE customer_credit_grant SET expires_at = '{}' WHERE id = '{}';
+             SET session_replication_role = origin;",
+            lapse.and_utc().to_rfc3339(),
+            lapsing.as_uuid()
+        ))
+        .await
+        .expect("G lapses on Jan 20");
+    env.store()
+        .expire_customer_credit(200)
+        .await
+        .expect("expiry sweep");
+    let settled: i64 = CreditUsageSettlementRow::list_for_period(
+        &mut env.conn().await,
+        TENANT_ID,
+        subscription_id,
+        start_date(),
+        "EUR",
+    )
+    .await
+    .expect("settlements")
+    .iter()
+    .map(|settlement| settlement.amount)
+    .sum();
+    assert_eq!(
+        settled, 4_000,
+        "G and H settle January's usage at G's lapse"
+    );
+
+    env.process_due_events().await;
+    let february = env
+        .get_invoices(subscription_id)
+        .await
+        .into_iter()
+        .find(|invoice| {
+            invoice.billing_period_start == NaiveDate::from_ymd_opt(2024, 2, 1).unwrap()
+        })
+        .expect("the Feb 1 invoice");
+    assert_eq!(february.status, InvoiceStatusEnum::Finalized);
+    assert_eq!(
+        (
+            february.total,
+            february.applied_credits,
+            february.amount_due
+        ),
+        (7_200, 4_000, 3_200)
+    );
+    assert_ledger_balances(env.store(), TENANT_ID, CUST_UBER_ID).await;
+}

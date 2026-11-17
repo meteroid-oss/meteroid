@@ -2,7 +2,7 @@
 //! invoice keeps land (R10), and what promotional credit may still take once they are placed.
 
 use chrono::{NaiveDate, NaiveTime};
-use uuid::Uuid;
+use common_domain::ids::{ProductId, SubscriptionId};
 
 use crate::credit::SettleError;
 use crate::credit::allocation::{Allocation, Demand, Grant, Overflow, Request, assign};
@@ -13,7 +13,7 @@ use crate::tax::{LineToTax, TaxToApply, apply_taxes};
 /// will levy. Paid credit pays the usage with its tax; promotional credit comes off before it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UsageOwed {
-    pub product: Option<Uuid>,
+    pub product: Option<ProductId>,
     pub base_minor: i64,
     pub tax_inclusive: bool,
     pub taxes: Vec<Rate>,
@@ -127,7 +127,7 @@ pub struct UsageCharge {
 }
 
 /// The usage window a settlement paid: its subscription's period starting on that day.
-pub type Window = (Uuid, NaiveDate);
+pub type Window = (SubscriptionId, NaiveDate);
 
 /// What a grant still holds of the usage settlements it paid, by the window each paid (None: what
 /// no settlement accounts for).
@@ -294,6 +294,7 @@ mod tests {
     use crate::credit::allocation::{Application, Classification, Scope};
     use chrono::{DateTime, TimeZone, Utc};
     use rust_decimal::Decimal;
+    use uuid::Uuid;
 
     fn vat(base_minor: i64) -> UsageOwed {
         UsageOwed {
@@ -309,7 +310,7 @@ mod tests {
 
     fn customer_wide(at: DateTime<Utc>, classification: Classification) -> Grant {
         Grant {
-            id: Uuid::from_u128(7),
+            id: Uuid::from_u128(7).into(),
             scope: Scope {
                 subscription: None,
                 application: Application::Invoice,
@@ -350,7 +351,7 @@ mod tests {
     #[test]
     fn settled_credit_covers_the_window_it_paid_never_an_earlier_one() {
         let day = |d| Utc.with_ymd_and_hms(2026, 2, d, 0, 0, 0).unwrap();
-        let subscription = Uuid::from_u128(1);
+        let subscription = Uuid::from_u128(1).into();
         let usage = |amount_minor, before| Demand {
             subscription: Some(subscription),
             product: None,

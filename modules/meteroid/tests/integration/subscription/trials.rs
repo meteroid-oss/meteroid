@@ -1049,6 +1049,138 @@ async fn a_free_trial_set_on_the_subscription_cancelled_records_no_credit(
     env.get_invoices(sub_id).await.assert().has_count(0);
 }
 
+/// A 45-day free trial from Oct 1 on 100.00 a month, its plan version's trial made paid on Oct 3:
+/// the running trial stays free, as its fact recorded it at the start. Cancelled on Oct 5 it billed
+/// nothing and records nothing to credit; the version's next subscription starts a paid trial.
+/// Rules: R-100
+#[rstest]
+#[tokio::test]
+async fn a_trial_keeps_the_freeness_it_started_with(#[future] test_env: TestEnv) {
+    use crate::data::plans::{PlanSeed, SeedComp};
+    use common_domain::actor::Actor;
+    use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId};
+    use diesel_models::enums::BillingPeriodEnum;
+    use meteroid_store::domain::{PlanTrial, TrialPatch};
+    use meteroid_store::repositories::PlansInterface;
+    use meteroid_store::repositories::subscriptions::{
+        CancellationEffectiveAt, SubscriptionInterfaceAuto,
+    };
+
+    let env = test_env.await;
+    let start_date = day(2024, 10, 1);
+    let version = PlanVersionId::new();
+    PlanSeed::new(PlanId::new(), "Free trial, then paid", version)
+        .components(vec![SeedComp::rate(
+            PriceComponentId::new(),
+            "Monthly Rate",
+            PRODUCT_PLATFORM_FEE_ID,
+            PriceId::new(),
+            BillingPeriodEnum::Monthly,
+            rust_decimal::Decimal::new(10_000, 2),
+        )])
+        .seed(&mut env.conn().await)
+        .await
+        .expect("plan");
+    let trial = |trial_is_free| TrialPatch {
+        plan_version_id: version,
+        tenant_id: TENANT_ID,
+        trial: Some(PlanTrial {
+            duration_days: 45,
+            trialing_plan_id: None,
+            trial_is_free,
+        }),
+    };
+    env.store()
+        .patch_trial(Actor::System, trial(true))
+        .await
+        .expect("a free trial");
+    let sub_id = subscription()
+        .plan_version(version)
+        .start_date(start_date)
+        .on_start()
+        .trial_days(45)
+        .no_auto_charge()
+        .create(env.services())
+        .await;
+    env.store()
+        .patch_trial(Actor::System, trial(false))
+        .await
+        .expect("the version's trial made paid");
+
+    let details = env
+        .store()
+        .get_subscription_details(TENANT_ID, sub_id)
+        .await
+        .expect("subscription details");
+    assert!(
+        details.trial_config.expect("a trial").is_free,
+        "R-100: the running trial is still free"
+    );
+    env.get_invoices(sub_id).await.assert().has_count(0);
+
+    env.services()
+        .cancel_subscription(
+            Actor::System,
+            sub_id,
+            TENANT_ID,
+            None,
+            CancellationEffectiveAt::Date(day(2024, 10, 5)),
+        )
+        .await
+        .expect("cancelled");
+    env.process_due_events().await;
+    env.get_subscription(sub_id)
+        .await
+        .assert()
+        .has_status(SubscriptionStatusEnum::Cancelled);
+    env.get_invoices(sub_id).await.assert().has_count(0);
+    {
+        use diesel::{ExpressionMethods, QueryDsl};
+        use diesel_async::RunQueryDsl;
+        use diesel_models::schema::subscription_event::dsl as e;
+        let recorded: Vec<Option<serde_json::Value>> = e::subscription_event
+            .filter(e::subscription_id.eq(sub_id.as_uuid()))
+            .filter(e::event_type.eq(diesel_models::enums::SubscriptionEventType::Cancelled))
+            .select(e::details)
+            .load(&mut env.conn().await)
+            .await
+            .expect("cancellation events");
+        assert!(!recorded.is_empty());
+        assert!(
+            recorded
+                .iter()
+                .all(|details| details.as_ref().is_none_or(|d| d.get("outgoing").is_none())),
+            "nothing recorded to credit: {recorded:?}"
+        );
+    }
+    use meteroid_store::repositories::CreditNoteInterface;
+    let customer = env.get_subscription(sub_id).await.customer_id;
+    let notes = env
+        .store()
+        .list_credit_notes_by_customer_id(TENANT_ID, customer)
+        .await
+        .expect("credit notes");
+    assert!(notes.is_empty(), "nothing credited: {notes:?}");
+
+    let next = subscription()
+        .plan_version(version)
+        .start_date(start_date)
+        .on_start()
+        .trial_days(45)
+        .no_auto_charge()
+        .create(env.services())
+        .await;
+    let details = env
+        .store()
+        .get_subscription_details(TENANT_ID, next)
+        .await
+        .expect("subscription details");
+    assert!(
+        !details.trial_config.expect("a trial").is_free,
+        "R-100: a subscription starting after the edit takes its terms"
+    );
+}
+
 /// Lines of the subscription's invoices for its fee, as (start, end, subtotal), by start.
 async fn fee_lines(
     env: &TestEnv,

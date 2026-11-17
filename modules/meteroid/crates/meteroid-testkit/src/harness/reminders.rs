@@ -212,7 +212,7 @@ impl TestEnv {
         let entity_id = invoicing_entity.id;
         let now = fixture
             .finalized_at
-            .unwrap_or_else(|| common_domain::clock::now().naive_utc());
+            .unwrap_or_else(|| common_clock::now().naive_utc());
         let today = now.date();
         let due = fixture.due_at.unwrap_or_else(|| {
             (today + chrono::Days::new(30))
@@ -383,7 +383,7 @@ impl TestEnv {
         &self,
         patch: PaymentReminderSequencePatch,
     ) -> PaymentReminderSequence {
-        self.patch_sequence_at(patch, common_domain::clock::now().naive_utc())
+        self.patch_sequence_at(patch, common_clock::now().naive_utc())
             .await
     }
 
@@ -415,7 +415,7 @@ impl TestEnv {
                     opt_out,
                     sequence_id,
                 },
-                common_domain::clock::now().naive_utc(),
+                common_clock::now().naive_utc(),
             )
             .await
             .expect("set preference");
@@ -468,7 +468,7 @@ impl TestEnv {
         sequence_id: PaymentReminderSequenceId,
     ) -> InvoicePaymentReminderRow {
         let mut conn = self.conn().await;
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
         InvoiceReminderUpdates::enroll(
             &mut conn,
             invoice_id,

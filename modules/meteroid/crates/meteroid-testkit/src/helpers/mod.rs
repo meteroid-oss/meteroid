@@ -1,6 +1,7 @@
 pub mod credit;
 pub mod credit_plans;
 pub mod credit_recompute;
+pub mod facts;
 pub mod init;
 pub mod invariants;
 pub mod invoice_lines;

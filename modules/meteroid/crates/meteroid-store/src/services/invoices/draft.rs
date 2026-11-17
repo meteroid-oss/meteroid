@@ -1,10 +1,8 @@
-use crate::domain::add_ons::AddOn;
 use crate::domain::entity_activity::Actor;
-use crate::domain::subscription_add_ons::CreateSubscriptionAddOn;
 use crate::domain::subscription_changes::{ProrationLineItem, ProrationResult};
 use crate::domain::{
     Customer, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew, InvoicePaymentStatus,
-    InvoiceStatusEnum, InvoiceType, LineItem, Price, Product, Subscription, SubscriptionDetails,
+    InvoiceStatusEnum, InvoiceType, LineItem, Subscription, SubscriptionDetails,
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::repositories::SubscriptionInterface;
@@ -14,16 +12,13 @@ use crate::services::Services;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use crate::store::PgConn;
 use chrono::{NaiveDate, NaiveTime};
-use common_domain::ids::{
-    BaseId, InvoiceId, PriceId, ProductId, SubscriptionAddOnId, SubscriptionId, TenantId,
-};
+use common_domain::ids::{BaseId, InvoiceId, SubscriptionId, TenantId};
 use diesel_models::credit_notes::CreditNoteRow;
 use diesel_models::invoices::InvoiceRow;
 use error_stack::{Report, ResultExt, bail};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::Zero;
 use scoped_futures::ScopedFutureExt;
-use std::collections::HashMap;
 
 /// Map (already netted) proration lines to adjustment-invoice line items.
 ///
@@ -219,29 +214,20 @@ impl Services {
 
         // Compute invoice lines for the period
         let invoice_content = self
-            .compute_invoice(
+            .compute_invoice_from_facts(
                 conn,
                 &invoice_date,
                 subscription_details,
                 None,
                 None,
                 invoice_type.clone(),
+                crate::services::invoice_lines::credit_units::CreditUnitCover::Estimate {
+                    invoice_id: None,
+                },
+                None,
             )
             .await
             .change_context(StoreError::InvoiceComputationError)?;
-        #[cfg(feature = "facts-shadow")]
-        self.shadow_facts(
-            conn,
-            crate::services::facts_shadow::Shadowed {
-                tenant_id,
-                subscription_id: subscription.id,
-                invoice_type: invoice_type.clone(),
-                period_start: invoice_date,
-                draft: None,
-            },
-            &invoice_content.invoice_lines,
-        )
-        .await;
 
         if invoice_content.invoice_lines.is_empty() {
             // An empty line set usually means nothing to bill. The exception is an *elapsed*
@@ -264,9 +250,10 @@ impl Services {
                 let settles_elapsed_period = subscription.cycle_index.unwrap_or(0) > 0
                     || subscription.status.settles_period_early();
                 settles_elapsed_period
-                    && self
-                        .can_accrue_arrears_in_period(conn, subscription_details, invoice_date)
-                        .await?
+                    && (subscription_details.can_accrue_arrears()
+                        || self
+                            .reads_usage_on(conn, subscription_details, invoice_date)
+                            .await?)
             };
             if !anchor_for_late_usage {
                 log::info!(
@@ -433,7 +420,7 @@ impl Services {
                 buyer_reference: customer.buyer_reference.clone(),
                 email: customer.billing_email.clone(),
                 alias: customer.alias.clone(),
-                snapshot_at: common_domain::clock::now().naive_utc(),
+                snapshot_at: common_clock::now().naive_utc(),
                 preferred_locales: customer.preferred_locales.clone(),
             },
             seller_details: InlineInvoicingEntity {
@@ -441,7 +428,7 @@ impl Services {
                 legal_name: invoicing_entity.legal_name.clone(),
                 vat_number: invoicing_entity.vat_number.clone(),
                 address: invoicing_entity.address(),
-                snapshot_at: common_domain::clock::now().naive_utc(),
+                snapshot_at: common_clock::now().naive_utc(),
                 invoicing_language: invoicing_entity.invoicing_language.clone(),
                 legal_number: invoicing_entity.legal_number.clone(),
                 contact_name: invoicing_entity.contact_name.clone(),
@@ -562,7 +549,7 @@ impl Services {
             })
             .collect();
 
-        let invoice_date = common_domain::clock::now().date_naive();
+        let invoice_date = common_clock::now().date_naive();
         let due_date = (invoice_date + chrono::Duration::days(i64::from(parent.net_terms)))
             .and_time(NaiveTime::MIN);
 
@@ -633,6 +620,12 @@ impl Services {
         use crate::repositories::credit_notes::{
             create_user_credit_note_tx, finalize_credit_note_tx,
         };
+        // A reissue bills the invoice again: its note corrects what was billed (R-082).
+        let kind = if reissue_as_draft {
+            crate::domain::enums::OperatorNoteKind::Correction
+        } else {
+            kind
+        };
 
         self.store
             .transaction(|conn| {
@@ -683,11 +676,12 @@ impl Services {
         subscription: &Subscription,
         customer: &Customer,
         proration: &ProrationResult,
+        arrears: &[LineItem],
     ) -> crate::StoreResult<AdjustmentInvoiceContent> {
         use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 
         // An included pack bills nothing yet grants its credit when the invoice is issued.
-        if proration.lines.is_empty() {
+        if proration.lines.is_empty() && arrears.is_empty() {
             return Ok(AdjustmentInvoiceContent {
                 computed: ComputedInvoiceContent {
                     invoice_lines: vec![],
@@ -721,6 +715,7 @@ impl Services {
 
         let mut invoice_lines =
             proration_lines_to_invoice_lines(&netted, invoice_date, period_end, precision);
+        invoice_lines.extend(arrears.iter().cloned());
         for line in &mut invoice_lines {
             line.subscription_id = Some(subscription.id);
         }
@@ -732,7 +727,7 @@ impl Services {
             invoice_id: None,
             subscription_id: Some(subscription.id),
             periods: Vec::new(),
-            at: common_domain::clock::now(),
+            at: common_clock::now(),
             book: None,
         };
         let invoicing_entity = self
@@ -787,9 +782,17 @@ impl Services {
         subscription: &Subscription,
         customer: &Customer,
         proration: &ProrationResult,
+        arrears: &[LineItem],
     ) -> Result<Option<Invoice>, StoreErrorReport> {
         let content = self
-            .compute_adjustment_invoice_content(conn, tenant_id, subscription, customer, proration)
+            .compute_adjustment_invoice_content(
+                conn,
+                tenant_id,
+                subscription,
+                customer,
+                proration,
+                arrears,
+            )
             .await?;
 
         self.create_adjustment_invoice_from_content(
@@ -888,138 +891,138 @@ impl Services {
 
 pub(crate) struct AddonPurchaseInvoiceResult {
     pub invoice_content: ComputedInvoiceContent,
-    pub proration: ProrationResult,
     pub customer: Customer,
-    /// The original (unmodified) subscription details.
+    /// The subscription before the purchase.
     pub subscription: Subscription,
 }
 
 impl Services {
-    /// Computes prorated invoice content for an addon purchase, prorated from `as_of`
-    /// (today for an interactive checkout; the original charge date when an async
-    /// payment materializes later). Sets billing_start_date=as_of and cycle_index=0 on
-    /// a minimal subscription snapshot so compute_invoice yields the new addons only.
-    #[allow(clippy::too_many_arguments)]
+    /// The adjustment invoice buying the add-ons `rows` from `on` makes, nothing written: each
+    /// one's stub from the facts with its row laid over, reconciled against what was billed
+    /// (R-079, R-080), taxed and its credit estimated. A change's adjustment carries no coupon,
+    /// as an amendment adding the same add-on does. The quote and the completions price it here.
     pub(crate) async fn compute_addon_purchase_invoice(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
-        add_ons_request: &[CreateSubscriptionAddOn],
-        addons: &[AddOn],
-        products_by_id: &HashMap<ProductId, Product>,
-        prices_by_id: &HashMap<PriceId, Price>,
-        units: &crate::domain::credit_units::CreditUnitsById,
-        as_of: chrono::NaiveDate,
+        rows: &[diesel_models::subscription_add_ons::SubscriptionAddOnRowNew],
+        on: NaiveDate,
     ) -> Result<AddonPurchaseInvoiceResult, StoreErrorReport> {
-        let now = as_of;
-
-        let mut addon_details = self
+        let details = self
             .store
             .get_subscription_details_minimal_with_conn(conn, tenant_id, subscription_id)
             .await?;
-        let original_subscription = addon_details.subscription.clone();
+        let subscription = details.subscription;
 
         let customer: Customer = diesel_models::customers::CustomerRow::find_by_id(
             conn,
-            &original_subscription.customer_id,
+            &subscription.customer_id,
             &tenant_id,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?
         .try_into()?;
 
-        addon_details.subscription.billing_start_date = Some(now);
-        addon_details.subscription.cycle_index = Some(0);
-
-        for cs_ao in add_ons_request {
-            let addon = addons
-                .iter()
-                .find(|a| a.id == cs_ao.add_on_id)
-                .ok_or_else(|| {
-                    Report::new(StoreError::InvalidArgument(format!(
-                        "Add-on {} not found",
-                        cs_ao.add_on_id
-                    )))
-                })?;
-            let resolved = addon
-                .resolve_customized(products_by_id, prices_by_id, units, &cs_ao.customization)
-                .map_err(Report::new)?;
-            addon_details
-                .add_ons
-                .push(crate::domain::subscription_add_ons::SubscriptionAddOn {
-                    id: SubscriptionAddOnId::new(),
-                    subscription_id,
-                    add_on_id: addon.id,
-                    name: resolved.name,
-                    period: resolved.period,
-                    fee: resolved.fee,
-                    created_at: common_domain::clock::now().naive_utc(),
-                    product_id: resolved.product_id,
-                    price_id: resolved.price_id,
-                    quantity: cs_ao.quantity,
-                    effective_from: now,
-                    effective_to: None,
-                    lineage_id: None,
-                    added_by_amendment: false,
-                });
-        }
-
-        // Addon purchases are standalone OneOff invoices — not tied to a billing period —
-        // so the minimum-commitment synthesis is skipped here by the OneOff gate.
-        let invoice_content = self
-            .compute_invoice(conn, &now, &addon_details, None, None, InvoiceType::OneOff)
-            .await
-            .change_context(StoreError::InvoiceComputationError)?;
-
-        let period_end = original_subscription.current_period_end.unwrap_or(now);
-        let full_period = crate::domain::Period {
-            start: original_subscription.current_period_start,
-            end: period_end,
+        let mut change = crate::services::facts::pending::PendingFacts {
+            event_id: common_domain::ids::ScheduledEventId::new(),
+            tenant_id,
+            subscription_id,
+            on,
+            plan_window: None,
+            closes_components: Vec::new(),
+            opens_components: Vec::new(),
+            closes_add_ons: Vec::new(),
+            opens_add_ons: rows.to_vec(),
+            seat_seeds: Vec::new(),
+            set_seats: Vec::new(),
+            scheduled_at: None,
+            minimum: crate::services::facts::pending::MinimumChange::Kept,
         };
-        let partial_period = crate::domain::Period {
-            start: now,
-            end: period_end,
-        };
-        let proration_factor =
-            crate::utils::periods::calculate_proration_factor(&partial_period, &full_period)
-                .map_or(1.0, |factor| factor.as_f64());
-
-        let proration = ProrationResult {
-            lines: invoice_content
-                .invoice_lines
-                .iter()
-                .map(|l| ProrationLineItem {
-                    period_end: Some(l.end_date),
-                    name: l.name.clone(),
-                    amount_cents: l.amount_subtotal,
-                    full_period_amount_cents: l.amount_subtotal,
-                    is_credit: false,
-                    is_prorated: l.is_prorated,
-                    quantity: l.quantity,
-                    unit_price: l.unit_price,
-                    product_id: l.product_id,
-                    price_component_id: l.price_component_id,
-                    net_key: None,
-                    sub_component_id: l.sub_component_id,
-                    sub_add_on_id: l.sub_add_on_id,
-                    charge_type: l.charge_type,
-                    pack: None,
-                })
-                .collect(),
-            net_amount_cents: invoice_content.subtotal,
-            change_date: now,
-            period_start: original_subscription.current_period_start,
-            period_end,
-            proration_factor,
-        };
+        change.plan_window = crate::services::facts::pending::amendment_cadence_window_tx(
+            conn,
+            tenant_id,
+            subscription_id,
+            on,
+            Some(&change),
+        )
+        .await?;
+        let overlay = crate::services::evaluate::load::Overlay::of(change);
+        let documents = crate::services::evaluate::change::add_on_purchase(
+            conn,
+            tenant_id,
+            subscription_id,
+            &overlay,
+        )
+        .await?;
+        let content = self
+            .change_adjustment_content(conn, &subscription, &customer, on, &documents.bills)
+            .await?;
 
         Ok(AddonPurchaseInvoiceResult {
-            invoice_content,
-            proration,
+            invoice_content: content.computed,
             customer,
-            subscription: original_subscription,
+            subscription,
         })
+    }
+
+    /// Writes a purchase of the add-ons `rows` from `on`, priced as `priced`: the rows, written
+    /// here only, the cadence window they open, the derived state, and its adjustment invoice
+    /// as a draft framed by the subscription as they leave it.
+    pub(crate) async fn record_addon_purchase_tx(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        rows: &[diesel_models::subscription_add_ons::SubscriptionAddOnRowNew],
+        on: NaiveDate,
+        priced: AddonPurchaseInvoiceResult,
+    ) -> Result<Option<Invoice>, StoreErrorReport> {
+        diesel_models::subscription_add_ons::SubscriptionAddOnRow::insert_batch(
+            conn,
+            rows.iter().collect(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+        crate::services::facts::pending::record_amendment_cadence_tx(
+            conn,
+            tenant_id,
+            subscription_id,
+            on,
+        )
+        .await?;
+        self.derive_state_tx(
+            conn,
+            &Actor::System,
+            tenant_id,
+            subscription_id,
+            crate::services::evaluate::bill::midnight(on),
+        )
+        .await?;
+        self.emit_subscription_updated_tx(
+            conn,
+            tenant_id,
+            subscription_id,
+            crate::domain::outbox_event::SubscriptionUpdateType::Amended,
+        )
+        .await?;
+        let subscription = self
+            .store
+            .get_subscription_details_minimal_with_conn(conn, tenant_id, subscription_id)
+            .await?
+            .subscription;
+        let frame = crate::services::evaluate::change::adjustment_dated(&subscription, on);
+        self.create_adjustment_invoice_from_content(
+            conn,
+            &subscription,
+            &priced.customer,
+            &frame,
+            AdjustmentInvoiceContent {
+                computed: priced.invoice_content,
+                invoicing_entity: None,
+            },
+        )
+        .await
     }
 }
 
@@ -1031,6 +1034,7 @@ pub(crate) struct AdjustmentInvoiceContent {
 #[cfg(test)]
 mod proration_invoice_lines_tests {
     use super::*;
+    use common_domain::ids::BaseId;
     use rust_decimal_macros::dec;
 
     fn proration_line(

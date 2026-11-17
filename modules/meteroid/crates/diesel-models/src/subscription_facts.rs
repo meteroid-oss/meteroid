@@ -1,4 +1,4 @@
-//! A subscription's dated facts (Phase 7): its plan windows, trial, settled start and endings.
+//! A subscription's dated facts: its plan windows, trial, settled start and endings.
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{PlanVersionId, SubscriptionId, TenantId};
 use diesel::{Insertable, Queryable, QueryableByName, Selectable};

@@ -5,17 +5,19 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Months, NaiveDate, Utc};
+use common_domain::ids::{PlanVersionId, ProductId};
 use rust_decimal::Decimal;
-use uuid::Uuid;
 
 use crate::charge::{ChargeKey, ChargeKind, Denomination, Fee};
 use crate::facts::{
     Billing, DatedFact, Ending, EndingKind, FactRef, Facts, FeeFact, MinimumScope, midnight,
 };
+use crate::issued::IssuedLine;
 use crate::pricer::{
-    CreditGrant, InForce, Pricer, Rate, Segment, UsageRead, UsageReads, UsageWindow,
+    CreditGrant, InForce, Pricer, Rate, Segment, Shown, UsageRead, UsageReads, UsageWindow,
 };
 use crate::pricing::PricingError;
+use crate::proration::{DayFraction, DaySpan};
 use crate::reconcile::{Expected, Term};
 use crate::timeline::{Grid, Window, windows};
 
@@ -47,7 +49,13 @@ pub struct Charge {
     /// What a pack's charge grants, its share taken as the amount's.
     pub credit_grant: Option<CreditGrant>,
     /// See [`Rate::once_per_product`].
-    pub once_per_product: Option<Uuid>,
+    pub once_per_product: Option<ProductId>,
+    /// How its rate was priced; a fixed fee's unit price is of a whole period.
+    pub shown: Shown,
+    /// The part of a whole period a prorated price bills over its window, below one.
+    pub share: Option<DayFraction>,
+    /// The period its price is quoted over.
+    pub nominal: (NaiveDate, NaiveDate),
 }
 
 impl Charge {
@@ -74,7 +82,7 @@ pub struct DerivedState {
     pub status: Status,
     /// The subscription period holding the instant; open-ended once ended.
     pub current_period: Option<(NaiveDate, Option<NaiveDate>)>,
-    pub plan_version: Option<Uuid>,
+    pub plan_version: Option<PlanVersionId>,
     pub cadence: Option<u32>,
     pub pending_checkout: bool,
     /// The first period billed: its opening invoice bills no arrears and never trues up a
@@ -87,6 +95,8 @@ pub struct DerivedState {
 pub struct UsageNeed {
     pub fee: Fee,
     pub read: UsageRead,
+    /// The document the window's charges go on.
+    pub document: DocumentSlot,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -95,6 +105,8 @@ pub struct Evaluation {
     pub state: DerivedState,
     pub next_wake: Option<DateTime<Utc>>,
     pub usage_needed: Vec<UsageNeed>,
+    /// The periods of each fee the reconcile watermark settled, evaluated no more (R-094).
+    pub settled: Vec<(Fee, (NaiveDate, NaiveDate))>,
 }
 
 impl Evaluation {
@@ -113,6 +125,46 @@ impl Evaluation {
         }
         expected
     }
+
+    /// Whether `line` bills a period the watermark settled (R-094): one holds it, and no charge
+    /// computed bills it over a period as narrow, as a run of another cadence nested in it does.
+    pub fn settles(&self, line: &IssuedLine) -> bool {
+        let days = |(from, until): (NaiveDate, NaiveDate)| (until - from).num_days();
+        let Some(settled) = self
+            .settled
+            .iter()
+            .filter(|(fee, period)| line.settled_by(&[(fee.clone(), *period)]))
+            .map(|(_, period)| days(*period))
+            .min()
+        else {
+            return false;
+        };
+        !self.charges.iter().any(|charge| {
+            line.bills(&charge.key) && days((charge.key.from, charge.key.until)) <= settled
+        })
+    }
+}
+
+/// The key of `keys` that `line` counts for (R-080): of those holding it, one a charge of
+/// `charges` bills some of its days under first, then the narrowest, as runs of other cadences
+/// nest in a lineage's periods.
+pub fn owner<'k>(
+    line: &IssuedLine,
+    keys: impl IntoIterator<Item = &'k ChargeKey>,
+    charges: &[Charge],
+) -> Option<&'k ChargeKey> {
+    let days =
+        |(from, until): (NaiveDate, NaiveDate)| (from, until.max(from + chrono::Days::new(1)));
+    let (from, until) = days((line.from, line.until));
+    let overlaps = |key: &ChargeKey| {
+        charges.iter().any(|charge| {
+            let window = days(charge.window);
+            charge.key == *key && window.0 < until && from < window.1
+        })
+    };
+    keys.into_iter()
+        .filter(|key| line.bills(key))
+        .min_by_key(|key| (!overlaps(key), (key.until - key.from).num_days()))
 }
 
 /// Every charge due by `now`: fees on their own grids cut to their life, the trial and the ending
@@ -145,6 +197,12 @@ struct Billed {
     window: Window,
     nominal: (NaiveDate, NaiveDate),
     plan: Option<FactRef>,
+    /// The cadence of the grid `window.period` is a period of.
+    months: u32,
+    /// The cadence of the grid the window itself was cut on, and its period on that grid,
+    /// nested in a longer period or not.
+    cadence: u32,
+    own: (NaiveDate, NaiveDate),
 }
 
 /// A row of one lineage billing over `[from, to)`, its precedence over the others decided.
@@ -159,9 +217,9 @@ struct UsagePiece<'a, F> {
     from: NaiveDate,
     until: NaiveDate,
     read: UsageWindow,
-    on_grid: bool,
     cut: bool,
     plan: Option<FactRef>,
+    allowance: DayFraction,
 }
 
 struct Run<'a, F, P> {
@@ -170,6 +228,7 @@ struct Run<'a, F, P> {
     usage: Option<&'a UsageReads>,
     now: DateTime<Utc>,
     today: NaiveDate,
+    settled: bool,
     billing_start: Option<NaiveDate>,
     ending: Option<Ending>,
     end: Option<NaiveDate>,
@@ -185,6 +244,7 @@ struct Out {
     charges: Vec<Charge>,
     wakes: Vec<DateTime<Utc>>,
     needed: Vec<UsageNeed>,
+    settled: Vec<(Fee, (NaiveDate, NaiveDate))>,
 }
 
 impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
@@ -195,7 +255,11 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         pricer: &'a P,
     ) -> Self {
         let today = now.date_naive();
-        let billing_start = facts.billing_start();
+        let settled = facts.settled_by(now);
+        // A cancellation before the start settled bills nothing (R-013); one still to come
+        // leaves the checkout's invoice to bill.
+        let cancelled_unsettled = facts.ending.is_some_and(|ending| ending.at <= now);
+        let billing_start = (settled || !cancelled_unsettled).then(|| facts.billing_start());
         let ending = facts.effective_ending();
         let end = ending.map(|ending| ending.on());
         let longest = facts
@@ -253,6 +317,7 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
             usage,
             now,
             today,
+            settled,
             billing_start,
             ending,
             end,
@@ -288,19 +353,51 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         let Out {
             mut charges,
             mut needed,
+            mut settled,
             ..
         } = out;
+        if let Some(start) = self.billing_start.filter(|start| self.end == Some(*start)) {
+            // Ended the day it started billing: with no fee billing in advance, no invoice opened
+            // that day, so the ending's charges open it (R-016).
+            let opening = DocumentSlot::Recurring {
+                period_start: start,
+            };
+            let opened = self.lineages.iter().any(|lineage| {
+                self.facts
+                    .fee_on(lineage, start)
+                    .is_some_and(|row| row.billing != Billing::Arrears)
+            });
+            if !opened {
+                for charge in &mut charges {
+                    if charge.document == DocumentSlot::Final {
+                        charge.document = opening;
+                    }
+                }
+            }
+        }
+        if let (false, Some(start)) = (self.settled, self.billing_start) {
+            // Until its start settles, a subscription bills its checkout's invoice alone, which
+            // bills no arrears (R-011).
+            let opening = DocumentSlot::Recurring {
+                period_start: start,
+            };
+            charges.retain(|charge| charge.document == opening);
+            needed.clear();
+        }
         charges.sort_by(|a, b| {
             (a.due_at, &a.key, a.window, a.usage, a.amount)
                 .cmp(&(b.due_at, &b.key, b.window, b.usage, b.amount))
         });
         needed.sort();
         needed.dedup();
+        settled.sort();
+        settled.dedup();
         Ok(Evaluation {
             charges,
             state,
             next_wake,
             usage_needed: needed,
+            settled,
         })
     }
 
@@ -381,10 +478,11 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         }
     }
 
-    /// A charge due on a boundary goes on that period's recurring invoice; one due on its fee's
-    /// own grid between two boundaries rides the next renewal's, as the store bills it; one due
-    /// at a change mid-period on an adjustment invoice.
-    fn document(&self, due: DateTime<Utc>, on_grid: bool, cut: bool) -> DocumentSlot {
+    /// A charge due on a boundary goes on that period's recurring invoice; one `riding` between
+    /// two boundaries (its fee's own grid, arrears ended with their fee) the next renewal's, the
+    /// first past the watermark when that one was issued before it (R-094), as the store bills
+    /// them; an advance due at a change mid-period on an adjustment invoice.
+    fn document(&self, due: DateTime<Utc>, riding: bool, cut: bool) -> DocumentSlot {
         if cut {
             return self.ending_slot();
         }
@@ -397,12 +495,18 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         {
             return DocumentSlot::Recurring { period_start: end };
         }
-        if on_grid {
-            let next = self.boundaries.partition_point(|b| *b <= on);
-            if let Some(next) = self.boundaries.get(next) {
-                return DocumentSlot::Recurring {
-                    period_start: *next,
-                };
+        if riding {
+            let next = |after: NaiveDate| {
+                let i = self.boundaries.partition_point(|b| *b <= after);
+                self.boundaries.get(i).copied()
+            };
+            let past_watermark = self
+                .facts
+                .reconcile_from
+                .filter(|watermark| *watermark > on)
+                .and_then(next);
+            if let Some(next) = past_watermark.or_else(|| next(on)) {
+                return DocumentSlot::Recurring { period_start: next };
             }
             if self.end.is_some() {
                 return self.ending_slot();
@@ -452,8 +556,8 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
     }
 
     /// The windows a run of rows billing alike lives through, on each plan window's grid in turn.
-    /// What a new plan window's grid puts inside the period the run is billing stays in that
-    /// period, so a lineage's charges never nest; its own periods start at the grid's next one.
+    /// What a new grid puts inside the period the run (or one of its cadence before it) is billing
+    /// stays keyed on that period; a window of another cadence is priced over its own period.
     fn billed(
         &self,
         (from, to): (NaiveDate, Option<NaiveDate>),
@@ -461,6 +565,13 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         before: Option<Billed>,
     ) -> Vec<Billed> {
         let mut billed: Vec<Billed> = Vec::new();
+        // A run keeps the grid of the plan window it started in: a change of cadence moves only
+        // the rows it writes onto its grid (R-084).
+        let started_in = *self.span_on(from);
+        let cadence = months.unwrap_or(started_in.cadence);
+        let Some(grid) = self.grid(&started_in, cadence) else {
+            return billed;
+        };
         for span in &self.spans {
             let a = span.from.map_or(from, |s| s.max(from));
             let b = match (span.to, to) {
@@ -470,9 +581,6 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
             if b.is_some_and(|b| b <= a) {
                 continue;
             }
-            let Some(grid) = self.grid(span, months.unwrap_or(span.cadence)) else {
-                continue;
-            };
             for window in windows(&grid, (a, b), self.horizon) {
                 let truncated = window.until == self.horizon
                     && window.until < window.period.1
@@ -485,8 +593,11 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                     let (start, end) = last.window.period;
                     start <= window.from && window.until <= end
                 });
+                let alike = inside.is_some_and(|last| {
+                    months.is_none() || (last.cadence == cadence && last.own == window.period)
+                });
                 match (inside, billed.last_mut()) {
-                    (Some(_), Some(last)) if last.window.until == window.from => {
+                    (Some(_), Some(last)) if alike && last.window.until == window.from => {
                         last.window.until = window.until;
                     }
                     (Some(last), _) => billed.push(Billed {
@@ -494,18 +605,40 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                             period: last.window.period,
                             ..window
                         },
-                        nominal: last.nominal,
+                        nominal: if alike {
+                            last.nominal
+                        } else {
+                            grid.nominal(window.period)
+                        },
                         plan: span.plan,
+                        months: last.months,
+                        cadence,
+                        own: window.period,
                     }),
                     (None, _) => billed.push(Billed {
                         window,
                         nominal: grid.nominal(window.period),
                         plan: span.plan,
+                        months: cadence,
+                        cadence,
+                        own: window.period,
                     }),
                 }
             }
         }
         billed
+    }
+
+    /// Whether a plan window starting on `on` moves the subscription onto another plan version.
+    fn plan_version_changes_on(&self, on: NaiveDate) -> bool {
+        let windows = &self.facts.plan_windows;
+        windows.iter().filter(|w| w.from == on).any(|window| {
+            windows
+                .iter()
+                .filter(|w| w.from < on)
+                .max_by_key(|w| w.from)
+                .is_none_or(|before| before.plan_version != window.plan_version)
+        })
     }
 
     /// Whether `period` ends by the reconcile watermark: its charges are settled for good.
@@ -543,15 +676,27 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         }
         let mut one_time_billed = false;
         let mut previous: Option<Billed> = None;
+        let mut last_run: Option<(NaiveDate, &FeeFact<F>)> = None;
         for (first, last) in runs {
             let rows = &intervals[first..=last];
+            last_run = Some((rows[0].from, rows[rows.len() - 1].row));
             let billing = rows[0].row.billing;
             let life = (rows[0].from, rows[rows.len() - 1].to);
             let months = (billing != Billing::OneTime).then_some(rows[0].row.cadence.max(1));
-            let billed = self.billed(life, months, previous);
+            // A run of another cadence on the lineage bills on its own grid, keyed on its own
+            // periods (R-084).
+            let before = previous.filter(|last| months.is_none_or(|months| last.cadence == months));
+            let billed = self.billed(life, months, before);
             previous = billed.last().copied().or(previous);
             if billing == Billing::OneTime {
-                if !one_time_billed && let Some(first) = billed.first() {
+                // A plan's one-time fee bills with the start, never with a later plan version.
+                let with_plan = Some(life.0) != self.billing_start
+                    && rows[0].row.plan_component
+                    && self.plan_version_changes_on(life.0);
+                if !one_time_billed
+                    && !with_plan
+                    && let Some(first) = billed.first()
+                {
                     self.one_time(lineage, first, prices, out)?;
                 }
                 one_time_billed = true;
@@ -562,7 +707,7 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                 self.usage_window(rows, window, usage_pieces, out);
             }
         }
-        self.final_usage(lineage, usage_pieces, out);
+        self.final_usage(lineage, last_run, usage_pieces, out);
         Ok(())
     }
 
@@ -631,6 +776,7 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                 .seats_on(&row.lineage, at)
                 .map(|step| step.quantity),
             fee: &row.fee,
+            allowance: DayFraction::WHOLE,
         }
     }
 
@@ -677,6 +823,11 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         trace
     }
 
+    /// Whether `billed` opens the billing in a period it holds only the end of (R-002).
+    fn first_partial(&self, billed: &Billed) -> bool {
+        Some(billed.window.from) == self.billing_start && billed.window.from > billed.nominal.0
+    }
+
     fn due_at_end(&self, window: &Window) -> (DateTime<Utc>, bool) {
         let cut = self.cut_by_ending(window);
         match (cut, self.ending) {
@@ -697,7 +848,11 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         out: &mut Out,
     ) -> Result<(), PricingError> {
         let window = billed.window;
-        if window.from >= window.until || self.behind_watermark(window.period) {
+        if self.behind_watermark(window.period) {
+            out.settled.push((lineage.clone(), window.period));
+            return Ok(());
+        }
+        if window.from >= window.until {
             return Ok(());
         }
         let (due, cut) = match billing {
@@ -769,8 +924,25 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
             match billing {
                 Billing::Arrears => {
                     let last = terms.iter().rev().find_map(|t| t.2);
-                    let amount = if terms.iter().all(|t| t.2.is_none_or(|r| r.prorated)) {
-                        terms.iter().map(|(a, b, rate)| part(*rate, *a, *b)).sum()
+                    // Cut short by its rows, a cancellation or a fixed term's end, or a first partial
+                    // period, it owes what it used, a fixed amount too (R-002).
+                    let cut_short = window.until < window.period.1 || self.first_partial(billed);
+                    let used: Vec<(NaiveDate, NaiveDate, Option<Rate>)> = terms
+                        .iter()
+                        .map(|(a, b, rate)| {
+                            let rate = rate.map(|rate| Rate {
+                                prorated: rate.prorated
+                                    || (cut_short && rate.kind != ChargeKind::Credit),
+                                ..rate.clone()
+                            });
+                            (*a, *b, rate)
+                        })
+                        .collect();
+                    let prorated = used.iter().all(|t| t.2.as_ref().is_none_or(|r| r.prorated));
+                    let amount = if prorated {
+                        used.iter()
+                            .map(|(a, b, rate)| part(rate.as_ref(), *a, *b))
+                            .sum()
                     } else {
                         last.map_or(0, |r| r.amount)
                     };
@@ -792,6 +964,7 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                         .collect();
                     trace.sort();
                     trace.dedup();
+                    let single = terms.len() == 1;
                     out.charges.push(Charge {
                         key: key(charge),
                         window: (window.from, window.until),
@@ -799,20 +972,49 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                         quantity: last.and_then(|r| r.quantity),
                         amount,
                         due_at: due,
-                        document: self.document(due, window.until == window.period.1, cut),
+                        document: self.document(due, true, cut),
                         trace: self.with_ending(trace, cut),
                         credit_grant: grant(last, grant_amount),
                         once_per_product: last.and_then(|r| r.once_per_product),
+                        shown: last.map(|r| r.shown.clone()).unwrap_or_default(),
+                        share: last
+                            .filter(|_| single && prorated)
+                            .and_then(|_| share_of((window.from, window.until), billed.nominal)),
+                        nominal: billed.nominal,
                     });
                 }
                 _ => {
+                    // Ended inside its period by its rows, a cancellation or a fixed term, or a first
+                    // partial period: what it used is prorated, a fixed amount too (R-002, R-077).
+                    let cut_short = window.until < window.period.1 || self.first_partial(billed);
                     for (i, (from, _, rate)) in terms.iter().enumerate() {
                         let previous = i.checked_sub(1).and_then(|p| terms[p].2);
-                        let amount =
-                            part(*rate, *from, window.until) - part(previous, *from, window.until);
+                        // A change mid-period prorates a fixed amount too (R15); a pack is bought
+                        // whole, keyed on its day as its line is (R-075).
+                        let changed = i > 0
+                            || (*from != window.period.0 && Some(*from) != self.billing_start);
+                        let changing = |rate: Option<&Rate>| {
+                            rate.map(|rate| Rate {
+                                prorated: rate.prorated
+                                    || ((changed || cut_short) && rate.kind != ChargeKind::Credit),
+                                ..rate.clone()
+                            })
+                        };
+                        // A pack is never netted: it bills its own price, the one it replaces
+                        // or that ends given back by its credit's settlement (OQ1).
+                        let pack = charge.0 == ChargeKind::Credit;
+                        let (now_in, before) = (changing(*rate), changing(previous));
+                        let before = before.filter(|_| !pack);
+                        let amount = part(now_in.as_ref(), *from, window.until)
+                            - part(before.as_ref(), *from, window.until);
                         let grant_amount = granted(*rate, *from, window.until)
-                            - granted(previous, *from, window.until);
-                        if (i == 0 && rate.is_none()) || (i > 0 && amount == 0 && grant_amount == 0)
+                            - if pack {
+                                0
+                            } else {
+                                granted(previous, *from, window.until)
+                            };
+                        if ((i == 0 || pack) && rate.is_none())
+                            || (i > 0 && amount == 0 && grant_amount == 0)
                         {
                             continue;
                         }
@@ -823,9 +1025,18 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                         }
                         let on_grid = i == 0 && window.from == window.period.0;
                         let priced = rate.or(previous);
+                        let mut key = key(charge.clone());
+                        let mut days = (*from, window.until);
+                        if changed
+                            && priced.is_some_and(|r| r.kind == ChargeKind::Credit && !r.prorated)
+                        {
+                            (key.from, key.until) = (*from, *from);
+                            days = (*from, *from);
+                        }
+                        let prorated = i == 0 && now_in.as_ref().is_some_and(|r| r.prorated);
                         out.charges.push(Charge {
-                            key: key(charge.clone()),
-                            window: (*from, window.until),
+                            key,
+                            window: days,
                             usage: None,
                             quantity: priced.and_then(|r| r.quantity),
                             amount,
@@ -834,6 +1045,11 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                             trace: self.trace(lineage, *from, billed.plan),
                             credit_grant: grant(priced, grant_amount),
                             once_per_product: priced.and_then(|r| r.once_per_product),
+                            shown: priced.map(|r| r.shown.clone()).unwrap_or_default(),
+                            share: prorated
+                                .then(|| share_of((*from, window.until), billed.nominal))
+                                .flatten(),
+                            nominal: billed.nominal,
                         });
                     }
                 }
@@ -852,6 +1068,7 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
     ) -> Result<(), PricingError> {
         let window = billed.window;
         if self.behind_watermark(window.period) {
+            out.settled.push((lineage.clone(), window.period));
             return Ok(());
         }
         let due = midnight(window.from);
@@ -874,16 +1091,25 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
             }
         };
         for rate in self.rates_on(lineage, window.from, prices)? {
+            // A one-time price bills on its day, as its line is keyed (R-075), a pack bought whole
+            // after the start too; one tied to its period grants for its first window.
+            let on_its_day = rate.kind != ChargeKind::Credit
+                || (!rate.prorated && Some(window.from) != self.billing_start);
+            let (key, days) = if on_its_day {
+                ((window.from, window.from), (window.from, window.from))
+            } else {
+                (window.period, (window.from, window.until))
+            };
             out.charges.push(Charge {
                 key: ChargeKey {
                     subscription: Some(self.facts.subscription),
                     fee: lineage.clone(),
-                    from: window.period.0,
-                    until: window.period.1,
+                    from: key.0,
+                    until: key.1,
                     kind: rate.kind,
                     denomination: rate.denomination,
                 },
-                window: (window.from, window.until),
+                window: days,
                 usage: None,
                 quantity: rate.quantity,
                 amount: share(rate.amount, rate.prorated),
@@ -895,6 +1121,12 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                     ..grant
                 }),
                 once_per_product: rate.once_per_product,
+                share: rate
+                    .prorated
+                    .then(|| share_of(days, billed.nominal))
+                    .flatten(),
+                shown: rate.shown,
+                nominal: billed.nominal,
             });
         }
         Ok(())
@@ -923,9 +1155,11 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         if reads.is_empty() {
             return;
         }
+        let document = self.document(piece.read.until, true, piece.cut);
         let need = |read: UsageRead| UsageNeed {
             fee: piece.row.lineage.clone(),
             read,
+            document,
         };
         if piece.read.until > self.now {
             out.wakes.push(piece.read.until);
@@ -956,41 +1190,96 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
     ) {
         let window = billed.window;
         if self.behind_watermark(window.period) {
+            if let Some(interval) = rows.first() {
+                out.settled
+                    .push((interval.row.lineage.clone(), window.period));
+            }
             return;
         }
-        let cut = self.cut_by_ending(&window);
+        // Cut inside its own grid's period, whatever period it is keyed on: ending on its own
+        // boundary, the ending's day is the final usage's (R-016).
+        let cut = self.end == Some(window.until) && window.until < billed.nominal.1;
+        let mut pieces = Vec::new();
         for interval in rows {
             let from = interval.from.max(window.from);
             let until = interval.to.map_or(window.until, |to| to.min(window.until));
             if from >= until {
                 continue;
             }
-            let read_until = match (cut && until == window.until, self.ending) {
+            // Only the row still in force on the ending's day reads its morning; another row
+            // taking over that day leaves it to the final usage.
+            let in_force_then = self
+                .end
+                .and_then(|end| self.facts.fee_on(&interval.row.lineage, end))
+                .is_some_and(|row| std::ptr::eq(row, interval.row));
+            let to_instant = cut && until == window.until && in_force_then;
+            let read_until = match (to_instant, self.ending) {
                 (true, Some(ending)) => ending.at,
                 _ => midnight(until),
             };
-            self.queue(
-                UsagePiece {
-                    row: interval.row,
-                    from,
-                    until,
-                    read: UsageWindow {
-                        from: midnight(from),
-                        until: read_until,
-                    },
-                    on_grid: until == window.period.1,
-                    cut: cut && until == window.until,
-                    plan: billed.plan,
+            pieces.push(UsagePiece {
+                row: interval.row,
+                from,
+                until,
+                read: UsageWindow {
+                    from: midnight(from),
+                    until: read_until,
                 },
-                usage_pieces,
-                out,
-            );
+                cut: cut && until == window.until,
+                plan: billed.plan,
+                allowance: DayFraction::WHOLE,
+            });
+        }
+        let Some(last) = pieces.last() else {
+            return;
+        };
+        if !self.pricer.per_part(&last.row.fee) {
+            let first = &pieces[0];
+            // Its allowance follows its fixed amount: prorated when the window is cut short, is a
+            // first partial period, or starts after its period does in advance (R-002).
+            let starts_late =
+                window.from > window.period.0 && Some(window.from) != self.billing_start;
+            let prorated = window.until < window.period.1
+                || self.first_partial(billed)
+                || (last.row.billing == Billing::Advance && starts_late);
+            let merged = UsagePiece {
+                row: last.row,
+                from: first.from,
+                until: last.until,
+                read: UsageWindow {
+                    from: first.read.from,
+                    until: last.read.until,
+                },
+                cut: last.cut,
+                plan: last.plan,
+                allowance: if prorated {
+                    DaySpan {
+                        period: billed.nominal,
+                        from: first.from,
+                        until: last.until,
+                    }
+                    .fraction()
+                } else {
+                    DayFraction::WHOLE
+                },
+            };
+            pieces = vec![merged];
+        }
+        for piece in pieces {
+            self.queue(piece, usage_pieces, out);
         }
     }
 
-    /// What `lineage` consumed on the ending's day up to its instant, when no window of a period
-    /// cut by the ending reads it: the ending falls on a boundary, or the fee started that day.
-    fn final_usage(&self, lineage: &Fee, usage_pieces: &mut Vec<UsagePiece<'a, F>>, out: &mut Out) {
+    /// What `lineage` consumed on the ending's day up to its instant, priced by the row in force
+    /// that day, when no window of a period cut by the ending reads it: the ending falls on a
+    /// boundary of that row's grid (its run's, `last_run`), or another row billed the day before.
+    fn final_usage(
+        &self,
+        lineage: &Fee,
+        last_run: Option<(NaiveDate, &FeeFact<F>)>,
+        usage_pieces: &mut Vec<UsagePiece<'a, F>>,
+        out: &mut Out,
+    ) {
         let (Some(ending), Some(end), Some(start)) = (self.ending, self.end, self.billing_start)
         else {
             return;
@@ -1005,13 +1294,14 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
             return;
         }
         let span = self.span_on(end);
-        let Some(grid) = self.grid(span, row.cadence.max(1)) else {
+        let continues = last_run.and_then(|(from, last)| std::ptr::eq(last, row).then_some(from));
+        let Some(grid) = self.grid(self.span_on(continues.unwrap_or(end)), row.cadence.max(1))
+        else {
             return;
         };
-        if grid
-            .period_containing(end)
-            .is_none_or(|period| period.0 != end || self.behind_watermark(period))
-        {
+        if grid.period_containing(end).is_none_or(|period| {
+            (period.0 != end && continues.is_some()) || self.behind_watermark(period)
+        }) {
             return;
         }
         self.queue(
@@ -1023,9 +1313,10 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                     from: midnight(end),
                     until: ending.at,
                 },
-                on_grid: false,
                 cut: true,
                 plan: span.plan,
+                // The ending's day is no day of its fee's: a capacity's allowance holds none of it.
+                allowance: DayFraction::NONE,
             },
             usage_pieces,
             out,
@@ -1049,7 +1340,10 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                 until: Some(group[0].until),
                 fees: group
                     .iter()
-                    .map(|piece| self.in_force(piece.row, piece.from))
+                    .map(|piece| InForce {
+                        allowance: piece.allowance,
+                        ..self.in_force(piece.row, piece.from)
+                    })
                     .collect(),
             };
             for rate in self.pricer.usage(&segment, &window, reads)? {
@@ -1072,10 +1366,13 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                     quantity: rate.quantity,
                     amount: rate.amount,
                     due_at: window.until,
-                    document: self.document(window.until, piece.on_grid, piece.cut),
+                    document: self.document(window.until, true, piece.cut),
                     trace: self.with_ending(trace, piece.cut),
                     credit_grant: rate.credit_grant,
                     once_per_product: rate.once_per_product,
+                    shown: rate.shown,
+                    share: None,
+                    nominal: (piece.from, piece.until),
                 });
             }
         }
@@ -1155,6 +1452,9 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                 trace: self.with_ending(trace, cut),
                 credit_grant: None,
                 once_per_product: None,
+                shown: Shown::default(),
+                share: None,
+                nominal: billed.nominal,
             });
         }
     }
@@ -1163,7 +1463,7 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
         let facts = self.facts;
         let today = self.today;
         let plan = facts.plan_on(today);
-        let settled = facts.start.settled.is_some_and(|at| at <= self.now);
+        let settled = self.settled;
         let trial = facts
             .trial
             .filter(|trial| trial.from <= today && today < trial.until);
@@ -1194,10 +1494,16 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
                 || (status == Status::Pending && self.now >= midnight(facts.start.date)));
         let current_period = match status {
             Status::Cancelled | Status::Completed => self.end.map(|end| (end, None)),
+            // Awaiting its checkout, the first period is open-ended, as stored until it settles.
+            _ if pending_checkout && status == Status::Pending => {
+                self.billing_start.map(|start| (start, None))
+            }
             Status::Trialing if self.billing_start.is_none_or(|start| today < start) => {
                 trial.map(|trial| (trial.from, Some(trial.until)))
             }
-            _ => self.period_of(today).map(|(start, end)| (start, Some(end))),
+            _ => self
+                .current_of(today)
+                .map(|(start, end)| (start, Some(self.uncancelled_end(today, end)))),
         };
         DerivedState {
             status,
@@ -1206,6 +1512,32 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
             cadence: plan.map(|plan| plan.cadence),
             pending_checkout,
             first_period: self.billing_start.and_then(|start| self.period_of(start)),
+        }
+    }
+
+    /// The period the subscription is in at `at`: after a change of cadence inside a period, the
+    /// part of it the new grid's period holding `at` covers, as the change realigns it (R-084).
+    fn current_of(&self, at: NaiveDate) -> Option<(NaiveDate, NaiveDate)> {
+        let (start, end) = self.period_of(at)?;
+        let span = self.span_on(at);
+        if span.from.is_none_or(|from| from <= start) {
+            return Some((start, end));
+        }
+        let (from, until) = self.grid(span, span.cadence)?.period_containing(at)?;
+        Some((from.max(start), until.min(end)))
+    }
+
+    /// A cancellation still to come ends the subscription on its date, not the period holding
+    /// `at`: its end is the grid's, as stored until the cancellation applies.
+    fn uncancelled_end(&self, at: NaiveDate, end: NaiveDate) -> NaiveDate {
+        match self.ending {
+            Some(ending) if ending.kind == EndingKind::Cancel && self.end == Some(end) => {
+                let span = self.span_on(at);
+                self.grid(span, span.cadence)
+                    .and_then(|grid| grid.period_containing(at))
+                    .map_or(end, |(_, until)| until.max(end))
+            }
+            _ => end,
         }
     }
 
@@ -1248,6 +1580,16 @@ impl<'a, F, P: Pricer<F>> Run<'a, F, P> {
             .filter(|at| *at > self.now)
             .min()
     }
+}
+
+/// The days of `window` over those of `nominal`, when fewer (R-002).
+fn share_of(
+    window: (NaiveDate, NaiveDate),
+    nominal: (NaiveDate, NaiveDate),
+) -> Option<DayFraction> {
+    let days = (window.1 - window.0).num_days();
+    let whole = (nominal.1 - nominal.0).num_days();
+    (whole > 0 && days < whole).then(|| DayFraction::new(days, whole))
 }
 
 #[cfg(test)]

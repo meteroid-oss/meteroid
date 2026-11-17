@@ -30,6 +30,8 @@ pub struct ScheduledEventRow {
     pub actor_alias: Option<String>,
     /// When a failed event is tried again; `scheduled_time` stays the date it takes effect on.
     pub next_attempt_at: Option<NaiveDateTime>,
+    /// The rows a change wrote as facts, on its MIGRATED record.
+    pub written_facts: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Insertable)]

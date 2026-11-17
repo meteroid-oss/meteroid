@@ -83,7 +83,7 @@ pub async fn race<T>(
 pub fn run_later() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        common_domain::clock::test::set(
+        common_clock::test::set(
             chrono::DateTime::from_timestamp(2_051_222_400, 0).expect("January 1, 2035"),
         )
     });
@@ -135,6 +135,8 @@ pub struct Knobs {
     pub cases: u64,
     pub seed: u64,
     pub steps: u64,
+    /// Cases run at once; one when a case moves the process's clock.
+    pub jobs: u64,
     /// This run takes the cases whose index is `shard` modulo `shards`.
     pub shard: u64,
     pub shards: u64,
@@ -275,7 +277,7 @@ impl<R: Reference, E: Engine<R>> ModelHarness<R, E> {
         let cases = var("CASES", knobs.cases);
         let base = var("SEED", knobs.seed);
         let steps = var("STEPS", knobs.steps) as usize;
-        let jobs = var("JOBS", 4) as usize;
+        let jobs = var("JOBS", knobs.jobs).max(1) as usize;
         let shrinks = var("SHRINK", 8) as usize;
         let started = Instant::now();
         let seeds: Vec<u64> = (0..cases)

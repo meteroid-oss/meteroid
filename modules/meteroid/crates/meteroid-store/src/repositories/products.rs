@@ -41,6 +41,14 @@ pub(crate) async fn validate_tax_category(
     }
 }
 
+/// Whether `new` is another fee structure than the stored one, both read as the domain reads them.
+fn fee_structure_changes(stored: &serde_json::Value, new: &serde_json::Value) -> bool {
+    serde_json::from_value::<FeeStructure>(stored.clone())
+        .ok()
+        .and_then(|stored| serde_json::to_value(stored).ok())
+        .is_none_or(|stored| &stored != new)
+}
+
 #[derive(Clone, Debug)]
 pub struct ProductUpdate {
     pub id: ProductId,
@@ -205,6 +213,17 @@ impl ProductInterface for Store {
                         })
                     })
                     .transpose()?;
+                if let Some(new) = &fee_structure
+                    && fee_structure_changes(&existing.fee_structure, new)
+                    && PriceRow::any_of_product(conn, update.id, update.tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?
+                {
+                    return Err(Report::new(StoreError::InvalidArgument(
+                        "fee_structure is immutable once the product has a price (R-098)"
+                            .to_string(),
+                    )));
+                }
 
                 let product: Product = ProductRowPatch {
                     id: update.id,

@@ -34,7 +34,7 @@ mod customer_summary;
 mod edge;
 pub(crate) mod entitlements;
 pub mod evaluate;
-pub(crate) mod facts;
+pub mod facts;
 #[cfg(feature = "facts-shadow")]
 pub mod facts_shadow;
 pub mod fx;
@@ -213,7 +213,7 @@ impl ServicesEdge {
         delta: i32,
     ) -> StoreResult<crate::domain::slot_transactions::SlotUpdatePreview> {
         self.services
-            .preview_slot_update(tenant_id, subscription_id, price_component_id, delta)
+            .preview_seat_change(tenant_id, subscription_id, price_component_id, delta)
             .await
     }
 

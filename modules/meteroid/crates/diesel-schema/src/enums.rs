@@ -619,6 +619,8 @@ pub enum ScheduledEventStatus {
     Completed,
     Failed,
     Canceled,
+    /// Written as the facts it becomes; restorable for one release.
+    Migrated,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, PartialEq, Eq)]

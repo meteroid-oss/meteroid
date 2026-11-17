@@ -86,6 +86,61 @@ impl SubscriptionEventRow {
             .into_db_result()
     }
 
+    /// Whether a switch to `to` on `on` is recorded: a plan transition is emitted once.
+    pub async fn switch_recorded(
+        conn: &mut PgConn,
+        subscription_uid: SubscriptionId,
+        to: common_domain::ids::PlanVersionId,
+        on: NaiveDate,
+    ) -> DbResult<bool> {
+        use crate::schema::subscription_event::dsl::{
+            applies_to, event_type, subscription_event, subscription_id,
+        };
+        use diesel::dsl::exists;
+        use diesel_async::RunQueryDsl;
+
+        diesel::select(exists(
+            subscription_event
+                .filter(subscription_id.eq(subscription_uid))
+                .filter(event_type.eq(SubscriptionEventType::Switch))
+                .filter(applies_to.eq(on))
+                .filter(diesel::dsl::sql::<diesel::sql_types::Bool>(&format!(
+                    "details ->> 'new_plan_version_id' = '{to}'"
+                ))),
+        ))
+        .get_result(conn)
+        .await
+        .attach("Error while looking for a recorded switch")
+        .into_db_result()
+    }
+
+    /// Whether the change written as facts by `event` has its Switch row: the state applied it.
+    pub async fn change_applied(
+        conn: &mut PgConn,
+        subscription_uid: SubscriptionId,
+        event: common_domain::ids::ScheduledEventId,
+    ) -> DbResult<bool> {
+        use crate::schema::subscription_event::dsl::{
+            event_type, subscription_event, subscription_id,
+        };
+        use diesel::dsl::exists;
+        use diesel_async::RunQueryDsl;
+
+        diesel::select(exists(
+            subscription_event
+                .filter(subscription_id.eq(subscription_uid))
+                .filter(event_type.eq(SubscriptionEventType::Switch))
+                .filter(diesel::dsl::sql::<diesel::sql_types::Bool>(&format!(
+                    "details ->> 'event' = '{}'",
+                    event.as_uuid()
+                ))),
+        ))
+        .get_result(conn)
+        .await
+        .attach("Error while looking for an amendment's switch")
+        .into_db_result()
+    }
+
     /// The days the subscription switched plan, on or before `up_to`, latest first. Amendments,
     /// recorded as switches to the same plan, are left out.
     pub async fn list_plan_switch_dates(
@@ -359,6 +414,37 @@ impl SubscriptionEventRow {
             .await
             .attach("Error while listing the cancellations that settle a subscription's lines")
             .into_db_result()
+    }
+
+    /// Whether every settling switch of the subscription on `at` is an immediate amendment's.
+    pub async fn settling_switches_are_amendments(
+        conn: &mut PgConn,
+        subscription_uid: SubscriptionId,
+        at: NaiveDate,
+    ) -> DbResult<bool> {
+        use crate::schema::subscription_event::dsl::{
+            applies_to, event_type, subscription_event, subscription_id,
+        };
+        use diesel_async::RunQueryDsl;
+
+        let kinds: Vec<Option<String>> = subscription_event
+            .filter(subscription_id.eq(subscription_uid))
+            .filter(event_type.eq(SubscriptionEventType::Switch))
+            .filter(applies_to.eq(at))
+            .filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
+                "details ->> 'outgoing' = 'settled'",
+            ))
+            .select(diesel::dsl::sql::<
+                diesel::sql_types::Nullable<diesel::sql_types::Text>,
+            >("details ->> 'kind'"))
+            .load(conn)
+            .await
+            .attach("Error while reading the settling switches of a day")
+            .into_db_result()?;
+        Ok(!kinds.is_empty()
+            && kinds
+                .iter()
+                .all(|kind| kind.as_deref() == Some("amendment")))
     }
 
     /// What the settling cancellation of the subscription on `at` recorded (`details`).

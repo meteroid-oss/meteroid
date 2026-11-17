@@ -35,7 +35,7 @@ async fn apply_configure_credit_wallet_tx(
             }
         }
     }
-    let now = common_domain::clock::now();
+    let now = common_clock::now();
     let lock = lock_customer_tx(conn, command.tenant_id, command.customer_id).await?;
     // Before the top-up's terms, so terms saved at the current price get the new one.
     let price_changed =

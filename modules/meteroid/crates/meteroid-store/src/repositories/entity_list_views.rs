@@ -274,7 +274,7 @@ impl EntityListViewsInterface for Store {
                             name,
                             config: patch.config,
                             shared: sharing_change,
-                            updated_at: Some(common_domain::clock::now().naive_utc()),
+                            updated_at: Some(common_clock::now().naive_utc()),
                         },
                     )
                     .await

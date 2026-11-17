@@ -1,6 +1,6 @@
-use common_domain::ids::{PriceId, ProductId, TenantId};
+use common_domain::ids::{BaseId, PriceId, ProductId, TenantId};
 use diesel_models::plans::PlanRow;
-use diesel_models::prices::PriceRow;
+use diesel_models::prices::{PriceRow, PriceSuccessorRowNew};
 use diesel_models::products::ProductRow;
 use diesel_models::subscription_components::SubscriptionComponentRow;
 use error_stack::Report;
@@ -65,27 +65,54 @@ impl Services {
 
         drop(conn);
 
-        // Live subscriptions price from these rows: read under their lock, so two concurrent
-        // edits cannot both start from the same rates, then the tenant's bump.
+        let today = common_clock::now().date_naive();
+        let effective_on = update.effective_on.unwrap_or(today);
+        if effective_on < today {
+            return Err(Report::new(StoreError::InvalidArgument(format!(
+                "a price changes from today or later, not {effective_on} (R-097)"
+            ))));
+        }
+
+        // Each lineage gains a successor from `effective_on`; rows already billed or referenced
+        // keep their rates. Read under the lock so two edits never start from the same rates.
         let update = &update;
         self.store
             .transaction_bumping_tenant(tenant_id, |conn| {
                 async move {
-                    let prices = PriceRow::lock_by_product_id(conn, product_id, tenant_id).await?;
-                    let planned = plan_matrix_update(prices, update)?;
+                    let tips = lineage_tips(
+                        PriceRow::lock_by_product_id(conn, product_id, tenant_id).await?,
+                    );
+                    if let Some(later) = tips
+                        .iter()
+                        .filter_map(|tip| tip.effective_from)
+                        .find(|from| *from > effective_on)
+                    {
+                        return Err(Report::new(StoreError::InvalidArgument(format!(
+                            "a change of these prices takes over on {later}: date this one on or after it (R-097)"
+                        ))));
+                    }
+                    let planned = plan_matrix_update(tips, update)?;
                     let mut updated_prices = Vec::with_capacity(planned.len());
-                    for (price_row, pricing_json) in planned {
+                    for (tip, pricing_json) in planned {
                         let row = match pricing_json {
-                            Some(pricing_json) => {
-                                PriceRow::update_pricing(
-                                    conn,
-                                    price_row.id,
+                            Some(pricing) => {
+                                PriceSuccessorRowNew {
+                                    id: PriceId::new(),
+                                    product_id: tip.product_id,
+                                    cadence: tip.cadence.clone(),
+                                    currency: tip.currency.clone(),
+                                    pricing,
                                     tenant_id,
-                                    pricing_json,
-                                )
+                                    catalog: tip.catalog,
+                                    credit_unit_id: tip.credit_unit_id,
+                                    credit_unit_rate: tip.credit_unit_rate,
+                                    effective_from: effective_on,
+                                    supersedes: tip.supersedes.unwrap_or(tip.id),
+                                }
+                                .insert(conn)
                                 .await?
                             }
-                            None => price_row,
+                            None => tip,
                         };
                         updated_prices.push(Price::try_from(row)?);
                     }
@@ -110,9 +137,14 @@ impl Services {
 
         validate_matrix_product(&product_row.fee_structure)?;
 
-        let prices = PriceRow::list_by_product_id(&mut conn, product_id, tenant_id)
+        let roots = PriceRow::list_by_product_id(&mut conn, product_id, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
+        let root_ids: Vec<PriceId> = roots.iter().map(|root| root.id).collect();
+        let successors = PriceRow::successors_of(&mut conn, &root_ids, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let prices = lineage_tips(roots.into_iter().chain(successors).collect());
 
         let mut affected_prices_count = 0;
         let mut affected_price_ids: Vec<PriceId> = Vec::new();
@@ -151,7 +183,7 @@ impl Services {
 
                 if price_affected {
                     affected_prices_count += 1;
-                    affected_price_ids.push(price_row.id);
+                    affected_price_ids.push(price_row.supersedes.unwrap_or(price_row.id));
                 }
             }
         }
@@ -191,6 +223,23 @@ impl Services {
             affected_plans,
         })
     }
+}
+
+/// The latest member of each price lineage among `rows` (roots and their successors): the rates
+/// an edit starts from.
+fn lineage_tips(rows: Vec<PriceRow>) -> Vec<PriceRow> {
+    let mut tips: std::collections::BTreeMap<PriceId, PriceRow> = std::collections::BTreeMap::new();
+    for row in rows {
+        let root = row.supersedes.unwrap_or(row.id);
+        let later = tips.get(&root).is_none_or(|tip| {
+            (tip.effective_from, tip.created_at, tip.id)
+                < (row.effective_from, row.created_at, row.id)
+        });
+        if later {
+            tips.insert(root, row);
+        }
+    }
+    tips.into_values().collect()
 }
 
 /// The new pricing of each matrix price row, `None` where the update changes nothing.

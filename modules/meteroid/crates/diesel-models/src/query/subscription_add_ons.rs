@@ -52,7 +52,7 @@ impl SubscriptionAddOnRow {
                     (
                         *row,
                         crate::schema::subscription_add_on::created_at
-                            .eq(common_domain::clock::now().naive_utc()),
+                            .eq(common_clock::now().naive_utc()),
                     )
                 })
                 .collect::<Vec<_>>(),
@@ -153,16 +153,21 @@ impl SubscriptionAddOnRow {
         use crate::schema::subscription::dsl as s_dsl;
         use crate::schema::subscription_add_on::dsl as sao_dsl;
 
-        let query = sao_dsl::subscription_add_on
+        let mut query = sao_dsl::subscription_add_on
             .inner_join(s_dsl::subscription)
             .filter(sao_dsl::subscription_id.eq(subscription_id))
             .filter(s_dsl::tenant_id.eq(tenant_id))
-            .filter(
+            .select(SubscriptionAddOnRow::as_select())
+            .into_boxed();
+        // In force on `as_of`, future-dated rows aside; with none, the open ones.
+        query = match as_of {
+            Some(on) => query.filter(sao_dsl::effective_from.le(on)).filter(
                 sao_dsl::effective_to
                     .is_null()
-                    .or(sao_dsl::effective_to.gt(as_of)),
-            )
-            .select(SubscriptionAddOnRow::as_select());
+                    .or(sao_dsl::effective_to.gt(on)),
+            ),
+            None => query.filter(sao_dsl::effective_to.is_null()),
+        };
 
         crate::debug_sql(&query);
 
@@ -173,21 +178,26 @@ impl SubscriptionAddOnRow {
             .into_db_result()
     }
 
-    /// Close active add-ons by setting effective_to.
+    /// Closes the open rows of `ids` on `effective_to`; returns how many were open.
     pub async fn close_addons(
         conn: &mut PgConn,
         ids: &[SubscriptionAddOnId],
         effective_to: NaiveDate,
-    ) -> DbResult<()> {
+    ) -> DbResult<usize> {
         use crate::schema::subscription_add_on::dsl as sao_dsl;
 
         if ids.is_empty() {
-            return Ok(());
+            return Ok(0);
         }
 
         let query = diesel::update(sao_dsl::subscription_add_on)
             .filter(sao_dsl::id.eq_any(ids))
-            .filter(sao_dsl::effective_to.is_null())
+            // The row in force on the day, one a later change already ends included.
+            .filter(
+                sao_dsl::effective_to
+                    .is_null()
+                    .or(sao_dsl::effective_to.gt(effective_to)),
+            )
             .set(sao_dsl::effective_to.eq(effective_to));
 
         crate::debug_sql(&query);
@@ -196,7 +206,6 @@ impl SubscriptionAddOnRow {
             .execute(conn)
             .await
             .attach("Error while closing subscription add-ons")
-            .map(|_| ())
             .into_db_result()
     }
 
@@ -242,11 +251,17 @@ impl SubscriptionAddOnRow {
             return Ok(vec![]);
         }
 
+        // In force on the subscription's read day: a change dated later shows from its date.
         let query = sao_dsl::subscription_add_on
             .inner_join(s_dsl::subscription)
             .filter(sao_dsl::subscription_id.eq_any(subscription_ids))
             .filter(s_dsl::tenant_id.eq(tenant_id))
-            .filter(sao_dsl::effective_to.is_null())
+            .filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
+                &crate::query::subscription_facts::in_force_sql(
+                    "subscription_add_on",
+                    "subscription",
+                ),
+            ))
             .select(sao_dsl::add_on_id);
 
         crate::debug_sql(&query);
@@ -273,11 +288,17 @@ impl SubscriptionAddOnRow {
             return Ok(vec![]);
         }
 
+        // In force on the subscription's read day: a change dated later shows from its date.
         let query = sao_dsl::subscription_add_on
             .inner_join(s_dsl::subscription)
             .filter(sao_dsl::subscription_id.eq_any(subscription_ids))
             .filter(s_dsl::tenant_id.eq(tenant_id))
-            .filter(sao_dsl::effective_to.is_null())
+            .filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
+                &crate::query::subscription_facts::in_force_sql(
+                    "subscription_add_on",
+                    "subscription",
+                ),
+            ))
             .filter(not(sao_dsl::product_id.is_null()))
             .select(sao_dsl::product_id);
 

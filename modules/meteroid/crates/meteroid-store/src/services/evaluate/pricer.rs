@@ -6,21 +6,23 @@ use std::collections::{BTreeMap, HashMap};
 use billing_core::charge::{ChargeKind, Denomination, Fee};
 use billing_core::facts::Billing;
 use billing_core::pricer::{
-    CreditGrant, Pricer, Rate, Segment, UsageRead, UsageReads, UsageWindow,
+    CreditGrant, Pricer, Rate, Segment, Shown, UsageRead, UsageReads, UsageWindow,
 };
 use billing_core::pricing::{self, GroupedUsage, PricedLine, PricingError, UnitRounding};
+use billing_core::proration::DayFraction;
 use common_domain::ids::{
-    BaseId, BillableMetricId, PriceComponentId, ProductId, SubscriptionAddOnId,
+    BillableMetricId, PriceComponentId, ProductId, SubscriptionAddOnId,
     SubscriptionPriceComponentId,
 };
 use error_stack::Report;
 use rust_decimal::Decimal;
-use uuid::Uuid;
 
 use crate::StoreResult;
 use crate::constants::Currency;
 use crate::domain::enums::{BillingType, SubscriptionFeeBillingPeriod};
-use crate::domain::{BillableMetric, LineItem, SubscriptionFee, SubscriptionFeeInterface};
+use crate::domain::{
+    BillableMetric, LineItem, SubscriptionFee, SubscriptionFeeInterface, UsagePricingModel,
+};
 use crate::errors::StoreError;
 use crate::services::invoice_lines::component::{is_usage_based_line, pinned_unit_price};
 use crate::services::invoice_lines::fees::pricing_error;
@@ -71,9 +73,13 @@ impl StoreFee {
     /// When the fee bills its fixed price; usage is always read at a window's end.
     pub fn billing(&self) -> Billing {
         match (&self.fee, &self.period) {
-            (_, SubscriptionFeeBillingPeriod::OneTime)
-            | (SubscriptionFee::OneTime { .. }, _)
-            | (SubscriptionFee::Credit { once: true, .. }, _) => Billing::OneTime,
+            (_, SubscriptionFeeBillingPeriod::OneTime) | (SubscriptionFee::OneTime { .. }, _) => {
+                Billing::OneTime
+            }
+            // A product's `once` credit rides each period until a document bills it (R16).
+            (SubscriptionFee::Credit { once: true, .. }, _) if self.product_id.is_none() => {
+                Billing::OneTime
+            }
             (SubscriptionFee::Usage { .. }, _)
             | (
                 SubscriptionFee::Recurring {
@@ -116,7 +122,7 @@ impl StoreFee {
                 precision,
             )?,
             denomination: credit_unit.as_ref().map_or(Denomination::Money, |unit| {
-                Denomination::CreditUnit(unit.unit_id.as_uuid())
+                Denomination::CreditUnit(unit.unit_id)
             }),
             prorated: is_period_tied(&self.fee),
         }))
@@ -124,9 +130,9 @@ impl StoreFee {
 
     /// The product a `once` pack is billed once for; a legacy one without a product bills on
     /// the first invoice only, as its `Billing::OneTime`.
-    fn once_per_product(&self) -> Option<Uuid> {
+    fn once_per_product(&self) -> Option<ProductId> {
         match &self.fee {
-            SubscriptionFee::Credit { once: true, .. } => self.product_id.map(|id| id.as_uuid()),
+            SubscriptionFee::Credit { once: true, .. } => self.product_id,
             _ => None,
         }
     }
@@ -141,10 +147,7 @@ impl StoreFee {
             | SubscriptionFee::Capacity {
                 credit_unit: Some(unit),
                 ..
-            } => (
-                Denomination::CreditUnit(unit.unit_id.as_uuid()),
-                unit.precision,
-            ),
+            } => (Denomination::CreditUnit(unit.unit_id), unit.precision),
             _ => (Denomination::Money, self.precision),
         }
     }
@@ -240,10 +243,10 @@ fn sorted(dimensions: &HashMap<String, String>) -> BTreeMap<String, String> {
 fn fixed(fee: &StoreFee, lineage: &Fee, seats: Option<u64>) -> Result<Option<Rate>, PricingError> {
     let whole = |rate: &Decimal, quantity: Decimal| {
         pricing::simple_prorated(rate, &quantity, None, fee.precision)
-            .map(|line| (quantity, line.total))
+            .map(|line| (quantity, line.total, line.unit_price))
     };
     let instances = |quantity: u32| Decimal::from(quantity) * fee.instances;
-    let (kind, (quantity, total), prorated) = match &fee.fee {
+    let (kind, (quantity, total, unit_price), prorated) = match &fee.fee {
         SubscriptionFee::Rate { rate } => (ChargeKind::Fee, whole(rate, fee.instances)?, true),
         // Billed whole once, never prorated (`process_fee_records`).
         SubscriptionFee::OneTime { rate, quantity } => {
@@ -265,7 +268,7 @@ fn fixed(fee: &StoreFee, lineage: &Fee, seats: Option<u64>) -> Result<Option<Rat
                 true,
             )
         }
-        // A fixed amount of capacity: never prorated.
+        // A fixed amount of capacity, billed whole where its window is a whole period (R-002).
         SubscriptionFee::Capacity { rate, .. } => {
             (ChargeKind::Fee, whole(rate, fee.instances)?, false)
         }
@@ -274,7 +277,7 @@ fn fixed(fee: &StoreFee, lineage: &Fee, seats: Option<u64>) -> Result<Option<Rat
             let line = pricing::credit_pack(rate, units, None, fee.precision)?;
             (
                 ChargeKind::Credit,
-                (units, line.total),
+                (units, line.total, line.unit_price),
                 is_period_tied(&fee.fee),
             )
         }
@@ -292,6 +295,10 @@ fn fixed(fee: &StoreFee, lineage: &Fee, seats: Option<u64>) -> Result<Option<Rat
         prorated,
         credit_grant: fee.credit_grant()?,
         once_per_product: fee.once_per_product(),
+        shown: Shown {
+            unit_price,
+            ..Shown::default()
+        },
     }))
 }
 
@@ -303,7 +310,7 @@ fn read(
     reads: &UsageReads,
 ) -> Option<Vec<GroupedUsage>> {
     let usage = reads.get(&UsageRead {
-        metric: metric.as_uuid(),
+        metric,
         window: *window,
     })?;
     Some(
@@ -329,6 +336,7 @@ fn read(
 fn usage_rates(
     fee: &StoreFee,
     lineage: &Fee,
+    allowance: DayFraction,
     window: &UsageWindow,
     reads: &UsageReads,
 ) -> Result<Vec<Rate>, PricingError> {
@@ -349,7 +357,12 @@ fn usage_rates(
             included,
             overage_rate,
             ..
-        } => pricing::capacity_overage_lines(*included, overage_rate, &usage, precision)?,
+        } => pricing::capacity_overage_lines(
+            allowance.prorate_decimal(Decimal::from(*included)),
+            overage_rate,
+            &usage,
+            precision,
+        )?,
         _ => Vec::new(),
     };
     lines
@@ -368,7 +381,7 @@ fn usage_rate(
     Ok(Rate {
         fee: lineage.clone(),
         kind: ChargeKind::Usage {
-            metric: metric.as_uuid(),
+            metric,
             dimensions: line.dimensions.as_ref().map(sorted).unwrap_or_default(),
         },
         quantity: line.quantity,
@@ -377,6 +390,11 @@ fn usage_rate(
         prorated: false,
         credit_grant: None,
         once_per_product: None,
+        shown: Shown {
+            unit_price: line.unit_price,
+            sub_lines: line.sublines,
+            dimensions: line.dimensions,
+        },
     })
 }
 
@@ -385,11 +403,22 @@ fn usage_rate(
 pub struct StorePricer;
 
 impl Pricer<StoreFee> for StorePricer {
-    fn metrics(&self, fee: &StoreFee) -> Vec<Uuid> {
-        fee.metric()
-            .map(|metric| metric.as_uuid())
-            .into_iter()
-            .collect()
+    fn metrics(&self, fee: &StoreFee) -> Vec<BillableMetricId> {
+        fee.metric().into_iter().collect()
+    }
+
+    /// Only usage priced by the unit, a matrix's cells included, prices each part on its own.
+    fn per_part(&self, fee: &StoreFee) -> bool {
+        match &fee.fee {
+            SubscriptionFee::Capacity { .. } => false,
+            SubscriptionFee::Usage { model, .. } => !matches!(
+                model,
+                UsagePricingModel::Tiered { .. }
+                    | UsagePricingModel::Volume { .. }
+                    | UsagePricingModel::Package { .. }
+            ),
+            _ => true,
+        }
     }
 
     fn rates(&self, segment: &Segment<'_, StoreFee>) -> Result<Vec<Rate>, PricingError> {
@@ -408,7 +437,13 @@ impl Pricer<StoreFee> for StorePricer {
     ) -> Result<Vec<Rate>, PricingError> {
         let mut rates = Vec::new();
         for in_force in &segment.fees {
-            rates.extend(usage_rates(in_force.fee, in_force.lineage, window, reads)?);
+            rates.extend(usage_rates(
+                in_force.fee,
+                in_force.lineage,
+                in_force.allowance,
+                window,
+                reads,
+            )?);
         }
         Ok(rates)
     }
@@ -430,8 +465,9 @@ mod tests {
     use billing_core::pricer::InForce;
     use billing_core::reconcile::Term;
     use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
-    use common_domain::ids::{CreditUnitId, ProductFamilyId, TenantId};
+    use common_domain::ids::{BaseId, CreditUnitId, ProductFamilyId, TenantId};
     use rust_decimal_macros::dec;
+    use uuid::Uuid;
 
     const USD: Currency = Currency {
         code: "USD",
@@ -462,7 +498,7 @@ mod tests {
     }
 
     fn lineage() -> Fee {
-        Fee::Component(Uuid::from_u128(7))
+        Fee::Component(Uuid::from_u128(7).into())
     }
 
     fn rates_of(fee: &StoreFee, seats: Option<u64>) -> Vec<Rate> {
@@ -477,6 +513,7 @@ mod tests {
                 cadence: fee.cadence(),
                 seats,
                 fee,
+                allowance: DayFraction::WHOLE,
             }],
         };
         StorePricer.rates(&segment).unwrap()
@@ -504,7 +541,7 @@ mod tests {
             .collect();
         [(
             UsageRead {
-                metric: metric.as_uuid(),
+                metric,
                 window: window(),
             },
             usage,
@@ -525,6 +562,7 @@ mod tests {
                 cadence: fee.cadence(),
                 seats: None,
                 fee,
+                allowance: DayFraction::WHOLE,
             }],
         };
         StorePricer.usage(&segment, &window(), reads).unwrap()
@@ -683,23 +721,105 @@ mod tests {
         assert_eq!(rate.kind, ChargeKind::Fee);
         assert!(!rate.prorated);
         assert_eq!(fee.billing(), Billing::Advance);
-        assert_eq!(StorePricer.metrics(&fee), vec![metric.as_uuid()]);
+        assert_eq!(StorePricer.metrics(&fee), vec![metric]);
 
         let usage: &[(&[(&str, &str)], Decimal)] = &[(&[("region", "eu")], dec!(1_500))];
         let overage = only(usage_of(&fee, &reads_of(metric, usage)));
-        let today =
-            capacity_overage_lines(metric, 1_000, &dec!(0.5), &grouped(usage), &january(), 2)
-                .unwrap();
+        let today = capacity_overage_lines(
+            metric,
+            dec!(1_000),
+            &dec!(0.5),
+            &grouped(usage),
+            &january(),
+            2,
+        )
+        .unwrap();
         assert_eq!(overage.amount, today[0].total as i64);
         assert_eq!(overage.amount, 25_000);
         assert_eq!(
             overage.kind,
             ChargeKind::Usage {
-                metric: metric.as_uuid(),
+                metric,
                 dimensions: BTreeMap::from([("region".to_owned(), "eu".to_owned())]),
             }
         );
         assert!(!overage.prorated);
+    }
+
+    /// 31.00 for 310 units at 0.10 over, cut to 16 of January's 31 days: 160 units included, so
+    /// 200 used owe 40 × 10 = 400; whole, they owe nothing.
+    /// Rules: R-002
+    #[test]
+    fn a_capacity_counts_the_share_of_its_allowance_it_is_given() {
+        let metric = BillableMetricId::new();
+        let fee = store_fee(SubscriptionFee::Capacity {
+            rate: dec!(31),
+            included: 310,
+            overage_rate: dec!(0.10),
+            metric_id: metric,
+            credit_unit: None,
+        });
+        let reads = reads_of(metric, &[(&[], dec!(200))]);
+        let lineage = lineage();
+        let priced = |allowance| {
+            let segment = Segment {
+                from: d(2026, 1, 1),
+                until: Some(d(2026, 2, 1)),
+                fees: vec![InForce {
+                    lineage: &lineage,
+                    row: Uuid::from_u128(8),
+                    billing: fee.billing(),
+                    cadence: fee.cadence(),
+                    seats: None,
+                    fee: &fee,
+                    allowance,
+                }],
+            };
+            StorePricer
+                .usage(&segment, &window(), &reads)
+                .unwrap()
+                .iter()
+                .map(|rate| rate.amount)
+                .sum::<i64>()
+        };
+        assert_eq!(priced(DayFraction::new(16, 31)), 400);
+        assert_eq!(priced(DayFraction::WHOLE), 0);
+    }
+
+    /// Usage priced by the unit or by a matrix's cells prices each part of a period on its own;
+    /// a capacity, tiers and packages price the period once.
+    /// Rules: R-097
+    #[test]
+    fn only_linear_usage_prices_each_part_on_its_own() {
+        let metric = BillableMetricId::new();
+        let per_part = |model| StorePricer.per_part(&usage_fee(metric, model));
+        assert!(per_part(UsagePricingModel::PerUnit { rate: dec!(1) }));
+        assert!(per_part(UsagePricingModel::Matrix { rates: vec![] }));
+        for model in [
+            UsagePricingModel::Tiered {
+                tiers: vec![tier(0, dec!(1))],
+                block_size: None,
+            },
+            UsagePricingModel::Volume {
+                tiers: vec![tier(0, dec!(1))],
+                block_size: None,
+            },
+            UsagePricingModel::Package {
+                block_size: 10,
+                rate: dec!(1),
+            },
+        ] {
+            assert!(!per_part(model));
+        }
+        let capacity = store_fee(SubscriptionFee::Capacity {
+            rate: dec!(31),
+            included: 310,
+            overage_rate: dec!(0.10),
+            metric_id: metric,
+            credit_unit: None,
+        });
+        assert!(!StorePricer.per_part(&capacity));
+        assert!(StorePricer.per_part(&store_fee(SubscriptionFee::Rate { rate: dec!(1) })));
     }
 
     #[test]
@@ -827,7 +947,7 @@ mod tests {
     fn per_unit_usage_bills_each_group() {
         let metric = BillableMetricId::new();
         let fee = usage_fee(metric, UsagePricingModel::PerUnit { rate: dec!(0.02) });
-        assert_eq!(StorePricer.metrics(&fee), vec![metric.as_uuid()]);
+        assert_eq!(StorePricer.metrics(&fee), vec![metric]);
         assert_eq!(fee.billing(), Billing::Arrears);
         assert!(rates_of(&fee, None).is_empty());
         let rates = assert_priced_as_today(
@@ -984,6 +1104,7 @@ mod tests {
             segmentation_matrix: None,
             filters: None,
             usage_group_key: None,
+            usage_breakdown_key: None,
             created_at: NaiveDateTime::default(),
             updated_at: None,
             archived_at: None,
@@ -1175,6 +1296,7 @@ mod tests {
             promotional_credit: None,
             subscription_id: None,
             usage_ends_at: None,
+            usage_breakdown: None,
         }
     }
 
@@ -1223,7 +1345,7 @@ mod tests {
         let product = ProductId::new();
         fee.product_id = Some(product);
         let rate = only(rates_of(&fee, None));
-        assert_eq!(rate.once_per_product, Some(product.as_uuid()));
+        assert_eq!(rate.once_per_product, Some(product));
         fee.product_id = None;
         assert_eq!(only(rates_of(&fee, None)).once_per_product, None);
         let mut recurring = pack(None, false);
@@ -1254,7 +1376,7 @@ mod tests {
             rate.credit_grant,
             Some(CreditGrant {
                 amount: 500,
-                denomination: Denomination::CreditUnit(unit.as_uuid()),
+                denomination: Denomination::CreditUnit(unit),
                 prorated: false,
             })
         );
@@ -1276,7 +1398,7 @@ mod tests {
             credit_unit: Some(credit_unit.clone()),
         });
         let rate = only(usage_of(&fee, &reads_of(metric, usage)));
-        assert_eq!(rate.denomination, Denomination::CreditUnit(unit.as_uuid()));
+        assert_eq!(rate.denomination, Denomination::CreditUnit(unit));
         assert_eq!(rate.amount, 3_000);
         let capacity = store_fee(SubscriptionFee::Capacity {
             rate: dec!(100),
@@ -1292,7 +1414,7 @@ mod tests {
         let overage = only(usage_of(&capacity, &reads_of(metric, usage)));
         assert_eq!(
             (overage.denomination, overage.amount),
-            (Denomination::CreditUnit(unit.as_uuid()), 500)
+            (Denomination::CreditUnit(unit), 500)
         );
     }
 
@@ -1316,6 +1438,7 @@ mod tests {
                 cadence: fee.cadence(),
                 seats: Some(1),
                 fee: &fee,
+                allowance: DayFraction::WHOLE,
             }],
         };
         assert_eq!(StorePricer.rates(&segment), Err(PricingError::OutOfRange));

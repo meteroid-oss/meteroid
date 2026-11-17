@@ -36,8 +36,7 @@ impl CustomerCreditOperationRowNew {
         diesel::insert_into(o::customer_credit_operation)
             .values((
                 self,
-                crate::schema::customer_credit_operation::created_at
-                    .eq(common_domain::clock::now()),
+                crate::schema::customer_credit_operation::created_at.eq(common_clock::now()),
             ))
             .on_conflict_do_nothing()
             .returning(CustomerCreditOperationRow::as_returning())
@@ -330,7 +329,7 @@ impl CustomerCreditOperationRow {
                 o::expected_consideration_minor.eq(Some(expected_consideration_minor)),
                 o::consideration_currency.eq(Some(consideration_currency.to_owned())),
                 o::metadata.eq(metadata),
-                o::updated_at.eq(common_domain::clock::now().naive_utc()),
+                o::updated_at.eq(common_clock::now().naive_utc()),
             ))
             .returning(Self::as_returning())
             .get_result(conn)
@@ -353,7 +352,7 @@ impl CustomerCreditOperationRow {
         )
         .set((
             o::metadata.eq(metadata),
-            o::updated_at.eq(common_domain::clock::now().naive_utc()),
+            o::updated_at.eq(common_clock::now().naive_utc()),
         ))
         .returning(Self::as_returning())
         .get_result(conn)
@@ -379,7 +378,7 @@ impl CustomerCreditOperationRow {
         )
         .set((
             o::state.eq(state::CANCELLED),
-            o::updated_at.eq(common_domain::clock::now().naive_utc()),
+            o::updated_at.eq(common_clock::now().naive_utc()),
         ))
         .execute(conn)
         .await
@@ -400,7 +399,7 @@ impl CustomerCreditOperationRow {
             .set((
                 o::state.eq(state::SETTLED),
                 o::metadata.eq(metadata),
-                o::updated_at.eq(common_domain::clock::now().naive_utc()),
+                o::updated_at.eq(common_clock::now().naive_utc()),
                 o::settled_at.eq(Some(settled_at)),
             ))
             .returning(Self::as_returning())
@@ -423,8 +422,8 @@ impl CustomerCreditOperationRow {
                 .set((
                     o::state.eq(state),
                     o::metadata.eq(metadata),
-                    o::updated_at.eq(common_domain::clock::now().naive_utc()),
-                    o::settled_at.eq(common_domain::clock::now().naive_utc()),
+                    o::updated_at.eq(common_clock::now().naive_utc()),
+                    o::settled_at.eq(common_clock::now().naive_utc()),
                 ))
                 .returning(Self::as_returning())
                 .get_result(conn)
@@ -436,7 +435,7 @@ impl CustomerCreditOperationRow {
             .set((
                 o::state.eq(state),
                 o::metadata.eq(metadata),
-                o::updated_at.eq(common_domain::clock::now().naive_utc()),
+                o::updated_at.eq(common_clock::now().naive_utc()),
             ))
             .returning(Self::as_returning())
             .get_result(conn)

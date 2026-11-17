@@ -80,13 +80,9 @@ impl CustomerServiceComponents {
         {
             return Ok(HashMap::new());
         }
-        let fx = reporting_fx(
-            &self.store,
-            tenant_id,
-            common_domain::clock::now().date_naive(),
-        )
-        .await
-        .map_err(Into::<CustomerApiError>::into)?;
+        let fx = reporting_fx(&self.store, tenant_id, common_clock::now().date_naive())
+            .await
+            .map_err(Into::<CustomerApiError>::into)?;
         self.store
             .open_signals_by_customer(tenant_id, customer_ids, &fx)
             .await
@@ -398,7 +394,7 @@ impl CustomersService for CustomerServiceComponents {
                 tenant_id,
                 customer_id,
                 parts,
-                common_domain::clock::now().naive_utc(),
+                common_clock::now().naive_utc(),
             )
             .await
             .map_err(Into::<CustomerApiError>::into)?;

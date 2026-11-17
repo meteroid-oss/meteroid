@@ -444,6 +444,13 @@ pub mod prices {
         Ok(domain::prices::MatrixPriceUpdate {
             add_rows,
             remove_rows,
+            effective_on: req
+                .effective_on
+                .map(|date| {
+                    meteroid_grpc_mapping::shared::mapping::date::chrono_from_proto(date)
+                        .ok_or_else(|| Status::invalid_argument("effective_on is not a valid date"))
+                })
+                .transpose()?,
         })
     }
 
@@ -472,6 +479,7 @@ pub mod prices {
         Ok(domain::prices::MatrixPriceUpdate {
             add_rows,
             remove_rows,
+            effective_on: None,
         })
     }
 

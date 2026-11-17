@@ -131,7 +131,7 @@ impl Services {
         // A draft's estimate draws what the drafts finalizing before it leave.
         let earlier = match cover {
             CreditUnitCover::Estimate { .. } => {
-                self.books_before_draft(conn, invoice, common_domain::clock::now())
+                self.books_before_draft(conn, invoice, common_clock::now())
                     .await?
             }
             CreditUnitCover::Draw { .. } | CreditUnitCover::DrawAsShown { .. } => None,
@@ -146,11 +146,6 @@ impl Services {
                 earlier.as_ref(),
             )
             .await?;
-        #[cfg(feature = "facts-shadow")]
-        if let Some(shadowed) = crate::services::facts_shadow::Shadowed::of_invoice(invoice) {
-            self.shadow_facts(conn, shadowed, &content.invoice_lines)
-                .await;
-        }
 
         // Annexes are a projection of the raw event stream, so they are re-resolved against the
         // (possibly recomputed) lines and frozen when this patch is applied at finalization.
@@ -178,6 +173,7 @@ impl Services {
             line_items: content.invoice_lines,
             amount_due: content.amount_due,
             subtotal: content.subtotal,
+            discount: content.discount,
             subtotal_recurring: content.subtotal_recurring,
             total: content.total,
             tax_amount: content.tax_amount,
@@ -238,7 +234,7 @@ impl Services {
             // Actual payments already applied (excludes credits, which compute_invoice recalculates)
             let already_paid_amount = invoice.total - invoice.amount_due - invoice.applied_credits;
 
-            self.compute_invoice_on(
+            self.compute_invoice_from_facts(
                 conn,
                 &invoice.billing_period_start,
                 subscription_details,
@@ -292,7 +288,7 @@ impl Services {
             let already_paid =
                 (invoice.total - invoice.amount_due - invoice.applied_credits).max(0);
             let at = match cover {
-                CreditUnitCover::Estimate { .. } => common_domain::clock::now(),
+                CreditUnitCover::Estimate { .. } => common_clock::now(),
                 CreditUnitCover::Draw { at, .. } | CreditUnitCover::DrawAsShown { at, .. } => at.at,
             };
             self.estimate_stored_credit(conn, invoice, already_paid, at, book)

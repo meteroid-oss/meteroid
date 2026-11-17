@@ -431,9 +431,22 @@ async fn test_subscription_with_end_date(services: &Services, store: &Store, con
     );
     assert_eq!(subscription.mrr_cents, expected_total);
 
+    // The term's last window is [Feb 29, Mar 10) of [Feb 29, Mar 31) (R-084), its share of the
+    // period's price (R-079): 3500 × 10/31 = 1129.03 → 1129.
     let invoices = get_invoices(store, subscription_id).await;
     assert_eq!(invoices.len(), 2);
-    assert_full_invoice(&invoices[1], invoice_dates[1], expected_total);
+    assert_eq!(invoices[1].status, InvoiceStatusEnum::Finalized);
+    assert_eq!(invoices[1].billing_period_start, invoice_dates[1]);
+    assert_eq!(invoices[1].total, 1129);
+    let lines: Vec<_> = invoices[1]
+        .line_items
+        .iter()
+        .map(|l| (l.name.as_str(), l.start_date, l.end_date, l.amount_subtotal))
+        .collect();
+    assert_eq!(
+        lines,
+        vec![("Subscription Rate", invoice_dates[1], end_date, 1129)]
+    );
 
     // Final cycle - subscription ends
     services.get_and_process_cycle_transitions().await.unwrap();

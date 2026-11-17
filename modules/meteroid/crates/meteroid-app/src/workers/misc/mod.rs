@@ -9,7 +9,7 @@ use crate::config::ParsedCron;
 /// Sleep until the next occurrence of a (UTC, wall-clock) cron schedule. Falls
 /// back to a 1-minute sleep if the schedule somehow yields no future time.
 pub async fn sleep_until_next(cron: &Cron) {
-    let now = common_domain::clock::wall();
+    let now = common_clock::wall();
     let dur = cron
         .find_next_occurrence(&now, false)
         .ok()

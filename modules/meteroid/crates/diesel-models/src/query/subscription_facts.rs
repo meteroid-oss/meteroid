@@ -18,6 +18,24 @@ use uuid::Uuid;
 const LIVE_SQL: &str = "('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE', \
      'TRIAL_EXPIRED', 'PAUSED', 'SUSPENDED')";
 
+/// The day a subscription's dated rows are read on, as SQL over `subscription`: today, held
+/// inside its stored period until the renewal advances it (the rows a change wrote for the
+/// period's end are the next period's).
+pub fn read_day_sql(subscription: &str) -> String {
+    let today = common_clock::now().date_naive();
+    format!(
+        "LEAST('{today}'::date, COALESCE({subscription}.current_period_end - 1, '{today}'::date))"
+    )
+}
+
+/// `table`'s rows in force on their subscription's read day.
+pub fn in_force_sql(table: &str, subscription: &str) -> String {
+    let day = read_day_sql(subscription);
+    format!(
+        "({table}.effective_from <= {day} AND ({table}.effective_to IS NULL OR {table}.effective_to > {day}))"
+    )
+}
+
 impl SubscriptionPlanWindowRow {
     /// Earliest first.
     pub async fn list_by_subscription(
@@ -65,10 +83,19 @@ impl SubscriptionPlanWindowRow {
     /// or after it, the new one then opening where it did.
     pub async fn open(
         conn: &mut PgConn,
-        mut window: SubscriptionPlanWindowRowNew,
+        window: SubscriptionPlanWindowRowNew,
     ) -> DbResult<SubscriptionPlanWindowRow> {
+        Ok(Self::open_replacing(conn, window).await?.0)
+    }
+
+    /// [`Self::open`], with the open window it replaced when one started on or after it.
+    pub async fn open_replacing(
+        conn: &mut PgConn,
+        mut window: SubscriptionPlanWindowRowNew,
+    ) -> DbResult<(SubscriptionPlanWindowRow, Option<SubscriptionPlanWindowRow>)> {
         use crate::schema::subscription_plan_window::dsl as w;
 
+        let mut replaced = None;
         if let Some(open) = Self::open_of(conn, window.subscription_id).await? {
             if open.from_date < window.from_date {
                 diesel::update(w::subscription_plan_window)
@@ -86,23 +113,22 @@ impl SubscriptionPlanWindowRow {
                     .attach("Error while replacing a plan window")
                     .into_db_result()?;
                 window.from_date = open.from_date;
+                replaced = Some(open);
             }
         }
 
         let query = diesel::insert_into(w::subscription_plan_window)
-            .values((
-                &window,
-                w::created_at.eq(common_domain::clock::now().naive_utc()),
-            ))
+            .values((&window, w::created_at.eq(common_clock::now().naive_utc())))
             .returning(SubscriptionPlanWindowRow::as_returning());
 
         crate::debug_sql(&query);
 
-        query
+        let opened = query
             .get_result(conn)
             .await
             .attach("Error while opening a plan window")
-            .into_db_result()
+            .into_db_result()?;
+        Ok((opened, replaced))
     }
 
     /// The first windows of subscriptions just inserted.
@@ -115,7 +141,7 @@ impl SubscriptionPlanWindowRow {
         if windows.is_empty() {
             return Ok(());
         }
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
         diesel::insert_into(w::subscription_plan_window)
             .values(
                 windows
@@ -356,7 +382,7 @@ pub(crate) async fn record_scheduled_facts(
             .map(|e| e.id.as_uuid())
             .collect()
     };
-    let now = common_domain::clock::now().naive_utc();
+    let now = common_clock::now().naive_utc();
 
     let cancellations = of(ScheduledEventTypeEnum::CancelSubscription);
     if !cancellations.is_empty() {
@@ -550,23 +576,279 @@ impl crate::subscription_adjustments::SubscriptionAdjustmentComponentRow {
     }
 }
 
+impl crate::subscriptions::SubscriptionRow {
+    /// The reconcile watermark: periods ending by it were settled before billing from facts.
+    pub async fn reconcile_from(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+    ) -> DbResult<Option<NaiveDate>> {
+        use crate::schema::subscription::dsl as s;
+
+        s::subscription
+            .filter(s::id.eq(subscription_id))
+            .select(s::reconcile_from)
+            .first(conn)
+            .await
+            .attach("Error while reading the reconcile watermark")
+            .into_db_result()
+    }
+
+    /// Sets the reconcile watermark.
+    pub async fn set_reconcile_from(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+        from: Option<NaiveDate>,
+    ) -> DbResult<()> {
+        use crate::schema::subscription::dsl as s;
+
+        diesel::update(s::subscription.filter(s::id.eq(subscription_id)))
+            .set(s::reconcile_from.eq(from))
+            .execute(conn)
+            .await
+            .attach("Error while setting the reconcile watermark")
+            .into_db_result()
+            .map(|_| ())
+    }
+}
+
+impl crate::subscriptions::SubscriptionRow {
+    /// When the facts next change the subscription's derived state, as the writer read them.
+    pub async fn set_next_wake_at(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+        at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> DbResult<()> {
+        use crate::schema::subscription::dsl as s;
+
+        diesel::update(s::subscription.filter(s::id.eq(subscription_id)))
+            .set(s::next_wake_at.eq(at))
+            .execute(conn)
+            .await
+            .attach("Error while setting the next wake")
+            .into_db_result()
+            .map(|_| ())
+    }
+
+    /// The customer's live subscriptions whose facts changed their derived state by `now`.
+    pub async fn list_due_derivations(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: common_domain::ids::CustomerId,
+        now: chrono::DateTime<chrono::Utc>,
+        limit: i64,
+    ) -> DbResult<Vec<SubscriptionId>> {
+        use crate::schema::subscription::dsl as s;
+        use diesel::dsl::sql;
+
+        s::subscription
+            .filter(s::tenant_id.eq(tenant_id))
+            .filter(s::customer_id.eq(customer_id))
+            .filter(s::next_wake_at.le(now))
+            .filter(s::lifecycle_suspended.eq(false))
+            .filter(sql::<diesel::sql_types::Bool>(&format!(
+                "status IN {LIVE_SQL}"
+            )))
+            .order_by(s::next_wake_at.asc())
+            .limit(limit)
+            .select(s::id)
+            .load(conn)
+            .await
+            .attach("Error while listing the subscriptions to derive")
+            .into_db_result()
+    }
+}
+
+/// What a scheduled change wrote dated `on`, to withdraw: the rows it opened go, the rows it
+/// closed on `on` reopen, the minimum and trial it changed are restored.
+#[derive(Debug, Clone, Default)]
+pub struct ScheduledRows {
+    pub plan_window: Option<Uuid>,
+    /// The open window `plan_window` replaced on its day, restored in its place.
+    pub replaced_plan_window: Option<SubscriptionPlanWindowRowNew>,
+    pub opened_components: Vec<common_domain::ids::SubscriptionPriceComponentId>,
+    pub closed_components: Vec<common_domain::ids::SubscriptionPriceComponentId>,
+    pub opened_add_ons: Vec<common_domain::ids::SubscriptionAddOnId>,
+    pub closed_add_ons: Vec<common_domain::ids::SubscriptionAddOnId>,
+    pub seat_seeds: Vec<common_domain::ids::SlotTransactionId>,
+    pub minimum: bool,
+    /// The trial's end before the change cut it.
+    pub trial_until: Option<NaiveDate>,
+}
+
+impl ScheduledRows {
+    /// Withdraws the rows of a change still to take effect on `on` (a pending change cancelled or
+    /// replaced, or the rollback of the facts migration).
+    pub async fn withdraw(
+        &self,
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+        on: NaiveDate,
+    ) -> DbResult<()> {
+        let run = |sql: &'static str| {
+            diesel::sql_query(sql)
+                .bind::<SqlUuid, _>(subscription_id)
+                .bind::<Date, _>(on)
+        };
+        if let (Some(window), Some(replaced)) = (self.plan_window, &self.replaced_plan_window) {
+            run("DELETE FROM subscription_plan_window \
+                 WHERE id = $3 AND subscription_id = $1 AND from_date >= $2")
+            .bind::<SqlUuid, _>(window)
+            .execute(conn)
+            .await
+            .attach("Error while withdrawing a plan window")
+            .into_db_result()?;
+            diesel::insert_into(crate::schema::subscription_plan_window::table)
+                .values((
+                    replaced,
+                    crate::schema::subscription_plan_window::created_at
+                        .eq(common_clock::now().naive_utc()),
+                ))
+                .execute(conn)
+                .await
+                .attach("Error while restoring a replaced plan window")
+                .into_db_result()?;
+        } else if let Some(window) = self.plan_window {
+            // One open window at a time: the change's goes before the one it closed reopens.
+            run("WITH gone AS (DELETE FROM subscription_plan_window \
+                               WHERE id = $3 AND subscription_id = $1 AND from_date >= $2 \
+                               RETURNING subscription_id, from_date) \
+                 UPDATE subscription_plan_window p SET to_date = NULL \
+                 FROM gone WHERE p.subscription_id = gone.subscription_id \
+                   AND p.to_date = gone.from_date")
+            .bind::<SqlUuid, _>(window)
+            .execute(conn)
+            .await
+            .attach("Error while withdrawing a plan window")
+            .into_db_result()?;
+        }
+        let ids = |ids: &[Uuid]| ids.to_vec();
+        let opened: Vec<Uuid> = self
+            .opened_components
+            .iter()
+            .map(|id| id.as_uuid())
+            .collect();
+        let closed: Vec<Uuid> = self
+            .closed_components
+            .iter()
+            .map(|id| id.as_uuid())
+            .collect();
+        // R-106: a row an immediate amendment wrote under the change, ended where the change's
+        // row starts, runs on.
+        run("UPDATE subscription_component c SET effective_to = NULL \
+             WHERE c.subscription_id = $1 AND c.effective_to = $2 AND NOT (c.id = ANY($3)) \
+               AND COALESCE(c.lineage_id, c.id) IN \
+                   (SELECT COALESCE(o.lineage_id, o.id) FROM subscription_component o WHERE o.id = ANY($3))")
+        .bind::<Array<SqlUuid>, _>(ids(&opened))
+        .execute(conn)
+        .await
+        .attach("Error while reopening components written under a change")
+        .into_db_result()?;
+        run("DELETE FROM subscription_component \
+             WHERE subscription_id = $1 AND effective_from = $2 AND id = ANY($3)")
+        .bind::<Array<SqlUuid>, _>(ids(&opened))
+        .execute(conn)
+        .await
+        .attach("Error while withdrawing components")
+        .into_db_result()?;
+        run("UPDATE subscription_component SET effective_to = NULL \
+             WHERE subscription_id = $1 AND effective_to = $2 AND id = ANY($3)")
+        .bind::<Array<SqlUuid>, _>(ids(&closed))
+        .execute(conn)
+        .await
+        .attach("Error while reopening components")
+        .into_db_result()?;
+        let opened: Vec<Uuid> = self.opened_add_ons.iter().map(|id| id.as_uuid()).collect();
+        let closed: Vec<Uuid> = self.closed_add_ons.iter().map(|id| id.as_uuid()).collect();
+        // R-106: a row an immediate amendment wrote under the change, ended where the change's
+        // row starts, runs on.
+        run("UPDATE subscription_add_on c SET effective_to = NULL \
+             WHERE c.subscription_id = $1 AND c.effective_to = $2 AND NOT (c.id = ANY($3)) \
+               AND COALESCE(c.lineage_id, c.id) IN \
+                   (SELECT COALESCE(o.lineage_id, o.id) FROM subscription_add_on o WHERE o.id = ANY($3))")
+        .bind::<Array<SqlUuid>, _>(ids(&opened))
+        .execute(conn)
+        .await
+        .attach("Error while reopening add-ons written under a change")
+        .into_db_result()?;
+        run("DELETE FROM subscription_add_on \
+             WHERE subscription_id = $1 AND effective_from = $2 AND id = ANY($3)")
+        .bind::<Array<SqlUuid>, _>(ids(&opened))
+        .execute(conn)
+        .await
+        .attach("Error while withdrawing add-ons")
+        .into_db_result()?;
+        run("UPDATE subscription_add_on SET effective_to = NULL \
+             WHERE subscription_id = $1 AND effective_to = $2 AND id = ANY($3)")
+        .bind::<Array<SqlUuid>, _>(ids(&closed))
+        .execute(conn)
+        .await
+        .attach("Error while reopening add-ons")
+        .into_db_result()?;
+        let seeds: Vec<Uuid> = self.seat_seeds.iter().map(|id| id.as_uuid()).collect();
+        run("DELETE FROM slot_transaction \
+             WHERE subscription_id = $1 AND effective_at = $2::timestamp AND id = ANY($3)")
+        .bind::<Array<SqlUuid>, _>(seeds)
+        .execute(conn)
+        .await
+        .attach("Error while withdrawing seat seeds")
+        .into_db_result()?;
+        if self.minimum {
+            run("DELETE FROM subscription_adjustment_component \
+                 WHERE subscription_id = $1 AND kind = 'MINIMUM' AND effective_from = $2")
+            .execute(conn)
+            .await
+            .attach("Error while withdrawing a minimum's scope")
+            .into_db_result()?;
+            run("DELETE FROM subscription_adjustment \
+                 WHERE subscription_id = $1 AND kind = 'MINIMUM' AND effective_from = $2")
+            .execute(conn)
+            .await
+            .attach("Error while withdrawing a minimum")
+            .into_db_result()?;
+            run("UPDATE subscription_adjustment SET effective_to = NULL \
+                 WHERE subscription_id = $1 AND kind = 'MINIMUM' AND effective_to = $2")
+            .execute(conn)
+            .await
+            .attach("Error while reopening a minimum")
+            .into_db_result()?;
+        }
+        if let Some(until) = self.trial_until {
+            run("UPDATE subscription_trial SET until_date = $3 \
+                 WHERE subscription_id = $1 AND until_date = GREATEST(from_date, $2)")
+            .bind::<Date, _>(until)
+            .execute(conn)
+            .await
+            .attach("Error while restoring a trial")
+            .into_db_result()?;
+        }
+        Ok(())
+    }
+}
+
 impl crate::invoices::InvoiceRow {
-    /// The issued (finalized or uncollectible) invoices of a subscription settling a period from
-    /// `from` on, and the consolidated parents its drafts were merged into.
+    /// The issued (finalized, uncollectible or voided) invoices of a subscription settling a
+    /// period from `from` on, its drafts too when `drafts`, all but `except`, and the consolidated
+    /// parents its drafts were merged into. A voided one forgives what it billed (R-096).
     pub async fn list_issued_of_subscription(
         conn: &mut PgConn,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
         from: NaiveDate,
+        drafts: bool,
+        except: Option<common_domain::ids::InvoiceId>,
     ) -> DbResult<Vec<Self>> {
         use crate::enums::InvoiceStatusEnum;
         use crate::schema::invoice::dsl as i;
         use diesel::NullableExpressionMethods;
 
-        let issued = [
+        let mut issued = vec![
             InvoiceStatusEnum::Finalized,
             InvoiceStatusEnum::Uncollectible,
+            InvoiceStatusEnum::Void,
         ];
+        if drafts {
+            issued.push(InvoiceStatusEnum::Draft);
+        }
         let mut invoices: Vec<Self> = i::invoice
             .filter(i::tenant_id.eq(tenant_id))
             .filter(i::subscription_id.eq(subscription_id))
@@ -603,25 +885,40 @@ impl crate::invoices::InvoiceRow {
                     .into_db_result()?,
             );
         }
+        invoices.retain(|invoice| Some(invoice.id) != except);
         bounded(invoices, "issued invoices")
+    }
+
+    /// The period start of a subscription's latest recurring invoice before `before`, a void one
+    /// included: its period was billed, then given back.
+    pub async fn latest_recurring_period_before(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        before: NaiveDate,
+    ) -> DbResult<Option<NaiveDate>> {
+        use crate::enums::InvoiceType;
+        use crate::schema::invoice::dsl as i;
+        use diesel::dsl::max;
+
+        i::invoice
+            .filter(i::tenant_id.eq(tenant_id))
+            .filter(i::subscription_id.eq(subscription_id))
+            .filter(i::invoice_type.eq(InvoiceType::Recurring))
+            .filter(i::billing_period_start.lt(before))
+            .select(max(i::billing_period_start))
+            .first(conn)
+            .await
+            .attach("Error while finding the latest recurring invoice")
+            .into_db_result()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    /// Listings of current fee rows still reading "not ended" without a date; each takes `as_of`
-    /// once future-dated rows exist. A new listing takes it from the start.
-    const UNDATED: &[&str] = &[
-        "close_incompatible",
-        "close_addons",
-        "close_components",
-        "list_active_add_on_ids",
-        "list_active_product_ids",
-        "list_subscription_components_by_subscriptions",
-        "list_by_product_id",
-        "count_active_subscriptions_by_product_id",
-        "list_product_ids",
-    ];
+    /// Writers closing the rows still open; every listing of current fee rows takes a date, as
+    /// future-dated rows exist (a scheduled change's).
+    const UNDATED: &[&str] = &["close_incompatible", "close_addons", "close_components"];
 
     fn undated_listings(source: &str) -> Vec<String> {
         source

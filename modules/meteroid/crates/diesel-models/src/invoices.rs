@@ -163,6 +163,7 @@ pub struct InvoiceRowLinesPatch {
     pub line_items: serde_json::Value,
     pub amount_due: i64,
     pub subtotal: i64,
+    pub discount: i64,
     pub subtotal_recurring: i64,
     pub total: i64,
     pub tax_amount: i64,

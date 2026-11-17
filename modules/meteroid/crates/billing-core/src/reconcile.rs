@@ -2,7 +2,7 @@
 //! (R-079, R-080).
 
 use chrono::NaiveDate;
-use uuid::Uuid;
+use common_domain::ids::SubscriptionId;
 
 use rust_decimal::Decimal;
 
@@ -10,6 +10,7 @@ use crate::DayFraction;
 use crate::allocation::largest_remainder;
 use crate::charge::{ChargeKey, ChargeKind, Denomination, Fee};
 use crate::issued::IssuedLine;
+use crate::proration::DaySpan;
 
 /// A fee's price in force over `[from, until)`, within the period `period` it bills on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,9 +28,12 @@ impl Term {
     /// what is left at `until`, each rounded once, so the terms tiling a period add up to the
     /// price exactly (R-079).
     pub fn amount(&self) -> i64 {
-        let (start, end) = self.period;
-        let left = |at: NaiveDate| DayFraction::remaining(start, end, at).prorate(self.full);
-        left(self.from.clamp(start, end)) - left(self.until.clamp(start, end))
+        DaySpan {
+            period: self.period,
+            from: self.from,
+            until: self.until,
+        }
+        .prorate(self.full)
     }
 }
 
@@ -41,7 +45,7 @@ pub struct Expected {
 }
 
 /// The charges `terms` add up to, one per fee and period.
-pub fn expected(subscription: Option<Uuid>, terms: &[Term]) -> Vec<Expected> {
+pub fn expected(subscription: Option<SubscriptionId>, terms: &[Term]) -> Vec<Expected> {
     let mut charges: Vec<Expected> = Vec::new();
     for term in terms {
         let key = ChargeKey {
@@ -83,25 +87,14 @@ pub enum TakeBack {
     Unused(NaiveDate),
 }
 
-/// Whether an issued line billed the charge `key`: the same subscription, fee, kind and
-/// denomination, over part of the key's period. A line of no days (an ending's usage on its day,
-/// R-016) bills only the key of that day, never the period ending on it.
-fn billed_by(line: &IssuedLine, key: &ChargeKey) -> bool {
-    line.key.subscription == key.subscription
-        && line.key.fee == key.fee
-        && line.key.kind == key.kind
-        && line.key.denomination == key.denomination
-        && key.from <= line.from
-        && line.until <= key.until
-        && (line.from < line.until || key.from == key.until)
-}
-
 /// For each expected charge, the difference between what it should have billed and what its
 /// lines still bill: billed when positive, taken back from its lines as `take_back` says when
 /// negative, never more than a line has left after all its notes (R-080). What it billed counts
 /// the engine's corrections, not an operator's notes, which are never billed again (R-082).
 /// Amounts are in the figures prices are in: a tax-inclusive line is read at its quote (R-081).
-/// Charges not in `expected` are left alone.
+/// Charges not in `expected` are left alone. A voided line counts as billed, never billed again;
+/// what is owed back is taken as if it stood, and what falls on it is forgiven with its document,
+/// so live lines give back only their own share (R-096).
 pub fn reconcile(
     expected: &[Expected],
     issued: &[IssuedLine],
@@ -111,7 +104,7 @@ pub fn reconcile(
     for charge in expected {
         let mut lines: Vec<&IssuedLine> = issued
             .iter()
-            .filter(|line| billed_by(line, &charge.key))
+            .filter(|line| line.bills(&charge.key))
             .collect();
         let billed: i64 = lines
             .iter()
@@ -126,9 +119,18 @@ pub fn reconcile(
             continue;
         }
         lines.sort_by(|a, b| b.from.cmp(&a.from).then_with(|| b.id.cmp(&a.id)));
+        // A voided line gives back as if it stood, its void's own note aside; what falls on it
+        // is forgiven with it, owed back to no one.
         let left: Vec<i64> = lines
             .iter()
-            .map(|line| line.quoted_of((line.subtotal - line.already_credited).max(0)))
+            .map(|line| {
+                let credited = if line.voided {
+                    line.corrected
+                } else {
+                    line.already_credited
+                };
+                line.quoted_of((line.subtotal - credited).max(0))
+            })
             .collect();
         let mut owed = -delta;
         let mut taken = vec![0; lines.len()];
@@ -163,7 +165,7 @@ pub fn reconcile(
             owed -= more;
         }
         for (line, amount) in lines.iter().zip(taken) {
-            if amount > 0 {
+            if amount > 0 && !line.voided {
                 adjustments.push(Adjustment::Credit {
                     line: line.id.clone(),
                     amount,
@@ -206,6 +208,7 @@ mod tests {
     use super::*;
     use crate::issued::IssuedKind;
     use proptest::prelude::*;
+    use uuid::Uuid;
 
     fn day(d: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(2024, 1, 1).unwrap() + chrono::Days::new(u64::from(d))
@@ -217,7 +220,7 @@ mod tests {
 
     fn term(full: i64, from: u32, until: u32) -> Term {
         Term {
-            fee: Fee::Component(Uuid::from_u128(1)),
+            fee: Fee::Component(Uuid::from_u128(1).into()),
             full,
             period: period(),
             from: day(from),
@@ -246,6 +249,7 @@ mod tests {
             already_credited: 0,
             corrected: 0,
             settled: None,
+            voided: false,
         }
     }
 
@@ -319,11 +323,11 @@ mod tests {
     fn a_line_of_no_days_bills_only_the_key_of_its_day() {
         let key = |from: u32, until: u32| ChargeKey {
             subscription: None,
-            fee: Fee::Component(Uuid::from_u128(1)),
+            fee: Fee::Component(Uuid::from_u128(1).into()),
             from: day(from),
             until: day(until),
             kind: ChargeKind::Usage {
-                metric: Uuid::from_u128(3),
+                metric: Uuid::from_u128(3).into(),
                 dimensions: std::collections::BTreeMap::new(),
             },
             denomination: Denomination::Money,
@@ -349,6 +353,109 @@ mod tests {
                 amount: 100
             }]
         );
+    }
+
+    /// January at 31.00, its line voided. Owed whole or cut to 16 of 31 days (3100 × 16/31 = 1600),
+    /// the void forgave it all: nothing billed, nothing taken back, nothing owed back.
+    /// Rules: R-096
+    #[test]
+    fn a_void_forgives_what_its_line_billed() {
+        let whole = expected(None, &[term(3_100, 0, 31)]);
+        let voided = IssuedLine {
+            voided: true,
+            ..issued("voided", &whole[0].key, 0, 3_100)
+        };
+        assert!(reconcile(&whole, std::slice::from_ref(&voided), TakeBack::LatestFirst).is_empty());
+        let cut = expected(None, &[term(3_100, 0, 16)]);
+        assert_eq!(cut[0].amount, 1_600);
+        assert!(
+            reconcile(
+                &cut,
+                std::slice::from_ref(&voided),
+                TakeBack::Unused(day(16))
+            )
+            .is_empty()
+        );
+    }
+
+    /// Ten seats for 31.00 voided, five more for the 15 days from day 16: the step adds
+    /// 1550 × 15/31 = 750, which no void forgave: billed, never the voided 3100 again.
+    /// Rules: R-096
+    #[test]
+    fn a_void_forgives_only_what_its_line_billed() {
+        let owed = expected(None, &[term(3_100, 0, 16), term(4_650, 16, 31)]);
+        assert_eq!(owed[0].amount, 3_100 + 750);
+        let voided = IssuedLine {
+            voided: true,
+            ..issued("voided", &owed[0].key, 0, 3_100)
+        };
+        assert_eq!(
+            reconcile(&owed, std::slice::from_ref(&voided), TakeBack::LatestFirst),
+            vec![Adjustment::Bill {
+                key: owed[0].key.clone(),
+                amount: 750
+            }]
+        );
+    }
+
+    /// A voided 31.00 and a live 10.00 on one charge owing 31.00: the void forgave the 31.00, so
+    /// the live line billed 10.00 too many and gives it back; owing 41.00, both stand. Owing
+    /// 16.00 after an ending, only the live 10.00 can be given back: no more is owed back.
+    /// Rules: R-096
+    #[test]
+    fn a_voided_line_counts_as_billed_and_only_live_lines_give_back() {
+        let whole = expected(None, &[term(3_100, 0, 31)]);
+        let voided = IssuedLine {
+            voided: true,
+            ..issued("voided", &whole[0].key, 0, 3_100)
+        };
+        let live = issued("live", &whole[0].key, 10, 1_000);
+        let lines = [voided, live];
+        assert_eq!(
+            reconcile(&whole, &lines, TakeBack::LatestFirst),
+            vec![Adjustment::Credit {
+                line: "live".to_owned(),
+                amount: 1_000
+            }]
+        );
+        let more = expected(None, &[term(4_100, 0, 31)]);
+        assert!(reconcile(&more, &lines, TakeBack::LatestFirst).is_empty());
+        let cut = expected(None, &[term(3_100, 0, 16)]);
+        assert_eq!(
+            reconcile(&cut, &lines, TakeBack::Unused(day(16))),
+            vec![Adjustment::Credit {
+                line: "live".to_owned(),
+                amount: 1_000
+            }]
+        );
+    }
+
+    /// Ten seats for 31.00 voided, five more from day 10 live (1050), ended on day 16: the void
+    /// forgives its own seats (1500 unused), the step gives back its own 15 of 21 days, 750,
+    /// whether or not the void's own note credits its whole invoice.
+    /// Rules: R-096
+    #[test]
+    fn a_void_forgives_only_its_own_document_when_the_charge_is_cut() {
+        let owed = expected(None, &[term(3_100, 0, 10), term(4_650, 10, 16)]);
+        assert_eq!(owed[0].amount, 1_900);
+        let voided = IssuedLine {
+            voided: true,
+            ..issued("voided", &owed[0].key, 0, 3_100)
+        };
+        let step = issued("step", &owed[0].key, 10, 1_050);
+        let credited = IssuedLine {
+            already_credited: 3_100,
+            ..voided.clone()
+        };
+        for voided in [voided, credited] {
+            assert_eq!(
+                reconcile(&owed, &[voided, step.clone()], TakeBack::Unused(day(16))),
+                vec![Adjustment::Credit {
+                    line: "step".to_owned(),
+                    amount: 750
+                }]
+            );
+        }
     }
 
     /// 10 seats billed for 310.00 on day 0, 10 more on day 10 for 210.00 (21 of 31 days), all

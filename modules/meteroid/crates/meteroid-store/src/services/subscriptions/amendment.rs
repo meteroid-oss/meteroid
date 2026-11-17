@@ -33,7 +33,7 @@ use crate::repositories::entity_activity::EntityActivityInterface;
 use crate::repositories::price_components::resolve_component_internal;
 use crate::repositories::subscriptions::fetch_prices_and_products;
 use crate::services::Services;
-use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
+use crate::services::evaluate::change::{Change, GiveBack};
 use crate::services::subscriptions::insert::context::resolve_fee_read_only;
 use crate::services::subscriptions::plan_change::calculate_components_mrr_with_slots;
 use crate::services::subscriptions::utils::{
@@ -42,8 +42,8 @@ use crate::services::subscriptions::utils::{
 use crate::store::PgConn;
 use chrono::{NaiveDate, NaiveTime};
 use common_domain::ids::{
-    AddOnId, BaseId, CreditNoteId, InvoiceId, PriceComponentId, PriceId, ProductId,
-    SubscriptionAddOnId, SubscriptionId, SubscriptionPriceComponentId, TenantId,
+    AddOnId, BaseId, InvoiceId, PriceComponentId, PriceId, ProductId, SubscriptionAddOnId,
+    SubscriptionId, SubscriptionPriceComponentId, TenantId,
 };
 use common_utils::decimals::ToSubunit;
 use diesel_models::credit_notes::CreditNoteRow;
@@ -159,33 +159,37 @@ impl Services {
                 .current_period_end
                 .unwrap_or(period_start);
 
-            // Proration (immediate only) — drives both the summary and the adjustment invoice.
-            let (proration_result, cadence) = if is_immediate {
-                let (result, cadence) = prorate_amendment(
+            // The period an immediate amendment lands in, on the cadence it leaves; its amounts
+            // are the facts' (below), the period and the deferred arrears are shown with them.
+            let (cadence, grid) = if is_immediate {
+                let cadence = crate::services::subscriptions::cadence::cadence_after_change(
                     &mut conn,
                     &sub_details,
-                    &resolved,
-                    (&added, &removed),
-                    (effective_date, period_end),
-                    precision,
+                    &cadences_after(&sub_details, &resolved),
+                    effective_date,
                 )
                 .await?;
-                (Some(result), cadence)
+                let grid = amendment_grid(
+                    &mut conn,
+                    &sub_details.subscription,
+                    cadence.as_ref(),
+                    period_end,
+                    effective_date,
+                )
+                .await?;
+                (cadence, Some(grid))
             } else {
                 (None, None)
             };
 
-            let proration = proration_result.as_ref().map(|result| {
-                let (period_start, period_end) = (result.period_start, result.period_end);
+            let proration = grid.map(|grid| {
+                let (period_start, period_end, factor) = grid.billed(effective_date);
                 let days_in_period = (period_end - period_start).num_days().max(0) as u32;
                 let days_remaining = (period_end - effective_date).num_days().max(0) as u32;
 
                 // Arrears components added by this amendment are NOT billed on the
                 // immediate adjustment invoice — they land prorated on the next
-                // renewal invoice. Track them separately so charges/net match the
-                // adjustment invoice, while the UI can still surface the deferred
-                // amount. Genuine adds only (`net_key.is_none()`); overrides keep
-                // their existing handling via the credit/charge netting path.
+                // renewal invoice. Tracked apart so the UI can surface the deferred amount.
                 let arrears_charge_cents = {
                     use crate::domain::enums::BillingType;
                     let full_arrears: i64 = added
@@ -193,50 +197,29 @@ impl Services {
                         .filter(|a| a.net_key.is_none())
                         .map(|a| {
                             match &a.fee {
-                        crate::domain::subscription_components::SubscriptionFee::Recurring {
-                            rate,
-                            quantity,
-                            billing_type: BillingType::Arrears,
-                        } => {
-                            let total = *rate * rust_decimal::Decimal::from(*quantity);
-                            total.to_subunit_opt(precision).unwrap_or(0)
+                            crate::domain::subscription_components::SubscriptionFee::Recurring {
+                                rate,
+                                quantity,
+                                billing_type: BillingType::Arrears,
+                            } => {
+                                let total = *rate * rust_decimal::Decimal::from(*quantity);
+                                total.to_subunit_opt(precision).unwrap_or(0)
+                            }
+                            _ => 0,
                         }
-                        _ => 0,
-                    }
                         })
                         .sum();
-                    crate::services::subscriptions::proration::DayFraction::remaining(
-                        period_start,
-                        period_end,
-                        effective_date,
-                    )
-                    .prorate(full_arrears)
+                    grid.left(grid.current, effective_date)
+                        .prorate(full_arrears)
                 };
 
                 ProrationSummary {
-                    credits_total_cents: result
-                        .lines
-                        .iter()
-                        .filter(|l| l.is_credit)
-                        .map(|l| l.amount_cents)
-                        .sum(),
-                    charges_total_cents: result
-                        .lines
-                        .iter()
-                        .filter(|l| !l.is_credit)
-                        .map(|l| l.amount_cents)
-                        .sum::<i64>(),
-                    net_amount_cents: result.net_amount_cents,
-                    // What would actually be credited (post-netting): an override's credit
-                    // is netted into its charge, so an upgrade contributes nothing here.
-                    net_credit_cents:
-                        crate::services::subscriptions::proration::net_override_lines(&result.lines)
-                            .iter()
-                            .filter(|l| l.amount_cents < 0)
-                            .map(|l| l.amount_cents)
-                            .sum(),
+                    credits_total_cents: 0,
+                    charges_total_cents: 0,
+                    net_amount_cents: 0,
+                    net_credit_cents: 0,
                     arrears_charge_cents,
-                    proration_factor: result.proration_factor,
+                    proration_factor: factor.as_f64(),
                     days_remaining,
                     days_in_period,
                     pack_changes: Vec::new(),
@@ -313,112 +296,63 @@ impl Services {
                 + subscription_mrr(&after_lines, minimum, period, rate_after)
                 - subscription_mrr(&before_lines, minimum, period, rate);
 
-            // Adjustment invoice (immediate, non-trial): the charge side of the netted
-            // proration, taxed — the same content the apply path issues.
-            let adjustment_invoice = match (proration_result.as_ref(), is_free_trial(&sub_details))
-            {
-                (Some(result), false) => {
-                    let charge_lines: Vec<_> =
-                        crate::services::subscriptions::proration::net_override_lines(
-                            &result.lines,
-                        )
-                        .into_iter()
-                        .filter(|l| l.amount_cents > 0)
-                        .collect();
-                    if charge_lines.is_empty() {
-                        None
-                    } else {
-                        let charge_proration =
-                            crate::domain::subscription_changes::ProrationResult {
-                                net_amount_cents: charge_lines.iter().map(|l| l.amount_cents).sum(),
-                                lines: charge_lines,
-                                change_date: effective_date,
-                                period_start: result.period_start,
-                                period_end: result.period_end,
-                                proration_factor: result.proration_factor,
-                            };
-                        Some(
-                            self.compute_adjustment_invoice_content(
-                                &mut conn,
-                                tenant_id,
-                                &sub_details.subscription,
-                                &sub_details.customer,
-                                &charge_proration,
-                            )
-                            .await?
-                            .computed,
-                        )
-                    }
-                }
-                _ => None,
-            };
-
-            // Credit note (immediate, non-trial): what reconcile takes back of the period's
-            // lines, as the apply path issues it.
-            let credit_note = match (proration_result.as_ref(), is_free_trial(&sub_details)) {
-                (Some(_), false) => {
-                    let grid = crate::services::subscriptions::proration::own_period(
-                        amendment_grid(
-                            &mut conn,
-                            &sub_details.subscription,
-                            cadence.as_ref(),
-                            period_end,
-                            effective_date,
-                        )
-                        .await?,
-                        effective_date,
-                    );
-                    let change = crate::services::subscriptions::fee_terms::AmendmentChange {
-                        details: &sub_details,
-                        added: &added,
-                        removed: &removed,
-                        change: effective_date,
-                        own_period: &grid,
-                        precision,
-                    };
-                    self.compute_amendment_credit_note_preview(
+            // The amendment's rows laid over the facts at its date, billed as applying it bills:
+            // its adjustment invoice, its credit notes and the renewal after it. Nothing written.
+            let event = crate::services::evaluate::preview::change_event(
+                tenant_id,
+                subscription_id,
+                effective_date,
+                ScheduledEventData::ApplyAmendment {
+                    component_close: resolved.component_close.clone(),
+                    component_insert: resolved
+                        .component_inserts
+                        .iter()
+                        .map(previewed_component)
+                        .collect(),
+                    addon_close: resolved.addon_close.clone(),
+                    addon_insert: resolved
+                        .addon_inserts
+                        .iter()
+                        .map(previewed_add_on)
+                        .collect(),
+                },
+            );
+            let overlay = self.overlay_of_change(&mut conn, &event).await?;
+            let documents = match (is_immediate, is_free_trial(&sub_details)) {
+                (true, false) => Some(
+                    self.preview_change_documents(
                         &mut conn,
-                        tenant_id,
-                        (period_start, period_end),
-                        &change,
-                        precision,
+                        &sub_details,
+                        &overlay,
+                        Change::of_rows(effective_date, GiveBack::LatestFirst, "amendment")
+                            .without_packs(),
+                        Vec::new(),
                     )
-                    .await?
-                }
+                    .await?,
+                ),
                 _ => None,
             };
+            let proration = proration.map(|summary| match &documents {
+                Some(documents) => ProrationSummary {
+                    credits_total_cents: -documents.credited,
+                    charges_total_cents: documents.charged,
+                    net_amount_cents: documents.charged - documents.credited,
+                    net_credit_cents: -documents.credited,
+                    ..summary
+                },
+                None => summary,
+            });
+            let adjustment_invoice = documents
+                .as_ref()
+                .and_then(|documents| documents.adjustment.clone());
+            let credit_note = documents
+                .as_ref()
+                .and_then(|documents| documents.credit_note.clone());
 
-            // Next renewal invoice under the amended subscription: simulate the
-            // post-amendment component/add-on set in memory and compute the upcoming
-            // invoice. Best-effort — a preview should never fail the whole request.
+            // The renewal under the amended subscription. Best-effort: a preview never fails on it.
             let (next_invoice, subscription_after) = {
-                let mut hypothetical = sub_details.clone();
-                let closed_components: std::collections::HashSet<_> =
-                    resolved.component_close.iter().copied().collect();
-                hypothetical
-                    .price_components
-                    .retain(|c| !closed_components.contains(&c.id));
-                for insert in &resolved.component_inserts {
-                    hypothetical
-                        .price_components
-                        .push(pending_component_to_subscription(
-                            insert,
-                            subscription_id,
-                            effective_date,
-                        ));
-                }
-                let closed_addons: std::collections::HashSet<_> =
-                    resolved.addon_close.iter().copied().collect();
-                hypothetical
-                    .add_ons
-                    .retain(|a| !closed_addons.contains(&a.id));
-                for insert in &resolved.addon_inserts {
-                    hypothetical.add_ons.push(pending_addon_to_subscription(
-                        insert,
-                        subscription_id,
-                        effective_date,
-                    ));
-                }
+                let mut hypothetical =
+                    crate::services::evaluate::preview::details_after(&sub_details, &overlay)?;
                 if let Some(cadence) = &cadence {
                     let sub = &mut hypothetical.subscription;
                     sub.period = cadence.period;
@@ -430,7 +364,7 @@ impl Services {
                     sub.cycle_index = Some(cadence.cycle_index);
                 }
                 let invoice = self
-                    .compute_upcoming_invoice(&mut conn, &hypothetical)
+                    .preview_next_invoice(&mut conn, &hypothetical, &overlay, None)
                     .await
                     .ok();
                 (invoice, hypothetical.subscription)
@@ -472,7 +406,7 @@ impl Services {
         tenant_id: TenantId,
         amendment: SubscriptionAmendment,
     ) -> StoreResult<ImmediateAmendmentResult> {
-        let today = common_domain::clock::now().naive_utc().date();
+        let today = common_clock::now().naive_utc().date();
         self.apply_amendment_immediate_at(actor, subscription_id, tenant_id, amendment, today)
             .await
     }
@@ -507,6 +441,7 @@ impl Services {
                     .await?;
 
                 validate_subscription_for_amendment(&sub_details.subscription.status)?;
+                // R-106: a scheduled amendment stands, this one written under it.
                 reject_if_plan_change_pending(conn, subscription_id, tenant_id).await?;
 
                 let period_start = sub_details.subscription.current_period_start;
@@ -534,52 +469,7 @@ impl Services {
                 let removed = resolved.preview.all_removed();
                 ensure_immediate_amendment_allowed(&sub_details, &added, &removed, precision)?;
 
-                let (proration, cadence) = prorate_amendment(
-                    conn,
-                    &sub_details,
-                    &resolved,
-                    (&added, &removed),
-                    (change_date, period_end),
-                    precision,
-                )
-                .await?;
-
                 let is_free_trial = is_free_trial(&sub_details);
-                let grid = crate::services::subscriptions::proration::own_period(
-                    amendment_grid(
-                        conn,
-                        &sub_details.subscription,
-                        cadence.as_ref(),
-                        period_end,
-                        change_date,
-                    )
-                    .await?,
-                    change_date,
-                );
-                let change = crate::services::subscriptions::fee_terms::AmendmentChange {
-                    details: &sub_details,
-                    added: &added,
-                    removed: &removed,
-                    change: change_date,
-                    own_period: &grid,
-                    precision,
-                };
-
-                // The charges of the netted proration go on an adjustment invoice; what
-                // reconcile takes back of the period's lines on credit notes against them.
-                let (adjustment_invoice_id, credit_note_ids) = services
-                    .settle_immediate_proration(
-                        conn,
-                        actor,
-                        tenant_id,
-                        &sub_details.customer,
-                        (period_start, period_end),
-                        &proration,
-                        &change,
-                        is_free_trial,
-                        "Subscription amendment",
-                    )
-                    .await?;
 
                 let (component_inserts, addon_inserts) = materialize_inserts(
                     conn,
@@ -600,10 +490,42 @@ impl Services {
                         &component_inserts,
                         &resolved.addon_close,
                         &addon_inserts,
-                        sub_details.subscription.mrr_cents as i64,
-                        precision,
+                        !is_free_trial,
                     )
                     .await?;
+
+                // What the rows just written owe goes on an adjustment invoice; what reconcile
+                // takes back of the lines billing them, latest first, on notes (R-078, R-080).
+                let (adjustment_invoice_id, credit_note_ids) = if is_free_trial {
+                    (None, vec![])
+                } else {
+                    services
+                        .settle_change_tx(
+                            conn,
+                            actor,
+                            &sub_details.subscription,
+                            &sub_details.customer,
+                            &Change::of_rows(change_date, GiveBack::LatestFirst, "amendment")
+                                .without_packs(),
+                            "Subscription amendment",
+                            crate::domain::enums::CreditNoteOrigin::Amendment,
+                        )
+                        .await?
+                };
+                if !credit_note_ids.is_empty() {
+                    diesel_models::subscription_events::SubscriptionEventRow::record_ending_notes(
+                        conn,
+                        diesel_models::subscription_events::SettlingEnding::PlanChange,
+                        subscription_id,
+                        change_date,
+                        &credit_note_ids
+                            .iter()
+                            .map(|id| id.as_uuid())
+                            .collect::<Vec<_>>(),
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                }
 
                 let activity = Activity::new(
                     ActivityType::SubscriptionAmended,
@@ -631,103 +553,6 @@ impl Services {
                 })
             }
             .scope_boxed()
-        })
-        .await
-    }
-
-    /// Settle the financial side of an immediate, mid-period amendment in the EU-correct way.
-    ///
-    /// The positive lines of the netted proration are *charges* that go onto a finalized
-    /// adjustment invoice; what reconcile takes back of the period's lines (read before that
-    /// invoice bills the change) becomes real credit notes against the invoice(s) that billed
-    /// them (`CreditToBalance` when paid or a payment is in flight, otherwise
-    /// `DebtCancellation`). This avoids mixing a gross charge and an untaxed credit on a single
-    /// document. Free trials settle nothing (no money has changed hands yet). Returns the
-    /// adjustment invoice id (if any charges) and the issued credit note ids (if any credits).
-    #[allow(clippy::too_many_arguments)]
-    pub(in crate::services) async fn settle_immediate_proration(
-        &self,
-        conn: &mut PgConn,
-        actor: &Actor,
-        tenant_id: TenantId,
-        customer: &crate::domain::Customer,
-        (period_start, period_end): (NaiveDate, NaiveDate),
-        proration: &crate::domain::subscription_changes::ProrationResult,
-        change: &crate::services::subscriptions::fee_terms::AmendmentChange<'_>,
-        is_free_trial: bool,
-        reason: &str,
-    ) -> StoreResult<(Option<InvoiceId>, Vec<CreditNoteId>)> {
-        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
-        Box::pin(async move {
-            if is_free_trial {
-                return Ok((None, vec![]));
-            }
-            let subscription = &change.details.subscription;
-            let ctx = gather_period_credit_context(
-                conn,
-                tenant_id,
-                subscription.id,
-                period_start,
-                period_end,
-            )
-            .await?;
-            let credits = change.credits(conn, &ctx).await?;
-
-            let charge_lines: Vec<_> =
-                crate::services::subscriptions::proration::net_override_lines(&proration.lines)
-                    .into_iter()
-                    .filter(|l| l.amount_cents > 0)
-                    .collect();
-            let adjustment_invoice_id = if !charge_lines.is_empty() {
-                let charge_proration = crate::domain::subscription_changes::ProrationResult {
-                    net_amount_cents: charge_lines.iter().map(|l| l.amount_cents).sum(),
-                    lines: charge_lines,
-                    change_date: proration.change_date,
-                    period_start,
-                    period_end,
-                    proration_factor: proration.proration_factor,
-                };
-                let invoice = self
-                    .create_adjustment_invoice(
-                        conn,
-                        tenant_id,
-                        subscription,
-                        customer,
-                        &charge_proration,
-                    )
-                    .await?;
-                if let Some(inv) = &invoice {
-                    self.finalize_invoice_tx(conn, actor, inv.id, tenant_id, false, &None)
-                        .await?;
-                }
-                invoice.map(|inv| inv.id)
-            } else {
-                None
-            };
-
-            let credit_note_ids = self
-                .issue_period_credit_notes_tx(
-                    conn,
-                    actor,
-                    tenant_id,
-                    &ctx,
-                    credits,
-                    reason,
-                    false,
-                    Some(
-                        proration
-                            .change_date
-                            .and_time(chrono::NaiveTime::MIN)
-                            .and_utc(),
-                    ),
-                    crate::domain::enums::CreditNoteOrigin::Amendment,
-                )
-                .await?
-                .into_iter()
-                .map(|note| note.id)
-                .collect();
-
-            Ok((adjustment_invoice_id, credit_note_ids))
         })
         .await
     }
@@ -794,10 +619,13 @@ impl Services {
                 // owes it and the credit nets against it — no money is lost either way.)
                 // Nothing left to collect because credit paid it is paid too, whether or not the
                 // invoice was marked paid yet.
+                // Partly settled by credit or cash, the note may exceed what is still due: to the
+                // balance, which cancels the debt left first (I17).
                 let collected_or_in_flight = matches!(
                     invoice.payment_status,
                     InvoicePaymentStatus::Paid | InvoicePaymentStatus::PartiallyPaid
                 ) || invoice.amount_due <= 0
+                    || invoice.amount_due < invoice.total
                     || crate::repositories::credit_notes::invoice_payment_in_flight(
                         conn, tenant_id, invoice,
                     )
@@ -845,117 +673,6 @@ impl Services {
             Ok(created)
         })
         .await
-    }
-
-    /// Read-only preview of the credit note(s) that `settle_immediate_proration`
-    /// would issue: what reconcile takes back of each originally-billed line (across the
-    /// recurring invoice and any in-period adjustment invoices), with its VAT
-    /// reversed proportionally. Returns the negative-amount lines (a credit) as a
-    /// single combined `ComputedInvoiceContent` so it renders with the same card as
-    /// the adjustment invoice. `None` when there is nothing to credit.
-    async fn compute_amendment_credit_note_preview(
-        &self,
-        conn: &mut PgConn,
-        tenant_id: TenantId,
-        (period_start, period_end): (NaiveDate, NaiveDate),
-        change: &crate::services::subscriptions::fee_terms::AmendmentChange<'_>,
-        precision: u8,
-    ) -> StoreResult<Option<ComputedInvoiceContent>> {
-        let ctx = gather_period_credit_context(
-            conn,
-            tenant_id,
-            change.details.subscription.id,
-            period_start,
-            period_end,
-        )
-        .await?;
-        if ctx.invoices.is_empty() {
-            return Ok(None);
-        }
-
-        // Which original lines get credited, and for what: the same reconcile the change runs.
-        let credits = change.credits(conn, &ctx).await?;
-        if credits.is_empty() {
-            return Ok(None);
-        }
-
-        let line_by_id: HashMap<&str, &LineItem> = ctx
-            .all_lines
-            .iter()
-            .map(|l| (l.local_id.as_str(), l))
-            .collect();
-
-        // Each credit as the issued note resolves it, so the preview nets the discount and
-        // promotional credit the line took, and the tax it bore, exactly as the note does.
-        let mut credited = Vec::new();
-        for ci in &credits {
-            let Some(orig) = line_by_id.get(ci.local_id()).copied() else {
-                continue;
-            };
-            let already = ctx
-                .already_credited
-                .get(&orig.local_id)
-                .copied()
-                .unwrap_or(0);
-            let remaining = (orig.amount_subtotal - already).max(0);
-            // Resolved as the issued note resolves it, refusing what it would refuse.
-            let amount = match ci {
-                CreditLineItem::Line { quantity, .. } => {
-                    if let Some(credit) = &orig.credit_unit {
-                        return Err(Report::new(StoreError::InvalidArgument(format!(
-                            "Line item '{}' is priced in {}: credit its money overage by amount; credits come back by voiding the invoice or a manual grant",
-                            orig.local_id, credit.code
-                        ))));
-                    }
-                    let amount = (orig.unit_price.unwrap_or(Decimal::ZERO) * *quantity)
-                        .to_subunit_opt(precision)
-                        .unwrap_or(0);
-                    if amount > remaining {
-                        return Err(Report::new(StoreError::InvalidArgument(format!(
-                            "Credit amount {} for line item '{}' exceeds remaining {}",
-                            amount, orig.local_id, remaining
-                        ))));
-                    }
-                    amount
-                }
-                CreditLineItem::Amount { amount_cents, .. } => (*amount_cents).min(remaining),
-                CreditLineItem::SubLines { .. } => continue,
-            };
-            if amount > 0 {
-                credited.push((orig.local_id.clone(), amount));
-            }
-        }
-        let lines = crate::repositories::credit_notes::credited_lines(
-            &ctx.all_lines,
-            &credited,
-            &ctx.already_credited,
-            &ctx.returned,
-            precision,
-        );
-        if lines.is_empty() {
-            return Ok(None);
-        }
-
-        let promotional_credits = crate::services::credit::promotional::net_total(&lines)?;
-        let discount = lines
-            .iter()
-            .map(|l| l.amount_subtotal - l.taxable_amount)
-            .sum::<i64>()
-            - promotional_credits;
-        let totals = crate::services::invoice_lines::invoice_lines::totals_of(&lines, discount);
-        // The note states the tax position of the invoices it corrects, in their words.
-        let mut tax_breakdown = crate::repositories::invoices::compute_tax_breakdown(&lines);
-        crate::repositories::invoices::carry_over_tax_findings(
-            &ctx.invoices
-                .iter()
-                .flat_map(|invoice| invoice.tax_breakdown.iter().cloned())
-                .collect::<Vec<_>>(),
-            &mut tax_breakdown,
-        );
-        Ok(Some(ComputedInvoiceContent {
-            amount_due: 0,
-            ..ComputedInvoiceContent::of(lines, totals, vec![], tax_breakdown, 0, 0)
-        }))
     }
 
     pub(in crate::services) async fn schedule_amendment(
@@ -1018,30 +735,33 @@ impl Services {
                         None,
                     );
 
-                    let events = self
-                        .store
-                        .schedule_events(
-                            conn,
-                            vec![ScheduledEventNew {
-                                subscription_id,
-                                tenant_id,
-                                scheduled_time: effective_date.and_time(NaiveTime::MIN),
-                                event_data: ScheduledEventData::ApplyAmendment {
-                                    component_close: resolved.component_close,
-                                    component_insert: component_inserts,
-                                    addon_close: resolved.addon_close,
-                                    addon_insert: addon_inserts,
-                                },
-                                source: "api".to_string(),
-                                created_by: actor.clone(),
-                            }],
-                        )
-                        .await?;
-
-                    let event = events
-                        .into_iter()
-                        .next()
-                        .ok_or_else(|| Report::new(StoreError::InsertError))?;
+                    // Written as facts now, the amendment's rows dated from the period's end.
+                    let event = crate::services::facts::pending::schedule_as_facts_tx(
+                        &self.store,
+                        conn,
+                        ScheduledEventNew {
+                            subscription_id,
+                            tenant_id,
+                            scheduled_time: effective_date.and_time(NaiveTime::MIN),
+                            event_data: ScheduledEventData::ApplyAmendment {
+                                component_close: resolved.component_close,
+                                component_insert: component_inserts,
+                                addon_close: resolved.addon_close,
+                                addon_insert: addon_inserts,
+                            },
+                            source: "api".to_string(),
+                            created_by: actor.clone(),
+                        },
+                    )
+                    .await?;
+                    self.derive_state_tx(
+                        conn,
+                        actor,
+                        tenant_id,
+                        subscription_id,
+                        common_clock::now(),
+                    )
+                    .await?;
 
                     let activity = Activity::new(
                         ActivityType::SubscriptionAmendmentScheduled,
@@ -1081,6 +801,14 @@ impl Services {
                             "No pending amendment found for this subscription".to_string(),
                         )));
                     }
+                    self.derive_state_tx(
+                        conn,
+                        actor,
+                        tenant_id,
+                        subscription_id,
+                        common_clock::now(),
+                    )
+                    .await?;
 
                     let customer_id =
                         SubscriptionRow::get_customer_id(conn, &tenant_id, subscription_id)
@@ -1114,15 +842,10 @@ impl Services {
         component_insert: &[ResolvedComponentInsert],
         addon_close: &[SubscriptionAddOnId],
         addon_insert: &[ResolvedAddOnInsert],
-        old_mrr: i64,
-        precision: u8,
+        settles: bool,
     ) -> StoreResult<()> {
-        SubscriptionComponentRow::close_components(conn, component_close, change_date)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-        SubscriptionAddOnRow::close_addons(conn, addon_close, change_date)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        crate::services::facts::close_components_tx(conn, component_close, change_date).await?;
+        crate::services::facts::close_add_ons_tx(conn, addon_close, change_date).await?;
 
         let component_rows: Vec<SubscriptionComponentRowNew> = component_insert
             .iter()
@@ -1195,8 +918,18 @@ impl Services {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
         }
+        under_scheduled_rows(
+            conn,
+            subscription_id,
+            change_date,
+            &component_rows,
+            &addon_rows,
+        )
+        .await?;
 
-        crate::services::subscriptions::cadence::realign_cadence_tx(
+        // A fee of another cadence moves the subscription onto the shortest one's grid: a fact
+        // from the change's date; the writer cuts the period it renews on.
+        crate::services::facts::pending::record_amendment_cadence_tx(
             conn,
             tenant_id,
             subscription_id,
@@ -1232,8 +965,13 @@ impl Services {
             id: uuid::Uuid::now_v7(),
             subscription_id,
             event_type: diesel_models::enums::SubscriptionEventType::Switch,
-            details: Some(serde_json::json!({ "kind": "amendment", "mode": "immediate" })),
-            created_at: common_domain::clock::now().naive_utc(),
+            // Settling, it credits the lines of invoices still drafts once they are issued.
+            details: Some(if settles {
+                serde_json::json!({ "kind": "amendment", "mode": "immediate", "outgoing": "settled" })
+            } else {
+                serde_json::json!({ "kind": "amendment", "mode": "immediate" })
+            }),
+            created_at: common_clock::now().naive_utc(),
             mrr_delta: None,
             bi_mrr_movement_log_id: None,
             applies_to: change_date,
@@ -1243,48 +981,23 @@ impl Services {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        // Recalculate MRR from the resulting active set.
-        let mut sub_details = self
-            .store
-            .get_subscription_details_with_conn(conn, tenant_id, subscription_id)
-            .await?;
-
-        let component_lines = calculate_components_mrr_with_slots(
+        // The period the cadence cuts and the MRR: the writer's, from the rows just written.
+        self.derive_state_tx(
             conn,
+            &Actor::System,
             tenant_id,
             subscription_id,
-            &sub_details.price_components,
-            precision,
+            crate::services::evaluate::bill::midnight(change_date),
         )
         .await?;
 
-        // Stated as stored, so the delta against `old_mrr` is like for like.
-        let new_mrr = self
-            .restate_subscription_mrr(
-                conn,
-                &mut sub_details,
-                component_lines,
-                precision,
-                change_date,
-            )
-            .await?;
-        let mrr_delta = new_mrr - old_mrr;
-        if mrr_delta != 0 {
-            SubscriptionRow::update_subscription_mrr_delta(conn, subscription_id, mrr_delta)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-            self.create_movement_mrr_log(conn, tenant_id, subscription_id, change_date, mrr_delta)
-                .await?;
-        }
-
         log::info!(
-            "Applied immediate amendment for subscription {}: closed_components={}, added_components={}, closed_addons={}, added_addons={}, mrr_delta={}",
+            "Applied immediate amendment for subscription {}: closed_components={}, added_components={}, closed_addons={}, added_addons={}",
             subscription_id,
             component_close.len(),
             component_insert.len(),
             addon_close.len(),
             addon_insert.len(),
-            mrr_delta,
         );
 
         self.emit_subscription_updated_tx(
@@ -1321,57 +1034,8 @@ fn cadences_after(
         .collect()
 }
 
-/// An immediate amendment on `change_date` prorates each fee over what is left of its own period,
-/// on the grid of the cadence the amendment leaves the subscription renewing on.
-async fn prorate_amendment(
-    conn: &mut PgConn,
-    sub_details: &SubscriptionDetails,
-    resolved: &ResolvedAmendment,
-    (added, removed): (&[AddedComponent], &[RemovedComponent]),
-    (change_date, period_end): (NaiveDate, NaiveDate),
-    precision: u8,
-) -> StoreResult<(
-    crate::domain::subscription_changes::ProrationResult,
-    Option<crate::services::subscriptions::cadence::Cadence>,
-)> {
-    use crate::services::subscriptions::proration::{calculate_proration_by, stub_on_own_grid};
-    let cadence = crate::services::subscriptions::cadence::cadence_after_change(
-        conn,
-        sub_details,
-        &cadences_after(sub_details, resolved),
-        change_date,
-    )
-    .await?;
-    let sub = &sub_details.subscription;
-    let grid = amendment_grid(conn, sub, cadence.as_ref(), period_end, change_date).await?;
-    let proration = calculate_proration_by(
-        &[],
-        added,
-        removed,
-        grid.current,
-        change_date,
-        precision,
-        stub_on_own_grid(grid, change_date),
-    );
-    Ok((proration, cadence))
-}
-
-/// The period an immediate amendment prorates over, and the cadence it renews on.
-fn amendment_period(
-    sub: &crate::domain::Subscription,
-    cadence: Option<&crate::services::subscriptions::cadence::Cadence>,
-    period_end: NaiveDate,
-) -> (
-    (NaiveDate, NaiveDate),
-    crate::domain::enums::BillingPeriodEnum,
-) {
-    match cadence {
-        Some(cadence) => ((cadence.current.start, cadence.current.end), cadence.period),
-        None => ((sub.current_period_start, period_end), sub.period),
-    }
-}
-
-/// The grids an immediate amendment reads each fee's period on, as its proration does.
+/// The grids an immediate amendment reads each fee's period on, as its proration does: renewing
+/// on the cadence it moves the subscription to, if any.
 async fn amendment_grid(
     conn: &mut PgConn,
     sub: &crate::domain::Subscription,
@@ -1379,15 +1043,19 @@ async fn amendment_grid(
     period_end: NaiveDate,
     change_date: NaiveDate,
 ) -> StoreResult<crate::services::subscriptions::proration::OwnGrid> {
-    let (current, renews_on) = amendment_period(sub, cadence, period_end);
-    Ok(crate::services::subscriptions::proration::OwnGrid::read(
+    let grid = crate::services::subscriptions::proration::OwnGrid::read(
         conn,
         sub,
         (sub.current_period_start, period_end),
         change_date,
     )
-    .await?
-    .renewing(current, renews_on))
+    .await?;
+    Ok(match cadence {
+        Some(cadence) => {
+            grid.renewing((cadence.current.start, cadence.current.end), cadence.period)
+        }
+        None => grid,
+    })
 }
 
 /// Audit-trail metadata describing the shape of an amendment.
@@ -1465,7 +1133,7 @@ fn is_free_trial(sub_details: &SubscriptionDetails) -> bool {
 
 fn amendment_effective_date(sub_details: &SubscriptionDetails, is_immediate: bool) -> NaiveDate {
     if is_immediate {
-        common_domain::clock::now().naive_utc().date()
+        common_clock::now().naive_utc().date()
     } else {
         sub_details
             .subscription
@@ -1511,10 +1179,18 @@ async fn cancel_pending_amendments(
         .iter()
         .filter(|e| e.event_type == diesel_models::enums::ScheduledEventTypeEnum::ApplyAmendment)
     {
-        if ScheduledEventRow::cancel_event(conn, &event.id, "Cancelled by user")
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-        {
+        let cancelled = if matches!(
+            event.status,
+            diesel_models::enums::ScheduledEventStatus::Migrated
+        ) {
+            crate::services::facts::pending::withdraw_pending_tx(conn, event, "Cancelled by user")
+                .await?
+        } else {
+            ScheduledEventRow::cancel_event(conn, &event.id, "Cancelled by user")
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+        };
+        if cancelled {
             count += 1;
         }
     }
@@ -1539,7 +1215,7 @@ async fn resolve_live_slot_count(
             tenant_id,
             subscription_id,
             unit.clone(),
-            common_domain::clock::now().naive_utc(),
+            common_clock::now().naive_utc(),
         )
         .await
         .map(|slots| slots.unwrap_or(0) as u32)
@@ -1572,7 +1248,7 @@ pub(in crate::services) fn issued_lines<'a>(
             key: crate::services::invoice_lines::charges::charge_key(line, &lineages),
             kind: match (&line.kind, line.metric_id) {
                 (LineItemKind::Regular, None) => IssuedKind::Fee {
-                    price_component: line.price_component_id.map(|id| id.as_uuid()),
+                    price_component: line.price_component_id,
                     add_on: line.sub_add_on_id.is_some(),
                 },
                 (LineItemKind::MinimumShortfall, _) => IssuedKind::Shortfall {
@@ -1593,6 +1269,7 @@ pub(in crate::services) fn issued_lines<'a>(
             already_credited: already_credited.get(&line.local_id).copied().unwrap_or(0),
             corrected: corrected.get(&line.local_id).copied().unwrap_or(0),
             settled: settled(&line.local_id),
+            voided: false,
         })
         .collect()
 }
@@ -1822,7 +1499,12 @@ pub(in crate::services) async fn load_credit_matching_context(
             returned.entry(l.local_id.clone()).or_default().add(&l)?;
             // Credit-note lines carry negative subtotals; accumulate the magnitude.
             if l.amount_subtotal < 0 {
-                if cn.origin != diesel_models::enums::CreditNoteOriginEnum::Manual {
+                // A void's own note forgives its invoice (R-096): no correction of its lines.
+                if !matches!(
+                    cn.origin,
+                    diesel_models::enums::CreditNoteOriginEnum::Manual
+                        | diesel_models::enums::CreditNoteOriginEnum::Void
+                ) {
                     *corrected.entry(l.local_id.clone()).or_insert(0) += -l.amount_subtotal;
                 }
                 *already_credited.entry(l.local_id).or_insert(0) += -l.amount_subtotal;
@@ -1833,51 +1515,89 @@ pub(in crate::services) async fn load_credit_matching_context(
     Ok((line_lineage, already_credited, corrected, returned))
 }
 
-/// Build an in-memory `SubscriptionComponent` from a resolved insert, for use in
-/// the amendment preview's hypothetical post-amendment subscription state. The id
-/// is synthetic (not persisted); only the fee/period/name drive invoice amounts.
-fn pending_component_to_subscription(
-    insert: &PendingComponentInsert,
+/// R-106: a row opened on a lineage a change scheduled for a later day re-rows ends where that
+/// change's row starts.
+async fn under_scheduled_rows(
+    conn: &mut PgConn,
     subscription_id: SubscriptionId,
-    effective_from: NaiveDate,
-) -> SubscriptionComponent {
-    SubscriptionComponent {
-        id: SubscriptionPriceComponentId::new(),
+    on: NaiveDate,
+    components: &[SubscriptionComponentRowNew],
+    add_ons: &[SubscriptionAddOnRowNew],
+) -> StoreResult<()> {
+    let db = |e| Into::<Report<StoreError>>::into(e);
+    if !components.is_empty() {
+        let rows = SubscriptionComponentRow::list_fact_rows(conn, subscription_id)
+            .await
+            .map_err(db)?;
+        for new in components {
+            let root = new.lineage_id.unwrap_or(new.id);
+            let next = rows
+                .iter()
+                .filter(|row| row.lineage_id.unwrap_or(row.id) == root && row.effective_from > on)
+                .map(|row| row.effective_from)
+                .min();
+            if let Some(next) = next {
+                SubscriptionComponentRow::close_components(conn, &[new.id], next)
+                    .await
+                    .map_err(db)?;
+            }
+        }
+    }
+    if !add_ons.is_empty() {
+        let rows = SubscriptionAddOnRow::list_fact_rows(conn, subscription_id)
+            .await
+            .map_err(db)?;
+        for new in add_ons {
+            let root = new.lineage_id.unwrap_or(new.id);
+            let next = rows
+                .iter()
+                .filter(|row| row.lineage_id.unwrap_or(row.id) == root && row.effective_from > on)
+                .map(|row| row.effective_from)
+                .min();
+            if let Some(next) = next {
+                SubscriptionAddOnRow::close_addons(conn, &[new.id], next)
+                    .await
+                    .map_err(db)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A component insert as the event applying the amendment carries it; a price still to be
+/// created is left to the fee it was resolved to, which bills the same.
+fn previewed_component(insert: &PendingComponentInsert) -> ResolvedComponentInsert {
+    ResolvedComponentInsert {
         price_component_id: insert.price_component_id,
-        product_id: None,
-        subscription_id,
+        product_id: match &insert.product_ref {
+            ProductRef::Existing(id) => Some(*id),
+            ProductRef::New { .. } => None,
+        },
         name: insert.name.clone(),
         period: insert.period,
         fee: insert.fee.clone(),
-        price_id: None,
-        effective_from,
-        effective_to: None,
-        lineage_id: None,
-        added_by_amendment: true,
+        is_override: insert.is_override,
+        price_id: insert.price_entry.existing_price_id(),
+        lineage_id: insert.lineage_id,
+        subscription_component_id: insert.subscription_component_id,
     }
 }
 
-/// Build an in-memory `SubscriptionAddOn` from a resolved insert (preview only).
-fn pending_addon_to_subscription(
-    insert: &PendingAddOnInsert,
-    subscription_id: SubscriptionId,
-    effective_from: NaiveDate,
-) -> SubscriptionAddOn {
-    SubscriptionAddOn {
-        id: SubscriptionAddOnId::new(),
-        subscription_id,
+/// An add-on insert as the event applying the amendment carries it (see [`previewed_component`]).
+fn previewed_add_on(insert: &PendingAddOnInsert) -> ResolvedAddOnInsert {
+    ResolvedAddOnInsert {
         add_on_id: insert.add_on_id,
         name: insert.name.clone(),
         period: insert.period,
         fee: insert.fee.clone(),
-        created_at: common_domain::clock::now().naive_utc(),
         product_id: Some(insert.product_id),
-        price_id: insert.price_id,
+        price_id: match &insert.price_entry {
+            Some(PriceEntry::New(_)) => None,
+            _ => insert.price_id,
+        },
         quantity: insert.quantity,
-        effective_from,
-        effective_to: None,
-        lineage_id: None,
-        added_by_amendment: true,
+        lineage_id: insert.lineage_id,
+        subscription_add_on_id: insert.subscription_add_on_id,
     }
 }
 
@@ -2445,11 +2165,7 @@ async fn materialize_inserts(
 #[cfg(test)]
 mod tests {
     use super::scale_fee;
-    use crate::domain::enums::SubscriptionFeeBillingPeriod;
-    use crate::domain::subscription_changes::{AddedComponent, RemovedComponent};
     use crate::domain::subscription_components::SubscriptionFee;
-    use crate::services::subscriptions::proration::calculate_proration;
-    use chrono::NaiveDate;
     use rust_decimal::Decimal;
 
     fn rate(n: i64) -> SubscriptionFee {
@@ -2488,69 +2204,5 @@ mod tests {
             SubscriptionFee::Rate { rate } => assert_eq!(rate, Decimal::from(7)),
             _ => panic!("expected rate"),
         }
-    }
-
-    // An add-on added mid-cycle for half the period charges quantity * rate * factor.
-    #[test]
-    fn addon_add_prorates_by_quantity() {
-        let period_start = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
-        let period_end = NaiveDate::from_ymd_opt(2026, 1, 31).unwrap();
-        let change_date = NaiveDate::from_ymd_opt(2026, 1, 16).unwrap(); // 15 of 30 days remaining
-
-        // 2 units of a $100/mo add-on => $200 full period; half period => $100 charge.
-        let added = vec![AddedComponent {
-            name: "Seats".into(),
-            fee: scale_fee(&rate(100), 2),
-            period: SubscriptionFeeBillingPeriod::Monthly,
-            net_key: None,
-            billed_component_id: None,
-            billed_add_on_id: None,
-            instance_quantity: Some(Decimal::from(2u32)),
-            price_component_id: None,
-        }];
-
-        let result =
-            calculate_proration(&[], &added, &[], period_start, period_end, change_date, 2);
-        // full period = 20000 cents, factor 15/30 => 10000
-        assert_eq!(result.net_amount_cents, 10000);
-        assert!(result.lines.iter().all(|l| !l.is_credit));
-    }
-
-    // A quantity change (remove old qty + add new qty) nets the delta, prorated.
-    #[test]
-    fn addon_quantity_change_nets_delta() {
-        let period_start = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
-        let period_end = NaiveDate::from_ymd_opt(2026, 1, 31).unwrap();
-        let change_date = NaiveDate::from_ymd_opt(2026, 1, 16).unwrap();
-
-        // old: 1 unit @ $100; new: 3 units @ $100 => +$200 full period; half => +$100 net.
-        let removed = vec![RemovedComponent {
-            name: "Seats".into(),
-            current_fee: scale_fee(&rate(100), 1),
-            current_period: SubscriptionFeeBillingPeriod::Monthly,
-            net_key: None,
-        }];
-        let added = vec![AddedComponent {
-            name: "Seats".into(),
-            fee: scale_fee(&rate(100), 3),
-            period: SubscriptionFeeBillingPeriod::Monthly,
-            net_key: None,
-            billed_component_id: None,
-            billed_add_on_id: None,
-            instance_quantity: Some(Decimal::from(3u32)),
-            price_component_id: None,
-        }];
-
-        let result = calculate_proration(
-            &[],
-            &added,
-            &removed,
-            period_start,
-            period_end,
-            change_date,
-            2,
-        );
-        // credit -5000 (1 unit half), charge +15000 (3 units half) => net +10000
-        assert_eq!(result.net_amount_cents, 10000);
     }
 }

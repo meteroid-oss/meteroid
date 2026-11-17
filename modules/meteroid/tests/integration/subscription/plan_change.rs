@@ -798,6 +798,108 @@ async fn test_immediate_plan_change_downgrade(#[future] test_env: TestEnv) {
     );
 }
 
+/// Starter → Pro on Jan 16, 16 of January's 31 days left, each document line read from the
+/// facts the change wrote:
+///   adjustment, Jan 16..Feb 1: Platform Fee (prorated) 9900 × 16/31 = 5109.68 → 5110
+///                              Seats (prorated)        2500 × 16/31 = 1290.32 → 1290
+///   note on January's invoice, Jan 1..Feb 1, by unused time:
+///                              Platform Fee −(2900 × 16/31 = 1496.77 → 1497)
+///                              Seats        −(1000 × 16/31 =  516.13 →  516)
+/// Rules: R-077, R-079, R-080
+#[rstest]
+#[tokio::test]
+async fn an_immediate_upgrade_bills_and_gives_back_each_line_from_the_facts(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let change_date = NaiveDate::from_ymd_opt(2024, 1, 16).unwrap();
+    let feb1 = NaiveDate::from_ymd_opt(2024, 2, 1).unwrap();
+
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(start_date)
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+
+    let result = env
+        .services()
+        .apply_plan_change_immediate_at(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            PLAN_VERSION_PRO_ID,
+            vec![],
+            change_date,
+        )
+        .await
+        .expect("immediate upgrade");
+
+    let invoices = env.get_invoices(sub_id).await;
+    let adjustment = invoices
+        .iter()
+        .find(|invoice| Some(invoice.id) == result.adjustment_invoice_id)
+        .expect("adjustment invoice");
+    let mut billed: Vec<(String, NaiveDate, NaiveDate, i64)> = adjustment
+        .line_items
+        .iter()
+        .map(|line| {
+            (
+                line.name.clone(),
+                line.start_date,
+                line.end_date,
+                line.amount_subtotal,
+            )
+        })
+        .collect();
+    billed.sort();
+    assert_eq!(
+        billed,
+        vec![
+            (
+                "Platform Fee (prorated)".to_owned(),
+                change_date,
+                feb1,
+                5_110
+            ),
+            ("Seats (prorated)".to_owned(), change_date, feb1, 1_290),
+        ]
+    );
+
+    let january = &invoices[0];
+    assert_eq!(january.billing_period_start, start_date);
+    let notes = env
+        .store()
+        .list_credit_notes_by_invoice_id(TENANT_ID, january.id)
+        .await
+        .expect("credit notes");
+    assert_eq!(notes.len(), 1, "one note on January's invoice");
+    let mut credited: Vec<(String, NaiveDate, NaiveDate, i64)> = notes[0]
+        .line_items
+        .iter()
+        .map(|line| {
+            (
+                line.name.clone(),
+                line.start_date,
+                line.end_date,
+                line.amount_subtotal,
+            )
+        })
+        .collect();
+    credited.sort();
+    assert_eq!(
+        credited,
+        vec![
+            ("Platform Fee".to_owned(), start_date, feb1, -1_497),
+            ("Seats".to_owned(), start_date, feb1, -516),
+        ]
+    );
+    assert_eq!(result.credit_note_ids, vec![notes[0].id]);
+}
+
 /// Immediate change cancels any pending scheduled plan change.
 #[rstest]
 #[tokio::test]
@@ -1130,6 +1232,292 @@ async fn test_plan_change_preserves_slot_count(#[future] test_env: TestEnv) {
     sub.assert()
         .with_context("MRR after plan change with 10 seats")
         .has_mrr(34900);
+}
+
+/// Seats bought after a plan change was scheduled carry over: Starter with 10 seats, a change to
+/// Pro scheduled on Feb 1 for Mar 1, 3 seats bought on Feb 10. Pro starts Mar 1 with 13 seats,
+/// billed at its price: Platform Fee 9900 + Seats 2500 × 13 = 42400.
+/// Rules: R-108
+#[rstest]
+#[tokio::test]
+async fn seats_bought_after_a_plan_change_is_scheduled_carry_over(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let target = PLAN_VERSION_PRO_ID;
+    let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(day(1, 1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let add = |seats: i32, on: NaiveDate| {
+        let env = &env;
+        async move {
+            env.services()
+                .update_subscription_slots_for_test(
+                    TENANT_ID,
+                    sub_id,
+                    COMP_STARTER_SEATS_ID,
+                    seats,
+                    SlotUpgradeBillingMode::Optimistic,
+                    Some(on.and_time(NaiveTime::MIN)),
+                )
+                .await
+                .expect("add seats");
+        }
+    };
+    add(9, day(1, 2)).await;
+    env.process_cycles().await;
+    env.services()
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            target,
+            vec![],
+        )
+        .await
+        .expect("schedule the change for Mar 1");
+    add(3, day(2, 10)).await;
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, target);
+    let seats = env
+        .store()
+        .get_active_slots_value(
+            TENANT_ID,
+            sub_id,
+            "Seats".to_string(),
+            Some(day(3, 1).and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("seats on Mar 1");
+    assert_eq!(seats, 13);
+    let march = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .find(|invoice| invoice.billing_period_start == day(3, 1))
+        .expect("the Mar 1 invoice");
+    assert_eq!(march.total, 42_400, "{:?}", march.line_items);
+}
+
+/// A change setting its seats explicitly starts from them, plus the seats bought or removed since
+/// it was scheduled: Starter with 10 seats, a change to Pro with 5 scheduled on Feb 1 for Mar 1,
+/// 3 seats bought on Feb 10. Pro starts with 8 seats: 9900 + 2500 × 8 = 29900. Also removing 2
+/// on Feb 15, 6 seats: 24900; 2 removed before the change was scheduled are its count's, 5: 22400.
+/// Rules: R-108
+#[rstest]
+#[case::bought(&[(3, (2, 10))], &[], 8)]
+#[case::bought_and_removed(&[(3, (2, 10)), (-2, (2, 15))], &[], 6)]
+#[case::removed_before(&[], &[(-2, (1, 20))], 5)]
+#[tokio::test]
+async fn a_change_setting_its_seats_adds_those_changed_since_it_was_scheduled(
+    #[future] test_env: TestEnv,
+    #[case] after: &[(i32, (u32, u32))],
+    #[case] before: &[(i32, (u32, u32))],
+    #[case] expected: i32,
+) {
+    let env = test_env.await;
+    let target = PLAN_VERSION_PRO_ID;
+    let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(day(1, 1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let add = |seats: i32, on: NaiveDate| {
+        let env = &env;
+        async move {
+            env.services()
+                .update_subscription_slots_for_test(
+                    TENANT_ID,
+                    sub_id,
+                    COMP_STARTER_SEATS_ID,
+                    seats,
+                    SlotUpgradeBillingMode::Optimistic,
+                    Some(on.and_time(NaiveTime::MIN)),
+                )
+                .await
+                .expect("change seats");
+        }
+    };
+    add(9, day(1, 2)).await;
+    for (seats, (m, d)) in before {
+        add(*seats, day(*m, *d)).await;
+    }
+    env.process_cycles().await;
+    env.services()
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            target,
+            vec![ComponentParameterization {
+                component_id: COMP_PRO_SEATS_ID,
+                parameters: ComponentParameters {
+                    initial_slot_count: Some(5),
+                    billing_period: None,
+                    committed_capacity: None,
+                },
+            }],
+        )
+        .await
+        .expect("schedule the change for Mar 1");
+    for (seats, (m, d)) in after {
+        add(*seats, day(*m, *d)).await;
+    }
+    env.process_cycles().await;
+
+    let sub = env.get_subscription(sub_id).await;
+    assert_eq!(sub.plan_version_id, target);
+    let seats = env
+        .store()
+        .get_active_slots_value(
+            TENANT_ID,
+            sub_id,
+            "Seats".to_string(),
+            Some(day(3, 1).and_time(NaiveTime::MIN)),
+        )
+        .await
+        .expect("seats on Mar 1");
+    assert_eq!(seats, expected as u32);
+    let march = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .find(|invoice| invoice.billing_period_start == day(3, 1))
+        .expect("the Mar 1 invoice");
+    assert_eq!(
+        march.total,
+        9_900 + 2_500 * i64::from(expected),
+        "{:?}",
+        march.line_items
+    );
+}
+
+/// Seats of another product are another unit: Starter with 10 seats, a change scheduled on
+/// Feb 1 for Mar 1 to a plan selling its seats under a product of its own, 3 seats bought on
+/// Feb 10 on Starter's. Team starts Mar 1 at its minimum, 1 seat: 9900 + 2500 = 12400.
+/// Rules: R-108
+#[rstest]
+#[tokio::test]
+async fn seats_of_another_product_do_not_carry_over(#[future] test_env: TestEnv) {
+    use diesel_async::RunQueryDsl;
+    use meteroid_store::domain::price_components::{DowngradePolicy, UpgradePolicy};
+    use meteroid_store::domain::prices::FeeStructure;
+    let env = test_env.await;
+    let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
+    let product = ProductId::new();
+    diesel::insert_into(diesel_models::schema::product::table)
+        .values(&diesel_models::products::ProductRowNew {
+            id: product,
+            name: "Team seats".to_string(),
+            description: None,
+            tenant_id: TENANT_ID,
+            product_family_id: PRODUCT_FAMILY_ID,
+            fee_type: diesel_models::enums::FeeTypeEnum::Slot,
+            fee_structure: serde_json::to_value(FeeStructure::Slot {
+                unit_name: "Seats".to_string(),
+                upgrade_policy: UpgradePolicy::Prorated,
+                downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
+            })
+            .unwrap(),
+            catalog: true,
+            tax_category_id: None,
+        })
+        .execute(&mut env.conn().await)
+        .await
+        .expect("a seat product of the target plan");
+    let team = PlanVersionId::new();
+    PlanSeed::new(PlanId::new(), "Team", team)
+        .components(vec![
+            SeedComp::rate(
+                PriceComponentId::new(),
+                "Platform Fee",
+                PRODUCT_PLATFORM_FEE_ID,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Monthly,
+                Decimal::new(99, 0),
+            ),
+            SeedComp::slot(
+                PriceComponentId::new(),
+                "Seats",
+                product,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Monthly,
+                Decimal::new(25, 0),
+            ),
+        ])
+        .seed(&mut env.conn().await)
+        .await
+        .unwrap();
+    let sub_id = subscription()
+        .plan_version(PLAN_VERSION_STARTER_ID)
+        .start_date(day(1, 1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    let add = |seats: i32, on: NaiveDate| {
+        let env = &env;
+        async move {
+            env.services()
+                .update_subscription_slots_for_test(
+                    TENANT_ID,
+                    sub_id,
+                    COMP_STARTER_SEATS_ID,
+                    seats,
+                    SlotUpgradeBillingMode::Optimistic,
+                    Some(on.and_time(NaiveTime::MIN)),
+                )
+                .await
+                .expect("add seats");
+        }
+    };
+    add(9, day(1, 2)).await;
+    env.process_cycles().await;
+    env.services()
+        .schedule_plan_change(
+            common_domain::actor::Actor::System,
+            sub_id,
+            TENANT_ID,
+            team,
+            vec![],
+        )
+        .await
+        .expect("schedule the change for Mar 1");
+    add(3, day(2, 10)).await;
+    let seats_on = |at: NaiveDate| {
+        let env = &env;
+        async move {
+            env.store()
+                .get_active_slots_value(
+                    TENANT_ID,
+                    sub_id,
+                    "Seats".to_string(),
+                    Some(at.and_time(NaiveTime::MIN)),
+                )
+                .await
+                .expect("seats")
+        }
+    };
+    assert_eq!(seats_on(day(2, 20)).await, 13, "bought on Starter's seats");
+    env.process_cycles().await;
+
+    assert_eq!(env.get_subscription(sub_id).await.plan_version_id, team);
+    assert_eq!(seats_on(day(3, 1)).await, 1);
+    let march = env
+        .get_invoices(sub_id)
+        .await
+        .into_iter()
+        .find(|invoice| invoice.billing_period_start == day(3, 1))
+        .expect("the Mar 1 invoice");
+    assert_eq!(march.total, 12_400, "{:?}", march.line_items);
 }
 
 /// Slot count is preserved across immediate plan changes,
@@ -2720,20 +3108,21 @@ async fn test_immediate_plan_change_capacity_tier_upgrade() {
 
     // Invoice 3:
     // Capacity base €120 = 12000
-    // Capacity overage: 600 - 500 included = 100 units × €0.02 = 200
+    // Capacity overage: its fee started Feb 15, prorated 14/28, so 500 × 14/28 = 250 included:
+    // 600 - 250 = 350 units × €0.02 = 700 (R-002)
     // ExtraRec/Advance €30 = 3000
     // Old Rec/Arrears [Feb 1, Feb 15] €30 × 14/28 = 1500 (prorated to its active window)
     // New Rec/Arrears [Feb 15, Mar 1] €30 × 14/28 = 1500
     // OneTime NOT charged
-    // Total = 12000 + 200 + 3000 + 1500 + 1500 = 18200
+    // Total = 12000 + 700 + 3000 + 1500 + 1500 = 18700
     let invoices = env.get_invoices(sub_id).await;
     invoices.assert().has_count(4);
     assert_eq!(
-        invoices[3].total, 18200,
+        invoices[3].total, 18700,
         "cycle 2: upgraded capacity (base + overage) + advance + prorated temporal Rec/Arrears"
     );
 
-    // Verify overage line uses new config (100 units × €0.02 = 200¢)
+    // Verify overage line uses new config, its allowance prorated with its fee
     let overage_lines: Vec<_> = invoices[3]
         .line_items
         .iter()
@@ -2741,8 +3130,8 @@ async fn test_immediate_plan_change_capacity_tier_upgrade() {
         .collect();
     assert_eq!(overage_lines.len(), 1, "should have 1 overage line item");
     assert_eq!(
-        overage_lines[0].amount_subtotal, 200,
-        "overage: (600 - 500) × €0.02 = €2.00 = 200¢"
+        overage_lines[0].amount_subtotal, 700,
+        "overage: (600 - 250) × €0.02 = €7.00 = 700¢"
     );
 }
 
@@ -3690,6 +4079,55 @@ async fn test_plan_change_monthly_to_annual(#[future] test_env: TestEnv) {
         period_days,
         period_start,
         period_end
+    );
+    assert_eq!(
+        (period_start, period_end),
+        (
+            NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 2, 1).unwrap()
+        )
+    );
+
+    // January gives back 17 of its 31 days: 2900 × 17/31 = 1590, 1000 × 17/31 = 548. The year
+    // runs from Feb 1, the next monthly renewal (R-084): the stub is 17 of the 365 days of
+    // [2023-02-01, 2024-02-01), 29000 × 17/365 = 1351 (R-079); Feb 1 bills the year once.
+    let mut documents = Vec::new();
+    for invoice in env.get_invoices(sub_id).await {
+        for line in &invoice.line_items {
+            documents.push(format!(
+                "{:?} {}: {} {}..{} {}",
+                invoice.invoice_type,
+                invoice.billing_period_start,
+                line.name,
+                line.start_date,
+                line.end_date,
+                line.amount_subtotal
+            ));
+        }
+        for note in env
+            .store()
+            .list_credit_notes_by_invoice_id(TENANT_ID, invoice.id)
+            .await
+            .expect("credit notes")
+        {
+            for line in &note.line_items {
+                documents.push(format!(
+                    "note: {} {}..{} {}",
+                    line.name, line.start_date, line.end_date, line.amount_subtotal
+                ));
+            }
+        }
+    }
+    assert_eq!(
+        documents,
+        vec![
+            "Recurring 2024-01-01: Platform Fee 2024-01-01..2024-02-01 2900",
+            "Recurring 2024-01-01: Seats 2024-01-01..2024-02-01 1000",
+            "note: Platform Fee 2024-01-01..2024-02-01 -1590",
+            "note: Seats 2024-01-01..2024-02-01 -548",
+            "Adjustment 2024-01-15: Platform Fee (prorated) 2024-01-15..2024-02-01 1351",
+            "Recurring 2024-02-01: Platform Fee 2024-02-01..2025-02-01 29000",
+        ]
     );
 }
 

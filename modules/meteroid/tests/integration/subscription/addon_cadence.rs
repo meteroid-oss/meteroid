@@ -345,6 +345,23 @@ async fn a_monthly_add_on_bought_through_checkout_switches_the_subscription_to_m
             .collect::<Vec<_>>(),
         vec![(expected, today, month_end)]
     );
+    let stored =
+        diesel_models::subscription_add_ons::SubscriptionAddOnRow::list_by_subscription_id(
+            &mut env.conn().await,
+            &TENANT_ID,
+            &sub_id,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        adjustment
+            .line_items
+            .iter()
+            .map(|l| l.sub_add_on_id)
+            .collect::<Vec<_>>(),
+        stored.iter().map(|row| Some(row.id)).collect::<Vec<_>>(),
+        "the line names the stored add-on, so removing it gives back its unused time (R-014)"
+    );
 
     let sub = env.get_subscription(sub_id).await;
     assert!(matches!(sub.period, DieselBillingPeriodEnum::Monthly));

@@ -312,175 +312,7 @@ impl Services {
             };
         }
 
-        let mut transactions = vec![];
-
         match mode {
-            InvoiceBillingMode::FinalizeAfterPayment {
-                currency_confirmation,
-                total_amount_confirmation,
-                payment_method_id,
-                charge,
-            } => {
-                if draft_invoice.currency != currency_confirmation {
-                    return Err(Report::new(StoreError::CheckoutError)
-                        .attach("Currency is different from the confirmation"));
-                }
-
-                if draft_invoice.amount_due != (total_amount_confirmation as i64) {
-                    return Err(Report::new(StoreError::CheckoutError).attach(format!(
-                        "Total due amount is different from the confirmation : expected {}, got {}",
-                        draft_invoice.amount_due, total_amount_confirmation
-                    )));
-                }
-
-                // Also validates the method exists (it's already saved on the customer).
-                // The rail decides whether settlement is synchronous, so it is needed on
-                // both the zero-amount and the charged path.
-                let payment_method =
-                    CustomerPaymentMethodRow::get_by_id(conn, &tenant_id, &payment_method_id)
-                        .await
-                        .map_err(|e| StoreError::DatabaseError(e.error))?;
-
-                // Handle zero amount case (e.g., 100% coupon discount)
-                // No payment needed, just finalize
-                if draft_invoice.amount_due == 0 {
-                    let finalized = self
-                        .finalize_invoice_tx(
-                            conn,
-                            actor,
-                            draft_invoice.id,
-                            tenant_id,
-                            false,
-                            &Some(subscription),
-                        )
-                        .await?;
-
-                    // Nothing to pay: paid the moment it is issued.
-                    self.apply_invoice_paid_tx(
-                        conn,
-                        tenant_id,
-                        draft_invoice.id,
-                        finalized.invoice.finalized_at,
-                    )
-                    .await?;
-
-                    // Get the updated invoice and return with no transactions
-                    let updated_invoice =
-                        InvoiceRow::find_detailed_by_id(conn, tenant_id, draft_invoice.id).await?;
-                    let detailed = DetailedInvoice::try_from(updated_invoice)?;
-
-                    // A zero-amount invoice is paid the moment it is finalized. Emit the same
-                    // event as every other paid path, else webhooks-out and `on_invoice_paid`
-                    // never learn about 100%-coupon checkouts.
-                    self.store
-                        .internal
-                        .record_outbox_batch_tx(
-                            conn,
-                            tenant_id,
-                            actor,
-                            vec![crate::domain::outbox_event::OutboxEvent::invoice_paid(
-                                (&detailed.invoice).into(),
-                            )],
-                        )
-                        .await?;
-
-                    return Ok(Some(detailed.with_transactions(vec![])));
-                }
-
-                // Carry next_action on the transaction so the on-session caller
-                // can surface 3DS; the invoice is finalized via the webhook once
-                // payment settles.
-                use crate::services::checkout_completion::{
-                    ChargeNeeded, InvoiceCheckoutCharge, charge_needed_error,
-                };
-                let (mut res, next_action) = match charge {
-                    InvoiceCheckoutCharge::InTransaction => {
-                        self.process_invoice_payment_tx(
-                            conn,
-                            tenant_id,
-                            draft_invoice.id,
-                            payment_method_id,
-                            // FinalizeAfterPayment is only constructed by checkout
-                            // completion: customer-initiated and on-session.
-                            true,
-                            true,
-                            None,
-                        )
-                        .await?
-                    }
-                    InvoiceCheckoutCharge::Price(coupons) => {
-                        return Err(charge_needed_error(ChargeNeeded {
-                            payment_method_id,
-                            amount: draft_invoice.amount_due,
-                            currency: draft_invoice.currency.clone(),
-                            coupons,
-                        }));
-                    }
-                    InvoiceCheckoutCharge::Answered(answer) => {
-                        self.record_checkout_charge_on_invoice_tx(
-                            conn,
-                            tenant_id,
-                            draft_invoice.id,
-                            draft_invoice.amount_due,
-                            &draft_invoice.currency,
-                            payment_method_id,
-                            &answer,
-                        )
-                        .await?
-                    }
-                };
-                res.next_action = next_action;
-
-                transactions.push(res.clone());
-
-                if res.status == PaymentStatusEnum::Settled {
-                    // Payment succeeded - payment method is already saved on the customer
-                    // Finalize the invoice directly
-                    self.finalize_invoice_tx(
-                        conn,
-                        actor,
-                        draft_invoice.id,
-                        tenant_id,
-                        false, // no need to refresh lines, we just paid
-                        &Some(subscription),
-                    )
-                    .await?;
-                } else if self
-                    .accepted_async_debit(conn, tenant_id, &res, &payment_method)
-                    .await?
-                {
-                    // Delayed-notification rail: the mandate is signed and the debit is
-                    // submitted, so the amounts are contractual even though the funds take
-                    // days to arrive. Finalize now — document state must not encode payment
-                    // state — and record that money is moving so neither the auto-charge
-                    // orchestration nor dunning touches this invoice.
-                    self.finalize_invoice_tx(
-                        conn,
-                        actor,
-                        draft_invoice.id,
-                        tenant_id,
-                        false, // amounts are fixed under the in-flight charge
-                        &Some(subscription),
-                    )
-                    .await?;
-
-                    InvoiceRow::apply_payment_status(
-                        conn,
-                        draft_invoice.id,
-                        tenant_id,
-                        diesel_models::enums::InvoicePaymentStatus::Processing,
-                        None,
-                    )
-                    .await?;
-                } else {
-                    // Card 3DS (Pending with a next_action), or a non-terminal state we
-                    // can't call accepted. Leave it draft; the webhook finalizes on settle.
-                    return self
-                        .as_detailed_invoice(draft_invoice, customer)
-                        .map(|d| d.with_transactions(transactions))
-                        .map(Some);
-                }
-            }
             InvoiceBillingMode::AwaitGracePeriodIfApplicable => {
                 if !subscription.subscription.auto_advance_invoices {
                     // leave as draft
@@ -584,160 +416,384 @@ impl Services {
                     .await?;
                 }
             }
-            InvoiceBillingMode::AlreadyPaid {
-                charge_result,
-                existing_transaction_id,
-            } => {
-                if draft_invoice.currency != charge_result.currency {
-                    return Err(Report::new(StoreError::CheckoutError)
-                        .attach("Currency mismatch between invoice and payment"));
-                }
-
-                // Charged in this transaction, the invoice must ask what was charged (1 subunit of
-                // rounding). Settled later, credit may have moved since: the finalization draws
-                // what the charge leaves, so only a charge above the invoice is refused.
-                let mismatch = match existing_transaction_id {
-                    None => (draft_invoice.amount_due - charge_result.amount).abs() > 1,
-                    Some(_) => charge_result.amount - draft_invoice.total > 1,
-                };
-                if mismatch {
-                    return Err(Report::new(StoreError::CheckoutError).attach(format!(
-                        "Amount mismatch: invoice {} vs payment {}",
-                        draft_invoice.amount_due, charge_result.amount
-                    )));
-                }
-
-                let transaction = if let Some(tx_id) = existing_transaction_id {
-                    self.link_transaction_to_invoice(conn, tenant_id, tx_id, draft_invoice.id)
-                        .await?
-                } else {
-                    // A subscription checkout: its renewals bill the card it was completed with.
-                    self.create_transaction_for_direct_charge(
+            charging @ (InvoiceBillingMode::FinalizeAfterPayment { .. }
+            | InvoiceBillingMode::AlreadyPaid { .. }
+            | InvoiceBillingMode::AcceptedInFlight { .. }) => {
+                return self
+                    .bill_draft_with_payment_tx(
                         conn,
+                        actor,
                         tenant_id,
-                        draft_invoice.id,
-                        &charge_result,
-                        crate::services::DefaultMethodAdoption::Replace,
+                        subscription,
+                        customer,
+                        draft_invoice,
+                        charging,
                     )
-                    .await?
-                };
-
-                transactions.push(transaction.clone());
-
-                // Payment succeeded - payment method is already saved on the customer
-                self.finalize_invoice_tx(
-                    conn,
-                    actor,
-                    draft_invoice.id,
-                    tenant_id,
-                    false,
-                    &Some(subscription.clone()),
-                )
-                .await?;
-
-                // Apply the transaction amount to reduce amount_due and mark as paid
-                let updated_invoice_row = InvoiceRow::apply_transaction(
-                    conn,
-                    draft_invoice.id,
-                    tenant_id,
-                    charge_result.amount,
-                )
-                .await?;
-
-                if updated_invoice_row.amount_due > 0 {
-                    InvoiceRow::apply_payment_status(
-                        conn,
-                        draft_invoice.id,
-                        tenant_id,
-                        diesel_models::enums::InvoicePaymentStatus::PartiallyPaid,
-                        None,
-                    )
-                    .await?;
-                } else {
-                    self
-                        .apply_invoice_paid_tx(conn, tenant_id, draft_invoice.id, transaction.processed_at)
-                        .await?;
-
-                    let invoice: Invoice = updated_invoice_row.try_into()?;
-                    self.store
-                        .internal
-                        .record_outbox_batch_tx(
-                            conn,
-                            tenant_id,
-                            actor,
-                            vec![crate::domain::outbox_event::OutboxEvent::invoice_paid(
-                                (&invoice).into(),
-                            )],
-                        )
-                        .await?;
-                }
-            }
-            InvoiceBillingMode::AcceptedInFlight {
-                existing_transaction_id,
-                amount,
-                currency,
-            } => {
-                if draft_invoice.currency != currency {
-                    return Err(Report::new(StoreError::CheckoutError)
-                        .attach("Currency mismatch between invoice and in-flight payment"));
-                }
-
-                // Credit may have moved since the debit was priced: the finalization draws what
-                // the payment leaves, so only a payment above the invoice is refused.
-                if amount - draft_invoice.total > 1 {
-                    return Err(Report::new(StoreError::CheckoutError).attach(format!(
-                        "Amount mismatch: invoice {} vs in-flight payment {}",
-                        draft_invoice.amount_due, amount
-                    )));
-                }
-
-                // Link the pre-created Pending transaction to the invoice so the
-                // settlement webhook (`payments.confirmed`) routes through
-                // `on_invoice_payment_settled` and flips Processing → Paid.
-                let transaction = self
-                    .link_transaction_to_invoice(
-                        conn,
-                        tenant_id,
-                        existing_transaction_id,
-                        draft_invoice.id,
-                    )
-                    .await?;
-                transactions.push(transaction);
-
-                // Amounts are contractual under the accepted debit — finalize now;
-                // document state must not encode payment state.
-                self.finalize_invoice_tx(
-                    conn,
-                    actor,
-                    draft_invoice.id,
-                    tenant_id,
-                    false,
-                    &Some(subscription.clone()),
-                )
-                .await?;
-
-                // Processing (not Paid) and NO apply_transaction: the funds are in
-                // flight, so amount_due stays full until real settlement. This also
-                // fences the invoice off from auto-charge and dunning.
-                InvoiceRow::apply_payment_status(
-                    conn,
-                    draft_invoice.id,
-                    tenant_id,
-                    diesel_models::enums::InvoicePaymentStatus::Processing,
-                    None,
-                )
-                .await?;
+                    .await;
             }
         }
 
-        // Get the updated invoice after payment processing
+        // Get the updated invoice after its finalization
         let updated_invoice =
             InvoiceRow::find_detailed_by_id(conn, tenant_id, draft_invoice.id).await?;
 
         Ok(Some(
-            DetailedInvoice::try_from(updated_invoice)?.with_transactions(transactions),
+            DetailedInvoice::try_from(updated_invoice)?.with_transactions(vec![]),
         ))
     }).await
+    }
+
+    /// The draft of a mode carrying a payment, billed in a frame of its own: the renewal path
+    /// never holds these arms' temporaries, a debug build's frame being their sum.
+    #[allow(clippy::too_many_arguments)]
+    async fn bill_draft_with_payment_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        tenant_id: TenantId,
+        subscription: SubscriptionDetails,
+        customer: Customer,
+        draft_invoice: Invoice,
+        mode: InvoiceBillingMode,
+    ) -> StoreResult<Option<DetailedInvoice>> {
+        // Boxed so callers hold a pointer, not this state machine; see services/mod.rs.
+        Box::pin(async move {
+            let mut transactions = vec![];
+
+            match mode {
+                InvoiceBillingMode::FinalizeAfterPayment {
+                    currency_confirmation,
+                    total_amount_confirmation,
+                    payment_method_id,
+                    charge,
+                } => {
+                    if draft_invoice.currency != currency_confirmation {
+                        return Err(Report::new(StoreError::CheckoutError)
+                            .attach("Currency is different from the confirmation"));
+                    }
+
+                    if draft_invoice.amount_due != (total_amount_confirmation as i64) {
+                        return Err(Report::new(StoreError::CheckoutError).attach(format!(
+                        "Total due amount is different from the confirmation : expected {}, got {}",
+                        draft_invoice.amount_due, total_amount_confirmation
+                    )));
+                    }
+
+                    // Also validates the method exists (it's already saved on the customer).
+                    // The rail decides whether settlement is synchronous, so it is needed on
+                    // both the zero-amount and the charged path.
+                    let payment_method =
+                        CustomerPaymentMethodRow::get_by_id(conn, &tenant_id, &payment_method_id)
+                            .await
+                            .map_err(|e| StoreError::DatabaseError(e.error))?;
+
+                    // Handle zero amount case (e.g., 100% coupon discount)
+                    // No payment needed, just finalize
+                    if draft_invoice.amount_due == 0 {
+                        let finalized = self
+                            .finalize_invoice_tx(
+                                conn,
+                                actor,
+                                draft_invoice.id,
+                                tenant_id,
+                                false,
+                                &Some(subscription),
+                            )
+                            .await?;
+
+                        // Nothing to pay: paid the moment it is issued.
+                        self.apply_invoice_paid_tx(
+                            conn,
+                            tenant_id,
+                            draft_invoice.id,
+                            finalized.invoice.finalized_at,
+                        )
+                        .await?;
+
+                        // Get the updated invoice and return with no transactions
+                        let updated_invoice =
+                            InvoiceRow::find_detailed_by_id(conn, tenant_id, draft_invoice.id)
+                                .await?;
+                        let detailed = DetailedInvoice::try_from(updated_invoice)?;
+
+                        // A zero-amount invoice is paid the moment it is finalized. Emit the same
+                        // event as every other paid path, else webhooks-out and `on_invoice_paid`
+                        // never learn about 100%-coupon checkouts.
+                        self.store
+                            .internal
+                            .record_outbox_batch_tx(
+                                conn,
+                                tenant_id,
+                                actor,
+                                vec![crate::domain::outbox_event::OutboxEvent::invoice_paid(
+                                    (&detailed.invoice).into(),
+                                )],
+                            )
+                            .await?;
+
+                        return Ok(Some(detailed.with_transactions(vec![])));
+                    }
+
+                    // Carry next_action on the transaction so the on-session caller
+                    // can surface 3DS; the invoice is finalized via the webhook once
+                    // payment settles.
+                    use crate::services::checkout_completion::{
+                        ChargeNeeded, InvoiceCheckoutCharge, charge_needed_error,
+                    };
+                    let (mut res, next_action) = match charge {
+                        InvoiceCheckoutCharge::InTransaction => {
+                            self.process_invoice_payment_tx(
+                                conn,
+                                tenant_id,
+                                draft_invoice.id,
+                                payment_method_id,
+                                // FinalizeAfterPayment is only constructed by checkout
+                                // completion: customer-initiated and on-session.
+                                true,
+                                true,
+                                None,
+                            )
+                            .await?
+                        }
+                        InvoiceCheckoutCharge::Price(coupons) => {
+                            return Err(charge_needed_error(ChargeNeeded {
+                                payment_method_id,
+                                amount: draft_invoice.amount_due,
+                                currency: draft_invoice.currency.clone(),
+                                coupons,
+                            }));
+                        }
+                        InvoiceCheckoutCharge::Answered(answer) => {
+                            self.record_checkout_charge_on_invoice_tx(
+                                conn,
+                                tenant_id,
+                                draft_invoice.id,
+                                draft_invoice.amount_due,
+                                &draft_invoice.currency,
+                                payment_method_id,
+                                &answer,
+                            )
+                            .await?
+                        }
+                    };
+                    res.next_action = next_action;
+
+                    transactions.push(res.clone());
+
+                    if res.status == PaymentStatusEnum::Settled {
+                        // Payment succeeded - payment method is already saved on the customer
+                        // Finalize the invoice directly
+                        self.finalize_invoice_tx(
+                            conn,
+                            actor,
+                            draft_invoice.id,
+                            tenant_id,
+                            false, // no need to refresh lines, we just paid
+                            &Some(subscription),
+                        )
+                        .await?;
+                    } else if self
+                        .accepted_async_debit(conn, tenant_id, &res, &payment_method)
+                        .await?
+                    {
+                        // Delayed-notification rail: the mandate is signed and the debit is
+                        // submitted, so the amounts are contractual even though the funds take
+                        // days to arrive. Finalize now — document state must not encode payment
+                        // state — and record that money is moving so neither the auto-charge
+                        // orchestration nor dunning touches this invoice.
+                        self.finalize_invoice_tx(
+                            conn,
+                            actor,
+                            draft_invoice.id,
+                            tenant_id,
+                            false, // amounts are fixed under the in-flight charge
+                            &Some(subscription),
+                        )
+                        .await?;
+
+                        InvoiceRow::apply_payment_status(
+                            conn,
+                            draft_invoice.id,
+                            tenant_id,
+                            diesel_models::enums::InvoicePaymentStatus::Processing,
+                            None,
+                        )
+                        .await?;
+                    } else {
+                        // Card 3DS (Pending with a next_action), or a non-terminal state we
+                        // can't call accepted. Leave it draft; the webhook finalizes on settle.
+                        return self
+                            .as_detailed_invoice(draft_invoice, customer)
+                            .map(|d| d.with_transactions(transactions))
+                            .map(Some);
+                    }
+                }
+                InvoiceBillingMode::AlreadyPaid {
+                    charge_result,
+                    existing_transaction_id,
+                } => {
+                    if draft_invoice.currency != charge_result.currency {
+                        return Err(Report::new(StoreError::CheckoutError)
+                            .attach("Currency mismatch between invoice and payment"));
+                    }
+
+                    // Charged in this transaction, the invoice must ask what was charged (1 subunit of
+                    // rounding). Settled later, credit may have moved since: the finalization draws
+                    // what the charge leaves, so only a charge above the invoice is refused.
+                    let mismatch = match existing_transaction_id {
+                        None => (draft_invoice.amount_due - charge_result.amount).abs() > 1,
+                        Some(_) => charge_result.amount - draft_invoice.total > 1,
+                    };
+                    if mismatch {
+                        return Err(Report::new(StoreError::CheckoutError).attach(format!(
+                            "Amount mismatch: invoice {} vs payment {}",
+                            draft_invoice.amount_due, charge_result.amount
+                        )));
+                    }
+
+                    let transaction = if let Some(tx_id) = existing_transaction_id {
+                        self.link_transaction_to_invoice(conn, tenant_id, tx_id, draft_invoice.id)
+                            .await?
+                    } else {
+                        // A subscription checkout: its renewals bill the card it was completed with.
+                        self.create_transaction_for_direct_charge(
+                            conn,
+                            tenant_id,
+                            draft_invoice.id,
+                            &charge_result,
+                            crate::services::DefaultMethodAdoption::Replace,
+                        )
+                        .await?
+                    };
+
+                    transactions.push(transaction.clone());
+
+                    // Payment succeeded - payment method is already saved on the customer
+                    self.finalize_invoice_tx(
+                        conn,
+                        actor,
+                        draft_invoice.id,
+                        tenant_id,
+                        false,
+                        &Some(subscription.clone()),
+                    )
+                    .await?;
+
+                    // Apply the transaction amount to reduce amount_due and mark as paid
+                    let updated_invoice_row = InvoiceRow::apply_transaction(
+                        conn,
+                        draft_invoice.id,
+                        tenant_id,
+                        charge_result.amount,
+                    )
+                    .await?;
+
+                    if updated_invoice_row.amount_due > 0 {
+                        InvoiceRow::apply_payment_status(
+                            conn,
+                            draft_invoice.id,
+                            tenant_id,
+                            diesel_models::enums::InvoicePaymentStatus::PartiallyPaid,
+                            None,
+                        )
+                        .await?;
+                    } else {
+                        self.apply_invoice_paid_tx(
+                            conn,
+                            tenant_id,
+                            draft_invoice.id,
+                            transaction.processed_at,
+                        )
+                        .await?;
+
+                        let invoice: Invoice = updated_invoice_row.try_into()?;
+                        self.store
+                            .internal
+                            .record_outbox_batch_tx(
+                                conn,
+                                tenant_id,
+                                actor,
+                                vec![crate::domain::outbox_event::OutboxEvent::invoice_paid(
+                                    (&invoice).into(),
+                                )],
+                            )
+                            .await?;
+                    }
+                }
+                InvoiceBillingMode::AcceptedInFlight {
+                    existing_transaction_id,
+                    amount,
+                    currency,
+                } => {
+                    if draft_invoice.currency != currency {
+                        return Err(Report::new(StoreError::CheckoutError)
+                            .attach("Currency mismatch between invoice and in-flight payment"));
+                    }
+
+                    // Credit may have moved since the debit was priced: the finalization draws what
+                    // the payment leaves, so only a payment above the invoice is refused.
+                    if amount - draft_invoice.total > 1 {
+                        return Err(Report::new(StoreError::CheckoutError).attach(format!(
+                            "Amount mismatch: invoice {} vs in-flight payment {}",
+                            draft_invoice.amount_due, amount
+                        )));
+                    }
+
+                    // Link the pre-created Pending transaction to the invoice so the
+                    // settlement webhook (`payments.confirmed`) routes through
+                    // `on_invoice_payment_settled` and flips Processing → Paid.
+                    let transaction = self
+                        .link_transaction_to_invoice(
+                            conn,
+                            tenant_id,
+                            existing_transaction_id,
+                            draft_invoice.id,
+                        )
+                        .await?;
+                    transactions.push(transaction);
+
+                    // Amounts are contractual under the accepted debit — finalize now;
+                    // document state must not encode payment state.
+                    self.finalize_invoice_tx(
+                        conn,
+                        actor,
+                        draft_invoice.id,
+                        tenant_id,
+                        false,
+                        &Some(subscription.clone()),
+                    )
+                    .await?;
+
+                    // Processing (not Paid) and NO apply_transaction: the funds are in
+                    // flight, so amount_due stays full until real settlement. This also
+                    // fences the invoice off from auto-charge and dunning.
+                    InvoiceRow::apply_payment_status(
+                        conn,
+                        draft_invoice.id,
+                        tenant_id,
+                        diesel_models::enums::InvoicePaymentStatus::Processing,
+                        None,
+                    )
+                    .await?;
+                }
+                InvoiceBillingMode::AwaitGracePeriodIfApplicable
+                | InvoiceBillingMode::SettleAt(_)
+                | InvoiceBillingMode::Immediate => {
+                    return Err(Report::new(StoreError::InvalidArgument(
+                        "a scheduled billing mode carries no payment".to_owned(),
+                    )));
+                }
+            }
+
+            // Get the updated invoice after payment processing
+            let updated_invoice =
+                InvoiceRow::find_detailed_by_id(conn, tenant_id, draft_invoice.id).await?;
+
+            Ok(Some(
+                DetailedInvoice::try_from(updated_invoice)?.with_transactions(transactions),
+            ))
+        })
+        .await
     }
 
     fn as_detailed_invoice(

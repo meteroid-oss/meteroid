@@ -23,7 +23,7 @@ impl PaymentReversalMovementRowNew {
             .values((
                 self,
                 crate::schema::payment_reversal_movement::created_at
-                    .eq(common_domain::clock::now().naive_utc()),
+                    .eq(common_clock::now().naive_utc()),
             ))
             .on_conflict_do_nothing()
             .returning(PaymentReversalMovementRow::as_returning())

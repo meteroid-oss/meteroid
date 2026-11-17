@@ -201,7 +201,7 @@ impl CreditUnitRow {
                 .filter(u::tenant_id.eq(tenant_id))
                 .filter(u::id.eq(id)),
         )
-        .set((patch, u::updated_at.eq(common_domain::clock::now())))
+        .set((patch, u::updated_at.eq(common_clock::now())))
         .returning(CreditUnitRow::as_returning());
         crate::debug_sql(&query);
         query
@@ -347,7 +347,7 @@ impl CreditUnitPriceRow {
                 .filter(p::currency.eq(currency))
                 .filter(p::archived_at.is_null()),
         )
-        .set(p::archived_at.eq(common_domain::clock::now()))
+        .set(p::archived_at.eq(common_clock::now()))
         .returning(CreditUnitPriceRow::as_returning());
         crate::debug_sql(&query);
         query

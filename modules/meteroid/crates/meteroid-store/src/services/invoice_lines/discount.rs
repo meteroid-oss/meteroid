@@ -1,7 +1,6 @@
 use crate::domain::coupons::{AppliedCouponsDiscount, CouponDiscount};
 use crate::domain::{AppliedCouponDetailed, CouponLineItem, LineItem};
 use billing_core::assembly::discount as core;
-use common_domain::ids::BaseId;
 
 pub fn distribute_discount(line_items: Vec<LineItem>, discount: u64) -> Vec<LineItem> {
     let subtotals: Vec<i64> = line_items.iter().map(|item| item.amount_subtotal).collect();
@@ -21,7 +20,7 @@ pub fn distribute_discount(line_items: Vec<LineItem>, discount: u64) -> Vec<Line
 /// A coupon as `billing_core` reads it; a fixed amount in its currency's exponent (KW-02).
 fn to_core(coupon: &AppliedCouponDetailed) -> core::Coupon {
     core::Coupon {
-        coupon_id: coupon.coupon.id.as_uuid(),
+        coupon_id: coupon.coupon.id,
         value: match &coupon.coupon.discount {
             CouponDiscount::Percentage(percentage) => core::CouponValue::Percentage(*percentage),
             CouponDiscount::Fixed { amount, currency } => core::CouponValue::Fixed {
@@ -124,11 +123,12 @@ mod tests {
     use super::*;
     use crate::domain::coupons::Coupon;
     use crate::domain::subscription_coupons::AppliedCoupon;
+    use common_domain::ids::BaseId;
     use common_domain::ids::{AppliedCouponId, CouponId, CustomerId, SubscriptionId, TenantId};
     use rust_decimal::Decimal;
 
     fn applied_coupon(code: &str, discount: CouponDiscount) -> AppliedCouponDetailed {
-        let now = common_domain::clock::now().naive_utc();
+        let now = common_clock::now().naive_utc();
         let coupon_id = CouponId::new();
         AppliedCouponDetailed {
             coupon: Coupon {

@@ -205,6 +205,9 @@ pub struct DueTimes {
     /// A refreshable draft's next hourly refresh.
     #[diesel(sql_type = sql_types::Nullable<sql_types::Timestamptz>)]
     pub draft: Option<DateTime<Utc>>,
+    /// A live subscription's facts changing its derived state (`next_wake_at`).
+    #[diesel(sql_type = sql_types::Nullable<sql_types::Timestamptz>)]
+    pub derive: Option<DateTime<Utc>>,
 }
 
 impl DueTimes {
@@ -265,7 +268,12 @@ impl DueTimes {
                        OR i.billing_period_start
                           + COALESCE((SELECT ie.grace_period_hours FROM invoicing_entity ie
                                       WHERE ie.id = i.invoicing_entity_id), 0) * interval '1 hour'
-                          > ($3::timestamptz AT TIME ZONE 'UTC'))) AS draft",
+                          > ($3::timestamptz AT TIME ZONE 'UTC'))) AS draft,
+               (SELECT MIN(s.next_wake_at) FROM subscription s
+                WHERE s.tenant_id = $1 AND s.customer_id = $2
+                  AND s.status IN ('PENDING_ACTIVATION', 'PENDING_CHARGE', 'TRIAL_ACTIVE', 'ACTIVE',
+                                   'TRIAL_EXPIRED', 'PAUSED', 'SUSPENDED')
+                  AND NOT s.lifecycle_suspended) AS derive",
         )
         .bind::<sql_types::Uuid, _>(tenant_id)
         .bind::<sql_types::Uuid, _>(customer_id)

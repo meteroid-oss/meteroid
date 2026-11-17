@@ -48,6 +48,7 @@ members = [
   "crates/kafka",
   "crates/golden",
   "crates/common-build-info",
+  "crates/common-clock",
   "crates/common-config",
   "crates/common-domain",
   "crates/common-eventbus",
@@ -263,6 +264,7 @@ zeroize = { version = "1.6", default-features = false, features = ["alloc"] }
 # TODO prefix it all
 golden = { path = "crates/golden" }
 common-build-info = { path = "crates/common-build-info" }
+common-clock = { path = "crates/common-clock" }
 common-domain = { path = "crates/common-domain" }
 common-config = { path = "crates/common-config" }
 common-eventbus = { path = "crates/common-eventbus" }

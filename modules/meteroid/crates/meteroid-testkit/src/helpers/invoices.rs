@@ -71,7 +71,7 @@ pub async fn draft(setup: &MeteroidSetup, lines: Vec<LineItem>) -> TestResult<In
     let total: i64 = lines.iter().map(|line| line.amount_total).sum();
     let subtotal: i64 = lines.iter().map(|line| line.amount_subtotal).sum();
     let tax: i64 = lines.iter().map(|line| line.tax_amount).sum();
-    let today = common_domain::clock::now().date_naive();
+    let today = common_clock::now().date_naive();
     setup
         .store
         .insert_invoice(InvoiceNew {
@@ -138,7 +138,7 @@ pub async fn pay_amount(setup: &MeteroidSetup, invoice: InvoiceId, cents: i64) -
             TENANT_ID,
             invoice,
             Decimal::new(cents, 2),
-            common_domain::clock::now().fixed_offset(),
+            common_clock::now().fixed_offset(),
             Some(format!("payment-{invoice}")),
         )
         .await
@@ -223,7 +223,7 @@ pub async fn taxed_draft(
         .map(|line| line.amount_subtotal - line.taxable_amount)
         .sum();
     let tax_breakdown = breakdown_of(&lines);
-    let today = common_domain::clock::now().date_naive();
+    let today = common_clock::now().date_naive();
     setup
         .store
         .insert_invoice(InvoiceNew {
