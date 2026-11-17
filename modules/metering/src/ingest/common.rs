@@ -260,6 +260,13 @@ fn to_domain_event(
     }
 }
 
+/// How far back a backfilled event may be dated.
+///
+/// Raw events are partitioned by month, and ClickHouse rejects an insert that touches more than
+/// 100 partitions. A consumer batch mixes every tenant's events, so the window has to stay well
+/// under that for one tenant's old events not to fail everyone's batch.
+const MAX_BACKFILL_AGE: chrono::Months = chrono::Months::new(13);
+
 pub fn validate_event(
     event: &Event,
     now: &DateTime<Utc>,
@@ -281,7 +288,12 @@ pub fn validate_event(
                     return Err(format!("Timestamp is too far in the future : {diff}"));
                 }
 
-                if !allow_backfill && -diff > chrono::Duration::days(1) {
+                let oldest_allowed = if allow_backfill {
+                    *now - MAX_BACKFILL_AGE
+                } else {
+                    *now - chrono::Duration::days(1)
+                };
+                if ts < oldest_allowed {
                     return Err(format!("Timestamp is too far in the past : {diff}"));
                 }
 
@@ -403,6 +415,56 @@ mod tests {
             timestamp: String::new(),
             properties: HashMap::new(),
         }
+    }
+
+    fn event_at(timestamp: DateTime<Utc>) -> Event {
+        let customer =
+            ProtoCustomerId::MeteroidCustomerId(CustomerId::from(Uuid::from_u128(8)).as_proto());
+        Event {
+            timestamp: timestamp.to_rfc3339(),
+            ..event("0", customer)
+        }
+    }
+
+    #[test]
+    fn a_backfilled_event_is_accepted_up_to_the_backfill_age() {
+        let now = Utc::now();
+        let inside = now - MAX_BACKFILL_AGE + chrono::Duration::minutes(1);
+
+        assert!(validate_event(&event_at(inside), &now, true).is_ok());
+        assert!(validate_event(&event_at(inside), &now, false).is_err());
+    }
+
+    #[test]
+    fn a_backfilled_event_older_than_the_backfill_age_is_rejected() {
+        let now = Utc::now();
+        let outside = now - MAX_BACKFILL_AGE - chrono::Duration::minutes(1);
+
+        assert!(validate_event(&event_at(outside), &now, true).is_err());
+    }
+
+    #[test]
+    fn a_timestamp_clickhouse_cannot_store_is_rejected() {
+        let now = Utc::now();
+        let year_one = Event {
+            timestamp: "0001-01-01T00:00:00Z".to_string(),
+            ..event_at(now)
+        };
+
+        assert!(validate_event(&year_one, &now, true).is_err());
+    }
+
+    #[test]
+    fn the_backfill_window_stays_under_the_clickhouse_partition_limit() {
+        let now = Utc::now();
+        let oldest = now - MAX_BACKFILL_AGE;
+        let newest = now + chrono::Duration::hours(1);
+        let months = |t: DateTime<Utc>| {
+            use chrono::Datelike;
+            t.year() * 12 + t.month() as i32
+        };
+
+        assert!(months(newest) - months(oldest) + 1 < 100);
     }
 
     #[tokio::test]

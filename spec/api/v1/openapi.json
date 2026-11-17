@@ -15865,7 +15865,7 @@
               "null"
             ],
             "format": "date-time",
-            "description": "RFC 3339 timestamp. Defaults to ingestion time if omitted.\nMust be between 24 hours ago and 1 hour from now. Set `allow_backfilling` to remove the past limit.",
+            "description": "RFC 3339 timestamp. Defaults to ingestion time if omitted.\nMust be between 24 hours ago and 1 hour from now. Set `allow_backfilling` to accept timestamps up to 13 months in the past.",
             "example": "2026-01-15T10:30:00Z"
           }
         }
@@ -16384,7 +16384,7 @@
               "boolean",
               "null"
             ],
-            "description": "Allow events with timestamps more than 1 day in the past. Defaults to `false`."
+            "description": "Allow events with timestamps more than 1 day in the past, up to 13 months. Defaults to `false`."
           },
           "allow_partial_failures": {
             "type": [

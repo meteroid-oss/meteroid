@@ -19,7 +19,7 @@ pub struct Event {
     /// Meteroid customer ID or external customer alias.
     pub customer_id: String,
     /// RFC 3339 timestamp. Defaults to ingestion time if omitted.
-    /// Must be between 24 hours ago and 1 hour from now. Set `allow_backfilling` to remove the past limit.
+    /// Must be between 24 hours ago and 1 hour from now. Set `allow_backfilling` to accept timestamps up to 13 months in the past.
     #[schema(example = "2026-01-15T10:30:00Z", format = DateTime)]
     #[serde(default)]
     pub timestamp: Option<String>,
@@ -34,7 +34,7 @@ pub struct IngestEventsRequest {
     /// 1–100 events per request.
     #[validate(length(min = 1, max = 100), nested)]
     pub events: Vec<Event>,
-    /// Allow events with timestamps more than 1 day in the past. Defaults to `false`.
+    /// Allow events with timestamps more than 1 day in the past, up to 13 months. Defaults to `false`.
     #[serde(default)]
     pub allow_backfilling: Option<bool>,
     /// Accept the batch even if some events fail validation. Defaults to `false`.
