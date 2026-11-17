@@ -31,6 +31,14 @@ pub enum ChargeKind {
     Credit,
 }
 
+/// What a charge's amount counts: money of the subscription's currency, or credits of a unit.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Denomination {
+    #[default]
+    Money,
+    CreditUnit(Uuid),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ChargeKey {
     pub subscription: Option<Uuid>,
@@ -39,6 +47,8 @@ pub struct ChargeKey {
     pub from: NaiveDate,
     pub until: NaiveDate,
     pub kind: ChargeKind,
+    /// A charge in credits is never netted against one in money.
+    pub denomination: Denomination,
 }
 
 const ID_LENGTH: u32 = 13;
@@ -68,8 +78,13 @@ impl ChargeKey {
             ChargeKind::Shortfall => "shortfall".to_owned(),
             ChargeKind::Credit => "credit".to_owned(),
         };
+        // Money keeps the ids lines had before credit units were keyed.
+        let denomination = match self.denomination {
+            Denomination::Money => String::new(),
+            Denomination::CreditUnit(unit) => format!("|credit_unit:{unit}"),
+        };
         format!(
-            "v1|{subscription}|{fee}|{}..{}|{kind}",
+            "v1|{subscription}|{fee}|{}..{}|{kind}{denomination}",
             self.from, self.until
         )
     }
@@ -123,6 +138,7 @@ mod tests {
             from: NaiveDate::from_ymd_opt(from.0, from.1, from.2).unwrap(),
             until: NaiveDate::from_ymd_opt(2024, 2, 1).unwrap(),
             kind: ChargeKind::Fee,
+            denomination: Denomination::Money,
         }
     }
 
@@ -143,6 +159,17 @@ mod tests {
                 "v1|00000000-0000-0000-0000-000000000001|component:00000000-0000-0000-0000-000000000002|2024-01-01..2024-02-01|fee"
             )
         );
+    }
+
+    #[test]
+    fn a_charge_in_credits_is_another_charge() {
+        let money = key((2024, 1, 1));
+        let credits = ChargeKey {
+            denomination: Denomination::CreditUnit(Uuid::from_u128(9)),
+            ..money.clone()
+        };
+        assert_ne!(money.line_id(), credits.line_id());
+        assert_ne!(money, credits);
     }
 
     #[test]

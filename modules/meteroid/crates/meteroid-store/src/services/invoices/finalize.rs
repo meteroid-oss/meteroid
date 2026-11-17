@@ -631,17 +631,16 @@ impl Services {
             total: &mut patch.total,
         };
         // Cash taken against the draft as shown never ends up paying for more than it.
-        let (request, of_line) = if already_paid > 0 || committed > 0 {
-            let shown: std::collections::HashMap<&str, i64> = invoice
-                .line_items
-                .iter()
-                .map(|line| (line.local_id.as_str(), line.promotional_credit.unwrap_or(0)))
-                .collect();
-            document.pretax_request_within(&shown, line_scope)?
-        } else {
-            document.pretax_request(line_scope)?
-        };
-        let charges = document.usage_charges(&request, &of_line);
+        let shown: Option<std::collections::HashMap<String, i64>> =
+            (already_paid > 0 || committed > 0).then(|| {
+                invoice
+                    .line_items
+                    .iter()
+                    .map(|line| (line.local_id.clone(), line.promotional_credit.unwrap_or(0)))
+                    .collect()
+            });
+        let (request, of_line) = document.promotional_request(shown.as_ref(), line_scope)?;
+        let charges = document.usage_charges(&request, &of_line, line_scope);
         let promotional = self
             .draw_credit_tx(
                 conn,
@@ -654,8 +653,7 @@ impl Services {
                 time,
             )
             .await?;
-        let shares = document.shares(&of_line, &promotional);
-        document.reprice(&shares)?;
+        document.take_promotional(&of_line, &promotional)?;
 
         patch.applied_credits = 0;
         patch.amount_due = billing_core::amount_due(patch.total, already_paid, 0);

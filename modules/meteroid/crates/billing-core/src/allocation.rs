@@ -49,11 +49,69 @@ pub fn split(total: i64, weights: &[Decimal]) -> Vec<i64> {
     largest_remainder(&exact)
 }
 
+/// Splits `covered` over lines pro rata to what each consumed, exact in `i128`, largest remainder
+/// first, ties to the earlier line (R-073): negative weights count 0, never above the consumption.
+pub fn allocate_covered(consumed: &[i64], covered: i64) -> Vec<i64> {
+    let total: i128 = consumed.iter().map(|c| i128::from(*c.max(&0))).sum();
+    if total <= 0 || covered <= 0 {
+        return vec![0; consumed.len()];
+    }
+    let covered = i128::from(covered).min(total);
+    let mut shares: Vec<(i128, i128)> = consumed
+        .iter()
+        .map(|c| {
+            let scaled = i128::from(*c.max(&0)) * covered;
+            (scaled / total, scaled % total)
+        })
+        .collect();
+    let mut left = covered - shares.iter().map(|(share, _)| share).sum::<i128>();
+    let mut order: Vec<usize> = (0..shares.len()).collect();
+    order.sort_by(|a, b| shares[*b].1.cmp(&shares[*a].1).then(a.cmp(b)));
+    for index in order {
+        if left <= 0 {
+            break;
+        }
+        if shares[index].1 > 0 {
+            shares[index].0 += 1;
+            left -= 1;
+        }
+    }
+    shares
+        .into_iter()
+        .map(|(share, _)| i64::try_from(share).unwrap_or(i64::MAX))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use proptest::prelude::*;
     use rust_decimal_macros::dec;
+
+    #[test]
+    fn covered_credits_split_pro_rata_by_consumption() {
+        assert_eq!(allocate_covered(&[300, 100], 200), vec![150, 50]);
+        assert_eq!(allocate_covered(&[300, 100], 400), vec![300, 100]);
+        assert_eq!(allocate_covered(&[300, 100], 0), vec![0, 0]);
+        assert_eq!(allocate_covered(&[40, 10, 10], 20), vec![14, 3, 3]);
+    }
+
+    #[test]
+    fn the_remainder_goes_to_the_largest_fraction_then_the_earlier_line() {
+        assert_eq!(allocate_covered(&[1, 1, 1], 2), vec![1, 1, 0]);
+        assert_eq!(allocate_covered(&[10, 10, 10], 10), vec![4, 3, 3]);
+        assert_eq!(allocate_covered(&[1, 2], 2), vec![1, 1]);
+        let split = allocate_covered(&[7, 13, 29, 51], 37);
+        assert_eq!(split.iter().sum::<i64>(), 37);
+        assert!(split.iter().zip([7, 13, 29, 51]).all(|(s, c)| *s <= c));
+    }
+
+    #[test]
+    fn coverage_never_exceeds_consumption() {
+        assert_eq!(allocate_covered(&[5, 5], 1_000), vec![5, 5]);
+        assert_eq!(allocate_covered(&[0, 0], 10), vec![0, 0]);
+        assert_eq!(allocate_covered(&[-5, 5], 3), vec![0, 3]);
+    }
 
     #[test]
     fn favours_the_largest_remainder() {

@@ -6,6 +6,7 @@ use error_stack::Report;
 pub(crate) mod billing_windows;
 pub(crate) mod collected_payment;
 pub(crate) mod coupon_grant;
+pub(crate) mod document;
 pub(crate) mod expiry_settlement;
 pub(crate) mod forecast;
 pub mod metrics;

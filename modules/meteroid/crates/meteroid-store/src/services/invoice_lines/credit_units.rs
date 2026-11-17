@@ -5,7 +5,7 @@ use crate::StoreResult;
 use crate::domain::invoice_lines::LineCreditUnit;
 use crate::domain::{LineItem, SubscriptionDetails};
 use crate::errors::StoreError;
-use crate::repositories::credit::allocation::{CreditDemand, CreditRequest, GrantPool, allocate};
+use crate::repositories::credit::allocation::{CreditRequest, GrantPool};
 use crate::repositories::credit::customer_credit::{self as credit, BilledPeriods};
 use crate::services::Services;
 use crate::services::credit::forecast::{CreditBooks, Drawn};
@@ -13,6 +13,7 @@ use crate::services::credit::unit_wallets::OverageRates;
 use crate::services::credit::{billing_windows, expiry_settlement};
 use crate::services::invoice_lines::component::PinnedPrices;
 use crate::store::PgConn;
+use billing_core::assembly::credit_units as units;
 use chrono::{DateTime, NaiveDate, Utc};
 use common_domain::ids::{BaseId, CreditUnitId, InvoiceId, PlanVersionId, SubscriptionId};
 use diesel_models::customer_credit::{CreditUsageSettlementRow, CustomerCreditAccountRow};
@@ -67,38 +68,7 @@ pub(crate) fn overage_money(block: &LineCreditUnit, currency_precision: u8) -> S
     )
 }
 
-/// Splits `covered` over lines pro rata to what each consumed, largest remainder first, ties to
-/// the earlier line: independent of tax categories and exact to the minor unit.
-pub fn allocate_covered(consumed: &[i64], covered: i64) -> Vec<i64> {
-    let total: i128 = consumed.iter().map(|c| i128::from(*c.max(&0))).sum();
-    if total <= 0 || covered <= 0 {
-        return vec![0; consumed.len()];
-    }
-    let covered = i128::from(covered).min(total);
-    let mut shares: Vec<(i128, i128)> = consumed
-        .iter()
-        .map(|c| {
-            let scaled = i128::from(*c.max(&0)) * covered;
-            (scaled / total, scaled % total)
-        })
-        .collect();
-    let mut left = covered - shares.iter().map(|(share, _)| share).sum::<i128>();
-    let mut order: Vec<usize> = (0..shares.len()).collect();
-    order.sort_by(|a, b| shares[*b].1.cmp(&shares[*a].1).then(a.cmp(b)));
-    for index in order {
-        if left <= 0 {
-            break;
-        }
-        if shares[index].1 > 0 {
-            shares[index].0 += 1;
-            left -= 1;
-        }
-    }
-    shares
-        .into_iter()
-        .map(|(share, _)| i64::try_from(share).unwrap_or(i64::MAX))
-        .collect()
-}
+pub use billing_core::allocate_covered;
 
 /// One subscription's usage priced in one unit, of lines ending at `dated_before`.
 #[derive(Debug, Clone)]
@@ -133,23 +103,21 @@ impl UnitDemand {
             .ok_or_else(|| invalid("credit usage exceeds the supported range"))
     }
 
+    /// The uses as the core reads them.
+    fn core_uses(&self, amount_of: impl Fn(&SubscriptionUse) -> i64) -> Vec<units::UnitUse> {
+        self.uses
+            .iter()
+            .map(|used| units::UnitUse {
+                subscription: used.subscription_id.as_uuid(),
+                dated_before: used.dated_before,
+                consumed: amount_of(used),
+            })
+            .collect()
+    }
+
     /// One demand per subscription, in `uses` order, each at most `amount_of` its use.
     fn request(&self, amount_of: impl Fn(&SubscriptionUse) -> i64) -> CreditRequest {
-        let demands = self
-            .uses
-            .iter()
-            .map(|used| CreditDemand {
-                subscription_id: Some(used.subscription_id),
-                product_id: None,
-                usage: true,
-                amount_minor: amount_of(used).max(0),
-                dated_before: Some(used.dated_before),
-            })
-            .collect::<Vec<_>>();
-        CreditRequest {
-            requested_minor: demands.iter().map(|demand| demand.amount_minor).sum(),
-            demands,
-        }
+        units::unit_request(&self.core_uses(amount_of), |used| used.consumed).into()
     }
 
     fn periods(&self, targets: &[CoverTarget<'_>]) -> Vec<(SubscriptionId, NaiveDate)> {
@@ -403,52 +371,49 @@ impl Services {
                 }
             }
         }
-        // Placed on the uses as finalizing places them (`net_settlements_then_draw_tx`): each
-        // settlement's on the usage of the window it paid.
-        let consumed = demand.request(|used| used.consumed);
         let held =
             credit::settlement_holdings_tx(conn, tenant_id, &kept_settlements, GrantPool::All)
                 .await?;
-        let kept = credit::assign_settled(&held, &consumed)?;
-        let request = consumed.remainder(&kept)?;
-        let fresh = match book {
-            Some(book) => {
-                let candidates = book.candidates_tx(conn, &demand.code).await?;
-                let fresh = allocate(&candidates, &request, now, GrantPool::All)?;
-                book.record(Drawn {
-                    denomination: demand.code.clone(),
-                    pool: GrantPool::All,
-                    held: kept.clone().then(fresh.clone())?,
-                    fresh: fresh.clone(),
-                })?;
-                fresh
-            }
+        let drawable = match book {
+            Some(book) => book.candidates_tx(conn, &demand.code).await?,
             None => {
-                credit::preview_estimate_tx(
+                credit::estimate_drawable_tx(
                     conn,
                     tenant_id,
                     customer_id,
                     &demand.code,
-                    GrantPool::All,
-                    &request,
+                    demand
+                        .uses
+                        .iter()
+                        .map(|used| used.subscription_id)
+                        .collect(),
                     now,
                 )
                 .await?
             }
         };
-        Ok(demand
-            .uses
-            .iter()
-            .enumerate()
-            .map(|(index, used)| {
-                kept.covered
-                    .get(index)
-                    .copied()
-                    .unwrap_or(0)
-                    .saturating_add(fresh.covered.get(index).copied().unwrap_or(0))
-                    .min(used.consumed)
-            })
-            .collect())
+        // Placed on the uses as finalizing places them (`net_settlements_then_draw_tx`): each
+        // settlement's on the usage of the window it paid.
+        let grants = billing_core::credit::Grants {
+            drawable: drawable.iter().map(Into::into).collect(),
+            settled: credit::core_settled(&held),
+            at: now,
+        };
+        let (drawn, covered) =
+            units::estimate_cover(&demand.core_uses(|used| used.consumed), &grants)
+                .map_err(|_| invalid("credit usage exceeds the supported range"))?;
+        if let Some(book) = book {
+            book.record(Drawn {
+                denomination: demand.code.clone(),
+                pool: GrantPool::All,
+                held: drawn
+                    .held()
+                    .map_err(|_| invalid("credit usage exceeds the supported range"))?
+                    .into(),
+                fresh: drawn.fresh.into(),
+            })?;
+        }
+        Ok(covered)
     }
 
     /// Draws `request` (one demand per subscription of `demand`), returning what each covers.

@@ -38,7 +38,6 @@ use diesel_models::customers::CustomerRow;
 use diesel_models::lock::CustomerLock;
 use diesel_models::payment_reversal_movements::PaymentReversalMovementRow;
 use error_stack::Report;
-use meteroid_tax::{LineToTax, TaxToApply, apply_taxes};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
@@ -1554,103 +1553,52 @@ pub struct UsageOwed {
 }
 
 impl UsageOwed {
-    /// What `base` of it is invoiced at, tax included.
-    pub(crate) fn invoiced(&self, base: i64) -> i64 {
-        if self.tax_inclusive || self.taxes.is_empty() || base <= 0 {
-            return base;
+    fn core(&self) -> billing_core::credit::owed::UsageOwed {
+        billing_core::credit::owed::UsageOwed {
+            product: self.product_id.map(|id| id.as_uuid()),
+            base_minor: self.base_minor,
+            tax_inclusive: self.tax_inclusive,
+            taxes: self
+                .taxes
+                .iter()
+                .map(|tax| billing_core::document::Rate {
+                    rate: tax.tax_rate,
+                    name: tax.tax_name.clone(),
+                })
+                .collect(),
         }
-        base + self.levied(base, false)
+    }
+
+    /// What `base` of it is invoiced at, tax included.
+    #[cfg(test)]
+    pub(crate) fn invoiced(&self, base: i64) -> i64 {
+        self.core().invoiced(base)
     }
 
     /// The tax in what `covered` of `base`'s invoiced figure pays, as its invoice line levies it,
     /// `base` being invoiced at `full` (`invoiced_together`).
     pub(crate) fn tax_in_within(&self, base: i64, covered: i64, full: i64) -> i64 {
-        if self.taxes.is_empty() || covered <= 0 {
-            0
-        } else if self.tax_inclusive {
-            self.levied(covered, true)
-        } else if covered >= full {
-            full - base.max(0)
-        } else {
-            let usage = self.usage_paid_by_within(base, covered, full);
-            self.invoiced(usage) - usage
-        }
-    }
-
-    fn tax_keys(&self) -> Vec<TaxToApply> {
-        self.taxes
-            .iter()
-            .map(|tax| TaxToApply {
-                rate: tax.tax_rate,
-                key: format!("{}:{}", tax.tax_name, tax.tax_rate),
-                compound: false,
-            })
-            .collect()
-    }
-
-    fn levied(&self, amount: i64, tax_inclusive: bool) -> i64 {
-        let line = LineToTax {
-            taxable_amount: amount,
-            tax_inclusive,
-            taxes: self.tax_keys(),
-        };
-        apply_taxes(&[line]).into_iter().flatten().sum::<i64>()
+        self.core().tax_in_within(base, covered, full)
     }
 
     /// What each of `owed` is invoiced at for `bases`, tax included, each rate rounded once over
-    /// all of them as the invoice taking them over rounds it (OQ14), not line by line.
+    /// all of them (OQ14).
     pub(crate) fn invoiced_together(owed: &[Self], bases: &[i64]) -> Vec<i64> {
-        let lines: Vec<LineToTax> = owed
-            .iter()
-            .zip(bases)
-            .map(|(owed, base)| LineToTax {
-                taxable_amount: if owed.tax_inclusive {
-                    0
-                } else {
-                    (*base).max(0)
-                },
-                tax_inclusive: false,
-                taxes: owed.tax_keys(),
-            })
-            .collect();
-        apply_taxes(&lines)
-            .into_iter()
-            .zip(bases)
-            .map(|(taxes, base)| base + taxes.iter().sum::<i64>())
-            .collect()
+        billing_core::credit::owed::UsageOwed::invoiced_together(
+            &owed.iter().map(Self::core).collect::<Vec<_>>(),
+            bases,
+        )
     }
 
     /// `usage_paid_by` where `base` is invoiced at `full`: all of it only once `paid` reaches it.
     pub(crate) fn usage_paid_by_within(&self, base: i64, paid: i64, full: i64) -> i64 {
-        let base = base.max(0);
-        if paid >= full {
-            return base;
-        }
-        self.usage_paid_by(base, paid).min((base - 1).max(0))
+        self.core().usage_paid_by_within(base, paid, full)
     }
 
-    /// The usage before tax that `paid` of `base`'s invoiced figure pays: all of it once `paid`
-    /// reaches that figure, else the most whose invoiced figure `paid` covers. Not every amount is
-    /// an invoiced figure (3 at 20% invoices at 4), so up to one minor unit per tax pays no usage.
+    /// The usage before tax that `paid` of `base`'s invoiced figure pays.
+    #[cfg(test)]
     pub(crate) fn usage_paid_by(&self, base: i64, paid: i64) -> i64 {
-        let base = base.max(0);
-        if paid <= 0 {
-            return 0;
-        }
-        if paid >= self.invoiced(base) {
-            return base;
-        }
-        // The invoiced figure rises with the usage: `low` is paid whole, `high` is not.
-        let (mut low, mut high) = (0_i64, base);
-        while high - low > 1 {
-            let middle = low + (high - low) / 2;
-            if self.invoiced(middle) <= paid {
-                low = middle;
-            } else {
-                high = middle;
-            }
-        }
-        low
+        self.core().usage_paid_by(base, paid)
     }
 }
 
@@ -1659,6 +1607,38 @@ impl UsageOwed {
 pub struct UsageCharge {
     pub demand: usize,
     pub owed: UsageOwed,
+}
+
+impl UsageCharge {
+    fn core(&self) -> billing_core::credit::owed::UsageCharge {
+        billing_core::credit::owed::UsageCharge {
+            demand: self.demand,
+            owed: self.owed.core(),
+        }
+    }
+}
+
+impl From<billing_core::credit::owed::UsageCharge> for UsageCharge {
+    fn from(charge: billing_core::credit::owed::UsageCharge) -> Self {
+        UsageCharge {
+            demand: charge.demand,
+            owed: UsageOwed {
+                product_id: charge.owed.product.map(ProductId::from),
+                base_minor: charge.owed.base_minor,
+                tax_inclusive: charge.owed.tax_inclusive,
+                taxes: charge
+                    .owed
+                    .taxes
+                    .into_iter()
+                    .map(|tax| TaxDetail {
+                        tax_rate: tax.rate,
+                        tax_name: tax.name,
+                        tax_amount: 0,
+                    })
+                    .collect(),
+            },
+        }
+    }
 }
 
 /// What promotional credit may take of `request` once the paid settlements the invoice keeps
@@ -1676,87 +1656,34 @@ pub fn after_paid_settlements(
     after_settlements_in_windows(request, charges, &unplaced)
 }
 
+/// The core's view of settled credit held by window.
+pub(crate) fn core_settled(
+    held: &[(Option<SettledWindow>, GrantCandidate, i64)],
+) -> Vec<billing_core::credit::owed::Settled> {
+    held.iter()
+        .map(
+            |(window, grant, amount)| billing_core::credit::owed::Settled {
+                window: window.map(|(subscription_id, start)| (subscription_id.as_uuid(), start)),
+                grant: grant.into(),
+                amount: *amount,
+            },
+        )
+        .collect()
+}
+
 /// [`after_paid_settlements`], each settlement's credit on the usage of the window it paid.
 fn after_settlements_in_windows(
     request: &CreditRequest,
     charges: &[UsageCharge],
     paid_settled: &[(Option<SettledWindow>, GrantCandidate, i64)],
 ) -> StoreResult<CreditRequest> {
-    if paid_settled.is_empty() || charges.is_empty() {
-        return Ok(request.clone());
-    }
-    let invoiced = UsageOwed::invoiced_together(
-        &charges
-            .iter()
-            .map(|charge| charge.owed.clone())
-            .collect::<Vec<_>>(),
-        &charges
-            .iter()
-            .map(|charge| charge.owed.base_minor)
-            .collect::<Vec<_>>(),
-    );
-    let placed = assign_settled(
-        paid_settled,
-        &CreditRequest {
-            requested_minor: invoiced
-                .iter()
-                .try_fold(0_i64, |sum, amount| sum.checked_add(*amount))
-                .ok_or_else(overflow)?,
-            demands: charges
-                .iter()
-                .zip(&invoiced)
-                .map(|(charge, amount)| CreditDemand {
-                    subscription_id: request
-                        .demands
-                        .get(charge.demand)
-                        .and_then(|demand| demand.subscription_id),
-                    product_id: charge.owed.product_id,
-                    usage: true,
-                    amount_minor: *amount,
-                    dated_before: request
-                        .demands
-                        .get(charge.demand)
-                        .and_then(|demand| demand.dated_before),
-                })
-                .collect(),
-        },
-    )?;
-    let (mut base, mut paid) = (
-        vec![0_i64; request.demands.len()],
-        vec![0_i64; request.demands.len()],
-    );
-    for ((charge, covered), full) in charges.iter().zip(&placed.covered).zip(&invoiced) {
-        let (Some(base), Some(paid)) = (base.get_mut(charge.demand), paid.get_mut(charge.demand))
-        else {
-            return Err(precondition(
-                "a usage charge names no demand of the request",
-            ));
-        };
-        *base = base
-            .checked_add(charge.owed.base_minor.max(0))
-            .ok_or_else(overflow)?;
-        *paid = paid
-            .checked_add(
-                charge
-                    .owed
-                    .usage_paid_by_within(charge.owed.base_minor, *covered, *full),
-            )
-            .ok_or_else(overflow)?;
-    }
-    let mut left = request.clone();
-    let mut taken = 0_i64;
-    for ((demand, base), paid) in left.demands.iter_mut().zip(base).zip(paid) {
-        if paid <= 0 {
-            continue;
-        }
-        let amount = demand.amount_minor.min(base - paid).max(0);
-        taken = taken
-            .checked_add(demand.amount_minor - amount)
-            .ok_or_else(overflow)?;
-        demand.amount_minor = amount;
-    }
-    left.requested_minor = (left.requested_minor - taken).max(0);
-    Ok(left)
+    billing_core::credit::owed::after_settlements(
+        &request.into(),
+        &charges.iter().map(UsageCharge::core).collect::<Vec<_>>(),
+        &core_settled(paid_settled),
+    )
+    .map(Into::into)
+    .map_err(crate::services::credit::document::settle_error)
 }
 
 /// Pays a period's usage (`owed`, net of what `earlier` settlements of it paid) from the locked
@@ -2238,79 +2165,14 @@ fn settled_in_pool(
     Ok(held)
 }
 
-/// [`assign`] of settled credit, each settlement's on the usage of the window it paid only (the
-/// demands of its subscription ending first after its period's start), never on an earlier window
-/// another grant could not pay. Merged per grant.
+/// [`assign`] of settled credit, each settlement's on the usage of the window it paid only (R10).
 pub(crate) fn assign_settled(
     held: &[(Option<SettledWindow>, GrantCandidate, i64)],
     request: &CreditRequest,
 ) -> StoreResult<Allocation> {
-    let mut kept = Allocation {
-        draws: Vec::new(),
-        covered: vec![0; request.demands.len()],
-        placed: Vec::new(),
-    };
-    // Each settlement's window first, then what no settlement accounts for.
-    let mut windows: Vec<Option<SettledWindow>> = Vec::new();
-    for (window, _, _) in held {
-        if !windows.contains(window) {
-            windows.push(*window);
-        }
-    }
-    windows.sort_by_key(Option::is_none);
-    for window in windows {
-        let round = held
-            .iter()
-            .filter(|(w, _, _)| *w == window)
-            .map(|(_, grant, amount)| (grant.clone(), *amount))
-            .collect::<Vec<_>>();
-        let left = request.remainder(&kept)?;
-        let placed = assign(&round, &within_window(left, window)?)?;
-        kept = kept.then(placed)?;
-    }
-    Ok(kept)
-}
-
-/// What a settlement of `window` may cover of `request`: its subscription's usage not dated before
-/// the window, nothing else (finalize keeps settled credit on usage only). Unchanged when the
-/// request names no usage of that subscription.
-fn within_window(
-    request: CreditRequest,
-    window: Option<SettledWindow>,
-) -> StoreResult<CreditRequest> {
-    let Some((subscription_id, period_start)) = window else {
-        return Ok(request);
-    };
-    let start = period_start.and_time(chrono::NaiveTime::MIN).and_utc();
-    let of_subscription =
-        |demand: &CreditDemand| demand.usage && demand.subscription_id == Some(subscription_id);
-    if !request.demands.iter().any(of_subscription) {
-        return Ok(request);
-    }
-    let demands = request
-        .demands
-        .iter()
-        .map(|demand| CreditDemand {
-            amount_minor: if of_subscription(demand)
-                && demand.dated_before.is_none_or(|before| before > start)
-            {
-                demand.amount_minor
-            } else {
-                0
-            },
-            ..*demand
-        })
-        .collect::<Vec<_>>();
-    let open = demands
-        .iter()
-        .try_fold(0_i64, |sum, demand| {
-            sum.checked_add(demand.amount_minor.max(0))
-        })
-        .ok_or_else(overflow)?;
-    Ok(CreditRequest {
-        requested_minor: request.requested_minor.max(0).min(open),
-        demands,
-    })
+    billing_core::credit::owed::assign_settled(&core_settled(held), &request.into())
+        .map(Into::into)
+        .map_err(|_| overflow())
 }
 
 /// What the grants that paid `settlements` still hold of them in `pool`, by the window each paid.
@@ -2688,37 +2550,6 @@ pub(crate) async fn preview_tx(
     allocate(&candidates(&grants)?, request, now, pool)
 }
 
-/// `preview_tx` for an estimate of a document finalizing at `now` (`estimate_candidates_tx`).
-pub(crate) async fn preview_estimate_tx(
-    conn: &mut PgConn,
-    tenant_id: TenantId,
-    customer_id: CustomerId,
-    currency: &str,
-    pool: GrantPool,
-    request: &CreditRequest,
-    now: DateTime<Utc>,
-) -> StoreResult<Allocation> {
-    if request.requested_minor <= 0 {
-        return Ok(Allocation::default());
-    }
-    let currency = normalized_currency(currency);
-    let Some(account) =
-        CustomerCreditAccountRow::find_by_currency(conn, tenant_id, customer_id, &currency).await?
-    else {
-        return Ok(Allocation::default());
-    };
-    let grants = CustomerCreditGrantRow::list_drawable(
-        conn,
-        tenant_id,
-        customer_id,
-        account.id,
-        demand_subscriptions(request),
-    )
-    .await?;
-    let candidates = estimate_candidates_tx(conn, tenant_id, &grants, now).await?;
-    allocate(&candidates, request, now, pool)
-}
-
 /// The candidates of `grants`, in order, for estimating a document finalizing at `at`: expired
 /// credit not rolled over yet stands in for what it rolls over to, as finalizing rolls it first
 /// (`settle_due_expiries_tx`). The usage it pays before its expiry is unknown: the cap stays.
@@ -2760,54 +2591,45 @@ pub(crate) async fn estimate_candidates_tx(
         .collect()
 }
 
-/// Read-only estimate of what finalizing an invoice billing `periods` would hold from `pool`: the
-/// open settlements of those periods it would keep, then fresh draws on the rest.
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn estimate_tx(
+/// The grants an estimate of a document finalizing at `at` may draw (`estimate_candidates_tx`):
+/// customer-wide ones and those of `subscriptions`.
+pub(crate) async fn estimate_drawable_tx(
     conn: &mut PgConn,
     tenant_id: TenantId,
     customer_id: CustomerId,
     currency: &str,
-    invoice_id: Option<InvoiceId>,
-    periods: &[(SubscriptionId, NaiveDate)],
-    pool: GrantPool,
-    request: &CreditRequest,
-    charges: &[UsageCharge],
-    now: DateTime<Utc>,
-) -> StoreResult<Allocation> {
-    if request.requested_minor <= 0 {
-        return Ok(Allocation::default());
-    }
-    let (ahead, kept) = estimate_kept_tx(
-        conn, tenant_id, currency, invoice_id, periods, pool, request, charges,
-    )
-    .await?;
-    let fresh = preview_estimate_tx(
+    subscriptions: Vec<SubscriptionId>,
+    at: DateTime<Utc>,
+) -> StoreResult<Vec<GrantCandidate>> {
+    let currency = normalized_currency(currency);
+    let Some(account) =
+        CustomerCreditAccountRow::find_by_currency(conn, tenant_id, customer_id, &currency).await?
+    else {
+        return Ok(Vec::new());
+    };
+    let mut subscriptions = subscriptions;
+    subscriptions.sort_by_key(|id| id.as_uuid());
+    subscriptions.dedup();
+    let grants = CustomerCreditGrantRow::list_drawable(
         conn,
         tenant_id,
         customer_id,
-        currency,
-        pool,
-        &ahead.remainder(&kept)?,
-        now,
+        account.id,
+        SubscriptionFilter::CustomerWideOr(subscriptions),
     )
     .await?;
-    kept.then(fresh)
+    estimate_candidates_tx(conn, tenant_id, &grants, at).await
 }
 
-/// The open settlements of `periods` an invoice finalizing would keep from `pool`, and what the
-/// request still asks of fresh draws once they are placed.
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn estimate_kept_tx(
+/// What grants hold of the open settlements of `periods` an invoice finalizing would take over,
+/// by the window each paid: the open ones and those `invoice_id` already took.
+pub(crate) async fn estimate_settled_tx(
     conn: &mut PgConn,
     tenant_id: TenantId,
     currency: &str,
     invoice_id: Option<InvoiceId>,
     periods: &[(SubscriptionId, NaiveDate)],
-    pool: GrantPool,
-    request: &CreditRequest,
-    charges: &[UsageCharge],
-) -> StoreResult<(CreditRequest, Allocation)> {
+) -> StoreResult<Vec<(Option<SettledWindow>, GrantCandidate, i64)>> {
     let currency = normalized_currency(currency);
     let mut periods = periods.to_vec();
     periods.sort_by_key(|(subscription_id, start)| (subscription_id.as_uuid(), *start));
@@ -2828,21 +2650,17 @@ pub(crate) async fn estimate_kept_tx(
             }
         }
     }
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
     let settlements = rows.iter().map(|s| s.id.as_uuid()).collect::<Vec<_>>();
-    Ok(if settlements.is_empty() {
-        (request.clone(), Allocation::default())
-    } else {
-        let draws =
-            CustomerCreditEntryRow::list_settlement_draws(conn, tenant_id, &settlements).await?;
-        let mut ids = draws.iter().map(|e| e.grant_id).collect::<Vec<_>>();
-        ids.sort_by_key(|id| id.as_uuid());
-        ids.dedup();
-        let paid_by = CustomerCreditGrantRow::list_by_ids_scoped(conn, tenant_id, &ids).await?;
-        let paid_settled = settled_in_pool(&draws, &rows, &paid_by, GrantPool::Paid)?;
-        let ahead = ahead_of(pool, request, charges, &paid_settled)?;
-        let kept = assign_settled(&settled_in_pool(&draws, &rows, &paid_by, pool)?, &ahead)?;
-        (ahead, kept)
-    })
+    let draws =
+        CustomerCreditEntryRow::list_settlement_draws(conn, tenant_id, &settlements).await?;
+    let mut ids = draws.iter().map(|e| e.grant_id).collect::<Vec<_>>();
+    ids.sort_by_key(|id| id.as_uuid());
+    ids.dedup();
+    let paid_by = CustomerCreditGrantRow::list_by_ids_scoped(conn, tenant_id, &ids).await?;
+    settled_in_pool(&draws, &rows, &paid_by, GrantPool::All)
 }
 
 /// Credit the invoice holds, by grant: its draws and the usage settlements it took over, net of

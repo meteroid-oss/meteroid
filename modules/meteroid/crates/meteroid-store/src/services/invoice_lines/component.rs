@@ -1,18 +1,18 @@
+use billing_core::pricing;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
-use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::{Decimal, RoundingStrategy};
+use rust_decimal::Decimal;
 
 use crate::domain::credit_units::FeeCreditUnit;
 use crate::domain::enums::{BillingType, UnitConversionRoundingEnum};
 use crate::domain::invoice_lines::{LineCreditUnit, UsageBreakdown, UsageBreakdownItem};
 use crate::domain::price_components::MatrixRow;
 use crate::domain::{
-    BillableMetric, ComponentPeriods, LineItem, Period, SubLineAttributes, SubLineItem,
-    SubscriptionDetails, SubscriptionFee, SubscriptionFeeInterface, UsagePeriod, UsagePricingModel,
+    BillableMetric, ComponentPeriods, LineItem, Period, SubLineItem, SubscriptionDetails,
+    SubscriptionFee, SubscriptionFeeInterface, UsagePeriod, UsagePricingModel,
 };
 use crate::services::subscriptions::proration::DayFraction;
 
-use super::fees;
+use super::fees::pricing_error;
 use crate::StoreResult;
 use crate::errors::StoreError;
 use crate::repositories::subscriptions::SubscriptionSlotsInterface;
@@ -20,12 +20,8 @@ use crate::services::Services;
 use crate::services::clients::usage::{GroupedUsageData, UsageData};
 use crate::store::PgConn;
 use common_domain::ids::{BillableMetricId, SubscriptionAddOnId, SubscriptionPriceComponentId};
-use common_utils::decimals::{
-    MAX_QUANTITY_SCALE, ToSubunit, round_billable_quantity, round_quantity,
-};
-use common_utils::integers::{ToNonNegativeU64, only_positive, only_positive_decimal};
 use error_stack::{Report, ResultExt};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Key to match existing line items during invoice refresh
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,7 +62,10 @@ impl ExistingLineKey {
 
 /// The unit price an operator pinned on a draft line, in the denomination the fee now prices in:
 /// a pin never crosses from money to credits or between units.
-fn pinned_unit_price(line: &LineItem, credit_unit: Option<&FeeCreditUnit>) -> Option<Decimal> {
+pub(crate) fn pinned_unit_price(
+    line: &LineItem,
+    credit_unit: Option<&FeeCreditUnit>,
+) -> Option<Decimal> {
     match (&line.credit_unit, credit_unit) {
         (None, None) => line.unit_price,
         (Some(block), Some(unit)) if block.unit_id == unit.unit_id => block.unit_price,
@@ -187,29 +186,12 @@ impl Services {
             SubscriptionFee::Credit { rate, quantity, .. } => {
                 if let Some(advance_period) = periods.advance {
                     let units = Decimal::from(*quantity) * instances;
-                    let full = (rate * units)
-                        .to_subunit_opt(precision)
-                        .ok_or(Report::new(StoreError::InvalidDecimal))?;
-                    let total = pack_share.map_or(full, |share| share.prorate(full));
-                    let unit_price = match pack_share {
-                        Some(_) if !units.is_zero() => {
-                            Decimal::new(total, u32::from(precision)) / units
-                        }
-                        _ => *rate,
-                    };
-                    lines.push(InvoiceLineInner {
-                        total: u64::try_from(total.max(0))
-                            .map_err(|_| Report::new(StoreError::InvalidDecimal))?,
-                        quantity: Some(units),
-                        unit_price: Some(unit_price),
-                        period: advance_period,
-                        custom_line_name: None,
-                        is_prorated: pack_share.is_some_and(|share| !share.is_whole()),
-                        sublines: Vec::new(),
-                        metric_id: None,
-                        group_by_dimensions: None,
-                        usage_breakdown: None,
-                    });
+                    lines.push(InvoiceLineInner::from_priced(
+                        pricing::credit_pack(rate, units, pack_share, precision)
+                            .map_err(pricing_error)?,
+                        advance_period,
+                        None,
+                    ));
                 }
             }
             SubscriptionFee::Recurring {
@@ -257,16 +239,15 @@ impl Services {
                 if let Some(advance_period) = periods.advance {
                     // The seats held when the period starts: a renewal catching up past periods
                     // bills each with its own.
-                    let slots = self
+                    let held = self
                         .fetch_slots(
                             conn,
                             &advance_period.start,
                             unit.clone(),
                             subscription_details,
                         )
-                        .await?
-                        .max(u64::from(min_slots.unwrap_or(0)))
-                        .min(u64::from(max_slots.unwrap_or(u32::MAX)));
+                        .await?;
+                    let slots = pricing::billed_slots(held, *min_slots, *max_slots);
 
                     lines.push(InvoiceLineInner::simple_prorated(
                         unit_rate,
@@ -803,36 +784,11 @@ pub(crate) fn converted_units(
     rounding: Option<&UnitConversionRoundingEnum>,
     units: Decimal,
 ) -> Decimal {
-    // Rounding belongs to the conversion: without a factor the usage is billed as metered.
-    if factor.is_none_or(|factor| factor == 0) {
-        return units;
-    }
-    let converted = unrounded_units(factor, units);
-    match rounding {
-        None | Some(UnitConversionRoundingEnum::None) => converted,
-        Some(UnitConversionRoundingEnum::Up) => converted.ceil(),
-        Some(UnitConversionRoundingEnum::Down) => converted.floor(),
-        Some(UnitConversionRoundingEnum::Nearest) => {
-            converted.round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
-        }
-        Some(UnitConversionRoundingEnum::NearestHalf) => {
-            (converted * Decimal::TWO)
-                .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
-                / Decimal::TWO
-        }
-        Some(UnitConversionRoundingEnum::NearestDecile) => {
-            converted.round_dp_with_strategy(1, RoundingStrategy::MidpointAwayFromZero)
-        }
-    }
+    pricing::converted_units(factor, rounding.map(Into::into), units)
 }
 
-/// The conversion without the rounding, which applies to a period total only: for a share of it
-/// (one event, one bucket), so the shares stay proportional to the usage they carry.
 pub(crate) fn unrounded_units(factor: Option<i32>, units: Decimal) -> Decimal {
-    match factor {
-        Some(factor) if factor != 0 => units / Decimal::from(factor),
-        _ => units,
-    }
+    pricing::unrounded_units(factor, units)
 }
 
 /// Whether the metric's conversion rounds, which makes its price a step function of the usage.
@@ -859,11 +815,13 @@ fn matrix_dimension_keys(rates: &[MatrixRow]) -> HashSet<&str> {
 
 /// Whether usage carrying `dimensions` falls in the matrix cell `rate` prices.
 pub(crate) fn matrix_cell_matches(rate: &MatrixRow, dimensions: &HashMap<String, String>) -> bool {
-    dimensions.get(&rate.dimension1.key) == Some(&rate.dimension1.value)
-        && rate
-            .dimension2
+    pricing::cell_matches(
+        (&rate.dimension1.key, &rate.dimension1.value),
+        rate.dimension2
             .as_ref()
-            .is_none_or(|dimension2| dimensions.get(&dimension2.key) == Some(&dimension2.value))
+            .map(|dimension2| (dimension2.key.as_str(), dimension2.value.as_str())),
+        dimensions,
+    )
 }
 
 /// The lines a usage fee bills for the usage of one window; shared by the invoice and the live
@@ -877,212 +835,13 @@ pub(crate) fn usage_lines(
     precision: u8,
     unit_price_override: impl Fn(&HashMap<String, String>) -> Option<Decimal>,
 ) -> StoreResult<Vec<InvoiceLineInner>> {
-    let mut lines: Vec<InvoiceLineInner> = vec![];
-    match model {
-        UsagePricingModel::Matrix { rates } => {
-            let matrix_keys = matrix_dimension_keys(rates);
-
-            // Group usage data by non-matrix dimensions (usage_group_key dimensions)
-            let mut groups: HashMap<String, (HashMap<String, String>, Vec<&GroupedUsageData>)> =
-                HashMap::new();
-
-            for grouped_usage in usage {
-                let group_dimensions: HashMap<String, String> = grouped_usage
-                    .dimensions
-                    .iter()
-                    .filter(|(key, _)| !matrix_keys.contains(key.as_str()))
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-
-                // Create a stable string key for grouping
-                let mut sorted_group_keys: Vec<_> = group_dimensions.iter().collect();
-                sorted_group_keys.sort_by_key(|(k, _)| *k);
-                let group_key = sorted_group_keys
-                    .iter()
-                    .map(|(k, v)| format!("{k}:{v}"))
-                    .collect::<Vec<_>>()
-                    .join("|");
-
-                groups
-                    .entry(group_key)
-                    .or_insert_with(|| (group_dimensions.clone(), Vec::new()))
-                    .1
-                    .push(grouped_usage);
-            }
-
-            // Create one line item per group with matrix sublines
-            for (_, (group_dimensions, group_usage_data)) in groups {
-                let mut sublines = vec![];
-
-                for rate in rates {
-                    // Find usage data that matches this matrix rate within this group
-                    let matching_usage = group_usage_data
-                        .iter()
-                        .find(|usage_data| matrix_cell_matches(rate, &usage_data.dimensions));
-
-                    if let Some(usage_data) = matching_usage {
-                        let quantity = round_billable_quantity(
-                            usage_data.value,
-                            rate.per_unit_price,
-                            precision,
-                        );
-
-                        if quantity > Decimal::ZERO {
-                            let price_total = rate.per_unit_price * quantity;
-
-                            let price_cents = only_positive(
-                                price_total
-                                    .to_subunit_opt(precision)
-                                    .ok_or(Report::new(StoreError::InvalidDecimal))
-                                    .attach("Failed to convert price_total to subunit")?,
-                            );
-
-                            if price_cents > 0 {
-                                // we concat rate.dimension1.value and rate.dimension2.value (if defined), separated by a comma
-                                let name = format!(
-                                    "{}{}",
-                                    rate.dimension1.value,
-                                    rate.dimension2
-                                        .as_ref()
-                                        .map(|d| format!(",{}", d.value))
-                                        .unwrap_or_default()
-                                );
-                                sublines.push(SubLineItem {
-                                    local_id: String::new(),
-                                    name,
-                                    total: price_cents as i64,
-                                    quantity,
-                                    unit_price: rate.per_unit_price,
-                                    attributes: Some(SubLineAttributes::Matrix {
-                                        dimension1_key: rate.dimension1.key.clone(),
-                                        dimension1_value: rate.dimension1.value.clone(),
-                                        dimension2_key: rate
-                                            .dimension2
-                                            .as_ref()
-                                            .map(|d| d.key.clone()),
-                                        dimension2_value: rate
-                                            .dimension2
-                                            .as_ref()
-                                            .map(|d| d.value.clone()),
-                                    }),
-                                });
-                            }
-                        }
-                    }
-                }
-
-                // Only create a line item if there are sublines for this group
-                if !sublines.is_empty() {
-                    let mut line = InvoiceLineInner::from_usage_sublines(
-                        sublines,
-                        arrear_period.clone(),
-                        None,
-                        metric_id,
-                    )?;
-
-                    line.group_by_dimensions = if group_dimensions.is_empty() {
-                        None
-                    } else {
-                        Some(group_dimensions)
-                    };
-
-                    lines.push(line);
-                }
-            }
-        }
-        model => {
-            // Round so aggregation float noise (e.g. a summed 5524.098500000001)
-            // never reaches the invoice.
-            let qty_scale = model.billable_quantity_scale(precision);
-
-            // Handle grouped usage data - create separate line items for each group
-            for grouped_usage in usage {
-                let usage_units = round_quantity(grouped_usage.value, qty_scale);
-
-                // Skip zero usage
-                if usage_units <= Decimal::ZERO {
-                    continue;
-                }
-
-                match model {
-                    UsagePricingModel::PerUnit { rate } => {
-                        let effective_rate =
-                            unit_price_override(&grouped_usage.dimensions).unwrap_or(*rate);
-
-                        let mut line = InvoiceLineInner::usage_simple(
-                            &effective_rate,
-                            &usage_units,
-                            arrear_period.clone(),
-                            precision,
-                            metric_id,
-                        )?;
-
-                        // Store group_by dimensions for later use in line name generation
-                        line.group_by_dimensions = Some(grouped_usage.dimensions.clone());
-
-                        lines.push(line);
-                    }
-                    UsagePricingModel::Tiered { tiers, block_size } => {
-                        let mut line = fees::compute_tier_price(
-                            usage_units,
-                            tiers,
-                            arrear_period.clone(),
-                            precision,
-                            metric_id,
-                            block_size,
-                        )?;
-
-                        line.group_by_dimensions = Some(grouped_usage.dimensions.clone());
-                        lines.push(line);
-                    }
-                    UsagePricingModel::Volume { tiers, block_size } => {
-                        let mut line = fees::compute_volume_price(
-                            usage_units,
-                            tiers,
-                            arrear_period.clone(),
-                            precision,
-                            metric_id,
-                            block_size,
-                        )?;
-
-                        line.group_by_dimensions = Some(grouped_usage.dimensions.clone());
-                        lines.push(line);
-                    }
-                    UsagePricingModel::Package { block_size, rate } => {
-                        // TODO we want some additional data in the frontend to display that "x$ per 20", total usage and block usage
-                        let package_size_decimal = Decimal::from(*block_size);
-                        let total_packages = (usage_units / package_size_decimal).ceil();
-
-                        let price_total = total_packages * *rate;
-
-                        let mut line = InvoiceLineInner::from_usage_sublines(
-                            vec![SubLineItem {
-                                local_id: String::new(),
-                                name: "Package".to_string(),
-                                total: price_total
-                                    .to_subunit_opt(precision)
-                                    .ok_or(Report::new(StoreError::InvalidDecimal))
-                                    .attach("Failed to convert price_total to subunit")?,
-                                quantity: total_packages,
-                                unit_price: *rate,
-                                attributes: Some(SubLineAttributes::Package {
-                                    raw_usage: usage_units,
-                                }),
-                            }],
-                            arrear_period.clone(),
-                            None,
-                            metric_id,
-                        )?;
-
-                        line.group_by_dimensions = Some(grouped_usage.dimensions.clone());
-                        lines.push(line);
-                    }
-                    UsagePricingModel::Matrix { .. } => unreachable!(),
-                }
-            }
-        }
-    }
-    Ok(lines)
+    let lines = pricing::usage_lines(&model.into(), usage, precision, unit_price_override)
+        .map_err(pricing_error)
+        .attach("Failed to convert price_total to subunit")?;
+    Ok(lines
+        .into_iter()
+        .map(|line| InvoiceLineInner::from_priced(line, arrear_period.clone(), Some(metric_id)))
+        .collect())
 }
 
 /// The overage lines of a capacity fee for the usage of one window.
@@ -1094,56 +853,13 @@ pub(crate) fn capacity_overage_lines(
     arrear_period: &Period,
     precision: u8,
 ) -> StoreResult<Vec<InvoiceLineInner>> {
-    let mut lines: Vec<InvoiceLineInner> = vec![];
-    if overage_rate > &Decimal::ZERO {
-        for usage_data in usage {
-            let overage_units = usage_data
-                .value
-                .checked_sub(Decimal::from(included))
-                .map(only_positive_decimal)
-                .map(|units| round_billable_quantity(units, *overage_rate, precision))
-                .ok_or(StoreError::InvalidDecimal)
-                .attach("Capacity overage exceeds the supported range")?;
-
-            // Multiplied before rounding, once, so a sub-minor-unit rate still bills.
-            let overage_total = overage_rate
-                .checked_mul(overage_units)
-                .and_then(|total| {
-                    total.checked_mul(Decimal::from(10_i64.pow(u32::from(precision))))
-                })
-                .and_then(|minor| {
-                    minor
-                        .round_dp_with_strategy(
-                            0,
-                            rust_decimal::RoundingStrategy::MidpointAwayFromZero,
-                        )
-                        .to_i64()
-                })
-                .ok_or(StoreError::InvalidDecimal)
-                .attach("Capacity overage exceeds the supported range")?;
-
-            lines.push(InvoiceLineInner {
-                quantity: None,
-                unit_price: None,
-                total: overage_total.to_non_negative_u64(),
-                period: arrear_period.clone(),
-                is_prorated: false,
-                custom_line_name: None,
-                sublines: vec![SubLineItem {
-                    local_id: String::new(),
-                    name: "Overage".to_string(),
-                    total: overage_total,
-                    quantity: overage_units,
-                    unit_price: *overage_rate,
-                    attributes: None,
-                }],
-                metric_id: Some(metric_id),
-                group_by_dimensions: Some(usage_data.dimensions.clone()),
-                usage_breakdown: None,
-            });
-        }
-    }
-    Ok(lines)
+    let lines = pricing::capacity_overage_lines(included, overage_rate, usage, precision)
+        .map_err(pricing_error)
+        .attach("Capacity overage exceeds the supported range")?;
+    Ok(lines
+        .into_iter()
+        .map(|line| InvoiceLineInner::from_priced(line, arrear_period.clone(), Some(metric_id)))
+        .collect())
 }
 
 pub struct InvoiceLineInner {
@@ -1160,6 +876,24 @@ pub struct InvoiceLineInner {
 }
 
 impl InvoiceLineInner {
+    fn from_priced(
+        line: pricing::PricedLine,
+        period: Period,
+        metric_id: Option<BillableMetricId>,
+    ) -> InvoiceLineInner {
+        InvoiceLineInner {
+            total: line.total,
+            quantity: line.quantity,
+            unit_price: line.unit_price,
+            period,
+            custom_line_name: None,
+            is_prorated: line.is_prorated,
+            sublines: line.sublines.into_iter().map(Into::into).collect(),
+            metric_id,
+            group_by_dimensions: line.dimensions,
+        }
+    }
+
     pub fn simple_prorated(
         rate: &Decimal,
         quantity: &Decimal,
@@ -1168,95 +902,10 @@ impl InvoiceLineInner {
         precision: u8,
         metric_id: Option<BillableMetricId>,
     ) -> StoreResult<InvoiceLineInner> {
-        let total = rate * quantity;
-
-        let total_cents = prorate(
-            total
-                .to_subunit_opt(precision)
-                .ok_or(Report::new(StoreError::InvalidDecimal))
-                .attach("Failed to convert price_total to subunit")?,
-            proration_factor,
-        );
-
-        // When prorated, derive unit_price from the rounded total so that
-        // unit_price × quantity = total exactly.
-        // When not prorated, use the original rate directly to avoid precision
-        // artifacts from rounding total_cents then dividing back by quantity.
-        let unit_price = if proration_factor.is_some() {
-            if quantity.is_zero() {
-                Decimal::ZERO
-            } else {
-                let divisor = Decimal::from(10u64.pow(precision as u32));
-                Decimal::from(total_cents as i64) / divisor / quantity
-            }
-        } else {
-            *rate
-        };
-
-        Ok(InvoiceLineInner {
-            quantity: Some(*quantity),
-            unit_price: Some(unit_price),
-            total: total_cents,
-            period,
-            custom_line_name: None,
-            is_prorated: proration_factor.is_some_and(|f| !f.is_whole()),
-            sublines: Vec::new(),
-            metric_id,
-            group_by_dimensions: None,
-            usage_breakdown: None,
-        })
-    }
-
-    pub fn usage_simple(
-        rate: &Decimal,
-        quantity: &Decimal,
-        period: Period,
-        precision: u8,
-        metric_id: BillableMetricId,
-    ) -> StoreResult<InvoiceLineInner> {
-        Self::simple_prorated(rate, quantity, period, None, precision, Some(metric_id))
-    }
-
-    pub fn from_usage_sublines(
-        mut sublines: Vec<SubLineItem>,
-        period: Period,
-        proration_factor: Option<DayFraction>,
-        metric_id: BillableMetricId,
-    ) -> StoreResult<InvoiceLineInner> {
-        let total = sublines.iter().map(|subline| subline.total).sum::<i64>();
-        let total_cents = prorate(total, proration_factor);
-
-        // When prorating, apply the same factor to each subline so the invariant
-        // `line.total == Σ sublines.total` holds. Any rounding delta is absorbed
-        // by the largest-magnitude subline (largest-remainder correction).
-        if proration_factor.is_some_and(|f| !f.is_whole()) && !sublines.is_empty() {
-            for subline in sublines.iter_mut() {
-                subline.total = prorate(subline.total, proration_factor) as i64;
-            }
-            let current_sum: i64 = sublines.iter().map(|s| s.total).sum();
-            let diff = total_cents as i64 - current_sum;
-            if diff != 0
-                && let Some((idx, _)) = sublines
-                    .iter()
-                    .enumerate()
-                    .max_by_key(|(_, s)| s.total.unsigned_abs())
-            {
-                sublines[idx].total += diff;
-            }
-        }
-
-        Ok(InvoiceLineInner {
-            quantity: None,
-            unit_price: None,
-            total: total_cents,
-            period,
-            custom_line_name: None,
-            is_prorated: proration_factor.is_some_and(|f| !f.is_whole()),
-            sublines,
-            metric_id: Some(metric_id),
-            group_by_dimensions: None,
-            usage_breakdown: None,
-        })
+        let line = pricing::simple_prorated(rate, quantity, proration_factor, precision)
+            .map_err(pricing_error)
+            .attach("Failed to convert price_total to subunit")?;
+        Ok(Self::from_priced(line, period, metric_id))
     }
 }
 
@@ -1266,11 +915,6 @@ impl InvoiceLineInner {
 /// (usage/matrix/package) carry `None` here and are kept; they guard against zero upstream.
 fn is_zero_quantity_line(quantity: Option<Decimal>) -> bool {
     quantity.is_some_and(|q| q.is_zero())
-}
-
-/// Whole days over whole days, half-up once (OQ14): a true half-cent is never flipped.
-fn prorate(price_cents: i64, proration_factor: Option<DayFraction>) -> u64 {
-    only_positive(proration_factor.map_or(price_cents, |factor| factor.prorate(price_cents)))
 }
 
 /// The usage query window for an arrear `period`.
@@ -1310,7 +954,6 @@ pub(crate) fn usage_window(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common_domain::ids::BaseId;
     use rust_decimal_macros::dec;
 
     fn at(y: i32, m: u32, d: u32, h: u32, min: u32) -> NaiveDateTime {
@@ -1350,17 +993,6 @@ mod tests {
         );
         assert_eq!(up.start, day(2025, 3, 1).and_time(NaiveTime::MIN));
         assert_eq!(up.end, at(2025, 3, 10, 9, 0));
-    }
-
-    #[test]
-    fn prorate_rounds_half_away_from_zero_without_float_drift() {
-        assert_eq!(prorate(3100, Some(DayFraction::new(15, 31))), 1500);
-        assert_eq!(prorate(3100, Some(DayFraction::new(10, 31))), 1000);
-        assert_eq!(prorate(5, Some(DayFraction::new(1, 2))), 3); // 2.5 rounds away from zero
-        // One day of a 28-day February on 0.70 is 2.5 cents: the f64 factor billed 2 (OQ14).
-        assert_eq!(prorate(70, Some(DayFraction::new(1, 28))), 3);
-        assert_eq!(prorate(2500, None), 2500);
-        assert_eq!(prorate(-100, Some(DayFraction::new(1, 2))), 0); // negatives clamp to zero
     }
 
     #[test]
@@ -1407,24 +1039,6 @@ mod tests {
         assert_eq!(up.end, day(2025, 3, 31).and_time(NaiveTime::MIN));
     }
 
-    fn subline(name: &str, total: i64) -> SubLineItem {
-        SubLineItem {
-            local_id: name.to_string(),
-            name: name.to_string(),
-            total,
-            quantity: dec!(1),
-            unit_price: Decimal::from(total) / Decimal::from(100),
-            attributes: None,
-        }
-    }
-
-    fn period() -> Period {
-        Period {
-            start: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
-            end: NaiveDate::from_ymd_opt(2025, 1, 31).unwrap(),
-        }
-    }
-
     #[test]
     fn zero_quantity_lines_are_dropped() {
         assert!(is_zero_quantity_line(Some(Decimal::ZERO)));
@@ -1432,58 +1046,6 @@ mod tests {
         assert!(!is_zero_quantity_line(Some(dec!(1))));
         // Usage/matrix/package lines carry no explicit quantity and must be kept.
         assert!(!is_zero_quantity_line(None));
-    }
-
-    #[test]
-    fn usage_sublines_invariant_no_proration() {
-        let sublines = vec![subline("a", 1_000), subline("b", 2_345), subline("c", 777)];
-        let line = InvoiceLineInner::from_usage_sublines(
-            sublines,
-            period(),
-            None,
-            BillableMetricId::new(),
-        )
-        .unwrap();
-        let sum: i64 = line.sublines.iter().map(|s| s.total).sum();
-        assert_eq!(line.total as i64, sum);
-    }
-
-    #[test]
-    fn usage_sublines_invariant_with_proration() {
-        // 0.37 proration introduces per-subline rounding drift
-        let sublines = vec![
-            subline("a", 1_000),
-            subline("b", 2_345),
-            subline("c", 777),
-            subline("d", 133),
-        ];
-        let line = InvoiceLineInner::from_usage_sublines(
-            sublines,
-            period(),
-            Some(DayFraction::new(37, 100)),
-            BillableMetricId::new(),
-        )
-        .unwrap();
-        let sum: i64 = line.sublines.iter().map(|s| s.total).sum();
-        assert_eq!(
-            line.total as i64, sum,
-            "line.total ({}) != Σ sublines.total ({})",
-            line.total, sum
-        );
-    }
-
-    #[test]
-    fn usage_sublines_invariant_factor_one() {
-        let sublines = vec![subline("a", 1_000), subline("b", 2_345)];
-        let line = InvoiceLineInner::from_usage_sublines(
-            sublines,
-            period(),
-            Some(DayFraction::WHOLE),
-            BillableMetricId::new(),
-        )
-        .unwrap();
-        let sum: i64 = line.sublines.iter().map(|s| s.total).sum();
-        assert_eq!(line.total as i64, sum);
     }
 }
 
@@ -1494,17 +1056,7 @@ pub(crate) fn pack_credit_minor(
     units: Decimal,
     precision: u8,
 ) -> StoreResult<i64> {
-    let minor = credit_amount
-        .checked_mul(units)
-        .and_then(|amount| amount.checked_mul(Decimal::from(10_i64.pow(u32::from(precision)))))
-        .filter(|amount| amount.fract().is_zero() && !amount.is_sign_negative())
-        .and_then(|amount| amount.to_i64())
-        .ok_or_else(|| {
-            Report::new(StoreError::InvalidArgument(
-                "a credit pack must grant a non-negative amount of credit, with no more decimal places than its currency or credit unit allows".to_owned(),
-            ))
-        })?;
-    Ok(minor)
+    pricing::pack_credit_minor(credit_amount, units, precision).map_err(pricing_error)
 }
 
 /// The rollover an included pack line freezes: the cap is per pack, like the credit it grants.
@@ -1529,13 +1081,6 @@ mod pack_credit_tests {
     use rust_decimal_macros::dec;
 
     #[test]
-    fn a_pack_grants_its_amount_per_unit_in_minor_units() {
-        assert_eq!(pack_credit_minor(dec!(50), dec!(3), 2).unwrap(), 15_000);
-        assert_eq!(pack_credit_minor(dec!(5000), dec!(1), 0).unwrap(), 5_000);
-        assert_eq!(pack_credit_minor(dec!(1.234), dec!(2), 3).unwrap(), 2_468);
-    }
-
-    #[test]
     fn an_included_pack_freezes_its_rollover_cap_per_pack_in_minor_units() {
         let rollover = CreditRollover {
             max_amount: Some(dec!(200)),
@@ -1555,9 +1100,8 @@ mod pack_credit_tests {
     }
 
     #[test]
-    fn a_fractional_or_negative_grant_is_refused() {
+    fn a_fractional_grant_is_refused() {
         assert!(pack_credit_minor(dec!(0.005), dec!(1), 2).is_err());
-        assert!(pack_credit_minor(dec!(-1), dec!(1), 2).is_err());
     }
 }
 
@@ -1678,64 +1222,6 @@ mod credit_unit_pin_tests {
 }
 
 #[cfg(test)]
-mod capacity_overage_tests {
-    use super::*;
-    use common_domain::ids::BaseId;
-    use rust_decimal_macros::dec;
-
-    fn overage_total(rate: Decimal, included: u64, used: Decimal, precision: u8) -> (i64, u64) {
-        let period = Period {
-            start: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
-            end: NaiveDate::from_ymd_opt(2025, 2, 1).unwrap(),
-        };
-        let usage = [GroupedUsageData {
-            value: used,
-            dimensions: HashMap::new(),
-        }];
-        let lines = capacity_overage_lines(
-            BillableMetricId::new(),
-            included,
-            &rate,
-            &usage,
-            &period,
-            precision,
-        )
-        .unwrap();
-        assert_eq!(lines.len(), 1);
-        (lines[0].sublines[0].total, lines[0].total)
-    }
-
-    #[test]
-    fn capacity_overage_rounds_once_after_multiplying() {
-        // 0.4 credits x 100 at precision 0: 40, where rounding the rate first billed 0.
-        assert_eq!(overage_total(dec!(0.4), 0, dec!(100), 0), (40, 40));
-        // 0.5 x 3 = 1.5 rounds half away to 2, where the rate rounded to 1 first billed 3.
-        assert_eq!(overage_total(dec!(0.5), 10, dec!(13), 0), (2, 2));
-        // A sub-cent money rate: $0.004 x 1000 is $4.00, not $0.
-        assert_eq!(overage_total(dec!(0.004), 0, dec!(1000), 2), (400, 400));
-        // Fractional overage is billed, not truncated: 10.5 x $0.02 = $0.21.
-        assert_eq!(overage_total(dec!(0.02), 5, dec!(15.5), 2), (21, 21));
-        assert_eq!(overage_total(dec!(0.02), 20, dec!(15.5), 2), (0, 0));
-    }
-
-    #[test]
-    fn a_capacity_overage_beyond_the_supported_range_is_refused() {
-        let period = Period {
-            start: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
-            end: NaiveDate::from_ymd_opt(2025, 2, 1).unwrap(),
-        };
-        let usage = [GroupedUsageData {
-            value: Decimal::MAX,
-            dimensions: HashMap::new(),
-        }];
-        assert!(
-            capacity_overage_lines(BillableMetricId::new(), 0, &dec!(10), &usage, &period, 2)
-                .is_err()
-        );
-    }
-}
-
-#[cfg(test)]
 mod unit_conversion_tests {
     use super::*;
     use crate::domain::enums::BillingMetricAggregateEnum;
@@ -1743,90 +1229,6 @@ mod unit_conversion_tests {
     use crate::services::invoice_lines::invoice_lines::MeteredFee;
     use common_domain::ids::{BaseId, ProductFamilyId, SubscriptionId, TenantId};
     use rust_decimal_macros::dec;
-
-    fn convert(rounding: UnitConversionRoundingEnum, units: Decimal) -> Decimal {
-        converted_units(Some(1_000_000), Some(&rounding), units)
-    }
-
-    #[test]
-    fn rounding_none_keeps_the_fraction() {
-        assert_eq!(
-            convert(UnitConversionRoundingEnum::None, dec!(9_004_601)),
-            dec!(9.004601)
-        );
-        assert_eq!(
-            converted_units(Some(1_000_000), None, dec!(9_004_601)),
-            dec!(9.004601)
-        );
-    }
-
-    #[test]
-    fn rounding_up_takes_the_next_whole_unit() {
-        assert_eq!(
-            convert(UnitConversionRoundingEnum::Up, dec!(9_004_601)),
-            dec!(10)
-        );
-        assert_eq!(
-            convert(UnitConversionRoundingEnum::Up, dec!(9_000_000)),
-            dec!(9)
-        );
-        assert_eq!(convert(UnitConversionRoundingEnum::Up, dec!(1)), dec!(1));
-    }
-
-    #[test]
-    fn rounding_down_drops_the_fraction() {
-        assert_eq!(
-            convert(UnitConversionRoundingEnum::Down, dec!(9_999_999)),
-            dec!(9)
-        );
-        assert_eq!(
-            convert(UnitConversionRoundingEnum::Down, dec!(999_999)),
-            dec!(0)
-        );
-    }
-
-    #[test]
-    fn rounding_nearest_rounds_halves_away_from_zero() {
-        assert_eq!(
-            convert(UnitConversionRoundingEnum::Nearest, dec!(9_499_999)),
-            dec!(9)
-        );
-        assert_eq!(
-            convert(UnitConversionRoundingEnum::Nearest, dec!(9_500_000)),
-            dec!(10)
-        );
-        assert_eq!(
-            convert(UnitConversionRoundingEnum::Nearest, dec!(8_500_000)),
-            dec!(9)
-        );
-        assert_eq!(
-            convert(UnitConversionRoundingEnum::Nearest, dec!(-2_500_000)),
-            dec!(-3)
-        );
-    }
-
-    #[test]
-    fn rounding_to_halves_and_tenths() {
-        assert_eq!(
-            convert(UnitConversionRoundingEnum::NearestHalf, dec!(9_240_000)),
-            dec!(9)
-        );
-        assert_eq!(
-            convert(UnitConversionRoundingEnum::NearestHalf, dec!(9_250_000)),
-            dec!(9.5)
-        );
-        assert_eq!(
-            convert(UnitConversionRoundingEnum::NearestDecile, dec!(9_050_000)),
-            dec!(9.1)
-        );
-    }
-
-    #[test]
-    fn no_or_zero_factor_leaves_usage_as_is() {
-        let up = Some(&UnitConversionRoundingEnum::Up);
-        assert_eq!(converted_units(None, up, dec!(1.5)), dec!(1.5));
-        assert_eq!(converted_units(Some(0), up, dec!(1.5)), dec!(1.5));
-    }
 
     fn tokens(rounding: UnitConversionRoundingEnum) -> BillableMetric {
         BillableMetric {

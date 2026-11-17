@@ -4,11 +4,9 @@
 use crate::StoreResult;
 use crate::domain::LineItem;
 use crate::repositories::credit::allocation::{Allocation, CreditRequest};
-use crate::services::invoice_lines::credit_units::allocate_covered;
 use crate::store::PgConn;
 use common_domain::ids::{CreditGrantId, CreditNoteId, InvoiceId, TenantId};
 use diesel_models::customer_credit::CreditLineAllocationRowNew;
-use std::collections::BTreeMap;
 
 /// Per grant, what it paid of each line (by local id), and of no line under `None`.
 pub(crate) fn line_allocation(
@@ -18,49 +16,20 @@ pub(crate) fn line_allocation(
     allocation: &Allocation,
     base: impl Fn(&LineItem) -> i64,
 ) -> Vec<(CreditGrantId, Option<String>, i64)> {
-    let mut out = Vec::new();
-    for (grant_id, columns) in &allocation.placed {
-        let mut placed: BTreeMap<Option<String>, i64> = BTreeMap::new();
-        for (demand, amount) in columns.iter().enumerate() {
-            if *amount <= 0 {
-                continue;
-            }
-            if demand >= request.demands.len() {
-                *placed.entry(None).or_default() += amount;
-                continue;
-            }
-            let members: Vec<usize> = of_line
-                .iter()
-                .enumerate()
-                .filter(|(_, of)| **of == Some(demand))
-                .map(|(index, _)| index)
-                .collect();
-            let weights: Vec<i64> = members
-                .iter()
-                .map(|index| base(&lines[*index]).max(0))
-                .collect();
-            let shares = allocate_covered(&weights, *amount);
-            let mut left = *amount;
-            for (index, share) in members.into_iter().zip(shares) {
-                if share > 0 {
-                    *placed
-                        .entry(Some(lines[index].local_id.clone()))
-                        .or_default() += share;
-                    left -= share;
-                }
-            }
-            if left > 0 {
-                *placed.entry(None).or_default() += left;
-            }
-        }
-        out.extend(
-            placed
-                .into_iter()
-                .filter(|(_, amount)| *amount > 0)
-                .map(|(line, amount)| (*grant_id, line, amount)),
-        );
-    }
-    out
+    let core_lines = lines
+        .iter()
+        .map(|line| crate::services::credit::document::line_of(line, None))
+        .collect::<Vec<_>>();
+    billing_core::credit::settle::line_allocation(
+        &core_lines,
+        of_line,
+        &request.into(),
+        &allocation.into(),
+        |index, _| base(&lines[index]),
+    )
+    .into_iter()
+    .map(|(grant_id, line, amount)| (CreditGrantId::from(grant_id), line, amount))
+    .collect()
 }
 
 /// Records [`line_allocation`] for `invoice_id` (or the note giving credit back on it). The caller

@@ -8,7 +8,7 @@ use rust_decimal::Decimal;
 
 use crate::DayFraction;
 use crate::allocation::largest_remainder;
-use crate::charge::{ChargeKey, ChargeKind, Fee};
+use crate::charge::{ChargeKey, ChargeKind, Denomination, Fee};
 use crate::issued::IssuedLine;
 
 /// A fee's price in force over `[from, until)`, within the period `period` it bills on.
@@ -50,6 +50,7 @@ pub fn expected(subscription: Option<Uuid>, terms: &[Term]) -> Vec<Expected> {
             from: term.period.0,
             until: term.period.1,
             kind: ChargeKind::Fee,
+            denomination: Denomination::Money,
         };
         match charges.iter_mut().find(|charge| charge.key == key) {
             Some(charge) => charge.amount += term.amount(),
@@ -82,14 +83,17 @@ pub enum TakeBack {
     Unused(NaiveDate),
 }
 
-/// Whether an issued line billed the charge `key`: the same subscription, fee and kind, over
-/// part of the key's period.
+/// Whether an issued line billed the charge `key`: the same subscription, fee, kind and
+/// denomination, over part of the key's period. A line of no days (an ending's usage on its day,
+/// R-016) bills only the key of that day, never the period ending on it.
 fn billed_by(line: &IssuedLine, key: &ChargeKey) -> bool {
     line.key.subscription == key.subscription
         && line.key.fee == key.fee
         && line.key.kind == key.kind
+        && line.key.denomination == key.denomination
         && key.from <= line.from
         && line.until <= key.until
+        && (line.from < line.until || key.from == key.until)
 }
 
 /// For each expected charge, the difference between what it should have billed and what its
@@ -305,6 +309,45 @@ mod tests {
                     amount: 1_400
                 }
             ]
+        );
+    }
+
+    /// Usage up to an ending on day 31, a boundary, and the ending's morning that day: each line
+    /// bills its own key, the morning's never the period's.
+    /// Rules: R-016, R-080
+    #[test]
+    fn a_line_of_no_days_bills_only_the_key_of_its_day() {
+        let key = |from: u32, until: u32| ChargeKey {
+            subscription: None,
+            fee: Fee::Component(Uuid::from_u128(1)),
+            from: day(from),
+            until: day(until),
+            kind: ChargeKind::Usage {
+                metric: Uuid::from_u128(3),
+                dimensions: std::collections::BTreeMap::new(),
+            },
+            denomination: Denomination::Money,
+        };
+        let line = |id: &str, from: u32, until: u32, subtotal: i64| IssuedLine {
+            until: day(until),
+            ..issued(id, &key(from, until), from, subtotal)
+        };
+        let lines = [line("period", 0, 31, 700), line("morning", 31, 31, 200)];
+        let period = Expected {
+            key: key(0, 31),
+            amount: 700,
+        };
+        let morning = Expected {
+            key: key(31, 31),
+            amount: 300,
+        };
+        assert!(reconcile(std::slice::from_ref(&period), &lines, TakeBack::LatestFirst).is_empty());
+        assert_eq!(
+            reconcile(&[period, morning], &lines, TakeBack::LatestFirst),
+            vec![Adjustment::Bill {
+                key: key(31, 31),
+                amount: 100
+            }]
         );
     }
 

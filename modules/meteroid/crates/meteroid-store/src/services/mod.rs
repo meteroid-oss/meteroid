@@ -33,7 +33,10 @@ pub mod customer_locale;
 mod customer_summary;
 mod edge;
 pub(crate) mod entitlements;
+pub mod evaluate;
 pub(crate) mod facts;
+#[cfg(feature = "facts-shadow")]
+pub mod facts_shadow;
 pub mod fx;
 pub(crate) mod intelligence_support;
 pub mod invoice_lines;

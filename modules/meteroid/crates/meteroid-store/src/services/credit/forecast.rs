@@ -17,11 +17,10 @@ use crate::repositories::credit::allocation::{
     Allocation, CreditDemand, CreditRequest, GrantCandidate, GrantPool, allocate,
 };
 use crate::repositories::credit::customer_credit::{
-    BONUS_CREDIT, UsageCharge, assign_settled, estimate_candidates_tx, estimate_kept_tx,
-    grant_scope, list_drawable_tx, normalized_currency, settlement_holdings_tx, source,
+    BONUS_CREDIT, assign_settled, estimate_candidates_tx, grant_scope, list_drawable_tx,
+    normalized_currency, settlement_holdings_tx, source,
 };
 use crate::services::credit::scope::{LineOwners, line_subscription};
-use crate::services::credit::value_application::EstimateContext;
 use crate::services::credit::{invalid, precondition};
 use crate::services::invoice_lines::credit_units::CreditUnitCover;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
@@ -229,49 +228,6 @@ impl CreditBooks {
             .map(|state| state.books)
             .map_err(|_| precondition("a credit forecast was interrupted"))
     }
-}
-
-/// `estimate_tx` on a forecast's book: the open settlements the invoice keeps, then fresh draws
-/// on what the documents billed before it left.
-pub(crate) async fn estimate_on_book(
-    conn: &mut PgConn,
-    book: &CreditBooks,
-    context: &EstimateContext<'_>,
-    pool: GrantPool,
-    request: &CreditRequest,
-    charges: &[UsageCharge],
-) -> StoreResult<Allocation> {
-    let denomination = normalized_currency(context.currency);
-    if request.requested_minor <= 0 {
-        book.record(Drawn {
-            denomination,
-            pool,
-            fresh: Allocation::default(),
-            held: Allocation::default(),
-        })?;
-        return Ok(Allocation::default());
-    }
-    let (ahead, kept) = estimate_kept_tx(
-        conn,
-        context.tenant_id,
-        context.currency,
-        context.invoice_id,
-        &context.periods,
-        pool,
-        request,
-        charges,
-    )
-    .await?;
-    let candidates = book.candidates_tx(conn, &denomination).await?;
-    let fresh = allocate(&candidates, &ahead.remainder(&kept)?, context.at, pool)?;
-    let held = kept.then(fresh.clone())?;
-    book.record(Drawn {
-        denomination,
-        pool,
-        fresh,
-        held: held.clone(),
-    })?;
-    Ok(held)
 }
 
 /// What a draft's stored credit-priced lines show covered, drawn on the book as finalizing draws

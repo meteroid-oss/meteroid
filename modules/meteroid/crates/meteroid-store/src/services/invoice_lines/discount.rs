@@ -1,65 +1,75 @@
 use crate::domain::coupons::{AppliedCouponsDiscount, CouponDiscount};
 use crate::domain::{AppliedCouponDetailed, CouponLineItem, LineItem};
+use billing_core::assembly::discount as core;
 use common_domain::ids::BaseId;
-use common_utils::decimals::ToSubunit;
-use common_utils::integers::ToNonNegativeU64;
-use itertools::Itertools;
-use rust_decimal::Decimal;
-use rust_decimal::prelude::ToPrimitive;
 
 pub fn distribute_discount(line_items: Vec<LineItem>, discount: u64) -> Vec<LineItem> {
-    if line_items.is_empty() || discount == 0 {
-        return line_items;
-    }
-
-    // Calculate total excluding VAT (only positive amounts)
-    let total_excl_vat: u64 = line_items
-        .iter()
-        .filter(|item| item.amount_subtotal > 0)
-        .map(|item| item.amount_subtotal as u64)
-        .sum();
-
-    if total_excl_vat == 0 {
-        return line_items;
-    }
-
-    // First pass: distribute proportionally
-    let mut remaining_discount = discount;
-
-    let mut line_items = line_items.clone();
-
-    for item in &mut line_items {
-        if item.amount_subtotal <= 0 {
-            continue;
-        }
-
-        let item_discount = (discount * item.amount_subtotal as u64) / total_excl_vat;
-        let amount_after_discount = item.amount_subtotal - item_discount as i64;
-        item.taxable_amount = amount_after_discount.max(0); // Ensure non-negative
-        remaining_discount = remaining_discount.saturating_sub(item_discount);
-    }
-
-    // Second pass: distribute remainder
-    if remaining_discount > 0 {
-        let mut remainders: Vec<_> = line_items
-            .iter_mut()
-            .filter(|item| item.amount_subtotal > 0)
-            .map(|item| {
-                let exact_discount =
-                    (discount * item.amount_subtotal.to_non_negative_u64()) % total_excl_vat;
-                (item, exact_discount)
-            })
-            .collect();
-
-        remainders.sort_by_key(|(_, remainder)| std::cmp::Reverse(*remainder));
-
-        // Distribute remaining
-        for (item, _) in remainders.iter_mut().take(remaining_discount as usize) {
-            item.taxable_amount = (item.taxable_amount - 1).max(0); // Ensure non-negative
-        }
-    }
-
+    let subtotals: Vec<i64> = line_items.iter().map(|item| item.amount_subtotal).collect();
+    let taxable = core::distribute_discount(&subtotals, discount);
     line_items
+        .into_iter()
+        .zip(taxable)
+        .map(|(mut item, taxable)| {
+            if let Some(taxable) = taxable {
+                item.taxable_amount = taxable;
+            }
+            item
+        })
+        .collect()
+}
+
+/// A coupon as `billing_core` reads it; a fixed amount in its currency's exponent (KW-02).
+fn to_core(coupon: &AppliedCouponDetailed) -> core::Coupon {
+    core::Coupon {
+        coupon_id: coupon.coupon.id.as_uuid(),
+        value: match &coupon.coupon.discount {
+            CouponDiscount::Percentage(percentage) => core::CouponValue::Percentage(*percentage),
+            CouponDiscount::Fixed { amount, currency } => core::CouponValue::Fixed {
+                amount: *amount,
+                currency: currency.clone(),
+                // todo domain should use Currency type instead of string
+                exponent: meteroid_money::iso::find(currency)
+                    .unwrap_or(meteroid_money::iso::USD)
+                    .exponent as u8,
+            },
+            CouponDiscount::Credit { .. } => core::CouponValue::Credit,
+        },
+    }
+}
+
+/// The coupons that apply to the invoice being computed (R-089).
+pub fn applicable_coupons(coupons: &[AppliedCouponDetailed]) -> Vec<&AppliedCouponDetailed> {
+    coupons
+        .iter()
+        .filter(|x| x.is_invoice_applicable())
+        .collect()
+}
+
+/// `applicable` as `billing_core` reads them.
+pub fn coupon_inputs(applicable: &[&AppliedCouponDetailed]) -> Vec<core::Coupon> {
+    applicable.iter().map(|c| to_core(c)).collect()
+}
+
+/// The coupon rows of what `applied` took off, `applied` indexing `applicable`.
+pub fn coupon_rows(
+    applicable: &[&AppliedCouponDetailed],
+    applied: &[core::CouponDiscount],
+) -> Vec<CouponLineItem> {
+    applied
+        .iter()
+        .map(|applied| {
+            let applicable_coupon = applicable[applied.coupon];
+            CouponLineItem {
+                coupon_id: applicable_coupon.coupon.id,
+                applied_coupon_id: applicable_coupon.applied_coupon.id,
+                name: format!("Coupon ({})", applicable_coupon.coupon.code), // TODO allow defining a name in coupon
+                code: applicable_coupon.coupon.code.clone(),
+                value: applied.value,
+                quoted_value: None,
+                discount: applicable_coupon.coupon.discount.clone(),
+            }
+        })
+        .collect()
 }
 
 pub fn calculate_coupons_discount(
@@ -67,62 +77,12 @@ pub fn calculate_coupons_discount(
     invoice_currency: &str,
     coupons: &[AppliedCouponDetailed],
 ) -> AppliedCouponsDiscount {
-    // Customer-friendly precedence: percentages first, then fixed amounts.
-    // Tiebreak on the underlying coupon.id so preview and invoice paths agree
-    // (applied_coupon.id is regenerated per preview and would diverge).
-    let applicable_coupons: Vec<&AppliedCouponDetailed> = coupons
-        .iter()
-        .filter(|x| x.is_invoice_applicable())
-        .sorted_by_key(|x| {
-            let type_precedence = match x.coupon.discount {
-                CouponDiscount::Percentage(_) => 0u8,
-                CouponDiscount::Fixed { .. } | CouponDiscount::Credit { .. } => 1u8,
-            };
-            (type_precedence, x.coupon.id.as_uuid())
-        })
-        .collect::<Vec<_>>();
-
-    let mut applied_coupons_items = vec![];
-
-    let mut subtotal_subunits = Decimal::from(subtotal);
-
-    for applicable_coupon in applicable_coupons {
-        if subtotal_subunits <= Decimal::ZERO {
-            break;
-        }
-        let discount = match &applicable_coupon.coupon.discount {
-            CouponDiscount::Percentage(percentage) => {
-                (subtotal_subunits * percentage / Decimal::ONE_HUNDRED).min(subtotal_subunits)
-            }
-            CouponDiscount::Fixed { amount, currency } => {
-                // todo currency conversion
-                if currency != invoice_currency {
-                    continue;
-                }
-                // todo domain should use Currency type instead of string
-                let cur = meteroid_money::iso::find(currency).unwrap_or(meteroid_money::iso::USD);
-
-                // R-089: its whole amount on every invoice it lasts; `applied_amount` is no budget.
-                let discount_subunits = amount.to_subunit_opt(cur.exponent as u8).unwrap_or(0);
-
-                Decimal::from(discount_subunits).min(subtotal_subunits)
-            }
-            CouponDiscount::Credit { .. } => continue,
-        };
-
-        subtotal_subunits -= discount;
-
-        let discount = discount.to_i64().unwrap_or(0);
-        applied_coupons_items.push(CouponLineItem {
-            coupon_id: applicable_coupon.coupon.id,
-            applied_coupon_id: applicable_coupon.applied_coupon.id,
-            name: format!("Coupon ({})", applicable_coupon.coupon.code), // TODO allow defining a name in coupon
-            code: applicable_coupon.coupon.code.clone(),
-            value: discount,
-            quoted_value: None,
-            discount: applicable_coupon.coupon.discount.clone(),
-        });
-    }
+    let applicable_coupons = applicable_coupons(coupons);
+    let inputs = coupon_inputs(&applicable_coupons);
+    let applied_coupons_items = coupon_rows(
+        &applicable_coupons,
+        &core::calculate_coupons_discount(subtotal, invoice_currency, &inputs),
+    );
 
     AppliedCouponsDiscount {
         discount_subunit: applied_coupons_items.iter().map(|x| x.value).sum(),
@@ -225,91 +185,6 @@ mod tests {
     }
 
     #[test]
-    fn two_percentages_commute() {
-        let a = applied_coupon("PCT_A", CouponDiscount::Percentage(Decimal::from(10)));
-        let b = applied_coupon("PCT_B", CouponDiscount::Percentage(Decimal::from(25)));
-
-        let r1 = calculate_coupons_discount(10_000, "USD", &[a.clone(), b.clone()]);
-        let r2 = calculate_coupons_discount(10_000, "USD", &[b, a]);
-
-        assert_eq!(r1.discount_subunit, r2.discount_subunit);
-        // sanity: 25% then 10% off 10000 = 7500 - 750 = 6750 -> discount 3250
-        assert_eq!(r1.discount_subunit, 3250);
-    }
-
-    #[test]
-    fn two_fixed_commute() {
-        let a = applied_coupon(
-            "FIX_A",
-            CouponDiscount::Fixed {
-                currency: "USD".to_string(),
-                amount: Decimal::from(15),
-            },
-        );
-        let b = applied_coupon(
-            "FIX_B",
-            CouponDiscount::Fixed {
-                currency: "USD".to_string(),
-                amount: Decimal::from(25),
-            },
-        );
-
-        let r1 = calculate_coupons_discount(10_000, "USD", &[a.clone(), b.clone()]);
-        let r2 = calculate_coupons_discount(10_000, "USD", &[b, a]);
-
-        assert_eq!(r1.discount_subunit, r2.discount_subunit);
-        // 15 + 25 = 40 USD = 4000 subunits
-        assert_eq!(r1.discount_subunit, 4000);
-    }
-
-    #[test]
-    fn two_fixed_commute_even_when_subtotal_floors() {
-        // subtotal smaller than total fixed discount -> capped at subtotal regardless of order
-        let a = applied_coupon(
-            "FIX_A",
-            CouponDiscount::Fixed {
-                currency: "USD".to_string(),
-                amount: Decimal::from(80),
-            },
-        );
-        let b = applied_coupon(
-            "FIX_B",
-            CouponDiscount::Fixed {
-                currency: "USD".to_string(),
-                amount: Decimal::from(50),
-            },
-        );
-
-        let r1 = calculate_coupons_discount(10_000, "USD", &[a.clone(), b.clone()]);
-        let r2 = calculate_coupons_discount(10_000, "USD", &[b, a]);
-
-        assert_eq!(r1.discount_subunit, r2.discount_subunit);
-        assert_eq!(r1.discount_subunit, 10_000);
-    }
-
-    #[test]
-    fn percentage_applied_before_fixed() {
-        // Customer-friendly precedence: percentage first.
-        // 10% off 10000 = 1000 discount, then 50 USD (5000 subunits) off remaining 9000 = 5000.
-        // Total discount = 6000.
-        let pct = applied_coupon("PCT", CouponDiscount::Percentage(Decimal::from(10)));
-        let fix = applied_coupon(
-            "FIX",
-            CouponDiscount::Fixed {
-                currency: "USD".to_string(),
-                amount: Decimal::from(50),
-            },
-        );
-
-        let r1 = calculate_coupons_discount(10_000, "USD", &[fix.clone(), pct.clone()]);
-        let r2 = calculate_coupons_discount(10_000, "USD", &[pct, fix]);
-
-        // Both orderings produce the same result thanks to type precedence.
-        assert_eq!(r1.discount_subunit, r2.discount_subunit);
-        assert_eq!(r1.discount_subunit, 6000);
-    }
-
-    #[test]
     fn a_credit_coupon_discounts_nothing() {
         let credit = applied_coupon(
             "WELCOME",
@@ -346,65 +221,6 @@ mod tests {
 
         assert_eq!(
             calculate_next_invoice_coupons_discount(5_000, "USD", &[once], &today.applied_coupons),
-            0
-        );
-    }
-
-    /// Rules: R-089
-    #[test]
-    fn a_fixed_coupon_gives_its_whole_amount_on_each_invoice_it_lasts() {
-        let mut fixed = applied_coupon(
-            "TWICE",
-            CouponDiscount::Fixed {
-                currency: "USD".to_string(),
-                amount: Decimal::from(10),
-            },
-        );
-        fixed.coupon.recurring_value = Some(2);
-
-        let mut taken = vec![];
-        for _ in 0..3 {
-            let invoice = calculate_coupons_discount(3_000, "USD", std::slice::from_ref(&fixed));
-            taken.push(invoice.discount_subunit);
-            // What finalization records: one more invoice, and the amount given.
-            if invoice.discount_subunit > 0 {
-                let applied = &mut fixed.applied_coupon;
-                applied.applied_count = Some(applied.applied_count.unwrap_or(0) + 1);
-                applied.applied_amount = Some(
-                    applied.applied_amount.unwrap_or_default()
-                        + Decimal::new(invoice.discount_subunit, 2),
-                );
-            }
-        }
-        assert_eq!(taken, vec![1_000, 1_000, 0]);
-    }
-
-    /// Rules: R-089
-    #[test]
-    fn next_invoice_discount_keeps_a_fixed_coupon_whole() {
-        let mut fixed = applied_coupon(
-            "TWICE",
-            CouponDiscount::Fixed {
-                currency: "USD".to_string(),
-                amount: Decimal::from(10),
-            },
-        );
-        fixed.coupon.recurring_value = Some(2);
-        let today = calculate_coupons_discount(3_000, "USD", std::slice::from_ref(&fixed));
-        assert_eq!(today.discount_subunit, 1_000);
-
-        assert_eq!(
-            calculate_next_invoice_coupons_discount(
-                3_000,
-                "USD",
-                std::slice::from_ref(&fixed),
-                &today.applied_coupons
-            ),
-            1_000
-        );
-        fixed.applied_coupon.applied_count = Some(1);
-        assert_eq!(
-            calculate_next_invoice_coupons_discount(3_000, "USD", &[fixed], &today.applied_coupons),
             0
         );
     }
@@ -461,63 +277,60 @@ mod tests {
         assert_eq!(items[0].taxable_amount, 5400); // 60€ - 6€
         assert_eq!(items[1].taxable_amount, 3600); // 40€ - 4€
     }
-
     #[test]
-    fn test_remainder_distribution() {
-        let items = vec![
-            new_line_item(333), // 3.33€
-            new_line_item(333), // 3.33€
-            new_line_item(334), // 3.34€
-        ];
+    fn a_fixed_coupon_gives_its_whole_amount_on_each_invoice_it_lasts() {
+        let mut fixed = applied_coupon(
+            "TWICE",
+            CouponDiscount::Fixed {
+                currency: "USD".to_string(),
+                amount: Decimal::from(10),
+            },
+        );
+        fixed.coupon.recurring_value = Some(2);
 
-        let sum_before = items.iter().map(|item| item.amount_subtotal).sum::<i64>();
-
-        let discount_amount = 100; // 1€  so 10%
-
-        let items = distribute_discount(items, discount_amount);
-
-        let sum_after = items.iter().map(|item| item.taxable_amount).sum::<i64>();
-
-        assert_eq!(sum_before, sum_after + discount_amount as i64);
-
-        assert_eq!(items[0].taxable_amount, 300); // 3.33€ - 0.33€
-        assert_eq!(items[1].taxable_amount, 300); // 3.33€ - 0.33€
-        assert_eq!(items[2].taxable_amount, 300); // 3.34€ - 0.34€
+        let mut taken = vec![];
+        for _ in 0..3 {
+            let invoice = calculate_coupons_discount(3_000, "USD", std::slice::from_ref(&fixed));
+            taken.push(invoice.discount_subunit);
+            // What finalization records: one more invoice, and the amount given.
+            if invoice.discount_subunit > 0 {
+                let applied = &mut fixed.applied_coupon;
+                applied.applied_count = Some(applied.applied_count.unwrap_or(0) + 1);
+                applied.applied_amount = Some(
+                    applied.applied_amount.unwrap_or_default()
+                        + Decimal::new(invoice.discount_subunit, 2),
+                );
+            }
+        }
+        assert_eq!(taken, vec![1_000, 1_000, 0]);
     }
 
     #[test]
-    fn test_discount_eq_sub_total() {
-        let items = vec![
-            new_line_item(1000), // 10.00€
-            new_line_item(2000), // 20.00€
-        ];
+    fn next_invoice_discount_keeps_a_fixed_coupon_whole() {
+        let mut fixed = applied_coupon(
+            "TWICE",
+            CouponDiscount::Fixed {
+                currency: "USD".to_string(),
+                amount: Decimal::from(10),
+            },
+        );
+        fixed.coupon.recurring_value = Some(2);
+        let today = calculate_coupons_discount(3_000, "USD", std::slice::from_ref(&fixed));
+        assert_eq!(today.discount_subunit, 1_000);
 
-        let discount_amount = 3000; // 30.00€
-
-        let items = distribute_discount(items, discount_amount);
-
-        let sum_after = items.iter().map(|item| item.taxable_amount).sum::<i64>();
-
-        assert_eq!(sum_after, 0);
-        assert_eq!(items[0].taxable_amount, 0);
-        assert_eq!(items[1].taxable_amount, 0);
-    }
-
-    #[test]
-    fn test_discount_gt_sub_total() {
-        let items = vec![
-            new_line_item(1000), // 10.00€
-            new_line_item(2000), // 20.00€
-        ];
-
-        let discount_amount = 4000; // 40.00€
-
-        let items = distribute_discount(items, discount_amount);
-
-        let sum_after = items.iter().map(|item| item.taxable_amount).sum::<i64>();
-
-        assert_eq!(sum_after, 0);
-        assert_eq!(items[0].taxable_amount, 0);
-        assert_eq!(items[1].taxable_amount, 0);
+        assert_eq!(
+            calculate_next_invoice_coupons_discount(
+                3_000,
+                "USD",
+                std::slice::from_ref(&fixed),
+                &today.applied_coupons
+            ),
+            1_000
+        );
+        fixed.applied_coupon.applied_count = Some(1);
+        assert_eq!(
+            calculate_next_invoice_coupons_discount(3_000, "USD", &[fixed], &today.applied_coupons),
+            0
+        );
     }
 }

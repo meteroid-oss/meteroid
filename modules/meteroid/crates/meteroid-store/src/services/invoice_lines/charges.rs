@@ -1,15 +1,15 @@
 //! Line ids from the charge a line bills (R-075).
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::HashMap;
 
-use billing_core::{ChargeKey, ChargeKind, Fee};
+use billing_core::ChargeKey;
+use billing_core::assembly::charges as core;
 use common_domain::ids::{BaseId, SubscriptionAddOnId, SubscriptionPriceComponentId};
-use uuid::Uuid;
 
 use crate::domain::{LineItem, LineItemKind, SubscriptionDetails};
 
 /// The lineage root of each component and add-on of a subscription, by row id.
-pub(crate) struct Lineages(HashMap<Uuid, Uuid>);
+pub(crate) struct Lineages(core::Lineages);
 
 impl Lineages {
     pub(crate) fn of(details: &SubscriptionDetails) -> Self {
@@ -21,11 +21,17 @@ impl Lineages {
             .add_ons
             .iter()
             .map(|a| (a.id.as_uuid(), a.lineage().as_uuid()));
-        Self(components.chain(add_ons).collect())
+        Self(core::Lineages(components.chain(add_ons).collect()))
+    }
+
+    /// From each row's lineage root, closed rows' included.
+    #[cfg(feature = "facts-shadow")]
+    pub(crate) fn of_roots(roots: impl IntoIterator<Item = (uuid::Uuid, uuid::Uuid)>) -> Self {
+        Self(core::Lineages(roots.into_iter().collect()))
     }
 
     pub(crate) fn none() -> Self {
-        Self(HashMap::new())
+        Self(core::Lineages::default())
     }
 
     /// The roots issued `lines` were billed under, from each line's lineage by its id.
@@ -33,7 +39,7 @@ impl Lineages {
         lines: impl IntoIterator<Item = &'a LineItem>,
         line_lineage: &HashMap<String, String>,
     ) -> Self {
-        Self(
+        Self(core::Lineages(
             lines
                 .into_iter()
                 .filter_map(|line| {
@@ -51,44 +57,46 @@ impl Lineages {
                     }
                 })
                 .collect(),
-        )
+        ))
     }
+}
 
-    fn root(&self, row: Uuid) -> Uuid {
-        self.0.get(&row).copied().unwrap_or(row)
+fn charged_line(line: &LineItem) -> core::ChargedLine {
+    core::ChargedLine {
+        kind: match line.kind {
+            LineItemKind::Regular => core::LineKind::Regular,
+            LineItemKind::Credit => core::LineKind::Credit,
+            LineItemKind::MinimumShortfall => core::LineKind::MinimumShortfall,
+        },
+        subscription: line.subscription_id.map(|id| id.as_uuid()),
+        component: line.sub_component_id.map(|id| id.as_uuid()),
+        add_on: line.sub_add_on_id.map(|id| id.as_uuid()),
+        product: line.product_id.map(|id| id.as_uuid()),
+        metric: line.metric_id.map(|id| id.as_uuid()),
+        dimensions: line
+            .group_by_dimensions
+            .iter()
+            .flatten()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
+        from: line.start_date,
+        until: line.end_date,
+        // Keyed in money until billing reads charges from the core: a credit-unit key would
+        // change the ids of today's credit-priced usage lines.
+        credit_unit: None,
     }
 }
 
 pub(crate) fn charge_key(line: &LineItem, lineages: &Lineages) -> ChargeKey {
-    let fee = match (&line.kind, line.sub_component_id, line.sub_add_on_id) {
-        (LineItemKind::MinimumShortfall, _, _) => Fee::Minimum {
-            product: line.product_id.map(|id| id.as_uuid()),
-        },
-        (_, Some(component), _) => Fee::Component(lineages.root(component.as_uuid())),
-        (_, None, Some(add_on)) => Fee::AddOn(lineages.root(add_on.as_uuid())),
-        (_, None, None) => Fee::Unattached,
-    };
-    let kind = match (&line.kind, line.metric_id) {
-        (LineItemKind::MinimumShortfall, _) => ChargeKind::Shortfall,
-        (LineItemKind::Credit, _) => ChargeKind::Credit,
-        (LineItemKind::Regular, Some(metric)) => ChargeKind::Usage {
-            metric: metric.as_uuid(),
-            dimensions: line
-                .group_by_dimensions
-                .iter()
-                .flatten()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect::<BTreeMap<_, _>>(),
-        },
-        (LineItemKind::Regular, None) => ChargeKind::Fee,
-    };
-    ChargeKey {
-        subscription: line.subscription_id.map(|id| id.as_uuid()),
-        fee,
-        from: line.start_date,
-        until: line.end_date,
-        kind,
-    }
+    core::charge_key(&charged_line(line), &lineages.0)
+}
+
+/// The charge a line bills as `evaluate` keys it: one priced in a credit unit in that unit. Its
+/// id stays [`charge_key`]'s (R-075).
+pub(crate) fn evaluated_charge_key(line: &LineItem, lineages: &Lineages) -> ChargeKey {
+    let mut charged = charged_line(line);
+    charged.credit_unit = line.credit_unit.as_ref().map(|unit| unit.unit_id.as_uuid());
+    core::charge_key(&charged, &lineages.0)
 }
 
 /// The line, with the id of its charge if it has none, and its sub-lines numbered under it.
@@ -98,7 +106,7 @@ pub(crate) fn identified(mut line: LineItem, lineages: &Lineages) -> LineItem {
     }
     for (n, sub_line) in line.sub_lines.iter_mut().enumerate() {
         if sub_line.local_id.is_empty() {
-            sub_line.local_id = format!("{}.{}", line.local_id, n + 1);
+            sub_line.local_id = core::sub_line_id(&line.local_id, n);
         }
     }
     line
@@ -107,19 +115,9 @@ pub(crate) fn identified(mut line: LineItem, lineages: &Lineages) -> LineItem {
 /// Gives a line whose charge another line of the document already bills the key's next
 /// occurrence, and renumbers its sub-lines.
 pub(crate) fn disambiguate(lines: &mut [LineItem], lineages: &Lineages) {
-    let mut seen = HashSet::new();
-    let repeated: Vec<usize> = (0..lines.len())
-        .filter(|&i| !seen.insert(lines[i].local_id.clone()))
-        .collect();
-    if repeated.is_empty() {
-        return;
-    }
-    let keys: Vec<ChargeKey> = repeated
-        .iter()
-        .map(|&i| charge_key(&lines[i], lineages))
-        .collect();
-    let ids = billing_core::line_ids(&keys, seen);
-    for (i, id) in repeated.into_iter().zip(ids) {
+    let ids: Vec<&str> = lines.iter().map(|line| line.local_id.as_str()).collect();
+    let renamed = core::disambiguate(&ids, |i| charge_key(&lines[i], lineages));
+    for (i, id) in renamed {
         let line = &mut lines[i];
         let previous = std::mem::replace(&mut line.local_id, id);
         for sub_line in &mut line.sub_lines {
@@ -133,6 +131,7 @@ pub(crate) fn disambiguate(lines: &mut [LineItem], lineages: &Lineages) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use billing_core::Fee;
     use chrono::NaiveDate;
     use common_domain::ids::SubscriptionId;
 
@@ -186,7 +185,10 @@ mod tests {
         );
         let computed = identified(
             seats(row),
-            &Lineages(HashMap::from([(row.as_uuid(), root.as_uuid())])),
+            &Lineages(core::Lineages(HashMap::from([(
+                row.as_uuid(),
+                root.as_uuid(),
+            )]))),
         );
         let lineage = HashMap::from([(computed.local_id.clone(), root.to_string())]);
         let read_back = charge_key(&computed, &Lineages::of_lines([&computed], &lineage));

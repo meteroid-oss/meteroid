@@ -10,7 +10,7 @@ use crate::domain::stored_object::StoredObjectRef;
 use crate::domain::{
     ConnectorProviderEnum, CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice,
     EmissionProjectionContext, Invoice, InvoiceNew, InvoiceWithCustomer, LineItem, PaginatedVec,
-    PaginationRequest, TaxBreakdownItem, TaxDetail,
+    PaginationRequest, TaxBreakdownItem,
 };
 use crate::errors::StoreError;
 use crate::repositories::connectors::ConnectorsInterface;
@@ -35,7 +35,6 @@ use diesel_models::stored_object::StoredObjectRowNew;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::{Report, bail};
 use itertools::Itertools;
-use meteroid_tax::{LineToTax, TaxToApply, apply_taxes};
 use ordermap::OrderMap;
 use rust_decimal::Decimal;
 use scoped_futures::ScopedFutureExt;
@@ -1480,81 +1479,18 @@ pub fn apply_tax_rates_to_priced_lines(
     lines: &mut [LineItem],
     tax_inclusive: bool,
 ) -> (Vec<TaxBreakdownItem>, i64) {
-    let to_apply: Vec<LineToTax> = lines
+    use crate::services::credit::document;
+    let rates = document::rates(lines);
+    let rates: Vec<&[billing_core::document::Rate]> = rates.0.iter().map(Vec::as_slice).collect();
+    let mut taxed: Vec<_> = lines
         .iter()
-        .map(|line| LineToTax {
-            taxable_amount: line.taxable_amount,
-            tax_inclusive,
-            taxes: taxes_of(line)
-                .iter()
-                .map(|detail| TaxToApply {
-                    rate: detail.tax_rate,
-                    key: format!("{}:{}", detail.tax_name, detail.tax_rate),
-                    // Stored lines never carry a compound tax: the engine cannot resolve one
-                    // (it never passes a region), so nothing has been billed that way.
-                    compound: false,
-                })
-                .collect(),
-        })
+        .map(|line| document::line_of(line, None))
         .collect();
-
-    let mut discount_tax = 0;
-    for ((line, taxes), amounts) in lines
-        .iter_mut()
-        .zip(to_apply.iter())
-        .zip(apply_taxes(&to_apply))
-    {
-        line.tax_details = taxes
-            .taxes
-            .iter()
-            .zip(amounts.iter().copied())
-            .map(|(tax, tax_amount)| TaxDetail {
-                tax_rate: tax.rate,
-                tax_name: tax_name_of(&tax.key),
-                tax_amount,
-            })
-            .collect();
-        line.tax_amount = amounts.iter().sum();
-        let priced_taxable = line.taxable_amount;
-        line.taxable_amount = taxes.net_amount(&amounts);
-        line.amount_total = line.taxable_amount + line.tax_amount;
-        if tax_inclusive {
-            discount_tax +=
-                crate::services::invoice_lines::tax_inclusive::net_line(line, priced_taxable);
-        }
+    let applied = billing_core::document::apply_rates(&mut taxed, &rates, tax_inclusive);
+    for ((line, taxed), netted) in lines.iter_mut().zip(&taxed).zip(&applied.netted) {
+        document::write_money(line, taxed, *netted);
     }
-
-    (compute_tax_breakdown(lines), discount_tax)
-}
-
-/// The taxes a line carries: its own details, unless the rate was edited away from them —
-/// then the edited rate is the single tax, since nothing records how to split it.
-fn taxes_of(line: &LineItem) -> Vec<TaxDetail> {
-    let details_match_rate = !line.tax_details.is_empty()
-        && line
-            .tax_details
-            .iter()
-            .map(|detail| detail.tax_rate)
-            .sum::<Decimal>()
-            == line.tax_rate;
-
-    if details_match_rate {
-        line.tax_details.clone()
-    } else if line.tax_rate.is_zero() {
-        Vec::new()
-    } else {
-        vec![TaxDetail {
-            tax_rate: line.tax_rate,
-            tax_name: "Tax".to_string(),
-            tax_amount: 0,
-        }]
-    }
-}
-
-fn tax_name_of(key: &str) -> String {
-    key.rsplit_once(':')
-        .map(|(name, _)| name.to_string())
-        .unwrap_or_else(|| key.to_string())
+    (compute_tax_breakdown(lines), applied.discount_tax)
 }
 
 /// One row per distinct tax, so a stacked set (GST + QST) reports as the two taxes actually
@@ -1654,6 +1590,7 @@ pub fn carry_over_tax_findings(source: &[TaxBreakdownItem], rebuilt: &mut [TaxBr
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::TaxDetail;
     use rust_decimal_macros::dec;
 
     fn line(local_id: &str, taxable_amount: i64, tax_rate: Decimal) -> LineItem {

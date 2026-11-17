@@ -229,6 +229,19 @@ impl Services {
             )
             .await
             .change_context(StoreError::InvoiceComputationError)?;
+        #[cfg(feature = "facts-shadow")]
+        self.shadow_facts(
+            conn,
+            crate::services::facts_shadow::Shadowed {
+                tenant_id,
+                subscription_id: subscription.id,
+                invoice_type: invoice_type.clone(),
+                period_start: invoice_date,
+                draft: None,
+            },
+            &invoice_content.invoice_lines,
+        )
+        .await;
 
         if invoice_content.invoice_lines.is_empty() {
             // An empty line set usually means nothing to bill. The exception is an *elapsed*
@@ -741,20 +754,18 @@ impl Services {
             )
             .await?;
         let (mut invoice_lines, mut tax_breakdown) = (taxed.lines, taxed.breakdown);
-        self.estimate_promotional_on_taxed(
-            conn,
-            &scope,
-            &mut invoice_lines,
-            &mut tax_breakdown,
-            0,
-            subscription.tax_inclusive,
-        )
-        .await?;
-
-        let totals = crate::services::invoice_lines::invoice_lines::totals_of(&invoice_lines, 0);
         let applied_credits = self
-            .preview_credit_for_lines(conn, &scope, &invoice_lines, totals.total, 0)
+            .settle_taxed_lines(
+                conn,
+                &scope,
+                &mut invoice_lines,
+                &mut tax_breakdown,
+                0,
+                subscription.tax_inclusive,
+                0,
+            )
             .await?;
+        let totals = crate::services::invoice_lines::invoice_lines::totals_of(&invoice_lines, 0);
 
         Ok(AdjustmentInvoiceContent {
             computed: ComputedInvoiceContent::of(

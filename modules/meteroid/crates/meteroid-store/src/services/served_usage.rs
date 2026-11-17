@@ -228,6 +228,21 @@ impl ServedUsage {
     }
 }
 
+#[cfg(feature = "facts-shadow")]
+impl ServedUsage {
+    /// A client served what this pass is, failing any other read without recording it; none once
+    /// the pass missed a read, as it is redone.
+    pub(crate) fn peek(&self) -> Option<Arc<ServedUsage>> {
+        let missed = self.missed.lock().ok()?.len();
+        (missed == 0).then(|| {
+            Arc::new(ServedUsage::new(
+                self.reads.clone(),
+                Unserved::Fail(Mutex::new(None)),
+            ))
+        })
+    }
+}
+
 fn unserved() -> Report<StoreError> {
     Report::new(StoreError::InvoiceComputationError)
         .attach("work under row locks reads metering only as usage totals or events")

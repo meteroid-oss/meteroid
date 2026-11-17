@@ -454,7 +454,8 @@ impl Services {
         };
         let mut promotional_credits = 0;
         let mut repriced_recurring = 0;
-        self.reprice_promotional_estimate(
+        // A draft applies no paid credit: only the promotional part of the settlement is kept.
+        self.settle_estimate(
             conn,
             &scope,
             &mut crate::services::credit::promotional::TaxedDocument {
@@ -468,6 +469,7 @@ impl Services {
                 promotional_credits: &mut promotional_credits,
                 total: &mut total,
             },
+            billing_core::credit::Cash::none(billing_core::credit::TotalBasis::Folded),
         )
         .await?;
 

@@ -477,7 +477,7 @@ impl Services {
             at,
             book: None,
         };
-        self.reprice_promotional_estimate(
+        self.settle_estimate(
             conn,
             &scope,
             &mut TaxedDocument {
@@ -491,10 +491,9 @@ impl Services {
                 promotional_credits: &mut merged.promotional_credits,
                 total: &mut merged.total,
             },
+            billing_core::credit::Cash::none(billing_core::credit::TotalBasis::Header),
         )
-        .await?;
-        self.preview_credit_for_lines(conn, &scope, &merged.line_items, merged.total, 0)
-            .await
+        .await
     }
 }
 
@@ -531,13 +530,9 @@ impl Services {
                 crate::services::invoice_lines::invoice_lines::totals_of(lines, member.discount)
             })
             .collect();
-        // By what each still owes, so no draft's amount due clamps and loses what it collected.
-        let weights: Vec<rust_decimal::Decimal> = totals
-            .iter()
-            .zip(already_paid)
-            .map(|(totals, paid)| rust_decimal::Decimal::from((totals.total - paid).max(0)))
-            .collect();
-        let applied = billing_core::split(applied_credits, &weights);
+        let owed: Vec<i64> = totals.iter().map(|totals| totals.total).collect();
+        let applied =
+            billing_core::merge::applied_credit_shares(&owed, already_paid, applied_credits);
         for (((member, lines), totals), (applied, paid)) in members
             .iter()
             .zip(lines)

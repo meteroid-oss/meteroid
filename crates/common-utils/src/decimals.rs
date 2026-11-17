@@ -1,6 +1,5 @@
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
-use std::ops::Mul;
 
 /// Noise-stripping quantity scale: keeps any realistic per-unit price sub-cent accurate
 /// while dropping metered aggregation's float-sum noise. Used for *step* pricing
@@ -45,7 +44,7 @@ pub trait ToSubunit {
 
 impl ToSubunit for Decimal {
     fn to_subunit_opt(&self, precision: u8) -> Option<i64> {
-        self.mul(Decimal::from(10i64.pow(u32::from(precision))))
+        self.checked_mul(Decimal::from(10i64.pow(u32::from(precision))))?
             .round_dp_with_strategy(0, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
             .to_i64()
     }
@@ -65,6 +64,11 @@ impl ToUnit for i64 {
 mod tests {
     use super::*;
     use rust_decimal_macros::dec;
+
+    #[test]
+    fn an_amount_out_of_range_is_none_never_a_panic() {
+        assert_eq!(Decimal::MAX.to_subunit_opt(2), None);
+    }
 
     #[test]
     fn scale_follows_price_for_two_decimal_currency() {

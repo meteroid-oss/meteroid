@@ -3,11 +3,11 @@
 use crate::StoreResult;
 use crate::domain::{InvoiceLinesPatch, LineItem, LineItemKind};
 use crate::errors::StoreError;
-use crate::repositories::credit::allocation::{CreditDemand, CreditRequest, GrantPool};
-use crate::services::Services;
+use crate::repositories::credit::allocation::CreditRequest;
 use crate::services::credit::forecast::CreditBooks;
 use crate::services::credit::invalid;
-use crate::services::credit::scope::{LineOwners, line_subscription};
+use crate::services::credit::promotional::LineScope;
+use crate::services::credit::scope::LineOwners;
 use crate::store::PgConn;
 use chrono::{DateTime, NaiveDate, Utc};
 use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, TenantId};
@@ -95,6 +95,7 @@ pub(crate) async fn committed_cash_minor(
 /// charge what its lines still cost (after discount and promotional credit, tax included): usage
 /// credit pays the usage, credit of a subscription its lines, credit restricted to products
 /// theirs. Credit never pays for a credit purchase.
+#[cfg(test)]
 pub(crate) fn credit_request(
     lines: &[LineItem],
     owners: &LineOwners,
@@ -114,61 +115,16 @@ pub(crate) fn credit_request_of_lines(
     total: i64,
     already_paid: i64,
 ) -> StoreResult<(CreditRequest, Vec<Option<usize>>)> {
-    let overflow = || invalid("invoice credit request exceeds the supported range");
-    let credit_purchase = lines
-        .iter()
-        .filter(|line| line.kind == LineItemKind::Credit)
-        .try_fold(0_i64, |sum, line| sum.checked_add(line.amount_total.max(0)))
-        .ok_or_else(|| invalid("invoice credit purchase total exceeds the supported range"))?;
-    let mut demands: Vec<CreditDemand> = Vec::new();
-    let mut of_line = Vec::with_capacity(lines.len());
-    for line in lines {
-        if line.kind == LineItemKind::Credit {
-            of_line.push(None);
-            continue;
-        }
-        let usage = line.metric_id.is_some() && line.kind == LineItemKind::Regular;
-        let subscription_id = line_subscription(line, invoice_subscription, owners);
-        let dated_before = usage.then(|| line.usage_dated_before());
-        let amount = line.amount_total;
-        match demands.iter().position(|demand| {
-            demand.usage == usage
-                && demand.product_id == line.credit_product()
-                && demand.subscription_id == subscription_id
-                && demand.dated_before == dated_before
-        }) {
-            Some(index) => {
-                demands[index].amount_minor = demands[index]
-                    .amount_minor
-                    .checked_add(amount)
-                    .ok_or_else(overflow)?;
-                of_line.push(Some(index));
-            }
-            None => {
-                demands.push(CreditDemand {
-                    subscription_id,
-                    product_id: line.credit_product(),
-                    usage,
-                    amount_minor: amount,
-                    dated_before,
-                });
-                of_line.push(Some(demands.len() - 1));
-            }
-        }
-    }
-    for demand in &mut demands {
-        demand.amount_minor = demand.amount_minor.max(0);
-    }
-    Ok((
-        CreditRequest {
-            requested_minor: total
-                .saturating_sub(already_paid.max(0))
-                .min(total.saturating_sub(credit_purchase))
-                .max(0),
-            demands,
+    let lines = crate::services::credit::document::lines_of(
+        lines,
+        LineScope {
+            owners,
+            subscription_id: invoice_subscription,
         },
-        of_line,
-    ))
+    );
+    billing_core::credit::settle::paid_request(&lines, total, already_paid)
+        .map(|(request, of_line)| (request.into(), of_line))
+        .map_err(|_| invalid("invoice credit request exceeds the supported range"))
 }
 
 /// Lands credit the ledger applied on the invoice totals, after anything already paid.
@@ -199,30 +155,6 @@ pub(crate) fn record_applied_credit(
         .saturating_sub(patch.applied_credits)
         .max(0);
     Ok(())
-}
-
-impl Services {
-    /// Draft `applied_credits` preview: the paid credit this invoice would draw on its taxed total
-    /// if finalized at `scope.at`.
-    pub(in crate::services) async fn preview_credit_for_lines(
-        &self,
-        conn: &mut PgConn,
-        scope: &EstimateContext<'_>,
-        lines: &[LineItem],
-        total: i64,
-        already_paid: i64,
-    ) -> StoreResult<i64> {
-        let owners = LineOwners::load_tx(conn, scope.tenant_id, lines).await?;
-        scope
-            .estimate(
-                conn,
-                GrantPool::Paid,
-                &credit_request(lines, &owners, scope.subscription_id, total, already_paid)?,
-                &[],
-            )
-            .await?
-            .total()
-    }
 }
 
 #[cfg(test)]

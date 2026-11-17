@@ -1,20 +1,7 @@
-//! Turns lines priced tax-included into the net lines an invoice stores.
-//!
-//! A tax-inclusive plan quotes the customer a price that already contains the tax. The
-//! whole pricing pipeline — fees, proration, coupons, the minimum commitment — runs on
-//! those quoted figures, exactly as it does for a net plan: a "5.00 off" coupon takes 5.00
-//! off the price the customer sees, and a commitment is a commitment to spend that much.
-//! Only once the tax engine has carved the tax out of each line is the invoice rewritten
-//! in net terms, here, so that `subtotal - discount + tax = total` holds the way every
-//! reader of an invoice expects, and the total is still the quoted price to the unit.
+//! The store's lines netted by `billing_core::assembly::tax_inclusive`.
 
-use crate::domain::{CouponLineItem, LineItem, SubLineAttributes, SubLineItem, TaxInclusiveQuote};
-use meteroid_tax::largest_remainder;
-use rust_decimal::Decimal;
-
-/// Decimal places kept on a netted unit price: enough that `unit_price * quantity` lands
-/// back on the netted subtotal, without carrying a division's full expansion into storage.
-const UNIT_PRICE_SCALE: u32 = 10;
+use crate::domain::{CouponLineItem, LineItem, SubLineAttributes, TaxInclusiveQuote};
+use billing_core::assembly::tax_inclusive as core;
 
 /// Rewrites a line in net terms once the engine has carved the tax out of it.
 ///
@@ -25,108 +12,89 @@ const UNIT_PRICE_SCALE: u32 = 10;
 /// A line that bore no tax is left exactly as priced: a reverse-charge, exempt or export
 /// customer pays the quoted price in full, and there is nothing to net.
 pub(crate) fn net_line(line: &mut LineItem, quoted_taxable: i64) -> i64 {
-    let net_taxable = line.taxable_amount;
-    let quoted_subtotal = line.amount_subtotal;
-    // The subtotal nets in the same proportion its taxable amount did. An undiscounted
-    // line *is* its taxable amount, and takes the engine's figure rather than a second
-    // rounding of it. A line left nothing to tax nets at its own rate.
-    let net_subtotal = if quoted_taxable == 0 {
-        if line.tax_rate.is_zero() || quoted_subtotal == 0 {
-            return 0;
-        }
-        meteroid_tax::round_to_minor(
-            Decimal::from(quoted_subtotal) / (Decimal::ONE + line.tax_rate),
-        )
-    } else if net_taxable == quoted_taxable {
+    let quoted = core::QuotedLine {
+        amount_subtotal: line.amount_subtotal,
+        taxable_amount: line.taxable_amount,
+        tax_rate: line.tax_rate,
+        unit_price: line.unit_price,
+        sub_lines: line
+            .sub_lines
+            .iter()
+            .map(|sub_line| {
+                let (flat_cap, flat_fee) = match &sub_line.attributes {
+                    Some(
+                        SubLineAttributes::Tiered {
+                            flat_cap, flat_fee, ..
+                        }
+                        | SubLineAttributes::Volume {
+                            flat_cap, flat_fee, ..
+                        },
+                    ) => (*flat_cap, *flat_fee),
+                    Some(SubLineAttributes::Package { .. } | SubLineAttributes::Matrix { .. })
+                    | None => (None, None),
+                };
+                core::SubLinePrice {
+                    total: sub_line.total,
+                    unit_price: sub_line.unit_price,
+                    flat_cap,
+                    flat_fee,
+                }
+            })
+            .collect(),
+    };
+    let Some(net) = core::net_line(&quoted, quoted_taxable) else {
         return 0;
-    } else if quoted_subtotal == quoted_taxable {
-        net_taxable
-    } else {
-        scale(quoted_subtotal, net_taxable, quoted_taxable)
     };
 
     line.tax_inclusive_quote = Some(TaxInclusiveQuote {
-        amount_subtotal: quoted_subtotal,
+        amount_subtotal: line.amount_subtotal,
         unit_price: line.unit_price,
         sub_lines: line.sub_lines.clone(),
     });
-
-    if quoted_subtotal != 0 {
-        let ratio = Decimal::from(net_subtotal) / Decimal::from(quoted_subtotal);
-        line.unit_price = line.unit_price.map(|price| net_price(price, ratio));
-        net_sub_lines(&mut line.sub_lines, ratio);
+    line.amount_subtotal = net.amount_subtotal;
+    line.unit_price = net.unit_price;
+    for (sub_line, price) in line.sub_lines.iter_mut().zip(net.sub_lines) {
+        sub_line.total = price.total;
+        sub_line.unit_price = price.unit_price;
+        if let Some(
+            SubLineAttributes::Tiered {
+                flat_cap, flat_fee, ..
+            }
+            | SubLineAttributes::Volume {
+                flat_cap, flat_fee, ..
+            },
+        ) = &mut sub_line.attributes
+        {
+            *flat_cap = price.flat_cap;
+            *flat_fee = price.flat_fee;
+        }
     }
-    line.amount_subtotal = net_subtotal;
-
-    (quoted_subtotal - quoted_taxable) - (net_subtotal - net_taxable)
+    net.discount_tax
 }
 
 /// Shares the netted invoice discount back over the coupons that made it up, so the coupon
 /// rows a document lists still add up to the discount it shows. What each coupon took off
 /// the quoted price is kept as `quoted_value`: that, not its net share, is what the
 /// customer used up of a fixed-amount coupon.
-pub(crate) fn net_coupons(coupons: &mut [CouponLineItem], net_discount: i64) {
-    let quoted_discount: i64 = coupons.iter().map(|coupon| coupon.value).sum();
-    if quoted_discount == net_discount || quoted_discount == 0 {
+/// `net` is each coupon's share (`billing_core::assembly::net_discount`), None when unchanged.
+pub(crate) fn net_coupons(coupons: &mut [CouponLineItem], net: Option<Vec<i64>>) {
+    let Some(net) = net else {
         return;
-    }
-
-    let ratio = Decimal::from(net_discount) / Decimal::from(quoted_discount);
-    let exact: Vec<Decimal> = coupons
-        .iter()
-        .map(|coupon| Decimal::from(coupon.value) * ratio)
-        .collect();
-
-    for (coupon, net_value) in coupons.iter_mut().zip(largest_remainder(&exact)) {
+    };
+    for (coupon, net_value) in coupons.iter_mut().zip(net) {
         coupon.quoted_value = Some(coupon.value);
         coupon.value = net_value;
-    }
-}
-
-fn scale(amount: i64, numerator: i64, denominator: i64) -> i64 {
-    meteroid_tax::round_to_minor(
-        Decimal::from(amount) * Decimal::from(numerator) / Decimal::from(denominator),
-    )
-}
-
-fn net_price(price: Decimal, ratio: Decimal) -> Decimal {
-    (price * ratio).round_dp(UNIT_PRICE_SCALE).normalize()
-}
-
-/// Nets the sub-lines as one group, so they keep adding up to the line they detail.
-fn net_sub_lines(sub_lines: &mut [SubLineItem], ratio: Decimal) {
-    let exact: Vec<Decimal> = sub_lines
-        .iter()
-        .map(|sub_line| Decimal::from(sub_line.total) * ratio)
-        .collect();
-
-    for (sub_line, total) in sub_lines.iter_mut().zip(largest_remainder(&exact)) {
-        sub_line.total = total;
-        sub_line.unit_price = net_price(sub_line.unit_price, ratio);
-        match &mut sub_line.attributes {
-            Some(
-                SubLineAttributes::Tiered {
-                    flat_cap, flat_fee, ..
-                }
-                | SubLineAttributes::Volume {
-                    flat_cap, flat_fee, ..
-                },
-            ) => {
-                *flat_cap = flat_cap.map(|cap| net_price(cap, ratio));
-                *flat_fee = flat_fee.map(|fee| net_price(fee, ratio));
-            }
-            Some(SubLineAttributes::Package { .. } | SubLineAttributes::Matrix { .. }) | None => {}
-        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::LineItemKind;
     use crate::domain::coupons::CouponDiscount;
+    use crate::domain::{LineItemKind, SubLineItem};
     use chrono::NaiveDate;
     use common_domain::ids::{AppliedCouponId, BaseId, CouponId};
+    use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
 
     fn line(amount_subtotal: i64, taxable_amount: i64, unit_price: Decimal) -> LineItem {
@@ -279,7 +247,7 @@ mod tests {
     fn netted_coupons_add_up_to_the_netted_discount() {
         let mut coupons = vec![coupon(500), coupon(500)];
 
-        net_coupons(&mut coupons, 833);
+        net_coupons(&mut coupons, core::net_coupons(&[500, 500], 833));
         assert_eq!(coupons.iter().map(|c| c.value).sum::<i64>(), 833);
         assert!(coupons.iter().all(|c| c.quoted_value == Some(500)));
     }

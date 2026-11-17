@@ -9,6 +9,7 @@ description = "Pure billing computations: no database, no clock, no network."
 
 [dependencies]
 chrono = { workspace = true }
+common-utils = { workspace = true }
 ordermap = { workspace = true }
 rust_decimal = { workspace = true }
 sha2 = { workspace = true }

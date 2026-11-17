@@ -25,7 +25,7 @@ use crate::store::Store;
 use crate::utils::money::format_money;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use common_domain::ids::{BaseId, CreditNoteId, CustomerId, InvoiceId, TenantId};
-use common_utils::decimals::{ToSubunit, ToUnit};
+use common_utils::decimals::ToSubunit;
 use diesel_models::PgConn;
 use diesel_models::credit_notes::CreditNoteRow;
 use diesel_models::invoices::InvoiceRow;
@@ -33,8 +33,7 @@ use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::lock::CustomerLock;
 use diesel_models::payments::PaymentTransactionRow;
 use error_stack::{Report, bail};
-use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::{Decimal, RoundingStrategy};
+use rust_decimal::Decimal;
 use scoped_futures::ScopedFutureExt;
 use std::collections::HashMap;
 
@@ -245,166 +244,48 @@ pub trait CreditNoteInterface {
     ) -> StoreResult<CreditNote>;
 }
 
-/// What crediting `credited` more of a line billed `original` takes of its `amount`, after
-/// `already` was credited: each cumulative share rounded half-up (OQ14), so notes completing the
-/// line take back exactly its amount, a half cent never twice.
-fn cumulative_share(amount: i64, already: i64, credited: i64, original: i64) -> i64 {
-    if original == 0 {
-        return 0;
+use billing_core::credit_note as core;
+pub(crate) use billing_core::credit_note::{credit_grant_reversal, cumulative_grant_reversal};
+
+fn core_detail(detail: &TaxDetail) -> core::TaxDetail {
+    core::TaxDetail {
+        tax_rate: detail.tax_rate,
+        tax_name: detail.tax_name.clone(),
+        tax_amount: detail.tax_amount,
     }
-    let share = |credited: i64| {
-        (Decimal::from(amount) * Decimal::from(credited) / Decimal::from(original))
-            .round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
-            .to_i64()
-            .unwrap_or(0)
-    };
-    share(already.saturating_add(credited)) - share(already)
 }
 
-/// `cumulative_share` less what the line's earlier notes actually `returned` of `amount` rather than
-/// what this rule would have: a note issued under another rounding rule is completed exactly.
-/// `None` trusts the earlier notes to have followed this rule.
-fn share_net_of_returned(
-    amount: i64,
-    returned: Option<i64>,
-    (already, credited, original): (i64, i64, i64),
-) -> i64 {
-    let Some(returned) = returned else {
-        return cumulative_share(amount, already, credited, original);
-    };
-    let share = cumulative_share(amount, 0, already.saturating_add(credited), original) - returned;
-    // Earlier notes that returned more leave nothing for this one, never a negative share.
-    if (share >= 0) == (amount >= 0) {
-        share
-    } else {
-        0
+fn store_detail(detail: core::TaxDetail) -> TaxDetail {
+    TaxDetail {
+        tax_rate: detail.tax_rate,
+        tax_name: detail.tax_name,
+        tax_amount: detail.tax_amount,
     }
 }
 
 /// What a line's earlier non-voided notes returned of its taxable amount and tax, positive.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Returned {
-    taxable: i64,
-    tax: i64,
-    details: Vec<TaxDetail>,
-}
+pub(crate) struct Returned(core::Returned);
 
 impl Returned {
     pub(crate) fn add(&mut self, note_line: &LineItem) -> StoreResult<()> {
-        let overflow = || StoreError::InvalidArgument("credited tax exceeds currency range".into());
-        self.taxable = self
-            .taxable
-            .checked_sub(note_line.taxable_amount)
-            .ok_or_else(overflow)?;
-        self.tax = self
-            .tax
-            .checked_sub(note_line.tax_amount)
-            .ok_or_else(overflow)?;
-        for detail in &note_line.tax_details {
-            match self.details.iter_mut().find(|returned| {
-                returned.tax_name == detail.tax_name && returned.tax_rate == detail.tax_rate
-            }) {
-                Some(returned) => {
-                    returned.tax_amount = returned
-                        .tax_amount
-                        .checked_sub(detail.tax_amount)
-                        .ok_or_else(overflow)?;
-                }
-                None => self.details.push(TaxDetail {
-                    tax_amount: detail.tax_amount.checked_neg().ok_or_else(overflow)?,
-                    ..detail.clone()
-                }),
-            }
-        }
-        Ok(())
+        let details: Vec<core::TaxDetail> = note_line.tax_details.iter().map(core_detail).collect();
+        self.0
+            .add(note_line.taxable_amount, note_line.tax_amount, &details)
+            .map_err(|_| {
+                Report::new(StoreError::InvalidArgument(
+                    "credited tax exceeds currency range".into(),
+                ))
+            })
     }
 
     pub(crate) fn taxable(&self) -> i64 {
-        self.taxable
+        self.0.taxable()
     }
 
     pub(crate) fn tax(&self) -> i64 {
-        self.tax
+        self.0.tax()
     }
-
-    fn detail(&self, detail: &TaxDetail) -> i64 {
-        self.details
-            .iter()
-            .filter(|returned| {
-                returned.tax_name == detail.tax_name && returned.tax_rate == detail.tax_rate
-            })
-            .map(|returned| returned.tax_amount)
-            .sum()
-    }
-}
-
-/// Prorates each tax detail like the line's tax (`share_net_of_returned`), negates it, and spreads
-/// the residual to the cent of `expected_sum` from the largest detail down, each within what its
-/// earlier notes left of it: a detail never returns more than it bore.
-fn prorate_and_negate_tax_details(
-    details: &[TaxDetail],
-    shares: (i64, i64, i64),
-    returned: Option<&Returned>,
-    expected_sum: i64,
-) -> Vec<TaxDetail> {
-    if details.is_empty() {
-        return Vec::new();
-    }
-    let (already, _, original) = shares;
-    // Details of one line share its sign; work in returned magnitudes.
-    let sign = if details.iter().map(|d| d.tax_amount).sum::<i64>() < 0 {
-        -1
-    } else {
-        1
-    };
-    let mut taken: Vec<i64> = Vec::with_capacity(details.len());
-    let mut left: Vec<i64> = Vec::with_capacity(details.len());
-    for d in details {
-        let returned_before = returned
-            .map(|returned| returned.detail(d))
-            .unwrap_or_else(|| cumulative_share(d.tax_amount, 0, already, original));
-        taken.push(
-            sign * share_net_of_returned(
-                d.tax_amount,
-                returned.map(|returned| returned.detail(d)),
-                shares,
-            ),
-        );
-        left.push((sign * (d.tax_amount - returned_before)).max(0));
-    }
-
-    let mut order: Vec<usize> = (0..details.len()).collect();
-    order.sort_by_key(|i| std::cmp::Reverse(details[*i].tax_amount.unsigned_abs()));
-    let mut residual = -sign * expected_sum - taken.iter().sum::<i64>();
-    for i in order {
-        if residual == 0 {
-            break;
-        }
-        let room = if residual > 0 {
-            (left[i] - taken[i]).max(0)
-        } else {
-            taken[i].max(0)
-        };
-        let moved = residual.signum() * residual.abs().min(room);
-        taken[i] += moved;
-        residual -= moved;
-    }
-    // Unplaceable only if the line's own figures disagree: the largest detail keeps the cent.
-    if residual != 0
-        && let Some(i) = (0..details.len()).max_by_key(|i| details[*i].tax_amount.unsigned_abs())
-    {
-        taken[i] += residual;
-    }
-
-    details
-        .iter()
-        .zip(taken)
-        .map(|(d, taken)| TaxDetail {
-            tax_rate: d.tax_rate,
-            tax_name: d.tax_name.clone(),
-            tax_amount: -sign * taken,
-        })
-        .collect()
 }
 
 /// Builds negated sub_lines for a credited line.
@@ -508,258 +389,66 @@ fn negate_line_items(
             Some((item, r))
         })
         .map(|(item, r)| {
-            let partial_subtotal = r.credit_subtotal;
             let sub_override = r.sub_lines_override.as_deref();
             let negated_sub_lines = negate_sub_lines(&item.sub_lines, sub_override);
+            let billed = core::BilledLine {
+                amount_subtotal: item.amount_subtotal,
+                taxable_amount: item.taxable_amount,
+                tax_amount: item.tax_amount,
+                tax_details: item.tax_details.iter().map(core_detail).collect(),
+                quantity: item.quantity,
+                unit_price: item.unit_price,
+                is_prorated: item.is_prorated,
+                credit_grant_amount: item.credit_grant_amount,
+                promotional_credit: item.promotional_credit,
+            };
+            let credit = core::Credit {
+                subtotal: r.credit_subtotal,
+                already_credited: r.already_credited,
+                returned: r.returned.as_ref().map(|returned| &returned.0),
+                sub_lines_overridden: sub_override.is_some(),
+            };
+            let credited = core::negate_line(&billed, credit, precision, from_proration);
+            let keeps = credited.keeps_grant;
 
-            if let Some(credit_subtotal) = partial_subtotal {
-                // Partial credit: amount is the subtotal (excl. tax)
-                let original_subtotal = item.amount_subtotal;
-                if original_subtotal == 0 {
-                    // Avoid division by zero - return zero amounts
-                    return LineItem {
-                        local_id: item.local_id.clone(),
-                        name: item.name.clone(),
-                        charge_type: item.charge_type,
-                        amount_subtotal: 0,
-                        taxable_amount: 0,
-                        tax_amount: 0,
-                        amount_total: 0,
-                        tax_rate: item.tax_rate,
-                        tax_details: item.tax_details.clone(),
-                        quantity: item.quantity,
-                        unit_price: Some(Decimal::ZERO),
-                        start_date: item.start_date,
-                        end_date: item.end_date,
-                        sub_lines: negated_sub_lines,
-                        is_prorated: item.is_prorated,
-                        price_component_id: item.price_component_id,
-                        sub_component_id: item.sub_component_id,
-                        sub_add_on_id: item.sub_add_on_id,
-                        product_id: item.product_id,
-                        metric_id: item.metric_id,
-                        description: item.description.clone(),
-                        group_by_dimensions: item.group_by_dimensions.clone(),
-                        kind: item.kind,
-                        credit_grant_amount: None,
-                        credit_grant_expiry: None,
-                        credit_grant_included: false,
-                        taxed_at_purchase: false,
-                        tax_inclusive_quote: None,
-                        credit_unit: None,
-                        credit_grant_unit: None,
-                        credit_grant_rollover: None,
-                        promotional_credit: None,
-                        subscription_id: item.subscription_id,
-                        usage_ends_at: None,
-                        usage_breakdown: None,
-                    };
-                }
-
-                let credited_grant_amount = item.credit_grant_amount.and_then(|face| {
-                    credit_grant_reversal(
-                        face,
-                        r.already_credited,
-                        credit_subtotal,
-                        original_subtotal,
-                    )?
-                    .checked_neg()
-                });
-
-                // Taxable amount and tax are prorated by the credited share, cumulatively over
-                // the line's earlier notes, half-up.
-                let shares = (
-                    r.already_credited.max(0),
-                    credit_subtotal,
-                    original_subtotal,
-                );
-                let returned = r.returned.as_ref();
-                let prorated_taxable = share_net_of_returned(
-                    item.taxable_amount,
-                    returned.map(|returned| returned.taxable),
-                    shares,
-                );
-                let prorated_tax = share_net_of_returned(
-                    item.tax_amount,
-                    returned.map(|returned| returned.tax),
-                    shares,
-                );
-
-                // So is the promotional credit the line took before tax, which goes back to its
-                // grants: cumulatively, so the note completing the line returns all of it.
-                let prorated_promotional = item.promotional_credit.and_then(|share| {
-                    credit_grant_reversal(
-                        share,
-                        r.already_credited,
-                        credit_subtotal,
-                        original_subtotal,
-                    )
-                    .filter(|share| *share != 0)
-                    .map(|share| -share)
-                });
-
-                // Prorate each tax detail so the breakdown reflects the credited portion,
-                // then negate and apply a residual correction so the sum matches -prorated_tax
-                // to the cent (largest-magnitude detail absorbs the rounding delta).
-                let prorated_tax_details = prorate_and_negate_tax_details(
-                    &item.tax_details,
-                    shares,
-                    returned,
-                    -prorated_tax,
-                );
-
-                // Total = taxable + tax (uses taxable to account for discounts)
-                let credit_total = prorated_taxable + prorated_tax;
-
-                // Effective-rate display so qty × unit_price always reconciles to the credited
-                // amount: quantity = the line's real unit count, unit_price = amount ÷ quantity
-                // (the effective, possibly-prorated, per-unit rate). Never divide to fabricate a
-                // fractional quantity (that produced the repeating decimal). Sub-line overrides
-                // keep the parent blank — the negated sub-lines carry the detail.
-                let (credited_quantity, credited_unit_price) = if sub_override.is_some() {
-                    (None, None)
-                } else {
-                    effective_rate_display(item, credit_subtotal, precision)
-                };
-                // Per line: flagged prorated when the line was itself billed prorated, or —
-                // for a proration-driven batch (`from_proration`, i.e. amendments) — when
-                // proration actually reduced THIS line below what was billed. Within such a
-                // batch the credit IS `billed × time_factor`, so `credit_subtotal < amount`
-                // is exactly `factor < 1` (covers less than the full period). The
-                // `from_proration` gate keeps manual partial credits (also a smaller amount,
-                // but not a time-proration) from being mislabelled.
-                let credited_is_prorated =
-                    item.is_prorated || (from_proration && credit_subtotal < item.amount_subtotal);
-
-                LineItem {
-                    local_id: item.local_id.clone(),
-                    name: item.name.clone(),
-                    charge_type: item.charge_type,
-                    amount_subtotal: -credit_subtotal,
-                    taxable_amount: -prorated_taxable,
-                    tax_amount: -prorated_tax,
-                    amount_total: -credit_total,
-                    tax_rate: item.tax_rate,
-                    tax_details: prorated_tax_details,
-                    quantity: credited_quantity,
-                    unit_price: credited_unit_price,
-                    start_date: item.start_date,
-                    end_date: item.end_date,
-                    sub_lines: negated_sub_lines,
-                    is_prorated: credited_is_prorated,
-                    price_component_id: item.price_component_id,
-                    sub_component_id: item.sub_component_id,
-                    sub_add_on_id: item.sub_add_on_id,
-                    product_id: item.product_id,
-                    metric_id: item.metric_id,
-                    description: item.description.clone(),
-                    group_by_dimensions: item.group_by_dimensions.clone(),
-                    kind: item.kind,
-                    credit_grant_amount: credited_grant_amount,
-                    credit_grant_expiry: item.credit_grant_expiry,
-                    credit_grant_included: item.credit_grant_included,
-                    taxed_at_purchase: item.taxed_at_purchase,
-                    tax_inclusive_quote: None,
-                    credit_unit: None,
-                    credit_grant_unit: item.credit_grant_unit.clone(),
-                    credit_grant_rollover: None,
-                    promotional_credit: prorated_promotional,
-                    subscription_id: item.subscription_id,
-                    usage_ends_at: None,
-                    usage_breakdown: None,
-                }
-            } else {
-                // Full credit: negate the amounts, keep original quantity and positive
-                // unit_price (the sign lives in the amounts).
-                // Note: amount_total is recalculated as taxable_amount + tax_amount to properly
-                // account for discounts (which reduce taxable_amount but not amount_subtotal)
-                // A quantity without a price (usage priced in a credit unit, whose money is only
-                // the overage) is stated at its effective rate, or qty × price ≠ amount (R120).
-                let (quantity, unit_price) = match (item.quantity, item.unit_price) {
-                    (Some(_), None) => {
-                        effective_rate_display(item, item.amount_subtotal, precision)
-                    }
-                    shown => shown,
-                };
-                LineItem {
-                    local_id: item.local_id.clone(),
-                    name: item.name.clone(),
-                    charge_type: item.charge_type,
-                    amount_subtotal: -item.amount_subtotal,
-                    taxable_amount: -item.taxable_amount,
-                    tax_amount: -item.tax_amount,
-                    amount_total: -(item.taxable_amount + item.tax_amount),
-                    tax_rate: item.tax_rate,
-                    tax_details: item
-                        .tax_details
-                        .iter()
-                        .map(|d| TaxDetail {
-                            tax_rate: d.tax_rate,
-                            tax_name: d.tax_name.clone(),
-                            tax_amount: -d.tax_amount,
-                        })
-                        .collect(),
-                    quantity,
-                    unit_price,
-                    start_date: item.start_date,
-                    end_date: item.end_date,
-                    sub_lines: negated_sub_lines,
-                    is_prorated: item.is_prorated,
-                    price_component_id: item.price_component_id,
-                    sub_component_id: item.sub_component_id,
-                    sub_add_on_id: item.sub_add_on_id,
-                    product_id: item.product_id,
-                    metric_id: item.metric_id,
-                    description: item.description.clone(),
-                    group_by_dimensions: item.group_by_dimensions.clone(),
-                    kind: item.kind,
-                    credit_grant_amount: item.credit_grant_amount.and_then(i64::checked_neg),
-                    credit_grant_expiry: item.credit_grant_expiry,
-                    credit_grant_included: item.credit_grant_included,
-                    taxed_at_purchase: item.taxed_at_purchase,
-                    tax_inclusive_quote: None,
-                    credit_unit: None,
-                    credit_grant_unit: item.credit_grant_unit.clone(),
-                    credit_grant_rollover: None,
-                    promotional_credit: item.promotional_credit.and_then(i64::checked_neg),
-                    subscription_id: item.subscription_id,
-                    usage_ends_at: None,
-                    usage_breakdown: None,
-                }
+            LineItem {
+                local_id: item.local_id.clone(),
+                name: item.name.clone(),
+                charge_type: item.charge_type,
+                amount_subtotal: credited.amount_subtotal,
+                taxable_amount: credited.taxable_amount,
+                tax_amount: credited.tax_amount,
+                amount_total: credited.amount_total,
+                tax_rate: item.tax_rate,
+                tax_details: credited.tax_details.into_iter().map(store_detail).collect(),
+                quantity: credited.quantity,
+                unit_price: credited.unit_price,
+                start_date: item.start_date,
+                end_date: item.end_date,
+                sub_lines: negated_sub_lines,
+                is_prorated: credited.is_prorated,
+                price_component_id: item.price_component_id,
+                sub_component_id: item.sub_component_id,
+                sub_add_on_id: item.sub_add_on_id,
+                product_id: item.product_id,
+                metric_id: item.metric_id,
+                description: item.description.clone(),
+                group_by_dimensions: item.group_by_dimensions.clone(),
+                kind: item.kind,
+                credit_grant_amount: credited.credit_grant_amount,
+                credit_grant_expiry: item.credit_grant_expiry.filter(|_| keeps),
+                credit_grant_included: keeps && item.credit_grant_included,
+                taxed_at_purchase: keeps && item.taxed_at_purchase,
+                tax_inclusive_quote: None,
+                credit_unit: None,
+                credit_grant_unit: item.credit_grant_unit.clone().filter(|_| keeps),
+                credit_grant_rollover: None,
+                promotional_credit: credited.promotional_credit,
+                subscription_id: item.subscription_id,
+                usage_ends_at: None,
             }
         })
         .collect()
-}
-
-/// Quantity and unit price that reconcile to `credited` (minor units): the line's real unit
-/// count and the effective rate, never a fabricated fractional quantity.
-fn effective_rate_display(
-    item: &LineItem,
-    credited: i64,
-    precision: u8,
-) -> (Option<Decimal>, Option<Decimal>) {
-    let qty = item
-        .quantity
-        .filter(|q| *q > Decimal::ZERO)
-        .unwrap_or(Decimal::ONE);
-    (Some(qty), Some(credited.to_unit(precision) / qty))
-}
-
-/// Funded credit a partial credit of a `Credit` line reverses, rounded cumulatively over the
-/// line's notes so that crediting the whole subtotal always reverses the whole grant.
-fn credit_grant_reversal(
-    face: i64,
-    already_credited: i64,
-    credit_subtotal: i64,
-    original_subtotal: i64,
-) -> Option<i64> {
-    if already_credited < 0 {
-        return None;
-    }
-    let after = already_credited.checked_add(credit_subtotal)?;
-    cumulative_grant_reversal(face, after, original_subtotal)?.checked_sub(
-        cumulative_grant_reversal(face, already_credited, original_subtotal)?,
-    )
 }
 
 /// The paid credit a note crediting `credited` of a pack line sold below face takes back, the
@@ -767,29 +456,6 @@ fn credit_grant_reversal(
 /// finalized notes (`already`), as the mint netted their cost.
 pub(crate) fn paid_share_of_reversal(line: &LineItem, already: i64, credited: i64) -> Option<i64> {
     credit_grant_reversal(line.taxable_amount, already, credited, line.amount_subtotal)
-}
-
-/// Credit reversed once `credited` of the line's subtotal is credited: pro rata, half up, never
-/// above the face.
-pub(crate) fn cumulative_grant_reversal(
-    face: i64,
-    credited: i64,
-    original_subtotal: i64,
-) -> Option<i64> {
-    if original_subtotal <= 0 || face < 0 || credited < 0 {
-        return None;
-    }
-    let credited = credited.min(original_subtotal);
-    let numerator = i128::from(face).checked_mul(i128::from(credited))?;
-    let denominator = i128::from(original_subtotal);
-    let (quotient, remainder) = (numerator / denominator, numerator % denominator);
-    let prorated = if remainder * 2 >= denominator {
-        quotient + 1
-    } else {
-        quotient
-    };
-    let prorated = i64::try_from(prorated).ok()?;
-    Some(prorated.min(face))
 }
 
 fn compute_tax_breakdown(line_items: &[LineItem]) -> Vec<TaxBreakdownItem> {
@@ -2905,14 +2571,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn partial_credits_of_a_credit_line_reverse_its_whole_grant_cumulatively() {
-        let reversals = [0, 10, 20].map(|before| credit_grant_reversal(10, before, 10, 30));
-        assert_eq!(reversals, [Some(3), Some(4), Some(3)]);
-        assert_eq!(credit_grant_reversal(10, 0, 30, 30), Some(10));
-        assert_eq!(credit_grant_reversal(10, 30, 1, 30), Some(0));
-    }
-
     fn pack_line(face: i64, subtotal: i64) -> LineItem {
         LineItem {
             kind: LineItemKind::Credit,
@@ -3105,37 +2763,6 @@ mod tests {
         assert_eq!(note.tax_amount, -33);
         let amounts: Vec<i64> = note.tax_details.iter().map(|d| d.tax_amount).collect();
         assert_eq!(amounts, vec![-25, -8], "0.50 and 0.17 returned in all");
-    }
-
-    /// The residual is spread within each detail's room: two details of 0.01 each with a line
-    /// expecting nothing both return 0, where the largest alone would have charged 0.01 of tax.
-    #[test]
-    fn the_residual_spills_over_details_within_their_room() {
-        let detail = |name: &str, rate: Decimal, tax_amount: i64| TaxDetail {
-            tax_rate: rate,
-            tax_name: name.into(),
-            tax_amount,
-        };
-        let details = [
-            detail("VAT", dec!(0.05), 40),
-            detail("City", dec!(0.035), 28),
-        ];
-        let mut earlier = Returned::default();
-        earlier
-            .add(&make_line(
-                "l1",
-                -500,
-                -500,
-                -35,
-                vec![
-                    detail("VAT", dec!(0.05), -21),
-                    detail("City", dec!(0.035), -14),
-                ],
-            ))
-            .unwrap();
-        let out = prorate_and_negate_tax_details(&details, (500, 50, 1_000), Some(&earlier), 0);
-        let amounts: Vec<i64> = out.iter().map(|d| d.tax_amount).collect();
-        assert_eq!(amounts, vec![0, 0]);
     }
 
     /// A line's promotional share of 333, credited in two halves, goes back whole: 167 then 166.

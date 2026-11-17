@@ -337,18 +337,7 @@ impl UsagePricingModel {
     /// coarser scale would round genuine fractional usage across a `ceil`/tier boundary and
     /// drop a whole block of revenue. Matrix is priced per cell at the call site.
     pub fn billable_quantity_scale(&self, precision: u8) -> u32 {
-        use common_utils::decimals::{MAX_QUANTITY_SCALE, quantity_scale};
-        match self {
-            UsagePricingModel::PerUnit { rate } => quantity_scale(*rate, precision),
-            UsagePricingModel::Tiered { tiers, .. } => tiers
-                .iter()
-                .map(|t| t.rate)
-                .max()
-                .map_or(MAX_QUANTITY_SCALE, |rate| quantity_scale(rate, precision)),
-            UsagePricingModel::Package { .. }
-            | UsagePricingModel::Volume { .. }
-            | UsagePricingModel::Matrix { .. } => MAX_QUANTITY_SCALE,
-        }
+        billing_core::pricing::UsageModel::from(self).billable_quantity_scale(precision)
     }
 }
 

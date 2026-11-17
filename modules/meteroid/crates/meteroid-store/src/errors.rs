@@ -36,6 +36,9 @@ pub enum StoreError {
     InsertError,
     #[error("Failed to compute invoice lines")]
     InvoiceComputationError,
+    /// A money invariant broke: the operation stops and alerts, a retry repeats it.
+    #[error("A billing invariant does not hold: {0}")]
+    BillingInvariantViolated(String),
     #[error("Failed to bill subscription")]
     BillingError,
     #[error("Failed to process price components: {0}")]

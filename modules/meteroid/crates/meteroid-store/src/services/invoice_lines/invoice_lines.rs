@@ -27,11 +27,11 @@ use crate::services::credit::promotional::{self, TaxedDocument};
 use crate::services::credit::value_application::{EstimateContext, billed_periods};
 use crate::services::invoice_lines::component::{ExistingLineKey, is_usage_based_line};
 use crate::services::invoice_lines::credit_units::{CoverTarget, CreditUnitCover};
-use crate::services::invoice_lines::discount::calculate_coupons_discount;
 use crate::services::invoice_lines::tax_inputs::customer_for_tax;
 use crate::store::PgConn;
+use billing_core::assembly::AssemblyInputs;
+use billing_core::credit::{Cash, TotalBasis};
 use billing_core::{LineAmounts, Totals};
-use common_utils::integers::ToNonNegativeU64;
 use diesel_models::billable_metrics::BillableMetricRow;
 use error_stack::{Report, ResultExt};
 use meteroid_tax::{ManualTaxEngine, MeteroidTaxEngine, TaxDetails, TaxEngine};
@@ -168,6 +168,26 @@ pub struct ComputedInvoiceContent {
     pub subtotal_recurring: i64,
 }
 
+/// Assembles priced `lines` in place (`billing_core::assembly::assemble`): what an earlier estimate
+/// took off them put back, the discount spread over their taxable amounts.
+pub(in crate::services) fn assemble_lines(
+    lines: &mut [LineItem],
+    inputs: &AssemblyInputs,
+) -> billing_core::assembly::Assembled {
+    let assembled = billing_core::assembly::assemble(
+        lines
+            .iter()
+            .map(|line| crate::services::credit::document::line_of(line, None))
+            .collect(),
+        inputs,
+    );
+    for (line, assembled) in lines.iter_mut().zip(&assembled.lines) {
+        line.taxable_amount = assembled.taxable;
+        line.promotional_credit = assembled.promotional;
+    }
+    assembled
+}
+
 /// The totals of a document's lines under its `discount` (R-076).
 pub(crate) fn totals_of(lines: &[LineItem], discount: i64) -> Totals {
     Totals::of(
@@ -284,13 +304,26 @@ impl TaxedInvoiceLines {
         }
     }
 
-    /// The invoice-level discount and its coupon rows, restated to match the net lines. The
-    /// lines' reduction also holds their promotional credit, whose own tax stays with it.
+    /// The invoice-level discount and its coupon rows, restated to match the net lines
+    /// (`billing_core::assembly::net_discount`).
     pub fn net_discount(&self, discount: i64, coupons: &mut [CouponLineItem]) -> StoreResult<i64> {
-        let promotional_tax =
-            promotional::quoted_total(&self.lines)? - promotional::net_total(&self.lines)?;
-        let net_discount = discount - (self.discount_tax - promotional_tax);
-        super::tax_inclusive::net_coupons(coupons, net_discount);
+        let lines = self
+            .lines
+            .iter()
+            .map(|line| crate::services::credit::document::line_of(line, None))
+            .collect::<Vec<_>>();
+        let quoted = coupons
+            .iter()
+            .map(|coupon| coupon.value)
+            .collect::<Vec<_>>();
+        let (net_discount, shared) =
+            billing_core::assembly::net_discount(discount, self.discount_tax, &lines, &quoted)
+                .map_err(|_| {
+                    Report::new(StoreError::InvalidArgument(
+                        "promotional credit exceeds the supported range".to_string(),
+                    ))
+                })?;
+        super::tax_inclusive::net_coupons(coupons, shared);
         Ok(net_discount)
     }
 }
@@ -777,26 +810,28 @@ impl Services {
         let mut total = invoice.total;
         let mut subtotal = invoice.subtotal;
         let mut subtotal_recurring = invoice.subtotal_recurring;
-        self.reprice_promotional_estimate(
-            conn,
-            &scope,
-            &mut TaxedDocument {
-                lines: &mut lines,
-                subtotal: &mut subtotal,
-                subtotal_recurring: &mut subtotal_recurring,
-                discount: invoice.discount,
-                tax_inclusive: invoice.tax_inclusive,
-                tax_amount: &mut tax_amount,
-                tax_breakdown: &mut tax_breakdown,
-                promotional_credits: &mut promotional_credits,
-                total: &mut total,
-            },
-        )
-        .await?;
-        let totals = totals_of(&lines, invoice.discount);
         let applied_credits = self
-            .preview_credit_for_lines(conn, &scope, &lines, totals.total, already_paid)
+            .settle_estimate(
+                conn,
+                &scope,
+                &mut TaxedDocument {
+                    lines: &mut lines,
+                    subtotal: &mut subtotal,
+                    subtotal_recurring: &mut subtotal_recurring,
+                    discount: invoice.discount,
+                    tax_inclusive: invoice.tax_inclusive,
+                    tax_amount: &mut tax_amount,
+                    tax_breakdown: &mut tax_breakdown,
+                    promotional_credits: &mut promotional_credits,
+                    total: &mut total,
+                },
+                Cash {
+                    already_paid,
+                    ..Cash::none(TotalBasis::Folded)
+                },
+            )
             .await?;
+        let totals = totals_of(&lines, invoice.discount);
         Ok(ComputedInvoiceContent::of(
             lines,
             totals,
@@ -826,9 +861,7 @@ impl Services {
             true_up,
             ..
         } = priced;
-        // Kept lines come back with what an earlier estimate took off them.
         let mut invoice_lines = invoice_lines;
-        promotional::restore_before_tax(&mut invoice_lines);
 
         // The true-up is appended before coupons and tax: measured on GROSS spend, it is then
         // discounted and taxed like any other line (a 5.00 coupon on a 9.00 shortfall leaves 4.00).
@@ -844,18 +877,16 @@ impl Services {
             &super::charges::Lineages::of(subscription_details),
         );
 
-        let subtotal = invoice_lines
-            .iter()
-            .fold(0, |acc, x| acc + x.amount_subtotal);
-
-        let coupons_discount = calculate_coupons_discount(
-            subtotal,
-            &subscription_details.subscription.currency,
-            &subscription_details.applied_coupons,
+        let applicable = super::discount::applicable_coupons(&subscription_details.applied_coupons);
+        let assembled = assemble_lines(
+            &mut invoice_lines,
+            &AssemblyInputs {
+                currency: subscription_details.subscription.currency.clone(),
+                coupons: super::discount::coupon_inputs(&applicable),
+                discount: None,
+            },
         );
-
-        let discount_total = coupons_discount.discount_subunit.to_non_negative_u64(); // TODO we need to define the rules for negatives, same below with taxes & subtotal
-        let invoice_lines = super::discount::distribute_discount(invoice_lines, discount_total);
+        let discount_total = assembled.discount;
 
         let scope = EstimateContext {
             tenant_id: subscription_details.subscription.tenant_id,
@@ -879,24 +910,23 @@ impl Services {
                 tax_inclusive,
             )
             .await?;
-        let mut applied_coupons = coupons_discount.applied_coupons;
+        let mut applied_coupons = super::discount::coupon_rows(&applicable, &assembled.coupons);
         let discount_total = taxed.net_discount(discount_total as i64, &mut applied_coupons)?;
         let (mut invoice_lines, mut breakdown) = (taxed.lines, taxed.breakdown);
 
-        self.estimate_promotional_on_taxed(
-            conn,
-            &scope,
-            &mut invoice_lines,
-            &mut breakdown,
-            discount_total,
-            tax_inclusive,
-        )
-        .await?;
-        let totals = totals_of(&invoice_lines, discount_total);
         let already_paid = prepaid_amount.unwrap_or(0) as i64;
         let applied_credits = self
-            .preview_credit_for_lines(conn, &scope, &invoice_lines, totals.total, already_paid)
+            .settle_taxed_lines(
+                conn,
+                &scope,
+                &mut invoice_lines,
+                &mut breakdown,
+                discount_total,
+                tax_inclusive,
+                already_paid,
+            )
             .await?;
+        let totals = totals_of(&invoice_lines, discount_total);
 
         Ok(ComputedInvoiceContent::of(
             invoice_lines,
@@ -921,10 +951,16 @@ impl Services {
         prepaid_amount: Option<u64>,
         tax_inclusive: bool,
     ) -> StoreResult<ComputedInvoiceContent> {
-        let discount_total = discount.unwrap_or(0);
         let mut invoice_lines = invoice_lines;
-        promotional::restore_before_tax(&mut invoice_lines);
-        let invoice_lines = super::discount::distribute_discount(invoice_lines, discount_total);
+        let discount_total = assemble_lines(
+            &mut invoice_lines,
+            &AssemblyInputs {
+                currency: currency.clone(),
+                coupons: Vec::new(),
+                discount: Some(discount.unwrap_or(0)),
+            },
+        )
+        .discount;
 
         let invoice_currency = currency.clone();
         let scope = EstimateContext {
@@ -951,21 +987,19 @@ impl Services {
             .await?;
         let discount_total = taxed.net_discount(discount_total as i64, &mut [])?;
         let (mut line_items, mut breakdown) = (taxed.lines, taxed.breakdown);
-        self.estimate_promotional_on_taxed(
-            conn,
-            &scope,
-            &mut line_items,
-            &mut breakdown,
-            discount_total,
-            tax_inclusive,
-        )
-        .await?;
-
-        let totals = totals_of(&line_items, discount_total);
         let already_paid = prepaid_amount.unwrap_or(0) as i64;
         let applied_credits = self
-            .preview_credit_for_lines(conn, &scope, &line_items, totals.total, already_paid)
+            .settle_taxed_lines(
+                conn,
+                &scope,
+                &mut line_items,
+                &mut breakdown,
+                discount_total,
+                tax_inclusive,
+                already_paid,
+            )
             .await?;
+        let totals = totals_of(&line_items, discount_total);
 
         Ok(ComputedInvoiceContent::of(
             line_items,
@@ -987,6 +1021,32 @@ impl Services {
         invoice_date: &NaiveDate,
         tax_inclusive: bool,
     ) -> StoreResult<TaxedInvoiceLines> {
+        let Some(inputs) = self
+            .load_tax_inputs(conn, &invoice_lines, invoicing_entity, customer)
+            .await?
+        else {
+            return Ok(TaxedInvoiceLines::untaxed(invoice_lines));
+        };
+        let resolved = inputs
+            .resolve(&invoice_lines, currency, invoice_date, tax_inclusive)
+            .await?;
+        Ok(apply_resolved_taxes(
+            invoice_lines,
+            resolved,
+            tax_inclusive,
+            inputs.engine_is_eu_vat,
+        ))
+    }
+
+    /// What resolving a document's taxes reads; None when no tax applies (no billing address, or
+    /// `tax_resolver = None`).
+    async fn load_tax_inputs(
+        &self,
+        conn: &mut PgConn,
+        lines: &[LineItem],
+        invoicing_entity: &InvoicingEntity,
+        customer: &Customer,
+    ) -> StoreResult<Option<TaxInputs>> {
         if invoicing_entity.tenant_id != customer.tenant_id {
             return Err(Report::new(StoreError::InvalidArgument(
                 "Tenant mismatch: invoicing_entity and customer must belong to the same tenant"
@@ -996,14 +1056,14 @@ impl Services {
 
         let customer_address = match &customer.billing_address {
             Some(address) => address.clone(),
-            None => return Ok(TaxedInvoiceLines::untaxed(invoice_lines)),
+            None => return Ok(None),
         };
 
         // Select the tax engine for this invoicing entity (built-in or external
         // provider). See `build_tax_engine` — the single place to add a provider.
         let tax_engine = match build_tax_engine(invoicing_entity)? {
             Some(engine) => engine,
-            None => return Ok(TaxedInvoiceLines::untaxed(invoice_lines)),
+            None => return Ok(None),
         };
 
         let customer = customer_for_tax(customer, invoicing_entity, customer_address);
@@ -1015,300 +1075,19 @@ impl Services {
             .load_product_tax_config_with_conn(
                 conn,
                 invoicing_entity,
-                &invoice_lines
-                    .iter()
-                    .map(|line| line.product_id)
-                    .collect::<Vec<_>>(),
+                &lines.iter().map(|line| line.product_id).collect::<Vec<_>>(),
             )
             .await?;
 
-        let invoice_lines_for_tax: Vec<meteroid_tax::LineItemForTax> = invoice_lines
-            .iter()
-            .filter_map(|line| {
-                if crate::services::credit::prepaid_purchase_tax::taxed_at_redemption(line) {
-                    return None;
-                }
-                // Credit/proration lines carry a negative taxable amount and must
-                // reduce tax symmetrically (W4); only truly-zero lines are skipped.
-                if line.taxable_amount == 0 {
-                    // Zero-amount line: no tax to compute.
-                    return None;
-                }
-
-                let (custom_taxes, tax_category) = tax_config.for_product(line.product_id);
-
-                Some(meteroid_tax::LineItemForTax {
-                    line_id: line.local_id.to_string(),
-                    amount: line.taxable_amount,
-                    custom_taxes,
-                    tax_category,
-                    tax_inclusive,
-                })
-            })
-            .collect();
-
-        // A charge a coupon or promotional credit took whole still needs its rates: a later
-        // re-price that leaves part of it to pay is taxed by them. Resolved on the charge; any
-        // other zero line (a proration credit) is left as it always was.
-        let rate_probes: Vec<meteroid_tax::LineItemForTax> = invoice_lines
-            .iter()
-            .filter(|line| takes_rate_probe(line))
-            .map(|line| {
-                let (custom_taxes, tax_category) = tax_config.for_product(line.product_id);
-                meteroid_tax::LineItemForTax {
-                    line_id: line.local_id.to_string(),
-                    amount: line.amount_subtotal,
-                    custom_taxes,
-                    tax_category,
-                    tax_inclusive,
-                }
-            })
-            .collect();
-        let probe = if rate_probes.is_empty() {
-            None
-        } else {
-            Some(
-                tax_engine
-                    .calculate_line_items_tax(
-                        currency.clone(),
-                        customer.clone(),
-                        invoicing_entity.address().into(),
-                        rate_probes,
-                        *invoice_date,
-                    )
-                    .await
-                    .change_context(StoreError::TaxError)?,
-            )
-        };
-        let probed = probe
-            .as_ref()
-            .map_or(&[][..], |probe| probe.line_items.as_slice());
-
-        let res = tax_engine
-            .calculate_line_items_tax(
-                currency,
-                customer,
-                invoicing_entity.address().into(),
-                invoice_lines_for_tax,
-                *invoice_date,
-            )
-            .await
-            .change_context(StoreError::TaxError)?;
-
-        let mut updated_invoice_lines = invoice_lines.clone();
-        let mut discount_tax = 0;
-
-        for line in &mut updated_invoice_lines {
-            // we get the matching taxed line
-            if let Some(taxed_line) = res.line_items.iter().find(|l| l.line_id == line.local_id) {
-                // we update the line with the tax details
-                use crate::domain::TaxDetail;
-
-                match &taxed_line.tax_details {
-                    TaxDetails::Tax {
-                        tax_rate,
-                        tax_amount,
-                        tax_name,
-                        ..
-                    } => {
-                        line.tax_amount = *tax_amount;
-                        line.tax_rate = *tax_rate;
-                        line.tax_details = vec![TaxDetail {
-                            tax_rate: *tax_rate,
-                            tax_name: tax_name.clone(),
-                            tax_amount: *tax_amount,
-                        }];
-                    }
-                    TaxDetails::MultipleTaxes {
-                        taxes,
-                        total_tax_amount,
-                    } => {
-                        line.tax_amount = *total_tax_amount;
-                        line.tax_rate = taxes.iter().map(|t| t.tax_rate).sum();
-                        line.tax_details = taxes
-                            .iter()
-                            .map(|t| TaxDetail {
-                                tax_rate: t.tax_rate,
-                                tax_name: t.tax_name.clone(),
-                                tax_amount: t.tax_amount,
-                            })
-                            .collect();
-                    }
-                    TaxDetails::Exempt(_) => {
-                        line.tax_amount = 0;
-                        line.tax_rate = rust_decimal::Decimal::ZERO;
-                        line.tax_details = vec![];
-                    }
-                }
-                let priced_taxable = line.taxable_amount;
-                line.taxable_amount = taxed_line.pre_tax_amount;
-                if tax_inclusive {
-                    discount_tax += super::tax_inclusive::net_line(line, priced_taxable);
-                }
-            } else if let Some(probe) = probed.iter().find(|l| l.line_id == line.local_id) {
-                line.tax_details = rates_of(&probe.tax_details);
-                line.tax_rate = line.tax_details.iter().map(|d| d.tax_rate).sum();
-                line.tax_amount = 0;
-                if tax_inclusive {
-                    discount_tax += super::tax_inclusive::net_line(line, 0);
-                }
-            } else {
-                // no tax details found
-                line.tax_rate = rust_decimal::Decimal::ZERO;
-                line.tax_amount = 0;
-                line.tax_details = vec![];
-            }
-            // Recalculate amount_total after discount and tax have been applied
-            line.amount_total = line.taxable_amount + line.tax_amount;
-        }
-
-        // A merchant override (a tax rate carrying an accounting reference)
-        // replaces the built-in EU VAT engine rate only under that engine (C2).
-        let engine_is_eu_vat = invoicing_entity.tax_resolver == TaxResolverEnum::MeteroidEuVat;
-
-        // Convert tax breakdown items, expanding any MultipleTaxes into separate items
-        // The engine's finding of *what* the levy is, carried into the persisted row
-        // so renderers can word the label in the document language. Structural map
-        // only — `None` (merchant custom taxes) stays `None` and keeps the name.
-        let map_kind = |kind: Option<meteroid_tax::TaxKind>| {
-            use crate::domain::invoices::TaxKind as StoreKind;
-            use meteroid_tax::TaxKind as EngineKind;
-            kind.map(|k| match k {
-                EngineKind::Vat => StoreKind::Vat,
-                EngineKind::Gst => StoreKind::Gst,
-                EngineKind::Hst => StoreKind::Hst,
-                EngineKind::Pst => StoreKind::Pst,
-                EngineKind::Qst => StoreKind::Qst,
-                EngineKind::SalesTax => StoreKind::SalesTax,
-            })
-        };
-        let to_rows = |items: Vec<meteroid_tax::TaxBreakdownItem>,
-                       exemption_reason: Option<String>| {
-            items
-                .into_iter()
-                .flat_map(|item| {
-                    match item.details {
-                        TaxDetails::Tax {
-                            tax_rate,
-                            tax_name,
-                            tax_kind,
-                            tax_amount,
-                            tax_reference,
-                        } => {
-                            let tax_reference = non_empty(tax_reference);
-                            // Signed per-rate aggregate: a mixed charge+credit group
-                            // (or a pure credit note) may net negative and must be
-                            // preserved so the breakdown reconciles with tax_amount.
-                            vec![TaxBreakdownItem {
-                                taxable_amount: item.taxable_amount,
-                                tax_amount,
-                                tax_rate,
-                                name: tax_name,
-                                tax_kind: map_kind(tax_kind),
-                                prepaid_credit: false,
-                                exemption_type: None,
-                                exemption_reason: None,
-                                overridden: engine_is_eu_vat && tax_reference.is_some(),
-                                tax_reference,
-                                // Rate rows carry no exemption, so no place-of-supply basis.
-                                supply_basis: None,
-                            }]
-                        }
-                        TaxDetails::MultipleTaxes { taxes, .. } => {
-                            // Expand multiple taxes into separate breakdown items
-                            taxes
-                                .into_iter()
-                                .map(|tax| {
-                                    let tax_reference = non_empty(tax.tax_reference);
-                                    TaxBreakdownItem {
-                                        taxable_amount: item.taxable_amount,
-                                        tax_amount: tax.tax_amount,
-                                        tax_rate: tax.tax_rate,
-                                        name: tax.tax_name,
-                                        tax_kind: map_kind(tax.tax_kind),
-                                        prepaid_credit: false,
-                                        exemption_type: None,
-                                        exemption_reason: None,
-                                        overridden: engine_is_eu_vat && tax_reference.is_some(),
-                                        tax_reference,
-                                        supply_basis: None,
-                                    }
-                                })
-                                .collect()
-                        }
-                        TaxDetails::Exempt(reason) => {
-                            use crate::domain::TaxExemptionType;
-                            use meteroid_tax::VatExemptionReason;
-
-                            use crate::domain::SupplyBasis;
-                            use meteroid_tax::SupplyBasis as EngineSupplyBasis;
-
-                            // The basis travels with the exemption: only an export needs a
-                            // place-of-supply article, and only that article depends on it.
-                            let (exemption_type, supply_basis) = match reason {
-                                VatExemptionReason::ReverseCharge => {
-                                    (TaxExemptionType::ReverseCharge, None)
-                                }
-                                VatExemptionReason::TaxExempt => {
-                                    (TaxExemptionType::TaxExempt, None)
-                                }
-                                VatExemptionReason::NotRegistered => {
-                                    (TaxExemptionType::NotRegistered, None)
-                                }
-                                VatExemptionReason::NoVatTerritory => {
-                                    (TaxExemptionType::NoVatTerritory, None)
-                                }
-                                VatExemptionReason::Export(basis) => (
-                                    TaxExemptionType::Export,
-                                    Some(match basis {
-                                        EngineSupplyBasis::Business => SupplyBasis::Business,
-                                        EngineSupplyBasis::Consumer => SupplyBasis::Consumer,
-                                    }),
-                                ),
-                            };
-
-                            vec![TaxBreakdownItem {
-                                taxable_amount: item.taxable_amount,
-                                tax_amount: 0,
-                                tax_rate: rust_decimal::Decimal::ZERO,
-                                name: "Exempt".to_string(),
-                                tax_kind: None,
-                                prepaid_credit: false,
-                                exemption_type: Some(exemption_type),
-                                exemption_reason: exemption_reason.clone(),
-                                overridden: false,
-                                tax_reference: None,
-                                supply_basis,
-                            }]
-                        }
-                    }
-                })
-                .collect::<Vec<_>>()
-        };
-        let mut breakdown = to_rows(res.breakdown, res.exemption_reason.clone());
-        // Taxes on charges taken whole are stated at nothing, so the document still names the
-        // rate or exemption its lines carry (BR-S-01, BR-AE-01).
-        if let Some(probe) = probe {
-            for mut row in to_rows(probe.breakdown, probe.exemption_reason) {
-                if breakdown.iter().any(|kept| {
-                    kept.name == row.name
-                        && kept.tax_rate == row.tax_rate
-                        && kept.exemption_type == row.exemption_type
-                }) {
-                    continue;
-                }
-                row.taxable_amount = 0;
-                row.tax_amount = 0;
-                breakdown.push(row);
-            }
-        }
-        state_untaxed_purchases(&updated_invoice_lines, &mut breakdown);
-
-        Ok(TaxedInvoiceLines {
-            lines: updated_invoice_lines,
-            breakdown,
-            discount_tax,
-        })
+        Ok(Some(TaxInputs {
+            engine: tax_engine,
+            customer,
+            entity_address: invoicing_entity.address().into(),
+            tax_config,
+            // A merchant override (a tax rate carrying an accounting reference)
+            // replaces the built-in EU VAT engine rate only under that engine (C2).
+            engine_is_eu_vat: invoicing_entity.tax_resolver == TaxResolverEnum::MeteroidEuVat,
+        }))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1457,6 +1236,326 @@ impl Services {
         }
 
         Ok(invoice_lines)
+    }
+}
+
+/// What the tax engine resolves a document's lines against, read once.
+pub(in crate::services) struct TaxInputs {
+    engine: Box<dyn TaxEngine + Send + Sync>,
+    customer: meteroid_tax::CustomerForTax,
+    entity_address: meteroid_tax::Address,
+    tax_config: super::tax_inputs::ProductTaxConfig,
+    engine_is_eu_vat: bool,
+}
+
+/// The engine's answer for a document: its lines' taxes, and the rates of the charges a coupon or
+/// promotional credit took whole.
+pub(in crate::services) struct ResolvedTaxes {
+    res: meteroid_tax::CalculationResult,
+    probe: Option<meteroid_tax::CalculationResult>,
+}
+
+impl TaxInputs {
+    /// Calls the engine on the lines' taxable amounts (the store's side of the tax boundary).
+    async fn resolve(
+        &self,
+        lines: &[LineItem],
+        currency: String,
+        invoice_date: &NaiveDate,
+        tax_inclusive: bool,
+    ) -> StoreResult<ResolvedTaxes> {
+        let invoice_lines = lines;
+        let invoice_lines_for_tax: Vec<meteroid_tax::LineItemForTax> = invoice_lines
+            .iter()
+            .filter_map(|line| {
+                if crate::services::credit::prepaid_purchase_tax::taxed_at_redemption(line) {
+                    return None;
+                }
+                // Credit/proration lines carry a negative taxable amount and must
+                // reduce tax symmetrically (W4); only truly-zero lines are skipped.
+                if line.taxable_amount == 0 {
+                    // Zero-amount line: no tax to compute.
+                    return None;
+                }
+
+                let (custom_taxes, tax_category) = self.tax_config.for_product(line.product_id);
+
+                Some(meteroid_tax::LineItemForTax {
+                    line_id: line.local_id.to_string(),
+                    amount: line.taxable_amount,
+                    custom_taxes,
+                    tax_category,
+                    tax_inclusive,
+                })
+            })
+            .collect();
+
+        // A charge a coupon or promotional credit took whole still needs its rates: a later
+        // re-price that leaves part of it to pay is taxed by them. Resolved on the charge; any
+        // other zero line (a proration credit) is left as it always was.
+        let rate_probes: Vec<meteroid_tax::LineItemForTax> = invoice_lines
+            .iter()
+            .filter(|line| takes_rate_probe(line))
+            .map(|line| {
+                let (custom_taxes, tax_category) = self.tax_config.for_product(line.product_id);
+                meteroid_tax::LineItemForTax {
+                    line_id: line.local_id.to_string(),
+                    amount: line.amount_subtotal,
+                    custom_taxes,
+                    tax_category,
+                    tax_inclusive,
+                }
+            })
+            .collect();
+        let probe = if rate_probes.is_empty() {
+            None
+        } else {
+            Some(
+                self.engine
+                    .calculate_line_items_tax(
+                        currency.clone(),
+                        self.customer.clone(),
+                        self.entity_address.clone(),
+                        rate_probes,
+                        *invoice_date,
+                    )
+                    .await
+                    .change_context(StoreError::TaxError)?,
+            )
+        };
+        let res = self
+            .engine
+            .calculate_line_items_tax(
+                currency,
+                self.customer.clone(),
+                self.entity_address.clone(),
+                invoice_lines_for_tax,
+                *invoice_date,
+            )
+            .await
+            .change_context(StoreError::TaxError)?;
+        Ok(ResolvedTaxes { res, probe })
+    }
+}
+
+/// Writes what the engine resolved onto the lines, nets the tax-inclusive ones (R-031) and states
+/// the breakdown. Pure.
+fn apply_resolved_taxes(
+    invoice_lines: Vec<LineItem>,
+    resolved: ResolvedTaxes,
+    tax_inclusive: bool,
+    engine_is_eu_vat: bool,
+) -> TaxedInvoiceLines {
+    let ResolvedTaxes { res, probe } = resolved;
+    let probed = probe
+        .as_ref()
+        .map_or(&[][..], |probe| probe.line_items.as_slice());
+    let mut updated_invoice_lines = invoice_lines.clone();
+    let mut discount_tax = 0;
+
+    for line in &mut updated_invoice_lines {
+        // we get the matching taxed line
+        if let Some(taxed_line) = res.line_items.iter().find(|l| l.line_id == line.local_id) {
+            // we update the line with the tax details
+            use crate::domain::TaxDetail;
+
+            match &taxed_line.tax_details {
+                TaxDetails::Tax {
+                    tax_rate,
+                    tax_amount,
+                    tax_name,
+                    ..
+                } => {
+                    line.tax_amount = *tax_amount;
+                    line.tax_rate = *tax_rate;
+                    line.tax_details = vec![TaxDetail {
+                        tax_rate: *tax_rate,
+                        tax_name: tax_name.clone(),
+                        tax_amount: *tax_amount,
+                    }];
+                }
+                TaxDetails::MultipleTaxes {
+                    taxes,
+                    total_tax_amount,
+                } => {
+                    line.tax_amount = *total_tax_amount;
+                    line.tax_rate = taxes.iter().map(|t| t.tax_rate).sum();
+                    line.tax_details = taxes
+                        .iter()
+                        .map(|t| TaxDetail {
+                            tax_rate: t.tax_rate,
+                            tax_name: t.tax_name.clone(),
+                            tax_amount: t.tax_amount,
+                        })
+                        .collect();
+                }
+                TaxDetails::Exempt(_) => {
+                    line.tax_amount = 0;
+                    line.tax_rate = rust_decimal::Decimal::ZERO;
+                    line.tax_details = vec![];
+                }
+            }
+            let priced_taxable = line.taxable_amount;
+            line.taxable_amount = taxed_line.pre_tax_amount;
+            if tax_inclusive {
+                discount_tax += super::tax_inclusive::net_line(line, priced_taxable);
+            }
+        } else if let Some(probe) = probed.iter().find(|l| l.line_id == line.local_id) {
+            line.tax_details = rates_of(&probe.tax_details);
+            line.tax_rate = line.tax_details.iter().map(|d| d.tax_rate).sum();
+            line.tax_amount = 0;
+            if tax_inclusive {
+                discount_tax += super::tax_inclusive::net_line(line, 0);
+            }
+        } else {
+            // no tax details found
+            line.tax_rate = rust_decimal::Decimal::ZERO;
+            line.tax_amount = 0;
+            line.tax_details = vec![];
+        }
+        // Recalculate amount_total after discount and tax have been applied
+        line.amount_total = line.taxable_amount + line.tax_amount;
+    }
+
+    // Convert tax breakdown items, expanding any MultipleTaxes into separate items
+    // The engine's finding of *what* the levy is, carried into the persisted row
+    // so renderers can word the label in the document language. Structural map
+    // only — `None` (merchant custom taxes) stays `None` and keeps the name.
+    let map_kind = |kind: Option<meteroid_tax::TaxKind>| {
+        use crate::domain::invoices::TaxKind as StoreKind;
+        use meteroid_tax::TaxKind as EngineKind;
+        kind.map(|k| match k {
+            EngineKind::Vat => StoreKind::Vat,
+            EngineKind::Gst => StoreKind::Gst,
+            EngineKind::Hst => StoreKind::Hst,
+            EngineKind::Pst => StoreKind::Pst,
+            EngineKind::Qst => StoreKind::Qst,
+            EngineKind::SalesTax => StoreKind::SalesTax,
+        })
+    };
+    let to_rows = |items: Vec<meteroid_tax::TaxBreakdownItem>, exemption_reason: Option<String>| {
+        items
+            .into_iter()
+            .flat_map(|item| {
+                match item.details {
+                    TaxDetails::Tax {
+                        tax_rate,
+                        tax_name,
+                        tax_kind,
+                        tax_amount,
+                        tax_reference,
+                    } => {
+                        let tax_reference = non_empty(tax_reference);
+                        // Signed per-rate aggregate: a mixed charge+credit group
+                        // (or a pure credit note) may net negative and must be
+                        // preserved so the breakdown reconciles with tax_amount.
+                        vec![TaxBreakdownItem {
+                            taxable_amount: item.taxable_amount,
+                            tax_amount,
+                            tax_rate,
+                            name: tax_name,
+                            tax_kind: map_kind(tax_kind),
+                            prepaid_credit: false,
+                            exemption_type: None,
+                            exemption_reason: None,
+                            overridden: engine_is_eu_vat && tax_reference.is_some(),
+                            tax_reference,
+                            // Rate rows carry no exemption, so no place-of-supply basis.
+                            supply_basis: None,
+                        }]
+                    }
+                    TaxDetails::MultipleTaxes { taxes, .. } => {
+                        // Expand multiple taxes into separate breakdown items
+                        taxes
+                            .into_iter()
+                            .map(|tax| {
+                                let tax_reference = non_empty(tax.tax_reference);
+                                TaxBreakdownItem {
+                                    taxable_amount: item.taxable_amount,
+                                    tax_amount: tax.tax_amount,
+                                    tax_rate: tax.tax_rate,
+                                    name: tax.tax_name,
+                                    tax_kind: map_kind(tax.tax_kind),
+                                    prepaid_credit: false,
+                                    exemption_type: None,
+                                    exemption_reason: None,
+                                    overridden: engine_is_eu_vat && tax_reference.is_some(),
+                                    tax_reference,
+                                    supply_basis: None,
+                                }
+                            })
+                            .collect()
+                    }
+                    TaxDetails::Exempt(reason) => {
+                        use crate::domain::TaxExemptionType;
+                        use meteroid_tax::VatExemptionReason;
+
+                        use crate::domain::SupplyBasis;
+                        use meteroid_tax::SupplyBasis as EngineSupplyBasis;
+
+                        // The basis travels with the exemption: only an export needs a
+                        // place-of-supply article, and only that article depends on it.
+                        let (exemption_type, supply_basis) = match reason {
+                            VatExemptionReason::ReverseCharge => {
+                                (TaxExemptionType::ReverseCharge, None)
+                            }
+                            VatExemptionReason::TaxExempt => (TaxExemptionType::TaxExempt, None),
+                            VatExemptionReason::NotRegistered => {
+                                (TaxExemptionType::NotRegistered, None)
+                            }
+                            VatExemptionReason::NoVatTerritory => {
+                                (TaxExemptionType::NoVatTerritory, None)
+                            }
+                            VatExemptionReason::Export(basis) => (
+                                TaxExemptionType::Export,
+                                Some(match basis {
+                                    EngineSupplyBasis::Business => SupplyBasis::Business,
+                                    EngineSupplyBasis::Consumer => SupplyBasis::Consumer,
+                                }),
+                            ),
+                        };
+
+                        vec![TaxBreakdownItem {
+                            taxable_amount: item.taxable_amount,
+                            tax_amount: 0,
+                            tax_rate: rust_decimal::Decimal::ZERO,
+                            name: "Exempt".to_string(),
+                            tax_kind: None,
+                            prepaid_credit: false,
+                            exemption_type: Some(exemption_type),
+                            exemption_reason: exemption_reason.clone(),
+                            overridden: false,
+                            tax_reference: None,
+                            supply_basis,
+                        }]
+                    }
+                }
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut breakdown = to_rows(res.breakdown, res.exemption_reason.clone());
+    // Taxes on charges taken whole are stated at nothing, so the document still names the
+    // rate or exemption its lines carry (BR-S-01, BR-AE-01).
+    if let Some(probe) = probe {
+        for mut row in to_rows(probe.breakdown, probe.exemption_reason) {
+            if breakdown.iter().any(|kept| {
+                kept.name == row.name
+                    && kept.tax_rate == row.tax_rate
+                    && kept.exemption_type == row.exemption_type
+            }) {
+                continue;
+            }
+            row.taxable_amount = 0;
+            row.tax_amount = 0;
+            breakdown.push(row);
+        }
+    }
+    state_untaxed_purchases(&updated_invoice_lines, &mut breakdown);
+
+    TaxedInvoiceLines {
+        lines: updated_invoice_lines,
+        breakdown,
+        discount_tax,
     }
 }
 

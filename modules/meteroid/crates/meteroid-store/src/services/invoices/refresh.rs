@@ -146,6 +146,11 @@ impl Services {
                 earlier.as_ref(),
             )
             .await?;
+        #[cfg(feature = "facts-shadow")]
+        if let Some(shadowed) = crate::services::facts_shadow::Shadowed::of_invoice(invoice) {
+            self.shadow_facts(conn, shadowed, &content.invoice_lines)
+                .await;
+        }
 
         // Annexes are a projection of the raw event stream, so they are re-resolved against the
         // (possibly recomputed) lines and frozen when this patch is applied at finalization.

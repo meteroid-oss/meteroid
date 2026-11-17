@@ -1,21 +1,31 @@
 //! Promotional credit comes off the charges after discounts and before tax, like Stripe's billing
 //! credits; paid credit pays the taxed total (`value_application`). Each line records its share
-//! in the figures it was quoted in, which is what the grants gave and get back.
+//! in the figures it was quoted in, which is what the grants gave and get back. The arithmetic is
+//! `billing_core::credit::settle`'s; this is the store's side of it.
 use crate::StoreResult;
-use crate::domain::{LineItem, LineItemKind, TaxBreakdownItem};
-use crate::repositories::credit::allocation::{Allocation, CreditDemand, CreditRequest, GrantPool};
-use crate::repositories::credit::customer_credit::{self, UsageCharge, UsageOwed};
-use crate::repositories::invoices::{
-    apply_tax_rates_to_priced_lines, carry_over_tax_findings, compute_tax_breakdown,
-};
+use crate::domain::{LineItem, TaxBreakdownItem};
+use crate::repositories::credit::allocation::{Allocation, CreditRequest, GrantPool};
+use crate::repositories::credit::customer_credit::{self, UsageCharge};
+use crate::repositories::invoices::{carry_over_tax_findings, compute_tax_breakdown};
 use crate::services::Services;
+use crate::services::credit::document::{self, settle_error};
+use crate::services::credit::forecast::Drawn;
 use crate::services::credit::invalid;
-use crate::services::credit::scope::{LineOwners, line_subscription};
+use crate::services::credit::scope::LineOwners;
 use crate::services::credit::value_application::EstimateContext;
-use crate::services::invoice_lines::credit_units::allocate_covered;
 use crate::store::PgConn;
-use common_domain::ids::SubscriptionId;
+use billing_core::credit::Grants;
+use billing_core::credit::settle as core;
+use billing_core::document::{Document, Header};
+use common_domain::ids::{BaseId, SubscriptionId};
 use std::collections::HashMap;
+
+#[cfg(test)]
+use crate::domain::LineItemKind;
+#[cfg(test)]
+use crate::repositories::credit::allocation::CreditDemand;
+#[cfg(test)]
+use crate::repositories::invoices::apply_tax_rates_to_priced_lines;
 
 fn overflow() -> error_stack::Report<crate::errors::StoreError> {
     invalid("promotional credit exceeds the supported range")
@@ -29,35 +39,33 @@ pub(crate) struct LineScope<'a> {
     pub subscription_id: Option<SubscriptionId>,
 }
 
-/// The demand a line answers to; None for a credit purchase, which credit never pays.
-fn demand_of(line: &LineItem, scope: LineScope<'_>) -> Option<CreditDemand> {
-    let usage = line.metric_id.is_some() && line.kind == LineItemKind::Regular;
-    (line.kind != LineItemKind::Credit).then(|| CreditDemand {
-        subscription_id: line_subscription(line, scope.subscription_id, scope.owners),
-        product_id: line.credit_product(),
-        usage,
-        amount_minor: 0,
-        dated_before: usage.then(|| line.usage_dated_before()),
-    })
-}
+type Requested = (CreditRequest, Vec<Option<usize>>);
 
-/// A negative line (an untaxed proration credit has no taxable amount) still nets what the
-/// charges beside it may take: credit drawn on a document owing nothing would come back as paid.
-fn netting_base(line: &LineItem, base: i64) -> i64 {
-    if line.amount_subtotal < 0 {
-        base.min(line.amount_subtotal)
-    } else {
-        base
-    }
+fn requested(
+    result: Result<
+        (
+            billing_core::credit::allocation::Request,
+            Vec<Option<usize>>,
+        ),
+        impl Sized,
+    >,
+) -> StoreResult<Requested> {
+    result
+        .map(|(request, of_line)| (request.into(), of_line))
+        .map_err(|_| overflow())
 }
 
 /// [`pretax_request`] for an invoice's own lines, its negative lines netting the charges.
+#[cfg(test)]
 fn invoice_request(
     lines: &[LineItem],
     scope: LineScope<'_>,
     base: impl Fn(&LineItem) -> i64,
-) -> StoreResult<(CreditRequest, Vec<Option<usize>>)> {
-    pretax_request(lines, scope, |line| netting_base(line, base(line)))
+) -> StoreResult<Requested> {
+    requested(core::invoice_request(
+        &document::lines_of(lines, scope),
+        |index, _| base(&lines[index]),
+    ))
 }
 
 /// What promotional credit may take off `lines` before tax, each line contributing `base` (its
@@ -67,101 +75,28 @@ pub(crate) fn pretax_request(
     lines: &[LineItem],
     scope: LineScope<'_>,
     base: impl Fn(&LineItem) -> i64,
-) -> StoreResult<(CreditRequest, Vec<Option<usize>>)> {
-    let mut demands: Vec<CreditDemand> = Vec::new();
-    let mut of_line = Vec::with_capacity(lines.len());
-    let mut requested = 0_i64;
-    for line in lines {
-        let Some(key) = demand_of(line, scope) else {
-            of_line.push(None);
-            continue;
-        };
-        let amount = base(line);
-        requested = requested.checked_add(amount).ok_or_else(overflow)?;
-        let index = match demands.iter().position(|demand| {
-            demand.usage == key.usage
-                && demand.product_id == key.product_id
-                && demand.subscription_id == key.subscription_id
-                && demand.dated_before == key.dated_before
-        }) {
-            Some(index) => index,
-            None => {
-                demands.push(key);
-                demands.len() - 1
-            }
-        };
-        demands[index].amount_minor = demands[index]
-            .amount_minor
-            .checked_add(amount)
-            .ok_or_else(overflow)?;
-        of_line.push(Some(index));
-    }
-    for demand in &mut demands {
-        demand.amount_minor = demand.amount_minor.max(0);
-    }
-    Ok((
-        CreditRequest {
-            requested_minor: requested.max(0),
-            demands,
-        },
-        of_line,
+) -> StoreResult<Requested> {
+    requested(core::pretax_request(
+        &document::lines_of(lines, scope),
+        |index, _| base(&lines[index]),
     ))
 }
 
 /// Each line's share of what `allocation` covers of its demand, pro rata to its `base`.
-pub(crate) fn line_shares(
+#[cfg(test)]
+fn line_shares(
     lines: &[LineItem],
     of_line: &[Option<usize>],
     allocation: &Allocation,
     base: impl Fn(&LineItem) -> i64,
 ) -> Vec<i64> {
-    let mut shares = vec![0_i64; lines.len()];
-    for (demand, covered) in allocation.covered.iter().enumerate() {
-        let members = of_line
-            .iter()
-            .enumerate()
-            .filter(|(_, of)| **of == Some(demand))
-            .map(|(index, _)| index)
-            .collect::<Vec<_>>();
-        let weights = members
-            .iter()
-            .map(|index| base(&lines[*index]).max(0))
-            .collect::<Vec<_>>();
-        for (index, share) in members
-            .into_iter()
-            .zip(allocate_covered(&weights, *covered))
-        {
-            shares[index] = share;
-        }
-    }
-    shares
-}
-
-/// The usage charges of `request`, each line at its `base` and the rates it was taxed with: paid
-/// credit that settled usage is placed on them tax included and gives back the usage it paid.
-pub(crate) fn usage_charges(
-    lines: &[LineItem],
-    of_line: &[Option<usize>],
-    request: &CreditRequest,
-    tax_inclusive: bool,
-    base: impl Fn(&LineItem) -> i64,
-) -> Vec<UsageCharge> {
-    lines
+    let core_lines = lines
         .iter()
-        .zip(of_line)
-        .filter_map(|(line, demand)| {
-            let demand = (*demand)?;
-            request.demands.get(demand)?.usage.then(|| UsageCharge {
-                demand,
-                owed: UsageOwed {
-                    product_id: line.product_id,
-                    base_minor: base(line).max(0),
-                    tax_inclusive,
-                    taxes: line.tax_details.clone(),
-                },
-            })
-        })
-        .collect()
+        .map(|line| document::line_of(line, None))
+        .collect::<Vec<_>>();
+    core::line_shares(&core_lines, of_line, &allocation.into(), |index, _| {
+        base(&lines[index])
+    })
 }
 
 /// Puts back on lines priced but not yet taxed what an earlier estimate took off them.
@@ -199,12 +134,7 @@ pub(crate) fn net_total(lines: &[LineItem]) -> StoreResult<i64> {
 /// Read from its taxable amount and tax, not `amount_total`, which a draft stored by an earlier
 /// release may have left at its undiscounted price.
 pub(crate) fn taxed_base(line: &LineItem, tax_inclusive: bool) -> i64 {
-    let share = line.promotional_credit.unwrap_or(0);
-    if tax_inclusive {
-        line.taxable_amount + line.tax_amount + share
-    } else {
-        line.taxable_amount + share
-    }
+    core::taxed_base(&document::line_of(line, None), tax_inclusive)
 }
 
 /// The figures of a taxed document that promotional credit moves.
@@ -221,171 +151,109 @@ pub(in crate::services) struct TaxedDocument<'a> {
 }
 
 impl TaxedDocument<'_> {
-    pub(crate) fn pretax_request(
-        &self,
-        scope: LineScope<'_>,
-    ) -> StoreResult<(CreditRequest, Vec<Option<usize>>)> {
-        let tax_inclusive = self.tax_inclusive;
-        invoice_request(self.lines.as_slice(), scope, |line| {
-            taxed_base(line, tax_inclusive)
-        })
+    /// The document as the core settles it, its lines billing what `scope` resolves.
+    pub(crate) fn core(&self, scope: LineScope<'_>) -> Document {
+        Document {
+            lines: document::lines_of(self.lines.as_slice(), scope),
+            discount: self.discount,
+            tax_inclusive: self.tax_inclusive,
+            subscription: scope.subscription_id.map(|id| id.as_uuid()),
+            header: Header {
+                subtotal: *self.subtotal,
+                subtotal_recurring: *self.subtotal_recurring,
+                tax: *self.tax_amount,
+                promotional: *self.promotional_credits,
+                total: *self.total,
+            },
+        }
     }
 
-    /// One demand per line, each at most the share `shown` (by line) gave it: once cash was taken
-    /// against a total, no line ends up costing less than it did, so the cash never overpays.
-    pub(crate) fn pretax_request_within(
+    /// What promotional credit may take; within what `shown` gave each line once cash was taken.
+    pub(crate) fn promotional_request(
         &self,
-        shown: &HashMap<&str, i64>,
+        shown: Option<&HashMap<String, i64>>,
         scope: LineScope<'_>,
-    ) -> StoreResult<(CreditRequest, Vec<Option<usize>>)> {
-        let mut demands = Vec::new();
-        let mut of_line = Vec::with_capacity(self.lines.len());
-        let mut net = 0_i64;
-        for line in self.lines.iter() {
-            let Some(demand) = demand_of(line, scope) else {
-                of_line.push(None);
-                continue;
-            };
-            let base = taxed_base(line, self.tax_inclusive);
-            net = net
-                .checked_add(netting_base(line, base))
-                .ok_or_else(overflow)?;
-            let cap = shown.get(line.local_id.as_str()).copied().unwrap_or(0);
-            demands.push(CreditDemand {
-                amount_minor: base.min(cap).max(0),
-                ..demand
-            });
-            of_line.push(Some(demands.len() - 1));
-        }
-        let requested_minor = demands
-            .iter()
-            .try_fold(0_i64, |sum, demand| sum.checked_add(demand.amount_minor))
-            .ok_or_else(overflow)?
-            .min(net.max(0));
-        Ok((
-            CreditRequest {
-                requested_minor,
-                demands,
-            },
-            of_line,
-        ))
+    ) -> StoreResult<Requested> {
+        requested(self.core(scope).promotional_request(shown))
     }
 
     pub(crate) fn usage_charges(
         &self,
         request: &CreditRequest,
         of_line: &[Option<usize>],
+        scope: LineScope<'_>,
     ) -> Vec<UsageCharge> {
-        let tax_inclusive = self.tax_inclusive;
-        usage_charges(
-            self.lines.as_slice(),
-            of_line,
-            request,
-            tax_inclusive,
-            |line| taxed_base(line, tax_inclusive),
-        )
+        self.core(scope)
+            .usage_charges(&request.into(), of_line)
+            .into_iter()
+            .map(UsageCharge::from)
+            .collect()
     }
 
-    pub(crate) fn shares(&self, of_line: &[Option<usize>], allocation: &Allocation) -> Vec<i64> {
-        let tax_inclusive = self.tax_inclusive;
-        line_shares(self.lines.as_slice(), of_line, allocation, |line| {
-            taxed_base(line, tax_inclusive)
-        })
+    /// Lands `allocation` on the lines, taxing again the ones it moves (`Document::reprice`).
+    pub(crate) fn take_promotional(
+        &mut self,
+        of_line: &[Option<usize>],
+        allocation: &Allocation,
+    ) -> StoreResult<Vec<i64>> {
+        let mut settled = self.core(LineScope {
+            owners: &LineOwners::default(),
+            subscription_id: None,
+        });
+        let (shares, repriced) = settled
+            .take_promotional(of_line, &allocation.into(), &document::rates(self.lines))
+            .map_err(settle_error)?;
+        self.write(&settled, repriced.as_ref());
+        Ok(shares)
     }
 
-    /// Moves each line to its share and re-taxes the document by its stored rates, each rate
-    /// rounded once over its lines (OQ14): exact for the built-in resolvers (lookups); a provider
-    /// with thresholds or a commit step must be re-called. The total is what the lines add up to;
-    /// the discount stays, promotional credit is the rest.
+    /// Moves each line to its share and re-taxes the document by its stored rates (OQ14); a
+    /// provider with thresholds or a commit step must be re-called.
+    #[cfg(test)]
     pub(crate) fn reprice(&mut self, shares: &[i64]) -> StoreResult<()> {
-        // A draft stored by an earlier release may carry an untaxed line's undiscounted price.
-        for line in self.lines.iter_mut() {
-            line.amount_total = line.taxable_amount + line.tax_amount;
+        let mut settled = self.core(LineScope {
+            owners: &LineOwners::default(),
+            subscription_id: None,
+        });
+        let repriced = settled
+            .reprice(shares, &document::rates(self.lines))
+            .map_err(|_| overflow())?;
+        self.write(&settled, repriced.as_ref());
+        Ok(())
+    }
+
+    /// Writes what the core settled: every line's total, the lines it taxed again, the breakdown
+    /// rebuilt from them with what the engine found carried over, and the header.
+    pub(crate) fn write(&mut self, settled: &Document, repriced: Option<&core::Repriced>) {
+        for (line, settled) in self.lines.iter_mut().zip(&settled.lines) {
+            line.amount_total = settled.total;
         }
-        let share_of = |index: usize, line: &LineItem| {
-            shares
-                .get(index)
-                .copied()
-                .unwrap_or_else(|| line.promotional_credit.unwrap_or(0))
+        let Some(repriced) = repriced else {
+            return;
         };
-        let moved = self
-            .lines
-            .iter()
-            .enumerate()
-            .any(|(index, line)| line.promotional_credit.unwrap_or(0) != share_of(index, line));
-        if !moved {
-            return Ok(());
-        }
-        let retaxed: Vec<usize> = self
-            .lines
-            .iter()
-            .enumerate()
-            .filter(|(index, line)| {
-                line.promotional_credit.unwrap_or(0) != share_of(*index, line)
-                    || (!line.tax_details.is_empty()
-                        && !crate::services::credit::prepaid_purchase_tax::taxed_at_redemption(
-                            line,
-                        ))
-            })
-            .map(|(index, _)| index)
-            .collect();
-        let mut priced: Vec<LineItem> = retaxed
-            .iter()
-            .map(|index| {
-                let line = &self.lines[*index];
-                let share = share_of(*index, line);
-                let base = taxed_base(line, self.tax_inclusive);
-                let mut priced = if self.tax_inclusive {
-                    line.clone().into_tax_inclusive_quote()
-                } else {
-                    line.clone()
-                };
-                priced.taxable_amount = base - share;
-                priced.promotional_credit = (share > 0).then_some(share);
-                priced
-            })
-            .collect();
-        apply_tax_rates_to_priced_lines(&mut priced, self.tax_inclusive);
-        for (index, line) in retaxed.into_iter().zip(priced) {
-            self.lines[index] = line;
+        for (index, netted) in repriced.retaxed.iter().zip(&repriced.netted) {
+            let line = &mut self.lines[*index];
+            if self.tax_inclusive {
+                *line = line.clone().into_tax_inclusive_quote();
+            }
+            document::write_money(line, &settled.lines[*index], *netted);
         }
         let mut breakdown = compute_tax_breakdown(self.lines.as_slice());
         carry_over_tax_findings(self.tax_breakdown.as_slice(), &mut breakdown);
         *self.tax_breakdown = breakdown;
-        *self.tax_amount = self
-            .lines
-            .iter()
-            .try_fold(0_i64, |sum, line| sum.checked_add(line.tax_amount))
-            .ok_or_else(overflow)?;
-        let sum = |lines: &[LineItem], recurring: bool| {
-            lines
-                .iter()
-                .filter(|line| !recurring || line.metric_id.is_none())
-                .try_fold(0_i64, |sum, line| sum.checked_add(line.amount_subtotal))
-                .ok_or_else(overflow)
-        };
-        *self.subtotal = sum(self.lines.as_slice(), false)?;
-        *self.subtotal_recurring = sum(self.lines.as_slice(), true)?;
-        *self.total = self
-            .lines
-            .iter()
-            .try_fold(0_i64, |sum, line| sum.checked_add(line.amount_total))
-            .ok_or_else(overflow)?;
-        *self.promotional_credits = self
-            .subtotal
-            .checked_sub(self.discount)
-            .and_then(|left| left.checked_add(*self.tax_amount))
-            .and_then(|left| left.checked_sub(*self.total))
-            .ok_or_else(overflow)?;
-        Ok(())
+        *self.subtotal = settled.header.subtotal;
+        *self.subtotal_recurring = settled.header.subtotal_recurring;
+        *self.tax_amount = settled.header.tax;
+        *self.total = settled.header.total;
+        *self.promotional_credits = settled.header.promotional;
     }
 }
 
 impl Services {
-    /// Takes off taxed `lines` the promotional credit finalizing at `scope.at` would draw against
-    /// them, as finalizing draws it: once, on the amounts after discount and by their taxes' rates,
-    /// the lines it moves taxed again (Phase 5).
-    pub(in crate::services) async fn estimate_promotional_on_taxed(
+    /// Settles the credit of taxed `lines` as finalizing at `scope.at` would draw it, their header
+    /// folded from them (R-076). Returns the paid credit it would apply.
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::services) async fn settle_taxed_lines(
         &self,
         conn: &mut PgConn,
         scope: &EstimateContext<'_>,
@@ -393,7 +261,8 @@ impl Services {
         breakdown: &mut Vec<TaxBreakdownItem>,
         discount: i64,
         tax_inclusive: bool,
-    ) -> StoreResult<()> {
+        already_paid: i64,
+    ) -> StoreResult<i64> {
         let billing_core::Totals {
             mut subtotal,
             mut subtotal_recurring,
@@ -402,7 +271,7 @@ impl Services {
             mut total,
             ..
         } = crate::services::invoice_lines::invoice_lines::totals_of(lines, discount);
-        self.reprice_promotional_estimate(
+        self.settle_estimate(
             conn,
             scope,
             &mut TaxedDocument {
@@ -416,59 +285,102 @@ impl Services {
                 promotional_credits: &mut promotional_credits,
                 total: &mut total,
             },
+            core::Cash {
+                already_paid,
+                ..core::Cash::none(core::TotalBasis::Folded)
+            },
         )
         .await
     }
 
-    /// The promotional credit finalizing would draw against lines already taxed (kept, merged or
-    /// edited): re-taxes only the lines whose share moved.
-    pub(in crate::services) async fn reprice_promotional_estimate(
+    /// Settles a taxed document's credit as finalizing at `scope.at` would draw it: its line owners,
+    /// grants and kept settlements read once, then `billing_core::credit::settle`, the lines it
+    /// moves written back. Returns the paid credit it would apply.
+    pub(in crate::services) async fn settle_estimate(
         &self,
         conn: &mut PgConn,
         scope: &EstimateContext<'_>,
         document: &mut TaxedDocument<'_>,
-    ) -> StoreResult<()> {
+        cash: core::Cash,
+    ) -> StoreResult<i64> {
         let owners = LineOwners::load_tx(conn, scope.tenant_id, document.lines.as_slice()).await?;
-        let (request, of_line) = document.pretax_request(LineScope {
+        let settling = document.core(LineScope {
             owners: &owners,
             subscription_id: scope.subscription_id,
-        })?;
-        let charges = document.usage_charges(&request, &of_line);
-        let allocation = scope
-            .estimate(conn, GrantPool::Promotional, &request, &charges)
-            .await?;
-        let shares = document.shares(&of_line, &allocation);
-        document.reprice(&shares)
+        });
+        let rates = document::rates(document.lines.as_slice());
+        // Nothing to ask of the grants reads none, as an estimate of nothing draws nothing.
+        let unread = Grants {
+            drawable: Vec::new(),
+            settled: Vec::new(),
+            at: scope.at,
+        };
+        let asked = core::settle(&settling, &unread, &rates, &cash).map_err(settle_error)?;
+        let requests = [&asked.promotional.request, &asked.paid.request];
+        let settlement = if requests.iter().any(|request| request.requested_minor > 0) {
+            let grants = scope.grants_tx(conn, &requests).await?;
+            core::settle(&settling, &grants, &rates, &cash).map_err(settle_error)?
+        } else {
+            asked
+        };
+        if let Some(book) = scope.book {
+            for (pool, part) in [
+                (GrantPool::Promotional, &settlement.promotional),
+                (GrantPool::Paid, &settlement.paid),
+            ] {
+                book.record(Drawn {
+                    denomination: customer_credit::normalized_currency(scope.currency),
+                    pool,
+                    fresh: part.drawn.fresh.clone().into(),
+                    held: part.held.clone().into(),
+                })?;
+            }
+        }
+        document.write(&settlement.document, settlement.repriced.as_ref());
+        Ok(settlement.applied)
     }
 }
 
 impl EstimateContext<'_> {
-    pub(crate) async fn estimate(
+    /// What finalizing at `at` would find for `requests`: the open settlements of the periods the
+    /// document bills, and the drawable grants (the forecast's book when given).
+    pub(crate) async fn grants_tx(
         &self,
         conn: &mut PgConn,
-        pool: GrantPool,
-        request: &CreditRequest,
-        charges: &[UsageCharge],
-    ) -> StoreResult<Allocation> {
-        if let Some(book) = self.book {
-            return crate::services::credit::forecast::estimate_on_book(
-                conn, book, self, pool, request, charges,
-            )
-            .await;
-        }
-        customer_credit::estimate_tx(
+        requests: &[&billing_core::credit::allocation::Request],
+    ) -> StoreResult<Grants> {
+        let settled = customer_credit::estimate_settled_tx(
             conn,
             self.tenant_id,
-            self.customer_id,
             self.currency,
             self.invoice_id,
             &self.periods,
-            pool,
-            request,
-            charges,
-            self.at,
         )
-        .await
+        .await?;
+        let drawable = match self.book {
+            Some(book) => book.candidates_tx(conn, self.currency).await?,
+            None => {
+                let subscriptions = requests
+                    .iter()
+                    .flat_map(|request| &request.demands)
+                    .filter_map(|demand| demand.subscription.map(SubscriptionId::from))
+                    .collect();
+                customer_credit::estimate_drawable_tx(
+                    conn,
+                    self.tenant_id,
+                    self.customer_id,
+                    self.currency,
+                    subscriptions,
+                    self.at,
+                )
+                .await?
+            }
+        };
+        Ok(Grants {
+            drawable: drawable.iter().map(Into::into).collect(),
+            settled: customer_credit::core_settled(&settled),
+            at: self.at,
+        })
     }
 }
 

@@ -7,7 +7,7 @@ use crate::subscription_facts::{
 };
 use crate::{DbResult, PgConn};
 use chrono::NaiveDate;
-use common_domain::ids::{BaseId, SubscriptionId};
+use common_domain::ids::{BaseId, SubscriptionId, TenantId};
 use diesel::sql_types::{Array, Date, Timestamp, Uuid as SqlUuid};
 use diesel::{ExpressionMethods, OptionalExtension, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
@@ -413,6 +413,198 @@ pub(crate) async fn record_scheduled_facts(
         .into_db_result()?;
     }
     Ok(())
+}
+
+/// Most rows of one kind a subscription's facts are read from: past it the read fails, never
+/// truncates.
+pub const FACT_ROWS_LIMIT: i64 = 5_000;
+
+fn bounded<T>(rows: Vec<T>, what: &str) -> DbResult<Vec<T>> {
+    if rows.len() as i64 > FACT_ROWS_LIMIT {
+        return Err(crate::errors::DatabaseError::Others(format!(
+            "more than {FACT_ROWS_LIMIT} {what} for one subscription"
+        ))
+        .into());
+    }
+    Ok(rows)
+}
+
+impl SubscriptionStartSettledRow {
+    pub async fn find(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+    ) -> DbResult<Option<SubscriptionStartSettledRow>> {
+        use crate::schema::subscription_start_settled::dsl as s;
+
+        s::subscription_start_settled
+            .filter(s::subscription_id.eq(subscription_id))
+            .select(SubscriptionStartSettledRow::as_select())
+            .first(conn)
+            .await
+            .optional()
+            .attach("Error while reading a settled start")
+            .into_db_result()
+    }
+}
+
+impl SubscriptionEndingRow {
+    /// Its cancellation and its fixed term's end, each at most once.
+    pub async fn list_of(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+    ) -> DbResult<Vec<SubscriptionEndingRow>> {
+        use crate::schema::subscription_ending::dsl as e;
+
+        e::subscription_ending
+            .filter(e::subscription_id.eq(subscription_id))
+            .select(SubscriptionEndingRow::as_select())
+            .load(conn)
+            .await
+            .attach("Error while reading endings")
+            .into_db_result()
+    }
+}
+
+impl crate::subscription_components::SubscriptionComponentRow {
+    /// Every row of the subscription, closed and future-dated ones included, earliest first.
+    pub async fn list_fact_rows(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+    ) -> DbResult<Vec<Self>> {
+        use crate::schema::subscription_component::dsl as c;
+
+        let rows = c::subscription_component
+            .filter(c::subscription_id.eq(subscription_id))
+            .order_by((c::effective_from.asc(), c::id.asc()))
+            .limit(FACT_ROWS_LIMIT + 1)
+            .select(Self::as_select())
+            .load(conn)
+            .await
+            .attach("Error while reading component rows")
+            .into_db_result()?;
+        bounded(rows, "component rows")
+    }
+}
+
+impl crate::subscription_add_ons::SubscriptionAddOnRow {
+    /// Every row of the subscription, closed and future-dated ones included, earliest first.
+    pub async fn list_fact_rows(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+    ) -> DbResult<Vec<Self>> {
+        use crate::schema::subscription_add_on::dsl as a;
+
+        let rows = a::subscription_add_on
+            .filter(a::subscription_id.eq(subscription_id))
+            .order_by((a::effective_from.asc(), a::id.asc()))
+            .limit(FACT_ROWS_LIMIT + 1)
+            .select(Self::as_select())
+            .load(conn)
+            .await
+            .attach("Error while reading add-on rows")
+            .into_db_result()?;
+        bounded(rows, "add-on rows")
+    }
+}
+
+impl crate::subscription_adjustments::SubscriptionAdjustmentRow {
+    /// Every dated minimum of the subscription, earliest first.
+    pub async fn list_minimum_facts(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+    ) -> DbResult<Vec<Self>> {
+        use crate::schema::subscription_adjustment::dsl as m;
+
+        let rows = m::subscription_adjustment
+            .filter(m::subscription_id.eq(subscription_id))
+            .filter(m::kind.eq(crate::enums::AdjustmentKindEnum::Minimum))
+            .order_by(m::effective_from.asc())
+            .limit(FACT_ROWS_LIMIT + 1)
+            .select(Self::as_select())
+            .load(conn)
+            .await
+            .attach("Error while reading minimums")
+            .into_db_result()?;
+        bounded(rows, "minimums")
+    }
+}
+
+impl crate::subscription_adjustments::SubscriptionAdjustmentComponentRow {
+    /// The products of every dated minimum of the subscription.
+    pub async fn list_minimum_fact_scopes(
+        conn: &mut PgConn,
+        subscription_id: SubscriptionId,
+    ) -> DbResult<Vec<Self>> {
+        use crate::schema::subscription_adjustment_component::dsl as c;
+
+        let rows = c::subscription_adjustment_component
+            .filter(c::subscription_id.eq(subscription_id))
+            .filter(c::kind.eq(crate::enums::AdjustmentKindEnum::Minimum))
+            .limit(FACT_ROWS_LIMIT + 1)
+            .select(Self::as_select())
+            .load(conn)
+            .await
+            .attach("Error while reading minimum scopes")
+            .into_db_result()?;
+        bounded(rows, "minimum scopes")
+    }
+}
+
+impl crate::invoices::InvoiceRow {
+    /// The issued (finalized or uncollectible) invoices of a subscription settling a period from
+    /// `from` on, and the consolidated parents its drafts were merged into.
+    pub async fn list_issued_of_subscription(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        from: NaiveDate,
+    ) -> DbResult<Vec<Self>> {
+        use crate::enums::InvoiceStatusEnum;
+        use crate::schema::invoice::dsl as i;
+        use diesel::NullableExpressionMethods;
+
+        let issued = [
+            InvoiceStatusEnum::Finalized,
+            InvoiceStatusEnum::Uncollectible,
+        ];
+        let mut invoices: Vec<Self> = i::invoice
+            .filter(i::tenant_id.eq(tenant_id))
+            .filter(i::subscription_id.eq(subscription_id))
+            .filter(i::billing_period_start.ge(from))
+            .filter(i::status.eq_any(issued.clone()))
+            .order_by((i::billing_period_start.asc(), i::id.asc()))
+            .limit(FACT_ROWS_LIMIT + 1)
+            .select(Self::as_select())
+            .load(conn)
+            .await
+            .attach("Error while listing issued invoices")
+            .into_db_result()?;
+        let parents: Vec<common_domain::ids::InvoiceId> = i::invoice
+            .filter(i::tenant_id.eq(tenant_id))
+            .filter(i::subscription_id.eq(subscription_id))
+            .filter(i::billing_period_start.ge(from))
+            .filter(i::consolidated_into_invoice_id.is_not_null())
+            .select(i::consolidated_into_invoice_id.assume_not_null())
+            .distinct()
+            .load(conn)
+            .await
+            .attach("Error while listing consolidated parents")
+            .into_db_result()?;
+        if !parents.is_empty() {
+            invoices.extend(
+                i::invoice
+                    .filter(i::tenant_id.eq(tenant_id))
+                    .filter(i::id.eq_any(&parents))
+                    .filter(i::status.eq_any(issued))
+                    .select(Self::as_select())
+                    .load(conn)
+                    .await
+                    .attach("Error while loading consolidated parents")
+                    .into_db_result()?,
+            );
+        }
+        bounded(invoices, "issued invoices")
+    }
 }
 
 #[cfg(test)]

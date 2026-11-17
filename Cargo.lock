@@ -603,6 +603,7 @@ name = "billing-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "common-utils",
  "ordermap",
  "proptest",
  "rust_decimal",

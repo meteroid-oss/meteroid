@@ -24,11 +24,7 @@ pub struct UsageData {
     pub period: UsagePeriod,
 }
 
-#[derive(Debug, Clone)]
-pub struct GroupedUsageData {
-    pub value: Decimal,
-    pub dimensions: HashMap<String, String>,
-}
+pub use billing_core::pricing::GroupedUsage as GroupedUsageData;
 
 #[derive(Debug, Clone)]
 pub struct WindowedUsageData {

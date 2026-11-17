@@ -1735,7 +1735,7 @@ pub(in crate::services) async fn gather_period_credit_context(
 /// 2. `already_credited`: each line's `local_id` → the subtotal (in cents) already
 ///    reversed by earlier finalized credit notes (whose lines reuse the original
 ///    `local_id`), so the caller never credits more than the line's remaining value.
-async fn load_credit_matching_context(
+pub(in crate::services) async fn load_credit_matching_context(
     conn: &mut PgConn,
     tenant_id: TenantId,
     invoice: &Invoice,
