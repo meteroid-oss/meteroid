@@ -11,20 +11,22 @@ use crate::store::PgConn;
 use chrono::{DateTime, NaiveDate, Utc};
 use common_domain::ids::{SubscriptionId, TenantId};
 use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
+pub(crate) use diesel_models::subscription_facts::StartSettledBy;
 use diesel_models::subscriptions::{SubscriptionCycleRowPatch, SubscriptionRow};
 use error_stack::Report;
 use scoped_futures::ScopedFutureExt;
 
 pub(crate) enum StartTransition {
-    /// First activation: a no-op once `activated_at` is set.
+    /// First activation: a no-op once `activated_at` is set. It settles the start, `by`.
     Activate {
         current_period_start: NaiveDate,
         current_period_end: Option<NaiveDate>,
         next_cycle_action: Option<CycleActionEnum>,
         cycle_index: Option<i32>,
         status: SubscriptionStatusEnum,
+        by: StartSettledBy,
     },
-    /// TrialExpired back to Active once paid.
+    /// TrialExpired back to Active once paid: the payment settles the start.
     TrialExpiredToActive {
         current_period_start: NaiveDate,
         current_period_end: Option<NaiveDate>,
@@ -64,6 +66,11 @@ pub(crate) async fn mark_subscription_started_at_tx(
     transition: StartTransition,
     at: DateTime<Utc>,
 ) -> StoreResult<()> {
+    let settled_by = match &transition {
+        StartTransition::Activate { by, .. } => Some(*by),
+        StartTransition::TrialExpiredToActive { .. } => Some(StartSettledBy::Payment),
+        StartTransition::Cycle(_) => None,
+    };
     match transition {
         StartTransition::Activate {
             current_period_start,
@@ -71,6 +78,7 @@ pub(crate) async fn mark_subscription_started_at_tx(
             next_cycle_action,
             cycle_index,
             status,
+            by: _,
         } => {
             SubscriptionRow::activate_subscription(
                 conn,
@@ -111,6 +119,16 @@ pub(crate) async fn mark_subscription_started_at_tx(
         }
     }
     .map_err(Into::<Report<StoreError>>::into)?;
+    if let Some(by) = settled_by {
+        crate::services::facts::settle_start_tx(
+            conn,
+            tenant_id,
+            subscription_id,
+            at.naive_utc(),
+            by,
+        )
+        .await?;
+    }
     mint_started_subscription_coupon_credit_tx(conn, controls, tenant_id, subscription_id, at).await
 }
 

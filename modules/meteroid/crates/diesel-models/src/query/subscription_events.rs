@@ -186,7 +186,7 @@ impl SubscriptionEventRow {
         use diesel_async::RunQueryDsl;
 
         lock.on(conn);
-        diesel::sql_query(
+        let recorded = diesel::sql_query(
             "UPDATE subscription_event e \
              SET details = COALESCE(e.details, '{}'::jsonb) || jsonb_build_object('cadence_origin', $3::date) \
              WHERE e.subscription_id = $1 AND e.applies_to = $2 AND e.event_type = 'SWITCH' \
@@ -203,7 +203,17 @@ impl SubscriptionEventRow {
         .execute(conn)
         .await
         .attach("Error while recording the origin of a cadence")
-        .into_db_result()
+        .into_db_result()?;
+        if recorded > 0 {
+            crate::query::subscription_facts::record_window_origin(
+                conn,
+                subscription_uid,
+                on,
+                origin,
+            )
+            .await?;
+        }
+        Ok(recorded)
     }
 
     pub async fn fetch_by_subscription_id_and_event_type(

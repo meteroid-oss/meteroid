@@ -54,6 +54,8 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub struct ProcessedSubscription {
     subscription: SubscriptionRowNew,
+    /// Whether its trial is free, as the plan version it starts on says.
+    trial_is_free: bool,
     components: Vec<SubscriptionComponentRowNew>,
     add_ons: Vec<SubscriptionAddOnRowNew>,
     coupons: Vec<AppliedCouponRowNew>,
@@ -707,6 +709,7 @@ impl Services {
 
         Ok(ProcessedSubscription {
             subscription: subscription_row,
+            trial_is_free: plan.trial_is_free,
             components,
             add_ons: subscription_add_ons,
             coupons: subscription_coupons,
@@ -1231,6 +1234,16 @@ impl Services {
                         .map_err(Into::<StoreErrorReport>::into)
                         .await?;
 
+                    crate::services::facts::record_inserted_tx(
+                        conn,
+                        actor,
+                        &processed
+                            .iter()
+                            .map(|p| (&p.subscription, p.trial_is_free))
+                            .collect::<Vec<_>>(),
+                    )
+                    .await?;
+
                     // Snapshot plan minimums onto subscriptions (mirrors the component snapshot).
                     {
                         use diesel_models::subscription_adjustments::{
@@ -1299,6 +1312,7 @@ impl Services {
                                         crate::domain::plan_minimums::MinimumScope::AllComponents
                                     ),
                                     is_override,
+                                    effective_from: proc.subscription.start_date,
                                 });
                                 if let crate::domain::plan_minimums::MinimumScope::Products(ids) =
                                     &scope
@@ -1309,6 +1323,7 @@ impl Services {
                                                 subscription_id,
                                                 kind: diesel_models::enums::AdjustmentKindEnum::Minimum,
                                                 product_id,
+                                                effective_from: proc.subscription.start_date,
                                             },
                                         );
                                     }

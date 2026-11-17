@@ -567,6 +567,56 @@ const CHECKS: &[(&str, &str)] = &[
            AND coalesce((l->>'amount_total')::bigint, (l->>'total')::bigint)
                <> coalesce((l->>'taxable_amount')::bigint, 0) + coalesce((l->>'tax_amount')::bigint, 0)",
     ),
+    // Facts are checked on subscriptions the store created (a CREATED event); fixtures inserting
+    // subscription rows by hand record none.
+    (
+        "I27 a live subscription's open plan window is its plan and cadence, and its windows tile",
+        "SELECT format('%s subscription %s on plan version %s %s: open window %s', s.status, s.id,
+                       s.plan_version_id, s.period,
+                       coalesce(w.plan_version_id::text || ' ' || w.cadence::text, 'none')) AS message
+         FROM subscription s
+         LEFT JOIN subscription_plan_window w ON w.subscription_id = s.id AND w.to_date IS NULL
+         WHERE s.tenant_id = $1
+           AND s.status NOT IN ('CANCELLED', 'ABORTED', 'COMPLETED', 'SUPERSEDED', 'ERRORED')
+           AND EXISTS (SELECT 1 FROM subscription_event e
+                       WHERE e.subscription_id = s.id AND e.event_type = 'CREATED')
+           AND (w.id IS NULL OR w.plan_version_id <> s.plan_version_id OR w.cadence <> s.period)
+         UNION ALL
+         SELECT format('subscription %s: plan window %s ends on %s and none opens then',
+                       w.subscription_id, w.id, w.to_date) AS message
+         FROM subscription_plan_window w
+         WHERE w.tenant_id = $1 AND w.to_date IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM subscription_plan_window n
+                           WHERE n.subscription_id = w.subscription_id AND n.from_date = w.to_date)",
+    ),
+    (
+        "I28 a live subscription's cancellation still to apply is its ending",
+        "SELECT format('%s subscription %s: cancellation event for %s, ending at %s', s.status,
+                       s.id, c.at, e.at) AS message
+         FROM subscription s
+         LEFT JOIN LATERAL (
+             SELECT coalesce((v.event_data -> 'CancelSubscription' ->> 'usage_cutoff')::timestamp,
+                             v.scheduled_time) AS at
+             FROM scheduled_event v
+             WHERE v.subscription_id = s.id AND v.event_type = 'CANCEL_SUBSCRIPTION'
+               AND v.status <> 'CANCELED'
+             ORDER BY v.created_at DESC LIMIT 1) c ON true
+         LEFT JOIN subscription_ending e ON e.subscription_id = s.id AND e.kind = 'CANCEL'
+         WHERE s.tenant_id = $1
+           AND s.status NOT IN ('CANCELLED', 'ABORTED', 'COMPLETED', 'SUPERSEDED', 'ERRORED')
+           AND c.at IS DISTINCT FROM e.at",
+    ),
+    (
+        "I29 a subscription has a trial exactly when it has a trial length",
+        "SELECT format('subscription %s: trial length %s, trial %s', s.id, s.trial_duration,
+                       coalesce(t.from_date::text || '..' || t.until_date::text, 'none')) AS message
+         FROM subscription s
+         LEFT JOIN subscription_trial t ON t.subscription_id = s.id
+         WHERE s.tenant_id = $1
+           AND EXISTS (SELECT 1 FROM subscription_event e
+                       WHERE e.subscription_id = s.id AND e.event_type = 'CREATED')
+           AND (coalesce(s.trial_duration, 0) > 0) <> (t.subscription_id IS NOT NULL)",
+    ),
 ];
 
 /// One violated invariant: the check (`"I23 the lines' taxable amounts …"`) and what broke it.

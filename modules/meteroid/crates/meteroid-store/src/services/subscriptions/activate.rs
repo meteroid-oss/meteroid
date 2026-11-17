@@ -142,6 +142,7 @@ impl Services {
                             next_cycle_action,
                             cycle_index: Some(0),
                             status,
+                            by: crate::services::subscriptions::start::StartSettledBy::Manual,
                         },
                     )
                     .await?;
@@ -282,6 +283,7 @@ impl Services {
                 next_cycle_action,
                 cycle_index: Some(0),
                 status,
+                by: crate::services::subscriptions::start::StartSettledBy::Checkout,
             },
         )
         .await?;

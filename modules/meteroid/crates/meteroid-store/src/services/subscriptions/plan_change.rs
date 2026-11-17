@@ -1111,8 +1111,13 @@ impl Services {
         // Operator-set / quote-sourced overrides (`is_override = true`) are preserved —
         // those represent negotiated contracts that survive plan changes. Only plain
         // plan-snapshots (`is_override = false`) get re-snapped.
-        refresh_subscription_minimum_on_plan_change(conn, subscription_id, new_plan_version_id)
-            .await?;
+        refresh_subscription_minimum_on_plan_change(
+            conn,
+            subscription_id,
+            new_plan_version_id,
+            change_date,
+        )
+        .await?;
 
         for mapping in component_mappings {
             use crate::domain::slot_transactions::SlotTransactionNewInternal;
@@ -1284,6 +1289,15 @@ impl Services {
                 );
             }
         }
+
+        crate::services::facts::record_plan_change_tx(
+            conn,
+            tenant_id,
+            subscription_id,
+            change_date,
+            prepared.is_trial() && prepared.is_free_trial(),
+        )
+        .await?;
 
         log::info!(
             "Applied immediate plan change for subscription {}: plan_version={}, direction={:?}, net_proration={}",
@@ -2480,6 +2494,7 @@ pub(crate) async fn refresh_subscription_minimum_on_plan_change(
     conn: &mut crate::store::PgConn,
     subscription_id: common_domain::ids::SubscriptionId,
     new_plan_version_id: common_domain::ids::PlanVersionId,
+    on: NaiveDate,
 ) -> StoreResult<()> {
     use diesel_models::plan_version_adjustments::{
         PlanVersionAdjustmentComponentRow, PlanVersionAdjustmentRow,
@@ -2496,9 +2511,9 @@ pub(crate) async fn refresh_subscription_minimum_on_plan_change(
         return Ok(());
     }
 
-    // Drop any existing plan-snapshot — it might be stale or the new plan might not have one.
+    // The plan-snapshot ends with the change: the new plan might have another or none.
     if existing.is_some() {
-        SubscriptionAdjustmentRow::delete_by_subscription_id(conn, &subscription_id)
+        SubscriptionAdjustmentRow::end_current(conn, &subscription_id, on)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
     }
@@ -2518,6 +2533,7 @@ pub(crate) async fn refresh_subscription_minimum_on_plan_change(
         amount_subunit: plan_min_row.amount_subunit,
         includes_all_components: plan_min_row.includes_all_components,
         is_override: false,
+        effective_from: on,
     }
     .insert(conn)
     .await
@@ -2534,6 +2550,7 @@ pub(crate) async fn refresh_subscription_minimum_on_plan_change(
                 subscription_id,
                 kind: diesel_models::enums::AdjustmentKindEnum::Minimum,
                 product_id: c.product_id,
+                effective_from: on,
             })
             .collect();
         SubscriptionAdjustmentComponentRow::insert_batch(conn, &sub_components)

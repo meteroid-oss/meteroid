@@ -143,10 +143,12 @@ impl SubscriptionAddOnRow {
     }
 
     /// List only currently-active add-ons (effective_to IS NULL).
+    /// The add-ons not ended by `as_of`; `None`: the open ones, as before rows were dated.
     pub async fn list_by_subscription_id_active(
         conn: &mut PgConn,
         tenant_id: &TenantId,
         subscription_id: &SubscriptionId,
+        as_of: Option<NaiveDate>,
     ) -> DbResult<Vec<SubscriptionAddOnRow>> {
         use crate::schema::subscription::dsl as s_dsl;
         use crate::schema::subscription_add_on::dsl as sao_dsl;
@@ -155,7 +157,11 @@ impl SubscriptionAddOnRow {
             .inner_join(s_dsl::subscription)
             .filter(sao_dsl::subscription_id.eq(subscription_id))
             .filter(s_dsl::tenant_id.eq(tenant_id))
-            .filter(sao_dsl::effective_to.is_null())
+            .filter(
+                sao_dsl::effective_to
+                    .is_null()
+                    .or(sao_dsl::effective_to.gt(as_of)),
+            )
             .select(SubscriptionAddOnRow::as_select());
 
         crate::debug_sql(&query);

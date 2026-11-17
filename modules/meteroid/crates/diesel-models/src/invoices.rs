@@ -94,6 +94,10 @@ pub struct InvoiceRow {
     pub payment_disputed_at: Option<NaiveDateTime>,
     /// Set when a sandbox seed replayed this invoice from past billing: never collected nor sent.
     pub delivery_held_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// When a draft is finalized once its grace ends; written next to its FinalizeInvoice event.
+    pub finalize_after: Option<NaiveDateTime>,
+    /// When its payment is tried again; written next to its RetryPayment event.
+    pub next_payment_attempt_at: Option<NaiveDateTime>,
 }
 
 /// An invoice's money: what it asks (`owed`: total less applied credit and reducing notes) and

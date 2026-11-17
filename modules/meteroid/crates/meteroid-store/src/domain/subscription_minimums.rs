@@ -1,3 +1,4 @@
+use chrono::NaiveDate;
 use common_domain::ids::SubscriptionId;
 
 use diesel_models::subscription_adjustments::{
@@ -49,17 +50,22 @@ pub struct SubscriptionMinimumNew {
 }
 
 impl SubscriptionMinimumNew {
-    pub fn to_row(&self) -> SubscriptionAdjustmentRowNew {
+    /// In force from `effective_from`.
+    pub fn to_row(&self, effective_from: NaiveDate) -> SubscriptionAdjustmentRowNew {
         SubscriptionAdjustmentRowNew {
             subscription_id: self.subscription_id,
             kind: diesel_models::enums::AdjustmentKindEnum::Minimum,
             amount_subunit: self.amount_subunit,
             includes_all_components: matches!(self.scope, MinimumScope::AllComponents),
             is_override: self.is_override,
+            effective_from,
         }
     }
 
-    pub fn component_rows(&self) -> Vec<SubscriptionAdjustmentComponentRowNew> {
+    pub fn component_rows(
+        &self,
+        effective_from: NaiveDate,
+    ) -> Vec<SubscriptionAdjustmentComponentRowNew> {
         match &self.scope {
             MinimumScope::AllComponents => vec![],
             MinimumScope::Products(ids) => ids
@@ -69,6 +75,7 @@ impl SubscriptionMinimumNew {
                     subscription_id: self.subscription_id,
                     kind: diesel_models::enums::AdjustmentKindEnum::Minimum,
                     product_id,
+                    effective_from,
                 })
                 .collect(),
         }

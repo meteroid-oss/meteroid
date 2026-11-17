@@ -97,13 +97,18 @@ pub(crate) async fn realign_cadence_tx(
         conn,
         &tenant_id,
         &subscription_id,
+        None,
     )
     .await
     .map_err(Into::<Report<StoreError>>::into)?;
-    let add_ons =
-        SubscriptionAddOnRow::list_by_subscription_id_active(conn, &tenant_id, &subscription_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+    let add_ons = SubscriptionAddOnRow::list_by_subscription_id_active(
+        conn,
+        &tenant_id,
+        &subscription_id,
+        None,
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?;
     let cadences: Vec<SubscriptionFeeBillingPeriod> = components
         .into_iter()
         .map(|c| c.period.into())
@@ -145,6 +150,13 @@ pub(crate) async fn realign_cadence_tx(
     .patch(conn)
     .await
     .map_err(Into::<Report<StoreError>>::into)?;
+    crate::services::facts::record_cadence_change_tx(
+        conn,
+        subscription_id,
+        on,
+        cadence.period.into(),
+    )
+    .await?;
 
     log::info!(
         "Subscription {subscription_id} now renews {:?}: period [{}, {end})",

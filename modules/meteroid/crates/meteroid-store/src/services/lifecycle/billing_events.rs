@@ -518,6 +518,7 @@ impl Services {
                 conn,
                 event.subscription_id,
                 new_plan_version_id,
+                event.scheduled_time.date(),
             )
             .await?;
 
@@ -776,6 +777,15 @@ impl Services {
                     event.subscription_id,
                 );
             }
+
+            crate::services::facts::record_plan_change_tx(
+                conn,
+                event.tenant_id,
+                event.subscription_id,
+                apply_date,
+                false,
+            )
+            .await?;
 
             log::log!(
                 target: applying.target(),

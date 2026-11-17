@@ -232,11 +232,14 @@ impl SubscriptionInterface for Store {
                 .map(std::convert::TryInto::try_into)
                 .collect::<Result<Vec<_>, Report<_>>>()?;
 
+        // The open components and add-ons, as before rows were dated (Phase 7 PR 3 reads a date).
+        let as_of = None;
         let subscription_component_rows =
             SubscriptionComponentRow::list_subscription_components_by_subscription(
                 conn,
                 &tenant_id,
                 &subscription.id,
+                as_of,
             )
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
@@ -257,6 +260,7 @@ impl SubscriptionInterface for Store {
             conn,
             &tenant_id,
             &subscription.id,
+            as_of,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;

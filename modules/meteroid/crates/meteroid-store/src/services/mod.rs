@@ -33,6 +33,7 @@ pub mod customer_locale;
 mod customer_summary;
 mod edge;
 pub(crate) mod entitlements;
+pub(crate) mod facts;
 pub mod fx;
 pub(crate) mod intelligence_support;
 pub mod invoice_lines;

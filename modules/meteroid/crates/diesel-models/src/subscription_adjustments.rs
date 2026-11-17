@@ -1,4 +1,4 @@
-use chrono::NaiveDateTime;
+use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{ProductId, SubscriptionId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
@@ -6,7 +6,7 @@ use crate::enums::AdjustmentKindEnum;
 
 #[derive(Queryable, Debug, Identifiable, Selectable, Clone)]
 #[diesel(table_name = crate::schema::subscription_adjustment)]
-#[diesel(primary_key(subscription_id, kind))]
+#[diesel(primary_key(subscription_id, kind, effective_from))]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct SubscriptionAdjustmentRow {
     pub subscription_id: SubscriptionId,
@@ -18,6 +18,9 @@ pub struct SubscriptionAdjustmentRow {
     /// re-snapped to the new plan version's adjustment.
     pub is_override: bool,
     pub created_at: NaiveDateTime,
+    /// In force over `[effective_from, effective_to)`; the open row is the current minimum.
+    pub effective_from: NaiveDate,
+    pub effective_to: Option<NaiveDate>,
 }
 
 #[derive(Insertable, Debug, Clone)]
@@ -28,16 +31,18 @@ pub struct SubscriptionAdjustmentRowNew {
     pub amount_subunit: i64,
     pub includes_all_components: bool,
     pub is_override: bool,
+    pub effective_from: NaiveDate,
 }
 
 #[derive(Queryable, Debug, Identifiable, Selectable, Clone)]
 #[diesel(table_name = crate::schema::subscription_adjustment_component)]
-#[diesel(primary_key(subscription_id, kind, product_id))]
+#[diesel(primary_key(subscription_id, kind, effective_from, product_id))]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct SubscriptionAdjustmentComponentRow {
     pub subscription_id: SubscriptionId,
     pub kind: AdjustmentKindEnum,
     pub product_id: ProductId,
+    pub effective_from: NaiveDate,
 }
 
 #[derive(Insertable, Debug, Clone)]
@@ -46,4 +51,5 @@ pub struct SubscriptionAdjustmentComponentRowNew {
     pub subscription_id: SubscriptionId,
     pub kind: AdjustmentKindEnum,
     pub product_id: ProductId,
+    pub effective_from: NaiveDate,
 }

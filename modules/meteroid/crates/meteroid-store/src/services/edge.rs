@@ -902,6 +902,7 @@ impl ServicesEdge {
                         applied_amount: None,
                         applied_count: None,
                         last_applied_at: None,
+                        effective_from: common_domain::clock::now().date_naive(),
                     };
 
                     apply_coupons_without_validation(conn, &*self.store.hooks.credit, &[&applied_coupon], tenant_id).await?;
@@ -949,6 +950,7 @@ impl ServicesEdge {
                         next_cycle_action: subscription.next_cycle_action.clone(),
                         cycle_index: subscription.cycle_index,
                         status: DbSubscriptionStatusEnum::TrialActive,
+                        by: crate::services::subscriptions::start::StartSettledBy::Checkout,
                     },
                 )
                 .await?;
@@ -1119,6 +1121,7 @@ impl ServicesEdge {
                         next_cycle_action: Some(next_action),
                         cycle_index: Some(0),
                         status: new_status,
+                        by: crate::services::subscriptions::start::StartSettledBy::Checkout,
                     },
                 )
                 .await?;
@@ -3379,6 +3382,7 @@ impl ServicesEdge {
                         next_cycle_action: None,
                         cycle_index: Some(0),
                         status: DbSubscriptionStatusEnum::Active,
+                        by: crate::services::subscriptions::start::StartSettledBy::Checkout,
                     },
                 )
                 .await?;

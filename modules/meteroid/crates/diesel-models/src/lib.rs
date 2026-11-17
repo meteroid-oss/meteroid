@@ -95,6 +95,7 @@ pub mod subscription_add_ons;
 pub mod subscription_adjustments;
 pub mod subscription_components;
 pub mod subscription_events;
+pub mod subscription_facts;
 pub mod subscription_usage_filters;
 pub mod tax_categories;
 pub mod tenants;

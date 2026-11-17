@@ -16,6 +16,8 @@ pub struct AppliedCouponRow {
     pub applied_count: Option<i32>,
     pub last_applied_at: Option<chrono::NaiveDateTime>,
     pub created_at: chrono::NaiveDateTime,
+    /// The coupon applies to invoices from this date.
+    pub effective_from: chrono::NaiveDate,
 }
 
 #[derive(Debug, Queryable, Identifiable, Selectable)]
@@ -57,6 +59,7 @@ pub struct AppliedCouponRowNew {
     pub applied_amount: Option<Decimal>,
     pub applied_count: Option<i32>,
     pub last_applied_at: Option<chrono::NaiveDateTime>,
+    pub effective_from: chrono::NaiveDate,
 }
 
 #[derive(Debug, Queryable, Selectable)]

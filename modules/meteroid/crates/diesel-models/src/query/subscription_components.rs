@@ -122,10 +122,13 @@ impl SubscriptionComponentRow {
             .into_db_result()
     }
 
+    /// The components not ended by `as_of`; `None`: the open ones, as readers took them before
+    /// rows were dated (they read a date from Phase 7 PR 3).
     pub async fn list_subscription_components_by_subscription(
         conn: &mut PgConn,
         tenant_id_params: &TenantId,
         subscription_id: &SubscriptionId,
+        as_of: Option<NaiveDate>,
     ) -> DbResult<Vec<SubscriptionComponentRow>> {
         use crate::schema::subscription_component::dsl as subscription_component_dsl;
         use diesel_async::RunQueryDsl;
@@ -134,7 +137,11 @@ impl SubscriptionComponentRow {
             .inner_join(crate::schema::subscription::table)
             .filter(subscription_component_dsl::subscription_id.eq(subscription_id))
             .filter(crate::schema::subscription::tenant_id.eq(tenant_id_params))
-            .filter(subscription_component_dsl::effective_to.is_null())
+            .filter(
+                subscription_component_dsl::effective_to
+                    .is_null()
+                    .or(subscription_component_dsl::effective_to.gt(as_of)),
+            )
             .select(SubscriptionComponentRow::as_select());
 
         crate::debug_sql(&query);

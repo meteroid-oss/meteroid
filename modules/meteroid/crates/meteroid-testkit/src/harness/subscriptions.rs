@@ -42,6 +42,7 @@ impl TestEnv {
             &mut conn,
             &TENANT_ID,
             &subscription_id,
+            None,
         )
         .await
         .expect("Failed to get subscription components")

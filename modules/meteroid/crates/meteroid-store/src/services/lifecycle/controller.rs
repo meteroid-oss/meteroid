@@ -51,6 +51,8 @@ pub struct ControllerRun {
 pub struct ControllerSweep {
     pub customers: usize,
     pub lost: usize,
+    /// Plan windows whose cadence origin is still to decide (a backfill counter, zero once done).
+    pub pending_origins: i64,
 }
 
 impl Services {
@@ -311,7 +313,16 @@ impl Services {
 
     /// Recomputes every customer's wake; counts those due whose stored wake was not.
     pub(crate) async fn sweep_billing_controller(&self) -> StoreResult<ControllerSweep> {
-        let mut sweep = ControllerSweep::default();
+        let mut sweep = ControllerSweep {
+            pending_origins: self.decide_pending_window_origins().await?,
+            ..ControllerSweep::default()
+        };
+        if sweep.pending_origins > 0 {
+            log::warn!(
+                "{} plan windows still have no cadence origin",
+                sweep.pending_origins
+            );
+        }
         let mut after = None;
         loop {
             let customers = {

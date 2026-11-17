@@ -483,9 +483,11 @@ pub async fn spawn_workers(
                 || async {
                     let sweep = services.sweep_billing_controller().await?;
                     log::info!(
-                        "billing controller sweep: {} customers, {} lost wakeups",
+                        "billing controller sweep: {} customers, {} lost wakeups, {} plan windows \
+                         of undecided origin",
                         sweep.customers,
-                        sweep.lost
+                        sweep.lost,
+                        sweep.pending_origins
                     );
                     Ok(())
                 },

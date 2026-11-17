@@ -44,6 +44,7 @@ const TRANSITIVE_TABLES: &[&str] = &[
     "subscription_event",
     "subscription_adjustment",
     "subscription_adjustment_component",
+    "subscription_plan_window_origin_pending",
     "scheduled_event",
     "slot_transaction",
     "applied_coupon",

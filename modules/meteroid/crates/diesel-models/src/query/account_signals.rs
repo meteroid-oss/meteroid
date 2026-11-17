@@ -24,7 +24,7 @@ pub struct CustomerMrrRow {
 }
 
 pub const HAS_MINIMUM: &str = "EXISTS (SELECT 1 FROM subscription_adjustment a
-    WHERE a.subscription_id = s.id AND a.kind = 'MINIMUM')";
+    WHERE a.subscription_id = s.id AND a.kind = 'MINIMUM' AND a.effective_to IS NULL)";
 
 /// `SUM(mrr_cents)` of each customer's billing-active subscriptions, per currency.
 pub async fn customer_billing_mrr(

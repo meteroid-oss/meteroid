@@ -529,6 +529,7 @@ diesel::table! {
         applied_count -> Nullable<Int4>,
         last_applied_at -> Nullable<Timestamp>,
         created_at -> Timestamp,
+        effective_from -> Date,
     }
 }
 
@@ -1685,6 +1686,8 @@ diesel::table! {
         store_xid -> Nullable<Xid8>,
         payment_disputed_at -> Nullable<Timestamp>,
         delivery_held_at -> Nullable<Timestamptz>,
+        finalize_after -> Nullable<Timestamp>,
+        next_payment_attempt_at -> Nullable<Timestamp>,
     }
 }
 
@@ -2771,13 +2774,15 @@ diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::AdjustmentKindEnum;
 
-    subscription_adjustment (subscription_id, kind) {
+    subscription_adjustment (subscription_id, kind, effective_from) {
         subscription_id -> Uuid,
         kind -> AdjustmentKindEnum,
         amount_subunit -> Int8,
         includes_all_components -> Bool,
         is_override -> Bool,
         created_at -> Timestamp,
+        effective_from -> Date,
+        effective_to -> Nullable<Date>,
     }
 }
 
@@ -2785,10 +2790,11 @@ diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::AdjustmentKindEnum;
 
-    subscription_adjustment_component (subscription_id, kind, product_id) {
+    subscription_adjustment_component (subscription_id, kind, effective_from, product_id) {
         subscription_id -> Uuid,
         kind -> AdjustmentKindEnum,
         product_id -> Uuid,
+        effective_from -> Date,
     }
 }
 
@@ -2814,6 +2820,23 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::ActorTypeEnum;
+
+    subscription_ending (subscription_id, kind) {
+        subscription_id -> Uuid,
+        tenant_id -> Uuid,
+        kind -> Text,
+        at -> Timestamp,
+        reason -> Nullable<Text>,
+        actor_type -> ActorTypeEnum,
+        actor_uuid -> Nullable<Uuid>,
+        actor_alias -> Nullable<Text>,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::SubscriptionEventType;
 
     subscription_event (id) {
@@ -2827,6 +2850,50 @@ diesel::table! {
         details -> Nullable<Jsonb>,
         outgoing_checked_at -> Nullable<Timestamp>,
         outgoing_next_check_at -> Nullable<Timestamp>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::BillingPeriodEnum;
+
+    subscription_plan_window (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        subscription_id -> Uuid,
+        plan_version_id -> Uuid,
+        from_date -> Date,
+        to_date -> Nullable<Date>,
+        cadence -> BillingPeriodEnum,
+        cadence_origin -> Date,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    subscription_plan_window_origin_pending (window_id) {
+        window_id -> Uuid,
+    }
+}
+
+diesel::table! {
+    subscription_start_settled (subscription_id) {
+        subscription_id -> Uuid,
+        tenant_id -> Uuid,
+        at -> Timestamp,
+        settled_by -> Text,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    subscription_trial (subscription_id) {
+        subscription_id -> Uuid,
+        tenant_id -> Uuid,
+        from_date -> Date,
+        until_date -> Date,
+        free -> Bool,
+        created_at -> Timestamp,
     }
 }
 
@@ -3314,8 +3381,17 @@ diesel::joinable!(subscription_component -> price (price_id));
 diesel::joinable!(subscription_component -> price_component (price_component_id));
 diesel::joinable!(subscription_component -> product (product_id));
 diesel::joinable!(subscription_component -> subscription (subscription_id));
+diesel::joinable!(subscription_ending -> subscription (subscription_id));
+diesel::joinable!(subscription_ending -> tenant (tenant_id));
 diesel::joinable!(subscription_event -> bi_mrr_movement_log (bi_mrr_movement_log_id));
 diesel::joinable!(subscription_event -> subscription (subscription_id));
+diesel::joinable!(subscription_plan_window -> subscription (subscription_id));
+diesel::joinable!(subscription_plan_window -> tenant (tenant_id));
+diesel::joinable!(subscription_plan_window_origin_pending -> subscription_plan_window (window_id));
+diesel::joinable!(subscription_start_settled -> subscription (subscription_id));
+diesel::joinable!(subscription_start_settled -> tenant (tenant_id));
+diesel::joinable!(subscription_trial -> subscription (subscription_id));
+diesel::joinable!(subscription_trial -> tenant (tenant_id));
 diesel::joinable!(subscription_usage_filter -> subscription (subscription_id));
 diesel::joinable!(subscription_usage_filter -> tenant (tenant_id));
 diesel::joinable!(tax_category -> tenant (tenant_id));

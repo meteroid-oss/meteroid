@@ -8,6 +8,7 @@ use error_stack::ResultExt;
 use crate::enums::{ScheduledEventStatus, ScheduledEventTypeEnum};
 use crate::errors::IntoDbResult;
 use crate::scheduled_events::{ScheduledEventRow, ScheduledEventRowNew};
+use crate::subscription_facts::SubscriptionEndingRow;
 use crate::{DbResult, PgConn};
 use common_domain::ids::{ScheduledEventId, SubscriptionId, TenantId};
 
@@ -483,16 +484,20 @@ impl ScheduledEventRow {
                 status.eq(ScheduledEventStatus::Canceled),
                 error.eq(Some(reason.to_string())),
                 updated_at.eq(common_domain::clock::now().naive_utc()),
-            ));
+            ))
+            .returning(crate::schema::scheduled_event::subscription_id);
 
         crate::debug_sql(&query);
 
-        query
-            .execute(conn)
+        let cancelled: Vec<SubscriptionId> = query
+            .get_results(conn)
             .await
             .attach("Error while canceling event")
-            .map(|updated| updated > 0)
-            .into_db_result()
+            .into_db_result()?;
+        for subscription in &cancelled {
+            SubscriptionEndingRow::withdraw_cancellation(conn, *subscription).await?;
+        }
+        Ok(!cancelled.is_empty())
     }
 
     /// Cancel the pending plan changes and pauses a new plan change replaces. A scheduled
@@ -600,11 +605,15 @@ impl ScheduledEventRow {
 
         crate::debug_sql(&query);
 
-        query
+        let cancelled = query
             .execute(conn)
             .await
             .attach("Error while canceling pending lifecycle events")
-            .into_db_result()
+            .into_db_result()?;
+        if cancelled > 0 {
+            SubscriptionEndingRow::withdraw_cancellation(conn, subscription_id_param).await?;
+        }
+        Ok(cancelled)
     }
 
     /// Cancel all pending subscription-level events (lifecycle + EndTrial).
@@ -640,11 +649,15 @@ impl ScheduledEventRow {
 
         crate::debug_sql(&query);
 
-        query
+        let cancelled = query
             .execute(conn)
             .await
             .attach("Error while canceling pending subscription events")
-            .into_db_result()
+            .into_db_result()?;
+        if cancelled > 0 {
+            SubscriptionEndingRow::withdraw_cancellation(conn, subscription_id_param).await?;
+        }
+        Ok(cancelled)
     }
 }
 
@@ -670,10 +683,12 @@ impl ScheduledEventRowNew {
 
         crate::debug_sql(&query);
 
-        query
+        let inserted: Vec<ScheduledEventRow> = query
             .get_results(conn)
             .await
             .attach("Error while creating scheduled events")
-            .into_db_result()
+            .into_db_result()?;
+        crate::query::subscription_facts::record_scheduled_facts(conn, &inserted).await?;
+        Ok(inserted)
     }
 }

@@ -298,6 +298,7 @@ async fn an_add_on_removed_mid_period_still_bills_its_usage_in_credits() {
         &mut s.env.conn().await,
         &TENANT_ID,
         &s.subscription_id,
+        None,
     )
     .await
     .expect("active add-ons");
@@ -364,6 +365,7 @@ async fn a_settlement_of_two_lines_starting_together_is_previewed_as_finalized()
         &mut s.env.conn().await,
         &TENANT_ID,
         &s.subscription_id,
+        None,
     )
     .await
     .expect("active add-ons");

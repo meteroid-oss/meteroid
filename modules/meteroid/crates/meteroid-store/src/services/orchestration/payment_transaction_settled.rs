@@ -462,6 +462,7 @@ impl Services {
                                 next_cycle_action,
                                 cycle_index,
                                 status: status.into(),
+                                by: crate::services::subscriptions::start::StartSettledBy::Payment,
                             },
                             now,
                         )
@@ -1635,6 +1636,7 @@ async fn apply_priced_coupons_tx(
             applied_amount: None,
             applied_count: None,
             last_applied_at: None,
+            effective_from: common_domain::clock::now().date_naive(),
         })
         .collect();
     if missing.is_empty() {

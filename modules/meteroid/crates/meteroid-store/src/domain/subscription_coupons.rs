@@ -22,6 +22,7 @@ pub struct CreateSubscriptionCoupons {
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[from_owned(AppliedCouponRow)]
 #[owned_into(AppliedCouponRow)]
+#[ghosts(effective_from: @.created_at.date())]
 pub struct AppliedCoupon {
     pub id: AppliedCouponId,
     pub coupon_id: CouponId,

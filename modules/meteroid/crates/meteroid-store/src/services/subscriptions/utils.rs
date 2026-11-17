@@ -633,6 +633,7 @@ pub fn process_create_subscription_coupons(
             applied_amount: None,
             applied_count: None,
             last_applied_at: None,
+            effective_from: subscription.start_date,
         })
         .collect();
 

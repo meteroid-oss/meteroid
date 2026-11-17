@@ -689,7 +689,7 @@ async fn test_apply_amendment_add_addon_immediate(#[future] test_env: TestEnv) {
     // The add-on is active with the right temporal bounds.
     let mut conn = env.conn().await;
     let active_addons =
-        SubscriptionAddOnRow::list_by_subscription_id_active(&mut conn, &TENANT_ID, &sub_id)
+        SubscriptionAddOnRow::list_by_subscription_id_active(&mut conn, &TENANT_ID, &sub_id, None)
             .await
             .expect("list active add-ons");
     assert_eq!(active_addons.len(), 1);
@@ -1671,7 +1671,7 @@ async fn test_amendment_change_addon_quantity(#[future] test_env: TestEnv) {
     // One active add-on row, now quantity 3.
     let mut conn = env.conn().await;
     let active =
-        SubscriptionAddOnRow::list_by_subscription_id_active(&mut conn, &TENANT_ID, &sub_id)
+        SubscriptionAddOnRow::list_by_subscription_id_active(&mut conn, &TENANT_ID, &sub_id, None)
             .await
             .unwrap();
     assert_eq!(active.len(), 1);
@@ -2718,7 +2718,7 @@ async fn active_addon_id(
 ) -> common_domain::ids::SubscriptionAddOnId {
     let mut conn = env.conn().await;
     let active =
-        SubscriptionAddOnRow::list_by_subscription_id_active(&mut conn, &TENANT_ID, &sub_id)
+        SubscriptionAddOnRow::list_by_subscription_id_active(&mut conn, &TENANT_ID, &sub_id, None)
             .await
             .expect("list active add-ons");
     assert_eq!(active.len(), 1, "expected exactly one active add-on");

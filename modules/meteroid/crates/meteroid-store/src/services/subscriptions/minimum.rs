@@ -100,15 +100,16 @@ impl Services {
                 async move {
                     let lock = SubscriptionRow::lock_customer_of(conn, subscription_id).await?;
                     diesel_models::query::credit_inputs::bump_customer(conn, &lock).await?;
-                    SubscriptionAdjustmentRow::delete_by_subscription_id(conn, &subscription_id)
+                    let today = common_domain::clock::now().date_naive();
+                    SubscriptionAdjustmentRow::end_current(conn, &subscription_id, today)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
                     if let Some(new) = new {
-                        new.to_row()
+                        new.to_row(today)
                             .insert(conn)
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
-                        let comp_rows = new.component_rows();
+                        let comp_rows = new.component_rows(today);
                         if !comp_rows.is_empty() {
                             SubscriptionAdjustmentComponentRow::insert_batch(conn, &comp_rows)
                                 .await
