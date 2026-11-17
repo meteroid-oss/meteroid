@@ -1112,7 +1112,7 @@ impl InvoiceInterface for Store {
                 .await?;
 
                 // 4. Void the invoice
-                InvoiceRow::void(conn, id, tenant_id)
+                InvoiceRow::void(conn, id, tenant_id, now.naive_utc())
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
                 crate::services::invoices::release_applied_coupons(

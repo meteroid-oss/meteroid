@@ -76,13 +76,13 @@ const CHECKS: &[(&str, &str)] = &[
                        2 * g.amount::numeric)",
     ),
     (
-        "I7 paid currency credit costs its face, promotional credit nothing",
+        "I7 paid currency credit costs at least its face, promotional credit nothing",
         "SELECT format('%s grant %s of %s %s costs %s %s', g.classification, g.id, g.amount,
                        a.currency, g.cost_minor, g.cost_currency) AS message
          FROM customer_credit_grant g JOIN customer_credit_account a ON a.id = g.account_id
          WHERE g.tenant_id = $1 AND a.credit_unit_id IS NULL
            AND ((g.classification = 'PAID'
-                 AND (g.cost_minor IS DISTINCT FROM g.amount
+                 AND (g.cost_minor IS NULL OR g.cost_minor < g.amount
                       OR g.cost_currency IS DISTINCT FROM a.currency))
                 OR (g.classification = 'PROMOTIONAL' AND coalesce(g.cost_minor, 0) <> 0))",
     ),

@@ -1278,7 +1278,12 @@ impl InvoiceRow {
             .into_db_result()
     }
 
-    pub async fn void(conn: &mut PgConn, id: InvoiceId, tenant_id: TenantId) -> DbResult<()> {
+    pub async fn void(
+        conn: &mut PgConn,
+        id: InvoiceId,
+        tenant_id: TenantId,
+        voided_at: NaiveDateTime,
+    ) -> DbResult<()> {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
 
@@ -1289,7 +1294,7 @@ impl InvoiceRow {
             .set((
                 i_dsl::status.eq(InvoiceStatusEnum::Void),
                 i_dsl::updated_at.eq(common_domain::clock::now().naive_utc()),
-                i_dsl::voided_at.eq(common_domain::clock::now().naive_utc()),
+                i_dsl::voided_at.eq(voided_at),
             ));
 
         crate::debug_sql(&query);
@@ -2283,15 +2288,24 @@ impl InvoiceRowLinesPatch {
 
         let query = diesel::update(i_dsl::invoice)
             .filter(i_dsl::id.eq(id).and(i_dsl::tenant_id.eq(tenant_id)))
+            .filter(i_dsl::status.eq(InvoiceStatusEnum::Draft))
             .set((self, i_dsl::data_updated_at.eq(now)));
 
         crate::debug_sql(&query);
 
-        query
+        let updated = query
             .execute(conn)
             .await
             .attach("Error while updating invoice lines")
-            .into_db_result()
+            .into_db_result()?;
+        // Only a draft's lines are written (R-050): a finalized invoice is never edited.
+        if updated != 1 {
+            return Err(crate::errors::DatabaseError::ValidationError(format!(
+                "update_lines() updated {updated} rows for invoice {id}, expected one draft"
+            ))
+            .into());
+        }
+        Ok(updated)
     }
 }
 

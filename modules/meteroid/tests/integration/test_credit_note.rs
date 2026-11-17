@@ -2396,7 +2396,7 @@ async fn test_corrected_invoice_inherits_and_freezes_parent_annexes() {
 }
 
 /// A plain (non-correction) draft, copied off a finalized invoice.
-async fn insert_plain_draft(
+pub(crate) async fn insert_plain_draft(
     store: &meteroid_store::Store,
     from: &meteroid_store::domain::Invoice,
 ) -> meteroid_store::domain::Invoice {

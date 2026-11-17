@@ -87,7 +87,7 @@ pub fn calculate_coupons_discount(
     let mut subtotal_subunits = Decimal::from(subtotal);
 
     for applicable_coupon in applicable_coupons {
-        if subtotal_subunits <= Decimal::ONE {
+        if subtotal_subunits <= Decimal::ZERO {
             break;
         }
         let discount = match &applicable_coupon.coupon.discount {
@@ -216,6 +216,27 @@ mod tests {
                 created_at: now,
             },
         }
+    }
+
+    #[test]
+    fn a_coupon_takes_the_last_minor_unit() {
+        let full = applied_coupon("FULL", CouponDiscount::Percentage(Decimal::from(100)));
+        let fixed = applied_coupon(
+            "FIXED",
+            CouponDiscount::Fixed {
+                currency: "USD".to_string(),
+                amount: Decimal::new(5, 2),
+            },
+        );
+
+        assert_eq!(
+            calculate_coupons_discount(1, "USD", &[full]).discount_subunit,
+            1
+        );
+        assert_eq!(
+            calculate_coupons_discount(1, "USD", &[fixed]).discount_subunit,
+            1
+        );
     }
 
     #[test]

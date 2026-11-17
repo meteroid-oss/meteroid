@@ -393,6 +393,8 @@ impl Services {
         // Promotional credit is estimated again below, on the edited lines.
         crate::services::credit::promotional::restore_before_tax(&mut lines);
 
+        // A discount comes off the lines' positive subtotals, never more and never below zero (I25).
+        let discountable: i64 = lines.iter().map(|line| line.amount_subtotal.max(0)).sum();
         let discount = if let Some(discount_str) = params.discount {
             let decimal = discount_str.parse::<Decimal>().map_err(|e| {
                 StoreError::InvalidArgument(format!("Invalid discount value: {}", e))
@@ -405,10 +407,15 @@ impl Services {
                     StoreError::InvalidArgument("Decimal to subunit conversion failed".into())
                 })?
         } else if invoice.tax_inclusive {
-            crate::domain::quoted_discount(&invoice.line_items)
+            crate::domain::quoted_discount(&invoice.line_items).min(discountable)
         } else {
-            invoice.discount
+            invoice.discount.min(discountable)
         };
+        if discount < 0 || discount > discountable {
+            bail!(StoreError::InvalidArgument(
+                "The discount must be between zero and the invoice's subtotal".into(),
+            ));
+        }
 
         if discount > 0 {
             lines = crate::services::invoice_lines::discount::distribute_discount(
@@ -464,8 +471,11 @@ impl Services {
         )
         .await?;
 
-        // Paid and credited so far, both carried by the stored amount due.
-        let settled = invoice.total - invoice.amount_due;
+        // The cash collected stays paid (no charge is live here); a draft has applied no credit.
+        let collected = crate::services::credit::value_application::committed_cash_minor(
+            conn, tenant_id, invoice.id,
+        )
+        .await?;
         let totals = crate::services::invoice_lines::invoice_lines::totals_of(&lines, discount);
 
         invoice.line_items = lines;
@@ -473,7 +483,7 @@ impl Services {
         invoice.subtotal_recurring = totals.subtotal_recurring;
         invoice.tax_amount = totals.tax;
         invoice.total = totals.total;
-        invoice.amount_due = totals.amount_due(settled, 0);
+        invoice.amount_due = totals.amount_due(collected, invoice.applied_credits);
         invoice.discount = totals.discount;
         invoice.promotional_credits = totals.promotional;
         invoice.tax_breakdown = tax_breakdown;

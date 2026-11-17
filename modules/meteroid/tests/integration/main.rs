@@ -60,6 +60,7 @@ mod test_credit_usage_schema;
 mod test_customer_credit;
 mod test_customer_credit_topup;
 mod test_future_start_cycles;
+mod test_invoice_edits;
 mod test_metering_backfill_totals;
 mod test_migration_bridge;
 mod test_plan;

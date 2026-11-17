@@ -384,8 +384,7 @@ impl Model {
         let mut left = i128::from(subtotal) * 100;
         let mut discount = 0;
         for c in order {
-            // KW-09: coupons stop once at most one minor unit is left.
-            if left <= 100 {
+            if left <= 0 {
                 break;
             }
             let off = match self.catalog().coupons[c].discount {

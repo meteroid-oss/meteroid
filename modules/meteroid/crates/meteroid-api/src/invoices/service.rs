@@ -1250,6 +1250,15 @@ async fn to_domain_invoice_new(
         lines.push(item);
     }
 
+    // A discount comes off the lines' positive subtotals, never more and never below zero (I25).
+    let discountable: i64 = lines.iter().map(|line| line.amount_subtotal.max(0)).sum();
+    if discount.is_some_and(|discount| discount < 0 || discount > discountable) {
+        return Err(InvoiceApiError::InputError(
+            "The discount must be between zero and the invoice's subtotal".to_string(),
+        )
+        .into());
+    }
+
     // Apply discount proportionally across line items
     if let Some(discount_amount) = discount {
         lines = meteroid_store::services::invoice_lines::discount::distribute_discount(

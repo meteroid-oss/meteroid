@@ -1261,7 +1261,13 @@ impl Services {
         match invoice.status {
             InvoiceStatusEnum::Draft => InvoiceRow::delete(conn, invoice_id, tenant_id).await?,
             InvoiceStatusEnum::Finalized => {
-                InvoiceRow::void(conn, invoice_id, tenant_id).await?;
+                InvoiceRow::void(
+                    conn,
+                    invoice_id,
+                    tenant_id,
+                    common_domain::clock::now().naive_utc(),
+                )
+                .await?;
                 self.store
                     .internal
                     .end_reminders_best_effort(
