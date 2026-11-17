@@ -9,7 +9,7 @@ use crate::services::credit::scope::ends_credit;
 use crate::services::credit::subscription_end::end_subscription_credit_tx;
 use crate::services::subscriptions::mrr::subscription_movement;
 use crate::services::subscriptions::plan_change_credit::CancellationRecord;
-use crate::services::subscriptions::proration::{calculate_proration_by, subscription_stub};
+use crate::services::subscriptions::proration::calculate_proration_by;
 use crate::services::subscriptions::utils::scale_fee;
 use crate::services::{InvoiceBillingMode, Services};
 use crate::store::PgConn;
@@ -327,13 +327,14 @@ impl Services {
 
             let precision = crate::constants::Currencies::resolve_currency_precision(&sub.currency)
                 .unwrap_or(2);
-            let proration = cancellation_proration(
-                details,
-                period_start,
-                period_end,
+            let grid = crate::services::subscriptions::proration::OwnGrid::read(
+                conn,
+                sub,
+                (period_start, period_end),
                 termination_date,
-                precision,
-            );
+            )
+            .await?;
+            let proration = cancellation_proration(details, grid, termination_date, precision);
             debug_assert!(proration.lines.iter().all(|line| line.amount_cents <= 0));
             let notes = self
                 .settle_cancelled_components_tx(
@@ -578,8 +579,7 @@ impl Services {
 /// subscription's components and add-ons billed in advance: what its cancellation credits.
 pub(crate) fn cancellation_proration(
     details: &SubscriptionDetails,
-    period_start: NaiveDate,
-    period_end: NaiveDate,
+    grid: crate::services::subscriptions::proration::OwnGrid,
     termination_date: NaiveDate,
     precision: u8,
 ) -> ProrationResult {
@@ -598,14 +598,10 @@ pub(crate) fn cancellation_proration(
         &[],
         &[],
         &removed,
-        (period_start, period_end),
+        grid.current,
         termination_date,
         precision,
-        subscription_stub(
-            &details.subscription,
-            (period_start, period_end),
-            termination_date,
-        ),
+        crate::services::subscriptions::proration::stub_on_own_grid(grid, termination_date),
     )
 }
 

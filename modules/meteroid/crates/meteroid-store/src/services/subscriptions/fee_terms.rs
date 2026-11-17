@@ -11,13 +11,15 @@ use diesel_models::slot_transactions::SlotTransactionRow;
 use rust_decimal::Decimal;
 
 use crate::StoreResult;
-use crate::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
+use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::subscription_changes::{AddedComponent, RemovedComponent};
 use crate::domain::subscription_components::SubscriptionFee;
 use crate::domain::{Subscription, SubscriptionAddOn, SubscriptionComponent, SubscriptionDetails};
 use crate::repositories::credit_notes::CreditLineItem;
 use crate::services::subscriptions::amendment::PeriodCreditContext;
-use crate::services::subscriptions::proration::{component_advance_amount_cents, own_period};
+use crate::services::subscriptions::proration::{
+    OwnGrid, component_advance_amount_cents, own_period,
+};
 use crate::store::PgConn;
 
 /// The seats a slot fee bills from each date its count changed, as its active transactions
@@ -145,11 +147,8 @@ pub(in crate::services) struct FeeHistory {
     pub rows: Vec<FeeRow>,
     pub slots: Vec<SlotTransactionRow>,
     pub precision: u8,
-    /// The subscription's period containing the date, and the grid its cadences bill on.
-    pub current: (NaiveDate, NaiveDate),
-    pub cadence: BillingPeriodEnum,
-    pub billing_start: NaiveDate,
-    pub billing_day: u32,
+    /// The subscription's period containing the date, and the grids its cadences bill on.
+    pub grid: OwnGrid,
 }
 
 impl FeeHistory {
@@ -232,10 +231,7 @@ impl FeeHistory {
                 &subscription.currency,
             )
             .unwrap_or(2),
-            current,
-            cadence: subscription.period,
-            billing_start,
-            billing_day,
+            grid: OwnGrid::read(conn, &subscription, current, at).await?,
         })
     }
 
@@ -247,13 +243,7 @@ impl FeeHistory {
         lineages: &BTreeSet<String>,
         issued: &[IssuedLine],
     ) -> Vec<Term> {
-        let grid = own_period(
-            self.current,
-            self.cadence,
-            self.billing_start,
-            self.billing_day,
-            at,
-        );
+        let grid = own_period(self.grid, at);
         let mut terms = Vec::new();
         for row in self.rows.iter().filter(|row| {
             lineages.contains(&row.lineage)
@@ -545,6 +535,7 @@ impl AmendmentChange<'_> {
 mod tests {
     use super::*;
     use crate::domain::LineItemKind;
+    use crate::domain::enums::BillingPeriodEnum;
     use crate::domain::invoice_lines::LineItem;
 
     fn day(d: u32) -> NaiveDate {
@@ -614,10 +605,14 @@ mod tests {
             rows: vec![row(310, 1, Some(11)), row(620, 11, None)],
             slots: vec![],
             precision: 2,
-            current: (day(1), NaiveDate::from_ymd_opt(2026, 11, 1).unwrap()),
-            cadence: BillingPeriodEnum::Monthly,
-            billing_start: day(1),
-            billing_day: 1,
+            grid: OwnGrid {
+                current: (day(1), NaiveDate::from_ymd_opt(2026, 11, 1).unwrap()),
+                cadence: BillingPeriodEnum::Monthly,
+                billing_start: day(1),
+                billing_from: day(1),
+                billing_day: 1,
+                run: None,
+            },
         };
         let ctx = PeriodCreditContext {
             invoices: vec![],

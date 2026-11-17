@@ -357,10 +357,15 @@ impl Services {
             // lines, as the apply path issues it.
             let credit_note = match (proration_result.as_ref(), is_free_trial(&sub_details)) {
                 (Some(_), false) => {
-                    let grid = amendment_grid(
-                        &sub_details.subscription,
-                        cadence.as_ref(),
-                        period_end,
+                    let grid = crate::services::subscriptions::proration::own_period(
+                        amendment_grid(
+                            &mut conn,
+                            &sub_details.subscription,
+                            cadence.as_ref(),
+                            period_end,
+                            effective_date,
+                        )
+                        .await?,
                         effective_date,
                     );
                     let change = crate::services::subscriptions::fee_terms::AmendmentChange {
@@ -540,10 +545,15 @@ impl Services {
                 .await?;
 
                 let is_free_trial = is_free_trial(&sub_details);
-                let grid = amendment_grid(
-                    &sub_details.subscription,
-                    cadence.as_ref(),
-                    period_end,
+                let grid = crate::services::subscriptions::proration::own_period(
+                    amendment_grid(
+                        conn,
+                        &sub_details.subscription,
+                        cadence.as_ref(),
+                        period_end,
+                        change_date,
+                    )
+                    .await?,
                     change_date,
                 );
                 let change = crate::services::subscriptions::fee_terms::AmendmentChange {
@@ -1333,21 +1343,15 @@ async fn prorate_amendment(
     )
     .await?;
     let sub = &sub_details.subscription;
-    let (current, renews_on) = amendment_period(sub, cadence.as_ref(), period_end);
+    let grid = amendment_grid(conn, sub, cadence.as_ref(), period_end, change_date).await?;
     let proration = calculate_proration_by(
         &[],
         added,
         removed,
-        current,
+        grid.current,
         change_date,
         precision,
-        stub_on_own_grid(
-            current,
-            renews_on,
-            sub.billing_start_date.unwrap_or(sub.current_period_start),
-            u32::from(sub.billing_day_anchor),
-            change_date,
-        ),
+        stub_on_own_grid(grid, change_date),
     );
     Ok((proration, cadence))
 }
@@ -1367,21 +1371,23 @@ fn amendment_period(
     }
 }
 
-/// The period each fee of an immediate amendment bills on, as its proration reads it.
-fn amendment_grid(
+/// The grids an immediate amendment reads each fee's period on, as its proration does.
+async fn amendment_grid(
+    conn: &mut PgConn,
     sub: &crate::domain::Subscription,
     cadence: Option<&crate::services::subscriptions::cadence::Cadence>,
     period_end: NaiveDate,
     change_date: NaiveDate,
-) -> impl Fn(&SubscriptionFeeBillingPeriod) -> (NaiveDate, NaiveDate) + Sync + use<> {
+) -> StoreResult<crate::services::subscriptions::proration::OwnGrid> {
     let (current, renews_on) = amendment_period(sub, cadence, period_end);
-    crate::services::subscriptions::proration::own_period(
-        current,
-        renews_on,
-        sub.billing_start_date.unwrap_or(sub.current_period_start),
-        u32::from(sub.billing_day_anchor),
+    Ok(crate::services::subscriptions::proration::OwnGrid::read(
+        conn,
+        sub,
+        (sub.current_period_start, period_end),
         change_date,
     )
+    .await?
+    .renewing(current, renews_on))
 }
 
 /// Audit-trail metadata describing the shape of an amendment.

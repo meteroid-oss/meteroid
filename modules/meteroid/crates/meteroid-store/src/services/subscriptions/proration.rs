@@ -389,57 +389,98 @@ pub fn calculate_proration(
     )
 }
 
-/// [`stub_on_own_grid`] on the grid of `sub`, whose current period is `current`.
-pub(crate) fn subscription_stub(
-    sub: &crate::domain::Subscription,
-    current: (NaiveDate, NaiveDate),
-    change_date: NaiveDate,
-) -> impl Fn(&SubscriptionFeeBillingPeriod) -> (DayFraction, Option<NaiveDate>) {
-    stub_on_own_grid(
-        current,
-        sub.period,
-        sub.billing_start_date.unwrap_or(sub.current_period_start),
-        u32::from(sub.billing_day_anchor),
-        change_date,
-    )
+/// Where a change on a date reads each fee's own period (R-083, R-084): on the subscription's
+/// cadence, its current period; on another, the period of the fee's own grid, the latest change of
+/// cadence's, else the base grid from the billing start or a free trial's end.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct OwnGrid {
+    pub current: (NaiveDate, NaiveDate),
+    pub cadence: crate::domain::enums::BillingPeriodEnum,
+    pub billing_start: NaiveDate,
+    pub billing_from: NaiveDate,
+    pub billing_day: u32,
+    pub run: Option<crate::utils::periods::CadenceRun>,
 }
 
-/// The stub a fee of `period` bills from `change_date`: on the subscription's cadence, what is
-/// left of `current`; on another, what is left of its own period on the grid from `billing_start`.
+impl OwnGrid {
+    /// The grids of `sub`, whose current period is `current`, at `change_date`.
+    pub(crate) async fn read(
+        conn: &mut crate::store::PgConn,
+        sub: &crate::domain::Subscription,
+        current: (NaiveDate, NaiveDate),
+        change_date: NaiveDate,
+    ) -> crate::StoreResult<Self> {
+        use crate::services::invoice_lines::cadence::{CadenceSubject, cadence_runs_of};
+        let run = cadence_runs_of(
+            conn,
+            CadenceSubject::of_subscription(sub),
+            change_date,
+            true,
+        )
+        .await?
+        .into_iter()
+        .next();
+        Ok(OwnGrid {
+            current,
+            cadence: sub.period,
+            billing_start: sub.billing_start_date.unwrap_or(sub.current_period_start),
+            billing_from: crate::services::subscriptions::billing_from_tx(conn, sub).await?,
+            billing_day: u32::from(sub.billing_day_anchor),
+            run,
+        })
+    }
+
+    /// The same, renewing on `cadence` over `current`: an amendment moving the cadence.
+    pub(crate) fn renewing(
+        self,
+        current: (NaiveDate, NaiveDate),
+        cadence: crate::domain::enums::BillingPeriodEnum,
+    ) -> Self {
+        OwnGrid {
+            current,
+            cadence,
+            ..self
+        }
+    }
+}
+
+/// The stub a fee of `period` bills from `change_date`: what is left of its own period.
 pub(crate) fn stub_on_own_grid(
-    current: (NaiveDate, NaiveDate),
-    cadence: crate::domain::enums::BillingPeriodEnum,
-    billing_start: NaiveDate,
-    billing_day: u32,
+    grid: OwnGrid,
     change_date: NaiveDate,
 ) -> impl Fn(&SubscriptionFeeBillingPeriod) -> (DayFraction, Option<NaiveDate>) {
-    let own = own_period(current, cadence, billing_start, billing_day, change_date);
+    let own = own_period(grid, change_date);
     move |period| {
         let (start, end) = own(period);
         (DayFraction::remaining(start, end, change_date), Some(end))
     }
 }
 
-/// The period a fee of `period` bills on at `change_date`: `current` on the subscription's
-/// cadence, else its own period on the grid from `billing_start`.
+/// The period a fee of `period` bills on at `change_date` (see [`OwnGrid`]).
 pub(crate) fn own_period(
-    current: (NaiveDate, NaiveDate),
-    cadence: crate::domain::enums::BillingPeriodEnum,
-    billing_start: NaiveDate,
-    billing_day: u32,
+    grid: OwnGrid,
     change_date: NaiveDate,
-) -> impl Fn(&SubscriptionFeeBillingPeriod) -> (NaiveDate, NaiveDate) {
+) -> impl Fn(&SubscriptionFeeBillingPeriod) -> (NaiveDate, NaiveDate) + Sync + use<> {
     move |period| match period.as_billing_period_opt() {
-        Some(own) if own.as_months() != cadence.as_months() => {
-            let own = crate::utils::periods::find_period_containing_date(
-                billing_start,
-                change_date,
-                &own,
-                billing_day,
-            );
-            (own.start, own.end)
+        Some(own) if own.as_months() != grid.cadence.as_months() => {
+            let months = own.as_months();
+            match grid.run {
+                Some(run) => {
+                    billing_core::timeline::Grid::from_origin(run.origin, grid.billing_day, months)
+                }
+                None => crate::utils::periods::base_grid(
+                    grid.billing_start,
+                    grid.billing_from,
+                    grid.billing_day,
+                    months,
+                ),
+            }
+            .and_then(|own| own.period_containing(change_date))
+            // A change before the grid starts (during a free trial) reads the current period.
+            .filter(|(start, _)| *start <= change_date)
+            .unwrap_or(grid.current)
         }
-        _ => current,
+        _ => grid.current,
     }
 }
 
@@ -1083,6 +1124,55 @@ mod tests {
         assert_eq!(result.net_amount_cents, 100_000);
     }
 
+    /// Switched to quarterly with an origin on April 15, a yearly fee reads its year on the grid from
+    /// there (April 15 to April 15), not from the billing start (January 1); a quarterly fee reads
+    /// the subscription's current period.
+    #[test]
+    fn a_fee_off_cadence_after_a_change_of_cadence_reads_its_period_on_the_change_s_grid() {
+        let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
+        let grid = OwnGrid {
+            current: (day(7, 15), day(10, 15)),
+            cadence: crate::domain::enums::BillingPeriodEnum::Quarterly,
+            billing_start: day(1, 1),
+            billing_from: day(1, 1),
+            billing_day: 15,
+            run: Some(crate::utils::periods::CadenceRun {
+                switched_on: day(3, 20),
+                origin: day(4, 15),
+                previous_renewal: day(7, 15),
+            }),
+        };
+        let own = own_period(grid, day(8, 1));
+        assert_eq!(
+            own(&SubscriptionFeeBillingPeriod::Annual),
+            (day(4, 15), NaiveDate::from_ymd_opt(2025, 4, 15).unwrap())
+        );
+        assert_eq!(
+            own(&SubscriptionFeeBillingPeriod::Quarterly),
+            (day(7, 15), day(10, 15))
+        );
+    }
+
+    /// A yearly fee changed on February 5, during a free trial ending February 15, reads the
+    /// subscription's current period: its grid starts only at the trial's end.
+    #[test]
+    fn a_fee_off_cadence_changed_during_a_free_trial_reads_the_current_period() {
+        let day = |m, d| NaiveDate::from_ymd_opt(2024, m, d).unwrap();
+        let grid = OwnGrid {
+            current: (day(2, 1), day(2, 15)),
+            cadence: crate::domain::enums::BillingPeriodEnum::Monthly,
+            billing_start: day(2, 1),
+            billing_from: day(2, 15),
+            billing_day: 15,
+            run: None,
+        };
+        let own = own_period(grid, day(2, 5));
+        assert_eq!(
+            own(&SubscriptionFeeBillingPeriod::Annual),
+            (day(2, 1), day(2, 15))
+        );
+    }
+
     #[test]
     fn test_added_yearly_component_prorated_over_its_own_period() {
         // A yearly fee added on Jan 16 to a monthly subscription started Jan 1 bills what is left
@@ -1108,10 +1198,14 @@ mod tests {
             day(1, 16),
             2,
             stub_on_own_grid(
-                current,
-                crate::domain::enums::BillingPeriodEnum::Monthly,
-                day(1, 1),
-                1,
+                OwnGrid {
+                    current,
+                    cadence: crate::domain::enums::BillingPeriodEnum::Monthly,
+                    billing_start: day(1, 1),
+                    billing_from: day(1, 1),
+                    billing_day: 1,
+                    run: None,
+                },
                 day(1, 16),
             ),
         );

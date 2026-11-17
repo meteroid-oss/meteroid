@@ -24,7 +24,7 @@ use crate::repositories::SubscriptionInterface;
 use crate::repositories::entity_activity::EntityActivityInterface;
 use crate::services::Services;
 use crate::services::subscriptions::proration::{
-    calculate_proration_by, detect_change_direction, pack_charge_line, subscription_stub,
+    OwnGrid, calculate_proration_by, detect_change_direction, pack_charge_line, stub_on_own_grid,
 };
 use crate::services::subscriptions::terminate::removed_add_on;
 use crate::store::PgConn;
@@ -899,9 +899,14 @@ impl Services {
             (period_start, period_end),
             change_date,
             precision,
-            subscription_stub(
-                &ctx.subscription_details.subscription,
-                (period_start, period_end),
+            stub_on_own_grid(
+                OwnGrid::read(
+                    conn,
+                    &ctx.subscription_details.subscription,
+                    (period_start, period_end),
+                    change_date,
+                )
+                .await?,
                 change_date,
             ),
         );
@@ -2128,7 +2133,10 @@ async fn new_pack_lines(
     precision: u8,
 ) -> StoreResult<Vec<crate::domain::subscription_changes::ProrationLineItem>> {
     use diesel_models::invoices::InvoiceRow;
-    let stub = subscription_stub(subscription, (period_start, period_end), change_date);
+    let stub = stub_on_own_grid(
+        OwnGrid::read(conn, subscription, (period_start, period_end), change_date).await?,
+        change_date,
+    );
     let mut lines = Vec::new();
     for mapping in mappings {
         let (target_component_id, product_id, name, fee, period) = match mapping {

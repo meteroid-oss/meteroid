@@ -173,14 +173,6 @@ pub(crate) fn restore_before_tax(lines: &mut [LineItem]) {
     }
 }
 
-/// Takes each share off its line, before tax.
-pub(crate) fn take_before_tax(lines: &mut [LineItem], shares: &[i64]) {
-    for (line, share) in lines.iter_mut().zip(shares) {
-        line.taxable_amount -= share;
-        line.promotional_credit = (*share > 0).then_some(*share);
-    }
-}
-
 pub(crate) fn quoted_total(lines: &[LineItem]) -> StoreResult<i64> {
     lines
         .iter()
@@ -390,38 +382,46 @@ impl TaxedDocument<'_> {
 }
 
 impl Services {
-    /// Takes off lines priced but not yet taxed the promotional credit finalizing at `scope.at`
-    /// would draw against them.
-    pub(in crate::services) async fn take_promotional_estimate(
+    /// Takes off taxed `lines` the promotional credit finalizing at `scope.at` would draw against
+    /// them, as finalizing draws it: once, on the amounts after discount and by their taxes' rates,
+    /// the lines it moves taxed again (Phase 5).
+    pub(in crate::services) async fn estimate_promotional_on_taxed(
         &self,
         conn: &mut PgConn,
         scope: &EstimateContext<'_>,
-        lines: &mut [LineItem],
+        lines: &mut Vec<LineItem>,
+        breakdown: &mut Vec<TaxBreakdownItem>,
+        discount: i64,
+        tax_inclusive: bool,
     ) -> StoreResult<()> {
-        restore_before_tax(lines);
-        let base = |line: &LineItem| line.taxable_amount;
-        let owners = LineOwners::load_tx(conn, scope.tenant_id, lines).await?;
-        let line_scope = LineScope {
-            owners: &owners,
-            subscription_id: scope.subscription_id,
-        };
-        let (request, of_line) = invoice_request(lines, line_scope, base)?;
-        // Not taxed yet: paid settlements are placed at face value until the taxed lines are
-        // estimated again (`reprice_promotional_estimate`).
-        let mut charges = usage_charges(lines, &of_line, &request, false, base);
-        for charge in &mut charges {
-            charge.owed.taxes.clear();
-        }
-        let allocation = scope
-            .estimate(conn, GrantPool::Promotional, &request, &charges)
-            .await?;
-        let shares = line_shares(lines, &of_line, &allocation, base);
-        take_before_tax(lines, &shares);
-        Ok(())
+        let billing_core::Totals {
+            mut subtotal,
+            mut subtotal_recurring,
+            promotional: mut promotional_credits,
+            tax: mut tax_amount,
+            mut total,
+            ..
+        } = crate::services::invoice_lines::invoice_lines::totals_of(lines, discount);
+        self.reprice_promotional_estimate(
+            conn,
+            scope,
+            &mut TaxedDocument {
+                lines,
+                subtotal: &mut subtotal,
+                subtotal_recurring: &mut subtotal_recurring,
+                discount,
+                tax_inclusive,
+                tax_amount: &mut tax_amount,
+                tax_breakdown: breakdown,
+                promotional_credits: &mut promotional_credits,
+                total: &mut total,
+            },
+        )
+        .await
     }
 
-    /// [`Services::take_promotional_estimate`] for lines already taxed (kept, merged or edited):
-    /// re-taxes only the lines whose share moved.
+    /// The promotional credit finalizing would draw against lines already taxed (kept, merged or
+    /// edited): re-taxes only the lines whose share moved.
     pub(in crate::services) async fn reprice_promotional_estimate(
         &self,
         conn: &mut PgConn,
@@ -475,6 +475,14 @@ impl EstimateContext<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Takes each share off its line, before tax.
+    fn take_before_tax(lines: &mut [LineItem], shares: &[i64]) {
+        for (line, share) in lines.iter_mut().zip(shares) {
+            line.taxable_amount -= share;
+            line.promotional_credit = (*share > 0).then_some(*share);
+        }
+    }
 
     fn no_scope(owners: &LineOwners) -> LineScope<'_> {
         LineScope {

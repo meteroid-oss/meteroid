@@ -855,7 +855,7 @@ impl Services {
         );
 
         let discount_total = coupons_discount.discount_subunit.to_non_negative_u64(); // TODO we need to define the rules for negatives, same below with taxes & subtotal
-        let mut invoice_lines = super::discount::distribute_discount(invoice_lines, discount_total);
+        let invoice_lines = super::discount::distribute_discount(invoice_lines, discount_total);
 
         let scope = EstimateContext {
             tenant_id: subscription_details.subscription.tenant_id,
@@ -867,9 +867,6 @@ impl Services {
             at: credit_at,
             book,
         };
-        self.take_promotional_estimate(conn, &scope, &mut invoice_lines)
-            .await?;
-
         // we add taxes
         let taxed = self
             .process_invoice_lines_taxes(
@@ -886,37 +883,15 @@ impl Services {
         let discount_total = taxed.net_discount(discount_total as i64, &mut applied_coupons)?;
         let (mut invoice_lines, mut breakdown) = (taxed.lines, taxed.breakdown);
 
-        let Totals {
-            mut subtotal,
-            mut subtotal_recurring,
-            promotional: mut promotional_credits,
-            tax: mut tax_amount,
-            mut total,
-            ..
-        } = totals_of(&invoice_lines, discount_total);
-        // Paid settlements of the periods were placed at face value before tax; placed again by
-        // the usage lines' rates, as finalizing places them.
-        let taxed_usage = invoice_lines
-            .iter()
-            .any(|line| line.metric_id.is_some() && !line.tax_details.is_empty());
-        if !scope.periods.is_empty() && !tax_inclusive && taxed_usage {
-            self.reprice_promotional_estimate(
-                conn,
-                &scope,
-                &mut TaxedDocument {
-                    lines: &mut invoice_lines,
-                    subtotal: &mut subtotal,
-                    subtotal_recurring: &mut subtotal_recurring,
-                    discount: discount_total,
-                    tax_inclusive,
-                    tax_amount: &mut tax_amount,
-                    tax_breakdown: &mut breakdown,
-                    promotional_credits: &mut promotional_credits,
-                    total: &mut total,
-                },
-            )
-            .await?;
-        }
+        self.estimate_promotional_on_taxed(
+            conn,
+            &scope,
+            &mut invoice_lines,
+            &mut breakdown,
+            discount_total,
+            tax_inclusive,
+        )
+        .await?;
         let totals = totals_of(&invoice_lines, discount_total);
         let already_paid = prepaid_amount.unwrap_or(0) as i64;
         let applied_credits = self
@@ -949,7 +924,7 @@ impl Services {
         let discount_total = discount.unwrap_or(0);
         let mut invoice_lines = invoice_lines;
         promotional::restore_before_tax(&mut invoice_lines);
-        let mut invoice_lines = super::discount::distribute_discount(invoice_lines, discount_total);
+        let invoice_lines = super::discount::distribute_discount(invoice_lines, discount_total);
 
         let invoice_currency = currency.clone();
         let scope = EstimateContext {
@@ -962,9 +937,6 @@ impl Services {
             at: common_domain::clock::now(),
             book: None,
         };
-        self.take_promotional_estimate(conn, &scope, &mut invoice_lines)
-            .await?;
-
         // we add taxes
         let taxed = self
             .process_invoice_lines_taxes(
@@ -978,7 +950,16 @@ impl Services {
             )
             .await?;
         let discount_total = taxed.net_discount(discount_total as i64, &mut [])?;
-        let (line_items, breakdown) = (taxed.lines, taxed.breakdown);
+        let (mut line_items, mut breakdown) = (taxed.lines, taxed.breakdown);
+        self.estimate_promotional_on_taxed(
+            conn,
+            &scope,
+            &mut line_items,
+            &mut breakdown,
+            discount_total,
+            tax_inclusive,
+        )
+        .await?;
 
         let totals = totals_of(&line_items, discount_total);
         let already_paid = prepaid_amount.unwrap_or(0) as i64;

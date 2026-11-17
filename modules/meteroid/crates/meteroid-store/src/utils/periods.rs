@@ -529,7 +529,7 @@ impl FeeRun {
 
     /// What the invoice of `invoice_date` settles in arrears, one window per grid period with the
     /// period it is priced over (see [`CadenceRun::arrear_windows`]).
-    fn arrear_windows(
+    pub(crate) fn arrear_windows(
         &self,
         invoice_date: NaiveDate,
         settles_early: bool,

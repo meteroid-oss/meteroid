@@ -891,12 +891,15 @@ impl Services {
             &details.subscription.currency,
         )
         .unwrap_or(2);
-        let proration = crate::services::subscriptions::terminate::cancellation_proration(
-            &details,
-            record.period_start,
-            record.period_end,
+        let grid = crate::services::subscriptions::proration::OwnGrid::read(
+            conn,
+            &details.subscription,
+            (record.period_start, record.period_end),
             at,
-            precision,
+        )
+        .await?;
+        let proration = crate::services::subscriptions::terminate::cancellation_proration(
+            &details, grid, at, precision,
         );
         let prepaid = minimum::up_front_shortfalls_prepaid(conn, &details).await?;
         let ending = Ending::of_cancellation(&proration, &details, at, record.settle_at, prepaid);

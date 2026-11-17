@@ -721,9 +721,6 @@ impl Services {
             at: common_domain::clock::now(),
             book: None,
         };
-        self.take_promotional_estimate(conn, &scope, &mut invoice_lines)
-            .await?;
-
         let invoicing_entity = self
             .store
             .get_invoicing_entity_with_conn(conn, tenant_id, Some(customer.invoicing_entity_id))
@@ -742,7 +739,16 @@ impl Services {
                 subscription.tax_inclusive,
             )
             .await?;
-        let (invoice_lines, tax_breakdown) = (taxed.lines, taxed.breakdown);
+        let (mut invoice_lines, mut tax_breakdown) = (taxed.lines, taxed.breakdown);
+        self.estimate_promotional_on_taxed(
+            conn,
+            &scope,
+            &mut invoice_lines,
+            &mut tax_breakdown,
+            0,
+            subscription.tax_inclusive,
+        )
+        .await?;
 
         let totals = crate::services::invoice_lines::invoice_lines::totals_of(&invoice_lines, 0);
         let applied_credits = self

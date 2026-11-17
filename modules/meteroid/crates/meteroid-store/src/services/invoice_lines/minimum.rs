@@ -109,29 +109,47 @@ pub(crate) fn closed_period(
     let billing_start = sub.billing_start_date?;
     let anchor = u32::from(sub.billing_day_anchor);
     let settles_early = sub.current_period_end.is_none();
-    let windows: Vec<(Period, Period)> = match run {
-        Some(run) => run.arrear_windows(invoice_date, cadence.as_months(), anchor, settles_early),
-        None => {
-            let period =
-                calculate_arrear_period_range(invoice_date, billing_start, anchor, cadence);
-            let grid = find_period_containing_date(
+    // On the subscription's grid (R-084): a change of cadence's, else the base grid from the
+    // billing start or a free trial's end. A closing date off it (a history no rule produced)
+    // keeps the period holding its day before.
+    let months = cadence.as_months();
+    let fee_run = match run {
+        Some(run) => crate::utils::periods::FeeRun::of_cadence_run(run, months, anchor),
+        None => crate::utils::periods::FeeRun::from_start(
+            (
                 billing_start,
-                invoice_date.pred_opt()?,
-                cadence,
-                anchor,
-            );
-            let nominal_start =
-                subtract_months_at_billing_day(grid.end, cadence.as_months(), anchor)
-                    .unwrap_or(grid.start);
-            vec![(
-                period,
-                Period {
-                    start: nominal_start,
-                    end: grid.end,
-                },
-            )]
-        }
-    };
+                crate::services::invoice_lines::invoice_lines::billing_from(details, billing_start),
+            ),
+            anchor,
+            months,
+            invoice_date,
+        ),
+    }?;
+    let mut windows: Vec<(Period, Period)> = fee_run.arrear_windows(invoice_date, settles_early);
+    if windows.is_empty() && run.is_some() && !settles_early {
+        log::warn!(
+            "the period closed on {invoice_date} of subscription {} is off its cadence's grid",
+            sub.id
+        );
+    }
+    if windows.is_empty() && run.is_none() && !fee_run.grid.is_boundary(invoice_date) {
+        log::warn!(
+            "the period closed on {invoice_date} of subscription {} is off its grid",
+            sub.id
+        );
+        let period = calculate_arrear_period_range(invoice_date, billing_start, anchor, cadence);
+        let grid =
+            find_period_containing_date(billing_start, invoice_date.pred_opt()?, cadence, anchor);
+        let nominal_start =
+            subtract_months_at_billing_day(grid.end, months, anchor).unwrap_or(grid.start);
+        windows = vec![(
+            period,
+            Period {
+                start: nominal_start,
+                end: grid.end,
+            },
+        )];
+    }
     let trial = paid_trial(details, billing_start);
     let served: Vec<(i64, i64)> = windows
         .iter()

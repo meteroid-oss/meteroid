@@ -50,6 +50,10 @@ impl Services {
                     diesel_models::query::credit_inputs::bump_customer(conn, &invoice_lock.lock).await?;
 
                     let invoice: Invoice = invoice_lock.invoice.try_into()?;
+                    // A draft merged into a consolidated invoice is its: it rewrites it.
+                    if invoice.consolidated_into_invoice_id.is_some() {
+                        return Ok(invoice);
+                    }
 
                     // An operator who edited the billing content owns these lines: recomputing
                     // would regenerate the usage lines over their quantities, drop lines they

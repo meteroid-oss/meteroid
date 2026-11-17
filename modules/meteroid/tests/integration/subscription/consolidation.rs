@@ -756,3 +756,62 @@ async fn test_credit_notes_target_the_consolidated_parent_never_a_member(
     assert_eq!(note.line_items[0].local_id, member_line.local_id);
     assert_eq!(note.line_items[0].amount_subtotal, -1_000);
 }
+
+/// Two 35.00 renewals merged into one invoice draw a 50.00 promotional grant once: the drafts
+/// merged into it carry their shares of what it drew, never each its own estimate against the
+/// same grant.
+#[rstest]
+#[tokio::test]
+async fn merged_drafts_carry_their_shares_of_the_credit_the_consolidated_invoice_drew(
+    #[future] test_env: TestEnv,
+) {
+    use crate::helpers::credit::{Grant, fund_promotional_grant};
+    let env = test_env.await;
+    env.set_consolidate_recurring_invoices(true).await;
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    for _ in 0..2 {
+        subscription()
+            .customer(CUST_UBER_ID)
+            .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+            .start_date(start_date)
+            .on_start()
+            .no_trial()
+            .create(env.services())
+            .await;
+    }
+    // After the first invoices: only the merged renewal draws it.
+    fund_promotional_grant(
+        env.store(),
+        TENANT_ID,
+        CUST_UBER_ID,
+        None,
+        Grant::invoice(5_000),
+    )
+    .await;
+    env.process_cycles().await;
+
+    let parents = consolidated_parents(&env, CUST_UBER_ID).await;
+    assert_eq!(parents.len(), 1);
+    let parent = &parents[0];
+    let children = env.get_consolidated_children(parent.id).await;
+    assert_eq!(children.len(), 2);
+    assert!(parent.promotional_credits > 0);
+    assert_eq!(
+        children
+            .iter()
+            .map(|child| child.promotional_credits)
+            .sum::<i64>(),
+        parent.promotional_credits
+    );
+    assert_eq!(
+        children
+            .iter()
+            .map(|child| child.applied_credits)
+            .sum::<i64>(),
+        parent.applied_credits
+    );
+    assert_eq!(
+        children.iter().map(|child| child.total).sum::<i64>(),
+        parent.total
+    );
+}

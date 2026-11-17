@@ -197,6 +197,11 @@ impl Services {
                 if inv.manually_edited_at.is_some() {
                     continue;
                 }
+                // A draft that collected cash settles on its own: merged, its cash would not reach
+                // the consolidated invoice, which would bill it again.
+                if inv.total - inv.amount_due - inv.applied_credits > 0 {
+                    continue;
+                }
                 let pm = self
                     .store
                     .resolve_payment_method_for_subscription(tenant_id, sub_id)
@@ -271,6 +276,19 @@ impl Services {
                     common_domain::clock::now(),
                 )
                 .await?;
+            let already_paid: Vec<i64> = refreshed
+                .iter()
+                .map(|member| member.total - member.amount_due - member.applied_credits)
+                .collect();
+            self.write_members_as_merged(
+                conn,
+                tenant_id,
+                &refreshed,
+                &already_paid,
+                &merged,
+                applied_credits,
+            )
+            .await?;
             let Merged {
                 line_items,
                 coupons,
@@ -481,6 +499,78 @@ impl Services {
 }
 
 impl Services {
+    /// Writes each merged draft as the consolidated invoice bills it: its lines with the shares and
+    /// taxes of the merged lines, and its part of the applied credit by its total, so the drafts
+    /// add up to the consolidated invoice. `already_paid` is what each draft had collected.
+    async fn write_members_as_merged(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        members: &[Invoice],
+        already_paid: &[i64],
+        merged: &Merged,
+        applied_credits: i64,
+    ) -> StoreResult<()> {
+        use crate::domain::LineItem;
+        let merged_line = |line: &LineItem| {
+            merged
+                .line_items
+                .iter()
+                .find(|merged| merged.local_id == line.local_id)
+                .cloned()
+                .unwrap_or_else(|| line.clone())
+        };
+        let lines: Vec<Vec<LineItem>> = members
+            .iter()
+            .map(|member| member.line_items.iter().map(merged_line).collect())
+            .collect();
+        let totals: Vec<billing_core::Totals> = members
+            .iter()
+            .zip(&lines)
+            .map(|(member, lines)| {
+                crate::services::invoice_lines::invoice_lines::totals_of(lines, member.discount)
+            })
+            .collect();
+        // By what each still owes, so no draft's amount due clamps and loses what it collected.
+        let weights: Vec<rust_decimal::Decimal> = totals
+            .iter()
+            .zip(already_paid)
+            .map(|(totals, paid)| rust_decimal::Decimal::from((totals.total - paid).max(0)))
+            .collect();
+        let applied = billing_core::split(applied_credits, &weights);
+        for (((member, lines), totals), (applied, paid)) in members
+            .iter()
+            .zip(lines)
+            .zip(totals)
+            .zip(applied.into_iter().zip(already_paid))
+        {
+            let mut breakdown = crate::repositories::invoices::compute_tax_breakdown(&lines);
+            crate::repositories::invoices::carry_over_tax_findings(
+                &member.tax_breakdown,
+                &mut breakdown,
+            );
+            let row_patch: InvoiceRowLinesPatch = InvoiceLinesPatch {
+                line_items: lines,
+                amount_due: billing_core::amount_due(totals.total, *paid, applied),
+                subtotal: totals.subtotal,
+                subtotal_recurring: totals.subtotal_recurring,
+                total: totals.total,
+                tax_amount: totals.tax,
+                applied_credits: applied,
+                promotional_credits: totals.promotional,
+                applied_coupons: member.coupons.clone(),
+                tax_breakdown: breakdown,
+                annexes: member.annexes.clone(),
+            }
+            .try_into()?;
+            row_patch
+                .update_lines(member.id, tenant_id, conn)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+        }
+        Ok(())
+    }
+
     /// Finalization content of a consolidated invoice billing usage priced in credit units. Its
     /// drafts are priced again and the units drawn once over all of them, against the consolidated
     /// invoice, under the unit's grant locks; then each draft is discounted and taxed on what its
@@ -565,6 +655,10 @@ impl Services {
         .await?;
         drop(targets);
 
+        let already_paid: Vec<i64> = children
+            .iter()
+            .map(|child| child.total - child.amount_due - child.applied_credits)
+            .collect();
         let mut members = Vec::with_capacity(children.len());
         for ((child, child_details), priced) in children.into_iter().zip(&details).zip(priced) {
             let content = match priced {
@@ -574,24 +668,6 @@ impl Services {
                         .await?
                 }
             };
-            let row_patch: InvoiceRowLinesPatch = InvoiceLinesPatch {
-                line_items: content.invoice_lines.clone(),
-                amount_due: content.amount_due,
-                subtotal: content.subtotal,
-                subtotal_recurring: content.subtotal_recurring,
-                total: content.total,
-                tax_amount: content.tax_amount,
-                applied_credits: content.applied_credits,
-                promotional_credits: content.promotional_credits,
-                applied_coupons: content.applied_coupons.clone(),
-                tax_breakdown: content.tax_breakdown.clone(),
-                annexes: child.annexes.clone(),
-            }
-            .try_into()?;
-            row_patch
-                .update_lines(child.id, parent.tenant_id, conn)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
             members.push(Invoice {
                 line_items: content.invoice_lines,
                 coupons: content.applied_coupons,
@@ -620,6 +696,15 @@ impl Services {
                 at.at,
             )
             .await?;
+        self.write_members_as_merged(
+            conn,
+            parent.tenant_id,
+            &members,
+            &already_paid,
+            &merged,
+            applied_credits,
+        )
+        .await?;
         Ok(ComputedInvoiceContent {
             invoice_lines: merged.line_items,
             subtotal: merged.subtotal,

@@ -41,6 +41,17 @@ impl CadenceSubject {
         }
     }
 
+    pub(crate) fn of_subscription(sub: &crate::domain::Subscription) -> Self {
+        Self {
+            tenant_id: sub.tenant_id,
+            subscription_id: sub.id,
+            billing_start: sub.billing_start_date,
+            billing_day: u32::from(sub.billing_day_anchor),
+            current_period_start: sub.current_period_start,
+            current_period_end: sub.current_period_end,
+        }
+    }
+
     pub(crate) fn of(details: &SubscriptionDetails) -> Self {
         let sub = &details.subscription;
         Self {
