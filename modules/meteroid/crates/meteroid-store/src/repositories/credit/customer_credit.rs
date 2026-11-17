@@ -1669,6 +1669,19 @@ pub fn after_paid_settlements(
     charges: &[UsageCharge],
     paid_settled: &[(GrantCandidate, i64)],
 ) -> StoreResult<CreditRequest> {
+    let unplaced = paid_settled
+        .iter()
+        .map(|(grant, amount)| (None, grant.clone(), *amount))
+        .collect::<Vec<_>>();
+    after_settlements_in_windows(request, charges, &unplaced)
+}
+
+/// [`after_paid_settlements`], each settlement's credit on the usage of the window it paid.
+fn after_settlements_in_windows(
+    request: &CreditRequest,
+    charges: &[UsageCharge],
+    paid_settled: &[(Option<SettledWindow>, GrantCandidate, i64)],
+) -> StoreResult<CreditRequest> {
     if paid_settled.is_empty() || charges.is_empty() {
         return Ok(request.clone());
     }
@@ -1682,7 +1695,7 @@ pub fn after_paid_settlements(
             .map(|charge| charge.owed.base_minor)
             .collect::<Vec<_>>(),
     );
-    let placed = assign(
+    let placed = assign_settled(
         paid_settled,
         &CreditRequest {
             requested_minor: invoiced
@@ -2141,12 +2154,12 @@ fn ahead_of(
     pool: GrantPool,
     request: &CreditRequest,
     charges: &[UsageCharge],
-    paid_settled: &[(GrantCandidate, i64)],
+    paid_settled: &[(Option<SettledWindow>, GrantCandidate, i64)],
 ) -> StoreResult<CreditRequest> {
     if pool != GrantPool::Promotional {
         return Ok(request.clone());
     }
-    after_paid_settlements(request, charges, paid_settled)
+    after_settlements_in_windows(request, charges, paid_settled)
 }
 
 /// What each grant of `pool` among `movements` (one invoice's) holds for `draw_source`, net of
@@ -2172,6 +2185,154 @@ fn held_in_pool(
         }
     }
     Ok(held)
+}
+
+/// The usage window a settlement paid: its subscription's period starting on `period_start`.
+pub(crate) type SettledWindow = (SubscriptionId, NaiveDate);
+
+/// [`held_in_pool`] for usage settlements, by the window each paid. Each grant's net is split over
+/// its settlements, latest bound first; what no settlement accounts for has no window.
+fn settled_in_pool(
+    movements: &[CustomerCreditEntryRow],
+    settlements: &[CreditUsageSettlementRow],
+    grants: &[ScopedGrantRow],
+    pool: GrantPool,
+) -> StoreResult<Vec<(Option<SettledWindow>, GrantCandidate, i64)>> {
+    let mut by_bound = settlements.iter().collect::<Vec<_>>();
+    by_bound.sort_by_key(|settlement| std::cmp::Reverse(settlement.event_time_bound));
+    let mut held: Vec<(Option<SettledWindow>, GrantCandidate, i64)> = Vec::new();
+    for (candidate, net) in held_in_pool(movements, DrawSource::UsageSettlement, grants, pool)? {
+        let mut left = net;
+        for settlement in &by_bound {
+            if left <= 0 {
+                break;
+            }
+            let drawn = movements
+                .iter()
+                .filter(|e| {
+                    e.grant_id == candidate.id
+                        && e.source_id == settlement.id.as_uuid()
+                        && e.kind == LedgerEntryKind::Draw.as_db_str()
+                        && pays(e, DrawSource::UsageSettlement)
+                })
+                .try_fold(0_i64, |sum, e| sum.checked_sub(e.amount))
+                .ok_or_else(overflow)?;
+            let amount = drawn.min(left);
+            if amount <= 0 {
+                continue;
+            }
+            left -= amount;
+            let window = Some((settlement.subscription_id, settlement.period_start));
+            match held
+                .iter_mut()
+                .find(|(w, grant, _)| *w == window && grant.id == candidate.id)
+            {
+                Some((_, _, kept)) => *kept = kept.checked_add(amount).ok_or_else(overflow)?,
+                None => held.push((window, candidate.clone(), amount)),
+            }
+        }
+        if left > 0 {
+            held.push((None, candidate, left));
+        }
+    }
+    Ok(held)
+}
+
+/// [`assign`] of settled credit, each settlement's on the usage of the window it paid only (the
+/// demands of its subscription ending first after its period's start), never on an earlier window
+/// another grant could not pay. Merged per grant.
+pub(crate) fn assign_settled(
+    held: &[(Option<SettledWindow>, GrantCandidate, i64)],
+    request: &CreditRequest,
+) -> StoreResult<Allocation> {
+    let mut kept = Allocation {
+        draws: Vec::new(),
+        covered: vec![0; request.demands.len()],
+        placed: Vec::new(),
+    };
+    // Each settlement's window first, then what no settlement accounts for.
+    let mut windows: Vec<Option<SettledWindow>> = Vec::new();
+    for (window, _, _) in held {
+        if !windows.contains(window) {
+            windows.push(*window);
+        }
+    }
+    windows.sort_by_key(Option::is_none);
+    for window in windows {
+        let round = held
+            .iter()
+            .filter(|(w, _, _)| *w == window)
+            .map(|(_, grant, amount)| (grant.clone(), *amount))
+            .collect::<Vec<_>>();
+        let left = request.remainder(&kept)?;
+        let placed = assign(&round, &within_window(left, window)?)?;
+        kept = kept.then(placed)?;
+    }
+    Ok(kept)
+}
+
+/// What a settlement of `window` may cover of `request`: its subscription's usage not dated before
+/// the window, nothing else (finalize keeps settled credit on usage only). Unchanged when the
+/// request names no usage of that subscription.
+fn within_window(
+    request: CreditRequest,
+    window: Option<SettledWindow>,
+) -> StoreResult<CreditRequest> {
+    let Some((subscription_id, period_start)) = window else {
+        return Ok(request);
+    };
+    let start = period_start.and_time(chrono::NaiveTime::MIN).and_utc();
+    let of_subscription =
+        |demand: &CreditDemand| demand.usage && demand.subscription_id == Some(subscription_id);
+    if !request.demands.iter().any(of_subscription) {
+        return Ok(request);
+    }
+    let demands = request
+        .demands
+        .iter()
+        .map(|demand| CreditDemand {
+            amount_minor: if of_subscription(demand)
+                && demand.dated_before.is_none_or(|before| before > start)
+            {
+                demand.amount_minor
+            } else {
+                0
+            },
+            ..*demand
+        })
+        .collect::<Vec<_>>();
+    let open = demands
+        .iter()
+        .try_fold(0_i64, |sum, demand| {
+            sum.checked_add(demand.amount_minor.max(0))
+        })
+        .ok_or_else(overflow)?;
+    Ok(CreditRequest {
+        requested_minor: request.requested_minor.max(0).min(open),
+        demands,
+    })
+}
+
+/// What the grants that paid `settlements` still hold of them in `pool`, by the window each paid.
+pub(crate) async fn settlement_holdings_tx(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    settlements: &[CreditUsageSettlementRow],
+    pool: GrantPool,
+) -> StoreResult<Vec<(Option<SettledWindow>, GrantCandidate, i64)>> {
+    if settlements.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ids = settlements
+        .iter()
+        .map(|s| s.id.as_uuid())
+        .collect::<Vec<_>>();
+    let draws = CustomerCreditEntryRow::list_settlement_draws(conn, tenant_id, &ids).await?;
+    let mut grant_ids = draws.iter().map(|e| e.grant_id).collect::<Vec<_>>();
+    grant_ids.sort_by_key(|id| id.as_uuid());
+    grant_ids.dedup();
+    let paid_by = CustomerCreditGrantRow::list_by_ids_scoped(conn, tenant_id, &grant_ids).await?;
+    settled_in_pool(&draws, settlements, &paid_by, pool)
 }
 
 /// Applies credit of `pool` to an invoice, whole minor units only. The caller holds the invoice
@@ -2326,16 +2487,13 @@ pub(crate) async fn net_settlements_then_draw_tx(
         .collect::<Vec<_>>();
     let settled = held_in_pool(&movements, DrawSource::UsageSettlement, grants, pool)?;
     let drawn = held_in_pool(&movements, DrawSource::Invoice, grants, pool)?;
+    let settlements =
+        CreditUsageSettlementRow::list_by_invoice(conn, tenant_id, invoice_id).await?;
     let request = &ahead_of(
         pool,
         request,
         charges,
-        &held_in_pool(
-            &movements,
-            DrawSource::UsageSettlement,
-            grants,
-            GrantPool::Paid,
-        )?,
+        &settled_in_pool(&movements, &settlements, grants, GrantPool::Paid)?,
     )?;
     if !drawn.is_empty() {
         let mut held = settled;
@@ -2369,7 +2527,10 @@ pub(crate) async fn net_settlements_then_draw_tx(
             })
             .collect(),
     };
-    let kept = assign(&settled, &usage_only)?;
+    let kept = assign_settled(
+        &settled_in_pool(&movements, &settlements, grants, pool)?,
+        &usage_only,
+    )?;
     let mut touched = Vec::new();
     let mut given_to = Vec::new();
     for (grant, held) in &settled {
@@ -2651,7 +2812,7 @@ pub(crate) async fn estimate_kept_tx(
     let mut periods = periods.to_vec();
     periods.sort_by_key(|(subscription_id, start)| (subscription_id.as_uuid(), *start));
     periods.dedup();
-    let mut settlements = Vec::new();
+    let mut rows = Vec::new();
     for (subscription_id, period_start) in periods {
         for settlement in CreditUsageSettlementRow::list_for_period(
             conn,
@@ -2663,10 +2824,11 @@ pub(crate) async fn estimate_kept_tx(
         .await?
         {
             if settlement.invoice_id.is_none() || settlement.invoice_id == invoice_id {
-                settlements.push(settlement.id.as_uuid());
+                rows.push(settlement);
             }
         }
     }
+    let settlements = rows.iter().map(|s| s.id.as_uuid()).collect::<Vec<_>>();
     Ok(if settlements.is_empty() {
         (request.clone(), Allocation::default())
     } else {
@@ -2676,17 +2838,9 @@ pub(crate) async fn estimate_kept_tx(
         ids.sort_by_key(|id| id.as_uuid());
         ids.dedup();
         let paid_by = CustomerCreditGrantRow::list_by_ids_scoped(conn, tenant_id, &ids).await?;
-        let paid_settled = held_in_pool(
-            &draws,
-            DrawSource::UsageSettlement,
-            &paid_by,
-            GrantPool::Paid,
-        )?;
+        let paid_settled = settled_in_pool(&draws, &rows, &paid_by, GrantPool::Paid)?;
         let ahead = ahead_of(pool, request, charges, &paid_settled)?;
-        let kept = assign(
-            &held_in_pool(&draws, DrawSource::UsageSettlement, &paid_by, pool)?,
-            &ahead,
-        )?;
+        let kept = assign_settled(&settled_in_pool(&draws, &rows, &paid_by, pool)?, &ahead)?;
         (ahead, kept)
     })
 }
@@ -3226,6 +3380,106 @@ pub(crate) async fn balances_tx(
 mod tests {
     use super::*;
     use chrono::TimeZone;
+
+    /// A settlement of the period starting Feb 17 paid 116.29 of its usage with customer-wide
+    /// credit: that credit covers the period's usage, not the window before it, which a top-up
+    /// effective since Feb 17 could not pay.
+    #[test]
+    fn settled_credit_covers_the_window_it_paid_never_an_earlier_one() {
+        use crate::domain::credit::{CreditApplication, GrantClassification, GrantScope};
+        let day = |d| Utc.with_ymd_and_hms(2026, 2, d, 0, 0, 0).unwrap();
+        let subscription_id = SubscriptionId::new();
+        let usage = |amount_minor, before| CreditDemand {
+            subscription_id: Some(subscription_id),
+            product_id: None,
+            usage: true,
+            amount_minor,
+            dated_before: Some(before),
+        };
+        let overpay = GrantCandidate {
+            id: CreditGrantId::new(),
+            scope: GrantScope {
+                subscription_id: None,
+                application: CreditApplication::Invoice,
+                product_ids: Vec::new(),
+            },
+            remaining_minor: 0,
+            priority: DEFAULT_PRIORITY,
+            classification: GrantClassification::Paid,
+            effective_at: day(5),
+            pays_usage_from: day(5),
+            lapses_at: None,
+            created_at: day(5),
+        };
+        let request = CreditRequest {
+            requested_minor: 75_258,
+            demands: vec![
+                usage(42_200, day(17)),
+                usage(33_058, Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap()),
+            ],
+        };
+        let window = Some((
+            subscription_id,
+            NaiveDate::from_ymd_opt(2026, 2, 17).unwrap(),
+        ));
+
+        let kept = assign_settled(&[(window, overpay.clone(), 11_629)], &request).unwrap();
+        assert_eq!(kept.covered, vec![0, 11_629]);
+
+        let unplaced = assign_settled(&[(None, overpay, 11_629)], &request).unwrap();
+        assert_eq!(
+            unplaced.covered,
+            vec![11_629, 0],
+            "with no window, grant order places it"
+        );
+    }
+
+    /// A settlement's window billing nothing now keeps nothing (it goes back), and another
+    /// subscription's usage is never paid with it.
+    #[test]
+    fn settled_credit_never_moves_to_another_window_or_subscription() {
+        use crate::domain::credit::{CreditApplication, GrantClassification, GrantScope};
+        let day = |d| Utc.with_ymd_and_hms(2026, 2, d, 0, 0, 0).unwrap();
+        let (ours, theirs) = (SubscriptionId::new(), SubscriptionId::new());
+        let usage = |subscription_id, amount_minor, before| CreditDemand {
+            subscription_id: Some(subscription_id),
+            product_id: None,
+            usage: true,
+            amount_minor,
+            dated_before: Some(before),
+        };
+        let overpay = GrantCandidate {
+            id: CreditGrantId::new(),
+            scope: GrantScope {
+                subscription_id: None,
+                application: CreditApplication::Invoice,
+                product_ids: Vec::new(),
+            },
+            remaining_minor: 0,
+            priority: DEFAULT_PRIORITY,
+            classification: GrantClassification::Paid,
+            effective_at: day(5),
+            pays_usage_from: day(5),
+            lapses_at: None,
+            created_at: day(5),
+        };
+        let window = Some((ours, NaiveDate::from_ymd_opt(2026, 2, 17).unwrap()));
+        let march = Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap();
+
+        let nothing_billed = CreditRequest {
+            requested_minor: 42_200,
+            demands: vec![usage(ours, 42_200, day(17)), usage(ours, 0, march)],
+        };
+        let kept = assign_settled(&[(window, overpay.clone(), 5_000)], &nothing_billed).unwrap();
+        assert_eq!(kept.covered, vec![0, 0]);
+
+        let consolidated = CreditRequest {
+            requested_minor: 50_000,
+            demands: vec![usage(theirs, 20_000, day(10)), usage(ours, 30_000, march)],
+        };
+        let kept = assign_settled(&[(window, overpay, 5_000)], &consolidated).unwrap();
+        assert_eq!(kept.covered, vec![0, 5_000]);
+    }
 
     fn vat(base_minor: i64) -> UsageOwed {
         UsageOwed {

@@ -14,11 +14,11 @@ use crate::domain::{Invoice, LineItem, SubscriptionDetails};
 use crate::errors::StoreError;
 use crate::repositories::SubscriptionInterface;
 use crate::repositories::credit::allocation::{
-    Allocation, CreditDemand, CreditRequest, GrantCandidate, GrantPool, allocate, assign,
+    Allocation, CreditDemand, CreditRequest, GrantCandidate, GrantPool, allocate,
 };
 use crate::repositories::credit::customer_credit::{
-    BONUS_CREDIT, UsageCharge, estimate_candidates_tx, estimate_kept_tx, grant_scope,
-    list_drawable_tx, normalized_currency, settlement_holders_tx, source,
+    BONUS_CREDIT, UsageCharge, assign_settled, estimate_candidates_tx, estimate_kept_tx,
+    grant_scope, list_drawable_tx, normalized_currency, settlement_holdings_tx, source,
 };
 use crate::services::credit::scope::{LineOwners, line_subscription};
 use crate::services::credit::value_application::EstimateContext;
@@ -331,7 +331,7 @@ async fn estimate_draft_units(
             .await?
             {
                 if settlement.invoice_id.is_none() || settlement.invoice_id == Some(invoice.id) {
-                    kept_settlements.push(settlement.id.as_uuid());
+                    kept_settlements.push(settlement);
                 }
             }
         }
@@ -353,8 +353,10 @@ async fn estimate_draft_units(
             demands,
         };
         // The settlements are placed as finalizing places them, then the rest is drawn.
-        let held = settlement_holders_tx(conn, invoice.tenant_id, &kept_settlements).await?;
-        let kept = assign(&held, &shown)?;
+        let held =
+            settlement_holdings_tx(conn, invoice.tenant_id, &kept_settlements, GrantPool::All)
+                .await?;
+        let kept = assign_settled(&held, &shown)?;
         let candidates = book.candidates_tx(conn, &code).await?;
         let fresh = allocate(&candidates, &shown.remainder(&kept)?, at, GrantPool::All)?;
         book.record(Drawn {

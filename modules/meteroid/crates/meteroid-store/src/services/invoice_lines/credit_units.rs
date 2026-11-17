@@ -5,9 +5,7 @@ use crate::StoreResult;
 use crate::domain::invoice_lines::LineCreditUnit;
 use crate::domain::{LineItem, SubscriptionDetails};
 use crate::errors::StoreError;
-use crate::repositories::credit::allocation::{
-    CreditDemand, CreditRequest, GrantPool, allocate, assign,
-};
+use crate::repositories::credit::allocation::{CreditDemand, CreditRequest, GrantPool, allocate};
 use crate::repositories::credit::customer_credit::{self as credit, BilledPeriods};
 use crate::services::Services;
 use crate::services::credit::forecast::{CreditBooks, Drawn};
@@ -401,15 +399,17 @@ impl Services {
             {
                 let ours = settlement.invoice_id.is_none() || settlement.invoice_id == invoice_id;
                 if ours && accounts.contains(&settlement.account_id) {
-                    kept_settlements.push(settlement.id.as_uuid());
+                    kept_settlements.push(settlement);
                 }
             }
         }
-        // Placed on the uses as finalizing places them (`net_settlements_then_draw_tx`): by what
-        // each settling grant may pay, whichever line of the period it settled.
+        // Placed on the uses as finalizing places them (`net_settlements_then_draw_tx`): each
+        // settlement's on the usage of the window it paid.
         let consumed = demand.request(|used| used.consumed);
-        let held = credit::settlement_holders_tx(conn, tenant_id, &kept_settlements).await?;
-        let kept = assign(&held, &consumed)?;
+        let held =
+            credit::settlement_holdings_tx(conn, tenant_id, &kept_settlements, GrantPool::All)
+                .await?;
+        let kept = credit::assign_settled(&held, &consumed)?;
         let request = consumed.remainder(&kept)?;
         let fresh = match book {
             Some(book) => {
