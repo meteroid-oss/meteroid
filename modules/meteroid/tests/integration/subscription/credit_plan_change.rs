@@ -4786,6 +4786,7 @@ async fn a_sweep_page_reads_one_page_of_switches(#[future] test_env: TestEnv) {
     .bind::<diesel::sql_types::Uuid, _>(Uuid::nil())
     .bind::<diesel::sql_types::BigInt, _>(3_i64)
     .bind::<diesel::sql_types::Timestamp, _>(Utc::now().naive_utc())
+    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Uuid>, _>(None::<Uuid>)
     .get_result(&mut conn)
     .await
     .expect("plan");

@@ -1,2 +1,1 @@
-pub mod lifecycle;
-pub mod scheduled;
+pub mod controller;

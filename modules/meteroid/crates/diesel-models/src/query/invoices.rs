@@ -1210,6 +1210,34 @@ impl InvoiceRow {
             .into_db_result()
     }
 
+    /// One customer's refreshable drafts, as [`Self::list_refreshable_drafts`] selects them.
+    pub async fn list_refreshable_drafts_of(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        stale_after_hours: i32,
+        horizon_days: i64,
+        limit: i64,
+    ) -> DbResult<Vec<InvoiceId>> {
+        use crate::schema::invoice::dsl as i_dsl;
+        let query = refreshable_drafts_filter(
+            stale_after_hours,
+            horizon_days,
+            common_domain::clock::now().naive_utc(),
+        )
+        .filter(i_dsl::tenant_id.eq(tenant_id))
+        .filter(i_dsl::customer_id.eq(customer_id))
+        .select(i_dsl::id)
+        .limit(limit);
+
+        crate::debug_sql(&query);
+
+        diesel_async::RunQueryDsl::get_results(query, conn)
+            .await
+            .attach("Error while listing a customer's refreshable draft invoices")
+            .into_db_result()
+    }
+
     pub async fn upsert_conn_meta(
         conn: &mut PgConn,
         provider: ConnectorProviderEnum,

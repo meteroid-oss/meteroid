@@ -236,9 +236,8 @@ pub async fn spawn_workers(
 
     {
         let store = store.clone();
-        let services = services.clone();
         join_set.spawn(async move {
-            misc::customer_credit::run_customer_credit_worker(store, services).await;
+            misc::customer_credit::run_customer_credit_worker(store).await;
         });
     }
 
@@ -246,13 +245,6 @@ pub async fn spawn_workers(
         let services = services.clone();
         join_set.spawn(async move {
             misc::customer_credit::run_wallet_purchase_worker(services).await;
-        });
-    }
-
-    {
-        let services = services.clone();
-        join_set.spawn(async move {
-            misc::customer_credit::run_plan_change_settlement_worker(services).await;
         });
     }
 
@@ -298,21 +290,6 @@ pub async fn spawn_workers(
         join_set.spawn(async move {
             misc::vat_revalidation_worker::run_vat_revalidation_worker(store, elector, schedule)
                 .await;
-        });
-    }
-
-    if config.workers.draft_refresh_enabled {
-        use meteroid_store::leader_lock::LeaderLock;
-        use meteroid_store::leader_lock::PgLeaderElection;
-
-        let services = services.clone();
-        let elector = Arc::new(PgLeaderElection::new(
-            store.pool.clone(),
-            LeaderLock::DraftRefresh,
-        ));
-        let schedule = config.workers.draft_refresh_cron.clone();
-        join_set.spawn(async move {
-            misc::draft_refresh_worker::run_draft_refresh_worker(services, elector, schedule).await;
         });
     }
 
@@ -483,13 +460,37 @@ pub async fn spawn_workers(
     {
         let services = services.clone();
         join_set.spawn(async move {
-            billing::lifecycle::run_worker(services).await;
+            billing::controller::run_worker(services).await;
         });
     }
     {
+        use meteroid_store::leader_lock::LeaderLock;
+        use meteroid_store::leader_lock::PgLeaderElection;
+
         let services = services.clone();
+        let elector = Arc::new(PgLeaderElection::new(
+            store.pool.clone(),
+            LeaderLock::BillingControllerSweep,
+        ));
         join_set.spawn(async move {
-            billing::scheduled::run_worker(services).await;
+            let schedule: meteroid_app::config::ParsedCron = "41 3 * * *"
+                .parse()
+                .expect("the billing controller sweep's schedule");
+            meteroid_app::workers::misc::run_scheduled(
+                "billing_controller_sweep",
+                schedule,
+                elector,
+                || async {
+                    let sweep = services.sweep_billing_controller().await?;
+                    log::info!(
+                        "billing controller sweep: {} customers, {} lost wakeups",
+                        sweep.customers,
+                        sweep.lost
+                    );
+                    Ok(())
+                },
+            )
+            .await;
         });
     }
     {

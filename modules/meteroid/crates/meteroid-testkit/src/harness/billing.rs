@@ -123,34 +123,33 @@ impl TestEnv {
             day = day.succ_opt().expect("a next day");
             self.set_now(day.and_hms_opt(1, 0, 0).expect("1:00").and_utc());
             for _ in 0..50 {
-                let cycles = self
-                    .services()
-                    .get_and_process_cycle_transitions()
-                    .await
-                    .expect("Failed to process cycle transitions")
-                    .processed;
-                let events = self
-                    .services()
-                    .get_and_process_due_events()
-                    .await
-                    .expect("Failed to process due events");
+                let customers = self.run_billing_controller().await;
                 self.run_outbox_and_orchestration().await;
-                if cycles == 0 && events == 0 {
+                if customers == 0 {
                     break;
                 }
             }
         }
     }
 
+    /// Runs every customer whose billing is due, as the billing controller does, until none is.
     pub async fn process_cycles(&self) {
+        self.run_billing_controller().await;
+    }
+
+    /// One pass of the billing controller over every due customer, each wake recomputed first as
+    /// the daily sweep does (tests move the clock and edit rows directly): each due item is taken
+    /// once, a subscription advancing one transition. Returns how many customers ran.
+    pub async fn run_billing_controller(&self) -> usize {
         self.services()
-            .get_and_process_cycle_transitions()
+            .sweep_billing_controller()
             .await
-            .expect("Failed to process cycle transitions");
+            .expect("Failed to sweep the billing controller");
         self.services()
-            .get_and_process_due_events()
+            .run_billing_controller(10_000)
             .await
-            .expect("Failed to process due events");
+            .expect("Failed to run the billing controller")
+            .customers
     }
 
     /// Process only due scheduled events (e.g. grace-period invoice finalization).

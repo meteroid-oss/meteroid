@@ -16,6 +16,7 @@ pub mod api_tokens;
 pub mod batch_jobs;
 pub mod bi;
 pub mod billable_metrics;
+pub mod billing_controller;
 pub mod connectors;
 pub mod credit_inputs;
 pub mod credit_notes;

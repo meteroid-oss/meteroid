@@ -283,9 +283,12 @@ impl SubscriptionRow {
     /// - Not in a retry backoff period
     /// - Not in a terminal status
     /// - Not currently claimed (processing_started_at is null or expired)
+    ///
+    /// `customer`: only that customer's (its billing controller's run).
     pub async fn claim_due_subscriptions(
         conn: &mut PgConn,
         limit: i64,
+        customer: Option<(TenantId, common_domain::ids::CustomerId)>,
     ) -> DbResult<Vec<(SubscriptionId, common_domain::ids::CustomerId, TenantId)>> {
         use crate::schema::subscription::dsl;
 
@@ -314,6 +317,11 @@ impl SubscriptionRow {
         };
 
         // Step 1: Find and lock available subscriptions (prevents concurrent claims)
+        let (only_tenant, only_customer) = customer.unwrap_or((
+            TenantId::default(),
+            common_domain::ids::CustomerId::default(),
+        ));
+        let any_customer = sql::<Bool>(if customer.is_some() { "FALSE" } else { "TRUE" });
         let select_query = dsl::subscription
             .select((dsl::id, dsl::customer_id, dsl::tenant_id))
             .filter(dsl::current_period_end.le(now.date()))
@@ -329,6 +337,12 @@ impl SubscriptionRow {
             .filter(diesel::dsl::not(dsl::lifecycle_suspended))
             .filter(diesel::dsl::not(tenant_inactive))
             .filter(diesel::dsl::not(diesel::dsl::exists(held_tenant)))
+            .filter(
+                dsl::tenant_id
+                    .eq(only_tenant)
+                    .and(dsl::customer_id.eq(only_customer))
+                    .or(any_customer),
+            )
             .order_by(dsl::current_period_end.asc())
             .limit(limit)
             .for_no_key_update()

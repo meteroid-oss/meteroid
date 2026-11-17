@@ -975,14 +975,28 @@ impl Services {
     /// `page` at a time until all were visited; one none of whose invoices is left unissued is
     /// completed. Idempotent.
     pub(crate) async fn settle_missed_plan_change_endings(&self, page: i64) -> StoreResult<usize> {
+        self.settle_missed_endings_of(None, page).await
+    }
+
+    /// `customer`: only that customer's (its billing controller's run).
+    pub(crate) async fn settle_missed_endings_of(
+        &self,
+        customer: Option<common_domain::ids::CustomerId>,
+        page: i64,
+    ) -> StoreResult<usize> {
         let mut issued = 0;
         for kind in [SettlingEnding::PlanChange, SettlingEnding::Cancellation] {
-            issued += self.settle_missed_endings(kind, page).await?;
+            issued += self.settle_missed_endings(kind, page, customer).await?;
         }
         Ok(issued)
     }
 
-    async fn settle_missed_endings(&self, kind: SettlingEnding, page: i64) -> StoreResult<usize> {
+    async fn settle_missed_endings(
+        &self,
+        kind: SettlingEnding,
+        page: i64,
+        customer: Option<common_domain::ids::CustomerId>,
+    ) -> StoreResult<usize> {
         use diesel_models::subscription_events::SubscriptionEventRow;
         use scoped_futures::ScopedFutureExt;
         let now = common_domain::clock::now().naive_utc();
@@ -997,6 +1011,7 @@ impl Services {
                     after,
                     page.max(1),
                     now,
+                    customer,
                 )
                 .await?
             };

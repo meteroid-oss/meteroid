@@ -49,6 +49,8 @@ pub enum LeaderLock {
     AbandonedPurchaseCleanup = 92_000_020,
     /// Hourly check whether the daily anonymous instance report is due.
     TelemetryReport = 92_000_021,
+    /// Daily recompute of every customer's billing controller wake.
+    BillingControllerSweep = 92_000_022,
 }
 
 impl LeaderLock {

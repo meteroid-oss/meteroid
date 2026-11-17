@@ -502,6 +502,7 @@ impl SubscriptionEventRow {
         after: Option<(NaiveDate, SubscriptionId)>,
         limit: i64,
         now: chrono::NaiveDateTime,
+        customer: Option<common_domain::ids::CustomerId>,
     ) -> DbResult<Vec<SettlingSwitchDue>> {
         use diesel::sql_types::{BigInt, Bool, Date, Timestamp, Uuid};
         use diesel_async::RunQueryDsl;
@@ -533,6 +534,7 @@ impl SubscriptionEventRow {
             .bind::<Uuid, _>(after_subscription)
             .bind::<BigInt, _>(limit)
             .bind::<Timestamp, _>(now)
+            .bind::<diesel::sql_types::Nullable<Uuid>, _>(customer.map(|id| id.as_uuid()))
             .load(conn)
             .await
             .attach("Error while listing plan switches or cancellations to settle")

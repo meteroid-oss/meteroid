@@ -1,4 +1,5 @@
 pub mod billing_events;
+pub mod controller;
 pub mod period_transitions;
 
 pub use period_transitions::CycleTransitionResult;

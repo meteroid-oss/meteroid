@@ -225,9 +225,10 @@ async fn a_grant_ends_once_with_its_subscription(#[future] test_env: TestEnv) {
     ))
     .await
     .expect("cancel the subscription");
-    let unended = CustomerCreditGrantRow::list_unended_of_ended_subscriptions(&mut conn, None, 100)
-        .await
-        .expect("unended credit");
+    let unended =
+        CustomerCreditGrantRow::list_unended_of_ended_subscriptions(&mut conn, None, 100, None)
+            .await
+            .expect("unended credit");
     assert!(unended.contains(&EndedSubscriptionCredit {
         tenant_id: TENANT_ID,
         subscription_id: a,
@@ -251,9 +252,10 @@ async fn a_grant_ends_once_with_its_subscription(#[future] test_env: TestEnv) {
         .await
         .expect("idempotent");
     assert!(again.is_empty(), "a grant ends once");
-    let unended = CustomerCreditGrantRow::list_unended_of_ended_subscriptions(&mut conn, None, 100)
-        .await
-        .expect("unended credit");
+    let unended =
+        CustomerCreditGrantRow::list_unended_of_ended_subscriptions(&mut conn, None, 100, None)
+            .await
+            .expect("unended credit");
     assert!(unended.iter().all(|row| row.subscription_id != a));
     drop(conn);
 

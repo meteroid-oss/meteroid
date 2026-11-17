@@ -37,6 +37,8 @@ WITH page AS ( \
     AND e.details ->> 'outgoing' = 'settled' \
     AND NOT (e.details ? 'outgoing_complete') \
     AND (e.applies_to, e.subscription_id) > ($1, $2) \
+    AND ($5::uuid IS NULL OR EXISTS (SELECT 1 FROM subscription cs \
+                                     WHERE cs.id = e.subscription_id AND cs.customer_id = $5)) \
   GROUP BY e.applies_to, e.subscription_id \
   ORDER BY e.applies_to, e.subscription_id \
   LIMIT $3 \

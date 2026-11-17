@@ -40,7 +40,7 @@ impl Services {
     pub async fn get_and_process_due_events(&self) -> StoreResult<usize> {
         let events = {
             let mut conn = self.store.get_conn().await?;
-            ScheduledEventRow::find_and_claim_due_events(&mut conn, BATCH_SIZE).await?
+            ScheduledEventRow::find_and_claim_due_events(&mut conn, BATCH_SIZE, None).await?
         };
 
         let len = events.len();
@@ -79,7 +79,10 @@ impl Services {
         event_id = %event.id,
         event_type = ?event.event_type,
     ))]
-    async fn process_scheduled_event(&self, event: ScheduledEventRow) -> StoreResult<()> {
+    pub(super) async fn process_scheduled_event(
+        &self,
+        event: ScheduledEventRow,
+    ) -> StoreResult<()> {
         let event_id = event.id;
         let retries = event.retries;
 

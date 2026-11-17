@@ -777,6 +777,21 @@ impl ServicesEdge {
         self.services.cleanup_timeout_scheduled_events().await
     }
 
+    /// Runs the customers whose billing is due (see `lifecycle::controller`), up to `limit`.
+    pub async fn run_billing_controller(
+        &self,
+        limit: i64,
+    ) -> StoreResult<crate::services::lifecycle::controller::ControllerRun> {
+        self.services.run_billing_controller(limit).await
+    }
+
+    /// Recomputes every customer's billing wake, counting the lost ones.
+    pub async fn sweep_billing_controller(
+        &self,
+    ) -> StoreResult<crate::services::lifecycle::controller::ControllerSweep> {
+        self.services.sweep_billing_controller().await
+    }
+
     /// Completes the checkout process for a subscription.
     ///
     /// For free trials (trial_is_free = true):

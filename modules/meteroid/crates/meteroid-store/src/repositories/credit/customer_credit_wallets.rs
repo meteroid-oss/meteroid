@@ -223,6 +223,9 @@ pub trait CustomerCreditWalletsInterface {
     /// returns how many grants lapsed.
     async fn expire_customer_credit(&self, limit: i64) -> StoreResult<usize>;
 
+    /// The expiry sweep's repairs, the expiry itself being the billing controller's.
+    async fn repair_customer_credit(&self, page: i64) -> StoreResult<()>;
+
     /// Ends the credit of terminal subscriptions whose termination did not (the sweep's first
     /// step); returns how many subscriptions it repaired.
     async fn end_credit_of_ended_subscriptions(&self, page: i64) -> StoreResult<usize>;
@@ -592,6 +595,10 @@ impl CustomerCreditWalletsInterface for Store {
 
     async fn expire_customer_credit(&self, limit: i64) -> StoreResult<usize> {
         crate::services::credit::expiry_settlement::lapse_expired_credit(self, limit).await
+    }
+
+    async fn repair_customer_credit(&self, page: i64) -> StoreResult<()> {
+        crate::services::credit::expiry_settlement::repair_credit(self, page).await
     }
 
     async fn end_credit_of_ended_subscriptions(&self, page: i64) -> StoreResult<usize> {

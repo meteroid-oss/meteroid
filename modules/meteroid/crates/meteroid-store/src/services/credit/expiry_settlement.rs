@@ -40,8 +40,8 @@ use common_domain::ids::{
     UsageSettlementId, WalletId,
 };
 use diesel_models::customer_credit::{
-    CreditUsageSettlementRow, CustomerCreditAccountRow, CustomerCreditGrantRow, DueExpiryGroup,
-    ScopedGrantRow,
+    CreditUsageSettlementRow, CustomerCreditAccountRow, CustomerCreditGrantRow, DueExpiryCandidate,
+    DueExpiryGroup, ScopedGrantRow,
 };
 use diesel_models::query::credit_usage::{ConsolidatedDrafts, list_draft_recurring_periods};
 use diesel_models::subscriptions::SubscriptionRow;
@@ -96,51 +96,94 @@ pub(crate) async fn lapse_expired_credit(store: &Store, page: i64) -> StoreResul
             (group.tenant_id, group.customer_id, group.currency.clone())
         });
         for candidate in candidates {
-            let grace = settlement_grace(
-                candidate.grace_period_hours,
-                candidate.consolidate_recurring_invoices,
-            );
-            let expired_by = now - grace;
-            if candidate.first_lapse > expired_by {
-                continue;
-            }
-            let group = candidate.group;
-            let settled = match settle_group(store, &group, expired_by, now).await {
-                Ok(settled) => {
-                    metrics::expiry_settled(
-                        SettlementSource::Sweep,
-                        &normalized_currency(&group.currency),
-                        settled.settlements,
-                        settled.settled_minor,
-                    );
-                    metrics::expiry_lapsed(LapseKind::Settled, settled.lapsed);
-                    metrics::credit_rolled_over(
-                        &normalized_currency(&group.currency),
-                        settled.rolled,
-                        settled.rolled_minor,
-                    );
-                    settled.lapsed
-                }
-                Err(error) => {
-                    log::error!(
-                        "expired credit of customer {} ({}) was not lapsed: {error:?}",
-                        group.customer_id,
-                        group.currency
-                    );
-                    0
-                }
-            };
-            let count = if settled > 0 {
-                settled
-            } else {
-                lapse_unsettled_group(store, &group, expired_by, now).await
-            };
-            lapsed += count;
+            lapsed += settle_due_candidate(store, candidate, now).await;
         }
         if !full_page {
             return Ok(lapsed);
         }
     }
+}
+
+/// One customer's expired credit in one currency, once its settlement grace passed: settled and
+/// lapsed, or lapsed unsettled; returns how many grants lapsed. A failure is logged.
+async fn settle_due_candidate(
+    store: &Store,
+    candidate: DueExpiryCandidate,
+    now: DateTime<Utc>,
+) -> usize {
+    let grace = settlement_grace(
+        candidate.grace_period_hours,
+        candidate.consolidate_recurring_invoices,
+    );
+    let expired_by = now - grace;
+    if candidate.first_lapse > expired_by {
+        return 0;
+    }
+    let group = candidate.group;
+    let settled = match settle_group(store, &group, expired_by, now).await {
+        Ok(settled) => {
+            metrics::expiry_settled(
+                SettlementSource::Sweep,
+                &normalized_currency(&group.currency),
+                settled.settlements,
+                settled.settled_minor,
+            );
+            metrics::expiry_lapsed(LapseKind::Settled, settled.lapsed);
+            metrics::credit_rolled_over(
+                &normalized_currency(&group.currency),
+                settled.rolled,
+                settled.rolled_minor,
+            );
+            settled.lapsed
+        }
+        Err(error) => {
+            log::error!(
+                "expired credit of customer {} ({}) was not lapsed: {error:?}",
+                group.customer_id,
+                group.currency
+            );
+            0
+        }
+    };
+    if settled > 0 {
+        settled
+    } else {
+        lapse_unsettled_group(store, &group, expired_by, now).await
+    }
+}
+
+/// [`lapse_expired_credit`]'s repairs alone, the expiry itself being each customer's billing
+/// controller's: credit of subscriptions ended without it, settlements no invoice can take.
+pub(crate) async fn repair_credit(store: &Store, page: i64) -> StoreResult<()> {
+    let page = page.max(1);
+    super::subscription_end::end_credit_of_ended_subscriptions(store, page).await?;
+    return_orphaned_settlements(store, page, common_domain::clock::now()).await?;
+    Ok(())
+}
+
+/// [`lapse_expired_credit`] of one customer (its billing controller's run).
+pub(crate) async fn lapse_expired_credit_of(
+    store: &Store,
+    tenant_id: TenantId,
+    customer_id: CustomerId,
+    now: DateTime<Utc>,
+) -> StoreResult<usize> {
+    let candidates = {
+        let mut conn = store.get_conn().await?;
+        CustomerCreditGrantRow::list_due_groups_of(
+            &mut conn,
+            tenant_id,
+            customer_id,
+            now - MIN_SETTLEMENT_GRACE,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+    };
+    let mut lapsed = 0;
+    for candidate in candidates {
+        lapsed += settle_due_candidate(store, candidate, now).await;
+    }
+    Ok(lapsed)
 }
 
 /// The sweep's settle-then-lapse of one customer, for credit that expired by `as_of` (no grace:

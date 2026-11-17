@@ -10,6 +10,7 @@ pub mod bank_accounts;
 pub mod batch_jobs;
 pub mod bi;
 pub mod billable_metrics;
+pub mod billing_controller;
 pub mod checkout_sessions;
 pub mod connectors;
 pub mod coupon_plans;

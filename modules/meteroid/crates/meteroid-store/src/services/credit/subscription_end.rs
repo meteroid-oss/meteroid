@@ -69,15 +69,25 @@ pub(crate) async fn end_credit_of_ended_subscriptions(
     store: &Store,
     page: i64,
 ) -> StoreResult<usize> {
+    end_credit_of_ended_subscriptions_of(store, page, None).await
+}
+
+/// `customer`: only that customer's (its billing controller's run).
+pub(crate) async fn end_credit_of_ended_subscriptions_of(
+    store: &Store,
+    page: i64,
+    customer: Option<common_domain::ids::CustomerId>,
+) -> StoreResult<usize> {
     let page = page.max(1);
     let mut repaired = 0_usize;
     let mut after = None;
     loop {
         let mut conn = store.get_conn().await?;
-        let unended =
-            CustomerCreditGrantRow::list_unended_of_ended_subscriptions(&mut conn, after, page)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let unended = CustomerCreditGrantRow::list_unended_of_ended_subscriptions(
+            &mut conn, after, page, customer,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
         drop(conn);
         let full_page = i64::try_from(unended.len()).is_ok_and(|len| len == page);
         after = unended

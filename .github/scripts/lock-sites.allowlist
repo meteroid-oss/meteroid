@@ -49,6 +49,7 @@ modules/meteroid/crates/diesel-models/src/query/payment_reminders.rs::PaymentRem
 modules/meteroid/crates/diesel-models/src/query/payment_reminders.rs::PaymentReminderSequenceRow::find_default_for_update | tenant | an entity's default sequence, by sequence edits that lock no customer
 
 # Claims and queues: SKIP LOCKED never waits; each is committed before any customer lock.
+modules/meteroid/crates/diesel-models/src/query/billing_controller.rs::BillingControllerRow::claim_due | claim | billing controller lease, one autocommitted statement before any customer lock
 modules/meteroid/crates/diesel-models/src/query/subscriptions_lifecycle.rs::SubscriptionRow::claim_due_subscriptions | claim | renewal claim, committed in its own short transaction
 modules/meteroid/crates/diesel-models/src/query/subscriptions_lifecycle.rs::SubscriptionRow::defer_claim_unless_locked | claim | gives a claim back after a failed customer try-lock, the last statement of its transaction
 modules/meteroid/crates/diesel-models/src/query/scheduled_events.rs::ScheduledEventRow::find_and_claim_due_events | claim | autocommitted claim of due events; each runs in a transaction that locks its customer first

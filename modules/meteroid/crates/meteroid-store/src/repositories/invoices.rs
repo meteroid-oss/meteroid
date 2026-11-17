@@ -1636,6 +1636,7 @@ pub fn carry_over_tax_findings(source: &[TaxBreakdownItem], rebuilt: &mut [TaxBr
             .iter_mut()
             .filter(|item| item.tax_amount == 0 && item.tax_rate.is_zero())
         {
+            item.name = exempt.name.clone();
             item.exemption_type = exempt.exemption_type.clone();
             item.exemption_reason = exempt.exemption_reason.clone();
             item.supply_basis = exempt.supply_basis;
@@ -1899,6 +1900,7 @@ mod tests {
         let mut rebuilt = vec![engine_row("Tax", Decimal::ZERO, 0)];
 
         carry_over_tax_findings(&[source], &mut rebuilt);
+        assert_eq!(rebuilt[0].name, "Exempt");
         assert_eq!(
             rebuilt[0].exemption_type,
             Some(TaxExemptionType::ReverseCharge)

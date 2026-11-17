@@ -1,6 +1,7 @@
 mod activation;
 mod addon_cadence;
 mod amendment;
+mod billing_controller;
 mod checkout;
 mod checkout_session;
 mod checkout_terminal_invoice;

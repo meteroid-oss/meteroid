@@ -283,6 +283,37 @@ impl CustomerCreditGrantProductRow {
 impl CustomerCreditGrantRow {
     /// The debt-cancelling notes of invoices whose purchased paid credit still holds value past
     /// its lapse: forgiveness funded it, and a late pack credits it back before the sweep lapses it.
+    /// [`Self::list_forgiven_purchase_notes`] of one customer.
+    pub async fn list_forgiven_purchase_notes_of(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        lapsed_by: DateTime<Utc>,
+    ) -> DbResult<Vec<CreditNoteId>> {
+        #[derive(diesel::QueryableByName)]
+        struct Note {
+            #[diesel(sql_type = sql_types::Uuid)]
+            credit_note_id: CreditNoteId,
+        }
+        diesel::sql_query(
+            "SELECT DISTINCT n.id AS credit_note_id
+             FROM customer_credit_grant g
+             JOIN credit_note n ON n.tenant_id = g.tenant_id AND n.invoice_id = g.invoice_id
+             WHERE g.tenant_id = $1 AND g.customer_id = $2
+               AND g.remaining > 0 AND g.lapses_at <= $3
+               AND g.source_kind = 'CREDIT_PURCHASE' AND g.classification = 'PAID'
+               AND n.status = 'FINALIZED' AND n.debt_cancelled_amount_cents > 0",
+        )
+        .bind::<sql_types::Uuid, _>(tenant_id)
+        .bind::<sql_types::Uuid, _>(customer_id)
+        .bind::<sql_types::Timestamptz, _>(lapsed_by)
+        .get_results::<Note>(conn)
+        .await
+        .map(|rows| rows.into_iter().map(|row| row.credit_note_id).collect())
+        .attach("Error while listing a customer's forgiven purchases")
+        .into_db_result()
+    }
+
     pub async fn list_forgiven_purchase_notes(
         conn: &mut PgConn,
         lapsed_by: DateTime<Utc>,
@@ -604,10 +635,12 @@ impl CustomerCreditGrantRow {
     /// Terminal subscriptions with a grant `end_for_subscription` would still end, at most `limit`.
     /// Their end is the services' `credit_ended_at`: the termination instant, else the start of the
     /// period the terminal transition opened, never later than now.
+    /// `customer`: only that customer's (its billing controller's run).
     pub async fn list_unended_of_ended_subscriptions(
         conn: &mut PgConn,
         after: Option<(TenantId, SubscriptionId)>,
         limit: i64,
+        customer: Option<CustomerId>,
     ) -> DbResult<Vec<EndedSubscriptionCredit>> {
         let (after_tenant, after_subscription) = after.unzip();
         diesel::sql_query(
@@ -622,6 +655,7 @@ impl CustomerCreditGrantRow {
                             AT TIME ZONE 'UTC',
                         $4))
                AND ($2::uuid IS NULL OR (g.tenant_id, g.subscription_id) > ($2, $3))
+               AND ($5::uuid IS NULL OR s.customer_id = $5)
              ORDER BY g.tenant_id, g.subscription_id
              LIMIT $1",
         )
@@ -629,6 +663,7 @@ impl CustomerCreditGrantRow {
         .bind::<sql_types::Nullable<sql_types::Uuid>, _>(after_tenant)
         .bind::<sql_types::Nullable<sql_types::Uuid>, _>(after_subscription)
         .bind::<sql_types::Timestamptz, _>(common_domain::clock::now())
+        .bind::<sql_types::Nullable<sql_types::Uuid>, _>(customer)
         .load(conn)
         .await
         .attach("Error while listing the credit of ended subscriptions")
@@ -910,6 +945,35 @@ impl CustomerCreditGrantRow {
     /// Customers and currencies holding credit that lapsed (expired or ended) at or before
     /// `expired_by` and still has value, in `(tenant, customer, currency)` order after `after`,
     /// with the earliest such lapse and the customer's invoicing entity grace. Nothing is locked.
+    /// [`Self::list_due_groups`] of one customer.
+    pub async fn list_due_groups_of(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_id: CustomerId,
+        expired_by: DateTime<Utc>,
+    ) -> DbResult<Vec<DueExpiryCandidate>> {
+        diesel::sql_query(
+            "SELECT g.tenant_id, g.customer_id, a.currency, MIN(g.lapses_at) AS first_lapse,
+                    MAX(ie.grace_period_hours) AS grace_period_hours,
+                    bool_or(ie.consolidate_recurring_invoices) AS consolidate_recurring_invoices
+             FROM customer_credit_grant g
+             JOIN customer_credit_account a ON a.id = g.account_id
+             JOIN customer c ON c.id = g.customer_id
+             JOIN invoicing_entity ie ON ie.id = c.invoicing_entity_id
+             WHERE g.tenant_id = $1 AND g.customer_id = $2
+               AND g.remaining > 0 AND g.lapses_at <= $3
+             GROUP BY g.tenant_id, g.customer_id, a.currency
+             ORDER BY a.currency",
+        )
+        .bind::<sql_types::Uuid, _>(tenant_id)
+        .bind::<sql_types::Uuid, _>(customer_id)
+        .bind::<sql_types::Timestamptz, _>(expired_by)
+        .get_results::<DueExpiryCandidate>(conn)
+        .await
+        .attach("Error while listing a customer's expired credit")
+        .into_db_result()
+    }
+
     pub async fn list_due_groups(
         conn: &mut PgConn,
         expired_by: DateTime<Utc>,

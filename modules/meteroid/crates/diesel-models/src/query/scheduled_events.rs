@@ -231,9 +231,12 @@ impl ScheduledEventRow {
     /// Raw SQL is required because:
     /// 1. FOR UPDATE OF <table> syntax - Diesel's for_update() locks ALL joined tables
     /// 2. UPDATE ... RETURNING with subquery - not expressible in Diesel's query builder
+    ///
+    /// `customer`: only that customer's (its billing controller's run).
     pub async fn find_and_claim_due_events(
         conn: &mut PgConn,
         limit: i64,
+        customer: Option<(TenantId, common_domain::ids::CustomerId)>,
     ) -> DbResult<Vec<ScheduledEventRow>> {
         use diesel::sql_types;
 
@@ -251,6 +254,7 @@ impl ScheduledEventRow {
                 LEFT JOIN sandbox_seed sd ON sd.tenant_id = se.tenant_id AND sd.status = 'IN_PROGRESS'
                 WHERE se.status = 'PENDING'
                   AND sd.tenant_id IS NULL
+                  AND ($3::uuid IS NULL OR (se.tenant_id = $3 AND s.customer_id = $4))
                   AND se.scheduled_time <= $1
                   AND (se.next_attempt_at IS NULL OR se.next_attempt_at <= $1)
                   AND (
@@ -276,7 +280,9 @@ impl ScheduledEventRow {
 
         let query = diesel::sql_query(raw_sql)
             .bind::<sql_types::Timestamp, _>(now)
-            .bind::<sql_types::BigInt, _>(limit);
+            .bind::<sql_types::BigInt, _>(limit)
+            .bind::<sql_types::Nullable<sql_types::Uuid>, _>(customer.map(|(tenant, _)| tenant))
+            .bind::<sql_types::Nullable<sql_types::Uuid>, _>(customer.map(|(_, id)| id));
 
         crate::debug_sql(&query);
 

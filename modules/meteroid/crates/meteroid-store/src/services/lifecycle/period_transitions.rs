@@ -28,7 +28,7 @@ const MAX_CYCLE_RETRIES: i32 = 10;
 const MAX_PARALLEL_PROCESSING: usize = 4;
 const BUSY_CUSTOMER_RETRY_SECONDS: std::ops::RangeInclusive<i64> = 30..=90;
 
-enum Visit {
+pub(super) enum Visit {
     Done,
     CustomerBusy,
 }
@@ -54,7 +54,7 @@ impl Services {
             .store
             .transaction(|tx| {
                 async move {
-                    SubscriptionRow::claim_due_subscriptions(tx, BATCH_SIZE)
+                    SubscriptionRow::claim_due_subscriptions(tx, BATCH_SIZE, None)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)
                 }
@@ -125,7 +125,7 @@ impl Services {
         customer_id = %customer_id,
         subscription_id = %subscription_id,
     ))]
-    async fn process_subscription_cycle(
+    pub(super) async fn process_subscription_cycle(
         &self,
         tenant_id: TenantId,
         customer_id: CustomerId,

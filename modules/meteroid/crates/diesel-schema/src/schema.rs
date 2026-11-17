@@ -892,6 +892,19 @@ diesel::table! {
 }
 
 diesel::table! {
+    billing_controller (tenant_id, customer_id) {
+        tenant_id -> Uuid,
+        customer_id -> Uuid,
+        next_wake_at -> Nullable<Timestamptz>,
+        dirty_since -> Nullable<Timestamptz>,
+        lease_until -> Nullable<Timestamptz>,
+        attempts -> Int4,
+        last_error -> Nullable<Text>,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     credit_customer_inputs (tenant_id, customer_id) {
         tenant_id -> Uuid,
         customer_id -> Uuid,
@@ -3087,6 +3100,8 @@ diesel::joinable!(coupon -> tenant (tenant_id));
 diesel::joinable!(coupon_plan -> coupon (coupon_id));
 diesel::joinable!(coupon_plan -> plan (plan_id));
 diesel::joinable!(credit_balance_projection -> tenant (tenant_id));
+diesel::joinable!(billing_controller -> customer (customer_id));
+diesel::joinable!(billing_controller -> tenant (tenant_id));
 diesel::joinable!(credit_customer_inputs -> customer (customer_id));
 diesel::joinable!(credit_customer_inputs -> tenant (tenant_id));
 diesel::joinable!(credit_note -> customer (customer_id));
