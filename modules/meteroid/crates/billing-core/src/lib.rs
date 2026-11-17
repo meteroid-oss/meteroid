@@ -9,6 +9,7 @@ pub mod issued;
 pub mod proration;
 pub mod reconcile;
 pub mod rounding;
+pub mod timeline;
 pub mod totals;
 
 pub use allocation::{largest_remainder, split};

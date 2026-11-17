@@ -19,8 +19,8 @@ use crate::services::Services;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
-use chrono::Datelike;
 use chrono::Duration;
+use chrono::{Datelike, NaiveDate};
 use common_domain::ids::{
     AddOnId, AppliedCouponId, BaseId, ProductId, SubscriptionAddOnId, SubscriptionId,
     SubscriptionPriceComponentId, TenantId,
@@ -292,22 +292,25 @@ impl Services {
             is_override: false,
         });
 
-        Ok(SubscriptionDetails {
-            subscription: virtual_subscription,
-            invoicing_entity,
-            customer,
-            schedules: Vec::new(),
-            price_components: subscription_components,
-            add_ons: subscription_add_ons,
-            applied_coupons,
-            metrics: Vec::new(),
-            usage_scopes: Default::default(),
-            checkout_url: None,
-            trial_config,
-            pending_events: Vec::new(),
-            entitlements: Vec::new(),
-            minimum,
-        })
+        Ok(rows_from(
+            SubscriptionDetails {
+                subscription: virtual_subscription,
+                invoicing_entity,
+                customer,
+                schedules: Vec::new(),
+                price_components: subscription_components,
+                add_ons: subscription_add_ons,
+                applied_coupons,
+                metrics: Vec::new(),
+                usage_scopes: Default::default(),
+                checkout_url: None,
+                trial_config,
+                pending_events: Vec::new(),
+                entitlements: Vec::new(),
+                minimum,
+            },
+            billing_start_date,
+        ))
     }
 
     /// Computes the first invoice a `CreateSubscription` request would produce — including the
@@ -531,22 +534,25 @@ impl Services {
             }
         }
 
-        let details = SubscriptionDetails {
-            subscription: virtual_subscription,
-            invoicing_entity,
-            customer,
-            schedules: Vec::new(),
-            price_components: subscription_components,
-            add_ons: subscription_add_ons,
-            applied_coupons,
-            metrics: Vec::new(),
-            usage_scopes: Default::default(),
-            checkout_url: None,
-            trial_config: None,
-            pending_events: Vec::new(),
-            entitlements: Vec::new(),
-            minimum,
-        };
+        let details = rows_from(
+            SubscriptionDetails {
+                subscription: virtual_subscription,
+                invoicing_entity,
+                customer,
+                schedules: Vec::new(),
+                price_components: subscription_components,
+                add_ons: subscription_add_ons,
+                applied_coupons,
+                metrics: Vec::new(),
+                usage_scopes: Default::default(),
+                checkout_url: None,
+                trial_config: None,
+                pending_events: Vec::new(),
+                entitlements: Vec::new(),
+                minimum,
+            },
+            sub.billing_start_date.unwrap_or(contract_start),
+        );
 
         let content = self
             .compute_invoice(
@@ -1054,4 +1060,15 @@ fn preview_minimum_scope(
             MinimumScope::Products(ids)
         }
     }
+}
+
+/// The preview's rows live from `from`, as the rows creating the subscription inserts do.
+fn rows_from(mut details: SubscriptionDetails, from: NaiveDate) -> SubscriptionDetails {
+    for component in &mut details.price_components {
+        component.effective_from = from;
+    }
+    for add_on in &mut details.add_ons {
+        add_on.effective_from = from;
+    }
+    details
 }

@@ -85,6 +85,10 @@ workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
 [dev-dependencies]
 rstest = { workspace = true }
 
+[features]
+# Checks the timeline's windows against the invoices, in tests only.
+timeline-shadow = []
+
 [package.metadata.cargo-machete]
 # paste used via paste::paste! macro which machete cannot detect
 ignored = ["paste"]

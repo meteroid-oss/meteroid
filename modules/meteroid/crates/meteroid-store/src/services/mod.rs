@@ -49,6 +49,8 @@ pub mod sandbox_replay;
 pub(crate) mod served_usage;
 pub mod subscription_receivables;
 mod subscriptions;
+#[cfg(feature = "timeline-shadow")]
+pub mod timeline_shadow;
 mod unattributed_usage;
 pub(crate) mod usage_controls_support;
 pub mod usage_costs;

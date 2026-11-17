@@ -890,3 +890,63 @@ async fn test_checkout_declined_charge_persists_failed_transaction(#[future] tes
     assert_eq!(tx.checkout_session_id, Some(session.id));
     assert!(tx.error_type.is_some(), "decline reason recorded");
 }
+
+/// A checkout previewed today for a subscription billing from March 1 previews its fees living
+/// from March 1, as completing it inserts them (R-084).
+#[rstest]
+#[tokio::test]
+async fn a_checkout_preview_s_fees_live_from_its_billing_start(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+    let start_date = NaiveDate::from_ymd_opt(2024, 3, 1).unwrap();
+    let session = env
+        .store()
+        .create_checkout_session(CreateCheckoutSession {
+            tenant_id: TENANT_ID,
+            customer_id: CUST_UBER_ID,
+            plan_version_id: PLAN_VERSION_1_LEETCODE_ID,
+            billing_start_date: Some(start_date),
+            billing_day_anchor: Some(1),
+            net_terms: None,
+            trial_duration_days: None,
+            end_date: None,
+            auto_advance_invoices: true,
+            charge_automatically: true,
+            invoice_memo: None,
+            invoice_threshold: None,
+            purchase_order: None,
+            payment_methods_config: None,
+            components: None,
+            add_ons: None,
+            coupon_code: None,
+            coupon_ids: vec![],
+            expires_in_hours: Some(24),
+            metadata: None,
+            checkout_type: CheckoutType::SelfServe,
+            subscription_id: None,
+            change_date: None,
+            success_url: None,
+            cancel_url: None,
+        })
+        .await
+        .expect("checkout session");
+
+    let details = env
+        .services()
+        .build_preview_subscription_details(&session, TENANT_ID, None)
+        .await
+        .expect("preview");
+    assert!(!details.price_components.is_empty());
+    assert!(
+        details
+            .price_components
+            .iter()
+            .all(|component| component.effective_from == start_date)
+    );
+    assert!(
+        details
+            .add_ons
+            .iter()
+            .all(|add_on| add_on.effective_from == start_date)
+    );
+}

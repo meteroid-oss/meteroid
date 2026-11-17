@@ -1408,6 +1408,15 @@ impl Services {
                 {
                     adjusted_period.advance = None;
                 }
+                #[cfg(feature = "timeline-shadow")]
+                crate::services::timeline_shadow::check(
+                    subscription_details,
+                    component,
+                    &adjusted_period,
+                    invoice_date,
+                    billing_start_or_resume_date,
+                    runs,
+                );
 
                 let lines = self
                     .compute_component(

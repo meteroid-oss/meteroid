@@ -130,6 +130,12 @@ impl Drop for TestDatabase {
                 .collect::<Vec<_>>()
                 .join("\n")
         );
+        let timeline = meteroid_store::services::timeline_shadow::take_mismatches();
+        assert!(
+            std::thread::panicking() || timeline.is_empty(),
+            "an invoice bills a period that is no window of the timeline (R-084):\n{}",
+            timeline.join("\n")
+        );
     }
 }
 
