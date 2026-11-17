@@ -62,6 +62,33 @@ pub fn on_large_stacks<F: Future<Output = ()>>(test: impl FnOnce() -> F + Send +
     }
 }
 
+/// The same work twice at once, as two worker replicas would run it: one may be refused (a claim
+/// or a lock taken by the other), never both; the model then checks nothing was done twice.
+pub async fn race<T>(
+    a: impl Future<Output = Result<T, String>>,
+    b: impl Future<Output = Result<T, String>>,
+) -> Result<(Option<T>, Option<T>), String> {
+    // MODEL_RACE=0 runs it once, to tell a race from a failure of its own.
+    if env("MODEL_RACE", 1) == 0 {
+        return a.await.map(|a| (Some(a), None));
+    }
+    match tokio::join!(a, b) {
+        (Err(a), Err(b)) => Err(format!("both runs failed: {a}; {b}")),
+        (a, b) => Ok((a.ok(), b.ok())),
+    }
+}
+
+/// Moves the present after any instant a case reaches, once per process: cases run side by side
+/// share the clock, and moving it again would take theirs back.
+pub fn run_later() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        common_domain::clock::test::set(
+            chrono::DateTime::from_timestamp(2_051_222_400, 0).expect("January 1, 2035"),
+        )
+    });
+}
+
 /// A difference as (category, detail); the category names the kind of mismatch.
 pub type Diff = (String, String);
 

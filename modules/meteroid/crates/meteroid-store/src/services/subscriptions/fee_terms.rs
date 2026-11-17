@@ -102,6 +102,28 @@ fn priced_over(
         .collect()
 }
 
+/// What reconcile owes back beyond what a charge's lines have left (R-085): settled by the notes
+/// that took it first, counted so support sees why a refund is below proration.
+static RECONCILE_SHORT: std::sync::LazyLock<opentelemetry::metrics::Counter<u64>> =
+    std::sync::LazyLock::new(|| {
+        common_logging::GLOBAL_METER
+            .u64_counter("billing_reconcile_short_minor")
+            .with_description(
+                "What reconcile owes back beyond what a charge's lines have left, in minor units",
+            )
+            .build()
+    });
+
+fn record_short(tenant: TenantId, change: &'static str, amount: i64) {
+    RECONCILE_SHORT.add(
+        u64::try_from(amount).unwrap_or(0),
+        &[
+            common_logging::KeyValue::new("tenant", tenant.to_string()),
+            common_logging::KeyValue::new("change", change),
+        ],
+    );
+}
+
 /// A row of a component or add-on: the price its fee billed from `from` until `to`.
 pub(in crate::services) struct FeeRow {
     pub id: uuid::Uuid,
@@ -143,6 +165,7 @@ impl FeeRow {
 
 /// A subscription's fee rows around a date, with what prices them: its seats and its grid.
 pub(in crate::services) struct FeeHistory {
+    pub tenant: TenantId,
     pub subscription: SubscriptionId,
     pub rows: Vec<FeeRow>,
     pub slots: Vec<SlotTransactionRow>,
@@ -224,6 +247,7 @@ impl FeeHistory {
         )
         .await?;
         Ok(FeeHistory {
+            tenant: tenant_id,
             subscription: subscription_id,
             rows,
             slots,
@@ -375,11 +399,14 @@ pub(in crate::services) fn ending_credits(
             }
             // Billed short up to `at` (a draft not issued yet): its invoice bills it.
             Adjustment::Bill { .. } => {}
-            Adjustment::Short { key, amount } => log::warn!(
-                "the ending on {at} of subscription {} owes back {amount} of {:?} beyond what its lines have left",
-                history.subscription,
-                key.fee
-            ),
+            Adjustment::Short { key, amount } => {
+                log::warn!(
+                    "the ending on {at} of subscription {} owes back {amount} of {:?} beyond what its lines have left",
+                    history.subscription,
+                    key.fee
+                );
+                record_short(history.tenant, "ending", amount);
+            }
         }
     }
     credits
@@ -519,12 +546,15 @@ impl AmendmentChange<'_> {
                 }
                 // Billed by the adjustment invoice.
                 Adjustment::Bill { .. } => {}
-                Adjustment::Short { key, amount } => log::warn!(
-                    "the amendment on {} of subscription {} owes back {amount} of {:?} beyond what its lines have left",
-                    self.change,
-                    subscription.id,
-                    key.fee
-                ),
+                Adjustment::Short { key, amount } => {
+                    log::warn!(
+                        "the amendment on {} of subscription {} owes back {amount} of {:?} beyond what its lines have left",
+                        self.change,
+                        subscription.id,
+                        key.fee
+                    );
+                    record_short(subscription.tenant_id, "amendment", amount);
+                }
             }
         }
         Ok(credits)
@@ -601,6 +631,7 @@ mod tests {
             to: to.map(day),
         };
         let history = FeeHistory {
+            tenant: TenantId::new(),
             subscription: SubscriptionId::new(),
             rows: vec![row(310, 1, Some(11)), row(620, 11, None)],
             slots: vec![],

@@ -11,13 +11,6 @@ mod reference;
 mod regressions;
 mod runner;
 
-/// The cases in four shards, so they spread over the test runner's slots. Pull requests run a
-/// fixed handful of cases; the scheduled model-tests workflow explores fresh seeds.
-#[rstest::rstest]
-#[case(0)]
-#[case(1)]
-#[case(2)]
-#[case(3)]
 /// The cases in shards, so they spread over the test runner's slots. Pull requests run a fixed
 /// handful of cases; the scheduled model-tests workflow explores fresh seeds.
 #[rstest::rstest]

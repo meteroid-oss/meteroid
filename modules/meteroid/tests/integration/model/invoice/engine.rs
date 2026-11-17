@@ -78,6 +78,8 @@ impl Engine {
         h.env
             .skip_credit_invariants("the model runner checks them after every step");
         h.skip_corpus("a model case's documents follow from its seed");
+        // After every instant a case reaches, however long: the engine bills nothing in the future.
+        super::super::harness::run_later();
         Self {
             h,
             customer: None,
@@ -88,14 +90,16 @@ impl Engine {
     }
 
     async fn due_events(&self) -> Result<(), String> {
-        for _ in 0..4 {
-            let processed = self
-                .h
+        let run = || async {
+            self.h
                 .services()
                 .get_and_process_due_events()
                 .await
-                .map_err(err)?;
-            if processed == 0 {
+                .map_err(err)
+        };
+        for _ in 0..4 {
+            let (a, b) = super::super::harness::race(run(), run()).await?;
+            if a.unwrap_or(0) + b.unwrap_or(0) == 0 {
                 break;
             }
         }
@@ -125,16 +129,15 @@ impl Engine {
                 &[(PROPERTY, units.to_string().as_str())],
             ),
             Action::Advance { at } => {
-                self.h
-                    .services()
-                    .bill_subscription_period_at(
-                        tenant,
-                        self.sub.expect("started"),
-                        *at,
-                        InvoiceDelivery::Suppressed,
-                    )
-                    .await
-                    .map_err(err)?;
+                let sub = self.sub.expect("started");
+                let run = || async {
+                    self.h
+                        .services()
+                        .bill_subscription_period_at(tenant, sub, *at, InvoiceDelivery::Suppressed)
+                        .await
+                        .map_err(err)
+                };
+                super::super::harness::race(run(), run()).await?;
                 self.due_events().await?;
             }
             Action::ChangeAtEnd { to, .. } => {

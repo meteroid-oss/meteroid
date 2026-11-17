@@ -233,3 +233,65 @@ async fn a_void_gives_credit_back_no_earlier_than_the_draw_it_returns() {
     );
     h.check().await;
 }
+
+/// A pack paid after its period was invoiced gets back what it would have paid on time (OQ11),
+/// though the welcome credit lapsing with it drew on the renewal that sold it: that draw paid
+/// August's usage, so it could pay none of September's. Before, it was counted as paying beside
+/// the pack and the note credited 600 of September's 5600.
+#[tokio::test]
+async fn a_late_pack_is_credited_back_what_credit_spent_on_an_earlier_period_could_not_pay() {
+    use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
+    let h = Halyard::new().await;
+    let customer = h.customer("Untaxed", Tax::Untaxed).await;
+    let (sub, first) = h.subscribe(customer, h.scale, day(8, 16)).await;
+    // Max 4M = 24000.
+    h.tokens(
+        customer,
+        at_time(8, 17, 14, 0, 0),
+        crate::scenarios::kit::MAX,
+        4 * M,
+    );
+    let september = h.renew(sub, at(9, 16)).await.expect("INV-2");
+    // Lite 28M = 5600.
+    h.tokens(
+        customer,
+        at_time(9, 18, 14, 0, 0),
+        crate::scenarios::kit::LITE,
+        28 * M,
+    );
+    h.pay(first.expect("INV-1").id, at_time(9, 19, 14, 0, 0))
+        .await;
+    let top_up = credit_sale(&h, customer, 5_000, at_time(9, 19, 14, 0, 0)).await;
+    h.pay(top_up.id, at_time(9, 19, 14, 0, 0)).await;
+    h.services()
+        .cancel_subscription(
+            Actor::System,
+            sub,
+            h.tenant,
+            None,
+            CancellationEffectiveAt::Date(day(10, 16)),
+        )
+        .await
+        .expect("cancelled at the period end");
+    // The final invoice bills September's usage; the credit paid it.
+    h.renew(sub, at(10, 16)).await;
+    h.services()
+        .get_and_process_due_events()
+        .await
+        .expect("due events");
+
+    h.pay(september.id, at_time(10, 16, 14, 0, 0)).await;
+    let notes = h
+        .store()
+        .list_credit_notes_by_invoice_id(h.tenant, september.id)
+        .await
+        .expect("notes");
+    assert_eq!(
+        notes
+            .iter()
+            .map(|note| (note.credit_type, note.total))
+            .collect::<Vec<_>>(),
+        vec![(CreditType::CreditToBalance, -5_600)]
+    );
+    h.check().await;
+}

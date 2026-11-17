@@ -103,6 +103,8 @@ impl Engine {
         h.env
             .skip_credit_invariants("the model runner checks them after every step");
         h.skip_corpus("a model case's documents follow from its seed");
+        // After every instant a case reaches, however long: the engine bills nothing in the future.
+        super::harness::run_later();
         let customer = h.customer("Model", Tax::Untaxed).await;
         let wallet = h
             .store()
@@ -152,23 +154,28 @@ impl Engine {
     }
 
     pub async fn sweep(&self, at: DateTime<Utc>) -> Result<(), String> {
-        self.h
-            .store()
-            .expire_customer_credit_for(self.h.tenant, self.customer, at)
-            .await
-            .map(|_| ())
-            .map_err(err)
+        let run = || async {
+            self.h
+                .store()
+                .expire_customer_credit_for(self.h.tenant, self.customer, at)
+                .await
+                .map(|_| ())
+                .map_err(err)
+        };
+        super::harness::race(run(), run()).await.map(|_| ())
     }
 
     async fn due_events(&self) -> Result<(), String> {
-        for _ in 0..4 {
-            let processed = self
-                .h
+        let run = || async {
+            self.h
                 .services()
                 .get_and_process_due_events()
                 .await
-                .map_err(err)?;
-            if processed == 0 {
+                .map_err(err)
+        };
+        for _ in 0..4 {
+            let (a, b) = super::harness::race(run(), run()).await?;
+            if a.unwrap_or(0) + b.unwrap_or(0) == 0 {
                 break;
             }
         }
@@ -236,15 +243,18 @@ impl Engine {
             } => self.record(*sub, *dated, *token, *mtok),
             Action::Renew { at, subs } => {
                 for &s in subs {
-                    h.services()
-                        .bill_subscription_period_at(
-                            tenant,
-                            self.subs[s],
-                            *at,
-                            InvoiceDelivery::Suppressed,
-                        )
-                        .await
-                        .map_err(err)?;
+                    let run = || async {
+                        h.services()
+                            .bill_subscription_period_at(
+                                tenant,
+                                self.subs[s],
+                                *at,
+                                InvoiceDelivery::Suppressed,
+                            )
+                            .await
+                            .map_err(err)
+                    };
+                    super::harness::race(run(), run()).await?;
                 }
                 self.due_events().await?;
                 self.sweep(*at + DOCUMENTS).await?;

@@ -49,7 +49,9 @@ pub(super) async fn pack_face_drawn_on_time_tx(
     let unit = DenominationCode::parse(&denomination).is_ok_and(|code| code.is_unit());
     let owners = LineOwners::load_tx(conn, tenant_id, &ctx.all_lines).await?;
     let mut owed = Vec::new();
+    let mut billing_period = Vec::new();
     for invoice in &ctx.invoices {
+        let before = owed.len();
         for line in invoice.line_items.iter().filter(|line| {
             line.metric_id.is_some()
                 && line.kind == LineItemKind::Regular
@@ -65,6 +67,9 @@ pub(super) async fn pack_face_drawn_on_time_tx(
                 ctx.returned.get(&line.local_id),
             ));
         }
+        if owed.len() > before {
+            billing_period.push(invoice.id);
+        }
     }
     if owed.is_empty() {
         return Ok(0);
@@ -75,7 +80,13 @@ pub(super) async fn pack_face_drawn_on_time_tx(
         .map(|grant| (grant.id, grant.amount.max(0)))
         .collect();
     let own = |id: CreditGrantId| id == pack.paid.id || pack.bonus.is_some_and(|b| b.id == id);
-    for invoice in &ctx.invoices {
+    // What other credit drew for the period's usage: a draw on an invoice of the period that bills
+    // no usage of it (an earlier period's arrears) spent that credit before the period's end.
+    for invoice in ctx
+        .invoices
+        .iter()
+        .filter(|i| billing_period.contains(&i.id))
+    {
         for entry in CustomerCreditEntryRow::list_by_invoice_in_currency(
             conn,
             tenant_id,
