@@ -259,34 +259,16 @@ impl FeeHistory {
         })
     }
 
-    /// The terms of the fees of `lineages` up to `at`, each row over its own period: the grid's,
-    /// or, off it (a cadence changed), the window of the line billing the fee across `at`.
-    fn terms_until(
-        &self,
-        at: NaiveDate,
-        lineages: &BTreeSet<String>,
-        issued: &[IssuedLine],
-    ) -> Vec<Term> {
+    /// The terms of the fees of `lineages` up to `at`, each row over its period on its own grid.
+    fn terms_until(&self, at: NaiveDate, lineages: &BTreeSet<String>) -> Vec<Term> {
         let grid = own_period(self.grid, at);
         let mut terms = Vec::new();
         for row in self.rows.iter().filter(|row| {
             lineages.contains(&row.lineage)
                 && !matches!(row.billing, SubscriptionFeeBillingPeriod::OneTime)
         }) {
-            let on_grid = grid(&row.billing);
+            let period = grid(&row.billing);
             let until = row.to.map_or(at, |to| to.min(at));
-            let period = issued
-                .iter()
-                .filter(|line| {
-                    line.key.fee == row.fee
-                        && line.from <= at
-                        && at < line.until
-                        && row.from < line.until
-                        && line.from < row.to.unwrap_or(line.until)
-                        && !(on_grid.0 <= line.from && line.until <= on_grid.1)
-                })
-                .max_by(|a, b| a.from.cmp(&b.from).then_with(|| a.id.cmp(&b.id)))
-                .map_or(on_grid, |line| (line.from, line.until));
             let from = row.from.max(period.0);
             let until = until.max(from);
             if from == until {
@@ -384,7 +366,7 @@ pub(in crate::services) fn ending_credits(
             line.key.fee = (*fee).clone();
         }
     }
-    let terms = history.terms_until(at, lineages, &issued);
+    let terms = history.terms_until(at, lineages);
     let expected = billing_core::expected(subscription, &terms);
     let mut credits = Vec::new();
     for adjustment in billing_core::reconcile(&expected, &issued, TakeBack::Unused(at)) {
@@ -459,13 +441,13 @@ pub(in crate::services) struct AmendmentChange<'a> {
 impl AmendmentChange<'_> {
     /// Each touched fee's terms: what its rows billed up to the change, overrides earlier in
     /// the period included, then the price that starts there, to the end of its own period.
-    fn terms(&self, history: &FeeHistory, issued: &[IssuedLine]) -> Vec<Term> {
+    fn terms(&self, history: &FeeHistory) -> Vec<Term> {
         let lineages: BTreeSet<String> = self
             .removed
             .iter()
             .filter_map(|removed| removed.net_key.clone())
             .collect();
-        let mut terms = history.terms_until(self.change, &lineages, issued);
+        let mut terms = history.terms_until(self.change, &lineages);
         for added in self.added {
             if matches!(added.fee, SubscriptionFee::OneTime { .. }) {
                 continue;
@@ -532,10 +514,8 @@ impl AmendmentChange<'_> {
         let history =
             FeeHistory::read(conn, subscription.tenant_id, subscription.id, self.change).await?;
         let issued = self.issued(ctx);
-        let expected = billing_core::expected(
-            Some(subscription.id.as_uuid()),
-            &self.terms(&history, &issued),
-        );
+        let expected =
+            billing_core::expected(Some(subscription.id.as_uuid()), &self.terms(&history));
         let mut credits = Vec::new();
         for adjustment in billing_core::reconcile(&expected, &issued, TakeBack::LatestFirst) {
             match adjustment {

@@ -32,7 +32,7 @@ use diesel_models::enums::SubscriptionEventType;
 use diesel_models::lock::CustomerLock;
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::SubscriptionRow;
-use error_stack::{Report, ResultExt, bail};
+use error_stack::{Report, ResultExt};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::FromPrimitive;
 use scoped_futures::ScopedFutureExt;
@@ -81,18 +81,13 @@ impl Services {
 
                 let subscription = &subscription_details.subscription;
 
-                let period_end = match subscription.current_period_end {
-                    Some(period) => period,
-                    None => bail!(StoreError::InvalidArgument(
-                        "Cannot modify slots for subscription without active billing period"
-                            .to_string()
-                    )),
-                };
-
                 let slot = services.extract_slot(&subscription_details, price_component_id)?;
 
                 let now = at_ts.unwrap_or(common_domain::clock::now().naive_utc());
                 let now_date = now.date();
+                let (period_start, period_end) = services
+                    .slot_fee_period(conn, &subscription_details, price_component_id, now_date)
+                    .await?;
 
                 let unit_rate = slot.unit_rate;
                 let customer_id = subscription.customer_id;
@@ -130,7 +125,6 @@ impl Services {
                             ))
                         })?;
 
-                    let period_start = subscription.current_period_start;
                     let prorated = services.calculate_slot_upgrade_amount(
                         period_start,
                         now_date,
@@ -448,6 +442,43 @@ impl Services {
             })
         })
         .await
+    }
+
+    /// The slot fee's period around `on` on its own grid (R-084): a fee billed off the
+    /// subscription's cadence prorates an upgrade, and steps a downgrade down, over its own period.
+    async fn slot_fee_period(
+        &self,
+        conn: &mut PgConn,
+        details: &crate::domain::SubscriptionDetails,
+        price_component_id: PriceComponentId,
+        on: chrono::NaiveDate,
+    ) -> StoreResult<(chrono::NaiveDate, chrono::NaiveDate)> {
+        let subscription = &details.subscription;
+        let current_end = subscription.current_period_end.ok_or_else(|| {
+            StoreError::InvalidArgument(
+                "Cannot modify slots for subscription without active billing period".to_string(),
+            )
+        })?;
+        let period = details
+            .price_components
+            .iter()
+            .find(|c| c.price_component_id() == Some(price_component_id))
+            .map(|c| *c.period_ref())
+            .ok_or_else(|| {
+                StoreError::ValueNotFound(format!(
+                    "Price component {price_component_id} not found in subscription"
+                ))
+            })?;
+        let grid = crate::services::subscriptions::proration::OwnGrid::read(
+            conn,
+            subscription,
+            (subscription.current_period_start, current_end),
+            on,
+        )
+        .await?;
+        Ok(crate::services::subscriptions::proration::own_period(
+            grid, on,
+        )(&period))
     }
 
     fn extract_slot(
@@ -858,19 +889,20 @@ impl Services {
 
         let subscription = &subscription_details.subscription;
 
-        let period_end = match subscription.current_period_end {
-            Some(period) => period,
-            None => bail!(StoreError::InvalidArgument(
-                "Cannot modify slots for subscription without active billing period".to_string()
-            )),
-        };
-
         let slot = self.extract_slot(&subscription_details, price_component_id)?;
 
         let now = common_domain::clock::now().naive_utc();
         let now_date = now.date();
 
         let mut conn = self.store.get_conn().await?;
+        let (period_start, period_end) = self
+            .slot_fee_period(
+                &mut conn,
+                &subscription_details,
+                price_component_id,
+                now_date,
+            )
+            .await?;
 
         let current_slots = self
             .store
@@ -894,8 +926,6 @@ impl Services {
         let currency = Currencies::resolve_currency(&subscription.currency).ok_or_else(|| {
             StoreError::ValueNotFound(format!("Currency {} not found", subscription.currency))
         })?;
-
-        let period_start = subscription.current_period_start;
 
         let (prorated_amount, full_period_amount, adjustment_invoice) = if delta > 0 {
             let prorated = self.calculate_slot_upgrade_amount(
@@ -972,7 +1002,8 @@ impl Services {
             .into());
         }
 
-        self.store
+        let (invoice_id, unit_name, claim) = self
+            .store
             .transaction(|conn| {
                 async move {
                     let lock = SubscriptionRow::lock_subscription_for_update(conn, subscription_id)
@@ -993,13 +1024,11 @@ impl Services {
 
                     let now = at_ts.unwrap_or(common_domain::clock::now().naive_utc());
                     let now_date = now.date();
-                    let period_end = subscription_details.subscription.current_period_end.ok_or(
-                        StoreError::InvalidArgument(
-                            "Subscription must have current_period_end".to_string(),
-                        ),
-                    )?;
 
                     let slot = self.extract_slot(&subscription_details, price_component_id)?;
+                    let (period_start, period_end) = self
+                        .slot_fee_period(conn, &subscription_details, price_component_id, now_date)
+                        .await?;
 
                     let unit_rate = slot.unit_rate;
                     let unit_name = slot.unit.clone();
@@ -1014,7 +1043,6 @@ impl Services {
                             ))
                         })?;
 
-                    let period_start = subscription_details.subscription.current_period_start;
                     let prorated = self.calculate_slot_upgrade_amount(
                         period_start,
                         now_date,
@@ -1051,8 +1079,21 @@ impl Services {
                         )
                         .await?;
 
-                    let (payment_result, next_action) = self
-                        .process_invoice_payment_tx(
+                    // Pending until its payment settles; a refused payment drops it.
+                    self.store
+                        .add_pending_slot_transaction_with_conn(
+                            conn,
+                            &lock,
+                            subscription_id,
+                            period_end,
+                            delta,
+                            &slot,
+                            invoice_id,
+                            at_ts,
+                        )
+                        .await?;
+                    let claim = self
+                        .claim_invoice_charge_tx(
                             conn,
                             tenant_id,
                             invoice_id,
@@ -1062,91 +1103,214 @@ impl Services {
                             None,
                         )
                         .await?;
+                    Ok((invoice_id, unit_name, claim))
+                }
+                .scope_boxed()
+            })
+            .await?;
 
-                    use crate::domain::PaymentStatusEnum;
-                    match payment_result.status {
-                        PaymentStatusEnum::Settled => {
-                            // Payment succeeded - payment method is already saved on the customer
-                            let slot_transaction = self
+        use crate::services::payment::process_payment::{ChargeAnswer, InvoiceChargeClaim};
+        let charge = match claim {
+            InvoiceChargeClaim::Claimed(charge) => charge,
+            // A fresh invoice has no earlier attempt.
+            InvoiceChargeClaim::InFlight(_) | InvoiceChargeClaim::Recorded(_) => {
+                return Err(crate::services::payment::process_payment::payment_in_flight());
+            }
+        };
+        let row = charge.transaction().clone();
+
+        match self.send_invoice_charge(&charge).await {
+            ChargeAnswer::Outcome { intent, amount }
+                if matches!(
+                    intent.status,
+                    crate::domain::PaymentStatusEnum::Failed
+                        | crate::domain::PaymentStatusEnum::Cancelled
+                ) =>
+            {
+                let status = intent.status.clone();
+                self.unwind_slot_upgrade(tenant_id, invoice_id, &row, Some((*intent, amount)))
+                    .await?;
+                Err(StoreError::PaymentError(format!("Payment failed. Status: {status:?}")).into())
+            }
+            ChargeAnswer::Refused(error) => {
+                self.unwind_slot_upgrade(tenant_id, invoice_id, &row, None)
+                    .await?;
+                Err(error)
+            }
+            answer => {
+                let answered = match answer {
+                    ChargeAnswer::Outcome { intent, amount } => Some((*intent, amount)),
+                    // No answer: the reconciliation worker re-sends it under the same key. An
+                    // unconfirmed re-send leaves the issued invoice to reminders, its seats
+                    // activating once paid, as a payment failing after 3DS does.
+                    _ => None,
+                };
+                self.record_slot_upgrade_charge(
+                    tenant_id,
+                    subscription_id,
+                    invoice_id,
+                    &row,
+                    answered,
+                    unit_name,
+                    at_ts,
+                )
+                .await
+            }
+        }
+    }
+
+    /// Records a slot upgrade's charge on its committed row and issues the invoice; a capture
+    /// activates the slots at once, a payment settling later activates them when it does.
+    #[allow(clippy::too_many_arguments)]
+    async fn record_slot_upgrade_charge(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+        invoice_id: InvoiceId,
+        row: &diesel_models::payments::PaymentTransactionRow,
+        answered: Option<(crate::domain::payment_transactions::PaymentIntent, i64)>,
+        unit_name: String,
+        at_ts: Option<chrono::NaiveDateTime>,
+    ) -> StoreResult<(PaymentTransaction, i32, Option<PaymentNextAction>)> {
+        use crate::repositories::payment_transactions::PaymentTransactionInterface;
+        let next_action = answered
+            .as_ref()
+            .and_then(|(intent, _)| intent.next_action.clone());
+        let answered = &answered;
+        let transaction = self
+            .store
+            .transaction(|conn| {
+                async move {
+                    let lock = diesel_models::invoices::InvoiceRow::lock_customer_of(
+                        conn, tenant_id, invoice_id,
+                    )
+                    .await?;
+                    diesel_models::query::credit_inputs::bump_customer(conn, &lock).await?;
+                    let transaction = match answered {
+                        Some((intent, amount)) => {
+                            let mut existing = self
                                 .store
-                                .add_slot_transaction_tx(
-                                    conn,
-                                    &lock,
-                                    subscription_id,
-                                    period_end,
-                                    delta,
-                                    &slot,
-                                    at_ts,
-                                )
+                                .get_payment_tx_by_id_for_update(conn, row.id, tenant_id)
                                 .await?;
-
-                            let new_slot_count =
-                                slot_transaction.prev_active_slots + slot_transaction.delta;
-
-                            self.finalize_invoice_tx(
-                                conn,
-                                &Actor::System,
-                                invoice_id,
-                                tenant_id,
-                                false,
-                                &None,
-                            )
-                            .await?;
-
-                            Ok((payment_result, new_slot_count, None))
-                        }
-                        // 3DS/SCA (or async settlement): record the slot as pending
-                        // and finalize the invoice. The slot activates when the
-                        // payment settles (payment webhook → invoice paid →
-                        // activate_pending_slot_transactions); the portal completes
-                        // the returned next_action meanwhile.
-                        PaymentStatusEnum::Pending | PaymentStatusEnum::Ready => {
+                            if *amount != existing.amount {
+                                existing = diesel_models::payments::PaymentTransactionRowPatch {
+                                    id: row.id,
+                                    amount: Some(*amount),
+                                    ..Default::default()
+                                }
+                                .patch(conn, tenant_id, row.id)
+                                .await
+                                .map_err(Into::<Report<StoreError>>::into)?
+                                .into();
+                            }
                             self.store
-                                .add_pending_slot_transaction_with_conn(
+                                .consolidate_intent_and_transaction_tx(
                                     conn,
-                                    &lock,
-                                    subscription_id,
-                                    period_end,
-                                    delta,
-                                    &slot,
-                                    invoice_id,
-                                    at_ts,
+                                    &Actor::System,
+                                    existing,
+                                    intent.clone(),
                                 )
-                                .await?;
-
-                            self.finalize_invoice_tx(
-                                conn,
-                                &Actor::System,
-                                invoice_id,
-                                tenant_id,
-                                false,
-                                &None,
-                            )
-                            .await?;
-
-                            let current_slots = self
-                                .store
-                                .get_active_slots_value_with_conn(
-                                    conn,
-                                    tenant_id,
-                                    subscription_id,
-                                    unit_name.clone(),
-                                    None,
-                                )
-                                .await?;
-
-                            Ok((payment_result, current_slots as i32, next_action))
+                                .await?
                         }
-                        // A fresh charge never settles-then-reverses in one call;
-                        // Refunded here would be anomalous, so treat it as a failure.
-                        PaymentStatusEnum::Failed
-                        | PaymentStatusEnum::Cancelled
-                        | PaymentStatusEnum::Refunded => Err(StoreError::PaymentError(format!(
-                            "Payment failed. Status: {:?}",
-                            payment_result.status
-                        ))
-                        .into()),
+                        None => row.clone().into(),
+                    };
+                    let invoice = diesel_models::invoices::InvoiceRow::find_by_id(
+                        conn, tenant_id, invoice_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                    if invoice.status == diesel_models::enums::InvoiceStatusEnum::Draft {
+                        self.finalize_invoice_tx(
+                            conn,
+                            &Actor::System,
+                            invoice_id,
+                            tenant_id,
+                            false,
+                            &None,
+                        )
+                        .await?;
                     }
+                    Ok::<_, Report<StoreError>>(transaction)
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        if transaction.status == crate::domain::PaymentStatusEnum::Settled {
+            self.activate_pending_slot_transactions(tenant_id, invoice_id, at_ts)
+                .await?;
+        }
+        let current = self
+            .store
+            .get_active_slots_value_with_conn(
+                &mut self.store.get_conn().await?,
+                tenant_id,
+                subscription_id,
+                unit_name,
+                None,
+            )
+            .await?;
+        Ok((transaction, current as i32, next_action))
+    }
+
+    /// A slot upgrade whose payment was refused leaves nothing billed: the decline is recorded
+    /// on its row, the pending slots are dropped and the unnumbered draft is closed.
+    async fn unwind_slot_upgrade(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        row: &diesel_models::payments::PaymentTransactionRow,
+        declined: Option<(crate::domain::payment_transactions::PaymentIntent, i64)>,
+    ) -> StoreResult<()> {
+        let declined = &declined;
+        self.store
+            .transaction(|conn| {
+                async move {
+                    let lock = diesel_models::invoices::InvoiceRow::lock_customer_of(
+                        conn, tenant_id, invoice_id,
+                    )
+                    .await?;
+                    match declined {
+                        Some((intent, _)) => {
+                            diesel_models::payments::PaymentTransactionRowPatch {
+                                id: row.id,
+                                provider_transaction_id: Some(
+                                    Some(intent.external_id.clone()).filter(|id| !id.is_empty()),
+                                ),
+                                status: Some(intent.status.clone().into()),
+                                error_type: Some(intent.last_payment_error.clone()),
+                                processed_at: Some(intent.processed_at),
+                                ..Default::default()
+                            }
+                            .patch_unsent(conn, tenant_id, row.id)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+                        }
+                        None => {
+                            diesel_models::payments::PaymentTransactionRow::delete_unsent_charge(
+                                conn, row.id, tenant_id,
+                            )
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+                        }
+                    }
+                    diesel_models::slot_transactions::SlotTransactionRow::delete_pending_for_invoice(
+                        conn, &lock, invoice_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                    // A webhook may have issued it meanwhile: only a draft is closed.
+                    let invoice = diesel_models::invoices::InvoiceRow::find_by_id(
+                        conn, tenant_id, invoice_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                    if invoice.status == diesel_models::enums::InvoiceStatusEnum::Draft {
+                        diesel_models::invoices::InvoiceRow::close(conn, invoice_id, tenant_id)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+                    }
+                    Ok(())
                 }
                 .scope_boxed()
             })

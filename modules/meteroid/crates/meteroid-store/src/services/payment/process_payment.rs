@@ -519,7 +519,7 @@ impl Services {
     /// Locks the invoice, checks it can be paid, and inserts the Pending row with its exact
     /// provider request. Nothing is sent: the caller sends it once this is committed.
     #[allow(clippy::too_many_arguments)]
-    async fn claim_invoice_charge_tx(
+    pub(in crate::services) async fn claim_invoice_charge_tx(
         &self,
         conn: &mut PgConn,
         tenant_id: TenantId,

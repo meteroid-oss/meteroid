@@ -997,3 +997,245 @@ async fn test_refused_checkout_charge_is_undone(#[future] test_env: TestEnv) {
         .expect("session");
     assert_eq!(session.status, CheckoutSessionStatus::Created);
 }
+
+/// A Notion subscription with 5 seats at 10.00, from Jan 1, 2024.
+async fn seats_subscription(env: &TestEnv) -> common_domain::ids::SubscriptionId {
+    seats_billed(
+        env,
+        meteroid_store::domain::enums::BillingPeriodEnum::Monthly,
+    )
+    .await
+}
+
+/// [`seats_subscription`], at most `max` seats.
+async fn seats_up_to(env: &TestEnv, max: u32) -> common_domain::ids::SubscriptionId {
+    seats_with(
+        env,
+        meteroid_store::domain::enums::BillingPeriodEnum::Monthly,
+        Some(max),
+    )
+    .await
+}
+
+/// [`seats_subscription`], its seats billed every `cadence`.
+async fn seats_billed(
+    env: &TestEnv,
+    cadence: meteroid_store::domain::enums::BillingPeriodEnum,
+) -> common_domain::ids::SubscriptionId {
+    seats_with(env, cadence, None).await
+}
+
+async fn seats_with(
+    env: &TestEnv,
+    cadence: meteroid_store::domain::enums::BillingPeriodEnum,
+    max_slots: Option<u32>,
+) -> common_domain::ids::SubscriptionId {
+    use meteroid_store::domain::price_components::{PriceEntry, PriceInput};
+    use meteroid_store::domain::prices::Pricing;
+    use meteroid_store::domain::{
+        ComponentOverride, ComponentParameterization, ComponentParameters,
+        CreateSubscriptionComponents,
+    };
+
+    let mut request = subscription()
+        .plan_version(PLAN_VERSION_NOTION_ID)
+        .start_date(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        .on_start()
+        .no_trial()
+        .request();
+    request.price_components = Some(CreateSubscriptionComponents {
+        parameterized_components: vec![ComponentParameterization {
+            component_id: COMP_NOTION_SEATS_ID,
+            parameters: ComponentParameters {
+                initial_slot_count: Some(5),
+                billing_period: None,
+                committed_capacity: None,
+            },
+        }],
+        overridden_components: vec![ComponentOverride {
+            component_id: COMP_NOTION_SEATS_ID,
+            name: "Seats".to_string(),
+            price_entry: PriceEntry::New(PriceInput {
+                cadence,
+                currency: "EUR".to_string(),
+                pricing: Pricing::Slot {
+                    unit_rate: rust_decimal::Decimal::new(1000, 2),
+                    min_slots: None,
+                    max_slots,
+                },
+                credit_unit: None,
+            }),
+        }],
+        extra_components: vec![],
+        remove_components: vec![],
+    });
+    env.services()
+        .insert_subscription(common_domain::actor::Actor::System, request, TENANT_ID)
+        .await
+        .expect("seats subscription")
+        .id
+}
+
+async fn active_seats(env: &TestEnv, sub: common_domain::ids::SubscriptionId) -> u32 {
+    use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
+    env.store()
+        .get_active_slots_value(TENANT_ID, sub, "Seats".to_string(), None)
+        .await
+        .expect("active seats")
+}
+
+async fn seat_purchase(
+    env: &TestEnv,
+    sub: common_domain::ids::SubscriptionId,
+) -> meteroid_store::StoreResult<(meteroid_store::domain::PaymentTransaction, i32)> {
+    env.services()
+        .complete_slot_upgrade_checkout(
+            TENANT_ID,
+            sub,
+            COMP_NOTION_SEATS_ID,
+            2,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            Some(
+                NaiveDate::from_ymd_opt(2024, 1, 16)
+                    .unwrap()
+                    .and_hms_opt(12, 0, 0)
+                    .unwrap(),
+            ),
+        )
+        .await
+        .map(|(transaction, seats, _)| (transaction, seats))
+}
+
+/// A seat purchase whose charge got no answer is committed with its invoice: the re-send under
+/// its key settles it and the seats activate, charged once.
+#[rstest]
+#[tokio::test]
+async fn test_seat_purchase_without_an_answer_activates_once_resent(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+    let sub = seats_subscription(&env).await;
+
+    env.set_mock_charge_behavior(MockChargeBehavior::Unknown)
+        .await;
+    let (transaction, seats) = seat_purchase(&env, sub).await.expect("in flight");
+    assert_eq!(transaction.status, PaymentStatusEnum::Pending);
+    assert!(transaction.provider_transaction_id.is_none());
+    assert_eq!((seats, active_seats(&env, sub).await), (5, 5));
+    let invoice_id = transaction.invoice_id.expect("the purchase's invoice");
+
+    env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
+        .await;
+    env.services()
+        .resume_unsent_charge(transaction.id, TENANT_ID)
+        .await
+        .expect("resume the unsent charge");
+    env.run_outbox_and_orchestration().await;
+
+    assert_eq!(active_seats(&env, sub).await, 7);
+    let invoice = env.get_detailed_invoice(invoice_id).await;
+    assert_eq!(invoice.invoice.amount_due, 0);
+    assert_eq!(invoice.transactions.len(), 1, "charged once");
+}
+
+/// A declined seat purchase leaves nothing billed: the draft is closed, no seat is pending.
+#[rstest]
+#[tokio::test]
+async fn test_declined_seat_purchase_leaves_nothing_billed(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+    let sub = seats_subscription(&env).await;
+
+    env.set_mock_charge_behavior(MockChargeBehavior::Failed)
+        .await;
+    let err = seat_purchase(&env, sub).await.expect_err("declined");
+    assert!(matches!(
+        err.current_context(),
+        meteroid_store::errors::StoreError::PaymentError(_)
+    ));
+    {
+        use diesel::prelude::*;
+        use diesel_async::RunQueryDsl;
+        use diesel_models::schema::{invoice, slot_transaction};
+        let mut conn = env.conn().await;
+        let statuses: Vec<diesel_models::enums::InvoiceStatusEnum> = invoice::table
+            .filter(invoice::subscription_id.eq(sub))
+            .filter(invoice::status.eq(diesel_models::enums::InvoiceStatusEnum::Closed))
+            .select(invoice::status)
+            .load(&mut conn)
+            .await
+            .expect("invoices");
+        assert_eq!(
+            statuses,
+            vec![diesel_models::enums::InvoiceStatusEnum::Closed]
+        );
+        let pending: i64 = slot_transaction::table
+            .filter(slot_transaction::subscription_id.eq(sub))
+            .filter(
+                slot_transaction::status
+                    .eq(diesel_models::enums::SlotTransactionStatusEnum::Pending),
+            )
+            .count()
+            .get_result(&mut conn)
+            .await
+            .expect("pending seats");
+        assert_eq!(pending, 0);
+    }
+
+    env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
+        .await;
+    let (transaction, seats) = seat_purchase(&env, sub).await.expect("a new purchase");
+    assert_eq!(transaction.status, PaymentStatusEnum::Settled);
+    assert_eq!(
+        (seats, active_seats(&env, sub).await),
+        (7, 7),
+        "only the paid seats"
+    );
+}
+
+/// Seats billed quarterly on a monthly subscription (R-084): two bought on Jan 16 are prorated
+/// over the quarter, 2 × 10.00 × 76/91 = 16.70, not over the month.
+#[rstest]
+#[tokio::test]
+async fn test_seats_billed_quarterly_are_prorated_over_their_quarter(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+    let sub = seats_billed(
+        &env,
+        meteroid_store::domain::enums::BillingPeriodEnum::Quarterly,
+    )
+    .await;
+
+    let (transaction, seats) = seat_purchase(&env, sub).await.expect("captured");
+    assert_eq!(seats, 7);
+    let invoice = env
+        .get_detailed_invoice(transaction.invoice_id.expect("the purchase's invoice"))
+        .await;
+    let line = invoice
+        .invoice
+        .line_items
+        .iter()
+        .find(|line| line.amount_subtotal != 0)
+        .expect("the seats line");
+    assert_eq!(line.amount_subtotal, 1_670);
+    assert_eq!(line.end_date, NaiveDate::from_ymd_opt(2024, 4, 1).unwrap());
+}
+
+/// Seats still paying count against the maximum: with 5 active, 2 pending and at most 8, two more
+/// are refused instead of both purchases passing.
+#[rstest]
+#[tokio::test]
+async fn test_pending_seats_count_against_the_maximum(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_payments().await;
+    let sub = seats_up_to(&env, 8).await;
+
+    env.set_mock_charge_behavior(MockChargeBehavior::Unknown)
+        .await;
+    seat_purchase(&env, sub).await.expect("in flight");
+    env.set_mock_charge_behavior(MockChargeBehavior::Succeeded)
+        .await;
+    let err = seat_purchase(&env, sub)
+        .await
+        .expect_err("over the maximum");
+    assert!(format!("{err:?}").contains("maximum"), "{err:?}");
+}

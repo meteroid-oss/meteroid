@@ -87,6 +87,13 @@ impl CheckoutCharge {
         }
     }
 
+    /// A run's pass that rolls back records nothing: the next starts over.
+    pub(crate) fn reset_used(&self) {
+        if let Self::Answered { used, .. } = self {
+            used.store(false, Ordering::Relaxed);
+        }
+    }
+
     pub(crate) fn mark_used(&self) {
         if let Self::Answered { used, .. } = self {
             used.store(true, Ordering::Relaxed);

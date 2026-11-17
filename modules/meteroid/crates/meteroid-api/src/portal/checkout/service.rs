@@ -21,6 +21,7 @@ use meteroid_grpc::meteroid::portal::checkout::v1::{
     SlotUpgradeCheckout, TaxBreakdownItem, TopUpCredits,
 };
 use meteroid_store::constants::Currencies;
+use meteroid_store::domain::SubscriptionDetails;
 use meteroid_store::domain::SubscriptionFeeInterface;
 use meteroid_store::domain::checkout_sessions::{
     CheckoutCompletionResult, CheckoutSession as DomainCheckoutSession,
@@ -28,7 +29,6 @@ use meteroid_store::domain::checkout_sessions::{
 };
 use meteroid_store::domain::coupons::CouponDiscount;
 use meteroid_store::domain::subscription_coupons::AppliedCouponDetailed;
-use meteroid_store::domain::{Period, SubscriptionDetails};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::OrganizationsInterface;
 use meteroid_store::repositories::add_ons::AddOnInterfaceAuto;
@@ -44,7 +44,6 @@ use meteroid_store::repositories::plans::PlansInterfaceAuto;
 use meteroid_store::repositories::purchase_links::PurchaseLinksInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use meteroid_store::services::invoice_lines::discount::calculate_next_invoice_coupons_discount;
-use meteroid_store::utils::periods::calculate_proration_factor;
 use std::time::Duration;
 use tonic::{Request, Response, Status};
 
@@ -684,40 +683,13 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             ));
         }
 
-        let slot_component = subscription_details
-            .price_components
-            .iter()
-            .find(|c| c.price_component_id() == Some(price_component_id))
-            .ok_or_else(|| tonic::Status::not_found("Price component not found"))?;
-
-        let (unit_rate, _unit) = match slot_component.fee_ref() {
-            meteroid_store::domain::SubscriptionFee::Slot {
-                unit_rate, unit, ..
-            } => (unit_rate, unit),
-            _ => return Err(tonic::Status::invalid_argument("Not a slot component")),
-        };
-
-        let now = common_domain::clock::now().date_naive();
-        let period_end = subscription_details
-            .subscription
-            .current_period_end
-            .ok_or_else(|| tonic::Status::invalid_argument("No current_period_end"))?;
-
-        let full_period = Period {
-            start: subscription_details.subscription.current_period_start,
-            end: period_end,
-        };
-        let partial_period = Period {
-            start: now,
-            end: period_end,
-        };
-        let proration_factor = calculate_proration_factor(&partial_period, &full_period);
-        let base_amount = rust_decimal::Decimal::from(inner.delta) * unit_rate;
-        let prorated = if let Some(factor) = proration_factor {
-            factor.prorate_decimal(base_amount)
-        } else {
-            base_amount
-        };
+        // The amount the upgrade bills, as the store prorates it (over the slot fee's own period).
+        let prorated = self
+            .services
+            .preview_slot_update(tenant, subscription_id, price_component_id, inner.delta)
+            .await
+            .map_err(Into::<PortalCheckoutApiError>::into)?
+            .prorated_amount;
         let currency = Currencies::resolve_currency(&subscription_details.subscription.currency)
             .ok_or_else(|| {
                 tonic::Status::internal(format!(

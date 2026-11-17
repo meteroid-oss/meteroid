@@ -126,7 +126,19 @@ impl Store {
         .await?
         .current_active_slots;
 
-        validate_slot_limits(slot, delta, current_slots)?;
+        // Seats bought and still paying count against the maximum, as they will be active.
+        let pending = if delta > 0 {
+            SlotTransactionRow::pending_upgrades(
+                conn,
+                lock.tenant_id(),
+                subscription_id,
+                slot.unit.clone(),
+            )
+            .await?
+        } else {
+            0
+        };
+        validate_slot_limits(slot, delta, current_slots + pending)?;
 
         let transaction = SlotTransactionRow {
             id: SlotTransactionId::new(),

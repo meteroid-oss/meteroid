@@ -2577,6 +2577,53 @@ impl ServicesEdge {
         plan_change_usage: &Option<crate::services::served_usage::UsageReads>,
         charge: &CheckoutCharge,
     ) -> Result<CheckoutCompletionResult, StoreErrorReport> {
+        // Metering is read before the session's locks: a pass that needs some reads it unlocked
+        // and the next pass is served it (`served_usage`).
+        let mut passes = crate::services::served_usage::UsagePasses::default();
+        loop {
+            let usage = passes.next_pass()?;
+            let edge = ServicesEdge {
+                store: self.store.clone(),
+                services: crate::services::Services {
+                    served: Some(usage.clone()),
+                    ..self.services.reading_usage(usage.clone())
+                },
+            };
+            charge.reset_used();
+            let result = edge
+                .complete_checkout_pass(
+                    tenant_id,
+                    checkout_session_id,
+                    payment_method_id,
+                    total_amount_confirmation,
+                    currency_confirmation.clone(),
+                    coupon_code.clone(),
+                    plan_change_usage,
+                    charge,
+                )
+                .await;
+            if passes
+                .served(self.services.usage_client.as_ref(), &usage)
+                .await?
+            {
+                return result;
+            }
+        }
+    }
+
+    /// One pass of [`Self::complete_checkout_run`]'s transaction.
+    #[allow(clippy::too_many_arguments)]
+    async fn complete_checkout_pass(
+        &self,
+        tenant_id: TenantId,
+        checkout_session_id: CheckoutSessionId,
+        payment_method_id: CustomerPaymentMethodId,
+        total_amount_confirmation: u64,
+        currency_confirmation: String,
+        coupon_code: Option<String>,
+        plan_change_usage: &Option<crate::services::served_usage::UsageReads>,
+        charge: &CheckoutCharge,
+    ) -> Result<CheckoutCompletionResult, StoreErrorReport> {
         self.store
             .transaction(|conn| {
                 async move {
@@ -2721,6 +2768,8 @@ impl ServicesEdge {
                         }
                     }?;
                     diesel_models::query::credit_inputs::bump_customer(conn, &lock).await?;
+                    // A pass that read metering it was not served never commits (see `served_usage`).
+                    self.services.ensure_usage_served()?;
                     Ok(completed)
                 }
                 .scope_boxed()

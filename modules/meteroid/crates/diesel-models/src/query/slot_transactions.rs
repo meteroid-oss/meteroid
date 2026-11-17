@@ -131,6 +131,34 @@ GROUP BY lc.prev_active_slots;
             .into_db_result()
     }
 
+    /// Seats of `unit` bought but not active yet (their payment is in flight): the maximum counts
+    /// them, or concurrent purchases could each pass it.
+    pub async fn pending_upgrades(
+        conn: &mut PgConn,
+        tenant_id: common_domain::ids::TenantId,
+        subscription_uid: SubscriptionId,
+        unit: String,
+    ) -> DbResult<i32> {
+        use crate::enums::SlotTransactionStatusEnum;
+        use crate::schema::{slot_transaction, subscription};
+        use diesel::prelude::*;
+        use diesel_async::RunQueryDsl;
+
+        slot_transaction::table
+            .inner_join(subscription::table)
+            .filter(subscription::tenant_id.eq(tenant_id))
+            .filter(slot_transaction::subscription_id.eq(subscription_uid))
+            .filter(slot_transaction::unit.eq(unit))
+            .filter(slot_transaction::status.eq(SlotTransactionStatusEnum::Pending))
+            .filter(slot_transaction::delta.gt(0))
+            .select(diesel::dsl::sum(slot_transaction::delta))
+            .first::<Option<i64>>(conn)
+            .await
+            .map(|sum| sum.unwrap_or(0) as i32)
+            .attach("Error while reading pending slot upgrades")
+            .into_db_result()
+    }
+
     pub async fn fetch_by_subscription_id_and_unit_locked(
         conn: &mut PgConn,
         lock: &CustomerLock,
@@ -247,6 +275,39 @@ impl SlotTransactionRow {
             .get_results(conn)
             .await
             .attach("Error while activating pending slot transactions")
+            .into_db_result()
+    }
+
+    /// Drops the pending slot changes an invoice would have activated (its payment was refused).
+    pub async fn delete_pending_for_invoice(
+        conn: &mut PgConn,
+        lock: &CustomerLock,
+        invoice_id: common_domain::ids::InvoiceId,
+    ) -> DbResult<usize> {
+        use crate::enums::SlotTransactionStatusEnum;
+        use crate::schema::{invoice, slot_transaction};
+        use diesel::prelude::*;
+        use diesel_async::RunQueryDsl;
+
+        lock.on(conn);
+        let query = diesel::delete(
+            slot_transaction::table
+                .filter(slot_transaction::invoice_id.eq(invoice_id))
+                .filter(slot_transaction::status.eq(SlotTransactionStatusEnum::Pending))
+                .filter(diesel::dsl::exists(
+                    invoice::table
+                        .filter(invoice::id.eq(invoice_id))
+                        .filter(invoice::tenant_id.eq(lock.tenant_id()))
+                        .filter(invoice::customer_id.eq(lock.customer_id())),
+                )),
+        );
+
+        crate::debug_sql(&query);
+
+        query
+            .execute(conn)
+            .await
+            .attach("Error while deleting pending slot transactions")
             .into_db_result()
     }
 
