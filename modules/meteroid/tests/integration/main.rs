@@ -73,6 +73,7 @@ mod test_rest_client_api;
 mod test_rest_credit_unit_wallets;
 mod test_rest_credit_units;
 mod test_rest_entitlements;
+mod test_rest_invoice_payments;
 mod test_rest_portal_token;
 mod test_rest_public_api;
 mod test_rest_usage_costs;

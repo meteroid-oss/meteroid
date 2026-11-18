@@ -5,6 +5,7 @@ use utoipa_axum::routes;
 pub mod mapping;
 pub mod model;
 pub mod router;
+mod writes;
 
 pub fn invoice_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -12,6 +13,10 @@ pub fn invoice_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(router::get_invoice_by_id))
         .routes(routes!(router::patch_invoice_custom_properties))
         .routes(routes!(router::refresh_invoice))
+        .routes(routes!(writes::record_invoice_payment))
+        .routes(routes!(writes::mark_invoice_paid))
+        .routes(routes!(writes::reverse_invoice_payment))
+        .routes(routes!(writes::mark_invoice_uncollectible))
         .routes(routes!(router::download_invoice_pdf))
         .routes(routes!(router::download_invoice_xml))
 }

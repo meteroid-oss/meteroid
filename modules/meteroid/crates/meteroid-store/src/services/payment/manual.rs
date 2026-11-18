@@ -1,13 +1,16 @@
 use crate::StoreResult;
+use crate::domain::api_idempotency::ApiIdempotency;
 use crate::domain::entity_activity::Actor;
 use crate::domain::outbox_event::{OutboxEvent, PaymentTransactionEvent};
 use crate::domain::payment_transactions::PaymentTransaction;
 use crate::errors::StoreError;
 use crate::repositories::InvoiceInterface;
+use crate::repositories::api_idempotency::{ClaimOutcome, claim_tx};
 use crate::services::{InvoiceDelivery, Services};
 use chrono::{DateTime, FixedOffset, Utc};
 use common_domain::ids::{BaseId, InvoiceId, PaymentTransactionId, TenantId};
 use common_utils::decimals::ToSubunit;
+use diesel_models::PgConn;
 use diesel_models::enums::{InvoiceStatusEnum, PaymentStatusEnum, PaymentTypeEnum};
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionRowNew};
@@ -15,9 +18,26 @@ use error_stack::Report;
 use rust_decimal::Decimal;
 use scoped_futures::ScopedFutureExt;
 
+pub struct ManualInvoicePayment {
+    pub amount: ManualInvoicePaymentAmount,
+    pub payment_date: DateTime<FixedOffset>,
+    pub reference: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+pub enum ManualInvoicePaymentAmount {
+    MajorUnits(Decimal),
+    MinorUnits(i64),
+}
+
+#[derive(Clone, Copy)]
+pub enum ManualInvoicePaymentKind {
+    Record,
+    MarkPaid,
+}
+
 impl Services {
-    /// Adds a manual payment transaction to an invoice.
-    /// This is used for recording payments received outside the system (e.g., bank transfers, cash, checks).
+    /// Records an external payment through the admin API. Settlement is handled by the worker.
     pub async fn add_manual_payment_transaction(
         &self,
         actor: Actor,
@@ -27,114 +47,36 @@ impl Services {
         payment_date: DateTime<FixedOffset>,
         reference: Option<String>,
     ) -> StoreResult<PaymentTransaction> {
-        let transaction = self
-            .store
+        let payment = ManualInvoicePayment {
+            amount: ManualInvoicePaymentAmount::MajorUnits(amount),
+            payment_date,
+            reference,
+        };
+        self.store
             .transaction(|conn| {
-                let actor = &actor;
+                let (actor, payment) = (&actor, &payment);
                 async move {
                     let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
-                    if invoice.invoice.status != InvoiceStatusEnum::Finalized {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "Invoice must be in Finalized status to add manual payments"
-                                .to_string(),
-                        )));
-                    }
-
-                    // A consolidated child is billed via its parent; payments belong on the parent.
-                    if invoice.invoice.consolidated_into_invoice_id.is_some() {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "Cannot add a payment to an invoice merged into a consolidated parent"
-                                .to_string(),
-                        )));
-                    }
-
-                    if amount <= Decimal::ZERO {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "Payment amount must be positive".to_string(),
-                        )));
-                    }
-                    check_payment_date(payment_date, common_domain::clock::now())?;
-
-                    let currency = meteroid_money::iso::find(&invoice.invoice.currency)
-                        .ok_or_else(|| {
-                            Report::new(StoreError::InvalidArgument("Invalid currency".into()))
-                        })?;
-
-                    let amount_cents =
-                        amount
-                            .to_subunit_opt(currency.exponent as u8)
-                            .ok_or_else(|| {
-                                Report::new(StoreError::InvalidArgument(format!(
-                                    "Invalid amount for currency {}",
-                                    invoice.invoice.currency
-                                )))
-                            })?;
-
-                    // Validate amount doesn't exceed amount_due
-                    if amount_cents > invoice.invoice.amount_due {
-                        return Err(Report::new(StoreError::InvalidArgument(format!(
-                            "Payment amount ({}) exceeds invoice amount due ({})",
-                            amount_cents, invoice.invoice.amount_due
-                        ))));
-                    }
-
-                    let transaction_id = PaymentTransactionId::new();
-                    let transaction_new = PaymentTransactionRowNew {
-                        id: transaction_id,
-                        tenant_id,
-                        invoice_id: Some(invoice_id),
-                        provider_transaction_id: reference.clone(),
-                        amount: amount_cents,
-                        currency: invoice.invoice.currency.clone(),
-                        payment_method_id: None, // Manual payment has no payment method
-                        status: PaymentStatusEnum::Settled,
-                        payment_type: PaymentTypeEnum::Payment,
-                        error_type: None,
-                        processed_at: Some(payment_date.naive_utc()),
-                        checkout_session_id: None,
-                        pending_plan_version_id: None,
-                        next_action: None,
-                        initiated_by_customer_id: None,
-                        pending_provider_intent_id: None,
-                        pending_connection_id: None,
-                        parent_transaction_id: None,
-                        credit_note_id: None,
-                        refund_mode: None,
-                        reversal_reason: None,
-                    };
-
-                    let inserted_transaction = transaction_new
-                        .insert(conn)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
-                    let transaction: PaymentTransaction = inserted_transaction.clone().into();
-                    self.store
-                        .internal
-                        .record_outbox_batch_tx(
-                            conn,
-                            tenant_id,
-                            actor,
-                            vec![OutboxEvent::payment_transaction_saved(
-                                transaction.clone().into(),
-                            )],
-                        )
-                        .await?;
-
-                    Ok(inserted_transaction.into())
+                        .await?
+                        .invoice;
+                    let amount_due = invoice.amount_due;
+                    self.record_manual_payment_tx(
+                        conn,
+                        actor,
+                        &invoice,
+                        payment,
+                        ManualInvoicePaymentKind::Record,
+                        amount_due,
+                        PaymentTransactionId::new(),
+                    )
+                    .await
                 }
                 .scope_boxed()
             })
-            .await?;
-
-        Ok(transaction)
+            .await
     }
 
-    /// Marks an invoice as paid by creating a manual payment transaction for the full amount due.
-    /// This validates that the provided amount matches the invoice's amount_due and updates the invoice status.
+    /// Records a manual payment for the full balance through the admin API.
     pub async fn mark_invoice_as_paid(
         &self,
         actor: Actor,
@@ -144,105 +86,212 @@ impl Services {
         payment_date: DateTime<FixedOffset>,
         reference: Option<String>,
     ) -> StoreResult<crate::domain::DetailedInvoice> {
-        let invoice = self
-            .store
+        let payment = ManualInvoicePayment {
+            amount: ManualInvoicePaymentAmount::MajorUnits(total_amount),
+            payment_date,
+            reference,
+        };
+        self.store
             .transaction(|conn| {
-                let actor = &actor;
+                let (actor, payment) = (&actor, &payment);
                 async move {
                     let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
-                    if invoice.invoice.status != InvoiceStatusEnum::Finalized {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "Invoice must be in Finalized status to mark as paid".to_string(),
-                        )));
-                    }
-
-                    // A consolidated child is billed via its parent; mark the parent paid instead.
-                    if invoice.invoice.consolidated_into_invoice_id.is_some() {
-                        return Err(Report::new(StoreError::InvalidArgument(
-                            "Cannot mark an invoice merged into a consolidated parent as paid"
-                                .to_string(),
-                        )));
-                    }
-
-                    check_payment_date(payment_date, common_domain::clock::now())?;
-
-                    let currency = meteroid_money::iso::find(&invoice.invoice.currency)
-                        .ok_or_else(|| {
-                            Report::new(StoreError::InvalidArgument("Invalid currency".into()))
-                        })?;
-
-                    let amount_cents = total_amount
-                        .to_subunit_opt(currency.exponent as u8)
-                        .ok_or_else(|| {
-                            Report::new(StoreError::InvalidArgument(format!(
-                                "Invalid amount for currency {}",
-                                invoice.invoice.currency
-                            )))
-                        })?;
-
-                    if amount_cents != invoice.invoice.amount_due {
-                        return Err(Report::new(StoreError::InvalidArgument(format!(
-                            "Payment amount ({}) must match invoice amount due ({})",
-                            amount_cents, invoice.invoice.amount_due
-                        ))));
-                    }
-
-                    let transaction_id = PaymentTransactionId::new();
-                    let transaction_new = PaymentTransactionRowNew {
-                        id: transaction_id,
-                        tenant_id,
-                        invoice_id: Some(invoice_id),
-                        provider_transaction_id: reference.clone(),
-                        amount: amount_cents,
-                        currency: invoice.invoice.currency.clone(),
-                        payment_method_id: None,
-                        status: PaymentStatusEnum::Settled,
-                        payment_type: PaymentTypeEnum::Payment,
-                        error_type: None,
-                        processed_at: Some(payment_date.naive_utc()),
-                        checkout_session_id: None,
-                        pending_plan_version_id: None,
-                        next_action: None,
-                        initiated_by_customer_id: None,
-                        pending_provider_intent_id: None,
-                        pending_connection_id: None,
-                        parent_transaction_id: None,
-                        credit_note_id: None,
-                        refund_mode: None,
-                        reversal_reason: None,
-                    };
-
-                    let inserted_transaction = transaction_new
-                        .insert(conn)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
-                    let transaction: PaymentTransaction = inserted_transaction.into();
+                        .await?
+                        .invoice;
+                    self.record_manual_payment_tx(
+                        conn,
+                        actor,
+                        &invoice,
+                        payment,
+                        ManualInvoicePaymentKind::MarkPaid,
+                        invoice.amount_due,
+                        PaymentTransactionId::new(),
+                    )
+                    .await?;
                     self.store
-                        .internal
-                        .record_outbox_batch_tx(
-                            conn,
-                            tenant_id,
-                            actor,
-                            vec![OutboxEvent::payment_transaction_saved(transaction.into())],
-                        )
-                        .await?;
-
-                    let updated_invoice = self
-                        .store
                         .get_detailed_invoice_by_id_with_conn(conn, tenant_id, invoice_id)
-                        .await?;
-
-                    Ok(updated_invoice)
+                        .await
                 }
                 .scope_boxed()
             })
-            .await?;
+            .await
+    }
 
-        Ok(invoice)
+    /// The public API claims the key, records the payment, and settles the invoice in one
+    /// transaction. A retry returns the addressed payment without recording or settling it again.
+    async fn record_manual_invoice_payment(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        payment: ManualInvoicePayment,
+        kind: ManualInvoicePaymentKind,
+        identity: &ApiIdempotency,
+    ) -> StoreResult<PaymentTransaction> {
+        let transaction_id = PaymentTransactionId::from(identity.derived_id(tenant_id));
+        self.store
+            .transaction(|conn| {
+                let (actor, payment) = (&actor, &payment);
+                async move {
+                    if let ClaimOutcome::Existing = claim_tx(conn, tenant_id, identity).await? {
+                        return Ok(PaymentTransactionRow::get_by_id(
+                            conn,
+                            transaction_id,
+                            tenant_id,
+                        )
+                        .await?
+                        .into());
+                    }
+
+                    let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
+                        .await?
+                        .invoice;
+                    // Count money already recorded by the admin API even if its settlement event
+                    // is still in the queue.
+                    let amount_due = InvoiceRow::collections(conn, invoice_id, tenant_id)
+                        .await?
+                        .amount_due();
+                    if PaymentTransactionRow::exists_in_flight_for_invoice(
+                        conn, invoice_id, tenant_id,
+                    )
+                    .await?
+                    {
+                        return Err(Report::new(StoreError::InvalidArgument(
+                            "A payment of this invoice is already in progress".to_string(),
+                        )));
+                    }
+                    let transaction = self
+                        .record_manual_payment_tx(
+                            conn,
+                            actor,
+                            &invoice,
+                            payment,
+                            kind,
+                            amount_due,
+                            transaction_id,
+                        )
+                        .await?;
+                    self.on_invoice_payment_settled_tx(
+                        conn,
+                        &transaction.clone().into(),
+                        invoice_id,
+                        common_domain::clock::now(),
+                    )
+                    .await?;
+                    Ok(transaction)
+                }
+                .scope_boxed()
+            })
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn record_manual_payment_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        invoice: &InvoiceRow,
+        payment: &ManualInvoicePayment,
+        kind: ManualInvoicePaymentKind,
+        amount_due: i64,
+        transaction_id: PaymentTransactionId,
+    ) -> StoreResult<PaymentTransaction> {
+        let action = match kind {
+            ManualInvoicePaymentKind::Record => "add manual payments",
+            ManualInvoicePaymentKind::MarkPaid => "mark as paid",
+        };
+        if invoice.status != InvoiceStatusEnum::Finalized {
+            return Err(Report::new(StoreError::InvalidArgument(format!(
+                "Invoice must be in Finalized status to {action}"
+            ))));
+        }
+        // A consolidated child is billed via its parent; payments belong on the parent.
+        if invoice.consolidated_into_invoice_id.is_some() {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "Cannot record payment for an invoice merged into a consolidated parent".into(),
+            )));
+        }
+        check_payment_date(payment.payment_date, common_domain::clock::now())?;
+        let amount = match payment.amount {
+            ManualInvoicePaymentAmount::MinorUnits(amount) => {
+                if amount <= 0 {
+                    return Err(Report::new(StoreError::InvalidArgument(
+                        "Payment amount must be positive".into(),
+                    )));
+                }
+                amount
+            }
+            ManualInvoicePaymentAmount::MajorUnits(amount) => {
+                if matches!(kind, ManualInvoicePaymentKind::Record) && amount <= Decimal::ZERO {
+                    return Err(Report::new(StoreError::InvalidArgument(
+                        "Payment amount must be positive".into(),
+                    )));
+                }
+                let currency = meteroid_money::iso::find(&invoice.currency).ok_or_else(|| {
+                    Report::new(StoreError::InvalidArgument("Invalid currency".into()))
+                })?;
+                amount
+                    .to_subunit_opt(currency.exponent as u8)
+                    .ok_or_else(|| {
+                        Report::new(StoreError::InvalidArgument(format!(
+                            "Invalid amount for currency {}",
+                            invoice.currency
+                        )))
+                    })?
+            }
+        };
+        match kind {
+            ManualInvoicePaymentKind::Record if amount > amount_due => {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "Payment amount ({amount}) exceeds invoice amount due ({amount_due})"
+                ))));
+            }
+            ManualInvoicePaymentKind::MarkPaid if amount != amount_due => {
+                return Err(Report::new(StoreError::InvalidArgument(format!(
+                    "Payment amount ({amount}) must match invoice amount due ({amount_due})"
+                ))));
+            }
+            _ => {}
+        }
+
+        let transaction: PaymentTransaction = PaymentTransactionRowNew {
+            id: transaction_id,
+            tenant_id: invoice.tenant_id,
+            invoice_id: Some(invoice.id),
+            provider_transaction_id: payment.reference.clone(),
+            amount,
+            currency: invoice.currency.clone(),
+            payment_method_id: None,
+            status: PaymentStatusEnum::Settled,
+            payment_type: PaymentTypeEnum::Payment,
+            error_type: None,
+            processed_at: Some(payment.payment_date.naive_utc()),
+            checkout_session_id: None,
+            pending_plan_version_id: None,
+            next_action: None,
+            initiated_by_customer_id: None,
+            pending_provider_intent_id: None,
+            pending_connection_id: None,
+            parent_transaction_id: None,
+            credit_note_id: None,
+            refund_mode: None,
+            reversal_reason: None,
+        }
+        .insert(conn)
+        .await?
+        .into();
+        self.store
+            .internal
+            .record_outbox_batch_tx(
+                conn,
+                invoice.tenant_id,
+                actor,
+                vec![OutboxEvent::payment_transaction_saved(
+                    transaction.clone().into(),
+                )],
+            )
+            .await?;
+        Ok(transaction)
     }
 }
 
@@ -372,6 +421,20 @@ impl Services {
 }
 
 impl crate::services::ServicesEdge {
+    pub async fn record_manual_invoice_payment(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        payment: ManualInvoicePayment,
+        kind: ManualInvoicePaymentKind,
+        identity: &ApiIdempotency,
+    ) -> StoreResult<PaymentTransaction> {
+        self.services
+            .record_manual_invoice_payment(actor, tenant_id, invoice_id, payment, kind, identity)
+            .await
+    }
+
     pub async fn settle_invoice_payment_at(
         &self,
         actor: Actor,

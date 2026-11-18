@@ -92,7 +92,7 @@ fn map_tax_exemption_type_to_rest(exemption: domain::TaxExemptionType) -> TaxExe
     }
 }
 
-fn map_transaction_to_rest(transaction: domain::PaymentTransaction) -> Transaction {
+pub(super) fn map_transaction_to_rest(transaction: domain::PaymentTransaction) -> Transaction {
     Transaction {
         id: transaction.id,
         provider_transaction_id: transaction.provider_transaction_id,
@@ -127,6 +127,21 @@ pub fn map_reversal_kind_to_rest(kind: domain::enums::ReversalKind) -> ReversalK
         domain::enums::ReversalKind::Dispute => ReversalKind::Dispute,
         domain::enums::ReversalKind::Migrated | domain::enums::ReversalKind::Other => {
             ReversalKind::Other
+        }
+    }
+}
+
+impl From<ReversalKind> for domain::enums::ReversalKind {
+    fn from(kind: ReversalKind) -> Self {
+        match kind {
+            ReversalKind::Refund => Self::Refund,
+            ReversalKind::Chargeback => Self::Chargeback,
+            ReversalKind::DebtorRecall => Self::DebtorRecall,
+            ReversalKind::InsufficientFunds => Self::InsufficientFunds,
+            ReversalKind::MandateInvalid => Self::MandateInvalid,
+            ReversalKind::Returned => Self::Returned,
+            ReversalKind::Dispute => Self::Dispute,
+            ReversalKind::Other => Self::Other,
         }
     }
 }

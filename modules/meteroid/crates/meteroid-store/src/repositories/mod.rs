@@ -30,6 +30,7 @@ pub mod tax_categories;
 pub mod tenants;
 
 pub mod add_ons;
+pub(crate) mod api_idempotency;
 pub mod api_tokens;
 pub mod bank_accounts;
 pub mod batch_jobs;

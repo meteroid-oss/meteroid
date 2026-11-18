@@ -216,6 +216,35 @@ impl PaymentTransactionRow {
             .into_db_result()
     }
 
+    /// Whether a collection is in flight. Refunds and adjustments do not collect the balance.
+    pub async fn exists_in_flight_for_invoice(
+        conn: &mut PgConn,
+        inv_uid: InvoiceId,
+        tenant_uid: TenantId,
+    ) -> DbResult<bool> {
+        use crate::schema::payment_transaction::dsl as pt_dsl;
+        use diesel::dsl::{exists, select};
+        use diesel_async::RunQueryDsl;
+
+        let query = select(exists(
+            pt_dsl::payment_transaction
+                .filter(pt_dsl::invoice_id.eq(inv_uid))
+                .filter(pt_dsl::tenant_id.eq(tenant_uid))
+                .filter(
+                    pt_dsl::status.eq_any([PaymentStatusEnum::Pending, PaymentStatusEnum::Ready]),
+                )
+                .filter(pt_dsl::payment_type.eq_any(PaymentTypeEnum::COLLECTIONS)),
+        ));
+
+        crate::debug_sql(&query);
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while checking for in-flight payment transactions")
+            .into_db_result()
+    }
+
     /// True when a payment attempt owns the invoice: in flight (Pending/Ready), or settled money
     /// that covers the collectible total, netted like `recompute_amount_due_from_settled_payments`
     /// (involuntary claw-backs, finalized invoice-reducing credit notes). Never re-charge, merge
@@ -227,30 +256,9 @@ impl PaymentTransactionRow {
     ) -> DbResult<bool> {
         use crate::schema::invoice::dsl as i_dsl;
         use crate::schema::payment_transaction::dsl as pt_dsl;
-        use diesel::dsl::{exists, select};
         use diesel_async::RunQueryDsl;
 
-        let in_flight_query = select(exists(
-            pt_dsl::payment_transaction
-                .filter(pt_dsl::invoice_id.eq(inv_uid))
-                .filter(pt_dsl::tenant_id.eq(tenant_uid))
-                .filter(
-                    pt_dsl::status.eq_any([PaymentStatusEnum::Pending, PaymentStatusEnum::Ready]),
-                )
-                // Same as the settled branch: only a collection attempt owns the
-                // invoice. A Pending/Ready refund/adjustment moves money the
-                // other way and must not fence the collectible balance.
-                .filter(pt_dsl::payment_type.eq_any(PaymentTypeEnum::COLLECTIONS)),
-        ));
-
-        crate::debug_sql(&in_flight_query);
-
-        let in_flight: bool = in_flight_query
-            .get_result(conn)
-            .await
-            .attach("Error while checking for in-flight payment transactions")
-            .into_db_result()?;
-        if in_flight {
+        if Self::exists_in_flight_for_invoice(conn, inv_uid, tenant_uid).await? {
             return Ok(true);
         }
 

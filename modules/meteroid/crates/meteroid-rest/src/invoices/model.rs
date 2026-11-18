@@ -1,5 +1,5 @@
 use crate::currencies::model::Currency;
-use chrono::NaiveDate;
+use chrono::{DateTime, FixedOffset, NaiveDate};
 use common_domain::ids::{
     AliasOr, CreditNoteId, CustomerId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId,
     SubscriptionId,
@@ -297,6 +297,27 @@ pub struct Transaction {
     #[serde(default, with = "string_serde_opt")]
     pub credit_note_id: Option<CreditNoteId>,
     pub refund_mode: Option<RefundMode>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RecordInvoicePaymentRequest {
+    /// The positive amount received, in minor units of the invoice currency (e.g. cents).
+    #[schema(minimum = 1, example = 1250)]
+    pub amount: i64,
+    /// When the payment was received (RFC 3339). Defaults to the current time.
+    #[schema(value_type = Option<String>, format = DateTime)]
+    pub payment_date: Option<DateTime<FixedOffset>>,
+    /// Reference for the external payment, such as a bank transfer ID.
+    pub reference: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ReverseInvoicePaymentRequest {
+    pub kind: ReversalKind,
+    /// Additional details about the reversal.
+    pub reason: Option<String>,
+    /// When the reversal occurred. Defaults to the current time.
+    pub reversed_at: Option<ApiDateTime>,
 }
 
 /// Why a payment was involuntarily clawed back.

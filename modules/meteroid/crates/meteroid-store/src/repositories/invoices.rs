@@ -1,3 +1,4 @@
+use crate::domain::api_idempotency::ApiIdempotency;
 use crate::domain::custom_property_definitions::CustomPropertyMode;
 use crate::domain::einvoicing::EInvoicingOutcome;
 use crate::domain::entity_activity::Actor;
@@ -13,6 +14,7 @@ use crate::domain::{
     PaginationRequest, TaxBreakdownItem, TaxDetail,
 };
 use crate::errors::StoreError;
+use crate::repositories::api_idempotency::{ClaimOutcome, claim_tx};
 use crate::repositories::connectors::ConnectorsInterface;
 use crate::repositories::credit_notes::{
     CreateCreditNoteTxParams, CreditType, create_credit_note_tx,
@@ -1191,33 +1193,71 @@ impl InvoiceInterface for Store {
         id: InvoiceId,
         tenant_id: TenantId,
     ) -> StoreResult<DetailedInvoice> {
-        let mut conn = self.get_conn().await?;
+        self.transaction(|conn| {
+            async move {
+                self.mark_invoice_as_uncollectible_tx(conn, id, tenant_id, false)
+                    .await?;
+                InvoiceRow::find_detailed_by_id(conn, tenant_id, id)
+                    .await
+                    .map_err(Into::into)
+                    .and_then(TryInto::try_into)
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+}
 
-        // A consolidated child is never finalized on its own, so it can't legitimately become
-        // uncollectible; guard explicitly rather than relying on the SQL status filter silently
-        // no-op'ing.
-        let invoice: Invoice = InvoiceRow::find_by_id(&mut conn, tenant_id, id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .and_then(TryInto::try_into)?;
+impl Store {
+    pub async fn mark_invoice_as_uncollectible_idempotent(
+        &self,
+        id: InvoiceId,
+        tenant_id: TenantId,
+        identity: &ApiIdempotency,
+    ) -> StoreResult<()> {
+        self.transaction(|conn| {
+            async move {
+                match claim_tx(conn, tenant_id, identity).await? {
+                    ClaimOutcome::Existing => Ok(()),
+                    ClaimOutcome::Fresh => {
+                        self.mark_invoice_as_uncollectible_tx(conn, id, tenant_id, true)
+                            .await
+                    }
+                }
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+
+    async fn mark_invoice_as_uncollectible_tx(
+        &self,
+        conn: &mut PgConn,
+        id: InvoiceId,
+        tenant_id: TenantId,
+        require_finalized: bool,
+    ) -> StoreResult<()> {
+        let invoice: Invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, id)
+            .await?
+            .invoice
+            .try_into()?;
         invoice.ensure_not_consolidated_child("mark as uncollectible")?;
-
-        InvoiceRow::mark_as_uncollectible(&mut conn, id, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        if require_finalized {
+            match invoice.status {
+                domain::InvoiceStatusEnum::Uncollectible => return Ok(()),
+                domain::InvoiceStatusEnum::Finalized => {}
+                _ => {
+                    return Err(Report::new(StoreError::InvalidArgument(
+                        "Invoice must be in Finalized status to mark as uncollectible".into(),
+                    )));
+                }
+            }
+        }
+        InvoiceRow::mark_as_uncollectible(conn, id, tenant_id).await?;
         self.internal
-            .end_reminders_best_effort(
-                &mut conn,
-                tenant_id,
-                id,
-                common_domain::clock::now().naive_utc(),
-            )
+            .end_reminders_best_effort(conn, tenant_id, id, common_domain::clock::now().naive_utc())
             .await;
-
-        InvoiceRow::find_detailed_by_id(&mut conn, tenant_id, id)
-            .await
-            .map_err(Into::into)
-            .and_then(TryInto::try_into)
+        Ok(())
     }
 }
 

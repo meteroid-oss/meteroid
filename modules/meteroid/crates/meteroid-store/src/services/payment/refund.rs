@@ -14,11 +14,13 @@
 use crate::StoreResult;
 use crate::adapters::payment::error::ConnectorError;
 use crate::adapters::payment::model::{IdempotencyKey, RefundOutcome, RefundReason, RefundRequest};
+use crate::domain::api_idempotency::ApiIdempotency;
 use crate::domain::entity_activity::Actor;
 use crate::domain::enums::{CreditNoteStatus, CreditType, ReversalKind};
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::payment_transactions::PaymentTransaction;
 use crate::errors::StoreError;
+use crate::repositories::api_idempotency::{ClaimOutcome, claim_tx};
 use crate::repositories::payment_transactions::{
     PaymentTransactionInterface, RefundSettlement, RefundSettlementStatus, ReversalAmount,
     TransactionReversal, sync_parent_refunded,
@@ -27,7 +29,7 @@ use crate::services::Services;
 use crate::services::payment::process_payment::PAYMENT_PROVIDER_TIMEOUT;
 use crate::store::PgConn;
 use chrono::NaiveDateTime;
-use common_domain::ids::{BaseId, CreditNoteId, PaymentTransactionId, TenantId};
+use common_domain::ids::{BaseId, CreditNoteId, InvoiceId, PaymentTransactionId, TenantId};
 use diesel_models::credit_notes::CreditNoteRow;
 use diesel_models::enums::{PaymentStatusEnum, PaymentTypeEnum, RefundModeEnum};
 use diesel_models::invoices::InvoiceRow;
@@ -67,6 +69,15 @@ pub struct ReverseManualPaymentCommand {
     pub kind: ReversalKind,
     pub reason: Option<String>,
     pub reversed_at: NaiveDateTime,
+}
+
+fn payment_not_on_invoice(
+    payment_id: PaymentTransactionId,
+    invoice_id: InvoiceId,
+) -> Report<StoreError> {
+    Report::new(StoreError::ValueNotFound(format!(
+        "Payment {payment_id} on invoice {invoice_id}"
+    )))
 }
 
 impl Services {
@@ -511,23 +522,48 @@ impl Services {
         actor: Actor,
         tenant_id: TenantId,
         command: ReverseManualPaymentCommand,
+        invoice_write: Option<(InvoiceId, &ApiIdempotency)>,
     ) -> StoreResult<PaymentTransaction> {
         self.store
             .transaction(|conn| {
                 let actor = &actor;
-                let command = command.clone();
+                let command = &command;
                 async move {
+                    if let Some((invoice_id, identity)) = invoice_write {
+                        let claim = claim_tx(conn, tenant_id, identity).await?;
+                        let row = PaymentTransactionRow::get_by_id(
+                            conn,
+                            command.transaction_id,
+                            tenant_id,
+                        )
+                        .await?;
+                        // Check before trying to lock: a payment outside an invoice might have no
+                        // customer from which to derive a lock.
+                        if row.invoice_id != Some(invoice_id) {
+                            return Err(payment_not_on_invoice(command.transaction_id, invoice_id));
+                        }
+                        if let ClaimOutcome::Existing = claim {
+                            return Ok(row.into());
+                        }
+                    }
                     let transaction = self
                         .store
                         .get_payment_tx_by_id_for_update(conn, command.transaction_id, tenant_id)
                         .await?;
+                    if let Some((invoice_id, _)) = invoice_write
+                        && transaction.invoice_id != Some(invoice_id)
+                    {
+                        return Err(payment_not_on_invoice(command.transaction_id, invoice_id));
+                    }
 
-                    use crate::domain::enums::PaymentTypeEnum;
+                    use crate::domain::enums::{PaymentStatusEnum, PaymentTypeEnum};
                     let top_up = matches!(
                         transaction.payment_type,
                         PaymentTypeEnum::TopUp | PaymentTypeEnum::AutoTopup
                     );
-                    if transaction.payment_type != PaymentTypeEnum::Payment && !top_up {
+                    if transaction.payment_type != PaymentTypeEnum::Payment
+                        && (!top_up || invoice_write.is_some())
+                    {
                         return Err(Report::new(StoreError::InvalidArgument(
                             "Only a payment can be reversed".into(),
                         )));
@@ -539,6 +575,18 @@ impl Services {
                     if transaction.payment_method_id.is_some() && !top_up {
                         return Err(Report::new(StoreError::InvalidArgument(
                             "Only a manually recorded payment can be reversed here".into(),
+                        )));
+                    }
+                    // Hosted captures can have no saved payment method while they are pending.
+                    if invoice_write.is_some()
+                        && (!matches!(
+                            transaction.status,
+                            PaymentStatusEnum::Settled | PaymentStatusEnum::Refunded
+                        ) || transaction.pending_provider_intent_id.is_some()
+                            || transaction.pending_connection_id.is_some())
+                    {
+                        return Err(Report::new(StoreError::InvalidArgument(
+                            "Only a settled manual payment can be reversed here".into(),
                         )));
                     }
 
