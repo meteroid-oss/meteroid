@@ -14,7 +14,7 @@
 use crate::StoreResult;
 use crate::adapters::payment::error::ConnectorError;
 use crate::adapters::payment::model::{IdempotencyKey, RefundOutcome, RefundReason, RefundRequest};
-use crate::domain::api_idempotency::ApiIdempotency;
+use crate::domain::credit::ApiIdempotency;
 use crate::domain::entity_activity::Actor;
 use crate::domain::enums::{CreditNoteStatus, CreditType, ReversalKind};
 use crate::domain::outbox_event::OutboxEvent;

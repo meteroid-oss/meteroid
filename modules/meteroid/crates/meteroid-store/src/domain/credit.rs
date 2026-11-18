@@ -10,8 +10,6 @@ use common_domain::ids::{
 use error_stack::Report;
 use uuid::Uuid;
 
-pub use super::api_idempotency::ApiIdempotency;
-
 /// What a grant pays: usage credit only usage charges, invoice credit any charge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -1412,6 +1410,39 @@ pub struct CreditWalletSummary {
 pub struct PortalCreditCapabilities {
     pub top_up_enabled: bool,
     pub auto_top_up_enabled: bool,
+}
+
+/// A public API write keyed by the caller's Idempotency-Key. The fingerprint is a digest of the
+/// request, so the same key sent with a different request is refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApiIdempotency {
+    pub operation: &'static str,
+    pub key: String,
+    pub fingerprint: [u8; 32],
+}
+
+impl ApiIdempotency {
+    pub fn new(operation: &'static str, key: &str, fingerprint: [u8; 32]) -> StoreResult<Self> {
+        let key = key.trim();
+        if key.is_empty() || key.len() > 255 {
+            return Err(Report::new(StoreError::InvalidArgument(
+                "an idempotency key is 1 to 255 bytes".to_owned(),
+            )));
+        }
+        Ok(Self {
+            operation,
+            key: key.to_owned(),
+            fingerprint,
+        })
+    }
+
+    /// Stable per tenant, operation and key, so a retry addresses what its first attempt made.
+    pub fn derived_id(&self, tenant_id: TenantId) -> Uuid {
+        Uuid::new_v5(
+            &tenant_id.as_uuid(),
+            format!("api-write:{}:{}", self.operation, self.key).as_bytes(),
+        )
+    }
 }
 
 #[cfg(test)]

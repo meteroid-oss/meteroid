@@ -7,7 +7,6 @@ use crate::domain::credit::{
 };
 use crate::domain::credit_units::CreditUnit;
 use crate::errors::StoreError;
-use crate::repositories::api_idempotency::key_row;
 use crate::repositories::credit::CustomerCreditWalletsInterface;
 use crate::repositories::credit::customer_credit_wallets::{
     FundCustomerCreditWallet, FundedCustomerCreditWallet,
@@ -16,7 +15,7 @@ use crate::services::credit::purchase::{SellCustomerCredit, SoldCustomerCredit};
 use crate::services::credit::wallet_purchase::TopUpWalletReceipt;
 use crate::services::{Services, ServicesEdge};
 use common_domain::ids::{BaseId, CreditUnitId, CustomerId, TenantId, WalletId};
-use diesel_models::api_idempotency::ApiIdempotencyKeyRow;
+use diesel_models::api_idempotency::{ApiIdempotencyKeyRow, ApiIdempotencyKeyRowNew};
 use diesel_models::connectors::ConnectorRow;
 use diesel_models::credit_units::CreditUnitRow;
 use diesel_models::customer_credit::{CustomerCreditAccountRow, CustomerCreditRosterRow};
@@ -260,7 +259,12 @@ impl ServicesEdge {
         identity: &ApiIdempotency,
         write: impl Future<Output = StoreResult<T>>,
     ) -> StoreResult<T> {
-        let claim = key_row(tenant_id, identity);
+        let claim = ApiIdempotencyKeyRowNew {
+            tenant_id,
+            operation: identity.operation.to_owned(),
+            idempotency_key: identity.key.clone(),
+            request_fingerprint: identity.fingerprint.to_vec(),
+        };
         let mut conn = self.store.get_conn().await?;
         let stored = claim.claim(&mut conn).await?;
         drop(conn);

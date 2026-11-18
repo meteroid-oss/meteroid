@@ -9,10 +9,9 @@ use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_app::errors::RestApiError;
 use meteroid_app::rest::writes::{fingerprint, idempotency_key, store_error};
 use meteroid_rest_common::error::RestErrorResponse;
-use meteroid_store::domain::api_idempotency::ApiIdempotency;
+use meteroid_store::domain::credit::ApiIdempotency;
 use meteroid_store::services::{
-    ManualInvoicePayment, ManualInvoicePaymentAmount, ManualInvoicePaymentKind,
-    ReverseManualPaymentCommand,
+    ManualInvoicePayment, ManualInvoicePaymentKind, ReverseManualPaymentCommand,
 };
 
 /// Record an invoice payment
@@ -125,7 +124,7 @@ async fn record_payment(
             auth.tenant_id,
             invoice_id,
             ManualInvoicePayment {
-                amount: ManualInvoicePaymentAmount::MinorUnits(request.amount),
+                amount: request.amount,
                 payment_date: request
                     .payment_date
                     .unwrap_or_else(|| common_domain::clock::now().fixed_offset()),

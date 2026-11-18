@@ -1,5 +1,5 @@
 use crate::StoreResult;
-use crate::domain::api_idempotency::ApiIdempotency;
+use crate::domain::credit::ApiIdempotency;
 use crate::domain::entity_activity::Actor;
 use crate::domain::outbox_event::{OutboxEvent, PaymentTransactionEvent};
 use crate::domain::payment_transactions::PaymentTransaction;
@@ -19,15 +19,9 @@ use rust_decimal::Decimal;
 use scoped_futures::ScopedFutureExt;
 
 pub struct ManualInvoicePayment {
-    pub amount: ManualInvoicePaymentAmount,
+    pub amount: i64,
     pub payment_date: DateTime<FixedOffset>,
     pub reference: Option<String>,
-}
-
-#[derive(Clone, Copy)]
-pub enum ManualInvoicePaymentAmount {
-    MajorUnits(Decimal),
-    MinorUnits(i64),
 }
 
 #[derive(Clone, Copy)]
@@ -47,26 +41,32 @@ impl Services {
         payment_date: DateTime<FixedOffset>,
         reference: Option<String>,
     ) -> StoreResult<PaymentTransaction> {
-        let payment = ManualInvoicePayment {
-            amount: ManualInvoicePaymentAmount::MajorUnits(amount),
-            payment_date,
-            reference,
-        };
         self.store
             .transaction(|conn| {
-                let (actor, payment) = (&actor, &payment);
+                let (actor, reference) = (&actor, &reference);
                 async move {
                     let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
                         .await?
                         .invoice;
-                    let amount_due = invoice.amount_due;
+                    check_manual_payment_invoice(&invoice, ManualInvoicePaymentKind::Record)?;
+                    if amount <= Decimal::ZERO {
+                        return Err(Report::new(StoreError::InvalidArgument(
+                            "Payment amount must be positive".into(),
+                        )));
+                    }
+                    check_payment_date(payment_date, common_domain::clock::now())?;
+                    let payment = ManualInvoicePayment {
+                        amount: manual_payment_minor_units(amount, &invoice.currency)?,
+                        payment_date,
+                        reference: reference.clone(),
+                    };
                     self.record_manual_payment_tx(
                         conn,
                         actor,
                         &invoice,
-                        payment,
+                        &payment,
                         ManualInvoicePaymentKind::Record,
-                        amount_due,
+                        invoice.amount_due,
                         PaymentTransactionId::new(),
                     )
                     .await
@@ -86,23 +86,25 @@ impl Services {
         payment_date: DateTime<FixedOffset>,
         reference: Option<String>,
     ) -> StoreResult<crate::domain::DetailedInvoice> {
-        let payment = ManualInvoicePayment {
-            amount: ManualInvoicePaymentAmount::MajorUnits(total_amount),
-            payment_date,
-            reference,
-        };
         self.store
             .transaction(|conn| {
-                let (actor, payment) = (&actor, &payment);
+                let (actor, reference) = (&actor, &reference);
                 async move {
                     let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
                         .await?
                         .invoice;
+                    check_manual_payment_invoice(&invoice, ManualInvoicePaymentKind::MarkPaid)?;
+                    check_payment_date(payment_date, common_domain::clock::now())?;
+                    let payment = ManualInvoicePayment {
+                        amount: manual_payment_minor_units(total_amount, &invoice.currency)?,
+                        payment_date,
+                        reference: reference.clone(),
+                    };
                     self.record_manual_payment_tx(
                         conn,
                         actor,
                         &invoice,
-                        payment,
+                        &payment,
                         ManualInvoicePaymentKind::MarkPaid,
                         invoice.amount_due,
                         PaymentTransactionId::new(),
@@ -146,6 +148,13 @@ impl Services {
                     let invoice = InvoiceRow::select_for_update_by_id(conn, tenant_id, invoice_id)
                         .await?
                         .invoice;
+                    if payment.amount <= 0 {
+                        return Err(Report::new(StoreError::InvalidArgument(
+                            "Payment amount must be positive".into(),
+                        )));
+                    }
+                    check_manual_payment_invoice(&invoice, kind)?;
+                    check_payment_date(payment.payment_date, common_domain::clock::now())?;
                     // Count money already recorded by the admin API even if its settlement event
                     // is still in the queue.
                     let amount_due = InvoiceRow::collections(conn, invoice_id, tenant_id)
@@ -185,7 +194,6 @@ impl Services {
             .await
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn record_manual_payment_tx(
         &self,
         conn: &mut PgConn,
@@ -196,50 +204,7 @@ impl Services {
         amount_due: i64,
         transaction_id: PaymentTransactionId,
     ) -> StoreResult<PaymentTransaction> {
-        let action = match kind {
-            ManualInvoicePaymentKind::Record => "add manual payments",
-            ManualInvoicePaymentKind::MarkPaid => "mark as paid",
-        };
-        if invoice.status != InvoiceStatusEnum::Finalized {
-            return Err(Report::new(StoreError::InvalidArgument(format!(
-                "Invoice must be in Finalized status to {action}"
-            ))));
-        }
-        // A consolidated child is billed via its parent; payments belong on the parent.
-        if invoice.consolidated_into_invoice_id.is_some() {
-            return Err(Report::new(StoreError::InvalidArgument(
-                "Cannot record payment for an invoice merged into a consolidated parent".into(),
-            )));
-        }
-        check_payment_date(payment.payment_date, common_domain::clock::now())?;
-        let amount = match payment.amount {
-            ManualInvoicePaymentAmount::MinorUnits(amount) => {
-                if amount <= 0 {
-                    return Err(Report::new(StoreError::InvalidArgument(
-                        "Payment amount must be positive".into(),
-                    )));
-                }
-                amount
-            }
-            ManualInvoicePaymentAmount::MajorUnits(amount) => {
-                if matches!(kind, ManualInvoicePaymentKind::Record) && amount <= Decimal::ZERO {
-                    return Err(Report::new(StoreError::InvalidArgument(
-                        "Payment amount must be positive".into(),
-                    )));
-                }
-                let currency = meteroid_money::iso::find(&invoice.currency).ok_or_else(|| {
-                    Report::new(StoreError::InvalidArgument("Invalid currency".into()))
-                })?;
-                amount
-                    .to_subunit_opt(currency.exponent as u8)
-                    .ok_or_else(|| {
-                        Report::new(StoreError::InvalidArgument(format!(
-                            "Invalid amount for currency {}",
-                            invoice.currency
-                        )))
-                    })?
-            }
-        };
+        let amount = payment.amount;
         match kind {
             ManualInvoicePaymentKind::Record if amount > amount_due => {
                 return Err(Report::new(StoreError::InvalidArgument(format!(
@@ -293,6 +258,45 @@ impl Services {
             .await?;
         Ok(transaction)
     }
+}
+
+fn check_manual_payment_invoice(
+    invoice: &InvoiceRow,
+    kind: ManualInvoicePaymentKind,
+) -> StoreResult<()> {
+    let (action, consolidated_error) = match kind {
+        ManualInvoicePaymentKind::Record => (
+            "add manual payments",
+            "Cannot add a payment to an invoice merged into a consolidated parent",
+        ),
+        ManualInvoicePaymentKind::MarkPaid => (
+            "mark as paid",
+            "Cannot mark an invoice merged into a consolidated parent as paid",
+        ),
+    };
+    if invoice.status != InvoiceStatusEnum::Finalized {
+        return Err(Report::new(StoreError::InvalidArgument(format!(
+            "Invoice must be in Finalized status to {action}"
+        ))));
+    }
+    // A consolidated child is billed via its parent; payments belong on the parent.
+    if invoice.consolidated_into_invoice_id.is_some() {
+        return Err(Report::new(StoreError::InvalidArgument(
+            consolidated_error.into(),
+        )));
+    }
+    Ok(())
+}
+
+fn manual_payment_minor_units(amount: Decimal, currency: &str) -> StoreResult<i64> {
+    let exponent = meteroid_money::iso::find(currency)
+        .ok_or_else(|| Report::new(StoreError::InvalidArgument("Invalid currency".into())))?
+        .exponent;
+    amount.to_subunit_opt(exponent as u8).ok_or_else(|| {
+        Report::new(StoreError::InvalidArgument(format!(
+            "Invalid amount for currency {currency}"
+        )))
+    })
 }
 
 /// A payment recorded by hand is dated today at the latest, today where it was recorded (the

@@ -1,5 +1,5 @@
 use crate::StoreResult;
-use crate::domain::api_idempotency::ApiIdempotency;
+use crate::domain::credit::ApiIdempotency;
 use crate::errors::StoreError;
 use crate::store::PgConn;
 use common_domain::ids::TenantId;
@@ -21,7 +21,12 @@ pub(crate) async fn claim_tx(
     tenant_id: TenantId,
     identity: &ApiIdempotency,
 ) -> StoreResult<ClaimOutcome> {
-    let claim = key_row(tenant_id, identity);
+    let claim = ApiIdempotencyKeyRowNew {
+        tenant_id,
+        operation: identity.operation.to_owned(),
+        idempotency_key: identity.key.clone(),
+        request_fingerprint: identity.fingerprint.to_vec(),
+    };
     match claim.claim_in_tx(conn).await? {
         ApiIdempotencyClaim::Fresh => Ok(ClaimOutcome::Fresh),
         ApiIdempotencyClaim::Existing(existing) => {
@@ -32,14 +37,5 @@ pub(crate) async fn claim_tx(
             }
             Ok(ClaimOutcome::Existing)
         }
-    }
-}
-
-pub(crate) fn key_row(tenant_id: TenantId, identity: &ApiIdempotency) -> ApiIdempotencyKeyRowNew {
-    ApiIdempotencyKeyRowNew {
-        tenant_id,
-        operation: identity.operation.to_owned(),
-        idempotency_key: identity.key.clone(),
-        request_fingerprint: identity.fingerprint.to_vec(),
     }
 }
