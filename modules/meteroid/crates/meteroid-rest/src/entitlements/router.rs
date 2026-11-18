@@ -1,9 +1,10 @@
 use super::AppState;
+use axum::Json;
+use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiValid};
 
-use axum::extract::{Path, State};
+use axum::Extension;
+use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::{Extension, Json};
-use axum_valid::Valid;
 use common_domain::ids::{
     AddOnId, AliasOr, CustomerId, EntitlementEntityId, EntitlementId, FeatureId, PlanVersionId,
     ProductId, SubscriptionId,
@@ -48,7 +49,7 @@ use meteroid_rest_common::model::PaginationExt;
 #[axum::debug_handler]
 pub async fn list_features(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Valid(QueryParams(request)): Valid<QueryParams<FeatureListRequest>>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<FeatureListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let statuses = if request.statuses.is_empty() {
@@ -107,7 +108,7 @@ pub async fn list_features(
 #[axum::debug_handler]
 pub async fn get_feature(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Valid(Path(id_or_code)): Valid<Path<AliasOr<FeatureId>>>,
+    ApiValid(ApiPath(id_or_code)): ApiValid<ApiPath<AliasOr<FeatureId>>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let feature = app_state
@@ -142,7 +143,7 @@ pub async fn get_feature(
 pub async fn create_feature(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Json(payload)): Valid<Json<CreateFeatureRequest>>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<CreateFeatureRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let tenant_id = authorized_state.tenant_id;
 
@@ -214,8 +215,8 @@ pub async fn create_feature(
 pub async fn update_feature(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Path(id_or_code)): Valid<Path<AliasOr<FeatureId>>>,
-    Valid(Json(payload)): Valid<Json<UpdateFeatureRequest>>,
+    ApiValid(ApiPath(id_or_code)): ApiValid<ApiPath<AliasOr<FeatureId>>>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<UpdateFeatureRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let feature = app_state
         .store
@@ -295,7 +296,7 @@ async fn transition_feature_status(
 pub async fn archive_feature(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Path(id_or_code)): Valid<Path<AliasOr<FeatureId>>>,
+    ApiValid(ApiPath(id_or_code)): ApiValid<ApiPath<AliasOr<FeatureId>>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let feature = app_state
         .store
@@ -332,7 +333,7 @@ pub async fn archive_feature(
 pub async fn unarchive_feature(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Path(id_or_code)): Valid<Path<AliasOr<FeatureId>>>,
+    ApiValid(ApiPath(id_or_code)): ApiValid<ApiPath<AliasOr<FeatureId>>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let id = match id_or_code {
         AliasOr::Id(id) => id,
@@ -493,7 +494,7 @@ async fn batch_create_entitlements_for(
 pub async fn list_plan_version_entitlements(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(plan_version_id): Path<PlanVersionId>,
+    ApiPath(plan_version_id): ApiPath<PlanVersionId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     resolve_entitlements_for(
         app_state,
@@ -525,8 +526,8 @@ pub async fn list_plan_version_entitlements(
 pub async fn create_plan_version_entitlements(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(plan_version_id): Path<PlanVersionId>,
-    Valid(Json(payload)): Valid<Json<CreateEntitlementsRequest>>,
+    ApiPath(plan_version_id): ApiPath<PlanVersionId>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<CreateEntitlementsRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     batch_create_entitlements_for(
         app_state,
@@ -554,7 +555,7 @@ pub async fn create_plan_version_entitlements(
 pub async fn list_add_on_entitlements(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(add_on_id): Path<AddOnId>,
+    ApiPath(add_on_id): ApiPath<AddOnId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     resolve_entitlements_for(
         app_state,
@@ -586,8 +587,8 @@ pub async fn list_add_on_entitlements(
 pub async fn create_add_on_entitlements(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(add_on_id): Path<AddOnId>,
-    Valid(Json(payload)): Valid<Json<CreateEntitlementsRequest>>,
+    ApiPath(add_on_id): ApiPath<AddOnId>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<CreateEntitlementsRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     batch_create_entitlements_for(
         app_state,
@@ -615,7 +616,7 @@ pub async fn create_add_on_entitlements(
 pub async fn list_subscription_entitlements(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(subscription_id): Path<SubscriptionId>,
+    ApiPath(subscription_id): ApiPath<SubscriptionId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let resolved = app_state
         .services
@@ -653,7 +654,7 @@ pub async fn list_subscription_entitlements(
 #[axum::debug_handler]
 pub async fn get_effective_entitlements(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
+    ApiValid(ApiPath(id_or_alias)): ApiValid<ApiPath<AliasOr<CustomerId>>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let customer = app_state
@@ -697,7 +698,7 @@ pub async fn get_effective_entitlements(
 pub async fn list_product_entitlements(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(product_id): Path<ProductId>,
+    ApiPath(product_id): ApiPath<ProductId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let mut conn = app_state.store.get_conn().await.map_err(|e| {
         log::error!("Error getting db connection: {e}");
@@ -750,8 +751,8 @@ pub async fn list_product_entitlements(
 pub async fn create_product_entitlements(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(product_id): Path<ProductId>,
-    Valid(Json(payload)): Valid<Json<CreateEntitlementsRequest>>,
+    ApiPath(product_id): ApiPath<ProductId>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<CreateEntitlementsRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let tenant_id = authorized_state.tenant_id;
 
@@ -833,7 +834,7 @@ pub async fn create_product_entitlements(
 pub async fn get_entitlement(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(entitlement_id): Path<EntitlementId>,
+    ApiPath(entitlement_id): ApiPath<EntitlementId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let entitlement = app_state
         .store
@@ -868,8 +869,8 @@ pub async fn get_entitlement(
 pub async fn update_entitlement(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(entitlement_id): Path<EntitlementId>,
-    Valid(Json(payload)): Valid<Json<UpdateEntitlementRequest>>,
+    ApiPath(entitlement_id): ApiPath<EntitlementId>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<UpdateEntitlementRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let existing = app_state
         .store
@@ -916,7 +917,7 @@ pub async fn update_entitlement(
 pub async fn delete_entitlement(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(entitlement_id): Path<EntitlementId>,
+    ApiPath(entitlement_id): ApiPath<EntitlementId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     // The store's delete drops the affected-row count, so resolve first to get the 404.
     app_state

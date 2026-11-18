@@ -1,9 +1,10 @@
 use super::AppState;
+use axum::Json;
+use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiValid};
 
-use axum::extract::{Path, State};
+use axum::Extension;
+use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::{Extension, Json};
-use axum_valid::Valid;
 use common_domain::ids::ProductId;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
@@ -35,7 +36,7 @@ use meteroid_rest_common::model::{PaginationExt, validate_order_by};
 #[axum::debug_handler]
 pub async fn list_products(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Valid(QueryParams(request)): Valid<QueryParams<ProductListRequest>>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<ProductListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let order_by = validate_order_by(&request.order_by, &["name", "created_at"], "name.asc")
@@ -106,7 +107,7 @@ pub async fn list_products(
 #[axum::debug_handler]
 pub async fn get_product(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Path(product_id): Path<ProductId>,
+    ApiPath(product_id): ApiPath<ProductId>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let product = app_state
@@ -140,7 +141,7 @@ pub async fn get_product(
 pub async fn create_product(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Json(payload)): Valid<Json<CreateProductRequest>>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<CreateProductRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let (fee_type, fee_structure) = mapping::rest_fee_structure_to_domain(&payload.fee_structure)?;
     ensure_credit_pricing_allowed(
@@ -197,8 +198,8 @@ pub async fn create_product(
 pub async fn update_product(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(product_id): Path<ProductId>,
-    Valid(Json(payload)): Valid<Json<UpdateProductRequest>>,
+    ApiPath(product_id): ApiPath<ProductId>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<UpdateProductRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let (fee_type, fee_structure) = match &payload.fee_structure {
         Some(fs) => {
@@ -262,7 +263,7 @@ pub async fn update_product(
 pub async fn archive_product(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(product_id): Path<ProductId>,
+    ApiPath(product_id): ApiPath<ProductId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
@@ -296,7 +297,7 @@ pub async fn archive_product(
 pub async fn unarchive_product(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(product_id): Path<ProductId>,
+    ApiPath(product_id): ApiPath<ProductId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store

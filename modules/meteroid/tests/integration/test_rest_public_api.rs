@@ -273,3 +273,92 @@ async fn checkout_session_coupon_codes_are_checked_at_creation() {
         );
     }
 }
+
+/// A request refused before its handler runs gets the same JSON error as any other failure.
+#[tokio::test]
+async fn refused_requests_answer_with_the_json_error() {
+    use reqwest::{Method, StatusCode};
+
+    helpers::init::logging();
+    let postgres_connection_string =
+        meteroid_it::container::create_seeded_test_database(SeedLevel::PLANS).await;
+    let setup =
+        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
+    let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
+    let clients = meteroid_it::clients::AllClients::from_channel(
+        setup.channel.clone(),
+        auth.token.as_str(),
+        "TESTORG",
+        "testslug",
+    );
+    let api_key = clients
+        .api_tokens
+        .clone()
+        .create_api_token(tonic::Request::new(
+            api::apitokens::v1::CreateApiTokenRequest {
+                name: "test-api-key".to_string(),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .api_key;
+    let base = setup.config.rest_api_external_url.clone();
+    let client = http_client_tracing::client();
+    let request = |method: Method, path: &str| {
+        client
+            .request(method, format!("{base}{path}"))
+            .bearer_auth(&api_key)
+    };
+    let json = |body: String| {
+        request(Method::POST, "/api/v1/product_families")
+            .header("content-type", "application/json")
+            .body(body)
+    };
+
+    let cases = [
+        ("malformed JSON", json("{".into()), StatusCode::BAD_REQUEST),
+        (
+            "a missing field",
+            json("{}".into()),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            "no content type",
+            request(Method::POST, "/api/v1/product_families").body("{}"),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ),
+        (
+            "a body above the limit",
+            json(format!(r#"{{"name":"{}"}}"#, "a".repeat(1024 * 1024))),
+            StatusCode::PAYLOAD_TOO_LARGE,
+        ),
+        (
+            "a malformed path id",
+            request(Method::GET, "/api/v1/invoices/not-an-id"),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "a malformed query value",
+            request(Method::GET, "/api/v1/invoices?page=first"),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "a query value out of range",
+            request(Method::GET, "/api/v1/invoices?per_page=100000"),
+            StatusCode::BAD_REQUEST,
+        ),
+    ];
+    for (case, request, status) in cases {
+        let response = request.send().await.unwrap();
+        assert_eq!(response.status(), status, "{case}");
+        assert_eq!(
+            response.headers()["content-type"],
+            "application/json",
+            "{case}"
+        );
+        let error: Value = response.json().await.unwrap();
+        assert_eq!(error["code"], "BAD_REQUEST", "{case}");
+        assert!(error["message"].is_string(), "{case}");
+    }
+}

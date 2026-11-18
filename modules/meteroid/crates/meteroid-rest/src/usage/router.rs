@@ -4,15 +4,16 @@ use super::model::{
 };
 use crate::AppState;
 use crate::rate_limit::rate_limit_usage_costs;
-use axum::extract::{Path, State};
+use axum::Extension;
+use axum::Json;
+use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::{Extension, Json};
-use axum_valid::Valid;
 use common_domain::ids::{AliasOr, BillableMetricId, CustomerId, SubscriptionId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_app::errors::RestApiError;
 use meteroid_rest_common::QueryParams;
 use meteroid_rest_common::error::RestErrorResponse;
+use meteroid_rest_common::extract::{ApiPath, ApiValid};
 use meteroid_store::domain::{BillableMetric, UsagePeriod, unattributed_default_range};
 use meteroid_store::repositories::CustomersInterface;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
@@ -44,8 +45,8 @@ use rust_decimal::Decimal;
 pub async fn get_customer_usage(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Path(customer_id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
-    Valid(QueryParams(query)): Valid<QueryParams<CustomerUsageQuery>>,
+    ApiValid(ApiPath(customer_id_or_alias)): ApiValid<ApiPath<AliasOr<CustomerId>>>,
+    ApiValid(QueryParams(query)): ApiValid<QueryParams<CustomerUsageQuery>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let customer = app_state
         .store
@@ -110,8 +111,8 @@ pub async fn get_customer_usage(
 pub async fn get_unattributed_usage(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Path(customer_id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
-    Valid(QueryParams(query)): Valid<QueryParams<UnattributedUsageQuery>>,
+    ApiValid(ApiPath(customer_id_or_alias)): ApiValid<ApiPath<AliasOr<CustomerId>>>,
+    ApiValid(QueryParams(query)): ApiValid<QueryParams<UnattributedUsageQuery>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let customer = app_state
         .store
@@ -180,8 +181,8 @@ pub async fn get_unattributed_usage(
 pub async fn get_subscription_usage(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(subscription_id): Path<SubscriptionId>,
-    Valid(QueryParams(query)): Valid<QueryParams<SubscriptionUsageQuery>>,
+    ApiPath(subscription_id): ApiPath<SubscriptionId>,
+    ApiValid(QueryParams(query)): ApiValid<QueryParams<SubscriptionUsageQuery>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     rate_limit_usage_costs(&app_state, &authorized_state).await?;
     let tenant_id = authorized_state.tenant_id;
@@ -285,7 +286,7 @@ pub async fn get_subscription_usage(
 pub async fn get_usage_summary(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(QueryParams(query)): Valid<QueryParams<UsageSummaryQuery>>,
+    ApiValid(QueryParams(query)): ApiValid<QueryParams<UsageSummaryQuery>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let metrics = load_metrics(&app_state, authorized_state.tenant_id, query.metric_id).await?;
 

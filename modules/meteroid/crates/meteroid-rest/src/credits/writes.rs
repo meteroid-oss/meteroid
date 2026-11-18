@@ -10,10 +10,10 @@ use super::router::{
 use crate::AppState;
 use crate::currencies::mapping::from_str as currency_from_str;
 use crate::currencies::model::Currency;
-use axum::extract::{Path, State};
+use axum::Extension;
+use axum::Json;
+use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
-use axum::{Extension, Json};
-use axum_valid::Valid;
 use common_domain::ids::{AliasOr, CustomerId, InvoiceId, TenantId};
 use common_grpc::middleware::server::auth::{AuthorizedAsTenant, TenantActor};
 use meteroid_app::errors::RestApiError;
@@ -21,6 +21,7 @@ use meteroid_app::features::{SCOPED_CREDIT_NOT_IN_PLAN, ensure_change_allowed, g
 use meteroid_app::rest::denomination::{Denominations, requested_code};
 use meteroid_app::rest::writes::{fingerprint, idempotency_key, invalid, store_error};
 use meteroid_rest_common::error::RestErrorResponse;
+use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiValid};
 use meteroid_store::domain::PaymentStatusEnum;
 use meteroid_store::domain::credit::{
     ApiIdempotency, AutoTopUpChange, AutomaticTopUpConfig, ConfigureCreditWallet,
@@ -92,9 +93,9 @@ async fn invoice_payment_url(
 pub async fn create_credit_grant(
     Extension(auth): Extension<AuthorizedAsTenant>,
     State(state): State<AppState>,
-    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
+    ApiValid(ApiPath(id_or_alias)): ApiValid<ApiPath<AliasOr<CustomerId>>>,
     headers: HeaderMap,
-    Json(request): Json<CreateCreditGrantRequest>,
+    ApiJson(request): ApiJson<CreateCreditGrantRequest>,
 ) -> Result<(StatusCode, Json<model::CreditGrant>), RestApiError> {
     let key = idempotency_key(&headers)?;
     if request.amount <= 0 {
@@ -237,9 +238,9 @@ pub async fn create_credit_grant(
 pub async fn create_top_up(
     Extension(auth): Extension<AuthorizedAsTenant>,
     State(state): State<AppState>,
-    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
+    ApiValid(ApiPath(id_or_alias)): ApiValid<ApiPath<AliasOr<CustomerId>>>,
     headers: HeaderMap,
-    Json(request): Json<CreateTopUpRequest>,
+    ApiJson(request): ApiJson<CreateTopUpRequest>,
 ) -> Result<(StatusCode, Json<TopUpResponse>), RestApiError> {
     let key = idempotency_key(&headers)?;
     if request.amount <= 0 {
@@ -417,9 +418,9 @@ pub async fn create_top_up(
 pub async fn patch_wallet(
     Extension(auth): Extension<AuthorizedAsTenant>,
     State(state): State<AppState>,
-    Valid(Path(path)): Valid<Path<WalletPath>>,
+    ApiValid(ApiPath(path)): ApiValid<ApiPath<WalletPath>>,
     headers: HeaderMap,
-    Valid(Json(request)): Valid<Json<PatchWalletRequest>>,
+    ApiValid(ApiJson(request)): ApiValid<ApiJson<PatchWalletRequest>>,
 ) -> Result<Json<model::Wallet>, RestApiError> {
     let key = idempotency_key(&headers)?;
     let customer = resolve_customer(&state, &auth, path.id_or_alias).await?;

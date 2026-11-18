@@ -28,3 +28,6 @@ workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
 
 [build-dependencies]
 utoipa-config.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

@@ -1,8 +1,8 @@
 use crate::AppState;
-use axum::extract::{Path, Query, State};
+use axum::Extension;
+use axum::Json;
+use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::{Extension, Json};
-use axum_valid::Valid;
 use common_domain::ids::CustomPropertyDefinitionId;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_app::errors::RestApiError;
@@ -12,6 +12,7 @@ use meteroid_rest_common::customproperties::model::{
     CustomPropertyDefinitionListResponse,
 };
 use meteroid_rest_common::error::RestErrorResponse;
+use meteroid_rest_common::extract::{ApiPath, ApiQuery, ApiValid};
 use meteroid_rest_common::model::PaginationExt;
 use meteroid_store::repositories::CustomPropertyDefinitionsInterface;
 
@@ -31,7 +32,7 @@ use meteroid_store::repositories::CustomPropertyDefinitionsInterface;
 #[axum::debug_handler]
 pub async fn list_definitions(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Valid(Query(request)): Valid<Query<CustomPropertyDefinitionListRequest>>,
+    ApiValid(ApiQuery(request)): ApiValid<ApiQuery<CustomPropertyDefinitionListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let entity_type = request.entity_type.map(entity_type_to_domain);
@@ -74,7 +75,7 @@ pub async fn list_definitions(
 pub async fn get_definition(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(id): Path<CustomPropertyDefinitionId>,
+    ApiPath(id): ApiPath<CustomPropertyDefinitionId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store

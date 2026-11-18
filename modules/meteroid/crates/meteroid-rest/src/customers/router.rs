@@ -8,15 +8,16 @@ use crate::customers::model::{
     CustomerPatchRequest, CustomerPortalTokenRequest, CustomerPortalTokenResponse,
     CustomerUpdateRequest,
 };
-use axum::extract::{Path, Query, State};
+use axum::Extension;
+use axum::Json;
+use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::{Extension, Json};
-use axum_valid::Valid;
 use common_domain::ids::{AliasOr, BaseId, CustomerId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_app::errors::RestApiError;
 use meteroid_rest_common::error::RestErrorResponse;
+use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiQuery, ApiValid};
 use meteroid_rest_common::model::{PaginationExt, validate_order_by};
 use meteroid_store::jwt_claims::default_customer_portal_token_ttl;
 use meteroid_store::repositories::CustomersInterface;
@@ -44,7 +45,7 @@ use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
 #[axum::debug_handler]
 pub async fn list_customers(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Valid(Query(request)): Valid<Query<CustomerListRequest>>,
+    ApiValid(ApiQuery(request)): ApiValid<ApiQuery<CustomerListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let order_by = validate_order_by(
@@ -107,7 +108,7 @@ pub async fn list_customers(
 pub async fn get_customer(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
+    ApiValid(ApiPath(id_or_alias)): ApiValid<ApiPath<AliasOr<CustomerId>>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
@@ -145,7 +146,7 @@ pub async fn get_customer(
 pub async fn create_customer(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Json(payload)): Valid<Json<CustomerCreateRequest>>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<CustomerCreateRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let created = app_state
         .store
@@ -199,8 +200,8 @@ pub async fn create_customer(
 pub async fn update_customer(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
-    Valid(Json(payload)): Valid<Json<CustomerUpdateRequest>>,
+    ApiValid(ApiPath(id_or_alias)): ApiValid<ApiPath<AliasOr<CustomerId>>>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<CustomerUpdateRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     // Loaded so the mapping can preserve stored B2C identity that the payload omits.
     let existing = app_state
@@ -254,8 +255,8 @@ pub async fn update_customer(
 pub async fn patch_customer(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
-    Valid(Json(payload)): Valid<Json<CustomerPatchRequest>>,
+    ApiValid(ApiPath(id_or_alias)): ApiValid<ApiPath<AliasOr<CustomerId>>>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<CustomerPatchRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     // First resolve the customer ID
     let customer = app_state
@@ -313,7 +314,7 @@ pub async fn patch_customer(
 pub async fn archive_customer(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
+    ApiValid(ApiPath(id_or_alias)): ApiValid<ApiPath<AliasOr<CustomerId>>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
@@ -352,7 +353,7 @@ pub async fn archive_customer(
 pub async fn unarchive_customer(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
+    ApiValid(ApiPath(id_or_alias)): ApiValid<ApiPath<AliasOr<CustomerId>>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
@@ -400,11 +401,11 @@ pub async fn create_portal_token(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     delegated: Option<Extension<DelegatedCredentials>>,
     State(app_state): State<AppState>,
-    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
-    body: Option<Json<CustomerPortalTokenRequest>>,
+    ApiValid(ApiPath(id_or_alias)): ApiValid<ApiPath<AliasOr<CustomerId>>>,
+    body: Option<ApiJson<CustomerPortalTokenRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     // The request body is optional; default to a 24h token with every scope when omitted.
-    let request = body.map(|Json(b)| b).unwrap_or_default();
+    let request = body.map(|ApiJson(b)| b).unwrap_or_default();
     let expires_in = match request.expires_in_seconds {
         Some(seconds) => {
             if !(60..=2_592_000).contains(&seconds) {

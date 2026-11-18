@@ -1,9 +1,10 @@
-use axum::extract::{Path, State};
+use axum::Extension;
+use axum::Json;
+use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::{Extension, Json};
-use axum_valid::Valid;
 use common_domain::ids::BatchJobId;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
+use meteroid_rest_common::extract::{ApiPath, ApiValid};
 use meteroid_store::repositories::batch_jobs::BatchJobsInterface;
 
 use crate::AppState;
@@ -35,7 +36,7 @@ use meteroid_rest_common::model::PaginationExt;
 #[axum::debug_handler]
 pub async fn list_batch_jobs(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Valid(QueryParams(request)): Valid<QueryParams<BatchJobListRequest>>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<BatchJobListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let job_type = request.job_type.map(Into::into);
@@ -91,7 +92,7 @@ pub async fn list_batch_jobs(
 pub async fn get_batch_job(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(batch_job_id): Path<BatchJobId>,
+    ApiPath(batch_job_id): ApiPath<BatchJobId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let detail = app_state
         .store
@@ -190,8 +191,8 @@ pub async fn get_batch_job(
 pub async fn list_batch_job_failures(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(batch_job_id): Path<BatchJobId>,
-    Valid(QueryParams(request)): Valid<QueryParams<BatchJobFailuresRequest>>,
+    ApiPath(batch_job_id): ApiPath<BatchJobId>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<BatchJobFailuresRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let tenant_id = authorized_state.tenant_id;
 

@@ -5,15 +5,16 @@ use super::model::{
 use crate::AppState;
 use crate::credits::router::resolve_customer;
 use crate::rate_limit::rate_limit_usage_costs;
-use axum::extract::{Path, State};
-use axum::{Extension, Json};
-use axum_valid::Valid;
+use axum::Extension;
+use axum::Json;
+use axum::extract::State;
 use common_domain::ids::{AliasOr, BillableMetricId, CustomerId, SubscriptionId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_app::errors::RestApiError;
 use meteroid_app::features::gates;
 use meteroid_rest_common::QueryParams;
 use meteroid_rest_common::error::RestErrorResponse;
+use meteroid_rest_common::extract::{ApiPath, ApiValid};
 use meteroid_store::domain::usage_costs::{MetricRef, UsageOwner};
 
 const DEFAULT_EVENTS_LIMIT: u32 = 100;
@@ -110,8 +111,8 @@ async fn usage_costs(
 pub async fn list_customer_usage_events(
     Extension(auth): Extension<AuthorizedAsTenant>,
     State(state): State<AppState>,
-    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
-    Valid(QueryParams(request)): Valid<QueryParams<ListUsageEventsRequest>>,
+    ApiValid(ApiPath(id_or_alias)): ApiValid<ApiPath<AliasOr<CustomerId>>>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<ListUsageEventsRequest>>,
 ) -> Result<Json<UsageEventListResponse>, RestApiError> {
     ensure_usage_costs(&state, &auth).await?;
     rate_limit_usage_costs(&state, &auth).await?;
@@ -146,8 +147,8 @@ pub async fn list_customer_usage_events(
 pub async fn list_subscription_usage_events(
     Extension(auth): Extension<AuthorizedAsTenant>,
     State(state): State<AppState>,
-    Path(subscription_id): Path<SubscriptionId>,
-    Valid(QueryParams(request)): Valid<QueryParams<ListUsageEventsRequest>>,
+    ApiPath(subscription_id): ApiPath<SubscriptionId>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<ListUsageEventsRequest>>,
 ) -> Result<Json<UsageEventListResponse>, RestApiError> {
     ensure_usage_costs(&state, &auth).await?;
     rate_limit_usage_costs(&state, &auth).await?;
@@ -190,8 +191,8 @@ pub async fn list_subscription_usage_events(
 pub async fn list_customer_usage_costs(
     Extension(auth): Extension<AuthorizedAsTenant>,
     State(state): State<AppState>,
-    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
-    Valid(QueryParams(request)): Valid<QueryParams<ListUsageCostsRequest>>,
+    ApiValid(ApiPath(id_or_alias)): ApiValid<ApiPath<AliasOr<CustomerId>>>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<ListUsageCostsRequest>>,
 ) -> Result<Json<UsageCostListResponse>, RestApiError> {
     ensure_usage_costs(&state, &auth).await?;
     rate_limit_usage_costs(&state, &auth).await?;
@@ -226,8 +227,8 @@ pub async fn list_customer_usage_costs(
 pub async fn list_subscription_usage_costs(
     Extension(auth): Extension<AuthorizedAsTenant>,
     State(state): State<AppState>,
-    Path(subscription_id): Path<SubscriptionId>,
-    Valid(QueryParams(request)): Valid<QueryParams<ListUsageCostsRequest>>,
+    ApiPath(subscription_id): ApiPath<SubscriptionId>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<ListUsageCostsRequest>>,
 ) -> Result<Json<UsageCostListResponse>, RestApiError> {
     ensure_usage_costs(&state, &auth).await?;
     rate_limit_usage_costs(&state, &auth).await?;

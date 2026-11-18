@@ -1,9 +1,10 @@
 use super::AppState;
+use axum::Json;
+use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiValid};
 
-use axum::extract::{Path, State};
+use axum::Extension;
+use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::{Extension, Json};
-use axum_valid::Valid;
 use common_domain::ids::CouponId;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
@@ -35,7 +36,7 @@ use meteroid_rest_common::model::{PaginationExt, validate_order_by};
 #[axum::debug_handler]
 pub async fn list_coupons(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Valid(QueryParams(request)): Valid<QueryParams<CouponListRequest>>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<CouponListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let filter = match request.filter {
@@ -95,7 +96,7 @@ pub async fn list_coupons(
 #[axum::debug_handler]
 pub async fn get_coupon(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Path(coupon_id): Path<CouponId>,
+    ApiPath(coupon_id): ApiPath<CouponId>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let coupon = app_state
@@ -129,7 +130,7 @@ pub async fn get_coupon(
 pub async fn create_coupon(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Json(payload)): Valid<Json<CreateCouponRequest>>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<CreateCouponRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let discount = mapping::rest_discount_to_domain(&payload.discount)?;
 
@@ -179,8 +180,8 @@ pub async fn create_coupon(
 pub async fn update_coupon(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(coupon_id): Path<CouponId>,
-    Valid(Json(payload)): Valid<Json<UpdateCouponRequest>>,
+    ApiPath(coupon_id): ApiPath<CouponId>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<UpdateCouponRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let discount = payload
         .discount
@@ -228,7 +229,7 @@ pub async fn update_coupon(
 pub async fn archive_coupon(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(coupon_id): Path<CouponId>,
+    ApiPath(coupon_id): ApiPath<CouponId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
@@ -266,7 +267,7 @@ pub async fn archive_coupon(
 pub async fn unarchive_coupon(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(coupon_id): Path<CouponId>,
+    ApiPath(coupon_id): ApiPath<CouponId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
@@ -306,7 +307,7 @@ pub async fn unarchive_coupon(
 pub async fn disable_coupon(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(coupon_id): Path<CouponId>,
+    ApiPath(coupon_id): ApiPath<CouponId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
@@ -346,7 +347,7 @@ pub async fn disable_coupon(
 pub async fn enable_coupon(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(coupon_id): Path<CouponId>,
+    ApiPath(coupon_id): ApiPath<CouponId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store

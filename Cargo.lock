@@ -5202,7 +5202,6 @@ name = "meteroid-rest"
 version = "0.1.0"
 dependencies = [
  "axum",
- "axum-valid",
  "base64 0.22.1",
  "bytes",
  "cached",
@@ -5269,6 +5268,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "strum 0.28.0",
+ "tokio",
  "validator",
  "workspace-hack",
 ]

@@ -1,6 +1,5 @@
+use crate::extract::Rejection;
 use axum::extract::FromRequestParts;
-use axum::response::{IntoResponse, Response};
-use http::StatusCode;
 use http::request::Parts;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, de};
@@ -26,21 +25,12 @@ where
 #[derive(Debug, Clone, Copy, Default)]
 pub struct QueryParams<T>(pub T);
 
-#[derive(Debug)]
-pub struct QueryParamsRejection(String);
-
-impl IntoResponse for QueryParamsRejection {
-    fn into_response(self) -> Response {
-        (StatusCode::BAD_REQUEST, self.0).into_response()
-    }
-}
-
 impl<T, S> FromRequestParts<S> for QueryParams<T>
 where
     T: DeserializeOwned,
     S: Send + Sync,
 {
-    type Rejection = QueryParamsRejection;
+    type Rejection = Rejection;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let query = parts.uri.query().unwrap_or_default();
@@ -51,7 +41,7 @@ where
         let expanded = expand_csv_query_values(query);
         serde_html_form::from_str(&expanded)
             .map(QueryParams)
-            .map_err(|e| QueryParamsRejection(format!("Failed to deserialize query string: {}", e)))
+            .map_err(|e| Rejection::bad_request(format!("Failed to deserialize query string: {e}")))
     }
 }
 

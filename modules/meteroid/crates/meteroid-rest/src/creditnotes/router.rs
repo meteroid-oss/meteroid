@@ -4,10 +4,10 @@ use crate::creditnotes::model::{
     CreditNote, CreditNoteCustomPropertiesRequest, CreditNoteListRequest, CreditNoteListResponse,
 };
 use crate::invoices::model::BinaryFile;
-use axum::extract::{Path, State};
+use axum::Extension;
+use axum::Json;
+use axum::extract::State;
 use axum::response::{IntoResponse, Response};
-use axum::{Extension, Json};
-use axum_valid::Valid;
 use common_domain::ids::CreditNoteId;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use hyper::StatusCode;
@@ -15,6 +15,7 @@ use meteroid_app::errors::RestApiError;
 use meteroid_app::services::storage;
 use meteroid_rest_common::QueryParams;
 use meteroid_rest_common::error::{ErrorCode, RestErrorResponse};
+use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiValid};
 use meteroid_rest_common::model::{PaginationExt, validate_order_by};
 use meteroid_store::repositories::CreditNoteInterface;
 
@@ -38,7 +39,7 @@ use meteroid_store::repositories::CreditNoteInterface;
 #[axum::debug_handler]
 pub async fn list_credit_notes(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Valid(QueryParams(request)): Valid<QueryParams<CreditNoteListRequest>>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<CreditNoteListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let order_by = validate_order_by(
@@ -103,7 +104,7 @@ pub async fn list_credit_notes(
 #[axum::debug_handler]
 pub async fn get_credit_note_by_id(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Path(credit_note_id): Path<CreditNoteId>,
+    ApiPath(credit_note_id): ApiPath<CreditNoteId>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let res = app_state
@@ -146,9 +147,9 @@ pub async fn get_credit_note_by_id(
 #[axum::debug_handler]
 pub async fn patch_credit_note_custom_properties(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Path(credit_note_id): Path<CreditNoteId>,
+    ApiPath(credit_note_id): ApiPath<CreditNoteId>,
     State(app_state): State<AppState>,
-    Valid(Json(payload)): Valid<Json<CreditNoteCustomPropertiesRequest>>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<CreditNoteCustomPropertiesRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let res = app_state
         .store
@@ -186,7 +187,7 @@ pub async fn patch_credit_note_custom_properties(
 #[axum::debug_handler]
 pub async fn download_credit_note_pdf(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Path(credit_note_id): Path<CreditNoteId>,
+    ApiPath(credit_note_id): ApiPath<CreditNoteId>,
     State(app_state): State<AppState>,
 ) -> Result<Response, RestApiError> {
     let credit_note = app_state
@@ -252,7 +253,7 @@ pub async fn download_credit_note_pdf(
 #[axum::debug_handler]
 pub async fn download_credit_note_xml(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Path(credit_note_id): Path<CreditNoteId>,
+    ApiPath(credit_note_id): ApiPath<CreditNoteId>,
     State(app_state): State<AppState>,
 ) -> Result<Response, RestApiError> {
     let credit_note = app_state

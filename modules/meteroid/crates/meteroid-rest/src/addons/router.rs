@@ -1,13 +1,14 @@
 use super::AppState;
+use axum::Json;
+use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiValid};
 
 use crate::addons::mapping;
 use crate::addons::model::*;
 use meteroid_rest_common::QueryParams;
 
-use axum::extract::{Path, State};
+use axum::Extension;
+use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::{Extension, Json};
-use axum_valid::Valid;
 use common_domain::ids::AddOnId;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
@@ -35,7 +36,7 @@ use meteroid_store::repositories::add_ons::AddOnInterface;
 #[axum::debug_handler]
 pub async fn list_addons(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Valid(QueryParams(request)): Valid<QueryParams<AddOnListRequest>>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<AddOnListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let order_by = validate_order_by(
@@ -90,7 +91,7 @@ pub async fn list_addons(
 #[axum::debug_handler]
 pub async fn get_addon(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Path(addon_id): Path<AddOnId>,
+    ApiPath(addon_id): ApiPath<AddOnId>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let addon = app_state
@@ -124,7 +125,7 @@ pub async fn get_addon(
 pub async fn create_addon(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Json(payload)): Valid<Json<CreateAddOnRequest>>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<CreateAddOnRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let addon = app_state
         .store
@@ -171,8 +172,8 @@ pub async fn create_addon(
 pub async fn update_addon(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(addon_id): Path<AddOnId>,
-    Valid(Json(payload)): Valid<Json<UpdateAddOnRequest>>,
+    ApiPath(addon_id): ApiPath<AddOnId>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<UpdateAddOnRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let price_entry = payload.price_id.map(PriceEntry::Existing);
 
@@ -218,7 +219,7 @@ pub async fn update_addon(
 pub async fn archive_addon(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(addon_id): Path<AddOnId>,
+    ApiPath(addon_id): ApiPath<AddOnId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
@@ -252,7 +253,7 @@ pub async fn archive_addon(
 pub async fn unarchive_addon(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(addon_id): Path<AddOnId>,
+    ApiPath(addon_id): ApiPath<AddOnId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store

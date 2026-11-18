@@ -1,8 +1,9 @@
-use axum::extract::{Path, State};
-use axum::{Extension, Json};
-use axum_valid::Valid;
+use axum::Extension;
+use axum::Json;
+use axum::extract::State;
 use common_domain::ids::{AliasOr, CheckoutSessionId, CustomerId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
+use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiValid};
 use std::str::FromStr;
 
 use crate::AppState;
@@ -40,7 +41,7 @@ use super::model::{
 pub async fn create_checkout_session(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Json(request): Json<CreateCheckoutSessionRequest>,
+    ApiJson(request): ApiJson<CreateCheckoutSessionRequest>,
 ) -> Result<Json<CreateCheckoutSessionResponse>, RestApiError> {
     let tenant_id = authorized_state.tenant_id;
 
@@ -154,7 +155,7 @@ pub async fn create_checkout_session(
 pub async fn get_checkout_session(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(session_id): Path<CheckoutSessionId>,
+    ApiPath(session_id): ApiPath<CheckoutSessionId>,
 ) -> Result<Json<GetCheckoutSessionResponse>, RestApiError> {
     let tenant_id = authorized_state.tenant_id;
 
@@ -194,7 +195,7 @@ pub async fn get_checkout_session(
 pub async fn list_checkout_sessions(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(QueryParams(query)): Valid<QueryParams<ListCheckoutSessionsQuery>>,
+    ApiValid(QueryParams(query)): ApiValid<QueryParams<ListCheckoutSessionsQuery>>,
 ) -> Result<Json<ListCheckoutSessionsResponse>, RestApiError> {
     let tenant_id = authorized_state.tenant_id;
 
@@ -247,7 +248,7 @@ pub async fn list_checkout_sessions(
 pub async fn cancel_checkout_session(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(session_id): Path<CheckoutSessionId>,
+    ApiPath(session_id): ApiPath<CheckoutSessionId>,
 ) -> Result<Json<CancelCheckoutSessionResponse>, RestApiError> {
     let tenant_id = authorized_state.tenant_id;
 

@@ -1,9 +1,10 @@
+use axum::Json;
+use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiValid};
 use std::str::FromStr;
 
-use axum::extract::{Path, State};
+use axum::Extension;
+use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::{Extension, Json};
-use axum_valid::Valid;
 use common_domain::ids::{WebhookDeliveryId, WebhookEndpointId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use egress_http::Url;
@@ -123,7 +124,7 @@ pub async fn list_webhook_endpoints(
 pub async fn create_webhook_endpoint(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Json(payload)): Valid<Json<CreateWebhookEndpointRequest>>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<CreateWebhookEndpointRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     check_input(
         Some(&payload.url),
@@ -190,7 +191,7 @@ pub async fn create_webhook_endpoint(
 pub async fn get_webhook_endpoint(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(endpoint_id): Path<WebhookEndpointId>,
+    ApiPath(endpoint_id): ApiPath<WebhookEndpointId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let endpoint = app_state
         .store
@@ -223,8 +224,8 @@ pub async fn get_webhook_endpoint(
 pub async fn update_webhook_endpoint(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(endpoint_id): Path<WebhookEndpointId>,
-    Valid(Json(payload)): Valid<Json<UpdateWebhookEndpointRequest>>,
+    ApiPath(endpoint_id): ApiPath<WebhookEndpointId>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<UpdateWebhookEndpointRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     check_input(
         payload.url.as_deref(),
@@ -289,7 +290,7 @@ pub async fn update_webhook_endpoint(
 pub async fn delete_webhook_endpoint(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(endpoint_id): Path<WebhookEndpointId>,
+    ApiPath(endpoint_id): ApiPath<WebhookEndpointId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
@@ -317,7 +318,7 @@ pub async fn delete_webhook_endpoint(
 pub async fn get_webhook_endpoint_secret(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(endpoint_id): Path<WebhookEndpointId>,
+    ApiPath(endpoint_id): ApiPath<WebhookEndpointId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let secret = app_state
         .store
@@ -350,7 +351,7 @@ pub async fn get_webhook_endpoint_secret(
 pub async fn rotate_webhook_endpoint_secret(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(endpoint_id): Path<WebhookEndpointId>,
+    ApiPath(endpoint_id): ApiPath<WebhookEndpointId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let secret = app_state
         .store
@@ -385,8 +386,8 @@ pub async fn rotate_webhook_endpoint_secret(
 pub async fn list_webhook_deliveries(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(endpoint_id): Path<WebhookEndpointId>,
-    Valid(QueryParams(request)): Valid<QueryParams<DeliveryListRequest>>,
+    ApiPath(endpoint_id): ApiPath<WebhookEndpointId>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<DeliveryListRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let res = app_state
         .store
@@ -431,7 +432,7 @@ pub async fn list_webhook_deliveries(
 pub async fn resend_webhook_delivery(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(delivery_id): Path<WebhookDeliveryId>,
+    ApiPath(delivery_id): ApiPath<WebhookDeliveryId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let details = app_state
         .store

@@ -2,14 +2,15 @@ use crate::AppState;
 use crate::events::mapping;
 use crate::events::model::{IngestEventsRequest, IngestEventsResponse};
 use crate::rate_limit::rate_limit_eps;
+use axum::Extension;
+use axum::Json;
 use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::{Extension, Json};
-use axum_valid::Valid;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_app::errors::RestApiError;
 use meteroid_rest_common::error::RestErrorResponse;
+use meteroid_rest_common::extract::{ApiJson, ApiValid};
 
 /// Ingest events
 ///
@@ -37,7 +38,7 @@ use meteroid_rest_common::error::RestErrorResponse;
 pub async fn ingest_events(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Json(request)): Valid<Json<IngestEventsRequest>>,
+    ApiValid(ApiJson(request)): ApiValid<ApiJson<IngestEventsRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     rate_limit_eps(
         &app_state.rest_rate_limiters,

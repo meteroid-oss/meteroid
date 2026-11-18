@@ -7,10 +7,10 @@ use crate::credit_units::model::{
     CreditUnitPrice, CreditUnitPriceListRequest, CreditUnitPriceListResponse,
     CreditUnitPriceSetRequest, CreditUnitUpdateRequest,
 };
-use axum::extract::{Path, Query, State};
+use axum::Extension;
+use axum::Json;
+use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::{Extension, Json};
-use axum_valid::Valid;
 use common_domain::ids::{CreditUnitId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
@@ -18,6 +18,7 @@ use meteroid_app::errors::RestApiError;
 use meteroid_app::features::ensure_credit_pricing_allowed;
 use meteroid_app::rest::writes::store_error;
 use meteroid_rest_common::error::RestErrorResponse;
+use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiQuery, ApiValid};
 use meteroid_store::domain::credit_units as domain;
 use meteroid_store::repositories::CreditUnitsInterface;
 
@@ -53,7 +54,7 @@ async fn with_prices(
 )]
 pub async fn list_credit_units(
     Extension(auth): Extension<AuthorizedAsTenant>,
-    Valid(Query(request)): Valid<Query<CreditUnitListRequest>>,
+    ApiValid(ApiQuery(request)): ApiValid<ApiQuery<CreditUnitListRequest>>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let units = state
@@ -98,7 +99,7 @@ pub async fn list_credit_units(
 pub async fn get_credit_unit(
     Extension(auth): Extension<AuthorizedAsTenant>,
     State(state): State<AppState>,
-    Path(id): Path<CreditUnitId>,
+    ApiPath(id): ApiPath<CreditUnitId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let unit = state
         .store
@@ -130,7 +131,7 @@ pub async fn get_credit_unit(
 pub async fn create_credit_unit(
     Extension(auth): Extension<AuthorizedAsTenant>,
     State(state): State<AppState>,
-    Valid(Json(payload)): Valid<Json<CreditUnitCreateRequest>>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<CreditUnitCreateRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let new = create_req_to_domain(auth.tenant_id, payload)?;
     ensure_credit_pricing_allowed(state.feature_resolver.as_ref(), auth.organization_id, true)
@@ -171,8 +172,8 @@ pub async fn create_credit_unit(
 pub async fn update_credit_unit(
     Extension(auth): Extension<AuthorizedAsTenant>,
     State(state): State<AppState>,
-    Path(id): Path<CreditUnitId>,
-    Valid(Json(payload)): Valid<Json<CreditUnitUpdateRequest>>,
+    ApiPath(id): ApiPath<CreditUnitId>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<CreditUnitUpdateRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let patch = update_req_to_domain(auth.tenant_id, id, payload)?;
     ensure_credit_pricing_allowed(
@@ -208,8 +209,8 @@ pub async fn update_credit_unit(
 pub async fn list_credit_unit_prices(
     Extension(auth): Extension<AuthorizedAsTenant>,
     State(state): State<AppState>,
-    Path(id): Path<CreditUnitId>,
-    Valid(Query(request)): Valid<Query<CreditUnitPriceListRequest>>,
+    ApiPath(id): ApiPath<CreditUnitId>,
+    ApiValid(ApiQuery(request)): ApiValid<ApiQuery<CreditUnitPriceListRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     state
         .store
@@ -257,8 +258,8 @@ pub async fn list_credit_unit_prices(
 pub async fn set_credit_unit_price(
     Extension(auth): Extension<AuthorizedAsTenant>,
     State(state): State<AppState>,
-    Path((id, currency)): Path<(CreditUnitId, String)>,
-    Valid(Json(payload)): Valid<Json<CreditUnitPriceSetRequest>>,
+    ApiPath((id, currency)): ApiPath<(CreditUnitId, String)>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<CreditUnitPriceSetRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let price = state
         .store
@@ -291,7 +292,7 @@ pub async fn set_credit_unit_price(
 pub async fn archive_credit_unit_price(
     Extension(auth): Extension<AuthorizedAsTenant>,
     State(state): State<AppState>,
-    Path((id, currency)): Path<(CreditUnitId, String)>,
+    ApiPath((id, currency)): ApiPath<(CreditUnitId, String)>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let currency = currency.trim().to_ascii_uppercase();
     let active = state

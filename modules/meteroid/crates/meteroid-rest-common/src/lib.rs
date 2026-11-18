@@ -8,6 +8,7 @@ pub mod datetime;
 pub mod delegated_auth;
 pub mod entitlements;
 pub mod error;
+pub mod extract;
 pub mod model;
 pub mod query;
 pub mod spec;

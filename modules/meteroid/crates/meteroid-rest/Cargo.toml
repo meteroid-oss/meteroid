@@ -53,7 +53,6 @@ strum = { workspace = true, features = ["derive"] }
 
 o2o.workspace = true
 validator = { workspace = true, features = ["derive"] }
-axum-valid = { workspace = true }
 common-grpc-error-as-tonic-macros = { workspace = true }
 workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
 

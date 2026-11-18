@@ -1,8 +1,9 @@
 use super::AppState;
+use axum::Json;
+use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiValid};
 use std::str::FromStr;
 
-use axum::extract::Path;
-use axum::{Json, extract::State, response::IntoResponse};
+use axum::{extract::State, response::IntoResponse};
 
 use crate::subscriptions::mapping::{
     domain_to_rest, domain_to_rest_details, rest_to_domain_create_request,
@@ -13,7 +14,6 @@ use crate::subscriptions::model::{
     SubscriptionRequest, SubscriptionUpdateRequest, SubscriptionUpdateResponse,
 };
 use axum::Extension;
-use axum_valid::Valid;
 use common_domain::ids::{AliasOr, BaseId, CustomerId, SubscriptionId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
@@ -50,7 +50,7 @@ use meteroid_store::repositories::{CustomersInterface, PlansInterface, Subscript
 #[axum::debug_handler]
 pub async fn list_subscriptions(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Valid(QueryParams(request)): Valid<QueryParams<SubscriptionRequest>>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<SubscriptionRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let status_filter = request
@@ -147,7 +147,7 @@ pub async fn list_subscriptions(
 pub async fn subscription_details(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(subscription_id): Path<SubscriptionId>,
+    ApiPath(subscription_id): ApiPath<SubscriptionId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let res = app_state
         .store
@@ -189,7 +189,7 @@ pub async fn subscription_details(
 pub async fn subscription_summary(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(subscription_id): Path<SubscriptionId>,
+    ApiPath(subscription_id): ApiPath<SubscriptionId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let res = app_state
         .store
@@ -228,7 +228,7 @@ pub async fn subscription_summary(
 pub async fn create_subscription(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Json(payload)): Valid<Json<SubscriptionCreateRequest>>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<SubscriptionCreateRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let id_or_alias: AliasOr<CustomerId> = AliasOr::from_str(payload.customer_id_or_alias.as_str())
         .map_err(|_| RestApiError::InvalidInput("invalid customer_id format".to_string()))?;
@@ -345,8 +345,8 @@ pub async fn create_subscription(
 pub async fn cancel_subscription(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(subscription_id): Path<SubscriptionId>,
-    Valid(Json(request)): Valid<Json<super::model::CancelSubscriptionRequest>>,
+    ApiPath(subscription_id): ApiPath<SubscriptionId>,
+    ApiValid(ApiJson(request)): ApiValid<ApiJson<super::model::CancelSubscriptionRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let subscription = app_state
         .services
@@ -399,8 +399,8 @@ pub async fn cancel_subscription(
 pub async fn update_subscription(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(subscription_id): Path<SubscriptionId>,
-    Valid(Json(request)): Valid<Json<SubscriptionUpdateRequest>>,
+    ApiPath(subscription_id): ApiPath<SubscriptionId>,
+    ApiValid(ApiJson(request)): ApiValid<ApiJson<SubscriptionUpdateRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let patch = rest_to_domain_update_request(subscription_id, request)?;
 

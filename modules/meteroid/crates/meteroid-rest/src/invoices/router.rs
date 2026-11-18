@@ -3,10 +3,10 @@ use crate::invoices::mapping::domain_to_rest;
 use crate::invoices::model::{
     BinaryFile, Invoice, InvoiceCustomPropertiesRequest, InvoiceListRequest, InvoiceListResponse,
 };
-use axum::extract::{Path, State};
+use axum::Extension;
+use axum::Json;
+use axum::extract::State;
 use axum::response::{IntoResponse, Response};
-use axum::{Extension, Json};
-use axum_valid::Valid;
 use common_domain::ids::InvoiceId;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use hyper::StatusCode;
@@ -14,6 +14,7 @@ use meteroid_app::errors::RestApiError;
 use meteroid_app::services::storage;
 use meteroid_rest_common::QueryParams;
 use meteroid_rest_common::error::{ErrorCode, RestErrorResponse};
+use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiValid};
 use meteroid_rest_common::model::{PaginationExt, validate_order_by};
 use meteroid_store::repositories::CreditNoteInterface;
 use meteroid_store::repositories::InvoiceInterface;
@@ -41,7 +42,7 @@ use meteroid_store::repositories::payment_transactions::PaymentTransactionInterf
 #[axum::debug_handler]
 pub async fn list_invoices(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Valid(QueryParams(request)): Valid<QueryParams<InvoiceListRequest>>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<InvoiceListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let order_by = validate_order_by(
@@ -155,7 +156,7 @@ pub async fn list_invoices(
 #[axum::debug_handler]
 pub async fn get_invoice_by_id(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Path(invoice_id): Path<InvoiceId>,
+    ApiPath(invoice_id): ApiPath<InvoiceId>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     // Detailed rather than by-id: it joins the customer, which is what resolves a draft's
@@ -238,9 +239,9 @@ pub async fn get_invoice_by_id(
 #[axum::debug_handler]
 pub async fn patch_invoice_custom_properties(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Path(invoice_id): Path<InvoiceId>,
+    ApiPath(invoice_id): ApiPath<InvoiceId>,
     State(app_state): State<AppState>,
-    Valid(Json(payload)): Valid<Json<InvoiceCustomPropertiesRequest>>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<InvoiceCustomPropertiesRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let res = app_state
         .store
@@ -312,7 +313,7 @@ pub async fn patch_invoice_custom_properties(
 #[axum::debug_handler]
 pub async fn refresh_invoice(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Path(invoice_id): Path<InvoiceId>,
+    ApiPath(invoice_id): ApiPath<InvoiceId>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let detailed = app_state
@@ -375,7 +376,7 @@ pub async fn refresh_invoice(
 #[axum::debug_handler]
 pub async fn download_invoice_pdf(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Path(invoice_id): Path<InvoiceId>,
+    ApiPath(invoice_id): ApiPath<InvoiceId>,
     State(app_state): State<AppState>,
 ) -> Result<Response, RestApiError> {
     let invoice = app_state
@@ -441,7 +442,7 @@ pub async fn download_invoice_pdf(
 #[axum::debug_handler]
 pub async fn download_invoice_xml(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Path(invoice_id): Path<InvoiceId>,
+    ApiPath(invoice_id): ApiPath<InvoiceId>,
     State(app_state): State<AppState>,
 ) -> Result<Response, RestApiError> {
     let invoice = app_state

@@ -1,13 +1,14 @@
 use super::AppState;
+use axum::Json;
+use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiQuery, ApiValid};
 
 use meteroid_rest_common::QueryParams;
 
 use crate::plans::mapping;
 use crate::plans::model::*;
-use axum::extract::{Path, Query, State};
+use axum::Extension;
+use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::{Extension, Json};
-use axum_valid::Valid;
 use common_domain::ids::{CreditUnitId, PlanId, PlanVersionId, ProductId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
@@ -41,7 +42,7 @@ use meteroid_store::repositories::plans::PlansInterfaceAuto;
 #[axum::debug_handler]
 pub async fn list_plans(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Valid(QueryParams(request)): Valid<QueryParams<PlanListRequest>>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<PlanListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let filters = PlanFilters {
@@ -119,8 +120,8 @@ pub async fn list_plans(
 #[axum::debug_handler]
 pub async fn get_plan_details(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Path(plan_id): Path<PlanId>,
-    Query(query): Query<PlanGetQuery>,
+    ApiPath(plan_id): ApiPath<PlanId>,
+    ApiQuery(query): ApiQuery<PlanGetQuery>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let version_filter = parse_version_filter(query.version.as_deref())?;
@@ -166,7 +167,7 @@ pub async fn get_plan_details(
 pub async fn create_plan(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Json(payload)): Valid<Json<CreatePlanRequest>>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<CreatePlanRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let is_draft = matches!(payload.status, PlanStatusEnum::Draft);
 
@@ -336,8 +337,8 @@ pub async fn create_plan(
 pub async fn replace_plan(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(plan_id): Path<PlanId>,
-    Valid(Json(payload)): Valid<Json<ReplacePlanRequest>>,
+    ApiPath(plan_id): ApiPath<PlanId>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<ReplacePlanRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let publish = matches!(payload.status.as_ref(), Some(PlanStatusEnum::Active));
 
@@ -626,8 +627,8 @@ async fn ensure_minimum_kept(
 pub async fn patch_plan(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(plan_id): Path<PlanId>,
-    Valid(Json(payload)): Valid<Json<PatchPlanRequest>>,
+    ApiPath(plan_id): ApiPath<PlanId>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<PatchPlanRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
@@ -715,7 +716,7 @@ pub async fn patch_plan(
 pub async fn publish_plan(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(plan_id): Path<PlanId>,
+    ApiPath(plan_id): ApiPath<PlanId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let plan_with_version = app_state
         .store
@@ -786,7 +787,7 @@ pub async fn publish_plan(
 pub async fn archive_plan(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(plan_id): Path<PlanId>,
+    ApiPath(plan_id): ApiPath<PlanId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
@@ -820,7 +821,7 @@ pub async fn archive_plan(
 pub async fn unarchive_plan(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(plan_id): Path<PlanId>,
+    ApiPath(plan_id): ApiPath<PlanId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
@@ -854,8 +855,8 @@ pub async fn unarchive_plan(
 #[axum::debug_handler]
 pub async fn list_plan_versions(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Path(plan_id): Path<PlanId>,
-    Valid(Query(request)): Valid<Query<PlanVersionListRequest>>,
+    ApiPath(plan_id): ApiPath<PlanId>,
+    ApiValid(ApiQuery(request)): ApiValid<ApiQuery<PlanVersionListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let res = app_state
@@ -907,8 +908,8 @@ pub async fn list_plan_versions(
 pub async fn set_plan_minimum(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(plan_version_id): Path<PlanVersionId>,
-    Json(body): Json<MinimumCommitment>,
+    ApiPath(plan_version_id): ApiPath<PlanVersionId>,
+    ApiJson(body): ApiJson<MinimumCommitment>,
 ) -> Result<impl IntoResponse, RestApiError> {
     use meteroid_store::domain::plan_minimums::MinimumScope;
     use std::str::FromStr;
@@ -998,7 +999,7 @@ pub async fn set_plan_minimum(
 pub async fn delete_plan_minimum(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(plan_version_id): Path<PlanVersionId>,
+    ApiPath(plan_version_id): ApiPath<PlanVersionId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store

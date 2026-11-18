@@ -1,9 +1,10 @@
 use super::AppState;
+use axum::Json;
+use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiValid};
 
-use axum::extract::{Path, State};
+use axum::Extension;
+use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::{Extension, Json};
-use axum_valid::Valid;
 use common_domain::ids::BillableMetricId;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
@@ -36,7 +37,7 @@ use meteroid_rest_common::model::{PaginationExt, validate_order_by};
 #[axum::debug_handler]
 pub async fn list_metrics(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Valid(QueryParams(request)): Valid<QueryParams<MetricListRequest>>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<MetricListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let order_by = validate_order_by(
@@ -94,7 +95,7 @@ pub async fn list_metrics(
 #[axum::debug_handler]
 pub async fn get_metric(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Path(metric_id): Path<BillableMetricId>,
+    ApiPath(metric_id): ApiPath<BillableMetricId>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let metric = app_state
@@ -129,7 +130,7 @@ pub async fn get_metric(
 pub async fn create_metric(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Json(payload)): Valid<Json<CreateMetricRequest>>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<CreateMetricRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let (unit_conversion_factor, unit_conversion_rounding) = match payload.unit_conversion {
         Some(uc) => (Some(uc.factor), Some(uc.rounding.into())),
@@ -207,8 +208,8 @@ pub async fn create_metric(
 pub async fn update_metric(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(metric_id): Path<BillableMetricId>,
-    Valid(Json(payload)): Valid<Json<UpdateMetricRequest>>,
+    ApiPath(metric_id): ApiPath<BillableMetricId>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<UpdateMetricRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let (unit_conversion_factor, unit_conversion_rounding) = match payload.unit_conversion {
         Some(opt_uc) => match opt_uc {
@@ -301,7 +302,7 @@ pub async fn update_metric(
 pub async fn archive_metric(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(metric_id): Path<BillableMetricId>,
+    ApiPath(metric_id): ApiPath<BillableMetricId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
@@ -335,7 +336,7 @@ pub async fn archive_metric(
 pub async fn unarchive_metric(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(metric_id): Path<BillableMetricId>,
+    ApiPath(metric_id): ApiPath<BillableMetricId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store

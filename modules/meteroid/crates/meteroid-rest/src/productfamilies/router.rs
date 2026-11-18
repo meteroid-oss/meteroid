@@ -1,14 +1,14 @@
 use super::AppState;
+use axum::Json;
+use meteroid_rest_common::extract::{ApiJson, ApiPath, ApiQuery, ApiValid};
 
-use axum::{Json, extract::State, response::IntoResponse};
+use axum::{extract::State, response::IntoResponse};
 
 use crate::productfamilies::mapping::{create_req_to_domain, domain_to_rest};
 use crate::productfamilies::model::{
     ProductFamily, ProductFamilyCreateRequest, ProductFamilyListRequest, ProductFamilyListResponse,
 };
 use axum::Extension;
-use axum::extract::{Path, Query};
-use axum_valid::Valid;
 use common_domain::ids::{AliasOr, ProductFamilyId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
@@ -37,7 +37,7 @@ use meteroid_store::repositories::ProductFamilyInterface;
 #[axum::debug_handler]
 pub async fn list_product_families(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Valid(Query(request)): Valid<Query<ProductFamilyListRequest>>,
+    ApiValid(ApiQuery(request)): ApiValid<ApiQuery<ProductFamilyListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let order_by = validate_order_by(
@@ -91,7 +91,7 @@ pub async fn list_product_families(
 pub async fn create_product_family(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Json(payload)): Valid<Json<ProductFamilyCreateRequest>>,
+    ApiValid(ApiJson(payload)): ApiValid<ApiJson<ProductFamilyCreateRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
@@ -131,7 +131,7 @@ pub async fn create_product_family(
 pub async fn get_product_family_by_id_or_alias(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(id_or_alias): Path<AliasOr<ProductFamilyId>>,
+    ApiPath(id_or_alias): ApiPath<AliasOr<ProductFamilyId>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     // todo introduce alias
     let id = match id_or_alias {

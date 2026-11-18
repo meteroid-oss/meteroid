@@ -1,15 +1,16 @@
 use super::model;
 use crate::AppState;
 use crate::currencies::mapping::from_str as currency_from_str;
-use axum::extract::{Path, State};
-use axum::{Extension, Json};
-use axum_valid::Valid;
+use axum::Extension;
+use axum::Json;
+use axum::extract::State;
 use common_domain::ids::{AliasOr, BaseId, CustomerId, SubscriptionId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_app::errors::RestApiError;
 use meteroid_app::rest::denomination::{Denomination, Denominations, requested_code};
 use meteroid_rest_common::QueryParams;
 use meteroid_rest_common::error::RestErrorResponse;
+use meteroid_rest_common::extract::{ApiPath, ApiValid};
 use meteroid_rest_common::model::PaginationExt;
 use meteroid_store::domain::Customer;
 use meteroid_store::domain::credit::{
@@ -82,8 +83,8 @@ fn total_pages(total_items: u64, per_page: u32) -> u32 {
 pub async fn list_wallets(
     Extension(auth): Extension<AuthorizedAsTenant>,
     State(state): State<AppState>,
-    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
-    Valid(QueryParams(request)): Valid<QueryParams<model::WalletListRequest>>,
+    ApiValid(ApiPath(id_or_alias)): ApiValid<ApiPath<AliasOr<CustomerId>>>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<model::WalletListRequest>>,
 ) -> Result<Json<model::WalletListResponse>, RestApiError> {
     let customer = resolve_customer(&state, &auth, id_or_alias).await?;
     let subscription_balances = match request.subscription_id {
@@ -306,8 +307,8 @@ fn checked_add(left: i64, right: i64) -> Result<i64, RestApiError> {
 pub async fn list_credit_grants(
     Extension(auth): Extension<AuthorizedAsTenant>,
     State(state): State<AppState>,
-    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
-    Valid(QueryParams(request)): Valid<QueryParams<model::CreditGrantListRequest>>,
+    ApiValid(ApiPath(id_or_alias)): ApiValid<ApiPath<AliasOr<CustomerId>>>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<model::CreditGrantListRequest>>,
 ) -> Result<Json<model::CreditGrantListResponse>, RestApiError> {
     let customer = resolve_customer(&state, &auth, id_or_alias).await?;
     let (per_page, limit, offset) = page_bounds(&request.pagination);
@@ -381,8 +382,8 @@ pub async fn list_credit_grants(
 pub async fn list_ledger_entries(
     Extension(auth): Extension<AuthorizedAsTenant>,
     State(state): State<AppState>,
-    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
-    Valid(QueryParams(request)): Valid<QueryParams<model::CreditLedgerListRequest>>,
+    ApiValid(ApiPath(id_or_alias)): ApiValid<ApiPath<AliasOr<CustomerId>>>,
+    ApiValid(QueryParams(request)): ApiValid<QueryParams<model::CreditLedgerListRequest>>,
 ) -> Result<Json<model::LedgerListResponse>, RestApiError> {
     let customer = resolve_customer(&state, &auth, id_or_alias).await?;
     let (per_page, limit, offset) = page_bounds(&request.pagination);
