@@ -13,14 +13,11 @@ COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
-ARG MOLD_VERSION=1.11.0
 ARG PROTO_VERSION=21.8
 
-ARG MOLD_ARCH
 ARG PROTO_ARCH
 ARG GRPC_HEALTH_PROBE_ARCH
 
-RUN test -n "$MOLD_ARCH" || (echo "MOLD_ARCH not set" && false)
 RUN test -n "$PROTO_ARCH" || (echo "PROTO_ARCH not set" && false)
 RUN test -n "$GRPC_HEALTH_PROBE_ARCH" || (echo "GRPC_HEALTH_PROBE_ARCH not set" && false)
 
@@ -29,13 +26,6 @@ RUN apt-get update
 # install needed packages
 RUN DEBIAN_FRONTEND=noninteractive && \
     apt-get -y install --no-install-recommends curl pkg-config unzip build-essential libssl-dev openssl cmake clang wget
-
-# Install mold
-RUN wget https://github.com/rui314/mold/releases/download/v${MOLD_VERSION}/mold-${MOLD_VERSION}-${MOLD_ARCH}-linux.tar.gz && \
-    tar xvfz mold*.tar.gz && \
-    mv mold*-linux/bin/* /usr/local/bin && \
-    mv mold*-linux/libexec/* /usr/libexec && \
-    rm -rf mold*
 
 # Install protoc
 RUN wget https://github.com/protocolbuffers/protobuf/releases/download/v${PROTO_VERSION}/protoc-${PROTO_VERSION}-linux-${PROTO_ARCH}.zip && \

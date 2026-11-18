@@ -56,13 +56,11 @@ jobs:
         include:
           - platform: linux/amd64
             pair: linux-amd64
-            mold_arch: x86_64
             proto_arch: x86_64
             grpc_health_probe_arch: amd64
             runs_on: ubuntu-latest
           - platform: linux/arm64
             pair: linux-arm64
-            mold_arch: aarch64
             proto_arch: aarch_64
             grpc_health_probe_arch: arm64
             runs_on: ubuntu-24.04-arm
@@ -97,7 +95,6 @@ jobs:
           build-args: |
             EDITION=oss
             PROFILE=release
-            MOLD_ARCH=${{ matrix.mold_arch }}
             PROTO_ARCH=${{ matrix.proto_arch }}
             GRPC_HEALTH_PROBE_ARCH=${{ matrix.grpc_health_probe_arch }}
             METEROID_VERSION=${{ env.TAG }}
