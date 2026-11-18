@@ -460,6 +460,59 @@ impl PaymentTransactionRow {
             .into_db_result()
     }
 
+    /// The first payment date on which collections covered the invoice. Used on the transition
+    /// to Paid: a backfilled transfer can precede another that was necessary to cover it, and an
+    /// overpayment (even if later refunded) does not postpone that date.
+    pub async fn date_covered_by_payments(
+        conn: &mut PgConn,
+        invoice: InvoiceId,
+        tenant: TenantId,
+        mut outstanding: i64,
+    ) -> DbResult<Option<chrono::NaiveDateTime>> {
+        use crate::schema::payment_transaction::dsl as pt;
+        use diesel_async::RunQueryDsl;
+
+        let payments: Vec<(Option<chrono::NaiveDateTime>, i64, i64)> = pt::payment_transaction
+            .filter(pt::invoice_id.eq(invoice))
+            .filter(pt::tenant_id.eq(tenant))
+            .filter(pt::status.eq_any([PaymentStatusEnum::Settled, PaymentStatusEnum::Refunded]))
+            .filter(pt::payment_type.eq_any(PaymentTypeEnum::COLLECTIONS))
+            .select((
+                pt::processed_at,
+                pt::amount,
+                pt::amount_reversed - pt::amount_disputed,
+            ))
+            .order(pt::processed_at.asc().nulls_last())
+            .load(conn)
+            .await
+            .attach("Error while dating invoice payments")
+            .into_db_result()?;
+
+        if outstanding <= 0 || payments.len() < 2 {
+            return Ok(None);
+        }
+        // Payment dates alone cannot date a credit note settling debt, or a reversal reopening
+        // debt after excess cash was refunded. Keep the settling event's date in those cases.
+        let credited = crate::credit_notes::CreditNoteRow::sum_finalized_invoice_reducing(
+            conn, invoice, tenant,
+        )
+        .await?;
+        let has_failed_collection = payments.iter().any(|(_, _, failed)| *failed > 0);
+        if credited > 0
+            || (has_failed_collection
+                && Self::sum_live_refund_excess_by_invoice(conn, invoice, tenant).await? > 0)
+        {
+            return Ok(None);
+        }
+        for (date, amount, failed) in payments {
+            outstanding -= amount - failed;
+            if outstanding <= 0 {
+                return Ok(date);
+            }
+        }
+        Ok(None)
+    }
+
     /// The invoice's most recent settled PAYMENT — its receipt. REFUND rows share the
     /// invoice and settle later, so they would otherwise shadow the payment they give back.
     pub async fn last_settled_by_invoice_id(

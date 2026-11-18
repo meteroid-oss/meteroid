@@ -5,6 +5,7 @@ use crate::helpers::invoices::{draft, finalize};
 use crate::meteroid_it;
 use crate::meteroid_it::clients::AllClients;
 use crate::meteroid_it::container::{MeteroidSetup, SeedLevel};
+use common_domain::actor::Actor;
 use common_domain::ids::{BaseId, InvoiceId, PaymentTransactionId};
 use common_domain::pgmq::{MessageReadQty, MessageReadVtSec};
 use diesel_models::enums::{PaymentStatusEnum, PaymentTypeEnum};
@@ -12,7 +13,12 @@ use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionRowNew};
 use meteroid_grpc::meteroid::api::apitokens::v1::CreateApiTokenRequest;
 use meteroid_store::domain::outbox_event::OutboxEvent;
 use meteroid_store::domain::pgmq::PgmqQueue;
+use meteroid_store::repositories::CreditNoteInterface;
+use meteroid_store::repositories::credit_notes::{
+    CreateCreditNoteParams, CreditLineItem, CreditType,
+};
 use meteroid_store::repositories::pgmq::PgmqInterface;
+use meteroid_store::services::OfflineRefundCommand;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -197,13 +203,16 @@ async fn records_and_reverses_external_payments_once() {
             invoice,
             "mark-paid",
             Some("remainder"),
-            Some(json!({"amount": due - partial, "payment_date": "2026-02-01T08:00:00Z"})),
+            Some(json!({"amount": due - partial, "payment_date": "2026-01-30T08:00:00Z"})),
             StatusCode::CREATED,
         )
     };
     let paid = mark_paid().await;
     assert_eq!(paid, mark_paid().await);
-    assert_eq!(fixture.get_invoice(invoice).await["payment_status"], "PAID");
+    let settled = fixture.get_invoice(invoice).await;
+    assert_eq!(settled["payment_status"], "PAID");
+    // The remainder was reported last, but the first transfer arrived later.
+    assert_eq!(settled["paid_at"], first["processed_at"]);
 
     let reversal = format!("payments/{}/reverse", paid["id"].as_str().unwrap());
     let reverse = |id, status| {
@@ -241,6 +250,104 @@ async fn records_and_reverses_external_payments_once() {
         1
     );
     assert_eq!(events.iter().filter(|e| matches!(e, OutboxEvent::PaymentReversed(event) if event.invoice_id == Some(invoice))).count(), 1);
+}
+
+#[tokio::test]
+async fn a_fully_refunded_payment_cannot_be_reversed() {
+    let fixture = Fixture::new().await;
+    let id = fixture.draft_invoice().await;
+    let invoice = finalize(&fixture.setup, id).await.unwrap().invoice;
+    let paid = fixture
+        .post(
+            id,
+            "mark-paid",
+            Some("wire"),
+            Some(json!({"amount":invoice.amount_due})),
+            StatusCode::CREATED,
+        )
+        .await;
+    let payment_id = PaymentTransactionId::parse_base62(paid["id"].as_str().unwrap()).unwrap();
+    let note = fixture
+        .setup
+        .store
+        .create_and_finalize_credit_note(
+            Actor::System,
+            TENANT_ID,
+            CreateCreditNoteParams {
+                invoice_id: id,
+                line_items: vec![CreditLineItem::Amount {
+                    local_id: invoice.line_items[0].local_id.clone(),
+                    amount_cents: invoice.line_items[0].amount_subtotal,
+                }],
+                reason: None,
+                memo: None,
+                credit_type: CreditType::Refund,
+                custom_properties: None,
+            },
+        )
+        .await
+        .unwrap();
+    fixture
+        .setup
+        .services
+        .record_offline_refund(
+            Actor::System,
+            TENANT_ID,
+            OfflineRefundCommand {
+                parent_transaction_id: payment_id,
+                amount: invoice.amount_due,
+                credit_note_id: Some(note.id),
+                refund_date: common_domain::clock::now().naive_utc(),
+                reference: None,
+                reason: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    let before = fixture.get_invoice(id).await;
+    fixture
+        .post(
+            id,
+            &format!("payments/{payment_id}/reverse"),
+            Some("return"),
+            Some(json!({"kind":"RETURNED"})),
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+    assert_eq!(fixture.get_invoice(id).await, before);
+    assert!(!fixture.webhook_events().await.iter().any(
+        |e| matches!(e, OutboxEvent::PaymentReversed(p) if p.payment_transaction_id == payment_id)
+    ));
+}
+
+#[tokio::test]
+async fn invalid_payment_fields_return_the_documented_plain_text_error() {
+    let fixture = Fixture::new().await;
+    let invoice = fixture.draft_invoice().await;
+    let reverse = format!("payments/{}/reverse", PaymentTransactionId::new());
+    for action in ["payments", "mark-paid", &reverse] {
+        let response = fixture
+            .client
+            .post(format!("{}/{action}", fixture.url(invoice)))
+            .bearer_auth(&fixture.api_key)
+            .header("Idempotency-Key", "invalid-body")
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{action}"
+        );
+        assert!(
+            response.headers()["content-type"]
+                .to_str()
+                .unwrap()
+                .starts_with("text/plain")
+        );
+    }
 }
 
 #[tokio::test]

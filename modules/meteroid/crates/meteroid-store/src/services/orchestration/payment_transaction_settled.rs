@@ -286,11 +286,19 @@ impl Services {
                 let invoice: Invoice = res.try_into()?;
 
                 if invoice.payment_status != InvoicePaymentStatus::Paid {
+                    let paid_at = PaymentTransactionRow::date_covered_by_payments(
+                        conn,
+                        invoice_id,
+                        event.tenant_id,
+                        invoice.total - invoice.applied_credits,
+                    )
+                    .await?
+                    .or(event.processed_at);
                     self.apply_invoice_paid_at_tx(
                         conn,
                         event.tenant_id,
                         invoice_id,
-                        event.processed_at,
+                        paid_at,
                         now,
                     )
                     .await?;

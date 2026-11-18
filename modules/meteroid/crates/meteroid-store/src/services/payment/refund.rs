@@ -522,48 +522,22 @@ impl Services {
         actor: Actor,
         tenant_id: TenantId,
         command: ReverseManualPaymentCommand,
-        invoice_write: Option<(InvoiceId, &ApiIdempotency)>,
     ) -> StoreResult<PaymentTransaction> {
         self.store
             .transaction(|conn| {
                 let actor = &actor;
                 let command = &command;
                 async move {
-                    if let Some((invoice_id, identity)) = invoice_write {
-                        let claim = claim_tx(conn, tenant_id, identity).await?;
-                        let row = PaymentTransactionRow::get_by_id(
-                            conn,
-                            command.transaction_id,
-                            tenant_id,
-                        )
-                        .await?;
-                        // Check before trying to lock: a payment outside an invoice might have no
-                        // customer from which to derive a lock.
-                        if row.invoice_id != Some(invoice_id) {
-                            return Err(payment_not_on_invoice(command.transaction_id, invoice_id));
-                        }
-                        if let ClaimOutcome::Existing = claim {
-                            return Ok(row.into());
-                        }
-                    }
                     let transaction = self
                         .store
                         .get_payment_tx_by_id_for_update(conn, command.transaction_id, tenant_id)
                         .await?;
-                    if let Some((invoice_id, _)) = invoice_write
-                        && transaction.invoice_id != Some(invoice_id)
-                    {
-                        return Err(payment_not_on_invoice(command.transaction_id, invoice_id));
-                    }
-
-                    use crate::domain::enums::{PaymentStatusEnum, PaymentTypeEnum};
+                    use crate::domain::enums::PaymentTypeEnum;
                     let top_up = matches!(
                         transaction.payment_type,
                         PaymentTypeEnum::TopUp | PaymentTypeEnum::AutoTopup
                     );
-                    if transaction.payment_type != PaymentTypeEnum::Payment
-                        && (!top_up || invoice_write.is_some())
-                    {
+                    if transaction.payment_type != PaymentTypeEnum::Payment && !top_up {
                         return Err(Report::new(StoreError::InvalidArgument(
                             "Only a payment can be reversed".into(),
                         )));
@@ -577,38 +551,88 @@ impl Services {
                             "Only a manually recorded payment can be reversed here".into(),
                         )));
                     }
-                    // Hosted captures can have no saved payment method while they are pending.
-                    if invoice_write.is_some()
-                        && (!matches!(
-                            transaction.status,
-                            PaymentStatusEnum::Settled | PaymentStatusEnum::Refunded
-                        ) || transaction.pending_provider_intent_id.is_some()
-                            || transaction.pending_connection_id.is_some())
+                    self.apply_manual_reversal_tx(conn, actor, transaction, command)
+                        .await
+                }
+                .scope_boxed()
+            })
+            .await
+    }
+
+    pub(in crate::services) async fn reverse_invoice_payment(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        command: ReverseManualPaymentCommand,
+        identity: &ApiIdempotency,
+    ) -> StoreResult<PaymentTransaction> {
+        self.store
+            .transaction(|conn| {
+                let actor = &actor;
+                let command = &command;
+                async move {
+                    let claim = claim_tx(conn, tenant_id, identity).await?;
+                    let row =
+                        PaymentTransactionRow::get_by_id(conn, command.transaction_id, tenant_id)
+                            .await?;
+                    // A payment outside an invoice might have no customer from which to derive a lock.
+                    if row.invoice_id != Some(invoice_id) {
+                        return Err(payment_not_on_invoice(command.transaction_id, invoice_id));
+                    }
+                    if let ClaimOutcome::Existing = claim {
+                        return Ok(row.into());
+                    }
+
+                    let transaction = self
+                        .store
+                        .get_payment_tx_by_id_for_update(conn, command.transaction_id, tenant_id)
+                        .await?;
+                    if transaction.invoice_id != Some(invoice_id) {
+                        return Err(payment_not_on_invoice(command.transaction_id, invoice_id));
+                    }
+                    use crate::domain::enums::{PaymentStatusEnum, PaymentTypeEnum};
+                    // A hosted capture can lack a saved payment method.
+                    if transaction.payment_type != PaymentTypeEnum::Payment
+                        || transaction.status != PaymentStatusEnum::Settled
+                        || transaction.payment_method_id.is_some()
+                        || transaction.pending_provider_intent_id.is_some()
+                        || transaction.pending_connection_id.is_some()
                     {
                         return Err(Report::new(StoreError::InvalidArgument(
                             "Only a settled manual payment can be reversed here".into(),
                         )));
                     }
 
-                    let reversal = TransactionReversal {
-                        external_transaction_id: transaction
-                            .provider_transaction_id
-                            .clone()
-                            .unwrap_or_default(),
-                        amount: ReversalAmount::Full,
-                        kind: command.kind,
-                        reason: command.reason.clone(),
-                        reversed_at: command.reversed_at,
-                        disputed: command.kind.is_dispute(),
-                        provider_ref: None,
-                    };
-
-                    self.store
-                        .reverse_transaction_tx(conn, actor, transaction, reversal)
+                    self.apply_manual_reversal_tx(conn, actor, transaction, command)
                         .await
                 }
                 .scope_boxed()
             })
+            .await
+    }
+
+    async fn apply_manual_reversal_tx(
+        &self,
+        conn: &mut PgConn,
+        actor: &Actor,
+        transaction: PaymentTransaction,
+        command: &ReverseManualPaymentCommand,
+    ) -> StoreResult<PaymentTransaction> {
+        let reversal = TransactionReversal {
+            external_transaction_id: transaction
+                .provider_transaction_id
+                .clone()
+                .unwrap_or_default(),
+            amount: ReversalAmount::Full,
+            kind: command.kind,
+            reason: command.reason.clone(),
+            reversed_at: command.reversed_at,
+            disputed: command.kind.is_dispute(),
+            provider_ref: None,
+        };
+        self.store
+            .reverse_transaction_tx(conn, actor, transaction, reversal)
             .await
     }
 

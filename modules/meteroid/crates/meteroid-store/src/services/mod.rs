@@ -312,7 +312,7 @@ impl ServicesEdge {
         command: ReverseManualPaymentCommand,
     ) -> StoreResult<PaymentTransaction> {
         self.services
-            .reverse_manual_payment(actor, tenant_id, command, None)
+            .reverse_manual_payment(actor, tenant_id, command)
             .await
     }
 
@@ -325,7 +325,7 @@ impl ServicesEdge {
         identity: &crate::domain::credit::ApiIdempotency,
     ) -> StoreResult<PaymentTransaction> {
         self.services
-            .reverse_manual_payment(actor, tenant_id, command, Some((invoice_id, identity)))
+            .reverse_invoice_payment(actor, tenant_id, invoice_id, command, identity)
             .await
     }
 

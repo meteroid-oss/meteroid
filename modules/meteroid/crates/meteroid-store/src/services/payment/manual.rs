@@ -31,7 +31,7 @@ pub enum ManualInvoicePaymentKind {
 }
 
 impl Services {
-    /// Records an external payment through the admin API. Settlement is handled by the worker.
+    /// Records a bank transfer, cash, or check through the admin API. The worker settles the invoice.
     pub async fn add_manual_payment_transaction(
         &self,
         actor: Actor,
@@ -226,6 +226,7 @@ impl Services {
             provider_transaction_id: payment.reference.clone(),
             amount,
             currency: invoice.currency.clone(),
+            // The money was received outside Meteroid, so there is no saved payment method.
             payment_method_id: None,
             status: PaymentStatusEnum::Settled,
             payment_type: PaymentTypeEnum::Payment,

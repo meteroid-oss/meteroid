@@ -30,11 +30,14 @@ use meteroid_store::services::{
     request_body = RecordInvoicePaymentRequest,
     responses(
         (status = 201, description = "Recorded payment", body = Transaction),
-        (status = 400, description = "Invalid request or invoice cannot accept the payment", body = RestErrorResponse),
+        (status = 400, description = "Invalid request or invoice cannot accept the payment", content((RestErrorResponse = "application/json"), (String = "text/plain"))),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 403, description = "Forbidden", body = RestErrorResponse),
         (status = 404, description = "Invoice not found", body = RestErrorResponse),
         (status = 409, description = "Idempotency-Key reused with another request", body = RestErrorResponse),
+        (status = 413, description = "Request body exceeds the size limit", body = String, content_type = "text/plain"),
+        (status = 415, description = "Expected a JSON content type", body = String, content_type = "text/plain"),
+        (status = 422, description = "JSON fields do not match the request schema", body = String, content_type = "text/plain"),
         (status = 500, description = "Internal error", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
@@ -73,11 +76,14 @@ pub async fn record_invoice_payment(
     request_body = RecordInvoicePaymentRequest,
     responses(
         (status = 201, description = "Recorded payment of the remaining balance", body = Transaction),
-        (status = 400, description = "Invalid request or invoice cannot be marked paid", body = RestErrorResponse),
+        (status = 400, description = "Invalid request or invoice cannot be marked paid", content((RestErrorResponse = "application/json"), (String = "text/plain"))),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 403, description = "Forbidden", body = RestErrorResponse),
         (status = 404, description = "Invoice not found", body = RestErrorResponse),
         (status = 409, description = "Idempotency-Key reused with another request", body = RestErrorResponse),
+        (status = 413, description = "Request body exceeds the size limit", body = String, content_type = "text/plain"),
+        (status = 415, description = "Expected a JSON content type", body = String, content_type = "text/plain"),
+        (status = 422, description = "JSON fields do not match the request schema", body = String, content_type = "text/plain"),
         (status = 500, description = "Internal error", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
@@ -156,11 +162,14 @@ async fn record_payment(
     request_body = ReverseInvoicePaymentRequest,
     responses(
         (status = 200, description = "Reversed payment", body = Transaction),
-        (status = 400, description = "Invalid request or payment cannot be reversed", body = RestErrorResponse),
+        (status = 400, description = "Invalid request or payment cannot be reversed", content((RestErrorResponse = "application/json"), (String = "text/plain"))),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 403, description = "Forbidden", body = RestErrorResponse),
         (status = 404, description = "Payment not found on the invoice", body = RestErrorResponse),
         (status = 409, description = "Idempotency-Key reused with another request", body = RestErrorResponse),
+        (status = 413, description = "Request body exceeds the size limit", body = String, content_type = "text/plain"),
+        (status = 415, description = "Expected a JSON content type", body = String, content_type = "text/plain"),
+        (status = 422, description = "JSON fields do not match the request schema", body = String, content_type = "text/plain"),
         (status = 500, description = "Internal error", body = RestErrorResponse),
     ),
     security(("bearer_auth" = []))
@@ -217,7 +226,7 @@ pub async fn reverse_invoice_payment(
     ),
     responses(
         (status = 204, description = "Invoice marked uncollectible"),
-        (status = 400, description = "Invalid request or invoice cannot be marked uncollectible", body = RestErrorResponse),
+        (status = 400, description = "Invalid request or invoice cannot be marked uncollectible", content((RestErrorResponse = "application/json"), (String = "text/plain"))),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
         (status = 403, description = "Forbidden", body = RestErrorResponse),
         (status = 404, description = "Invoice not found", body = RestErrorResponse),

@@ -5765,6 +5765,11 @@
                 "schema": {
                   "$ref": "#/components/schemas/RestErrorResponse"
                 }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -5804,6 +5809,36 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body exceeds the size limit",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Expected a JSON content type",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "JSON fields do not match the request schema",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -5874,6 +5909,11 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -6002,6 +6042,11 @@
                 "schema": {
                   "$ref": "#/components/schemas/RestErrorResponse"
                 }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -6041,6 +6086,36 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body exceeds the size limit",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Expected a JSON content type",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "JSON fields do not match the request schema",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -6138,6 +6213,11 @@
                 "schema": {
                   "$ref": "#/components/schemas/RestErrorResponse"
                 }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -6177,6 +6257,36 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body exceeds the size limit",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Expected a JSON content type",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "JSON fields do not match the request schema",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
