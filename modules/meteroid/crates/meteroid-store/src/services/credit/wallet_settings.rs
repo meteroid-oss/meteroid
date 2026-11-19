@@ -1,12 +1,12 @@
 //! Configuring an invoice-credit wallet: its unit price, and through the usage controls its live
 //! settings; and the wallets with their automatic top-up.
-use super::public_api::{ClaimOutcome, claim_tx};
 use crate::StoreResult;
 use crate::domain::credit::{
     ApiIdempotency, AutomaticTopUp, ConfigureCreditWallet, CreditWallet, UnitPriceChange,
 };
 use crate::errors::StoreError;
 use crate::hooks::CreditControlHooks;
+use crate::repositories::api_idempotency::{ClaimOutcome, claim_tx};
 use crate::repositories::credit::CustomerCreditWalletsInterface;
 use crate::repositories::credit::customer_credit::lock_customer_tx;
 use crate::services::ServicesEdge;

@@ -25,7 +25,9 @@ use meteroid_store::repositories::credit_notes::{
 };
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
-use meteroid_store::services::{InvoiceDelivery, IssueAt, SellCustomerCredit};
+use meteroid_store::services::{
+    InvoiceDelivery, IssueAt, OfflineRefundCommand, SellCustomerCredit,
+};
 use rust_decimal::Decimal;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -589,6 +591,53 @@ async fn credit_rolled_over_after_a_late_give_back_is_dated_when_it_rolled() -> 
     );
     assert_eq!(rolled.amount_minor, 1_000);
     assert_ledger_balances(&setup.store, TENANT_ID, CUST_UBER_ID).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_refunded_overpayment_does_not_delay_the_paid_date() -> TestResult {
+    let setup = setup().await;
+    let invoice = draft(&setup, vec![line("Service", 1_000, false)]).await?;
+    crate::helpers::invoices::finalize(&setup, invoice.id).await?;
+    let paid_at = days_ago(2);
+    let record = |at: DateTime<Utc>| {
+        setup.services.add_manual_payment_transaction(
+            Actor::System,
+            TENANT_ID,
+            invoice.id,
+            Decimal::new(1000, 2),
+            at.fixed_offset(),
+            None,
+        )
+    };
+
+    // Both transfers and the return of the duplicate are recorded before the settlement worker runs.
+    record(paid_at).await.map_err(test_error)?;
+    let duplicate = record(days_ago(1)).await.map_err(test_error)?;
+    setup
+        .services
+        .record_offline_refund(
+            Actor::System,
+            TENANT_ID,
+            OfflineRefundCommand {
+                parent_transaction_id: duplicate.id,
+                amount: duplicate.amount,
+                credit_note_id: None,
+                refund_date: common_clock::now().naive_utc(),
+                reference: None,
+                reason: None,
+            },
+        )
+        .await
+        .map_err(test_error)?;
+    orchestrate(&setup).await;
+    let settled = setup
+        .store
+        .get_invoice_by_id(TENANT_ID, invoice.id)
+        .await
+        .map_err(test_error)?;
+    assert_eq!(settled.amount_due, 0);
+    assert_eq!(settled.paid_at, Some(paid_at.naive_utc()));
     Ok(())
 }
 

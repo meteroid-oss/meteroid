@@ -299,6 +299,28 @@ pub struct Transaction {
     pub refund_mode: Option<RefundMode>,
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RecordInvoicePaymentRequest {
+    /// The positive amount received, in minor units of the invoice currency (e.g. cents).
+    #[schema(minimum = 1, example = 1250)]
+    pub amount: i64,
+    /// When the payment was received, at most a day ahead. Defaults to the current time.
+    pub paid_at: Option<ApiDateTime>,
+    /// Reference for the external payment, such as a bank transfer ID.
+    pub reference: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ReverseInvoicePaymentRequest {
+    /// `CHARGEBACK`, `DEBTOR_RECALL` and `DISPUTE` leave the invoice paid and mark the payment
+    /// disputed. Any other kind makes the amount due again.
+    pub kind: ReversalKind,
+    /// Additional details about the reversal.
+    pub reason: Option<String>,
+    /// When the reversal occurred, at most a day ahead. Defaults to the current time.
+    pub reversed_at: Option<ApiDateTime>,
+}
+
 /// Why a payment was involuntarily clawed back.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]

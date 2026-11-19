@@ -63,6 +63,24 @@ pub fn is_customer_money_route(method: &http::Method, path: &str) -> bool {
     }
 }
 
+/// The customer money routes, plus the invoice writes that record, reverse or write off a payment.
+fn is_restricted_money_route(method: &http::Method, path: &str) -> bool {
+    if is_customer_money_route(method, path) {
+        return true;
+    }
+    if *method != http::Method::POST {
+        return false;
+    }
+    let Some((_, action)) = path
+        .strip_prefix("/api/v1/invoices/")
+        .and_then(|rest| rest.split_once('/'))
+    else {
+        return false;
+    };
+    matches!(action, "payments" | "mark-paid" | "mark-uncollectible")
+        || (action.starts_with("payments/") && action.ends_with("/reverse"))
+}
+
 /// Marks delegated or express requests, so the portal sessions they open inherit the deny.
 pub use common_grpc::middleware::server::auth::DelegatedCredentials;
 
@@ -120,7 +138,7 @@ async fn authenticate(
         && delegated.claims_token(&token)
     {
         delegated.check_token_path(path).map_err(delegated_error)?;
-        if is_customer_money_route(&req.method, path) {
+        if is_restricted_money_route(&req.method, path) {
             return Err(money_route_forbidden());
         }
         let authorized = delegated
@@ -155,7 +173,7 @@ async fn authenticate(
         // Check for Connect Account header
         // When present, resolve to the child org's tenant instead of the platform's.
         if req.headers.contains_key(CONNECT_ACCOUNT_HEADER) {
-            if is_customer_money_route(&req.method, path) {
+            if is_restricted_money_route(&req.method, path) {
                 return Err(money_route_forbidden());
             }
             let Some(delegated) = delegated else {
@@ -198,7 +216,7 @@ async fn authenticate(
                 });
                 return Err((StatusCode::FORBIDDEN, json).into_response());
             }
-            if is_customer_money_route(&req.method, path) {
+            if is_restricted_money_route(&req.method, path) {
                 return Err(money_route_forbidden());
             }
             req.extensions.insert(DelegatedCredentials);
@@ -343,7 +361,7 @@ async fn validate_api_key(
 
 #[cfg(test)]
 mod tests {
-    use super::is_customer_money_route;
+    use super::{is_customer_money_route, is_restricted_money_route};
     use http::Method;
 
     #[test]
@@ -368,6 +386,25 @@ mod tests {
             (Method::GET, "/api/v1/customers/top-ups"),
         ] {
             assert!(!is_customer_money_route(&method, path), "{method} {path}");
+        }
+    }
+
+    #[test]
+    fn invoice_payment_writes_require_direct_credentials() {
+        for path in [
+            "/api/v1/invoices/inv_1/mark-paid",
+            "/api/v1/invoices/inv_1/payments",
+            "/api/v1/invoices/inv_1/payments/tx_1/reverse",
+            "/api/v1/invoices/inv_1/mark-uncollectible",
+        ] {
+            assert!(is_restricted_money_route(&Method::POST, path), "{path}");
+        }
+        for (method, path) in [
+            (Method::GET, "/api/v1/invoices/inv_1"),
+            (Method::POST, "/api/v1/invoices/inv_1/refresh"),
+            (Method::PATCH, "/api/v1/invoices/inv_1/custom-properties"),
+        ] {
+            assert!(!is_restricted_money_route(&method, path), "{method} {path}");
         }
     }
 }

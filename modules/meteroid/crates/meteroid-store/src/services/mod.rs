@@ -78,6 +78,7 @@ pub use payment::hosted_payment_sweep::{HostedPaymentSweepOutcome, PendingHosted
 pub use payment::hosted_return::HostedReturnOutcome;
 pub use payment::hosted_setup::DefaultMethodAdoption;
 pub use payment::hosted_setup::HostedSetupOutcome;
+pub use payment::manual::{ManualInvoicePayment, ManualInvoicePaymentKind};
 pub use payment::refund::{OfflineRefundCommand, RefundCommand, ReverseManualPaymentCommand};
 pub use payment::webhook_backed_setup::WebhookBackedSetupOutcome;
 pub use quotes::QuoteConversionResult;
@@ -320,6 +321,19 @@ impl ServicesEdge {
     ) -> StoreResult<PaymentTransaction> {
         self.services
             .reverse_manual_payment(actor, tenant_id, command)
+            .await
+    }
+
+    pub async fn reverse_invoice_payment(
+        &self,
+        actor: Actor,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        command: ReverseManualPaymentCommand,
+        identity: &crate::domain::credit::ApiIdempotency,
+    ) -> StoreResult<PaymentTransaction> {
+        self.services
+            .reverse_invoice_payment(actor, tenant_id, invoice_id, command, identity)
             .await
     }
 

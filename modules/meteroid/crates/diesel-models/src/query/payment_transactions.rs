@@ -216,6 +216,35 @@ impl PaymentTransactionRow {
             .into_db_result()
     }
 
+    /// Whether a collection is in flight. Refunds and adjustments do not collect the balance.
+    pub async fn exists_in_flight_for_invoice(
+        conn: &mut PgConn,
+        inv_uid: InvoiceId,
+        tenant_uid: TenantId,
+    ) -> DbResult<bool> {
+        use crate::schema::payment_transaction::dsl as pt_dsl;
+        use diesel::dsl::{exists, select};
+        use diesel_async::RunQueryDsl;
+
+        let query = select(exists(
+            pt_dsl::payment_transaction
+                .filter(pt_dsl::invoice_id.eq(inv_uid))
+                .filter(pt_dsl::tenant_id.eq(tenant_uid))
+                .filter(
+                    pt_dsl::status.eq_any([PaymentStatusEnum::Pending, PaymentStatusEnum::Ready]),
+                )
+                .filter(pt_dsl::payment_type.eq_any(PaymentTypeEnum::COLLECTIONS)),
+        ));
+
+        crate::debug_sql(&query);
+
+        query
+            .get_result(conn)
+            .await
+            .attach("Error while checking for in-flight payment transactions")
+            .into_db_result()
+    }
+
     /// True when a payment attempt owns the invoice: in flight (Pending/Ready), or settled money
     /// that covers the collectible total, netted like `recompute_amount_due_from_settled_payments`
     /// (involuntary claw-backs, finalized invoice-reducing credit notes). Never re-charge, merge
@@ -227,30 +256,9 @@ impl PaymentTransactionRow {
     ) -> DbResult<bool> {
         use crate::schema::invoice::dsl as i_dsl;
         use crate::schema::payment_transaction::dsl as pt_dsl;
-        use diesel::dsl::{exists, select};
         use diesel_async::RunQueryDsl;
 
-        let in_flight_query = select(exists(
-            pt_dsl::payment_transaction
-                .filter(pt_dsl::invoice_id.eq(inv_uid))
-                .filter(pt_dsl::tenant_id.eq(tenant_uid))
-                .filter(
-                    pt_dsl::status.eq_any([PaymentStatusEnum::Pending, PaymentStatusEnum::Ready]),
-                )
-                // Same as the settled branch: only a collection attempt owns the
-                // invoice. A Pending/Ready refund/adjustment moves money the
-                // other way and must not fence the collectible balance.
-                .filter(pt_dsl::payment_type.eq_any(PaymentTypeEnum::COLLECTIONS)),
-        ));
-
-        crate::debug_sql(&in_flight_query);
-
-        let in_flight: bool = in_flight_query
-            .get_result(conn)
-            .await
-            .attach("Error while checking for in-flight payment transactions")
-            .into_db_result()?;
-        if in_flight {
+        if Self::exists_in_flight_for_invoice(conn, inv_uid, tenant_uid).await? {
             return Ok(true);
         }
 
@@ -450,6 +458,59 @@ impl PaymentTransactionRow {
             .await
             .attach("Error while finding collected invoices")
             .into_db_result()
+    }
+
+    /// The first payment date on which collections covered the invoice. Used on the transition
+    /// to Paid: a backfilled transfer can precede another that was necessary to cover it, and an
+    /// overpayment (even if later refunded) does not postpone that date.
+    pub async fn date_covered_by_payments(
+        conn: &mut PgConn,
+        invoice: InvoiceId,
+        tenant: TenantId,
+        mut outstanding: i64,
+    ) -> DbResult<Option<chrono::NaiveDateTime>> {
+        use crate::schema::payment_transaction::dsl as pt;
+        use diesel_async::RunQueryDsl;
+
+        let payments: Vec<(Option<chrono::NaiveDateTime>, i64, i64)> = pt::payment_transaction
+            .filter(pt::invoice_id.eq(invoice))
+            .filter(pt::tenant_id.eq(tenant))
+            .filter(pt::status.eq_any([PaymentStatusEnum::Settled, PaymentStatusEnum::Refunded]))
+            .filter(pt::payment_type.eq_any(PaymentTypeEnum::COLLECTIONS))
+            .select((
+                pt::processed_at,
+                pt::amount,
+                pt::amount_reversed - pt::amount_disputed,
+            ))
+            .order(pt::processed_at.asc().nulls_last())
+            .load(conn)
+            .await
+            .attach("Error while dating invoice payments")
+            .into_db_result()?;
+
+        if outstanding <= 0 || payments.len() < 2 {
+            return Ok(None);
+        }
+        // Payment dates alone cannot date a credit note settling debt, or a reversal reopening
+        // debt after excess cash was refunded. Keep the settling event's date in those cases.
+        let credited = crate::credit_notes::CreditNoteRow::sum_finalized_invoice_reducing(
+            conn, invoice, tenant,
+        )
+        .await?;
+        let has_failed_collection = payments.iter().any(|(_, _, failed)| *failed > 0);
+        if credited > 0
+            || (has_failed_collection
+                && Self::sum_live_refund_excess_by_invoice(conn, invoice, tenant).await? > 0)
+        {
+            return Ok(None);
+        }
+        for (date, amount, failed) in payments {
+            outstanding -= amount - failed;
+            if outstanding <= 0 {
+                return Ok(date);
+            }
+        }
+        Ok(None)
     }
 
     /// The invoice's most recent settled PAYMENT — its receipt. REFUND rows share the
