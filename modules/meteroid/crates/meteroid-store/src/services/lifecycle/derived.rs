@@ -256,6 +256,10 @@ impl Services {
             None if stored_status == Status::Pending => Some(row.start_date),
             None => None,
         };
+        // Past its start with an open-ended period, it is evaluated at its start until it settles.
+        let held_at_start = row.current_period_end.is_none()
+            && stored_status == Status::Pending
+            && midnight(row.start_date) <= now;
         let now = boundary
             .map(midnight)
             .map_or(now, |boundary| now.min(boundary));
@@ -326,6 +330,10 @@ impl Services {
         };
         let step = step(facts, now, &evaluation, &stored, &written, &deadlines);
         let derived = Stored::from(&evaluation.state);
+        // Only its checkout or its activation moves a start awaiting them, and each marks the
+        // customer: no wake until then, which `DueTimes` counts as none.
+        let awaits_its_start =
+            held_at_start && derived.status == Status::Pending && !facts.settled_by(now);
         let ending = facts.effective_ending();
 
         let reading: Vec<DocumentSlot> = evaluation
@@ -609,6 +617,8 @@ impl Services {
 
         let wake = if matches!(issue, Issue::StateOnly) && periods_due {
             Some(now)
+        } else if awaits_its_start {
+            None
         } else {
             step.next_wake_at
                 .filter(|wake| *wake > now && is_live(derived.status))

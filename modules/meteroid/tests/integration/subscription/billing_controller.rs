@@ -4,7 +4,9 @@ use chrono::{NaiveDate, TimeZone, Utc};
 use common_domain::ids::CustomerId;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
+use diesel_models::enums::SubscriptionStatusEnum;
 use diesel_models::schema::billing_controller as bc;
+use meteroid_store::domain::SubscriptionActivationCondition;
 use rstest::rstest;
 
 use crate::data::ids::*;
@@ -174,6 +176,258 @@ async fn the_sweep_wakes_a_customer_whose_wake_was_lost(#[future] test_env: Test
     assert_eq!(
         controller(&env, CUST_UBER_ID).await.next_wake_at,
         Some(Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap())
+    );
+}
+
+/// LeetCode from Jan 1, created on Jan 15 with a card on file, awaiting `activation`.
+async fn awaiting_its_start_from_jan_1(
+    env: &TestEnv,
+    activation: SubscriptionActivationCondition,
+) -> common_domain::ids::SubscriptionId {
+    env.seed_payments().await;
+    env.set_now(Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap());
+    subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+        .start_date(day(2024, 1, 1))
+        .activation(activation)
+        .no_trial()
+        .auto_charge()
+        .create(env.services())
+        .await
+}
+
+/// A subscription past its start awaiting its checkout (or its manual activation) has no wake:
+/// only that moves it, and it marks the customer. Its customer is not rechecked every minute,
+/// and the sweep counts no lost wake of it, a period later either.
+#[rstest]
+#[case::checkout(SubscriptionActivationCondition::OnCheckout, true)]
+#[case::manual(SubscriptionActivationCondition::Manual, false)]
+#[tokio::test]
+async fn a_subscription_awaiting_its_checkout_has_no_wake(
+    #[future] test_env: TestEnv,
+    #[case] activation: SubscriptionActivationCondition,
+    #[case] pending_checkout: bool,
+) {
+    let env = test_env.await;
+    let sub = awaiting_its_start_from_jan_1(&env, activation).await;
+    let run = env
+        .services()
+        .run_billing_controller(100)
+        .await
+        .expect("a run");
+    assert_eq!(run.customers, 1, "the new subscription is an input");
+    assert_eq!(env.get_subscription(sub).await.next_wake_at, None);
+    let after = controller(&env, CUST_UBER_ID).await;
+    assert_eq!(after.next_wake_at, None, "nothing to wake for");
+    assert_eq!(after.dirty_since, None);
+
+    env.advance(chrono::Duration::minutes(2));
+    let run = env
+        .services()
+        .run_billing_controller(100)
+        .await
+        .expect("a run");
+    assert_eq!(run.customers, 0, "not rechecked every minute");
+
+    env.set_now(Utc.with_ymd_and_hms(2024, 2, 15, 6, 0, 0).unwrap());
+    let sweep = env
+        .services()
+        .sweep_billing_controller()
+        .await
+        .expect("the sweep");
+    assert_eq!(sweep.lost, 0, "no wake lost");
+    assert_eq!(controller(&env, CUST_UBER_ID).await.next_wake_at, None);
+    let run = env
+        .services()
+        .run_billing_controller(100)
+        .await
+        .expect("a run");
+    assert_eq!(run.customers, 0);
+    let pending = env.get_subscription(sub).await;
+    assert_eq!(pending.status, SubscriptionStatusEnum::PendingActivation);
+    assert_eq!(pending.pending_checkout, pending_checkout);
+    assert_eq!(pending.next_wake_at, None);
+    assert!(
+        env.get_invoices(sub).await.is_empty(),
+        "nothing billed before its start settles"
+    );
+}
+
+/// A wake stored at the start of a subscription awaiting its checkout, its customer rechecked
+/// every minute, is cleared by the next run: the sweep then counts no lost wake.
+#[rstest]
+#[tokio::test]
+async fn a_stale_wake_awaiting_the_checkout_is_cleared_by_the_next_run(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    let sub =
+        awaiting_its_start_from_jan_1(&env, SubscriptionActivationCondition::OnCheckout).await;
+    env.services()
+        .run_billing_controller(100)
+        .await
+        .expect("a run");
+    {
+        let mut conn = env.conn().await;
+        diesel::sql_query(
+            "UPDATE subscription SET next_wake_at = '2024-01-01 00:00:00+00' WHERE id = $1",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(sub)
+        .execute(&mut conn)
+        .await
+        .expect("a stale wake");
+        diesel::update(bc::table.filter(bc::customer_id.eq(CUST_UBER_ID)))
+            .set(bc::next_wake_at.eq(Some(common_clock::now() + chrono::Duration::minutes(1))))
+            .execute(&mut conn)
+            .await
+            .expect("a recheck");
+    }
+
+    env.advance(chrono::Duration::minutes(2));
+    let run = env
+        .services()
+        .run_billing_controller(100)
+        .await
+        .expect("a run");
+    assert_eq!(run.customers, 1);
+    assert_eq!(env.get_subscription(sub).await.next_wake_at, None);
+    assert_eq!(controller(&env, CUST_UBER_ID).await.next_wake_at, None);
+    let sweep = env
+        .services()
+        .sweep_billing_controller()
+        .await
+        .expect("the sweep");
+    assert_eq!(sweep.lost, 0);
+}
+
+/// An On Start subscription past its start, still pending with no wake (never evaluated), wakes
+/// its customer at once, and the run activates it: only a checkout or an activation leaves none.
+#[rstest]
+#[tokio::test]
+async fn an_on_start_subscription_with_no_wake_past_its_start_is_activated(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    env.set_now(Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap());
+    let sub = subscription()
+        .plan_version(PLAN_VERSION_1_LEETCODE_ID)
+        .start_date(day(2024, 2, 1))
+        .on_start()
+        .no_trial()
+        .create(env.services())
+        .await;
+    env.services()
+        .run_billing_controller(100)
+        .await
+        .expect("a run");
+    {
+        let mut conn = env.conn().await;
+        diesel::sql_query(
+            "UPDATE subscription SET next_wake_at = NULL, current_period_end = NULL WHERE id = $1",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(sub)
+        .execute(&mut conn)
+        .await
+        .expect("no wake");
+        diesel::update(bc::table.filter(bc::customer_id.eq(CUST_UBER_ID)))
+            .set((
+                bc::next_wake_at.eq(None::<chrono::DateTime<Utc>>),
+                bc::dirty_since.eq(None::<chrono::DateTime<Utc>>),
+            ))
+            .execute(&mut conn)
+            .await
+            .expect("no customer wake");
+    }
+    env.set_now(Utc.with_ymd_and_hms(2024, 2, 15, 6, 0, 0).unwrap());
+    let pending = env.get_subscription(sub).await;
+    assert_eq!(pending.status, SubscriptionStatusEnum::PendingActivation);
+    assert_eq!(pending.next_wake_at, None);
+
+    env.services()
+        .sweep_billing_controller()
+        .await
+        .expect("the sweep");
+    assert!(
+        controller(&env, CUST_UBER_ID)
+            .await
+            .next_wake_at
+            .is_some_and(|at| at <= common_clock::now()),
+        "due at once"
+    );
+    let run = env
+        .services()
+        .run_billing_controller(100)
+        .await
+        .expect("a run");
+    assert_eq!(run.customers, 1);
+    let active = env.get_subscription(sub).await;
+    assert_eq!(active.status, SubscriptionStatusEnum::Active);
+    assert_eq!(active.current_period_start, day(2024, 2, 1));
+    assert_eq!(active.current_period_end, Some(day(2024, 3, 1)));
+}
+
+/// Completing the checkout marks the customer: its run activates the subscription and wakes the
+/// customer at the renewal, as any active subscription's.
+#[rstest]
+#[tokio::test]
+async fn a_completed_checkout_wakes_the_customer_at_its_renewal(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    let sub =
+        awaiting_its_start_from_jan_1(&env, SubscriptionActivationCondition::OnCheckout).await;
+    env.services()
+        .run_billing_controller(100)
+        .await
+        .expect("a run");
+    assert_eq!(controller(&env, CUST_UBER_ID).await.next_wake_at, None);
+
+    env.advance(chrono::Duration::hours(1));
+    let mut conn = env.conn().await;
+    env.services()
+        .complete_subscription_checkout_tx(
+            &mut conn,
+            TENANT_ID,
+            sub,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            3500,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("the checkout");
+    drop(conn);
+    assert!(
+        controller(&env, CUST_UBER_ID).await.dirty_since.is_some(),
+        "the checkout is an input"
+    );
+
+    let run = env
+        .services()
+        .run_billing_controller(100)
+        .await
+        .expect("a run");
+    assert_eq!(run.customers, 1);
+    for _ in 0..5 {
+        if controller(&env, CUST_UBER_ID)
+            .await
+            .next_wake_at
+            .is_none_or(|at| at > common_clock::now())
+        {
+            break;
+        }
+        env.services()
+            .run_billing_controller(100)
+            .await
+            .expect("a run");
+    }
+    let active = env.get_subscription(sub).await;
+    assert_eq!(active.status, SubscriptionStatusEnum::Active);
+    assert!(!active.pending_checkout);
+    assert_eq!(active.current_period_end, Some(day(2024, 2, 1)));
+    let renewal = Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap();
+    assert_eq!(active.next_wake_at, Some(renewal));
+    assert_eq!(
+        controller(&env, CUST_UBER_ID).await.next_wake_at,
+        Some(renewal)
     );
 }
 

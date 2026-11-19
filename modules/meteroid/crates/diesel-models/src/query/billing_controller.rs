@@ -312,7 +312,7 @@ const LIVE_SQL: &str = "('PENDING_ACTIVATION', 'TRIAL_ACTIVE', 'TRIAL_EXPIRED', 
 
 impl BillingControllerRow {
     /// The customer's live subscriptions to evaluate by `now`: those whose wake is due, and those
-    /// never evaluated; each once per run.
+    /// with none (never evaluated, or awaiting their checkout); each once per run.
     pub async fn due_subscriptions_of(
         conn: &mut PgConn,
         tenant_id: TenantId,
@@ -438,7 +438,8 @@ impl CreditLapses {
 /// What makes a customer's billing steps due, the earliest of each kind (see the controller).
 #[derive(Debug, Clone, Default, QueryableByName)]
 pub struct DueTimes {
-    /// A live subscription to evaluate: its wake (`next_wake_at`), at once when never evaluated.
+    /// A live subscription to evaluate: its wake (`next_wake_at`), at once when never evaluated;
+    /// none for one past its start awaiting its checkout or activation, which marks the customer.
     #[diesel(sql_type = sql_types::Nullable<sql_types::Timestamptz>)]
     pub derive: Option<DateTime<Utc>>,
     /// A draft's finalization once its grace ends.
@@ -474,7 +475,12 @@ impl DueTimes {
                -- A paused tenant's wakes are kept: the claim holds them until it is active.
                (SELECT MIN(COALESCE(s.next_wake_at, $3)) FROM subscription s
                 WHERE s.tenant_id = $1 AND s.customer_id = $2
-                  AND s.status IN {LIVE_SQL}) AS derive,
+                  AND s.status IN {LIVE_SQL}
+                  -- Past its start, awaiting its checkout or activation: none is no wake.
+                  AND NOT (s.next_wake_at IS NULL AND s.status = 'PENDING_ACTIVATION'
+                           AND s.activation_condition IN ('ON_CHECKOUT', 'MANUAL')
+                           AND s.current_period_end IS NULL
+                           AND s.start_date <= ($3::timestamptz AT TIME ZONE 'UTC')::date)) AS derive,
                (SELECT MIN(i.finalize_after AT TIME ZONE 'UTC') FROM invoice i
                 WHERE i.tenant_id = $1 AND i.customer_id = $2
                   AND i.status = 'DRAFT' AND i.finalize_after IS NOT NULL) AS finalize,
