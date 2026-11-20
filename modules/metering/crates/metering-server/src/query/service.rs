@@ -1,5 +1,5 @@
 use metering_grpc::meteroid::metering::v1::usage_query_service_server::UsageQueryService as UsageQueryServiceGrpc;
-use rust_decimal::prelude::FromPrimitive;
+use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use std::sync::Arc;
 
 use common_grpc::meteroid::common::v1::Decimal;
@@ -26,7 +26,8 @@ use metering::connectors::Connector;
 use metering::domain::{
     ActivityPosition, AttributionSegment, EventAttribution, EventClaim, EventCursor, EventMatch,
     EventSortOrder, OriginFilter, PropertyFilter, PropertyFilterOp, QueryMeterParams,
-    QueryRawEventsParams, SegmentationFilter, TenantEventScan, UsageActivityParams, WindowSize,
+    QueryRawEventsParams, SegmentationFilter, TenantEventScan, Usage, UsageActivityParams,
+    WindowSize,
 };
 use metering::error::MeteringApiError;
 use metering::utils::{datetime_to_timestamp, rfc3339_to_datetime, timestamp_to_datetime};
@@ -172,7 +173,23 @@ fn map_attribution(
     Ok(EventAttribution { segments })
 }
 
-fn to_grpc_usage(r: metric_core::domain::Usage, other: bool) -> grpc::Usage {
+/// A ranked breakdown folds its rows through Float64, as the charts reading it do.
+fn to_ranked(r: Usage) -> metric_core::domain::Usage {
+    metric_core::domain::Usage {
+        window_start: r.window_start,
+        window_end: r.window_end,
+        value: r
+            .value
+            .rounded()
+            .and_then(|v| v.to_f64())
+            .unwrap_or(f64::NAN),
+        customer_id: r.customer_id,
+        group_by: r.group_by,
+    }
+}
+
+fn ranked_to_grpc_usage(row: TopNRow) -> grpc::Usage {
+    let TopNRow { usage: r, other } = row;
     grpc::Usage {
         window_start: Some(datetime_to_timestamp(r.window_start)),
         window_end: Some(datetime_to_timestamp(r.window_end)),
@@ -186,6 +203,24 @@ fn to_grpc_usage(r: metric_core::domain::Usage, other: bool) -> grpc::Usage {
             .map(|(k, v)| (k, grpc::usage::DimensionValueField { value: v }))
             .collect(),
         other,
+    }
+}
+
+/// The single rounding point of meter values.
+fn to_grpc_usage(r: Usage) -> grpc::Usage {
+    grpc::Usage {
+        window_start: Some(datetime_to_timestamp(r.window_start)),
+        window_end: Some(datetime_to_timestamp(r.window_end)),
+        value: r.value.rounded().map(|v| Decimal {
+            value: v.to_string(),
+        }),
+        customer_id: r.customer_id.map(|id| id.as_proto()),
+        dimensions: r
+            .group_by
+            .into_iter()
+            .map(|(k, v)| (k, grpc::usage::DimensionValueField { value: v }))
+            .collect(),
+        other: false,
     }
 }
 
@@ -314,19 +349,18 @@ impl UsageQueryServiceGrpc for UsageQueryService {
             .map_err(Into::<MeteringApiError>::into)?;
 
         let usage = match top_n {
-            Some((n, TopNBreakdown::Customer)) => apply_top_n_by_customer(results, n, fold),
-            Some((n, TopNBreakdown::Property(dim))) => apply_top_n_with(results, &dim, n, fold),
-            None => results
+            Some((n, breakdown)) => {
+                let rows = results.into_iter().map(to_ranked).collect();
+                match breakdown {
+                    TopNBreakdown::Customer => apply_top_n_by_customer(rows, n, fold),
+                    TopNBreakdown::Property(dim) => apply_top_n_with(rows, &dim, n, fold),
+                }
                 .into_iter()
-                .map(|usage| TopNRow {
-                    usage,
-                    other: false,
-                })
-                .collect(),
-        }
-        .into_iter()
-        .map(|row| to_grpc_usage(row.usage, row.other))
-        .collect();
+                .map(ranked_to_grpc_usage)
+                .collect()
+            }
+            None => results.into_iter().map(to_grpc_usage).collect(),
+        };
 
         Ok(Response::new(QueryMeterResponse {
             usage,

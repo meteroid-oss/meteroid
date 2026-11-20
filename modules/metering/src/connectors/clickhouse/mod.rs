@@ -34,6 +34,14 @@ const RAW_EVENTS_LOCAL_TABLE: &str = "raw_events_local_v2";
 /// events table when served by the local replica. Older servers reject the unknown setting.
 const LAZY_MATERIALIZATION: &str = "query_plan_optimize_lazy_materialization";
 
+static DECIMAL_FALLBACK_VALUES: std::sync::LazyLock<opentelemetry::metrics::Counter<u64>> =
+    std::sync::LazyLock::new(|| {
+        common_logging::GLOBAL_METER
+            .u64_counter("metering.decimal_fallback_values")
+            .with_description("Meter values the decimal parser rejected, read through Float64")
+            .build()
+    });
+
 #[derive(Clone)]
 pub struct ClickhouseConnector {
     client: Arc<Client>,
@@ -164,10 +172,8 @@ impl Connector for ClickhouseConnector {
                 .get_timestamp_utc("window_end")
                 .ok_or(ConnectorError::QueryError)
                 .attach("Missing window_end field")?;
-            let value = row
-                .get_f64("value")
-                .ok_or(ConnectorError::QueryError)
-                .attach("Missing value field")?;
+            let (value, decimal_fallbacks) = sql::meter_value::parse_meter_value(&row)
+                .map_err(|e| Report::new(ConnectorError::QueryError).attach(e))?;
 
             let customer_id = if !params.groups_by_customer() {
                 None
@@ -219,7 +225,13 @@ impl Connector for ClickhouseConnector {
                 value,
                 customer_id,
                 group_by,
+                decimal_fallbacks,
             });
+        }
+
+        let fallbacks: u64 = parsed.iter().map(|usage| usage.decimal_fallbacks).sum();
+        if fallbacks > 0 {
+            DECIMAL_FALLBACK_VALUES.add(fallbacks, &[]);
         }
 
         Ok(parsed)

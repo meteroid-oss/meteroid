@@ -4680,6 +4680,8 @@ dependencies = [
  "rand 0.10.2",
  "rdkafka",
  "refinery",
+ "rust_decimal",
+ "rust_decimal_macros",
  "serde",
  "serde_json",
  "thiserror 2.0.20",

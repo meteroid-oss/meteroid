@@ -1,9 +1,47 @@
 use chrono::{DateTime, Utc};
 use common_domain::ids::{CustomerId, TenantId};
 use metering_grpc::meteroid::metering::v1::meter::AggregationType;
+use rust_decimal::{Decimal, RoundingStrategy};
 use std::collections::HashMap;
 
-pub use metric_core::domain::{Usage, WindowSize};
+pub use metric_core::domain::WindowSize;
+
+/// A meter aggregate exactly as ClickHouse computed it; [`MeterValue::rounded`] is the
+/// only place it loses precision.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MeterValue {
+    Exact(Decimal),
+    /// Avg travels as sum and count so partial results merge exactly.
+    Mean {
+        sum: Decimal,
+        count: u64,
+    },
+}
+
+impl MeterValue {
+    pub const SCALE: u32 = 9;
+
+    /// `None` for the mean of no events, as the Float64 `avg` (nan) gave before.
+    pub fn rounded(&self) -> Option<Decimal> {
+        let value = match *self {
+            MeterValue::Exact(value) => value,
+            MeterValue::Mean { count: 0, .. } => return None,
+            MeterValue::Mean { sum, count } => sum / Decimal::from(count),
+        };
+        Some(value.round_dp_with_strategy(Self::SCALE, RoundingStrategy::MidpointAwayFromZero))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Usage {
+    pub window_start: DateTime<Utc>,
+    pub window_end: DateTime<Utc>,
+    pub value: MeterValue,
+    pub customer_id: Option<CustomerId>,
+    pub group_by: HashMap<String, Option<String>>,
+    /// Values the decimal parser rejected and that were read through Float64 instead.
+    pub decimal_fallbacks: u64,
+}
 
 #[derive(Debug, Clone)]
 pub enum MeterAggregation {

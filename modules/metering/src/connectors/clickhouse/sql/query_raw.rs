@@ -1,11 +1,11 @@
-use crate::connectors::clickhouse::sql::{BindValue, PropertyColumn, SafeQuery};
+use crate::connectors::clickhouse::sql::{BindValue, PropertyColumn, SafeQuery, meter_value};
 use crate::domain::{
     EventAttribution, EventSortOrder, MeterAggregation, OriginFilter, PropertyFilterOp,
     QueryMeterParams, QueryRawEventsParams, SegmentationFilter, WindowSize,
 };
 use chrono::Utc;
 use common_domain::ids::BaseId;
-use metric_core::sql::{EventDedup, LATEST_EVENT_ORDER};
+use metric_core::sql::EventDedup;
 
 /// Append pre-aggregation property filters as WHERE conditions (ANDed), with binds pushed
 /// in lock-step. `In` keeps matching events; `NotIn` is presence-required (mapContains guards
@@ -239,6 +239,8 @@ fn push_origin_filter(origin: OriginFilter, _conditions: &mut Vec<String>) {
     }
 }
 
+/// Window bounds are truncated to whole seconds (`toDateTime`): callers that split one window
+/// into ranges must truncate their bounds the same way, or events fall in two ranges.
 pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<SafeQuery, String> {
     let dedup = EventDedup::new(params.keep_last_events);
     let mut select_binds: Vec<BindValue> = Vec::new();
@@ -340,11 +342,9 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
         let path1 = col.path_sql(&mut subquery_binds);
         subquery_conditions.push(format!("{path1} != ''"));
 
-        // Numeric aggregations require the value to parse as a number. CountDistinct
-        // counts distinct raw values (commonly strings), so it skips the numeric guard.
+        // CountDistinct counts distinct raw values (commonly strings), so it skips the guard.
         if !matches!(params.aggregation, MeterAggregation::CountDistinct) {
-            let path2 = col.path_sql(&mut subquery_binds);
-            subquery_conditions.push(format!("isNotNull(toFloat64OrNull({path2}))"));
+            subquery_conditions.push(meter_value::numeric_guard(&col, &mut subquery_binds));
         }
     }
 
@@ -380,39 +380,11 @@ pub fn query_meter_sql(params: QueryMeterParams, events_table: &str) -> Result<S
         select_columns.push("max(toDateTime(timestamp)) AS window_end".to_string());
     }
 
-    // Value expression + aggregation. The value path is bound exactly once here, per
-    // aggregation: Count needs none, CountDistinct uses the raw property (may be a
-    // string), and the rest wrap it in toFloat64OrZero.
-    let aggregation_column = match &params.aggregation {
-        MeterAggregation::Count => "toFloat64(count(*)) AS value".to_string(),
-        MeterAggregation::CountDistinct => {
-            let Some(ref value_prop) = params.value_property else {
-                return Err("value_property is required for CountDistinct aggregation".to_string());
-            };
-            let col = PropertyColumn(value_prop);
-            let path = col.path_sql(&mut select_binds);
-            format!("toFloat64(uniqExact({path})) AS value")
-        }
-        agg => {
-            let Some(ref value_prop) = params.value_property else {
-                return Err("value_property is required for non-Count aggregations".to_string());
-            };
-            let col = PropertyColumn(value_prop);
-            let path = col.path_sql(&mut select_binds);
-            let value_expr = format!("toFloat64OrZero({path})");
-            match agg {
-                MeterAggregation::Sum => format!("sum({value_expr}) AS value"),
-                MeterAggregation::Avg => format!("avg({value_expr}) AS value"),
-                MeterAggregation::Min => format!("min({value_expr}) AS value"),
-                MeterAggregation::Max => format!("max({value_expr}) AS value"),
-                MeterAggregation::Latest => {
-                    format!("argMax({value_expr}, {LATEST_EVENT_ORDER}) AS value")
-                }
-                MeterAggregation::Count | MeterAggregation::CountDistinct => unreachable!(),
-            }
-        }
-    };
-    select_columns.push(aggregation_column);
+    select_columns.extend(meter_value::aggregation_columns(
+        &params.aggregation,
+        params.value_property.as_deref(),
+        &mut select_binds,
+    )?);
 
     // A `customer_id` group-by property is `properties['customer_id']`, not this column.
     let group_by_customer = params.groups_by_customer();
@@ -582,6 +554,76 @@ mod tests {
             .collect()
     }
 
+    fn value_params(aggregation: MeterAggregation) -> QueryMeterParams {
+        QueryMeterParams {
+            aggregation,
+            tenant_id: TenantId::default(),
+            code: "c".to_string(),
+            value_property: Some("v".to_string()),
+            customer_ids: vec![],
+            segmentation_filter: None,
+            merge_segments: false,
+            attribution: None,
+            origin: OriginFilter::All,
+            group_by_customer: false,
+            group_by: vec![],
+            window_size: None,
+            window_time_zone: None,
+            filters: vec![],
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            to: Some(Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()),
+            keep_last_events: false,
+        }
+    }
+
+    #[test]
+    fn test_query_meter_min_max_return_the_winning_string() {
+        for (aggregation, function) in [
+            (MeterAggregation::Min, "argMin"),
+            (MeterAggregation::Max, "argMax"),
+        ] {
+            let result = query_meter_sql(value_params(aggregation), "raw_events_v2").unwrap();
+            let expected = format!(
+                r#"
+                SELECT
+                    min(toDateTime(timestamp)) AS window_start,
+                    max(toDateTime(timestamp)) AS window_end,
+                    {function}(tuple(properties[?], toString(ifNull(toDecimal128OrNull(properties[?], 9), accurateCastOrNull(toFloat64OrNull(properties[?]), 'Decimal(38, 9)')))), toFloat64OrNull(properties[?])) AS _winner,
+                    _winner.1 AS value_raw,
+                    _winner.2 AS value,
+                    toString(countIf(isNull(toDecimal128OrNull(properties[?], 9)))) AS decimal_fallbacks
+                FROM (
+                    SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2
+                    WHERE tenant_id = ?
+                        AND code = ?
+                        AND timestamp >= toDateTime(?)
+                        AND timestamp < toDateTime(?)
+                        AND properties[?] != ''
+                        AND abs(toFloat64OrNull(properties[?])) < 1e18
+                )
+            "#
+            );
+            assert_eq!(normalize_sql(&result.sql), normalize_sql(&expected));
+            assert_bind_parity(&result);
+        }
+    }
+
+    #[test]
+    fn test_query_meter_window_bounds_truncate_to_whole_seconds() {
+        let params = QueryMeterParams {
+            from: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap()
+                + chrono::Duration::milliseconds(999),
+            to: Some(
+                Utc.with_ymd_and_hms(2024, 1, 2, 0, 0, 0).unwrap()
+                    + chrono::Duration::nanoseconds(1),
+            ),
+            ..value_params(MeterAggregation::Sum)
+        };
+        let bs = bind_strings(&query_meter_sql(params, "raw_events_v2").unwrap().binds);
+        assert!(bs.contains(&"I:1704067200".to_string()), "{bs:?}");
+        assert!(bs.contains(&"I:1704153600".to_string()), "{bs:?}");
+    }
+
     #[test]
     fn test_query_meter_with_minute_window() {
         let params = QueryMeterParams {
@@ -609,21 +651,15 @@ mod tests {
             SELECT
                 tumbleStart(toDateTime(timestamp), toIntervalMinute(1), ?) AS window_start,
                 tumbleEnd(toDateTime(timestamp), toIntervalMinute(1), ?) AS window_end,
-                sum(toFloat64OrZero(properties[?])) AS value
+                toString(sum(ifNull(toDecimal128OrNull(properties[?], 9), accurateCastOrNull(toFloat64OrNull(properties[?]), 'Decimal(38, 9)')))) AS value, toString(countIf(isNull(toDecimal128OrNull(properties[?], 9)))) AS decimal_fallbacks
             FROM (
-                SELECT
-                    id,
-                    customer_id,
-                    timestamp,
-                    ingested_at,
-                    properties
-                FROM raw_events_v2
+                SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
                     AND timestamp < toDateTime(?)
                     AND properties[?] != ''
-                    AND isNotNull(toFloat64OrNull(properties[?]))
+                    AND abs(toFloat64OrNull(properties[?])) < 1e18
             )
             GROUP BY
                 tumbleStart(toDateTime(timestamp), toIntervalMinute(1), ?),
@@ -669,15 +705,9 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                toFloat64(count(*)) AS value
+                toString(count()) AS value
             FROM (
-                SELECT
-                    id,
-                    customer_id,
-                    timestamp,
-                    ingested_at,
-                    properties
-                FROM raw_events_v2
+                SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
@@ -724,22 +754,16 @@ mod tests {
             SELECT
                 tumbleStart(toDateTime(timestamp), toIntervalHour(1), ?) AS window_start,
                 tumbleEnd(toDateTime(timestamp), toIntervalHour(1), ?) AS window_end,
-                sum(toFloat64OrZero(properties[?])) AS value,
+                toString(sum(ifNull(toDecimal128OrNull(properties[?], 9), accurateCastOrNull(toFloat64OrNull(properties[?]), 'Decimal(38, 9)')))) AS value, toString(countIf(isNull(toDecimal128OrNull(properties[?], 9)))) AS decimal_fallbacks,
                 customer_id
             FROM (
-                SELECT
-                    id,
-                    customer_id,
-                    timestamp,
-                    ingested_at,
-                    properties
-                FROM raw_events_v2
+                SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
                     AND customer_id IN ?
                     AND properties[?] != ''
-                    AND isNotNull(toFloat64OrNull(properties[?]))
+                    AND abs(toFloat64OrNull(properties[?])) < 1e18
             )
             GROUP BY
                 tumbleStart(toDateTime(timestamp), toIntervalHour(1), ?),
@@ -787,7 +811,7 @@ mod tests {
             SELECT
                 tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?) AS window_start,
                 tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?) AS window_end,
-                toFloat64(count(*)) AS value,
+                toString(count()) AS value,
                 customer_id,
                 properties[?] AS _prop_region
             FROM (
@@ -857,7 +881,7 @@ mod tests {
         let result = query_meter_sql(params, "raw_events_v2").unwrap();
         let sql = normalize_sql(&result.sql);
         assert!(sql.contains(
-            "toFloat64(count(*)) AS value, customer_id, properties[?] AS _prop_customer_id"
+            "toString(count()) AS value, customer_id, properties[?] AS _prop_customer_id"
         ));
         assert!(sql.ends_with("GROUP BY customer_id, properties[?]"));
         assert_bind_parity(&result);
@@ -891,22 +915,16 @@ mod tests {
             SELECT
                 tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?) AS window_start,
                 tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?) AS window_end,
-                avg(toFloat64OrZero(properties[?])) AS value,
+                toString(sum(ifNull(toDecimal128OrNull(properties[?], 9), accurateCastOrNull(toFloat64OrNull(properties[?]), 'Decimal(38, 9)')))) AS value, toString(count()) AS value_count, toString(countIf(isNull(toDecimal128OrNull(properties[?], 9)))) AS decimal_fallbacks,
                 properties[?] AS _prop_region,
                 properties[?] AS _prop_endpoint
             FROM (
-                SELECT
-                    id,
-                    customer_id,
-                    timestamp,
-                    ingested_at,
-                    properties
-                FROM raw_events_v2
+                SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
                     AND properties[?] != ''
-                    AND isNotNull(toFloat64OrNull(properties[?]))
+                    AND abs(toFloat64OrNull(properties[?])) < 1e18
             )
             GROUP BY
                 tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?),
@@ -958,24 +976,18 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties[?])) AS value,
+                toString(sum(ifNull(toDecimal128OrNull(properties[?], 9), accurateCastOrNull(toFloat64OrNull(properties[?]), 'Decimal(38, 9)')))) AS value, toString(countIf(isNull(toDecimal128OrNull(properties[?], 9)))) AS decimal_fallbacks,
                 properties[?] AS _prop_region,
                 properties[?] AS _prop_tier
             FROM (
-                SELECT
-                    id,
-                    customer_id,
-                    timestamp,
-                    ingested_at,
-                    properties
-                FROM raw_events_v2
+                SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
                     AND (properties[?] = ? OR properties[?] = ?)
                     AND (properties[?] = ?)
                     AND properties[?] != ''
-                    AND isNotNull(toFloat64OrNull(properties[?]))
+                    AND abs(toFloat64OrNull(properties[?])) < 1e18
             )
             GROUP BY properties[?], properties[?]
         "#;
@@ -1025,16 +1037,15 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties[?])) AS value
+                toString(sum(ifNull(toDecimal128OrNull(properties[?], 9), accurateCastOrNull(toFloat64OrNull(properties[?]), 'Decimal(38, 9)')))) AS value, toString(countIf(isNull(toDecimal128OrNull(properties[?], 9)))) AS decimal_fallbacks
             FROM (
-                SELECT id, customer_id, timestamp, ingested_at, properties
-                FROM raw_events_v2
+                SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
                     AND (properties[?] = ? OR properties[?] = ?)
                     AND properties[?] != ''
-                    AND isNotNull(toFloat64OrNull(properties[?]))
+                    AND abs(toFloat64OrNull(properties[?])) < 1e18
             )
         "#;
         assert_eq!(normalize_sql(&result.sql), normalize_sql(expected));
@@ -1080,10 +1091,9 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                toFloat64(count(*)) AS value
+                toString(count()) AS value
             FROM (
-                SELECT id, customer_id, timestamp, ingested_at, properties
-                FROM raw_events_v2
+                SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
@@ -1156,7 +1166,7 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties[?])) AS value,
+                toString(sum(ifNull(toDecimal128OrNull(properties[?], 9), accurateCastOrNull(toFloat64OrNull(properties[?]), 'Decimal(38, 9)')))) AS value, toString(countIf(isNull(toDecimal128OrNull(properties[?], 9)))) AS decimal_fallbacks,
                 customer_id,
                 properties[?] AS _prop_model
             FROM (
@@ -1168,7 +1178,7 @@ mod tests {
                     AND timestamp < toDateTime(?)
                     AND customer_id IN ?
                     AND properties[?] != ''
-                    AND isNotNull(toFloat64OrNull(properties[?]))
+                    AND abs(toFloat64OrNull(properties[?])) < 1e18
             )
             WHERE ((timestamp < toDateTime(?) AND properties[?] = ?)
                 OR (timestamp >= toDateTime(?)
@@ -1311,24 +1321,18 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties[?])) AS value,
+                toString(sum(ifNull(toDecimal128OrNull(properties[?], 9), accurateCastOrNull(toFloat64OrNull(properties[?]), 'Decimal(38, 9)')))) AS value, toString(countIf(isNull(toDecimal128OrNull(properties[?], 9)))) AS decimal_fallbacks,
                 properties[?] AS _prop_product,
                 properties[?] AS _prop_version
             FROM (
-                SELECT
-                    id,
-                    customer_id,
-                    timestamp,
-                    ingested_at,
-                    properties
-                FROM raw_events_v2
+                SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
                     AND ((properties[?] = ? AND properties[?] IN ?)
                          OR (properties[?] = ? AND properties[?] IN ?))
                     AND properties[?] != ''
-                    AND isNotNull(toFloat64OrNull(properties[?]))
+                    AND abs(toFloat64OrNull(properties[?])) < 1e18
             )
             GROUP BY properties[?], properties[?]
         "#;
@@ -1337,24 +1341,18 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties[?])) AS value,
+                toString(sum(ifNull(toDecimal128OrNull(properties[?], 9), accurateCastOrNull(toFloat64OrNull(properties[?]), 'Decimal(38, 9)')))) AS value, toString(countIf(isNull(toDecimal128OrNull(properties[?], 9)))) AS decimal_fallbacks,
                 properties[?] AS _prop_product,
                 properties[?] AS _prop_version
             FROM (
-                SELECT
-                    id,
-                    customer_id,
-                    timestamp,
-                    ingested_at,
-                    properties
-                FROM raw_events_v2
+                SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
                     AND ((properties[?] = ? AND properties[?] IN ?)
                          OR (properties[?] = ? AND properties[?] IN ?))
                     AND properties[?] != ''
-                    AND isNotNull(toFloat64OrNull(properties[?]))
+                    AND abs(toFloat64OrNull(properties[?])) < 1e18
             )
             GROUP BY properties[?], properties[?]
         "#;
@@ -1410,7 +1408,7 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                max(toFloat64OrZero(properties[?])) AS value,
+                argMax(tuple(properties[?], toString(ifNull(toDecimal128OrNull(properties[?], 9), accurateCastOrNull(toFloat64OrNull(properties[?]), 'Decimal(38, 9)')))), toFloat64OrNull(properties[?])) AS _winner, _winner.1 AS value_raw, _winner.2 AS value, toString(countIf(isNull(toDecimal128OrNull(properties[?], 9)))) AS decimal_fallbacks,
                 customer_id
             FROM (
                 SELECT
@@ -1426,7 +1424,7 @@ mod tests {
                     AND customer_id IN ?
                     AND ((properties[?] = ? AND properties[?] IN ?))
                     AND properties[?] != ''
-                    AND isNotNull(toFloat64OrNull(properties[?]))
+                    AND abs(toFloat64OrNull(properties[?])) < 1e18
             )
             GROUP BY customer_id
         "#;
@@ -1466,15 +1464,9 @@ mod tests {
             SELECT
                 tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?) AS window_start,
                 tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?) AS window_end,
-                toFloat64(uniqExact(properties[?])) AS value
+                toString(uniqExact(properties[?])) AS value
             FROM (
-                SELECT
-                    id,
-                    customer_id,
-                    timestamp,
-                    ingested_at,
-                    properties
-                FROM raw_events_v2
+                SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
@@ -1521,20 +1513,14 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                argMax(toFloat64OrZero(properties[?]), (timestamp, ingested_at, id)) AS value
+                argMax(tuple(properties[?], toString(ifNull(toDecimal128OrNull(properties[?], 9), accurateCastOrNull(toFloat64OrNull(properties[?]), 'Decimal(38, 9)')))), (timestamp, ingested_at, id)) AS _winner, _winner.1 AS value_raw, _winner.2 AS value, toString(countIf(isNull(toDecimal128OrNull(properties[?], 9)))) AS decimal_fallbacks
             FROM (
-                SELECT
-                    id,
-                    customer_id,
-                    timestamp,
-                    ingested_at,
-                    properties
-                FROM raw_events_v2
+                SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
                     AND properties[?] != ''
-                    AND isNotNull(toFloat64OrNull(properties[?]))
+                    AND abs(toFloat64OrNull(properties[?])) < 1e18
             )
         "#;
 
@@ -1635,20 +1621,14 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties[?])) AS value
+                toString(sum(ifNull(toDecimal128OrNull(properties[?], 9), accurateCastOrNull(toFloat64OrNull(properties[?]), 'Decimal(38, 9)')))) AS value, toString(countIf(isNull(toDecimal128OrNull(properties[?], 9)))) AS decimal_fallbacks
             FROM (
-                SELECT
-                    id,
-                    customer_id,
-                    timestamp,
-                    ingested_at,
-                    properties
-                FROM raw_events_v2
+                SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
                     AND properties[?] != ''
-                    AND isNotNull(toFloat64OrNull(properties[?]))
+                    AND abs(toFloat64OrNull(properties[?])) < 1e18
             )
         "#;
 
@@ -1686,15 +1666,9 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                toFloat64(count(*)) AS value
+                toString(count()) AS value
             FROM (
-                SELECT
-                    id,
-                    customer_id,
-                    timestamp,
-                    ingested_at,
-                    properties
-                FROM raw_events_v2
+                SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
@@ -1784,21 +1758,15 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties[?])) AS value,
+                toString(sum(ifNull(toDecimal128OrNull(properties[?], 9), accurateCastOrNull(toFloat64OrNull(properties[?]), 'Decimal(38, 9)')))) AS value, toString(countIf(isNull(toDecimal128OrNull(properties[?], 9)))) AS decimal_fallbacks,
                 properties[?] AS _prop_code
             FROM (
-                SELECT
-                    id,
-                    customer_id,
-                    timestamp,
-                    ingested_at,
-                    properties
-                FROM raw_events_v2
+                SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
                     AND properties[?] != ''
-                    AND isNotNull(toFloat64OrNull(properties[?]))
+                    AND abs(toFloat64OrNull(properties[?])) < 1e18
             )
             GROUP BY properties[?]
         "#;
@@ -1841,22 +1809,16 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                sum(toFloat64OrZero(properties[?])) AS value,
+                toString(sum(ifNull(toDecimal128OrNull(properties[?], 9), accurateCastOrNull(toFloat64OrNull(properties[?]), 'Decimal(38, 9)')))) AS value, toString(countIf(isNull(toDecimal128OrNull(properties[?], 9)))) AS decimal_fallbacks,
                 properties[?] AS _prop_customer_id
             FROM (
-                SELECT
-                    id,
-                    customer_id,
-                    timestamp,
-                    ingested_at,
-                    properties
-                FROM raw_events_v2
+                SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
                     AND (properties[?] = ? OR properties[?] = ?)
                     AND properties[?] != ''
-                    AND isNotNull(toFloat64OrNull(properties[?]))
+                    AND abs(toFloat64OrNull(properties[?])) < 1e18
             )
             GROUP BY properties[?]
         "#;
@@ -1902,18 +1864,12 @@ mod tests {
             SELECT
                 min(toDateTime(timestamp)) AS window_start,
                 max(toDateTime(timestamp)) AS window_end,
-                toFloat64(count(*)) AS value,
+                toString(count()) AS value,
                 properties[?] AS _prop_customer_id,
                 properties[?] AS _prop_region,
                 properties[?] AS _prop_code
             FROM (
-                SELECT
-                    id,
-                    customer_id,
-                    timestamp,
-                    ingested_at,
-                    properties
-                FROM raw_events_v2
+                SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2
                 WHERE tenant_id = ?
                     AND code = ?
                     AND timestamp >= toDateTime(?)
@@ -2182,7 +2138,7 @@ mod tests {
         let result = count_meter_sql(true);
         let expected = format!(
             "SELECT min(toDateTime(timestamp)) AS window_start, \
-             max(toDateTime(timestamp)) AS window_end, toFloat64(count(*)) AS value \
+             max(toDateTime(timestamp)) AS window_end, toString(count()) AS value \
              FROM ( {COUNT_METER_SUBQUERY} \
              ORDER BY ingested_at DESC LIMIT 1 BY id, customer_id )"
         );
@@ -2195,7 +2151,7 @@ mod tests {
         let without = count_meter_sql(false);
         let expected = format!(
             "SELECT min(toDateTime(timestamp)) AS window_start, \
-             max(toDateTime(timestamp)) AS window_end, toFloat64(count(*)) AS value \
+             max(toDateTime(timestamp)) AS window_end, toString(count()) AS value \
              FROM ( {COUNT_METER_SUBQUERY} )"
         );
         assert_eq!(normalize_sql(&without.sql), normalize_sql(&expected));

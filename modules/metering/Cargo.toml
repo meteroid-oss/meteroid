@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 rand.workspace = true
+rust_decimal = { workspace = true }
 async-trait.workspace = true
 cached = { workspace = true, features = ["async", "tokio"] }
 chrono = { workspace = true, features = ["clock", "serde"] }
@@ -47,6 +48,7 @@ common-grpc-error-as-tonic-macros = { workspace = true }
 workspace-hack = { version = "0.1", path = "../../crates/workspace-hack" }
 
 [dev-dependencies]
+rust_decimal_macros = { workspace = true }
 # auth tests stand up an in-process InternalService and mint real argon2 token hashes
 argon2 = { workspace = true }
 base62 = { workspace = true }

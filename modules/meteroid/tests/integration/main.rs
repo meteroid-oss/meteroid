@@ -113,6 +113,7 @@ mod test_list_filters;
 mod test_list_views;
 mod test_metering_ingestion;
 mod test_metering_legacy_history;
+mod test_metering_query_parity;
 mod test_metering_raw_events;
 mod test_minimum_tax;
 mod test_minimum_true_up;
