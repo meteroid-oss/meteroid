@@ -56,12 +56,35 @@
     debt_cancellation_badge: rgb(107, 114, 128),
   )
 
-  // Amounts are decimals scaled by the renderer, the template only places the currency symbol
+  // Amounts are decimals scaled by the renderer; the marks follow `format::grouped_number`.
+  let (group_mark, decimal_mark) = if lang.starts-with("en") {
+    (",", ".")
+  } else if lang.starts-with("fr") or lang == "pt-PT" {
+    ("\u{00A0}", ",")
+  } else {
+    (".", ",")
+  }
+  let format_number = (amount) => {
+    let digits = str(amount)
+    let sign = ""
+    for minus in ("-", "\u{2212}") {
+      if digits.starts-with(minus) {
+        sign = "-"
+        digits = digits.slice(minus.len())
+      }
+    }
+    let parts = digits.split(".")
+    let whole = parts.at(0).clusters()
+    let grouped = whole.enumerate().map(((i, digit)) => {
+      if i > 0 and calc.rem(whole.len() - i, 3) == 0 { group_mark + digit } else { digit }
+    }).join()
+    sign + grouped + if parts.len() > 1 { decimal_mark + parts.at(1) } else { "" }
+  }
   let format_amount = (amount) => {
     if lang.starts-with("fr") {
-      str(amount) + "\u{00A0}" + currency_symbol
+      format_number(amount) + "\u{00A0}" + currency_symbol
     } else {
-      currency_symbol + "\u{00A0}" + str(amount)
+      currency_symbol + "\u{00A0}" + format_number(amount)
     }
   }
 

@@ -2099,7 +2099,7 @@ fn a_credit_note_reversing_promotional_credit_foots() {
         "between subtotal and tax: {text}"
     );
     assert!(
-        text.contains("+5.00"),
+        text.contains("+5,00"),
         "the reversed credit adds back: {text}"
     );
     assert!(
@@ -2112,9 +2112,9 @@ fn a_credit_note_reversing_promotional_credit_foots() {
     );
     assert!(!text.contains("Montant remboursé"), "{text}");
     assert!(text.contains("Remboursement"), "the note's type: {text}");
-    assert!(text.contains("39.00"), "{text}");
+    assert!(text.contains("39,00"), "{text}");
     assert!(text.contains("Montant crédité"), "{text}");
-    assert!(text.contains("15.00"), "{text}");
+    assert!(text.contains("15,00"), "{text}");
     assert!(!text.contains("Remise"), "no discount row: {text}");
 }
 
@@ -2175,8 +2175,28 @@ fn a_note_splits_the_discount_from_the_promotional_credit() {
 
     let text = render_credit_note_text(&note);
     assert!(text.contains("Remise"), "{text}");
-    assert!(text.contains("+20.00"), "{text}");
-    assert!(text.contains("+5.00"), "{text}");
+    assert!(text.contains("+20,00"), "{text}");
+    assert!(text.contains("+5,00"), "{text}");
+    assert!(text.contains("-90,00\u{a0}€"), "negative total: {text}");
+}
+
+/// Amounts use the document language's decimal and thousands marks, like `format::grouped_number`.
+#[test]
+fn amounts_are_written_in_the_documents_number_format() {
+    let eur = iso::find("EUR").unwrap();
+    let mut invoice = create_minimal_invoice();
+    invoice.metadata.total_amount = Money::from_decimal(Decimal::from_str("1234.5").unwrap(), eur);
+
+    let text = render_text(&invoice);
+    assert!(text.contains("€\u{a0}1,234.50"), "{text}");
+
+    invoice.lang = "fr-FR".to_string();
+    let text = render_text(&invoice);
+    assert!(text.contains("1\u{a0}234,50\u{a0}€"), "{text}");
+
+    invoice.lang = "de-DE".to_string();
+    let text = render_text(&invoice);
+    assert!(text.contains("€\u{a0}1.234,50"), "{text}");
 }
 
 /// Credit applied at issuance covered the whole invoice: nothing is due, so the PDF neither
