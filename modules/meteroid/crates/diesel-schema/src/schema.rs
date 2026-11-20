@@ -106,12 +106,12 @@ pub mod sql_types {
     pub struct CreditInputChangeKindEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "CreditNoteStatus"))]
-    pub struct CreditNoteStatus;
-
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "CreditNoteOriginEnum"))]
     pub struct CreditNoteOriginEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "CreditNoteStatus"))]
+    pub struct CreditNoteStatus;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "CreditTypeEnum"))]
@@ -681,6 +681,21 @@ diesel::table! {
 }
 
 diesel::table! {
+    billing_controller (tenant_id, customer_id) {
+        tenant_id -> Uuid,
+        customer_id -> Uuid,
+        next_wake_at -> Nullable<Timestamptz>,
+        dirty_since -> Nullable<Timestamptz>,
+        lease_until -> Nullable<Timestamptz>,
+        attempts -> Int4,
+        last_error -> Nullable<Text>,
+        first_failed_at -> Nullable<Timestamptz>,
+        last_failed_at -> Nullable<Timestamptz>,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::CheckoutSessionStatusEnum;
     use super::sql_types::CheckoutTypeEnum;
@@ -897,29 +912,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    billing_controller (tenant_id, customer_id) {
-        tenant_id -> Uuid,
-        customer_id -> Uuid,
-        next_wake_at -> Nullable<Timestamptz>,
-        dirty_since -> Nullable<Timestamptz>,
-        lease_until -> Nullable<Timestamptz>,
-        attempts -> Int4,
-        last_error -> Nullable<Text>,
-        first_failed_at -> Nullable<Timestamptz>,
-        last_failed_at -> Nullable<Timestamptz>,
-        updated_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
-    billing_controller_release (released_at) {
-        tenant_id -> Nullable<Uuid>,
-        released_at -> Timestamptz,
-        released_by -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
     credit_customer_inputs (tenant_id, customer_id) {
         tenant_id -> Uuid,
         customer_id -> Uuid,
@@ -957,11 +949,11 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
-    use super::sql_types::CreditNoteOriginEnum;
     use super::sql_types::CreditNoteStatus;
     use super::sql_types::CreditTypeEnum;
     use super::sql_types::EInvoicingStatusEnum;
     use super::sql_types::Xid8;
+    use super::sql_types::CreditNoteOriginEnum;
 
     credit_note (id) {
         id -> Uuid,
@@ -3031,19 +3023,6 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
-    use super::sql_types::SubscriptionChangeKindEnum;
-
-    subscription_settlement_due (subscription_id, effective_on) {
-        subscription_id -> Uuid,
-        effective_on -> Date,
-        tenant_id -> Uuid,
-        kind -> SubscriptionChangeKindEnum,
-        created_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
     use super::sql_types::SubscriptionFeeBillingPeriod;
 
     subscription_component (id) {
@@ -3119,6 +3098,19 @@ diesel::table! {
 diesel::table! {
     subscription_plan_window_origin_pending (window_id) {
         window_id -> Uuid,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::SubscriptionChangeKindEnum;
+
+    subscription_settlement_due (subscription_id, effective_on) {
+        subscription_id -> Uuid,
+        effective_on -> Date,
+        tenant_id -> Uuid,
+        kind -> SubscriptionChangeKindEnum,
+        created_at -> Timestamptz,
     }
 }
 
@@ -3394,6 +3386,8 @@ diesel::joinable!(bi_mrr_movement_log -> tenant (tenant_id));
 diesel::joinable!(billable_metric -> product (product_id));
 diesel::joinable!(billable_metric -> product_family (product_family_id));
 diesel::joinable!(billable_metric -> tenant (tenant_id));
+diesel::joinable!(billing_controller -> customer (customer_id));
+diesel::joinable!(billing_controller -> tenant (tenant_id));
 diesel::joinable!(checkout_session -> customer (customer_id));
 diesel::joinable!(checkout_session -> plan_version (plan_version_id));
 diesel::joinable!(checkout_session -> subscription (subscription_id));
@@ -3413,8 +3407,6 @@ diesel::joinable!(coupon -> tenant (tenant_id));
 diesel::joinable!(coupon_plan -> coupon (coupon_id));
 diesel::joinable!(coupon_plan -> plan (plan_id));
 diesel::joinable!(credit_balance_projection -> tenant (tenant_id));
-diesel::joinable!(billing_controller -> customer (customer_id));
-diesel::joinable!(billing_controller -> tenant (tenant_id));
 diesel::joinable!(credit_customer_inputs -> customer (customer_id));
 diesel::joinable!(credit_customer_inputs -> tenant (tenant_id));
 diesel::joinable!(credit_note -> customer (customer_id));
@@ -3644,6 +3636,7 @@ diesel::joinable!(subscription_add_on -> product (product_id));
 diesel::joinable!(subscription_add_on -> subscription (subscription_id));
 diesel::joinable!(subscription_adjustment -> subscription (subscription_id));
 diesel::joinable!(subscription_change -> subscription (subscription_id));
+diesel::joinable!(subscription_change -> tenant (tenant_id));
 diesel::joinable!(subscription_component -> price (price_id));
 diesel::joinable!(subscription_component -> price_component (price_component_id));
 diesel::joinable!(subscription_component -> product (product_id));
@@ -3655,6 +3648,8 @@ diesel::joinable!(subscription_event -> subscription (subscription_id));
 diesel::joinable!(subscription_plan_window -> subscription (subscription_id));
 diesel::joinable!(subscription_plan_window -> tenant (tenant_id));
 diesel::joinable!(subscription_plan_window_origin_pending -> subscription_plan_window (window_id));
+diesel::joinable!(subscription_settlement_due -> subscription (subscription_id));
+diesel::joinable!(subscription_settlement_due -> tenant (tenant_id));
 diesel::joinable!(subscription_start_settled -> subscription (subscription_id));
 diesel::joinable!(subscription_start_settled -> tenant (tenant_id));
 diesel::joinable!(subscription_trial -> subscription (subscription_id));
