@@ -505,8 +505,9 @@ fn memo_only(memo: &str) -> UpdateInvoiceParams {
 }
 
 /// Kept refusal (passes on the old code too): what a credit-priced draft's wallet covers is only
-/// settled at finalization, and an edited draft finalizes from its stored lines, so its lines and
-/// discount stay out of hand edits. Its metadata stays editable and does not freeze the draft.
+/// settled at finalization, and an edited draft finalizes from its stored lines, so its lines,
+/// discount and annexes stay out of hand edits. Its metadata stays editable and does not freeze
+/// the draft.
 #[tokio::test]
 async fn a_credit_priced_draft_takes_metadata_edits_but_not_billing_edits() {
     let s = scenario().await;
@@ -530,6 +531,19 @@ async fn a_credit_priced_draft_takes_metadata_edits_but_not_billing_edits() {
             .update_draft_invoice(draft.id, TENANT_ID, discounted)
             .await
             .is_err()
+    );
+
+    let annexed = UpdateInvoiceParams {
+        annexes: Some(vec![]),
+        ..memo_only("annexed")
+    };
+    assert!(
+        s.env
+            .services()
+            .update_draft_invoice(draft.id, TENANT_ID, annexed)
+            .await
+            .is_err(),
+        "an annex edit would freeze the lines just the same"
     );
 
     let edited = s

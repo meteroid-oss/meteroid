@@ -2450,15 +2450,15 @@ pub(crate) async fn insert_plain_draft(
         .expect("failed to insert draft invoice")
 }
 
-/// Every other draft re-derives its appendix from the event stream, so an edit there would be
-/// silently overwritten: refuse it rather than pretend it stuck.
+/// An annex edit on a plain draft takes ownership of it like a line edit: finalization issues the
+/// edited appendix instead of re-deriving one that would contradict the edited lines.
 #[tokio::test]
-async fn test_annexes_not_editable_outside_a_correction() {
-    let (_setup, services, store, _invoice) = setup_unpaid_invoice().await;
+async fn test_annex_edit_on_a_plain_draft_freezes_it() {
+    let (_setup, services, store, invoice) = setup_unpaid_invoice().await;
 
-    let draft = insert_plain_draft(&store, &_invoice).await;
+    let draft = insert_plain_draft(&store, &invoice).await;
 
-    let err = services
+    let edited = services
         .update_draft_invoice(
             draft.id,
             TENANT_ID,
@@ -2476,12 +2476,17 @@ async fn test_annexes_not_editable_outside_a_correction() {
             },
         )
         .await
-        .expect_err("annexes are only editable on a correction invoice");
+        .expect("annexes should be editable on a plain draft");
 
-    assert!(
-        format!("{err:?}").contains("correction invoice"),
-        "error should name the restriction: {err:?}"
-    );
+    assert_eq!(edited.invoice.annexes, vec![sample_annex(1)]);
+    assert!(edited.invoice.manually_edited_at.is_some());
+
+    let finalized = services
+        .finalize_invoice(common_domain::actor::Actor::System, draft.id, TENANT_ID)
+        .await
+        .unwrap();
+
+    assert_eq!(finalized.invoice.annexes, vec![sample_annex(1)]);
 }
 
 /// The escape hatch: a correction whose parent carried no (or a stale) appendix can rebuild one
@@ -2544,23 +2549,73 @@ async fn test_regenerate_annexes_on_correction_rederives_from_templates() {
     assert_eq!(annexes[0].description.as_deref(), Some("As agreed"));
 }
 
-/// Outside a correction the appendix is derived on every refresh, so an explicit rebuild would
-/// only be a confusing second path to the same thing.
+/// A hand-edited draft keeps its stored appendix through refreshes, so it gets the same rebuild
+/// as a correction once the events behind it are fixed.
 #[tokio::test]
-async fn test_regenerate_annexes_rejected_outside_a_correction() {
+async fn test_regenerate_annexes_on_a_hand_edited_draft() {
+    use meteroid_store::domain::invoice_annex_templates::{
+        AnnexDefinition, AnnexTemplateNew, StaticTextDefinition,
+    };
+    use meteroid_testkit::annex_templates::{
+        create_annex_template, set_plan_version_annex_templates,
+    };
+
     let (_setup, services, store, invoice) = setup_unpaid_invoice().await;
 
     let draft = insert_plain_draft(&store, &invoice).await;
+    let edited = services
+        .update_draft_invoice(
+            draft.id,
+            TENANT_ID,
+            meteroid_store::domain::UpdateInvoiceParams {
+                memo: None,
+                reference: None,
+                purchase_order: None,
+                due_date: None,
+                line_items: None,
+                discount: None,
+                customer_details: None,
+                invoicing_entity_id: None,
+                annexes: Some(vec![sample_annex(3)]),
+                custom_properties: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(edited.invoice.manually_edited_at.is_some());
 
-    let err = services
+    let template = create_annex_template(
+        &store,
+        AnnexTemplateNew {
+            tenant_id: TENANT_ID,
+            name: "Terms".to_string(),
+            definition: AnnexDefinition::StaticText(StaticTextDefinition {
+                title: "Contract terms".to_string(),
+                description: None,
+            }),
+        },
+    )
+    .await;
+    set_plan_version_annex_templates(
+        &store,
+        TENANT_ID,
+        invoice.plan_version_id.unwrap(),
+        &[template.id],
+    )
+    .await;
+
+    let regenerated = services
         .regenerate_invoice_annexes(TENANT_ID, draft.id)
         .await
-        .expect_err("only a correction can be regenerated on demand");
+        .expect("a plain draft can rebuild its annexes");
 
-    assert!(
-        format!("{err:?}").contains("correction invoice"),
-        "error should name the restriction: {err:?}"
-    );
+    let titles: Vec<_> = regenerated
+        .invoice
+        .annexes
+        .iter()
+        .map(|annex| annex.title.as_str())
+        .collect();
+    assert_eq!(titles, vec!["Contract terms"]);
 }
 
 /// A hand-added row must be exactly as wide as the annex has columns: the renderer flattens rows

@@ -51,7 +51,7 @@ message ListPlanVersionAnnexTemplatesResponse {
   repeated AnnexTemplate templates = 1;
 }
 
-// Rebuilds a correction's annexes from the event stream; other drafts re-derive theirs.
+// Rebuilds a draft's annexes from the event stream; corrections and hand-edited drafts keep theirs otherwise.
 message RegenerateInvoiceAnnexesRequest {
   string invoice_id = 1;
 }

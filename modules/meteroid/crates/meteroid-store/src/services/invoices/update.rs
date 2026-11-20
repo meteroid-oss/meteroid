@@ -188,18 +188,21 @@ impl Services {
         params: UpdateInvoiceParams,
     ) -> StoreResult<(Invoice, Option<Option<NaiveDateTime>>)> {
         // Credit-priced lines only estimate what the unit wallets cover until finalization draws
-        // them. An edited draft finalizes from its stored lines and is never recomputed, so a
-        // wallet that moved since would block it for good, or bill other than what was previewed.
-        if (params.line_items.is_some() || params.discount.is_some())
+        // them. A draft whose lines, discount or annexes were edited finalizes from its stored lines,
+        // never recomputed, so a wallet that moved since would block it or bill other than previewed.
+        let freezes_lines = params.line_items.is_some()
+            || params.discount.is_some()
+            || (params.annexes.is_some() && !invoice.is_correction());
+        if freezes_lines
             && invoice
                 .line_items
                 .iter()
                 .any(|line| line.credit_unit.is_some())
         {
             bail!(StoreError::InvalidArgument(
-                "A draft billing usage priced in credits cannot have its lines or discount edited: \
-                 what the credit balance covers is only settled when it is finalized. Change the \
-                 subscription instead, or issue a credit note once it is finalized"
+                "A draft billing usage priced in credits cannot have its lines, discount or annexes \
+                 edited: what the credit balance covers is only settled when it is finalized. Change \
+                 the subscription instead, or issue a credit note once it is finalized"
                     .into(),
             ));
         }
@@ -490,14 +493,6 @@ impl Services {
         invoice.tax_breakdown = tax_breakdown;
 
         if let Some(annexes) = params.annexes {
-            // Only a correction carries a hand-editable appendix. Every other draft re-derives it
-            // from the event stream on the next refresh or at finalization, which would silently
-            // overwrite the edit.
-            if !invoice.is_correction() {
-                bail!(StoreError::InvalidArgument(
-                    "Annexes can only be edited on a correction invoice".into(),
-                ));
-            }
             // The renderer lays each annex out as a fixed `columns.len()` grid and flattens every
             // row into it, so a row of the wrong width silently shifts every cell after it. Every
             // derived row — data and subtotals alike — is exactly that wide; hand-edited ones must

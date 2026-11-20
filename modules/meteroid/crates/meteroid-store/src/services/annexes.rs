@@ -30,11 +30,9 @@ const EVENT_PAGE_SIZE: u32 = 500;
 pub(crate) const MAX_EVENTS: u32 = 50_000;
 
 impl Services {
-    /// Re-derives a correction's appendix from the event stream, on explicit operator demand.
-    ///
-    /// A correction otherwise carries its parent's frozen snapshot for good (see
-    /// `create_corrected_invoice_from_tx`). This is the escape hatch for the case where that
-    /// snapshot is empty or stale — a parent issued before its plan version had an annex bound.
+    /// Re-derives a draft's appendix from the event stream, on explicit operator demand: the
+    /// escape hatch for the drafts that otherwise keep a frozen snapshot, corrections and
+    /// hand-edited drafts (see `build_invoice_lines_patch`).
     pub async fn regenerate_invoice_annexes(
         &self,
         tenant_id: TenantId,
@@ -52,13 +50,6 @@ impl Services {
                 if !invoice.can_edit() {
                     return Err(StoreError::InvalidArgument(
                         "Can only regenerate annexes on a draft invoice".into(),
-                    )
-                    .into());
-                }
-
-                if !invoice.is_correction() {
-                    return Err(StoreError::InvalidArgument(
-                        "Annexes are derived automatically outside a correction invoice".into(),
                     )
                     .into());
                 }

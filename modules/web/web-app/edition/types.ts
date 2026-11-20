@@ -152,8 +152,10 @@ export interface ListMetricStripContext {
 export interface InvoiceEditAnnexesContext {
   invoiceId: string
   annexes: InvoiceAnnex[]
-  /** A correction owns a frozen snapshot of its annexes; other drafts re-derive theirs. */
+  /** A correction inherits its parent's annexes, which can be empty. */
   isCorrection: boolean
+  /** Editing the annexes freezes the draft's lines, which a credit-priced draft refuses. */
+  editable: boolean
   onChange: (annexes: InvoiceAnnex[]) => void
   /** Annexes rebuilt from the event stream, replacing the edited ones. */
   onRegenerated: (annexes: InvoiceAnnex[]) => void

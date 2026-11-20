@@ -141,15 +141,11 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
     () => new Map(invoice.lineItems.map(item => [item.id, item]))
   )
 
-  /**
-   * A correction reissues a fully credited invoice from a detached clone of its lines, so its
-   * annexes are a frozen snapshot the operator owns. Every other draft re-derives them from the
-   * event stream, and an edit here would be overwritten on the next refresh.
-   */
   const isCorrection = !!invoice.parentInvoiceId
   // Lines priced in credits are only settled against the wallet at finalization, so their
   // amounts (and a discount over them) cannot be frozen by hand; other fields stay editable.
   const billingLocked = invoice.lineItems.some(item => item.creditUnit !== undefined)
+  const annexesEditable = isCorrection || !billingLocked
   const [annexes, setAnnexes] = useState<InvoiceAnnex[]>(invoice.annexes)
   const [annexesEdited, setAnnexesEdited] = useState(false)
 
@@ -300,7 +296,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
   }
 
   const buildAnnexesPayload = () =>
-    isCorrection && annexesEdited
+    annexesEdited && annexesEditable
       ? create(UpdateInvoiceRequest_UpdatedAnnexesSchema, { items: annexes })
       : undefined
 
@@ -711,6 +707,7 @@ export const InvoiceEditForm: React.FC<InvoiceEditFormProps> = ({
                 invoiceId={invoice.id}
                 annexes={annexes}
                 isCorrection={isCorrection}
+                editable={annexesEditable}
                 onChange={handleAnnexesChange}
                 onRegenerated={handleAnnexesRegenerated}
               />
