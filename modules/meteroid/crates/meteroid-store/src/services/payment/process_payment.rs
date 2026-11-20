@@ -14,7 +14,7 @@ use crate::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::services::InvoiceDelivery;
 use crate::services::Services;
 use crate::services::checkout_completion::{
-    ChargeNeeded, PaymentCoupons, payment_method_not_found,
+    ChargeNeeded, PaymentCoupons, find_payment_method, payment_method_not_found,
 };
 use crate::store::PgConn;
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -570,14 +570,12 @@ impl Services {
         }
 
         // Every caller charges a method of the invoice's own customer, whoever chose it.
-        let method_archived =
-            CustomerPaymentMethodRow::get_by_id(conn, &tenant_id, &payment_method_id)
-                .await
-                .ok()
-                .filter(|method| method.customer_id == invoice.invoice.customer_id)
-                .ok_or_else(payment_method_not_found)?
-                .archived_at
-                .is_some();
+        let method_archived = find_payment_method(conn, tenant_id, payment_method_id)
+            .await?
+            .filter(|method| method.customer_id == invoice.invoice.customer_id)
+            .ok_or_else(payment_method_not_found)?
+            .archived_at
+            .is_some();
 
         // Calculate total of active payments (pending/ready/settled) to prevent over-payment.
         // This check, combined with SELECT FOR UPDATE on the invoice, ensures atomicity

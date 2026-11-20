@@ -10,10 +10,12 @@ use common_domain::ids::{
     CheckoutSessionId, CouponId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId,
     InvoiceId, PaymentTransactionId, TenantId,
 };
+use diesel_models::DbResult;
 use diesel_models::checkout_sessions::CheckoutSessionRow;
 use diesel_models::customer_connection::CustomerConnectionRow;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
 use diesel_models::enums::PaymentStatusEnum;
+use diesel_models::errors::DatabaseError;
 use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionRowPatch};
 use error_stack::Report;
 use scoped_futures::ScopedFutureExt;
@@ -178,6 +180,24 @@ pub fn is_payment_method_unusable(error: &Report<StoreError>) -> bool {
         .any(|frame| frame.downcast_ref::<PaymentMethodUnusable>().is_some())
 }
 
+/// `None` only when no such method exists. Any other database error is returned as is, so a
+/// transient failure is retried instead of being taken for an unusable method.
+pub(crate) async fn find_payment_method(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    payment_method_id: CustomerPaymentMethodId,
+) -> StoreResult<Option<CustomerPaymentMethodRow>> {
+    missing_as_none(CustomerPaymentMethodRow::get_by_id(conn, &tenant_id, &payment_method_id).await)
+}
+
+fn missing_as_none<T>(result: DbResult<T>) -> StoreResult<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(err) if matches!(err.error.current_context(), DatabaseError::NotFound) => Ok(None),
+        Err(err) => Err(err.into()),
+    }
+}
+
 impl Services {
     /// A customer is only charged on a live payment method of their own.
     pub(crate) async fn ensure_payment_method_of_customer(
@@ -187,10 +207,7 @@ impl Services {
         customer_id: CustomerId,
         payment_method_id: CustomerPaymentMethodId,
     ) -> StoreResult<()> {
-        let method = CustomerPaymentMethodRow::get_by_id(conn, &tenant_id, &payment_method_id)
-            .await
-            .ok();
-        match method {
+        match find_payment_method(conn, tenant_id, payment_method_id).await? {
             Some(m) if m.customer_id == customer_id && m.archived_at.is_none() => Ok(()),
             _ => Err(payment_method_not_found()),
         }
@@ -715,5 +732,24 @@ fn direct_charge_result(
                 "Payment intent in unexpected state".to_string(),
             )))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use diesel_models::errors::DatabaseErrorContainer;
+
+    #[test]
+    fn only_a_missing_method_is_unusable() {
+        let missing: DbResult<()> = Err(DatabaseErrorContainer::from(DatabaseError::NotFound));
+        assert!(missing_as_none(missing).unwrap().is_none());
+
+        let outage: DbResult<()> = Err(DatabaseErrorContainer::from(
+            DatabaseError::DatabaseConnectionError,
+        ));
+        let err = missing_as_none(outage).unwrap_err();
+        assert!(!is_payment_method_unusable(&err));
+        assert!(is_payment_method_unusable(&payment_method_not_found()));
     }
 }
