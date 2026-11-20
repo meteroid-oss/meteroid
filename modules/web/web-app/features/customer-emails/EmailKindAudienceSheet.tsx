@@ -123,7 +123,10 @@ const AudienceForm = ({
 }: Omit<Props, 'open' | 'onOpenChange'> & { onClose: () => void }) => {
   const queryClient = useQueryClient()
   const canManage = usePermissions().has('settings:manage')
-  const customerLevel = info.customerLevelAudience || info.kind === EmailKind.QUOTE_READY
+  const customerLevel =
+    info.customerLevelAudience ||
+    info.kind === EmailKind.QUOTE_READY ||
+    info.kind === EmailKind.QUOTE_ACCEPTED
   const [sendTo, setSendTo] = useState<SendTo>(() => sendToOf(info))
   const [predicates, setPredicates] = useState<AudiencePredicate[]>(() =>
     parseAudience(info.audience?.audience)

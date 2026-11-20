@@ -68,6 +68,8 @@ async fn release_migrations_revert_exactly_and_reapply_identically() -> TestResu
         "enum FeeTypeEnum 7 CREDIT",
         "enum PaymentTypeEnum 3 TOP_UP",
         "enum PaymentTypeEnum 4 AUTO_TOPUP",
+        "enum StoredObjectKindEnum 10 QUOTE_CERTIFICATE_PDF",
+        "enum StoredObjectKindEnum 11 QUOTE_PDF",
     ];
     // Appended after the type's own labels, whatever their count.
     let final_invoice = |l: &str| l.starts_with("enum InvoiceType ") && l.ends_with(" FINAL");

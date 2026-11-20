@@ -114,11 +114,12 @@ fn parse_user_agent(ua: &str) -> (Option<String>, Option<String>, Option<String>
     let lower = ua.to_lowercase();
 
     // Order matters: Edge advertises Chrome/Safari, Chrome advertises Safari.
-    let browser = if lower.contains("edg/") || lower.contains("edge/") {
+    let browser = if lower.contains("edg/") || lower.contains("edge/") || lower.contains("edgios/")
+    {
         Some("Edge")
     } else if lower.contains("opr/") || lower.contains("opera/") {
         Some("Opera")
-    } else if lower.contains("firefox/") {
+    } else if lower.contains("firefox/") || lower.contains("fxios/") {
         Some("Firefox")
     } else if lower.contains("chrome/") || lower.contains("crios/") {
         Some("Chrome")
@@ -137,6 +138,8 @@ fn parse_user_agent(ua: &str) -> (Option<String>, Option<String>, Option<String>
         Some("Windows")
     } else if lower.contains("mac os") || lower.contains("macos") {
         Some("macOS")
+    } else if lower.contains("cros ") {
+        Some("ChromeOS")
     } else if lower.contains("linux") {
         Some("Linux")
     } else {
@@ -160,6 +163,15 @@ fn parse_user_agent(ua: &str) -> (Option<String>, Option<String>, Option<String>
         os.map(String::from),
         device.map(String::from),
     )
+}
+
+/// "Chrome on macOS", or as much of it as the user agent tells; "Unknown" when nothing.
+pub fn device_label(user_agent: &str) -> String {
+    match parse_user_agent(user_agent) {
+        (Some(browser), Some(os), _) => format!("{browser} on {os}"),
+        (Some(only), None, _) | (None, Some(only), _) => only,
+        (None, None, _) => "Unknown".to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -231,5 +243,68 @@ mod tests {
             "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138 Safari/537.36 Edg/138",
         );
         assert_eq!(b.as_deref(), Some("Edge"));
+    }
+
+    #[test]
+    fn device_label_names_browser_and_os() {
+        let cases = [
+            (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+                "Chrome on macOS",
+            ),
+            (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+                "Safari on macOS",
+            ),
+            (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
+                "Firefox on Windows",
+            ),
+            (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0",
+                "Edge on Windows",
+            ),
+            (
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+                "Safari on iOS",
+            ),
+            (
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.6478.54 Mobile/15E148 Safari/604.1",
+                "Chrome on iOS",
+            ),
+            (
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/127.0 Mobile/15E148 Safari/605.1.15",
+                "Firefox on iOS",
+            ),
+            (
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 EdgiOS/126.2592.56 Mobile/15E148 Safari/605.1.15",
+                "Edge on iOS",
+            ),
+            (
+                "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.71 Mobile Safari/537.36",
+                "Chrome on Android",
+            ),
+            (
+                "Mozilla/5.0 (X11; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0",
+                "Firefox on Linux",
+            ),
+            (
+                "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                "Chrome on ChromeOS",
+            ),
+        ];
+        for (ua, expected) in cases {
+            assert_eq!(device_label(ua), expected, "{ua}");
+        }
+    }
+
+    #[test]
+    fn device_label_falls_back_to_what_is_known() {
+        assert_eq!(device_label("curl/8.6.0"), "Unknown");
+        assert_eq!(device_label(""), "Unknown");
+        assert_eq!(
+            device_label("Mozilla/5.0 (Windows NT 10.0; Win64; x64) SomeApp/1.0"),
+            "Windows"
+        );
     }
 }

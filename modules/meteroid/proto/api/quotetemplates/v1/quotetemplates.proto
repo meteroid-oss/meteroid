@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package meteroid.api.quotetemplates.v1;
+
+// Reusable starting points for quotes (Enterprise, cpq module).
+
+message QuoteTemplate {
+  string id = 1;
+  string name = 2;
+  optional string description = 3;
+  // The web editor's state without the deal-specific fields; opaque to the server.
+  string payload = 4;
+  optional int32 expires_after_days = 5;
+  optional string created_by = 6;
+  string created_at = 7;
+  string updated_at = 8;
+  // Quotes created from the template.
+  uint32 usage_count = 9;
+}
+
+message ListQuoteTemplatesRequest {}
+
+message ListQuoteTemplatesResponse {
+  repeated QuoteTemplate templates = 1;
+}
+
+message GetQuoteTemplateRequest {
+  string id = 1;
+}
+
+message GetQuoteTemplateResponse {
+  QuoteTemplate template = 1;
+}
+
+message CreateQuoteTemplateRequest {
+  string name = 1;
+  optional string description = 2;
+  string payload = 3;
+  optional int32 expires_after_days = 4;
+}
+
+message CreateQuoteTemplateResponse {
+  QuoteTemplate template = 1;
+}
+
+message UpdateQuoteTemplateRequest {
+  string id = 1;
+  string name = 2;
+  optional string description = 3;
+  string payload = 4;
+  optional int32 expires_after_days = 5;
+}
+
+message UpdateQuoteTemplateResponse {
+  QuoteTemplate template = 1;
+}
+
+message ArchiveQuoteTemplateRequest {
+  string id = 1;
+}
+
+message ArchiveQuoteTemplateResponse {}
+
+service QuoteTemplatesService {
+  rpc ListQuoteTemplates(ListQuoteTemplatesRequest) returns (ListQuoteTemplatesResponse) {}
+  rpc GetQuoteTemplate(GetQuoteTemplateRequest) returns (GetQuoteTemplateResponse) {}
+  rpc CreateQuoteTemplate(CreateQuoteTemplateRequest) returns (CreateQuoteTemplateResponse) {}
+  rpc UpdateQuoteTemplate(UpdateQuoteTemplateRequest) returns (UpdateQuoteTemplateResponse) {}
+  rpc ArchiveQuoteTemplate(ArchiveQuoteTemplateRequest) returns (ArchiveQuoteTemplateResponse) {}
+}

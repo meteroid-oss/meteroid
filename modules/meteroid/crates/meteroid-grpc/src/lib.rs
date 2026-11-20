@@ -273,6 +273,30 @@ pub mod meteroid {
             }
         }
 
+        pub mod quoteanalytics {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.quoteanalytics.v1");
+            }
+        }
+
+        pub mod quoteapprovals {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.quoteapprovals.v1");
+            }
+        }
+
+        pub mod quotecomments {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.quotecomments.v1");
+            }
+        }
+
+        pub mod quotetemplates {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.quotetemplates.v1");
+            }
+        }
+
         pub mod quotes {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.quotes.v1");

@@ -13,6 +13,29 @@ invoice-paid-heading = Thank you for your payment!
 quote-ready-subject = Quote { $number } from { $company }
 quote-ready-heading = You've received a quote
 
+## Quote signature code (one-time code before signing)
+quote-signature-code-subject = Your code to sign quote { $number }
+quote-signature-code-heading = Your signature code
+quote-signature-code-intro = Enter this code to sign quote { $number } from { $company }. It expires in { $minutes } minutes.
+quote-signature-code-ignore = If you did not try to sign this quote, you can ignore this email.
+
+## Quote discussion (a message or a change request)
+quote-message-subject = New message on quote { $number }
+quote-changes-requested-subject = Changes requested on quote { $number }
+quote-message-heading = { $author } sent a message about quote { $number }
+quote-changes-requested-heading = { $author } requested changes to quote { $number }
+view-quote = View quote
+quote-customer = Customer
+
+## Quote accepted (kind quote_accepted), and its outcome to the team
+quote-accepted-subject = Quote { $number } from { $company } is accepted
+quote-accepted-heading = Your quote is accepted
+quote-seller = From
+quote-accepted-on = Accepted on
+view-signed-quote = View signed quote
+quote-outcome-accepted-subject = { $customer } accepted quote { $number }
+quote-outcome-declined-subject = { $customer } declined quote { $number }
+
 ## Credit note (kind credit_note_issued)
 credit-note-issued-subject = Your { $company } credit note { $number }
 credit-note-issued-heading = A credit note was issued

@@ -432,6 +432,55 @@ pub enum SendEmailRequest {
         /// Currency of the quote
         currency: String,
     },
+    /// The one-time code a signer enters before signing a quote with a verified signature.
+    QuoteSignatureCode {
+        tenant_id: TenantId,
+        quote_id: QuoteId,
+        invoicing_entity_id: InvoicingEntityId,
+        quote_number: String,
+        company_name: String,
+        recipient_email: String,
+        code: String,
+        expires_in_minutes: u32,
+    },
+
+    /// To one customer recipient once every party signed, with their own portal link.
+    QuoteAccepted {
+        tenant_id: TenantId,
+        quote_id: QuoteId,
+        invoicing_entity_id: InvoicingEntityId,
+        quote_number: String,
+        accepted_on: NaiveDate,
+        recipient_email: String,
+        portal_url: String,
+    },
+
+    /// To the quote's owner: the customer accepted it, or declined it (`reason` when given).
+    QuoteOutcome {
+        tenant_id: TenantId,
+        quote_id: QuoteId,
+        invoicing_entity_id: InvoicingEntityId,
+        quote_number: String,
+        customer_name: String,
+        accepted: bool,
+        reason: Option<String>,
+        recipient_email: String,
+    },
+
+    /// A message in a quote's discussion, to the team (no portal link) or to a recipient.
+    QuoteMessage {
+        tenant_id: TenantId,
+        quote_id: QuoteId,
+        invoicing_entity_id: InvoicingEntityId,
+        quote_number: String,
+        company_name: String,
+        customer_name: String,
+        author_name: String,
+        body: String,
+        change_request: bool,
+        recipient_email: String,
+        portal_url: Option<String>,
+    },
 
     /// Analytics alert fired — a concise notification mirroring the Slack/Discord
     /// summary that deep-links back to the in-app alerts feed. The full detail
@@ -458,6 +507,10 @@ impl SendEmailRequest {
             | SendEmailRequest::InvoicePaid { tenant_id, .. }
             | SendEmailRequest::CustomerEmail { tenant_id, .. }
             | SendEmailRequest::QuoteReady { tenant_id, .. }
+            | SendEmailRequest::QuoteSignatureCode { tenant_id, .. }
+            | SendEmailRequest::QuoteMessage { tenant_id, .. }
+            | SendEmailRequest::QuoteAccepted { tenant_id, .. }
+            | SendEmailRequest::QuoteOutcome { tenant_id, .. }
             | SendEmailRequest::AlertTriggered { tenant_id, .. } => *tenant_id,
         }
     }
@@ -523,6 +576,14 @@ pub enum HubspotSyncRequestEvent {
     SubscriptionOutbox(Box<SubscriptionEvent>),
     /// sync custom properties
     CustomProperties(TenantId),
+    /// push a quote's state to the deal it is linked to
+    Quote(Box<HubspotSyncQuote>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HubspotSyncQuote {
+    pub id: QuoteId,
+    pub tenant_id: TenantId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -545,6 +606,7 @@ impl HubspotSyncRequestEvent {
             HubspotSyncRequestEvent::CustomerOutbox(event) => event.tenant_id,
             HubspotSyncRequestEvent::SubscriptionOutbox(event) => event.tenant_id,
             HubspotSyncRequestEvent::CustomProperties(tenant_id) => *tenant_id,
+            HubspotSyncRequestEvent::Quote(data) => data.tenant_id,
         }
     }
 }

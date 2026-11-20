@@ -3,6 +3,7 @@ use meteroid_store::errors::StoreError;
 use tonic::Status;
 
 pub mod common;
+pub mod quote_comments;
 
 #[derive(Debug, thiserror::Error)]
 #[error("MappingError: {message}")]

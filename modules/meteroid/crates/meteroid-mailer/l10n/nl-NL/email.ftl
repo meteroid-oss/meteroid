@@ -13,6 +13,29 @@ invoice-paid-heading = Bedankt voor uw betaling!
 quote-ready-subject = Offerte { $number } van { $company }
 quote-ready-heading = U heeft een offerte ontvangen
 
+## Quote signature code (one-time code before signing)
+quote-signature-code-subject = Uw code om offerte { $number } te ondertekenen
+quote-signature-code-heading = Uw ondertekeningscode
+quote-signature-code-intro = Voer deze code in om offerte { $number } van { $company } te ondertekenen. De code verloopt over { $minutes } minuten.
+quote-signature-code-ignore = Heeft u niet geprobeerd deze offerte te ondertekenen, negeer dan deze e-mail.
+
+## Quote discussion (a message or a change request)
+quote-message-subject = Nieuw bericht over offerte { $number }
+quote-changes-requested-subject = Wijzigingen gevraagd voor offerte { $number }
+quote-message-heading = { $author } heeft een bericht gestuurd over offerte { $number }
+quote-changes-requested-heading = { $author } vraagt wijzigingen in offerte { $number }
+view-quote = Offerte bekijken
+quote-customer = Klant
+
+## Quote accepted (kind quote_accepted), and its outcome to the team
+quote-accepted-subject = Offerte { $number } van { $company } is geaccepteerd
+quote-accepted-heading = Uw offerte is geaccepteerd
+quote-seller = Van
+quote-accepted-on = Geaccepteerd op
+view-signed-quote = Ondertekende offerte bekijken
+quote-outcome-accepted-subject = { $customer } heeft offerte { $number } geaccepteerd
+quote-outcome-declined-subject = { $customer } heeft offerte { $number } geweigerd
+
 ## Credit note (kind credit_note_issued)
 credit-note-issued-subject = Uw creditnota { $number } van { $company }
 credit-note-issued-heading = Er is een creditnota uitgegeven

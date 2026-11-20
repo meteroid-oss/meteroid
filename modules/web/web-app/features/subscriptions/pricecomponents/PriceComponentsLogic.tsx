@@ -100,13 +100,169 @@ export interface PriceComponentsState {
 
 // --- Helpers ---
 
-function deriveFeeType(component: ProtoPriceComponent): ComponentFeeType {
+export function deriveFeeType(component: ProtoPriceComponent): ComponentFeeType {
   const price = component.prices[0]
   if (!price) return 'rate'
   return feeTypeFromPrice(price)
 }
 
-function feeTypeIcon(feeType: ComponentFeeType) {
+// --- State transitions (shared by every pricing editor) ---
+
+export type UsageExampleKey = { componentId?: string; name?: string }
+
+export function requiresConfiguration(
+  component: ProtoPriceComponent,
+  state: PriceComponentsState
+): boolean {
+  if (state.components.overridden.some(o => o.componentId === component.id)) return false
+  const feeType = deriveFeeType(component)
+  if (feeType === 'slot') return true
+  if (feeType === 'capacity' && component.prices.length > 1) return true
+  return false
+}
+
+export function isComponentConfigured(
+  component: ProtoPriceComponent,
+  state: PriceComponentsState
+): boolean {
+  if (!requiresConfiguration(component, state)) return true
+  if (state.components.overridden.some(o => o.componentId === component.id)) return true
+
+  const config = state.components.parameterized.find(p => p.componentId === component.id)
+  if (!config) return false
+
+  const feeType = deriveFeeType(component)
+  if (feeType === 'slot') return config.initialSlotCount !== undefined
+  if (feeType === 'capacity' && component.prices.length > 1)
+    return config.committedCapacity !== undefined
+  return false
+}
+
+export function pricingConfigurationErrors(
+  planComponents: ProtoPriceComponent[],
+  state: PriceComponentsState
+): string[] {
+  return planComponents
+    .filter(
+      c =>
+        !state.components.removed.includes(c.id) &&
+        requiresConfiguration(c, state) &&
+        !isComponentConfigured(c, state)
+    )
+    .map(c => `${c.name} requires configuration`)
+}
+
+export const pricingTransitions = {
+  toggleRemoval: <S extends PriceComponentsState>(prev: S, componentId: string): S => ({
+    ...prev,
+    components: {
+      ...prev.components,
+      removed: prev.components.removed.includes(componentId)
+        ? prev.components.removed.filter(id => id !== componentId)
+        : [...prev.components.removed, componentId],
+      parameterized: prev.components.removed.includes(componentId)
+        ? prev.components.parameterized
+        : prev.components.parameterized.filter(p => p.componentId !== componentId),
+    },
+  }),
+
+  updateConfiguration: <S extends PriceComponentsState>(
+    prev: S,
+    componentId: string,
+    config: Partial<ComponentParameterization>
+  ): S => {
+    const existing = prev.components.parameterized.find(p => p.componentId === componentId)
+    return {
+      ...prev,
+      components: {
+        ...prev.components,
+        parameterized: existing
+          ? prev.components.parameterized.map(p =>
+              p.componentId === componentId ? { ...p, ...config } : p
+            )
+          : [...prev.components.parameterized, { componentId, ...config }],
+      },
+    }
+  },
+
+  addOverride: <S extends PriceComponentsState>(
+    prev: S,
+    componentId: string,
+    override: ComponentOverride
+  ): S => ({
+    ...prev,
+    components: {
+      ...prev.components,
+      overridden: [
+        ...prev.components.overridden.filter(o => o.componentId !== componentId),
+        override,
+      ],
+      parameterized: prev.components.parameterized.filter(p => p.componentId !== componentId),
+    },
+  }),
+
+  removeOverride: <S extends PriceComponentsState>(prev: S, componentId: string): S => ({
+    ...prev,
+    components: {
+      ...prev.components,
+      overridden: prev.components.overridden.filter(o => o.componentId !== componentId),
+    },
+  }),
+
+  addExtra: <S extends PriceComponentsState>(prev: S, component: ExtraComponent): S => ({
+    ...prev,
+    components: { ...prev.components, extra: [...prev.components.extra, component] },
+  }),
+
+  removeExtra: <S extends PriceComponentsState>(prev: S, index: number): S => ({
+    ...prev,
+    components: {
+      ...prev.components,
+      extra: prev.components.extra.filter((_, i) => i !== index),
+    },
+  }),
+
+  updateExtra: <S extends PriceComponentsState>(
+    prev: S,
+    index: number,
+    component: ExtraComponent
+  ): S => ({
+    ...prev,
+    components: {
+      ...prev.components,
+      extra: prev.components.extra.map((c, i) => (i === index ? component : c)),
+    },
+  }),
+
+  setExampleQuantity: <S extends PriceComponentsState>(
+    prev: S,
+    key: UsageExampleKey,
+    quantity: string
+  ): S => {
+    const examples = prev.components.usageExamples ?? []
+    const matches = (e: UsageExampleEntry) =>
+      key.componentId ? e.componentId === key.componentId : e.name === key.name
+    const without = examples.filter(e => !matches(e))
+    const next =
+      quantity.trim() === ''
+        ? without
+        : [...without, { componentId: key.componentId, name: key.name, quantity }]
+    return {
+      ...prev,
+      components: { ...prev.components, usageExamples: next },
+    }
+  },
+}
+
+export function getExampleQuantity(state: PriceComponentsState, key: UsageExampleKey): string {
+  const examples = state.components.usageExamples ?? []
+  const match = examples.find(e =>
+    key.componentId ? e.componentId === key.componentId : e.name === key.name
+  )
+  return match?.quantity ?? ''
+}
+
+export function feeTypeIcon(feeType: ComponentFeeType) {
   switch (feeType) {
     case 'rate':
       return <Calendar className="h-4 w-4" />
@@ -123,7 +279,7 @@ function feeTypeIcon(feeType: ComponentFeeType) {
   }
 }
 
-function feeTypeLabel(feeType: ComponentFeeType): string {
+export function feeTypeLabel(feeType: ComponentFeeType): string {
   switch (feeType) {
     case 'rate':
       return 'Rate'
@@ -152,7 +308,7 @@ function formatCurrency(price: string | number, currency: string): string {
   })
 }
 
-function getComponentBillingLabel(
+export function getComponentBillingLabel(
   component: ProtoPriceComponent,
   configuration?: ComponentParameterization
 ): string {
@@ -190,6 +346,37 @@ function getDisplayUnitPrice(
   return price ? getPriceUnitPrice(price) : 0
 }
 
+/** The price a plan component is shown at: its override, its committed capacity, else its own. */
+export function planComponentDisplayPrice(
+  component: ProtoPriceComponent,
+  configuration: ComponentParameterization | undefined,
+  override: ComponentOverride | undefined,
+  currency: string
+): Price | undefined {
+  if (override) return formDataToPrice(override.feeType, override.formData, currency)
+  const threshold =
+    configuration?.committedCapacity !== undefined
+      ? component.prices.find(
+          p =>
+            p.pricing.case === 'capacityPricing' &&
+            p.pricing.value.included === configuration.committedCapacity
+        )
+      : undefined
+  return threshold ?? getPrice(component)
+}
+
+/** A slot component's amount for its configured seats, formatted as its price line shows it. */
+export function planComponentSlotTotal(
+  component: ProtoPriceComponent,
+  configuration: ComponentParameterization | undefined,
+  override: ComponentOverride | undefined,
+  currency: string
+): string | undefined {
+  if (deriveFeeType(component) !== 'slot' || !configuration?.initialSlotCount) return undefined
+  const unitPrice = getDisplayUnitPrice(component, configuration, override, currency)
+  return formatCurrency(unitPrice * configuration.initialSlotCount, currency)
+}
+
 /** A credit pack: its price (included when free) and the credit it grants, in its unit. */
 const CreditPackPrice = ({
   price,
@@ -210,7 +397,9 @@ const CreditPackPrice = ({
     <div className="text-right">
       <div className="flex items-center justify-end gap-1">
         <span>
-          {isPaidCreditPack(price) ? formatCurrency(getPriceUnitPrice(price), currency) : 'Included'}
+          {isPaidCreditPack(price)
+            ? formatCurrency(getPriceUnitPrice(price), currency)
+            : 'Included'}
         </span>
         <Badge variant="secondary" size="sm">
           {billingLabel}
@@ -302,156 +491,41 @@ export const PriceComponentsLogic = ({
 
   // --- Configuration logic ---
 
-  const requiresConfiguration = (component: ProtoPriceComponent): boolean => {
-    if (state.components.overridden.some(o => o.componentId === component.id)) return false
-    const feeType = deriveFeeType(component)
-    if (feeType === 'slot') return true
-    if (feeType === 'capacity' && component.prices.length > 1) return true
-    return false
-  }
-
-  const isComponentConfigured = (component: ProtoPriceComponent): boolean => {
-    if (!requiresConfiguration(component)) return true
-    if (state.components.overridden.some(o => o.componentId === component.id)) return true
-
-    const config = state.components.parameterized.find(p => p.componentId === component.id)
-    if (!config) return false
-
-    const feeType = deriveFeeType(component)
-    if (feeType === 'slot') return config.initialSlotCount !== undefined
-    if (feeType === 'capacity' && component.prices.length > 1)
-      return config.committedCapacity !== undefined
-    return false
-  }
-
   useEffect(() => {
-    const unconfigured = planComponents.filter(c => {
-      const isExcluded = state.components.removed.includes(c.id)
-      return !isExcluded && requiresConfiguration(c) && !isComponentConfigured(c)
-    })
-    onValidationChangeRef.current?.(
-      unconfigured.length === 0,
-      unconfigured.map(c => `${c.name} requires configuration`)
-    )
+    const errors = pricingConfigurationErrors(planComponents, state)
+    onValidationChangeRef.current?.(errors.length === 0, errors)
   }, [state.components, planComponents])
 
   // --- State mutations ---
 
-  const toggleRemoval = (componentId: string) => {
-    setState(prev => ({
-      ...prev,
-      components: {
-        ...prev.components,
-        removed: prev.components.removed.includes(componentId)
-          ? prev.components.removed.filter(id => id !== componentId)
-          : [...prev.components.removed, componentId],
-        parameterized: prev.components.removed.includes(componentId)
-          ? prev.components.parameterized
-          : prev.components.parameterized.filter(p => p.componentId !== componentId),
-      },
-    }))
-  }
+  const toggleRemoval = (componentId: string) =>
+    setState(prev => pricingTransitions.toggleRemoval(prev, componentId))
 
-  const updateConfiguration = (componentId: string, config: Partial<ComponentParameterization>) => {
-    setState(prev => {
-      const existing = prev.components.parameterized.find(p => p.componentId === componentId)
-      return {
-        ...prev,
-        components: {
-          ...prev.components,
-          parameterized: existing
-            ? prev.components.parameterized.map(p =>
-                p.componentId === componentId ? { ...p, ...config } : p
-              )
-            : [...prev.components.parameterized, { componentId, ...config }],
-        },
-      }
-    })
-  }
+  const updateConfiguration = (componentId: string, config: Partial<ComponentParameterization>) =>
+    setState(prev => pricingTransitions.updateConfiguration(prev, componentId, config))
 
-  const addOverride = (componentId: string, override: ComponentOverride) => {
-    setState(prev => ({
-      ...prev,
-      components: {
-        ...prev.components,
-        overridden: [
-          ...prev.components.overridden.filter(o => o.componentId !== componentId),
-          override,
-        ],
-        parameterized: prev.components.parameterized.filter(p => p.componentId !== componentId),
-      },
-    }))
-  }
+  const addOverride = (componentId: string, override: ComponentOverride) =>
+    setState(prev => pricingTransitions.addOverride(prev, componentId, override))
 
-  const removeOverride = (componentId: string) => {
-    setState(prev => ({
-      ...prev,
-      components: {
-        ...prev.components,
-        overridden: prev.components.overridden.filter(o => o.componentId !== componentId),
-      },
-    }))
-  }
+  const removeOverride = (componentId: string) =>
+    setState(prev => pricingTransitions.removeOverride(prev, componentId))
 
-  const addExtra = (component: ExtraComponent) => {
-    setState(prev => ({
-      ...prev,
-      components: { ...prev.components, extra: [...prev.components.extra, component] },
-    }))
-  }
+  const addExtra = (component: ExtraComponent) =>
+    setState(prev => pricingTransitions.addExtra(prev, component))
 
-  const removeExtra = (index: number) => {
-    setState(prev => ({
-      ...prev,
-      components: {
-        ...prev.components,
-        extra: prev.components.extra.filter((_, i) => i !== index),
-      },
-    }))
-  }
+  const removeExtra = (index: number) =>
+    setState(prev => pricingTransitions.removeExtra(prev, index))
 
-  const updateExtra = (index: number, component: ExtraComponent) => {
-    setState(prev => ({
-      ...prev,
-      components: {
-        ...prev.components,
-        extra: prev.components.extra.map((c, i) => (i === index ? component : c)),
-      },
-    }))
-  }
+  const updateExtra = (index: number, component: ExtraComponent) =>
+    setState(prev => pricingTransitions.updateExtra(prev, index, component))
 
   // --- Usage example helpers (display-only, quote mode) ---
 
-  const getExampleQuantity = (key: { componentId?: string; name?: string }): string => {
-    const examples = state.components.usageExamples ?? []
-    const match = examples.find(e =>
-      key.componentId ? e.componentId === key.componentId : e.name === key.name
-    )
-    return match?.quantity ?? ''
-  }
-
-  const getExampleAmount = (key: { componentId?: string; name?: string }): string | undefined =>
+  const getExampleAmount = (key: UsageExampleKey): string | undefined =>
     exampleAmountByKey?.get(key.componentId ?? key.name ?? '')
 
-  const setExampleQuantity = (
-    key: { componentId?: string; name?: string },
-    quantity: string
-  ) => {
-    setState(prev => {
-      const examples = prev.components.usageExamples ?? []
-      const matches = (e: UsageExampleEntry) =>
-        key.componentId ? e.componentId === key.componentId : e.name === key.name
-      const without = examples.filter(e => !matches(e))
-      const next =
-        quantity.trim() === ''
-          ? without
-          : [...without, { componentId: key.componentId, name: key.name, quantity }]
-      return {
-        ...prev,
-        components: { ...prev.components, usageExamples: next },
-      }
-    })
-  }
+  const setExampleQuantity = (key: UsageExampleKey, quantity: string) =>
+    setState(prev => pricingTransitions.setExampleQuantity(prev, key, quantity))
 
   // --- Render ---
 
@@ -465,9 +539,9 @@ export const PriceComponentsLogic = ({
         const override = state.components.overridden.find(o => o.componentId === component.id)
         const isOverridden = !!override
         const isEditing = editingComponentId === component.id
-        const configured = isComponentConfigured(component)
+        const configured = isComponentConfigured(component, state)
         const needsConfig =
-          requiresConfiguration(component) && !configured && !isOverridden && !isExcluded
+          requiresConfiguration(component, state) && !configured && !isOverridden && !isExcluded
 
         return (
           <CompactPriceComponentCard
@@ -488,7 +562,7 @@ export const PriceComponentsLogic = ({
             onStartOverride={() => setOverrideComponentId(component.id)}
             onRemoveOverride={() => removeOverride(component.id)}
             showUsageExample={showUsageExamples}
-            exampleQuantity={getExampleQuantity({ componentId: component.id })}
+            exampleQuantity={getExampleQuantity(state, { componentId: component.id })}
             exampleAmount={getExampleAmount({ componentId: component.id })}
             onExampleQuantityChange={v => setExampleQuantity({ componentId: component.id }, v)}
           />
@@ -503,7 +577,7 @@ export const PriceComponentsLogic = ({
           onEdit={() => setEditExtraIndex(index)}
           onRemove={() => removeExtra(index)}
           showUsageExample={showUsageExamples}
-          exampleQuantity={getExampleQuantity({ name: extra.name })}
+          exampleQuantity={getExampleQuantity(state, { name: extra.name })}
           exampleAmount={getExampleAmount({ name: extra.name })}
           onExampleQuantityChange={v => setExampleQuantity({ name: extra.name }, v)}
         />
@@ -564,6 +638,179 @@ export const PriceComponentsLogic = ({
   )
 }
 
+// --- Price and configuration of a plan component (shared by every pricing editor) ---
+
+export const PlanComponentPrice = ({
+  component,
+  configuration,
+  override,
+  currency,
+  needsConfiguration,
+  isExcluded,
+}: {
+  component: ProtoPriceComponent
+  configuration?: ComponentParameterization
+  override?: ComponentOverride
+  currency: string
+  needsConfiguration: boolean
+  isExcluded: boolean
+}) => {
+  const feeType = deriveFeeType(component)
+  const unitPrice = getDisplayUnitPrice(component, configuration, override, currency)
+  const billingLabel = getComponentBillingLabel(component, configuration)
+  const displayPrice = override
+    ? formDataToPrice(override.feeType, override.formData, currency)
+    : getPrice(component)
+  const usage = useUsageSummary(feeType === 'usage' ? displayPrice : undefined, currency)
+
+  if (needsConfiguration && !isExcluded) {
+    return (
+      <div className="text-right">
+        <div className="text-xs font-medium text-red-700">Configuration required</div>
+      </div>
+    )
+  }
+
+  // Slot with configured count
+  if (feeType === 'slot' && configuration?.initialSlotCount && configuration.initialSlotCount > 1) {
+    const total = planComponentSlotTotal(component, configuration, override, currency)
+    return (
+      <div className="text-right">
+        <div className="flex items-center justify-end gap-1">
+          <span>
+            {formatCurrency(unitPrice, currency)} × {formatUsage(configuration.initialSlotCount)}{' '}
+            slots
+          </span>
+          <Badge variant="secondary" size="sm">
+            {billingLabel}
+          </Badge>
+        </div>
+        <div className="text-xs text-muted-foreground">{total}</div>
+      </div>
+    )
+  }
+
+  // Usage-based: show model + rate summary instead of €0.00
+  if (feeType === 'usage') {
+    return (
+      <div className="text-right">
+        <div className="flex items-center justify-end gap-1">
+          {usage ? (
+            <span>
+              {usage.model && (
+                <>
+                  <span className="text-muted-foreground">{usage.model}</span>{' '}
+                </>
+              )}
+              {usage.amount}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">Metered</span>
+          )}
+          <Badge variant="secondary" size="sm">
+            {billingLabel}
+          </Badge>
+        </div>
+        {usage?.note && <div className="text-xs text-muted-foreground">{usage.note}</div>}
+      </div>
+    )
+  }
+
+  if (feeType === 'capacity' && displayPrice) {
+    return (
+      <CapacityPrice
+        price={
+          planComponentDisplayPrice(component, configuration, override, currency) ?? displayPrice
+        }
+        currency={currency}
+        billingLabel={billingLabel}
+      />
+    )
+  }
+
+  if (feeType === 'credit' && displayPrice) {
+    return <CreditPackPrice price={displayPrice} currency={currency} billingLabel={billingLabel} />
+  }
+
+  return (
+    <div className="text-right">
+      <div className="flex items-center justify-end gap-1">
+        <span>{formatCurrency(unitPrice, currency)}</span>
+        <Badge variant="secondary" size="sm">
+          {billingLabel}
+        </Badge>
+      </div>
+    </div>
+  )
+}
+
+export const ComponentConfigurationFields = ({
+  component,
+  configuration,
+  currency,
+  onUpdateConfiguration,
+}: {
+  component: ProtoPriceComponent
+  configuration?: ComponentParameterization
+  currency: string
+  onUpdateConfiguration: (config: Partial<ComponentParameterization>) => void
+}) => {
+  const feeType = deriveFeeType(component)
+
+  if (feeType === 'slot') {
+    return (
+      <div className="space-y-2">
+        <Label className="text-xs">Initial Seats</Label>
+        <Input
+          type="number"
+          min="0"
+          className="h-8 text-xs"
+          placeholder="Number of seats"
+          value={configuration?.initialSlotCount || ''}
+          onChange={e => {
+            const value = e.target.value ? parseInt(e.target.value) : undefined
+            onUpdateConfiguration({ initialSlotCount: value })
+          }}
+        />
+      </div>
+    )
+  }
+
+  if (feeType === 'capacity' && component.prices.length > 1) {
+    return (
+      <div className="space-y-2">
+        <Select
+          value={configuration?.committedCapacity?.toString() || ''}
+          onValueChange={value => onUpdateConfiguration({ committedCapacity: BigInt(value) })}
+        >
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue placeholder="Select capacity" />
+          </SelectTrigger>
+          <SelectContent>
+            {component.prices
+              .filter(p => p.pricing.case === 'capacityPricing')
+              .map(p => {
+                const cap = p.pricing.value as { included: bigint; rate: string }
+                return (
+                  <SelectItem key={cap.included.toString()} value={cap.included.toString()}>
+                    <div className="flex justify-between items-center w-full">
+                      <span>{formatUsage(Number(cap.included))} included</span>
+                      <span className="text-muted-foreground ml-2">
+                        {formatCurrency(cap.rate, currency)}
+                      </span>
+                    </div>
+                  </SelectItem>
+                )
+              })}
+          </SelectContent>
+        </Select>
+      </div>
+    )
+  }
+
+  return null
+}
+
 // --- Compact plan component card ---
 
 interface CompactPriceComponentCardProps {
@@ -610,12 +857,6 @@ const CompactPriceComponentCard = ({
   onExampleQuantityChange,
 }: CompactPriceComponentCardProps) => {
   const feeType = deriveFeeType(component)
-  const unitPrice = getDisplayUnitPrice(component, configuration, override, currency)
-  const billingLabel = getComponentBillingLabel(component, configuration)
-  const displayPrice = override
-    ? formDataToPrice(override.feeType, override.formData, currency)
-    : getPrice(component)
-  const usage = useUsageSummary(feeType === 'usage' ? displayPrice : undefined, currency)
 
   // Matrix usage can't be estimated from a single quantity, so no example input.
   const isMatrixUsage =
@@ -634,153 +875,27 @@ const CompactPriceComponentCard = ({
     return false
   }
 
-  const renderPriceDisplay = () => {
-    if (needsConfiguration && !isExcluded) {
-      return (
-        <div className="text-right">
-          <div className="text-xs font-medium text-red-700">Configuration required</div>
-        </div>
-      )
-    }
-
-    // Slot with configured count
-    if (
-      feeType === 'slot' &&
-      configuration?.initialSlotCount &&
-      configuration.initialSlotCount > 1
-    ) {
-      const total = unitPrice * configuration.initialSlotCount
-      return (
-        <div className="text-right">
-          <div className="flex items-center justify-end gap-1">
-            <span>
-              {formatCurrency(unitPrice, currency)} ×{' '}
-              {formatUsage(configuration.initialSlotCount)} slots
-            </span>
-            <Badge variant="secondary" size="sm">
-              {billingLabel}
-            </Badge>
-          </div>
-          <div className="text-xs text-muted-foreground">{formatCurrency(total, currency)}</div>
-        </div>
-      )
-    }
-
-    // Usage-based: show model + rate summary instead of €0.00
-    if (feeType === 'usage') {
-      return (
-        <div className="text-right">
-          <div className="flex items-center justify-end gap-1">
-            {usage ? (
-              <span>
-                {usage.model && (
-                  <>
-                    <span className="text-muted-foreground">{usage.model}</span>{' '}
-                  </>
-                )}
-                {usage.amount}
-              </span>
-            ) : (
-              <span className="text-muted-foreground">Metered</span>
-            )}
-            <Badge variant="secondary" size="sm">
-              {billingLabel}
-            </Badge>
-          </div>
-          {usage?.note && <div className="text-xs text-muted-foreground">{usage.note}</div>}
-        </div>
-      )
-    }
-
-    if (feeType === 'capacity' && displayPrice) {
-      const threshold =
-        !override && configuration?.committedCapacity !== undefined
-          ? component.prices.find(
-              p =>
-                p.pricing.case === 'capacityPricing' &&
-                p.pricing.value.included === configuration.committedCapacity
-            )
-          : undefined
-      return (
-        <CapacityPrice
-          price={threshold ?? displayPrice}
-          currency={currency}
-          billingLabel={billingLabel}
-        />
-      )
-    }
-
-    if (feeType === 'credit' && displayPrice) {
-      return <CreditPackPrice price={displayPrice} currency={currency} billingLabel={billingLabel} />
-    }
-
-    return (
-      <div className="text-right">
-        <div className="flex items-center justify-end gap-1">
-          <span>{formatCurrency(unitPrice, currency)}</span>
-          <Badge variant="secondary" size="sm">
-            {billingLabel}
-          </Badge>
-        </div>
-      </div>
-    )
-  }
+  const renderPriceDisplay = () => (
+    <PlanComponentPrice
+      component={component}
+      configuration={configuration}
+      override={override}
+      currency={currency}
+      needsConfiguration={needsConfiguration}
+      isExcluded={isExcluded}
+    />
+  )
 
   const renderConfiguration = () => {
     if (!isEditing || isExcluded) return null
-
-    if (feeType === 'slot') {
-      return (
-        <div className="space-y-2">
-          <Label className="text-xs">Initial Seats</Label>
-          <Input
-            type="number"
-            min="0"
-            className="h-8 text-xs"
-            placeholder="Number of seats"
-            value={configuration?.initialSlotCount || ''}
-            onChange={e => {
-              const value = e.target.value ? parseInt(e.target.value) : undefined
-              onUpdateConfiguration({ initialSlotCount: value })
-            }}
-          />
-        </div>
-      )
-    }
-
-    if (feeType === 'capacity' && component.prices.length > 1) {
-      return (
-        <div className="space-y-2">
-          <Select
-            value={configuration?.committedCapacity?.toString() || ''}
-            onValueChange={value => onUpdateConfiguration({ committedCapacity: BigInt(value) })}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Select capacity" />
-            </SelectTrigger>
-            <SelectContent>
-              {component.prices
-                .filter(p => p.pricing.case === 'capacityPricing')
-                .map(p => {
-                  const cap = p.pricing.value as { included: bigint; rate: string }
-                  return (
-                    <SelectItem key={cap.included.toString()} value={cap.included.toString()}>
-                      <div className="flex justify-between items-center w-full">
-                        <span>{formatUsage(Number(cap.included))} included</span>
-                        <span className="text-muted-foreground ml-2">
-                          {formatCurrency(cap.rate, currency)}
-                        </span>
-                      </div>
-                    </SelectItem>
-                  )
-                })}
-            </SelectContent>
-          </Select>
-        </div>
-      )
-    }
-
-    return null
+    return (
+      <ComponentConfigurationFields
+        component={component}
+        configuration={configuration}
+        currency={currency}
+        onUpdateConfiguration={onUpdateConfiguration}
+      />
+    )
   }
 
   return (
@@ -957,6 +1072,49 @@ const UsageExampleSection = ({
 
 // --- Extra component card ---
 
+export const ExtraComponentPrice = ({
+  component,
+  currency,
+}: {
+  component: ExtraComponent
+  currency: string
+}) => {
+  const displayPrice = formDataToPrice(component.feeType, component.formData, currency)
+  const unitPrice = getPriceUnitPrice(displayPrice)
+  const billingLabel = getPriceBillingLabel(displayPrice)
+  const isUsage = displayPrice.pricing.case === 'usagePricing'
+  const usage = useUsageSummary(isUsage ? displayPrice : undefined, currency)
+
+  return (
+    <>
+      {displayPrice.pricing.case === 'creditPricing' ? (
+        <CreditPackPrice price={displayPrice} currency={currency} billingLabel={billingLabel} />
+      ) : displayPrice.pricing.case === 'capacityPricing' ? (
+        <CapacityPrice price={displayPrice} currency={currency} billingLabel={billingLabel} />
+      ) : (
+        <div className="flex items-center justify-end gap-1">
+          {usage ? (
+            <span>
+              {usage.model && (
+                <>
+                  <span className="text-muted-foreground">{usage.model}</span>{' '}
+                </>
+              )}
+              {usage.amount}
+            </span>
+          ) : (
+            <span>{formatCurrency(unitPrice, currency)}</span>
+          )}
+          <Badge variant="secondary" size="sm">
+            {billingLabel}
+          </Badge>
+        </div>
+      )}
+      {usage?.note && <div className="text-xs text-muted-foreground">{usage.note}</div>}
+    </>
+  )
+}
+
 const ExtraComponentCard = ({
   component,
   currency,
@@ -977,10 +1135,7 @@ const ExtraComponentCard = ({
   onExampleQuantityChange?: (value: string) => void
 }) => {
   const displayPrice = formDataToPrice(component.feeType, component.formData, currency)
-  const unitPrice = getPriceUnitPrice(displayPrice)
-  const billingLabel = getPriceBillingLabel(displayPrice)
   const isUsage = displayPrice.pricing.case === 'usagePricing'
-  const usage = useUsageSummary(isUsage ? displayPrice : undefined, currency)
   const isMatrixUsage =
     displayPrice.pricing.case === 'usagePricing' &&
     displayPrice.pricing.value.model.case === 'matrix'
@@ -1002,38 +1157,7 @@ const ExtraComponentCard = ({
               </div>
             </div>
             <div className="text-sm font-medium text-right">
-              {displayPrice.pricing.case === 'creditPricing' ? (
-                <CreditPackPrice
-                  price={displayPrice}
-                  currency={currency}
-                  billingLabel={billingLabel}
-                />
-              ) : displayPrice.pricing.case === 'capacityPricing' ? (
-                <CapacityPrice
-                  price={displayPrice}
-                  currency={currency}
-                  billingLabel={billingLabel}
-                />
-              ) : (
-                <div className="flex items-center justify-end gap-1">
-                  {usage ? (
-                    <span>
-                      {usage.model && (
-                        <>
-                          <span className="text-muted-foreground">{usage.model}</span>{' '}
-                        </>
-                      )}
-                      {usage.amount}
-                    </span>
-                  ) : (
-                    <span>{formatCurrency(unitPrice, currency)}</span>
-                  )}
-                  <Badge variant="secondary" size="sm">
-                    {billingLabel}
-                  </Badge>
-                </div>
-              )}
-              {usage?.note && <div className="text-xs text-muted-foreground">{usage.note}</div>}
+              <ExtraComponentPrice component={component} currency={currency} />
             </div>
           </div>
           <div className="flex gap-1 ml-4">
@@ -1060,7 +1184,7 @@ const ExtraComponentCard = ({
 
 // --- Add Fee Modal — two tabs: product library + custom fee ---
 
-interface AddFeeModalProps {
+export interface AddFeeModalProps {
   onClose: () => void
   onAdd: (component: ExtraComponent) => void
   currency: string
@@ -1068,7 +1192,7 @@ interface AddFeeModalProps {
   isEditing?: boolean
 }
 
-const AddFeeModal = ({
+export const AddFeeModal = ({
   onClose,
   onAdd,
   currency,
@@ -1241,7 +1365,7 @@ interface OverrideFeeModalProps {
   currency: string
 }
 
-const OverrideFeeModal = ({
+export const OverrideFeeModal = ({
   componentId,
   originalComponent,
   onClose,

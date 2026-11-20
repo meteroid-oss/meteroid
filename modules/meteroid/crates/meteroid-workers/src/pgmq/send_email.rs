@@ -22,12 +22,14 @@ use meteroid_store::domain::pgmq::{
     EmailSendAttempts, PgmqMessage, PgmqMessageNew, PgmqQueue, SendEmailRequest,
 };
 use meteroid_store::errors::StoreError;
+use meteroid_store::hooks::QuoteDocuments;
 use meteroid_store::repositories::customer_emails::{
     CLAIM_IN_FLIGHT_WINDOW, ClaimFinish, ClaimOutcome,
 };
 use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use meteroid_store::repositories::entity_activity::{
-    EntityActivityInterface, EntityActivityInterfaceEmail, SentEmailAttachment, SentEmailNew,
+    EntityActivityInterface, EntityActivityInterfaceEmail, SentEmailAttachment,
+    SentEmailAttachmentKind, SentEmailNew,
 };
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterfaceAuto;
 use meteroid_store::repositories::pgmq::PgmqInterface;
@@ -71,6 +73,7 @@ pub struct EmailSender {
     store: Arc<Store>,
     services: Arc<Services>,
     whitelabel: Arc<dyn WhitelabelResolver>,
+    quote_documents: Arc<dyn QuoteDocuments>,
 }
 
 /// One slim send job; the fat legacy variants are converted into it.
@@ -111,6 +114,7 @@ impl EmailSender {
         store: Arc<Store>,
         services: Arc<Services>,
         whitelabel: Arc<dyn WhitelabelResolver>,
+        quote_documents: Arc<dyn QuoteDocuments>,
     ) -> Self {
         Self {
             mailer,
@@ -120,6 +124,7 @@ impl EmailSender {
             store,
             services,
             whitelabel,
+            quote_documents,
         }
     }
 
@@ -203,6 +208,155 @@ impl EmailSender {
                 })
                 .await
             }
+            SendEmailRequest::QuoteSignatureCode {
+                tenant_id,
+                quote_id,
+                invoicing_entity_id,
+                quote_number,
+                recipient_email,
+                code,
+                expires_in_minutes,
+                ..
+            } => {
+                let delivery = self.store.email_delivery(tenant_id).await?;
+                let recipients = delivery.reaches(&[recipient_email]);
+                // The request checked delivery before queuing: only a settings change since lands here.
+                if recipients.is_empty() {
+                    log::warn!(
+                        "Signature code of quote {quote_id} not delivered: the workspace's email delivery changed after it was requested"
+                    );
+                    return Ok(());
+                }
+                let entity = self
+                    .store
+                    .get_invoicing_entity(tenant_id, Some(invoicing_entity_id))
+                    .await?;
+                let settings = self.store.get_email_settings(tenant_id, entity.id).await?;
+                let customer = self
+                    .store
+                    .find_customer_by_id(
+                        self.store
+                            .get_quote_by_id(tenant_id, quote_id)
+                            .await?
+                            .customer_id,
+                        tenant_id,
+                    )
+                    .await?;
+                let lang = customer_locale_for(&entity, &customer.preferred_locales);
+                let whitelabel = self.whitelabel.is_whitelabel(tenant_id).await;
+                let test_mode = tenant_test_mode(&self.store, tenant_id).await?;
+                let layout =
+                    layout_for_entity(&entity, lang, &self.rest_api_url, whitelabel, test_mode);
+                let rendered = render(
+                    &layout,
+                    Subject::Fixed,
+                    Body::QuoteSignatureCode {
+                        quote_number,
+                        code,
+                        expires_in_minutes,
+                    },
+                )
+                .change_context(StoreError::MailServiceError)?;
+                let sender = sender_ctx(&settings, &entity, self.mailer.customer_from_addr())?;
+                // A one-time code goes to the signer only: no bcc copy.
+                let mut sender = sender;
+                sender.bcc = vec![];
+                let email = sender.email(
+                    recipients.iter().cloned().map(recipient).collect(),
+                    rendered,
+                    vec![],
+                );
+                self.mailer
+                    .send(email)
+                    .await
+                    .change_context(StoreError::MailServiceError)?;
+                Ok(())
+            }
+            SendEmailRequest::QuoteMessage {
+                tenant_id,
+                quote_id,
+                invoicing_entity_id,
+                quote_number,
+                customer_name,
+                author_name,
+                body,
+                change_request,
+                recipient_email,
+                portal_url,
+                ..
+            } => {
+                let to_team = portal_url.is_none();
+                // Team notifications, as alerts, ignore the customer delivery mode.
+                let recipients = if to_team {
+                    deliverable(&[recipient_email])
+                } else {
+                    self.store
+                        .email_delivery(tenant_id)
+                        .await?
+                        .deliverable(&deliverable(&[recipient_email]))
+                };
+                if recipients.is_empty() {
+                    log::info!(
+                        "Message on quote {quote_id} not delivered (test mode or emails off)"
+                    );
+                    return Ok(());
+                }
+                let link = match portal_url {
+                    Some(url) => url,
+                    None => self.quote_app_link(tenant_id, quote_id).await?,
+                };
+                let entity = self
+                    .store
+                    .get_invoicing_entity(tenant_id, Some(invoicing_entity_id))
+                    .await?;
+                let settings = self.store.get_email_settings(tenant_id, entity.id).await?;
+                let lang = if to_team {
+                    customer_locale_for(&entity, &[])
+                } else {
+                    let customer = self
+                        .store
+                        .find_customer_by_id(
+                            self.store
+                                .get_quote_by_id(tenant_id, quote_id)
+                                .await?
+                                .customer_id,
+                            tenant_id,
+                        )
+                        .await?;
+                    customer_locale_for(&entity, &customer.preferred_locales)
+                };
+                let whitelabel = self.whitelabel.is_whitelabel(tenant_id).await;
+                let test_mode = tenant_test_mode(&self.store, tenant_id).await?;
+                let layout =
+                    layout_for_entity(&entity, lang, &self.rest_api_url, whitelabel, test_mode);
+                let rendered = render(
+                    &layout,
+                    Subject::Fixed,
+                    Body::QuoteMessage {
+                        quote_number,
+                        customer_name,
+                        author_name,
+                        body,
+                        change_request,
+                        cta: Cta::new(link),
+                    },
+                )
+                .change_context(StoreError::MailServiceError)?;
+                let mut sender = sender_ctx(&settings, &entity, self.mailer.customer_from_addr())?;
+                if to_team {
+                    sender.bcc = vec![];
+                }
+                let email = sender.email(
+                    recipients.iter().cloned().map(recipient).collect(),
+                    rendered,
+                    vec![],
+                );
+                self.mailer
+                    .send(email)
+                    .await
+                    .change_context(StoreError::MailServiceError)?;
+                Ok(())
+            }
             SendEmailRequest::QuoteReady {
                 tenant_id,
                 quote_id,
@@ -244,6 +398,7 @@ impl EmailSender {
                 {
                     return self
                         .record_quote_skip(
+                            EmailKind::QuoteReady,
                             tenant_id,
                             quote_id,
                             customer_id,
@@ -259,7 +414,13 @@ impl EmailSender {
                         SkipReason::TestMode
                     };
                     return self
-                        .record_quote_skip(tenant_id, quote_id, customer_id, reason)
+                        .record_quote_skip(
+                            EmailKind::QuoteReady,
+                            tenant_id,
+                            quote_id,
+                            customer_id,
+                            reason,
+                        )
                         .await;
                 }
                 let customer = self
@@ -327,6 +488,216 @@ impl EmailSender {
                     }
                 }
                 Ok(())
+            }
+            SendEmailRequest::QuoteAccepted {
+                tenant_id,
+                quote_id,
+                invoicing_entity_id,
+                quote_number,
+                accepted_on,
+                recipient_email,
+                portal_url,
+            } => {
+                let kind = EmailKind::QuoteAccepted;
+                // Issued before any skip, so the signed PDF is frozen as of the acceptance.
+                let signed_pdf = match self.quote_documents.signed_pdf(tenant_id, quote_id).await {
+                    Ok(pdf) => pdf,
+                    Err(e) => {
+                        log::error!("Quote {quote_id} accepted email: no signed PDF: {e:?}");
+                        None
+                    }
+                };
+                let entity = self
+                    .store
+                    .get_invoicing_entity(tenant_id, Some(invoicing_entity_id))
+                    .await?;
+                let settings = self.store.get_email_settings(tenant_id, entity.id).await?;
+                if !settings.is_enabled(kind) {
+                    return Ok(());
+                }
+                let customer_id = self
+                    .store
+                    .get_quote_by_id(tenant_id, quote_id)
+                    .await?
+                    .customer_id;
+                if self
+                    .store
+                    .email_audience_suppresses(
+                        tenant_id,
+                        entity.id,
+                        kind,
+                        AudienceSubject::Customer(customer_id),
+                    )
+                    .await?
+                {
+                    return self
+                        .record_quote_skip(
+                            kind,
+                            tenant_id,
+                            quote_id,
+                            customer_id,
+                            SkipReason::AudienceExcluded,
+                        )
+                        .await;
+                }
+                let delivery = self.store.email_delivery(tenant_id).await?;
+                let recipients = delivery.reaches(std::slice::from_ref(&recipient_email));
+                if recipients.is_empty() {
+                    let reason = if delivery.is_off() {
+                        SkipReason::EmailsOff
+                    } else {
+                        SkipReason::TestMode
+                    };
+                    return self
+                        .record_quote_skip(kind, tenant_id, quote_id, customer_id, reason)
+                        .await;
+                }
+                let customer = self
+                    .store
+                    .find_customer_by_id(customer_id, tenant_id)
+                    .await?;
+                let lang = customer_locale_for(&entity, &customer.preferred_locales);
+                let whitelabel = self.whitelabel.is_whitelabel(tenant_id).await;
+                let test_mode = tenant_test_mode(&self.store, tenant_id).await?;
+                let layout =
+                    layout_for_entity(&entity, lang, &self.rest_api_url, whitelabel, test_mode);
+                let rendered = render(
+                    &layout,
+                    Subject::Fixed,
+                    Body::QuoteAccepted {
+                        quote_number,
+                        accepted_on,
+                        cta: Cta::new(portal_url),
+                    },
+                )
+                .change_context(StoreError::MailServiceError)?;
+                let mut sender = sender_ctx(&settings, &entity, self.mailer.customer_from_addr())?;
+                sender.bcc = delivery.deliverable(&sender.bcc);
+                let (from, reply_to) = (sender.from.clone(), sender.reply_to.clone());
+                let sent_attachments: Vec<SentEmailAttachment> = signed_pdf
+                    .iter()
+                    .filter_map(|pdf| {
+                        pdf.document_id.map(|id| SentEmailAttachment {
+                            filename: pdf.filename.clone(),
+                            id,
+                            kind: SentEmailAttachmentKind::QuotePdf,
+                        })
+                    })
+                    .collect();
+                let attachments = signed_pdf
+                    .into_iter()
+                    .map(|pdf| EmailAttachment {
+                        filename: pdf.filename,
+                        content: pdf.content,
+                        type_: EmailAttachmentType::Pdf,
+                    })
+                    .collect();
+                let email = sender.email(
+                    recipients.iter().cloned().map(recipient).collect(),
+                    rendered.clone(),
+                    attachments,
+                );
+
+                let dedupe_key = format!(
+                    "{kind}:{quote_id}:{}",
+                    recipient_email.trim().to_lowercase()
+                );
+                if !self.claim_quote_email(tenant_id, &dedupe_key).await? {
+                    return Ok(());
+                }
+                let mut sent_id = None;
+                if self.send_claimed(tenant_id, &dedupe_key, email).await? {
+                    sent_id = match self
+                        .store
+                        .record_email_sent(
+                            Actor::System,
+                            SentEmailNew {
+                                tenant_id,
+                                entity_type: EntityType::Quote,
+                                entity_id: quote_id.as_uuid(),
+                                agg_customer_id: Some(customer_id),
+                                agg_subscription_id: None,
+                                kind: kind.to_string(),
+                                subject: rendered.subject,
+                                from_addr: from,
+                                reply_to,
+                                recipients,
+                                body_html: rendered.body_html,
+                                attachments: sent_attachments,
+                                invoicing_entity_id: Some(entity.id),
+                                locale: Some(lang.to_string()),
+                                context: None,
+                                dedupe_key: Some(dedupe_key.clone()),
+                                resent_from: None,
+                            },
+                        )
+                        .await
+                    {
+                        Ok(id) => Some(id),
+                        Err(e) => {
+                            log::warn!("{dedupe_key} sent but not recorded: {e:?}");
+                            None
+                        }
+                    };
+                }
+                self.store
+                    .finish_email_send(tenant_id, &dedupe_key, ClaimFinish::Sent, sent_id)
+                    .await
+            }
+            SendEmailRequest::QuoteOutcome {
+                tenant_id,
+                quote_id,
+                invoicing_entity_id,
+                quote_number,
+                customer_name,
+                accepted,
+                reason,
+                recipient_email,
+            } => {
+                // A team notification: the customer delivery mode does not apply.
+                let recipients = deliverable(&[recipient_email]);
+                if recipients.is_empty() {
+                    return Ok(());
+                }
+                let entity = self
+                    .store
+                    .get_invoicing_entity(tenant_id, Some(invoicing_entity_id))
+                    .await?;
+                let settings = self.store.get_email_settings(tenant_id, entity.id).await?;
+                let lang = customer_locale_for(&entity, &[]);
+                let whitelabel = self.whitelabel.is_whitelabel(tenant_id).await;
+                let test_mode = tenant_test_mode(&self.store, tenant_id).await?;
+                let layout =
+                    layout_for_entity(&entity, lang, &self.rest_api_url, whitelabel, test_mode);
+                let rendered = render(
+                    &layout,
+                    Subject::Fixed,
+                    Body::QuoteOutcome {
+                        quote_number,
+                        customer_name,
+                        accepted,
+                        reason,
+                        cta: Cta::new(self.quote_app_link(tenant_id, quote_id).await?),
+                    },
+                )
+                .change_context(StoreError::MailServiceError)?;
+                let mut sender = sender_ctx(&settings, &entity, self.mailer.customer_from_addr())?;
+                sender.bcc = vec![];
+                let email = sender.email(
+                    recipients.iter().cloned().map(recipient).collect(),
+                    rendered,
+                    vec![],
+                );
+
+                let outcome = if accepted { "accepted" } else { "declined" };
+                let dedupe_key = format!("quote_outcome:{quote_id}:{outcome}");
+                if !self.claim_quote_email(tenant_id, &dedupe_key).await? {
+                    return Ok(());
+                }
+                self.send_claimed(tenant_id, &dedupe_key, email).await?;
+                self.store
+                    .finish_email_send(tenant_id, &dedupe_key, ClaimFinish::Sent, None)
+                    .await
             }
             SendEmailRequest::AlertTriggered {
                 tenant_id,
@@ -670,14 +1041,78 @@ impl EmailSender {
         self.requeue(job, attempts, reason.delay_seconds()).await
     }
 
+    /// The quote in the app, for the team.
+    async fn quote_app_link(
+        &self,
+        tenant_id: TenantId,
+        quote_id: QuoteId,
+    ) -> Result<String, Report<StoreError>> {
+        let tenant = self.store.find_tenant_by_id(tenant_id).await?;
+        Ok(format!(
+            "{}/{}/{}/quotes/{quote_id}",
+            self.public_url.trim_end_matches('/'),
+            tenant.organization.slug,
+            tenant.tenant.slug,
+        ))
+    }
+
+    /// Claims a quote email once: `false` when it was sent, or another sender has it.
+    async fn claim_quote_email(
+        &self,
+        tenant_id: TenantId,
+        dedupe_key: &str,
+    ) -> Result<bool, Report<StoreError>> {
+        let now = common_clock::now().naive_utc();
+        match self
+            .store
+            .claim_email_send(tenant_id, dedupe_key, now)
+            .await?
+        {
+            ClaimOutcome::Won => Ok(true),
+            ClaimOutcome::AlreadySent => Ok(false),
+            ClaimOutcome::InFlight => {
+                log::warn!("Dropping duplicate {dedupe_key}: claim in flight");
+                Ok(false)
+            }
+            // Released since: the retried message wins it.
+            ClaimOutcome::Released => Err(Report::new(StoreError::InvalidArgument(format!(
+                "claim {dedupe_key} released, retrying"
+            )))),
+            ClaimOutcome::Stale => {
+                self.store.mark_claim_unknown(tenant_id, dedupe_key).await?;
+                log::error!("{dedupe_key}: its sender died mid-send, delivery unknown");
+                Ok(false)
+            }
+        }
+    }
+
+    /// Sends under a won claim, released on a transport error so the retried message re-wins it.
+    async fn send_claimed(
+        &self,
+        tenant_id: TenantId,
+        dedupe_key: &str,
+        email: Email,
+    ) -> Result<bool, Report<StoreError>> {
+        match self.mailer.send(email).await {
+            Ok(delivered) => Ok(delivered),
+            Err(e) => {
+                self.store
+                    .finish_email_send(tenant_id, dedupe_key, ClaimFinish::Failed, None)
+                    .await?;
+                Err(e.change_context(StoreError::MailServiceError))
+            }
+        }
+    }
+
     async fn record_quote_skip(
         &self,
+        kind: EmailKind,
         tenant_id: TenantId,
         quote_id: QuoteId,
         customer_id: CustomerId,
         reason: SkipReason,
     ) -> Result<(), Report<StoreError>> {
-        log::info!("Skipping quote_ready for quote {quote_id}: {reason}");
+        log::info!("Skipping {kind} for quote {quote_id}: {reason}");
         let target = EmailTarget {
             entity_type: EntityType::Quote,
             entity_id: quote_id.as_uuid(),
@@ -691,7 +1126,7 @@ impl EmailSender {
                 AuditInput::Activity(activity(
                     ActivityType::EmailSkipped,
                     &target,
-                    serde_json::json!({ "kind": EmailKind::QuoteReady, "reason": reason }),
+                    serde_json::json!({ "kind": kind, "reason": reason }),
                 )),
             )
             .await

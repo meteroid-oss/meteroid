@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package meteroid.api.quotecomments.v1;
+
+import "api/quotes/v1/models.proto";
+
+// The discussion on a quote (Enterprise, cpq module). Recipients write from the portal.
+
+message ListQuoteCommentsRequest {
+  string quote_id = 1;
+}
+
+message ListQuoteCommentsResponse {
+  repeated meteroid.api.quotes.v1.QuoteComment comments = 1;
+}
+
+message AddQuoteCommentRequest {
+  string quote_id = 1;
+  string body = 2;
+  // Visible to the customer in the portal, who is emailed; otherwise a team note.
+  bool shared = 3;
+  // The name of the quote line the comment is about.
+  optional string anchor = 4;
+}
+
+message AddQuoteCommentResponse {
+  meteroid.api.quotes.v1.QuoteComment comment = 1;
+}
+
+message ResolveQuoteChangeRequestRequest {
+  string comment_id = 1;
+}
+
+message ResolveQuoteChangeRequestResponse {
+  meteroid.api.quotes.v1.QuoteComment comment = 1;
+}
+
+service QuoteCommentsService {
+  rpc ListQuoteComments(ListQuoteCommentsRequest) returns (ListQuoteCommentsResponse) {}
+  rpc AddQuoteComment(AddQuoteCommentRequest) returns (AddQuoteCommentResponse) {}
+  rpc ResolveQuoteChangeRequest(ResolveQuoteChangeRequestRequest) returns (ResolveQuoteChangeRequestResponse) {}
+}

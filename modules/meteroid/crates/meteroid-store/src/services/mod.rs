@@ -51,6 +51,7 @@ mod payment;
 pub(crate) mod portal_credit;
 mod prices;
 pub mod promo_code_attempts;
+pub mod quote_totals;
 mod quotes;
 pub mod sandbox_replay;
 pub(crate) mod served_usage;

@@ -34,6 +34,8 @@ pub enum ObjectKind {
     BatchJobInput,
     BatchJobErrorOutput,
     TaxReport,
+    QuoteCertificatePdf,
+    QuotePdf,
 }
 
 impl ObjectKind {
@@ -51,6 +53,8 @@ impl ObjectKind {
             ObjectKind::BatchJobInput => "batch_job".to_string(),
             ObjectKind::BatchJobErrorOutput => "batch_job_errors".to_string(),
             ObjectKind::TaxReport => "tax_report".to_string(),
+            ObjectKind::QuoteCertificatePdf => "quote_certificate_pdf".to_string(),
+            ObjectKind::QuotePdf => "quote_pdf".to_string(),
         }
     }
 
@@ -66,6 +70,8 @@ impl ObjectKind {
             ObjectKind::BatchJobInput => StoredObjectKindEnum::BatchJobInput,
             ObjectKind::BatchJobErrorOutput => StoredObjectKindEnum::BatchJobErrorOutput,
             ObjectKind::TaxReport => StoredObjectKindEnum::TaxReport,
+            ObjectKind::QuoteCertificatePdf => StoredObjectKindEnum::QuoteCertificatePdf,
+            ObjectKind::QuotePdf => StoredObjectKindEnum::QuotePdf,
         }
     }
 

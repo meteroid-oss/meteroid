@@ -1017,7 +1017,7 @@ fn format_currency_dec(amount: Decimal, currency: &iso::Currency) -> String {
     meteroid_money::Money::from_decimal(amount, currency).to_string()
 }
 
-pub(crate) fn load_fonts() -> Result<Vec<Font>, InvoicingError> {
+pub fn load_fonts() -> Result<Vec<Font>, InvoicingError> {
     fn load(data: &'static [u8], name: &str) -> Result<Font, InvoicingError> {
         Font::new(Bytes::new(data), 0)
             .ok_or_else(|| InvoicingError::I18nError(format!("Failed to load {name} font")))

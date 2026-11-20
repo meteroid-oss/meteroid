@@ -517,3 +517,29 @@ impl QuoteComponentRowNew {
             .into_db_result()
     }
 }
+
+impl QuoteRow {
+    /// HubSpot deals of the quotes the subscriptions were converted from.
+    pub async fn list_deal_links_by_subscription_ids(
+        conn: &mut PgConn,
+        subscription_ids: &[common_domain::ids::SubscriptionId],
+    ) -> DbResult<Vec<(common_domain::ids::SubscriptionId, String)>> {
+        use crate::schema::quote::dsl as q;
+        use diesel::NullableExpressionMethods;
+        use diesel_async::RunQueryDsl;
+
+        let query = q::quote
+            .filter(q::converted_to_subscription_id.eq_any(subscription_ids))
+            .filter(q::hubspot_deal_id.is_not_null())
+            .select((
+                q::converted_to_subscription_id.assume_not_null(),
+                q::hubspot_deal_id.assume_not_null(),
+            ));
+        crate::debug_sql(&query);
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing quote deal links")
+            .into_db_result()
+    }
+}

@@ -950,3 +950,117 @@ async fn a_checkout_preview_s_fees_live_from_its_billing_start(#[future] test_en
             .all(|add_on| add_on.effective_from == start_date)
     );
 }
+
+/// A checkout charges the first invoice creation bills: with an annual fee listed before a
+/// monthly one, the subscription bills monthly, its shortest cadence, and so does the checkout.
+#[rstest]
+#[tokio::test]
+async fn a_mixed_cadence_checkout_charges_the_first_invoice_creation_bills(
+    #[future] test_env: TestEnv,
+) {
+    use crate::data::plans::{PlanSeed, SeedComp};
+    use common_domain::ids::{BaseId, PlanId, PlanVersionId, PriceComponentId, PriceId};
+    use diesel_models::enums::BillingPeriodEnum as DieselBillingPeriodEnum;
+    use meteroid_store::domain::{BillingPeriodEnum, BillingType, SubscriptionFeeBillingPeriod};
+    use rust_decimal_macros::dec;
+
+    let env = test_env.await;
+    env.seed_payments().await;
+    let plan_version_id = PlanVersionId::new();
+    PlanSeed::new(PlanId::new(), "Annual and monthly", plan_version_id)
+        .components(vec![
+            SeedComp::rate(
+                PriceComponentId::new(),
+                "Platform Fee",
+                PRODUCT_PLATFORM_FEE_ID,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Annual,
+                dec!(1200),
+            ),
+            SeedComp::extra_recurring(
+                PriceComponentId::new(),
+                "Support",
+                PRODUCT_EXTRA_ADVANCE_ID,
+                PriceId::new(),
+                DieselBillingPeriodEnum::Monthly,
+                dec!(50),
+                1,
+                BillingType::Advance,
+            ),
+        ])
+        .seed(&mut env.conn().await)
+        .await
+        .unwrap();
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 3, 1).unwrap();
+    let session = env
+        .store()
+        .create_checkout_session(CreateCheckoutSession {
+            tenant_id: TENANT_ID,
+            customer_id: CUST_UBER_ID,
+            plan_version_id,
+            billing_start_date: Some(start_date),
+            billing_day_anchor: Some(1),
+            net_terms: None,
+            trial_duration_days: None,
+            end_date: None,
+            auto_advance_invoices: true,
+            charge_automatically: true,
+            invoice_memo: None,
+            invoice_threshold: None,
+            purchase_order: None,
+            payment_methods_config: None,
+            components: None,
+            add_ons: None,
+            coupon_code: None,
+            coupon_ids: vec![],
+            expires_in_hours: Some(24),
+            metadata: None,
+            checkout_type: CheckoutType::SelfServe,
+            subscription_id: None,
+            change_date: None,
+            success_url: None,
+            cancel_url: None,
+        })
+        .await
+        .expect("checkout session");
+
+    let preview = env
+        .services()
+        .build_preview_subscription_details(&session, TENANT_ID, None)
+        .await
+        .expect("preview");
+    assert_eq!(
+        preview.price_components[0].period,
+        SubscriptionFeeBillingPeriod::Annual,
+        "the annual fee comes first"
+    );
+    assert_eq!(preview.subscription.period, BillingPeriodEnum::Monthly);
+
+    // The year's platform fee and the first month of support, both in advance.
+    let charged = 125_000;
+    let result = env
+        .services()
+        .complete_checkout(
+            TENANT_ID,
+            session.id,
+            CUST_UBER_PAYMENT_METHOD_ID,
+            charged,
+            "EUR".to_string(),
+            None,
+        )
+        .await
+        .expect("the checkout charges what the first invoice bills");
+    let CheckoutCompletionResult::Completed {
+        subscription_id, ..
+    } = result
+    else {
+        panic!("the checkout completes");
+    };
+
+    let sub = env.get_subscription(subscription_id).await;
+    assert!(matches!(sub.period, DieselBillingPeriodEnum::Monthly));
+    let invoices = env.get_invoices(subscription_id).await;
+    invoices.assert().has_count(1);
+    invoices.assert().invoice_at(0).has_total(charged as i64);
+}

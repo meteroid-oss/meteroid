@@ -232,6 +232,7 @@ async fn run_email_worker_once(env: &TestEnv) -> Vec<Email> {
         env.setup.object_store.clone(),
         config.public_url.clone(),
         config.rest_api_external_url.clone(),
+        env.setup.quote_documents.clone(),
     )
     .await
     .expect("email worker");
@@ -556,6 +557,7 @@ async fn only_payment_reminders_ship_disabled(#[future] test_env: TestEnv) {
         api::EmailKind::InvoiceReady,
         api::EmailKind::InvoicePaid,
         api::EmailKind::QuoteReady,
+        api::EmailKind::QuoteAccepted,
         api::EmailKind::CreditNoteIssued,
         api::EmailKind::PaymentFailed,
         api::EmailKind::AuthenticationRequired,
@@ -570,7 +572,7 @@ async fn only_payment_reminders_ship_disabled(#[future] test_env: TestEnv) {
         !kind_enabled(&settings, api::EmailKind::PaymentReminder),
         "reminders need a deliberate sequence: off until enabled"
     );
-    assert_eq!(settings.kinds.len(), 11, "{:?}", enabled_kinds(&settings));
+    assert_eq!(settings.kinds.len(), 12, "{:?}", enabled_kinds(&settings));
 
     // An entity created after the migration gets the disabled set written explicitly.
     let created = create_entity(&env, "Fresh").await;
@@ -3138,6 +3140,15 @@ async fn create_quote_for(env: &TestEnv, customer: CustomerId) -> QuoteId {
                 payment_methods_config: None,
                 entitlements: vec![],
                 custom_properties: None,
+                template_id: None,
+                line_details: vec![],
+                display_options: None,
+                sections: vec![],
+                signature_level: 0,
+                consent_text: None,
+                countersigners: vec![],
+                hubspot_deal_id: None,
+                customer_actions: None,
             }),
         })
         .await

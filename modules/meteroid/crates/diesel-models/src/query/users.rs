@@ -60,6 +60,35 @@ impl UserRow {
             .into_db_result()
     }
 
+    /// The active members among `ids` of the organization owning the tenant.
+    pub async fn find_members_by_ids(
+        conn: &mut PgConn,
+        ids: &[UserId],
+        tenant_id: TenantId,
+    ) -> DbResult<Vec<UserRow>> {
+        use crate::schema::organization_member::dsl as om_dsl;
+        use crate::schema::tenant::dsl as t_dsl;
+        use crate::schema::user::dsl as u_dsl;
+        use diesel_async::RunQueryDsl;
+
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let query = u_dsl::user
+            .inner_join(om_dsl::organization_member.on(u_dsl::id.eq(om_dsl::user_id)))
+            .inner_join(t_dsl::tenant.on(om_dsl::organization_id.eq(t_dsl::organization_id)))
+            .filter(u_dsl::id.eq_any(ids))
+            .filter(u_dsl::archived_at.is_null())
+            .filter(t_dsl::id.eq(tenant_id))
+            .select(UserRow::as_select());
+        crate::debug_sql(&query);
+        query
+            .load(conn)
+            .await
+            .attach("Error while finding members by ids")
+            .into_db_result()
+    }
+
     pub async fn find_by_id_and_org_id(
         conn: &mut PgConn,
         id: Uuid,

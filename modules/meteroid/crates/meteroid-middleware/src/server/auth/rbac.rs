@@ -115,7 +115,18 @@ pub fn method_auth(sm: &GrpcServiceMethod) -> Option<RouteAuth> {
         "InvoicesService" | "CreditNotesService" => rw(method, InvoicesRead, InvoicesManage),
         // Customer credit is drawn by invoices and corrected by credit notes.
         "WalletsService" | "WalletControlsService" => rw(method, InvoicesRead, InvoicesManage),
-        "QuotesService" => rw(method, QuotesRead, QuotesManage),
+        "QuotesService"
+        | "QuoteDocumentsService"
+        | "QuoteTemplatesService"
+        | "QuoteAnalyticsService"
+        | "QuoteCommentsService" => rw(method, QuotesRead, QuotesManage),
+        // Rules are a governance setting; requesting and deciding approvals is quote work.
+        "QuoteApprovalsService" => match method {
+            "CreateQuoteApprovalRule" | "UpdateQuoteApprovalRule" | "ArchiveQuoteApprovalRule" => {
+                RouteAuth::Requires(SettingsManage)
+            }
+            _ => rw(method, QuotesRead, QuotesManage),
+        },
 
         // ---- product catalog ----
         "PlansService"
@@ -494,6 +505,11 @@ mod tests {
             (
                 "meteroid.api.quotes.v1.QuotesService",
                 "ListQuotes",
+                QuotesRead,
+            ),
+            (
+                "meteroid.api.quotes.v1.QuotesService",
+                "PreviewQuotePortal",
                 QuotesRead,
             ),
             (

@@ -43,6 +43,11 @@ types:
     - meteroid.api.productfamilies.v1.ProductFamiliesService
     - meteroid.api.products.v1.ProductsService
     - meteroid.api.quotes.v1.QuotesService
+    - meteroid.api.quotes.v1.QuoteDocumentsService
+    - meteroid.api.quoteanalytics.v1.QuoteAnalyticsService
+    - meteroid.api.quoteapprovals.v1.QuoteApprovalsService
+    - meteroid.api.quotecomments.v1.QuoteCommentsService
+    - meteroid.api.quotetemplates.v1.QuoteTemplatesService
     - meteroid.api.savedviews.v1.SavedViewsService
     - meteroid.api.listviews.v1.ListViewsService
     - meteroid.api.schedules.v1.SchedulesService
@@ -74,6 +79,8 @@ types:
     - meteroid.api.webhooks.out.v1.WebhooksService
     - meteroid.portal.checkout.v1.PortalCheckoutService
     - meteroid.portal.quotes.v1.PortalQuoteService
+    - meteroid.portal.quotes.v1.PortalQuoteSignatureCodesService
+    - meteroid.portal.quotes.v1.PortalQuoteDocumentsService
     - meteroid.portal.customer.v1.PortalCustomerService
     - meteroid.portal.purchase.v1.PurchaseService
     - meteroid.portal.shared.v1.PortalSharedService

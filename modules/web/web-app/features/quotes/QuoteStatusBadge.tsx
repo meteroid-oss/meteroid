@@ -1,6 +1,6 @@
 import { Badge } from '@md/ui'
 
-import { QuoteStatus } from '@/rpc/api/quotes/v1/models_pb'
+import { QuoteApprovalStatus, QuoteStatus } from '@/rpc/api/quotes/v1/models_pb'
 
 interface Props {
   status: QuoteStatus
@@ -24,3 +24,18 @@ export const QuoteStatusBadge = ({ status }: Props) => {
       return null
   }
 }
+
+export const QuoteApprovalBadge = ({ status }: { status: QuoteApprovalStatus }) => {
+  switch (status) {
+    case QuoteApprovalStatus.APPROVAL_PENDING:
+      return <Badge variant="warning">Approval pending</Badge>
+    case QuoteApprovalStatus.APPROVAL_APPROVED:
+      return <Badge variant="success">Approved</Badge>
+    case QuoteApprovalStatus.APPROVAL_REJECTED:
+      return <Badge variant="destructive">Approval rejected</Badge>
+    default:
+      return null
+  }
+}
+
+export const ChangesRequestedBadge = () => <Badge variant="warning">Changes requested</Badge>

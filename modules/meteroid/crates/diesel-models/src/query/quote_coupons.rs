@@ -1,8 +1,8 @@
 use crate::errors::IntoDbResult;
 use crate::quote_coupons::{QuoteCouponRow, QuoteCouponRowNew};
 use crate::{DbResult, PgConn};
-use common_domain::ids::QuoteId;
-use diesel::{ExpressionMethods, QueryDsl};
+use common_domain::ids::{CouponId, QuoteId, TenantId};
+use diesel::{BoolExpressionMethods, ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
 
 impl QuoteCouponRowNew {
@@ -58,6 +58,42 @@ impl QuoteCouponRow {
             .load(conn)
             .await
             .attach("Error while listing quote coupons")
+            .into_db_result()
+    }
+
+    /// Numbers of the quotes offering the coupon that can still become a subscription with it:
+    /// pending, or accepted and not converted yet.
+    pub async fn list_open_quote_numbers_by_coupon_id(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        coupon_id: CouponId,
+        limit: i64,
+    ) -> DbResult<Vec<String>> {
+        use crate::enums::QuoteStatusEnum;
+        use crate::schema::quote::dsl as q;
+        use crate::schema::quote_coupon::dsl as qc;
+        use diesel_async::RunQueryDsl;
+
+        let query = qc::quote_coupon
+            .inner_join(q::quote)
+            .filter(qc::coupon_id.eq(coupon_id))
+            .filter(q::tenant_id.eq(tenant_id))
+            .filter(
+                q::status.eq(QuoteStatusEnum::Pending).or(q::status
+                    .eq(QuoteStatusEnum::Accepted)
+                    .and(q::converted_to_subscription_id.is_null())),
+            )
+            .select(q::quote_number)
+            .distinct()
+            .order(q::quote_number.asc())
+            .limit(limit);
+
+        crate::debug_sql(&query);
+
+        query
+            .load(conn)
+            .await
+            .attach("Error while listing the open quotes of a coupon")
             .into_db_result()
     }
 

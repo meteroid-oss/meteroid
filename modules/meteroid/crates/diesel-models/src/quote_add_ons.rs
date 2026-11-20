@@ -15,6 +15,10 @@ pub struct QuoteAddOnRow {
     pub product_id: Option<ProductId>,
     pub price_id: Option<PriceId>,
     pub quantity: i32,
+    pub description: Option<String>,
+    pub sort_order: i32,
+    pub discount_percent: Option<rust_decimal::Decimal>,
+    pub list_fee: Option<serde_json::Value>,
 }
 
 #[derive(Insertable, Debug)]
@@ -30,4 +34,8 @@ pub struct QuoteAddOnRowNew {
     pub product_id: Option<ProductId>,
     pub price_id: Option<PriceId>,
     pub quantity: i32,
+    pub description: Option<String>,
+    pub sort_order: i32,
+    pub discount_percent: Option<rust_decimal::Decimal>,
+    pub list_fee: Option<serde_json::Value>,
 }

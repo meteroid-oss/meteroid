@@ -5,6 +5,7 @@ pub mod quotes {
     use crate::subscriptions::mapping::price_components::{
         subscription_fee_billing_period_to_grpc, subscription_fee_to_grpc,
     };
+    use meteroid_grpc::meteroid::api::quotes::v1;
     use meteroid_grpc::meteroid::api::quotes::v1::{
         DetailedQuote, Quote, QuoteComponent, QuoteSignature, QuoteStatus, RecipientDetails,
     };
@@ -109,6 +110,17 @@ pub mod quotes {
             is_override: component.is_override,
             example_usage_quantity: component.example_usage_quantity.map(|q| q.to_string()),
             example_usage_amount,
+            description: component.description.clone(),
+            sort_order: component.sort_order,
+            discount_percent: component
+                .discount_percent
+                .map(|d| d.normalize().to_string()),
+            list_fee: component.list_fee.as_ref().map(|f| {
+                subscription_fee_to_grpc(
+                    f,
+                    component.period.as_billing_period_opt().unwrap_or_default(),
+                )
+            }),
         }
     }
 
@@ -126,15 +138,20 @@ pub mod quotes {
             user_agent: signature.user_agent.clone(),
             verification_token: signature.verification_token.clone(),
             verified_at: signature.verified_at.as_proto(),
+            signer_role: signer_role_to_proto(signature.signer_role) as i32,
+            revision: signature.revision,
+            document_hash: signature.document_hash.clone(),
+            consent_text: signature.consent_text.clone(),
+            code_verified_at: signature.otp_verified_at.as_proto(),
         }
     }
 
     pub fn quote_to_proto(
         quote: &domain::quotes::Quote,
         customer_name: Option<String>,
-        hide_internal_note: bool,
+        for_portal: bool,
     ) -> Quote {
-        Quote {
+        let proto = Quote {
             id: quote.id.as_proto(),
             quote_number: quote.quote_number.clone(),
             status: status_domain_to_server(quote.status) as i32,
@@ -158,11 +175,7 @@ pub mod quotes {
             expires_at: quote.expires_at.as_proto(),
             accepted_at: quote.accepted_at.as_proto(),
             declined_at: quote.declined_at.as_proto(),
-            internal_notes: if hide_internal_note {
-                None
-            } else {
-                quote.internal_notes.clone()
-            },
+            internal_notes: quote.internal_notes.clone(),
             cover_image: quote.cover_image.map(|id| id.as_proto()),
             overview: quote.overview.clone(),
             terms_and_services: quote.terms_and_services.clone(),
@@ -193,6 +206,244 @@ pub mod quotes {
             converted_at: quote.converted_at.as_proto(),
             custom_properties: (!quote.custom_properties.is_null())
                 .then(|| quote.custom_properties.to_string()),
+            revision: quote.revision,
+            document_hash: quote.document_hash.clone(),
+            published_at: quote.published_at.as_proto(),
+            first_viewed_at: quote.first_viewed_at.as_proto(),
+            owner_id: quote
+                .owner_id
+                .map(|id| common_domain::ids::UserId::from(id).as_proto()),
+            template_id: quote.template_id.map(|id| id.as_proto()),
+            decline_reason: quote.decline_reason.clone(),
+            display_options: Some(display_options_to_proto(&quote.display_options)),
+            sections: quote.sections.iter().map(section_to_proto).collect(),
+            signature_level: signature_level_to_proto(quote.signature_level) as i32,
+            consent_text: quote.consent_text.clone(),
+            countersigners: quote
+                .countersigners
+                .iter()
+                .map(countersigner_to_proto)
+                .collect(),
+            approval_status: approval_status_to_proto(quote.approval_status) as i32,
+            hubspot_deal_id: quote.hubspot_deal_id.clone(),
+            max_discount_percent: quote
+                .max_discount_percent
+                .map(|d| d.normalize().to_string()),
+            changes_requested_at: quote.changes_requested_at.as_proto(),
+            customer_actions: Some(v1::QuoteCustomerActions {
+                questions: quote.allow_questions,
+                change_requests: quote.allow_change_requests,
+                decline: quote.allow_decline,
+            }),
+            last_sent_at: quote.last_sent_at.as_proto(),
+        };
+        if !for_portal {
+            return proto;
+        }
+        // The seller's own data; the portal details carry what a signer needs of countersigners.
+        Quote {
+            internal_notes: None,
+            owner_id: None,
+            template_id: None,
+            countersigners: vec![],
+            approval_status: 0,
+            hubspot_deal_id: None,
+            max_discount_percent: None,
+            ..proto
+        }
+    }
+
+    pub fn signer_role_to_proto(role: domain::enums::QuoteSignerRoleEnum) -> v1::QuoteSignerRole {
+        match role {
+            domain::enums::QuoteSignerRoleEnum::Customer => v1::QuoteSignerRole::SignerCustomer,
+            domain::enums::QuoteSignerRoleEnum::Countersigner => {
+                v1::QuoteSignerRole::SignerCountersigner
+            }
+        }
+    }
+
+    pub fn signature_level_to_proto(
+        level: domain::enums::QuoteSignatureLevelEnum,
+    ) -> v1::QuoteSignatureLevel {
+        match level {
+            domain::enums::QuoteSignatureLevelEnum::Simple => v1::QuoteSignatureLevel::Simple,
+            domain::enums::QuoteSignatureLevelEnum::Verified => v1::QuoteSignatureLevel::Verified,
+        }
+    }
+
+    pub fn signature_level_to_domain(
+        level: v1::QuoteSignatureLevel,
+    ) -> domain::enums::QuoteSignatureLevelEnum {
+        match level {
+            v1::QuoteSignatureLevel::Simple => domain::enums::QuoteSignatureLevelEnum::Simple,
+            v1::QuoteSignatureLevel::Verified => domain::enums::QuoteSignatureLevelEnum::Verified,
+        }
+    }
+
+    pub fn approval_status_to_proto(
+        status: domain::enums::QuoteApprovalStatusEnum,
+    ) -> v1::QuoteApprovalStatus {
+        use domain::enums::QuoteApprovalStatusEnum as S;
+        match status {
+            S::NotRequired => v1::QuoteApprovalStatus::ApprovalNotRequired,
+            S::Pending => v1::QuoteApprovalStatus::ApprovalPending,
+            S::Approved => v1::QuoteApprovalStatus::ApprovalApproved,
+            S::Rejected => v1::QuoteApprovalStatus::ApprovalRejected,
+        }
+    }
+
+    pub fn display_options_to_proto(
+        options: &domain::quotes::QuoteDisplayOptions,
+    ) -> v1::QuoteDisplayOptions {
+        v1::QuoteDisplayOptions {
+            hide_zero_lines: options.hide_zero_lines,
+            show_list_price: options.show_list_price,
+        }
+    }
+
+    pub fn display_options_to_domain(
+        options: Option<v1::QuoteDisplayOptions>,
+    ) -> domain::quotes::QuoteDisplayOptions {
+        options
+            .map(|o| domain::quotes::QuoteDisplayOptions {
+                hide_zero_lines: o.hide_zero_lines,
+                show_list_price: o.show_list_price,
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn section_to_proto(section: &domain::quotes::QuoteSection) -> v1::QuoteSection {
+        v1::QuoteSection {
+            title: section.title.clone(),
+            body: section.body.clone(),
+            placement: match section.placement {
+                domain::quotes::QuoteSectionPlacement::BeforePricing => {
+                    v1::QuoteSectionPlacement::BeforePricing
+                }
+                domain::quotes::QuoteSectionPlacement::AfterPricing => {
+                    v1::QuoteSectionPlacement::AfterPricing
+                }
+            } as i32,
+        }
+    }
+
+    pub fn section_to_domain(section: v1::QuoteSection) -> domain::quotes::QuoteSection {
+        domain::quotes::QuoteSection {
+            placement: match section.placement() {
+                v1::QuoteSectionPlacement::BeforePricing => {
+                    domain::quotes::QuoteSectionPlacement::BeforePricing
+                }
+                v1::QuoteSectionPlacement::AfterPricing => {
+                    domain::quotes::QuoteSectionPlacement::AfterPricing
+                }
+            },
+            title: section.title,
+            body: section.body,
+        }
+    }
+
+    pub fn countersigner_to_proto(
+        countersigner: &domain::quotes::QuoteCountersigner,
+    ) -> v1::QuoteCountersigner {
+        v1::QuoteCountersigner {
+            name: countersigner.name.clone(),
+            email: countersigner.email.clone(),
+            title: countersigner.title.clone(),
+            automatic: countersigner.automatic,
+        }
+    }
+
+    pub fn countersigner_to_domain(
+        countersigner: v1::QuoteCountersigner,
+    ) -> domain::quotes::QuoteCountersigner {
+        domain::quotes::QuoteCountersigner {
+            name: countersigner.name,
+            email: countersigner.email,
+            title: countersigner.title.filter(|t| !t.trim().is_empty()),
+            automatic: countersigner.automatic,
+        }
+    }
+
+    pub fn draft_to_proto(draft: &domain::quote_drafts::QuoteDraft) -> v1::QuoteDraft {
+        v1::QuoteDraft {
+            id: draft.id.as_proto(),
+            quote_id: draft.quote_id.map(|id| id.as_proto()),
+            created_by: draft.created_by.as_proto(),
+            updated_by: draft.updated_by.map(|id| id.as_proto()),
+            label: draft.label.clone(),
+            payload: draft.payload.to_string(),
+            payload_version: draft.payload_version,
+            version: draft.version,
+            created_at: draft.created_at.as_proto(),
+            updated_at: draft.updated_at.as_proto(),
+        }
+    }
+
+    pub fn revision_to_proto(revision: &domain::quote_signing::QuoteRevision) -> v1::QuoteRevision {
+        v1::QuoteRevision {
+            revision: revision.revision,
+            document_hash: revision.document_hash.clone(),
+            document: revision
+                .document
+                .as_ref()
+                .and_then(|d| serde_json::to_string(d).ok())
+                .unwrap_or_default(),
+            created_by: revision.created_by.clone(),
+            created_at: revision.created_at.as_proto(),
+            superseded_at: revision.superseded_at.as_proto(),
+        }
+    }
+
+    pub fn evidence_to_proto(
+        event: &domain::quote_signing::QuoteEvidenceEvent,
+    ) -> v1::QuoteEvidenceEvent {
+        v1::QuoteEvidenceEvent {
+            seq: event.seq,
+            kind: event.kind.clone(),
+            actor_email: event.actor_email.clone(),
+            ip_address: event.ip_address.clone(),
+            user_agent: event.user_agent.clone(),
+            revision: event.revision,
+            document_hash: event.document_hash.clone(),
+            details: event.details.to_string(),
+            occurred_at: event.occurred_at.as_proto(),
+            hash: event.hash.clone(),
+        }
+    }
+
+    pub fn approval_rule_to_proto(
+        rule: &domain::quote_approvals::QuoteApprovalRule,
+    ) -> v1::QuoteApprovalRule {
+        v1::QuoteApprovalRule {
+            id: rule.id.as_proto(),
+            name: rule.name.clone(),
+            min_discount_percent: rule.min_discount_percent.map(|d| d.normalize().to_string()),
+            max_net_terms_days: rule.max_net_terms_days,
+            max_trial_days: rule.max_trial_days,
+            always: rule.always,
+            approver_user_ids: rule
+                .approver_user_ids
+                .iter()
+                .map(|id| id.as_proto())
+                .collect(),
+        }
+    }
+
+    pub fn approval_to_proto(
+        approval: &domain::quote_approvals::QuoteApproval,
+    ) -> v1::QuoteApproval {
+        v1::QuoteApproval {
+            id: approval.id.as_proto(),
+            quote_id: approval.quote_id.as_proto(),
+            revision: approval.revision,
+            status: approval_status_to_proto(approval.status) as i32,
+            rule_ids: approval.rule_ids.iter().map(|id| id.as_proto()).collect(),
+            requested_by: approval.requested_by.map(|id| id.as_proto()),
+            requested_at: approval.requested_at.as_proto(),
+            request_note: approval.request_note.clone(),
+            decided_by: approval.decided_by.map(|id| id.as_proto()),
+            decided_at: approval.decided_at.as_proto(),
+            decision_note: approval.decision_note.clone(),
         }
     }
 
@@ -226,12 +477,70 @@ pub mod quotes {
                 .collect(),
             add_ons: add_ons.iter().map(quote_add_on_to_proto).collect(),
             coupons: coupons.iter().map(quote_coupon_to_proto).collect(),
+            coupon_terms: detailed_quote
+                .coupon_terms()
+                .iter()
+                .map(coupon_terms_to_proto)
+                .collect(),
             signatures: signatures.iter().map(quote_signature_to_proto).collect(),
             minimum_commitment: detailed_quote
                 .minimum
                 .as_ref()
                 .map(crate::plans::mapping::plans::quote_minimum_to_proto),
             quote_email_enabled: None,
+            engagement: None,
+            totals: None,
+            signature_codes_unavailable: false,
+            pdf_url: None,
+        }
+    }
+
+    pub fn totals_to_proto(totals: &domain::quotes::QuoteTotals) -> v1::QuoteTotals {
+        v1::QuoteTotals {
+            currency: totals.currency.clone(),
+            recurring: totals
+                .recurring
+                .iter()
+                .map(|r| v1::QuoteRecurringTotal {
+                    period: subscription_fee_billing_period_to_grpc(r.period) as i32,
+                    amount: r.amount.to_string(),
+                    list_amount: r.list_amount.to_string(),
+                })
+                .collect(),
+            has_usage: totals.has_usage,
+            first_invoice_subtotal: totals.first_invoice_subtotal.map(|d| d.to_string()),
+        }
+    }
+
+    pub fn engagement_to_proto(
+        engagement: &[domain::quote_signing::QuoteRecipientEngagement],
+        sessions: &[domain::quote_signing::QuoteViewSession],
+    ) -> v1::QuoteEngagement {
+        v1::QuoteEngagement {
+            recipients: engagement
+                .iter()
+                .map(|e| v1::QuoteRecipientEngagement {
+                    email: e.email.clone(),
+                    view_count: e.view_count.max(0) as u32,
+                    first_viewed_at: e.first_viewed_at.as_proto(),
+                    last_viewed_at: e.last_viewed_at.as_proto(),
+                    last_viewed_revision: e.last_viewed_revision.max(0) as u32,
+                })
+                .collect(),
+            sessions: sessions
+                .iter()
+                .map(|s| v1::QuoteViewSession {
+                    email: s.email.clone(),
+                    revision: s.revision.max(0) as u32,
+                    viewed_at: s.viewed_at.as_proto(),
+                    last_seen_at: s.last_seen_at.as_proto(),
+                    ip_address: s.ip_address.clone(),
+                    device: s
+                        .user_agent
+                        .as_deref()
+                        .map(meteroid_app::security_context::device_label),
+                })
+                .collect(),
         }
     }
 
@@ -254,6 +563,15 @@ pub mod quotes {
                 add_on.period.as_billing_period_opt().unwrap_or_default(),
             )),
             quantity: add_on.quantity.max(0) as u32,
+            description: add_on.description.clone(),
+            sort_order: add_on.sort_order,
+            discount_percent: add_on.discount_percent.map(|d| d.normalize().to_string()),
+            list_fee: add_on.list_fee.as_ref().map(|f| {
+                subscription_fee_to_grpc(
+                    f,
+                    add_on.period.as_billing_period_opt().unwrap_or_default(),
+                )
+            }),
         }
     }
 
@@ -266,6 +584,19 @@ pub mod quotes {
             id: coupon.id.as_proto(),
             quote_id: coupon.quote_id.as_proto(),
             coupon_id: coupon.coupon_id.as_proto(),
+        }
+    }
+
+    pub fn coupon_terms_to_proto(
+        terms: &domain::quote_document::QuoteDocumentCoupon,
+    ) -> v1::QuoteCouponTerms {
+        v1::QuoteCouponTerms {
+            code: terms.code.clone(),
+            description: terms.description.clone(),
+            discount: Some(crate::coupons::mapping::coupons::discount::to_server(
+                &terms.discount,
+            )),
+            recurring_value: terms.recurring_value.map(|v| v.max(0) as u32),
         }
     }
 

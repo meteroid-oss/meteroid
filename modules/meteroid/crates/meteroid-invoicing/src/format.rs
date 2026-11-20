@@ -1,7 +1,7 @@
 use crate::errors::{InvoicingError, InvoicingResult};
 use chrono::NaiveDate;
 use common_domain::l10n::chrono_locale;
-pub(crate) use common_domain::l10n::long_date;
+pub use common_domain::l10n::long_date;
 use meteroid_money::{FormattableCurrency, iso};
 use rust_decimal::Decimal;
 use std::str::FromStr;
@@ -12,7 +12,7 @@ pub(crate) type Price = meteroid_money::Money<'static, iso::Currency>;
 /// Usage-based unit prices are routinely sub-cent, so they keep more precision than totals
 /// instead of being rounded to the currency exponent. Must match `formatCurrencyNoRounding`
 /// in `web-app/lib/utils/numbers.ts`, so the PDF and the invoice page show the same price.
-const MAX_UNIT_PRICE_SCALE: u32 = 12;
+pub const MAX_UNIT_PRICE_SCALE: u32 = 12;
 
 /// Renders a monetary amount at the currency exponent (e.g. `1234.50` for EUR).
 /// Typst decimals print their scale verbatim, so the padding is decided here.
@@ -37,13 +37,21 @@ pub(crate) fn pattern_date(lang: &str, date: &NaiveDate, fmt: &str) -> String {
 
 /// A count written out in `lang`'s digit grouping and decimal mark: `1,000.5` in English is
 /// `1 000,5` in French, where `1,000` would read as one.
-pub(crate) fn grouped_number(lang: &str, value: Decimal) -> String {
+pub fn grouped_number(lang: &str, value: Decimal) -> String {
+    grouped(lang, value.normalize().to_string())
+}
+
+/// Like [`grouped_number`], keeping the decimals `value` has: an amount at its currency scale.
+pub fn grouped_amount(lang: &str, value: Decimal) -> String {
+    grouped(lang, value.to_string())
+}
+
+fn grouped(lang: &str, text: String) -> String {
     let (group, decimal) = match lang {
         "en-US" => (",", "."),
         "fr-FR" | "pt-PT" => ("\u{00A0}", ","),
         _ => (".", ","),
     };
-    let text = value.normalize().to_string();
     let (sign, unsigned) = text
         .strip_prefix('-')
         .map_or(("", text.as_str()), |rest| ("-", rest));

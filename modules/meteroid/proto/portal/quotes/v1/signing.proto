@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package meteroid.portal.quotes.v1;
+
+import "api/quotes/v1/models.proto";
+
+// Verified signatures from the portal (Enterprise): the signer's emailed code (cpq module) and
+// the certificate once accepted (quote-documents module).
+
+message SendQuoteSignatureCodeRequest {}
+
+message SendQuoteSignatureCodeResponse {
+  // Set instead of emailing the code when the tenant is in test mode.
+  optional string test_mode_code = 1;
+}
+
+message VerifyQuoteSignatureCodeRequest {
+  string code = 1;
+}
+
+message VerifyQuoteSignatureCodeResponse {
+  bool verified = 1;
+}
+
+message GetQuoteSignatureCertificateRequest {}
+
+message GetQuoteSignatureCertificateResponse {
+  optional api.quotes.v1.QuoteSignatureCertificate certificate = 1;
+}
+
+service PortalQuoteSignatureCodesService {
+  rpc SendQuoteSignatureCode(SendQuoteSignatureCodeRequest) returns (SendQuoteSignatureCodeResponse) {}
+  rpc VerifyQuoteSignatureCode(VerifyQuoteSignatureCodeRequest) returns (VerifyQuoteSignatureCodeResponse) {}
+}
+
+service PortalQuoteDocumentsService {
+  rpc GetQuoteSignatureCertificate(GetQuoteSignatureCertificateRequest) returns (GetQuoteSignatureCertificateResponse) {}
+}

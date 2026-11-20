@@ -16,8 +16,8 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::repositories::pgmq::PgmqInterface;
 use crate::store::Store;
 use common_domain::ids::{
-    BaseId, CustomerId, EntitlementEntityId, QuoteId, QuotePriceComponentId, StoredDocumentId,
-    TenantId,
+    BaseId, CouponId, CustomerId, EntitlementEntityId, QuoteId, QuotePriceComponentId,
+    StoredDocumentId, TenantId,
 };
 use diesel_models::entitlements::EntitlementRow;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
@@ -171,6 +171,8 @@ pub trait QuotesInterface {
         pending_addon_materializations: Vec<crate::services::PendingMaterialization>,
         minimum: Option<(i64, crate::domain::plan_minimums::CreateMinimumScope)>,
         actor: Actor,
+        bump_revision: bool,
+        expected_updated_at: Option<Option<chrono::NaiveDateTime>>,
     ) -> StoreResult<Quote>;
 
     /// Cancels a quote, preventing future signature.
@@ -183,13 +185,15 @@ pub trait QuotesInterface {
         reason: Option<String>,
     ) -> StoreResult<Quote>;
 
-    /// Sends a quote to its recipients via email.
+    /// Sends a quote to its recipients via email, or only to `recipient_email` when given: one of
+    /// its recipients or manual countersigners.
     /// This publishes the quote (sets status to Pending if in Draft) and queues the email.
     async fn send_quote(
         &self,
         actor: Actor,
         quote_id: QuoteId,
         tenant_id: TenantId,
+        recipient_email: Option<String>,
         custom_message: Option<String>,
     ) -> StoreResult<Quote>;
 
@@ -307,193 +311,7 @@ impl QuotesInterface for Store {
         quote_id: QuoteId,
     ) -> StoreResult<DetailedQuote> {
         let mut conn = self.get_conn().await?;
-
-        // Get quote with customer
-        let quote_with_customer: QuoteWithCustomer =
-            QuoteRow::find_with_customer_by_id(&mut conn, tenant_id, quote_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)
-                .and_then(std::convert::TryInto::try_into)?;
-
-        let component_rows = QuoteComponentRow::list_by_quote_id(&mut conn, quote_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        let add_on_rows = QuoteAddOnRow::list_by_quote_id(&mut conn, quote_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        // Partition components and add-ons by price_id presence for v2 resolution
-        let (comp_rows_with_price, comp_rows_without_price): (Vec<_>, Vec<_>) = component_rows
-            .into_iter()
-            .partition(|row| row.price_id.is_some());
-
-        let (addon_rows_with_price, addon_rows_without_price): (Vec<_>, Vec<_>) = add_on_rows
-            .into_iter()
-            .partition(|row| row.price_id.is_some());
-
-        // Legacy rows: deserialize fee from JSONB
-        let mut components: Vec<QuotePriceComponent> = comp_rows_without_price
-            .into_iter()
-            .map(std::convert::TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let mut add_ons: Vec<QuoteAddOn> = addon_rows_without_price
-            .into_iter()
-            .map(std::convert::TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        // Resolve v2 rows from Products + Prices
-        if !comp_rows_with_price.is_empty() || !addon_rows_with_price.is_empty() {
-            use crate::repositories::subscriptions::{
-                fetch_price_credit_units, fetch_prices_and_products, resolve_fee_from_maps,
-            };
-
-            let (prices_by_id, products_by_id) = fetch_prices_and_products(
-                &mut conn,
-                tenant_id,
-                comp_rows_with_price
-                    .iter()
-                    .filter_map(|r| r.price_id)
-                    .chain(addon_rows_with_price.iter().filter_map(|r| r.price_id)),
-                comp_rows_with_price
-                    .iter()
-                    .filter_map(|r| r.product_id)
-                    .chain(addon_rows_with_price.iter().filter_map(|r| r.product_id)),
-            )
-            .await?;
-            let units = fetch_price_credit_units(&mut conn, tenant_id, &prices_by_id).await?;
-
-            for row in comp_rows_with_price {
-                let resolved = resolve_fee_from_maps(
-                    row.price_id,
-                    row.product_id,
-                    &prices_by_id,
-                    &products_by_id,
-                    &units,
-                );
-
-                let component = if let Some((period, mut fee)) = resolved {
-                    if let Some(snapshot) = row
-                        .legacy_fee
-                        .as_ref()
-                        .and_then(|v| SubscriptionFee::try_from(v).ok())
-                    {
-                        fee.keep_slots_from(&snapshot);
-                    }
-                    QuotePriceComponent {
-                        id: row.id,
-                        name: row.name,
-                        quote_id: row.quote_id,
-                        price_component_id: row.price_component_id,
-                        product_id: row.product_id,
-                        period,
-                        fee,
-                        is_override: row.is_override,
-                        price_id: row.price_id,
-                        example_usage_quantity: row.example_usage_quantity,
-                    }
-                } else {
-                    row.try_into()?
-                };
-
-                components.push(component);
-            }
-
-            for row in addon_rows_with_price {
-                let resolved = resolve_fee_from_maps(
-                    row.price_id,
-                    row.product_id,
-                    &prices_by_id,
-                    &products_by_id,
-                    &units,
-                );
-
-                let add_on = if let Some((period, fee)) = resolved {
-                    QuoteAddOn {
-                        id: row.id,
-                        name: row.name,
-                        quote_id: row.quote_id,
-                        add_on_id: row.add_on_id,
-                        period,
-                        fee,
-                        product_id: row.product_id,
-                        price_id: row.price_id,
-                        quantity: row.quantity,
-                    }
-                } else {
-                    row.try_into()?
-                };
-
-                add_ons.push(add_on);
-            }
-        }
-
-        let signatures = QuoteSignatureRow::list_by_quote_id(&mut conn, quote_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .map(|l| l.into_iter().map(std::convert::Into::into).collect())?;
-
-        let invoicing_entity = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
-            &mut conn,
-            quote_with_customer.customer.invoicing_entity_id,
-            tenant_id,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)
-        .map(std::convert::Into::into)?;
-
-        let coupons = QuoteCouponRow::list_by_quote_id(&mut conn, quote_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .map(|l| l.into_iter().map(std::convert::Into::into).collect())?;
-
-        let entitlement_rows = EntitlementRow::list_by_entity(
-            &mut conn,
-            tenant_id,
-            EntitlementEntityId::Quote(quote_id),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        let entitlements: Vec<Entitlement> = entitlement_rows
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let minimum = {
-            use diesel_models::quote_adjustments::{
-                QuoteAdjustmentComponentRow, QuoteAdjustmentRow,
-            };
-            match QuoteAdjustmentRow::find_by_quote_id(&mut conn, quote_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-            {
-                Some(row) => {
-                    let components = if row.includes_all_components {
-                        vec![]
-                    } else {
-                        QuoteAdjustmentComponentRow::list_by_quote_id(&mut conn, quote_id)
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?
-                    };
-                    Some(crate::domain::QuoteMinimum::from_rows(row, components))
-                }
-                None => None,
-            }
-        };
-
-        Ok(DetailedQuote {
-            quote: quote_with_customer.quote,
-            customer: quote_with_customer.customer,
-            invoicing_entity,
-            components,
-            add_ons,
-            coupons,
-            signatures,
-            entitlements,
-            minimum,
-        })
+        detailed_quote_tx(&mut conn, tenant_id, quote_id).await
     }
 
     async fn list_quotes(
@@ -601,78 +419,8 @@ impl QuotesInterface for Store {
     ) -> StoreResult<Quote> {
         self.transaction(|conn| {
             let actor = &actor;
-            async move {
-                let now = common_clock::now().naive_utc();
-
-                // Update quote status
-                let update = QuoteRowUpdate {
-                    status: Some(diesel_models::enums::QuoteStatusEnum::Accepted),
-                    trial_duration_days: None,
-                    billing_start_date: None,
-                    billing_end_date: None,
-                    billing_day_anchor: None,
-                    accepted_at: Some(Some(now)),
-                    updated_at: Some(now),
-                    valid_until: None,
-                    expires_at: None,
-                    declined_at: None,
-                    internal_notes: None,
-                    cover_image: None,
-                    overview: None,
-                    terms_and_services: None,
-                    net_terms: None,
-                    attachments: None,
-                    pdf_document_id: None,
-                    sharing_key: None,
-                    converted_to_invoice_id: None,
-                    converted_to_subscription_id: None,
-                    converted_at: None,
-                    recipients: None,
-                    activation_condition: None,
-                    auto_advance_invoices: None,
-                    charge_automatically: None,
-                    invoice_memo: None,
-                    invoice_threshold: None,
-                    create_subscription_on_acceptance: None,
-                    payment_methods_config: None,
-                };
-
-                let updated_row = QuoteRow::update_by_id(conn, tenant_id, quote_id, update)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-
-                let should_create_subscription = updated_row.create_subscription_on_acceptance;
-                let quote: Quote = updated_row.try_into()?;
-
-                if should_create_subscription {
-                    // Outbox path also records the audit row (quote.accepted).
-                    self.internal
-                        .record_outbox_batch_tx(
-                            conn,
-                            tenant_id,
-                            actor,
-                            vec![OutboxEvent::quote_accepted(quote.clone().into())],
-                        )
-                        .await?;
-                } else {
-                    // No outbox event in this branch; write the audit row directly.
-                    self.internal
-                        .record_audit_tx(
-                            conn,
-                            tenant_id,
-                            actor,
-                            AuditInput::Activity(Activity::new(
-                                ActivityType::QuoteAccepted,
-                                EntityType::Quote,
-                                quote_id.as_uuid(),
-                            )),
-                        )
-                        .await?;
-                }
-
-                Ok::<Quote, Report<StoreError>>(quote)
-            }
-            .scope_boxed()
+            async move { self.accept_quote_tx(conn, actor, quote_id, tenant_id).await }
+                .scope_boxed()
         })
         .await
     }
@@ -694,12 +442,33 @@ impl QuotesInterface for Store {
 
                     declined_at: Some(Some(now)),
                     updated_at: Some(now),
+                    decline_reason: Some(reason.clone()),
                     ..Default::default()
                 };
 
+                QuoteRow::find_by_id_for_update(conn, tenant_id, quote_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
                 let updated_row = QuoteRow::update_by_id(conn, tenant_id, quote_id, update)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+                self.queue_quote_outcome_emails_tx(conn, tenant_id, &updated_row, reason.clone())
+                    .await?;
+                Self::append_quote_evidence_tx(
+                    conn,
+                    tenant_id,
+                    &updated_row,
+                    crate::domain::quote_signing::QuoteEvidenceNew {
+                        kind: crate::domain::quote_signing::QuoteEvidenceKind::Declined,
+                        actor_email: match actor {
+                            Actor::QuoteRecipient { email } => Some(email.clone()),
+                            _ => None,
+                        },
+                        origin: Default::default(),
+                        details: serde_json::json!({ "reason": reason }),
+                    },
+                )
+                .await?;
 
                 let metadata = reason.map(|r| serde_json::json!({ "reason": r }));
                 let mut activity = Activity::new(
@@ -735,12 +504,25 @@ impl QuotesInterface for Store {
                 let update = QuoteRowUpdate {
                     status: Some(diesel_models::enums::QuoteStatusEnum::Pending),
                     updated_at: Some(now),
+                    published_at: Some(Some(now)),
                     ..Default::default()
                 };
 
                 let updated_row = QuoteRow::update_by_id(conn, tenant_id, quote_id, update)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+                Self::append_quote_evidence_tx(
+                    conn,
+                    tenant_id,
+                    &updated_row,
+                    crate::domain::quote_signing::QuoteEvidenceNew {
+                        kind: crate::domain::quote_signing::QuoteEvidenceKind::Published,
+                        actor_email: None,
+                        origin: Default::default(),
+                        details: serde_json::json!({}),
+                    },
+                )
+                .await?;
 
                 self.internal
                     .record_audit_tx(
@@ -952,6 +734,8 @@ impl QuotesInterface for Store {
         pending_addon_materializations: Vec<crate::services::PendingMaterialization>,
         minimum: Option<(i64, crate::domain::plan_minimums::CreateMinimumScope)>,
         actor: Actor,
+        bump_revision: bool,
+        expected_updated_at: Option<Option<chrono::NaiveDateTime>>,
     ) -> StoreResult<Quote> {
         use crate::domain::quote_minimums::QuoteMinimumNew;
         use diesel_models::quote_adjustments::QuoteAdjustmentRow;
@@ -969,6 +753,14 @@ impl QuotesInterface for Store {
                 let existing = QuoteRow::find_by_id_for_update(conn, tenant_id, quote_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
+                if let Some(expected) = expected_updated_at
+                    && expected != existing.updated_at
+                {
+                    return Err(StoreError::Conflict(
+                        "The quote was changed since you opened it".to_string(),
+                    )
+                    .into());
+                }
                 match existing.status {
                     diesel_models::enums::QuoteStatusEnum::Draft => {}
                     diesel_models::enums::QuoteStatusEnum::Pending => {
@@ -1013,7 +805,7 @@ impl QuotesInterface for Store {
                     .await?;
 
                 let row_new: QuoteRowNew = quote.try_into()?;
-                let updated = QuoteRow::replace_editable(
+                let mut updated = QuoteRow::replace_editable(
                     conn,
                     tenant_id,
                     quote_id,
@@ -1021,6 +813,22 @@ impl QuotesInterface for Store {
                 )
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
+
+                let revised = bump_revision
+                    && existing.status == diesel_models::enums::QuoteStatusEnum::Pending;
+                if revised {
+                    updated = QuoteRow::update_by_id(
+                        conn,
+                        tenant_id,
+                        quote_id,
+                        QuoteRowUpdate {
+                            revision: Some(existing.revision + 1),
+                            ..Default::default()
+                        },
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                }
 
                 QuoteComponentRow::delete_by_quote_id(conn, quote_id)
                     .await
@@ -1059,15 +867,51 @@ impl QuotesInterface for Store {
                     }
                 }
 
-                let activity = Activity::new(
-                    ActivityType::QuoteUpdated,
-                    EntityType::Quote,
-                    quote_id.as_uuid(),
-                )
+                let activity = if revised {
+                    Activity::new(
+                        ActivityType::QuoteRevised,
+                        EntityType::Quote,
+                        quote_id.as_uuid(),
+                    )
+                    .with_metadata(serde_json::json!({ "revision": updated.revision }))
+                } else {
+                    Activity::new(
+                        ActivityType::QuoteUpdated,
+                        EntityType::Quote,
+                        quote_id.as_uuid(),
+                    )
+                }
                 .agg_customer(updated.customer_id);
                 self.internal
                     .record_audit_tx(conn, tenant_id, &actor, AuditInput::Activity(activity))
                     .await?;
+
+                let document = crate::repositories::quote_signing::refresh_quote_document_tx(
+                    conn, tenant_id, quote_id,
+                )
+                .await?;
+                updated.document_hash = Some(document.hash());
+                if crate::repositories::quote_approvals::hold_quote_for_approval_tx(
+                    conn, tenant_id, quote_id,
+                )
+                .await?
+                {
+                    updated.status = diesel_models::enums::QuoteStatusEnum::Draft;
+                }
+                if revised {
+                    Self::append_quote_evidence_tx(
+                        conn,
+                        tenant_id,
+                        &updated,
+                        crate::domain::quote_signing::QuoteEvidenceNew {
+                            kind: crate::domain::quote_signing::QuoteEvidenceKind::Revised,
+                            actor_email: None,
+                            origin: Default::default(),
+                            details: serde_json::json!({ "revision": updated.revision }),
+                        },
+                    )
+                    .await?;
+                }
 
                 updated.try_into()
             }
@@ -1159,6 +1003,7 @@ impl QuotesInterface for Store {
         actor: Actor,
         quote_id: QuoteId,
         tenant_id: TenantId,
+        recipient_email: Option<String>,
         custom_message: Option<String>,
     ) -> StoreResult<Quote> {
         self.transaction(|conn| {
@@ -1177,6 +1022,7 @@ impl QuotesInterface for Store {
                         let update = QuoteRowUpdate {
                             status: Some(diesel_models::enums::QuoteStatusEnum::Pending),
                             updated_at: Some(now),
+                            published_at: Some(Some(now)),
                             ..Default::default()
                         };
 
@@ -1246,14 +1092,45 @@ impl QuotesInterface for Store {
                     .into());
                 }
 
+                // The stored spelling, so the link shares the person's codes and evidence.
+                let emailed: Vec<String> = match recipient_email.as_deref().map(str::trim) {
+                    None => recipients.iter().map(|r| r.email.clone()).collect(),
+                    Some(requested) => {
+                        let countersigners: Vec<crate::domain::quotes::QuoteCountersigner> =
+                            serde_json::from_value(quote.countersigners.clone()).map_err(|e| {
+                                StoreError::SerdeError(
+                                    "Failed to deserialize countersigners".to_string(),
+                                    e,
+                                )
+                            })?;
+                        let email = recipients
+                            .iter()
+                            .map(|r| &r.email)
+                            .chain(
+                                countersigners
+                                    .iter()
+                                    .filter(|c| !c.automatic)
+                                    .map(|c| &c.email),
+                            )
+                            .find(|email| email.trim().eq_ignore_ascii_case(requested))
+                            .cloned()
+                            .ok_or_else(|| {
+                                StoreError::InvalidArgument(
+                                    "Recipient not found in quote recipients".to_string(),
+                                )
+                            })?;
+                        vec![email]
+                    }
+                };
+
                 let mut email_messages = Vec::new();
-                for recipient in &recipients {
+                for email in &emailed {
                     email_messages.push(
                         self.quote_ready_email_tx(
                             conn,
                             tenant_id,
                             quote_id,
-                            &recipient.email,
+                            email,
                             custom_message.clone(),
                         )
                         .await?,
@@ -1279,10 +1156,30 @@ impl QuotesInterface for Store {
                     .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(activity))
                     .await?;
 
-                // Return the updated quote
-                let updated_quote = QuoteRow::find_by_id(conn, tenant_id, quote_id)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                // Not an edit: `updated_at` guards the editor's copy and stays as it is.
+                let updated_quote = QuoteRow::update_by_id(
+                    conn,
+                    tenant_id,
+                    quote_id,
+                    QuoteRowUpdate {
+                        last_sent_at: Some(Some(common_clock::now().naive_utc())),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+                Self::append_quote_evidence_tx(
+                    conn,
+                    tenant_id,
+                    &updated_quote,
+                    crate::domain::quote_signing::QuoteEvidenceNew {
+                        kind: crate::domain::quote_signing::QuoteEvidenceKind::Sent,
+                        actor_email: None,
+                        origin: Default::default(),
+                        details: serde_json::json!({ "recipients": emailed }),
+                    },
+                )
+                .await?;
 
                 updated_quote.try_into()
             }
@@ -1417,6 +1314,13 @@ async fn insert_quote_children(
                 is_override: c.is_override,
                 price_id: c.price_id,
                 example_usage_quantity: c.example_usage_quantity,
+                description: c.description,
+                sort_order: c.sort_order,
+                discount_percent: c.discount_percent,
+                list_fee: c
+                    .list_fee
+                    .as_ref()
+                    .map(|f| serde_json::to_value(f).unwrap_or_default()),
             })
             .collect();
 
@@ -1535,6 +1439,175 @@ async fn write_quote_minimum(
 }
 
 impl Store {
+    pub(crate) async fn accept_quote_tx(
+        &self,
+        conn: &mut crate::store::PgConn,
+        actor: &Actor,
+        quote_id: QuoteId,
+        tenant_id: TenantId,
+    ) -> StoreResult<Quote> {
+        let now = common_clock::now().naive_utc();
+
+        // Update quote status
+        let update = QuoteRowUpdate {
+            status: Some(diesel_models::enums::QuoteStatusEnum::Accepted),
+            trial_duration_days: None,
+            billing_start_date: None,
+            billing_end_date: None,
+            billing_day_anchor: None,
+            accepted_at: Some(Some(now)),
+            updated_at: Some(now),
+            valid_until: None,
+            expires_at: None,
+            declined_at: None,
+            internal_notes: None,
+            cover_image: None,
+            overview: None,
+            terms_and_services: None,
+            net_terms: None,
+            attachments: None,
+            pdf_document_id: None,
+            sharing_key: None,
+            converted_to_invoice_id: None,
+            converted_to_subscription_id: None,
+            converted_at: None,
+            recipients: None,
+            activation_condition: None,
+            auto_advance_invoices: None,
+            charge_automatically: None,
+            invoice_memo: None,
+            invoice_threshold: None,
+            create_subscription_on_acceptance: None,
+            payment_methods_config: None,
+            ..Default::default()
+        };
+
+        let updated_row = QuoteRow::update_by_id(conn, tenant_id, quote_id, update)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        self.queue_quote_outcome_emails_tx(conn, tenant_id, &updated_row, None)
+            .await?;
+
+        let should_create_subscription = updated_row.create_subscription_on_acceptance;
+        let quote: Quote = updated_row.try_into()?;
+
+        if should_create_subscription {
+            // Outbox path also records the audit row (quote.accepted).
+            self.internal
+                .record_outbox_batch_tx(
+                    conn,
+                    tenant_id,
+                    actor,
+                    vec![OutboxEvent::quote_accepted(quote.clone().into())],
+                )
+                .await?;
+        } else {
+            // No outbox event in this branch; write the audit row directly.
+            self.internal
+                .record_audit_tx(
+                    conn,
+                    tenant_id,
+                    actor,
+                    AuditInput::Activity(Activity::new(
+                        ActivityType::QuoteAccepted,
+                        EntityType::Quote,
+                        quote_id.as_uuid(),
+                    )),
+                )
+                .await?;
+        }
+
+        Ok(quote)
+    }
+
+    /// What a quote's outcome emails, in the transaction that sets it: on acceptance, each
+    /// customer recipient with their own portal link; accepted or declined, the quote's owner.
+    async fn queue_quote_outcome_emails_tx(
+        &self,
+        conn: &mut crate::store::PgConn,
+        tenant_id: TenantId,
+        quote: &QuoteRow,
+        reason: Option<String>,
+    ) -> StoreResult<()> {
+        use diesel_models::customers::CustomerRow;
+        use diesel_models::users::UserRow;
+
+        let accepted = match quote.status {
+            diesel_models::enums::QuoteStatusEnum::Accepted => true,
+            diesel_models::enums::QuoteStatusEnum::Declined => false,
+            _ => return Ok(()),
+        };
+        let customer = CustomerRow::find_by_id(conn, &quote.customer_id, &tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+        let mut messages: Vec<crate::domain::pgmq::PgmqMessageNew> = vec![];
+
+        if accepted {
+            let recipients: Vec<crate::domain::quotes::RecipientDetails> =
+                serde_json::from_value(quote.recipients.clone()).map_err(|e| {
+                    StoreError::SerdeError("Failed to deserialize recipients".to_string(), e)
+                })?;
+            let accepted_on = quote
+                .accepted_at
+                .unwrap_or_else(|| common_clock::now().naive_utc())
+                .date();
+            for recipient in recipients {
+                let token = self
+                    .quote_portal_token_tx(conn, tenant_id, quote, recipient.email.clone(), false)
+                    .await?;
+                messages.push(
+                    SendEmailRequest::QuoteAccepted {
+                        tenant_id,
+                        quote_id: quote.id,
+                        invoicing_entity_id: customer.invoicing_entity_id,
+                        quote_number: quote.quote_number.clone(),
+                        accepted_on,
+                        recipient_email: recipient.email,
+                        portal_url: format!(
+                            "{}/portal/quote?token={}",
+                            &self.settings.public_url, token
+                        ),
+                    }
+                    .try_into()?,
+                );
+            }
+        }
+
+        // A quote created through the API has no owner: nobody on the team to tell.
+        if let Some(owner_id) = quote.owner_id {
+            let owner = UserRow::find_members_by_ids(
+                conn,
+                &[common_domain::ids::UserId::from(owner_id)],
+                tenant_id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .next();
+            if let Some(owner) = owner {
+                messages.push(
+                    SendEmailRequest::QuoteOutcome {
+                        tenant_id,
+                        quote_id: quote.id,
+                        invoicing_entity_id: customer.invoicing_entity_id,
+                        quote_number: quote.quote_number.clone(),
+                        customer_name: customer.name.clone(),
+                        accepted,
+                        reason,
+                        recipient_email: owner.email,
+                    }
+                    .try_into()?,
+                );
+            }
+        }
+
+        if messages.is_empty() {
+            return Ok(());
+        }
+        self.pgmq_send_batch_tx(conn, PgmqQueue::SendEmailRequest, messages)
+            .await
+    }
+
     /// One recipient's "quote ready" email, carrying their own portal link.
     pub(crate) async fn quote_ready_email_tx(
         &self,
@@ -1580,4 +1653,217 @@ impl Store {
         }
         .try_into()
     }
+}
+
+pub(crate) async fn detailed_quote_tx(
+    conn: &mut crate::store::PgConn,
+    tenant_id: TenantId,
+    quote_id: QuoteId,
+) -> StoreResult<DetailedQuote> {
+    // Get quote with customer
+    let quote_with_customer: QuoteWithCustomer =
+        QuoteRow::find_with_customer_by_id(conn, tenant_id, quote_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
+            .and_then(std::convert::TryInto::try_into)?;
+
+    let component_rows = QuoteComponentRow::list_by_quote_id(conn, quote_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+    let add_on_rows = QuoteAddOnRow::list_by_quote_id(conn, quote_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+    // Partition components and add-ons by price_id presence for v2 resolution
+    let (comp_rows_with_price, comp_rows_without_price): (Vec<_>, Vec<_>) = component_rows
+        .into_iter()
+        .partition(|row| row.price_id.is_some());
+
+    let (addon_rows_with_price, addon_rows_without_price): (Vec<_>, Vec<_>) = add_on_rows
+        .into_iter()
+        .partition(|row| row.price_id.is_some());
+
+    // Legacy rows: deserialize fee from JSONB
+    let mut components: Vec<QuotePriceComponent> = comp_rows_without_price
+        .into_iter()
+        .map(std::convert::TryInto::try_into)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut add_ons: Vec<QuoteAddOn> = addon_rows_without_price
+        .into_iter()
+        .map(std::convert::TryInto::try_into)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Resolve v2 rows from Products + Prices
+    if !comp_rows_with_price.is_empty() || !addon_rows_with_price.is_empty() {
+        use crate::repositories::subscriptions::{
+            fetch_price_credit_units, fetch_prices_and_products, resolve_fee_from_maps,
+        };
+
+        let (prices_by_id, products_by_id) = fetch_prices_and_products(
+            conn,
+            tenant_id,
+            comp_rows_with_price
+                .iter()
+                .filter_map(|r| r.price_id)
+                .chain(addon_rows_with_price.iter().filter_map(|r| r.price_id)),
+            comp_rows_with_price
+                .iter()
+                .filter_map(|r| r.product_id)
+                .chain(addon_rows_with_price.iter().filter_map(|r| r.product_id)),
+        )
+        .await?;
+        let units = fetch_price_credit_units(conn, tenant_id, &prices_by_id).await?;
+
+        for row in comp_rows_with_price {
+            let resolved = resolve_fee_from_maps(
+                row.price_id,
+                row.product_id,
+                &prices_by_id,
+                &products_by_id,
+                &units,
+            );
+
+            let component = if let Some((period, mut fee)) = resolved {
+                if let Some(snapshot) = row
+                    .legacy_fee
+                    .as_ref()
+                    .and_then(|v| SubscriptionFee::try_from(v).ok())
+                {
+                    fee.keep_slots_from(&snapshot);
+                }
+                QuotePriceComponent {
+                    id: row.id,
+                    name: row.name,
+                    quote_id: row.quote_id,
+                    price_component_id: row.price_component_id,
+                    product_id: row.product_id,
+                    period,
+                    fee,
+                    is_override: row.is_override,
+                    price_id: row.price_id,
+                    example_usage_quantity: row.example_usage_quantity,
+                    description: row.description,
+                    sort_order: row.sort_order,
+                    discount_percent: row.discount_percent,
+                    list_fee: row.list_fee.map(TryInto::try_into).transpose()?,
+                }
+            } else {
+                row.try_into()?
+            };
+
+            components.push(component);
+        }
+
+        for row in addon_rows_with_price {
+            let resolved = resolve_fee_from_maps(
+                row.price_id,
+                row.product_id,
+                &prices_by_id,
+                &products_by_id,
+                &units,
+            );
+
+            let add_on = if let Some((period, fee)) = resolved {
+                QuoteAddOn {
+                    id: row.id,
+                    name: row.name,
+                    quote_id: row.quote_id,
+                    add_on_id: row.add_on_id,
+                    period,
+                    fee,
+                    product_id: row.product_id,
+                    price_id: row.price_id,
+                    quantity: row.quantity,
+                    description: row.description,
+                    sort_order: row.sort_order,
+                    discount_percent: row.discount_percent,
+                    list_fee: row.list_fee.map(TryInto::try_into).transpose()?,
+                }
+            } else {
+                row.try_into()?
+            };
+
+            add_ons.push(add_on);
+        }
+    }
+
+    components.sort_by_key(|c| c.sort_order);
+    add_ons.sort_by_key(|a| a.sort_order);
+
+    let signatures = QuoteSignatureRow::list_by_quote_id(conn, quote_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)
+        .map(|l| l.into_iter().map(std::convert::Into::into).collect())?;
+
+    let invoicing_entity = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
+        conn,
+        quote_with_customer.customer.invoicing_entity_id,
+        tenant_id,
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)
+    .map(std::convert::Into::into)?;
+
+    let coupons: Vec<crate::domain::quotes::QuoteCoupon> =
+        QuoteCouponRow::list_by_quote_id(conn, quote_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
+            .map(|l| l.into_iter().map(std::convert::Into::into).collect())?;
+
+    let coupon_ids: Vec<CouponId> = coupons.iter().map(|c| c.coupon_id).collect();
+    let coupon_details: Vec<crate::domain::coupons::Coupon> = if coupon_ids.is_empty() {
+        vec![]
+    } else {
+        diesel_models::coupons::CouponRow::list_by_ids(conn, &coupon_ids, &tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()?
+    };
+
+    let entitlement_rows =
+        EntitlementRow::list_by_entity(conn, tenant_id, EntitlementEntityId::Quote(quote_id))
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+    let entitlements: Vec<Entitlement> = entitlement_rows
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let minimum = {
+        use diesel_models::quote_adjustments::{QuoteAdjustmentComponentRow, QuoteAdjustmentRow};
+        match QuoteAdjustmentRow::find_by_quote_id(conn, quote_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+        {
+            Some(row) => {
+                let components = if row.includes_all_components {
+                    vec![]
+                } else {
+                    QuoteAdjustmentComponentRow::list_by_quote_id(conn, quote_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?
+                };
+                Some(crate::domain::QuoteMinimum::from_rows(row, components))
+            }
+            None => None,
+        }
+    };
+
+    Ok(DetailedQuote {
+        quote: quote_with_customer.quote,
+        customer: quote_with_customer.customer,
+        invoicing_entity,
+        components,
+        add_ons,
+        coupons,
+        coupon_details,
+        signatures,
+        entitlements,
+        minimum,
+    })
 }

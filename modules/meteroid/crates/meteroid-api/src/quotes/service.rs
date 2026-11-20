@@ -1,6 +1,7 @@
 use super::{QuoteServiceComponents, mapping};
 use crate::entitlements::mapping::entitlement_spec_from_proto;
 use crate::quotes::error::QuoteApiError;
+use common_domain::ids::QuoteDraftId;
 use common_domain::ids::{
     AddOnId, BaseId, CouponId, CustomerId, PlanVersionId, PriceId, ProductId, QuoteId,
 };
@@ -15,21 +16,34 @@ use meteroid_grpc::meteroid::api::quotes::v1::{
     ConvertQuoteToSubscriptionResponse, CreateQuote, CreateQuoteRequest, CreateQuoteResponse,
     DuplicateQuoteRequest, DuplicateQuoteResponse, ExpireQuoteRequest, ExpireQuoteResponse,
     GenerateQuotePortalTokenRequest, GenerateQuotePortalTokenResponse, GetQuoteRequest,
-    GetQuoteResponse, ListQuotesRequest, ListQuotesResponse, PreviewQuoteRequest,
-    PreviewQuoteResponse, PublishQuoteRequest, PublishQuoteResponse, SendQuoteRequest,
-    SendQuoteResponse, UpdateQuoteRequest, UpdateQuoteResponse,
-    quotes_service_server::QuotesService,
+    GetQuoteResponse, ListQuotesRequest, ListQuotesResponse, PreviewQuotePortalRequest,
+    PreviewQuotePortalResponse, PreviewQuoteRequest, PreviewQuoteResponse,
+    PreviewQuoteTotalsRequest, PreviewQuoteTotalsResponse, PublishQuoteRequest,
+    PublishQuoteResponse, SendQuoteRequest, SendQuoteResponse, UpdateQuoteRequest,
+    UpdateQuoteResponse, quotes_service_server::QuotesService,
+};
+use meteroid_grpc::meteroid::api::quotes::v1::{
+    CountersignQuoteRequest, CountersignQuoteResponse, DeclineQuoteRequest, DeclineQuoteResponse,
+    DeleteQuoteDraftRequest, DeleteQuoteDraftResponse, GetQuoteApprovalRequest,
+    GetQuoteApprovalResponse, GetQuoteDraftRequest, GetQuoteDraftResponse, ListQuoteDraftsRequest,
+    ListQuoteDraftsResponse, ListQuoteEvidenceRequest, ListQuoteEvidenceResponse,
+    ListQuoteRevisionsRequest, ListQuoteRevisionsResponse, SaveQuoteDraftRequest,
+    SaveQuoteDraftResponse,
 };
 use meteroid_grpc_mapping::utils::PaginationExt;
 use meteroid_store::domain::add_ons::AddOn;
 use meteroid_store::domain::customer_emails::EmailKind;
-use meteroid_store::domain::quotes::{QuoteAddOnNew, QuoteCouponNew};
+use meteroid_store::domain::quote_drafts::{QuoteDraftSave, QuoteDraftSaveOutcome};
+use meteroid_store::domain::quotes::{QuoteAddOnNew, QuoteCouponNew, UnsavedQuote};
 use meteroid_store::domain::{CreateSubscriptionAddOns, CreateSubscriptionComponents};
 use meteroid_store::domain::{PriceComponent, quotes::QuotePriceComponentNew};
 use meteroid_store::repositories::CreditUnitsInterface;
 use meteroid_store::repositories::QuotesInterface;
 use meteroid_store::repositories::customer_emails::CustomerEmailsInterface;
 use meteroid_store::repositories::portal_tokens::PortalTokensInterface;
+use meteroid_store::repositories::quote_approvals::QuoteApprovalsInterface;
+use meteroid_store::repositories::quote_drafts::QuoteDraftsInterface;
+use meteroid_store::repositories::quote_signing::{QuoteSigningInterface, SignQuoteInput};
 use nanoid::nanoid;
 use tonic::{Request, Response, Status};
 
@@ -58,7 +72,7 @@ impl QuotesService for QuoteServiceComponents {
             .ok_or_else(|| Status::invalid_argument("quote is required"))?;
 
         let quote_id = QuoteId::new();
-        let prepared = self
+        let mut prepared = self
             .prepare_quote(
                 tenant_id,
                 quote_id,
@@ -66,6 +80,18 @@ impl QuotesService for QuoteServiceComponents {
                 format!("Q-{}", nanoid!(8, &UPPER_ALPHANUMERIC)),
             )
             .await?;
+        if let common_domain::actor::Actor::User { id } = &actor {
+            prepared.quote_new.owner_id = Some(id.as_uuid());
+        }
+        super::v2::ensure_v2_allowed(
+            self.feature_resolver.as_ref(),
+            organization_id,
+            &prepared.quote_new,
+            &prepared.components,
+            &prepared.add_ons,
+            None,
+        )
+        .await?;
         if prepared.minimum.is_some()
             && !minimum_commitments_open(self.feature_resolver.as_ref(), organization_id).await
         {
@@ -99,6 +125,7 @@ impl QuotesService for QuoteServiceComponents {
                 .await
                 .map_err(Into::<QuoteApiError>::into)?;
         }
+        self.after_quote_write(tenant_id, created_quote.id).await?;
 
         let detailed_quote = self
             .store
@@ -118,6 +145,7 @@ impl QuotesService for QuoteServiceComponents {
         request: Request<GetQuoteRequest>,
     ) -> Result<Response<GetQuoteResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let organization_id = request.organization()?;
         let inner = request.into_inner();
 
         let quote_id = QuoteId::from_proto(&inner.id)?;
@@ -137,6 +165,64 @@ impl QuotesService for QuoteServiceComponents {
         let mut detailed_quote =
             mapping::quotes::detailed_quote_domain_to_proto(&detailed_quote_domain);
         detailed_quote.quote_email_enabled = Some(email_settings.is_enabled(EmailKind::QuoteReady));
+        if detailed_quote_domain.quote.signature_level
+            == meteroid_store::domain::enums::QuoteSignatureLevelEnum::Verified
+        {
+            // The rule the portal applies when a signer asks for a code.
+            let signers: Vec<String> = detailed_quote_domain
+                .quote
+                .recipients
+                .iter()
+                .map(|r| r.email.clone())
+                .chain(
+                    detailed_quote_domain
+                        .quote
+                        .countersigners
+                        .iter()
+                        .filter(|c| !c.automatic)
+                        .map(|c| c.email.clone()),
+                )
+                .collect();
+            detailed_quote.signature_codes_unavailable = self
+                .store
+                .signature_code_channels(tenant_id, &signers)
+                .await
+                .map_err(Into::<QuoteApiError>::into)?
+                .contains(
+                    &meteroid_store::domain::quote_signing::SignatureCodeChannel::Unavailable,
+                );
+        }
+        // Display-only: the quote still loads when its totals cannot be computed.
+        detailed_quote.totals = match self
+            .services
+            .quote_totals(tenant_id, &detailed_quote_domain)
+            .await
+        {
+            Ok(totals) => Some(mapping::quotes::totals_to_proto(&totals)),
+            Err(error) => {
+                log::warn!("no totals for quote {quote_id:?}: {error:?}");
+                None
+            }
+        };
+        if self.gate_open(organization_id, gates::QUOTES_FULL).await {
+            let engagement = self
+                .store
+                .list_quote_recipient_engagement(tenant_id, quote_id)
+                .await
+                .map_err(Into::<QuoteApiError>::into)?;
+            let sessions = self
+                .store
+                .list_quote_view_sessions(tenant_id, quote_id)
+                .await
+                .map_err(Into::<QuoteApiError>::into)?;
+            detailed_quote.engagement =
+                Some(mapping::quotes::engagement_to_proto(&engagement, &sessions));
+        }
+        detailed_quote.pdf_url = self
+            .quote_documents
+            .pdf_url(tenant_id, &detailed_quote_domain.quote)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
 
         Ok(Response::new(GetQuoteResponse {
             quote: Some(detailed_quote),
@@ -196,17 +282,27 @@ impl QuotesService for QuoteServiceComponents {
         request: Request<SendQuoteRequest>,
     ) -> Result<Response<SendQuoteResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let organization_id = request.organization()?;
         let actor = request.actor_typed()?;
         let inner = request.into_inner();
 
         let quote_id = QuoteId::from_proto(&inner.id)?;
 
+        self.ensure_approved(tenant_id, quote_id).await?;
         // Send the quote (publishes if draft, queues email)
         let _updated_quote = self
             .store
-            .send_quote(actor, quote_id, tenant_id, inner.message)
+            .send_quote(
+                actor.clone(),
+                quote_id,
+                tenant_id,
+                inner.recipient_email.filter(|e| !e.trim().is_empty()),
+                inner.message,
+            )
             .await
             .map_err(Into::<QuoteApiError>::into)?;
+        self.after_publish(tenant_id, organization_id, quote_id, &actor)
+            .await?;
 
         Ok(Response::new(SendQuoteResponse {
             success: true,
@@ -247,6 +343,10 @@ impl QuotesService for QuoteServiceComponents {
             .cancel_quote(actor, quote_id, tenant_id, inner.reason)
             .await
             .map_err(Into::<QuoteApiError>::into)?;
+        self.store
+            .sync_quote_to_hubspot(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
 
         // Get the detailed quote for the response
         let detailed_quote = self
@@ -283,6 +383,18 @@ impl QuotesService for QuoteServiceComponents {
         let quote = inner
             .quote
             .ok_or_else(|| Status::invalid_argument("quote is required"))?;
+        let expected_updated_at = inner
+            .expected_updated_at
+            .map(|at| {
+                (!at.is_empty())
+                    .then(|| {
+                        <chrono::NaiveDateTime as meteroid_app::conversions::ProtoConv<
+                                String,
+                            >>::from_proto_ref(&at)
+                    })
+                    .transpose()
+            })
+            .transpose()?;
 
         let existing = self
             .store
@@ -300,8 +412,25 @@ impl QuotesService for QuoteServiceComponents {
         }
 
         let prepared = self
-            .prepare_quote(tenant_id, quote_id, quote, existing.quote_number)
+            .prepare_quote(tenant_id, quote_id, quote, existing.quote_number.clone())
             .await?;
+        let stored = self
+            .store
+            .get_detailed_quote_by_id(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        let mut prepared = prepared;
+        prepared.quote_new.owner_id = existing.owner_id;
+        super::v2::ensure_v2_allowed(
+            self.feature_resolver.as_ref(),
+            organization_id,
+            &prepared.quote_new,
+            &prepared.components,
+            &prepared.add_ons,
+            Some(&stored),
+        )
+        .await?;
+        let revisions = self.gate_open(organization_id, gates::QUOTES_FULL).await;
         if let Some((amount_subunit, scope)) = &prepared.minimum
             && !minimum_commitments_open(self.feature_resolver.as_ref(), organization_id).await
         {
@@ -330,7 +459,8 @@ impl QuotesService for QuoteServiceComponents {
         )
         .await?;
 
-        self.store
+        let replaced = self
+            .store
             .replace_quote(
                 prepared.quote_new,
                 prepared.components,
@@ -338,10 +468,20 @@ impl QuotesService for QuoteServiceComponents {
                 prepared.coupons,
                 prepared.pending_addon_materializations,
                 prepared.minimum,
-                actor,
+                actor.clone(),
+                revisions,
+                expected_updated_at,
             )
             .await
             .map_err(Into::<QuoteApiError>::into)?;
+        // A revision held for approval is recorded when it is published.
+        if revisions && replaced.status == meteroid_store::domain::enums::QuoteStatusEnum::Pending {
+            self.store
+                .record_quote_revision(tenant_id, quote_id, Some(actor_label(&actor)))
+                .await
+                .map_err(Into::<QuoteApiError>::into)?;
+        }
+        self.after_quote_write(tenant_id, quote_id).await?;
 
         let detailed_quote = self
             .store
@@ -352,6 +492,96 @@ impl QuotesService for QuoteServiceComponents {
 
         Ok(Response::new(UpdateQuoteResponse {
             quote: Some(detailed_quote),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn preview_quote_portal(
+        &self,
+        request: Request<PreviewQuotePortalRequest>,
+    ) -> Result<Response<PreviewQuotePortalResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+        let quote_id = QuoteId::from_proto(&inner.quote_id)?;
+
+        let detailed = self
+            .store
+            .get_detailed_quote_by_id(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        let quote = &detailed.quote;
+        let viewer_email = match inner.recipient_email.as_deref().map(str::trim) {
+            None | Some("") => quote
+                .recipients
+                .first()
+                .map(|r| r.email.clone())
+                .ok_or_else(|| Status::invalid_argument("The quote has no recipient"))?,
+            Some(requested) => quote
+                .recipients
+                .iter()
+                .map(|r| &r.email)
+                .chain(
+                    quote
+                        .countersigners
+                        .iter()
+                        .filter(|c| !c.automatic)
+                        .map(|c| &c.email),
+                )
+                .find(|email| email.trim().eq_ignore_ascii_case(requested))
+                .cloned()
+                .ok_or_else(|| {
+                    Status::invalid_argument("Recipient not found in quote recipients")
+                })?,
+        };
+
+        let details = crate::portal::quotes::quote_portal_details(
+            &self.store,
+            &self.services,
+            &self.links,
+            self.quote_documents.as_ref(),
+            self.feature_resolver.as_ref(),
+            tenant_id,
+            detailed,
+            viewer_email,
+        )
+        .await?;
+        Ok(Response::new(PreviewQuotePortalResponse {
+            quote: Some(details),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn preview_quote_totals(
+        &self,
+        request: Request<PreviewQuoteTotalsRequest>,
+    ) -> Result<Response<PreviewQuoteTotalsResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let quote = request
+            .into_inner()
+            .quote
+            .ok_or_else(|| Status::invalid_argument("quote is required"))?;
+
+        // Prepared like a create, so the totals match what saving it would store.
+        let prepared = self
+            .prepare_quote(tenant_id, QuoteId::new(), quote, String::new())
+            .await?;
+        let totals = self
+            .services
+            .unsaved_quote_totals(
+                tenant_id,
+                UnsavedQuote {
+                    quote: prepared.quote_new,
+                    components: prepared.components,
+                    add_ons: prepared.add_ons,
+                    coupons: prepared.coupons,
+                    minimum: prepared.minimum,
+                },
+            )
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+
+        Ok(Response::new(PreviewQuoteTotalsResponse {
+            totals: Some(mapping::quotes::totals_to_proto(&totals)),
         }))
     }
 
@@ -373,25 +603,27 @@ impl QuotesService for QuoteServiceComponents {
             .await
             .map_err(Into::<QuoteApiError>::into)?;
 
-        // Verify recipient is in the quote recipients list
-        let is_valid_recipient = quote
+        // The token carries the email as stored on the quote, so every link of a person shares
+        // its signing codes and evidence whatever case was typed.
+        let requested = inner.recipient_email.trim();
+        let recipient_email = quote
             .recipients
             .iter()
-            .any(|r| r.email == inner.recipient_email);
-        if !is_valid_recipient {
-            return Err(Status::invalid_argument(
-                "Recipient not found in quote recipients",
-            ));
-        }
+            .map(|r| &r.email)
+            .chain(
+                quote
+                    .countersigners
+                    .iter()
+                    .filter(|c| !c.automatic)
+                    .map(|c| &c.email),
+            )
+            .find(|email| email.trim().eq_ignore_ascii_case(requested))
+            .cloned()
+            .ok_or_else(|| Status::invalid_argument("Recipient not found in quote recipients"))?;
 
         let token = self
             .store
-            .quote_portal_token(
-                tenant_id,
-                quote_id,
-                inner.recipient_email.clone(),
-                delegated,
-            )
+            .quote_portal_token(tenant_id, quote_id, recipient_email, delegated)
             .await
             .map_err(Into::<QuoteApiError>::into)?;
 
@@ -404,16 +636,20 @@ impl QuotesService for QuoteServiceComponents {
         request: Request<PublishQuoteRequest>,
     ) -> Result<Response<PublishQuoteResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let organization_id = request.organization()?;
         let actor = request.actor_typed()?;
         let inner = request.into_inner();
 
         let quote_id = QuoteId::from_proto(&inner.id)?;
 
+        self.ensure_approved(tenant_id, quote_id).await?;
         let updated_quote = self
             .store
-            .publish_quote(actor, quote_id, tenant_id)
+            .publish_quote(actor.clone(), quote_id, tenant_id)
             .await
             .map_err(Into::<QuoteApiError>::into)?;
+        self.after_publish(tenant_id, organization_id, quote_id, &actor)
+            .await?;
 
         let detailed_quote = self
             .store
@@ -462,6 +698,289 @@ impl QuotesService for QuoteServiceComponents {
             subscription: Some(subscription),
         }))
     }
+
+    #[tracing::instrument(skip_all)]
+    async fn save_quote_draft(
+        &self,
+        request: Request<SaveQuoteDraftRequest>,
+    ) -> Result<Response<SaveQuoteDraftResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let user_id = editor(&request.actor_typed()?)?;
+        let inner = request.into_inner();
+        let payload: serde_json::Value = serde_json::from_str(&inner.payload)
+            .map_err(|e| Status::invalid_argument(format!("Invalid draft payload: {e}")))?;
+
+        let outcome = self
+            .store
+            .save_quote_draft(
+                tenant_id,
+                user_id,
+                QuoteDraftSave {
+                    id: inner
+                        .id
+                        .as_deref()
+                        .map(QuoteDraftId::from_proto)
+                        .transpose()?,
+                    quote_id: inner
+                        .quote_id
+                        .as_deref()
+                        .map(QuoteId::from_proto)
+                        .transpose()?,
+                    expected_version: inner.expected_version,
+                    label: inner.label.filter(|l| !l.trim().is_empty()),
+                    payload,
+                    payload_version: inner.payload_version,
+                },
+            )
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+
+        let (draft, conflict) = match outcome {
+            QuoteDraftSaveOutcome::Saved(d) => (d, false),
+            QuoteDraftSaveOutcome::Conflict(d) => (d, true),
+        };
+        Ok(Response::new(SaveQuoteDraftResponse {
+            draft: Some(mapping::quotes::draft_to_proto(&draft)),
+            conflict,
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn get_quote_draft(
+        &self,
+        request: Request<GetQuoteDraftRequest>,
+    ) -> Result<Response<GetQuoteDraftResponse>, Status> {
+        use meteroid_grpc::meteroid::api::quotes::v1::get_quote_draft_request::Target;
+
+        let tenant_id = request.tenant()?;
+        let draft = match request.into_inner().target {
+            Some(Target::Id(id)) => {
+                self.store
+                    .get_quote_draft(tenant_id, QuoteDraftId::from_proto(&id)?)
+                    .await
+            }
+            Some(Target::QuoteId(id)) => {
+                self.store
+                    .get_quote_draft_by_quote(tenant_id, QuoteId::from_proto(&id)?)
+                    .await
+            }
+            None => return Err(Status::invalid_argument("id or quote_id is required")),
+        }
+        .map_err(Into::<QuoteApiError>::into)?;
+        Ok(Response::new(GetQuoteDraftResponse {
+            draft: draft.as_ref().map(mapping::quotes::draft_to_proto),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn list_quote_drafts(
+        &self,
+        request: Request<ListQuoteDraftsRequest>,
+    ) -> Result<Response<ListQuoteDraftsResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let drafts = self
+            .store
+            .list_unsaved_quote_drafts(tenant_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        Ok(Response::new(ListQuoteDraftsResponse {
+            drafts: drafts.iter().map(mapping::quotes::draft_to_proto).collect(),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn delete_quote_draft(
+        &self,
+        request: Request<DeleteQuoteDraftRequest>,
+    ) -> Result<Response<DeleteQuoteDraftResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let id = QuoteDraftId::from_proto(&request.into_inner().id)?;
+        self.store
+            .delete_quote_draft(tenant_id, id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        Ok(Response::new(DeleteQuoteDraftResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn list_quote_revisions(
+        &self,
+        request: Request<ListQuoteRevisionsRequest>,
+    ) -> Result<Response<ListQuoteRevisionsResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let quote_id = QuoteId::from_proto(&request.into_inner().quote_id)?;
+        let revisions = self
+            .store
+            .list_quote_revisions(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        Ok(Response::new(ListQuoteRevisionsResponse {
+            revisions: revisions
+                .iter()
+                .map(mapping::quotes::revision_to_proto)
+                .collect(),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn list_quote_evidence(
+        &self,
+        request: Request<ListQuoteEvidenceRequest>,
+    ) -> Result<Response<ListQuoteEvidenceResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let quote_id = QuoteId::from_proto(&request.into_inner().quote_id)?;
+        let events = self
+            .store
+            .list_quote_evidence(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        Ok(Response::new(ListQuoteEvidenceResponse {
+            chain_intact: meteroid_store::domain::quote_signing::evidence_chain_intact(&events),
+            events: events
+                .iter()
+                .map(mapping::quotes::evidence_to_proto)
+                .collect(),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn get_quote_approval(
+        &self,
+        request: Request<GetQuoteApprovalRequest>,
+    ) -> Result<Response<GetQuoteApprovalResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let quote_id = QuoteId::from_proto(&request.into_inner().quote_id)?;
+        let (quote, requirement) = self
+            .store
+            .quote_approval_requirement(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        Ok(Response::new(GetQuoteApprovalResponse {
+            satisfied: requirement.is_satisfied(quote.document_hash.as_deref()),
+            matched_rules: requirement
+                .matched_rules
+                .iter()
+                .map(mapping::quotes::approval_rule_to_proto)
+                .collect(),
+            latest: requirement
+                .latest
+                .as_ref()
+                .map(mapping::quotes::approval_to_proto),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn countersign_quote(
+        &self,
+        request: Request<CountersignQuoteRequest>,
+    ) -> Result<Response<CountersignQuoteResponse>, Status> {
+        use meteroid_store::repositories::users::UserInterface;
+
+        let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
+        let user_id = editor(&actor)?;
+        let origin = crate::portal::quotes::origin_of(&request);
+        let inner = request.into_inner();
+        let quote_id = QuoteId::from_proto(&inner.quote_id)?;
+
+        let user = self
+            .store
+            .find_user_by_id_and_tenant(user_id, tenant_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        let quote = self
+            .store
+            .get_quote_by_id(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        let countersigner = quote
+            .countersigners
+            .iter()
+            .find(|c| !c.automatic && c.email.eq_ignore_ascii_case(&user.email))
+            .ok_or_else(|| {
+                Status::permission_denied("You are not a countersigner of this quote")
+            })?;
+
+        self.store
+            .sign_quote(
+                tenant_id,
+                SignQuoteInput {
+                    quote_id,
+                    role: meteroid_store::domain::enums::QuoteSignerRoleEnum::Countersigner,
+                    signed_by_name: countersigner.name.clone(),
+                    signed_by_email: countersigner.email.clone(),
+                    signed_by_title: inner
+                        .title
+                        .filter(|t| !t.trim().is_empty())
+                        .or_else(|| countersigner.title.clone()),
+                    signature_data: inner.signature_data.filter(|d| !d.is_empty()),
+                    signature_method: "countersignature".to_string(),
+                    document_hash: Some(inner.document_hash),
+                    consent_text: inner.consent_text,
+                    authenticated: true,
+                    origin,
+                    actor,
+                },
+            )
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        self.store
+            .sync_quote_to_hubspot(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+
+        let detailed = self
+            .store
+            .get_detailed_quote_by_id(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        Ok(Response::new(CountersignQuoteResponse {
+            quote: Some(mapping::quotes::detailed_quote_domain_to_proto(&detailed)),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn decline_quote(
+        &self,
+        request: Request<DeclineQuoteRequest>,
+    ) -> Result<Response<DeclineQuoteResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let actor = request.actor_typed()?;
+        let inner = request.into_inner();
+        let quote_id = QuoteId::from_proto(&inner.id)?;
+
+        let quote = self
+            .store
+            .get_quote_by_id(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        if quote.status != meteroid_store::domain::enums::QuoteStatusEnum::Pending {
+            return Err(Status::failed_precondition(
+                "Only pending quotes can be declined",
+            ));
+        }
+        self.store
+            .decline_quote(
+                actor,
+                quote_id,
+                tenant_id,
+                inner.reason.filter(|r| !r.trim().is_empty()),
+            )
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        self.store
+            .sync_quote_to_hubspot(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        let detailed = self
+            .store
+            .get_detailed_quote_by_id(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        Ok(Response::new(DeclineQuoteResponse {
+            quote: Some(mapping::quotes::detailed_quote_domain_to_proto(&detailed)),
+        }))
+    }
 }
 
 /// Accepts RFC 3339 timestamps as well as the plain `yyyy-MM-dd` dates sent by the date pickers.
@@ -476,7 +995,116 @@ fn parse_quote_datetime(s: &str) -> Option<chrono::NaiveDateTime> {
         })
 }
 
+/// Drafts and countersignatures belong to a signed-in member, not an API token.
+fn editor(actor: &common_domain::actor::Actor) -> Result<common_domain::ids::UserId, Status> {
+    match actor {
+        common_domain::actor::Actor::User { id } => Ok(*id),
+        _ => Err(Status::permission_denied(
+            "Only a signed-in member can do this",
+        )),
+    }
+}
+
+fn actor_label(actor: &common_domain::actor::Actor) -> String {
+    use common_domain::actor::Actor;
+    match actor {
+        Actor::User { id } => format!("user:{}", id.as_uuid()),
+        Actor::ApiToken { id } => format!("api_token:{}", id.as_uuid()),
+        other => format!("{:?}", other.actor_type()).to_lowercase(),
+    }
+}
+
 impl QuoteServiceComponents {
+    async fn gate_open(
+        &self,
+        organization_id: common_domain::ids::OrganizationId,
+        code: meteroid_app::features::FeatureCode,
+    ) -> bool {
+        self.feature_resolver
+            .resolve(organization_id)
+            .await
+            .is_enabled(code)
+    }
+
+    /// Recomputes what the edit changed: the document hash, the largest discount, the
+    /// approval status, and the linked deal.
+    async fn after_quote_write(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        quote_id: QuoteId,
+    ) -> Result<(), Status> {
+        self.store
+            .refresh_quote_document(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        self.store
+            .quote_approval_requirement(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        self.store
+            .sync_quote_to_hubspot(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        Ok(())
+    }
+
+    async fn after_publish(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        organization_id: common_domain::ids::OrganizationId,
+        quote_id: QuoteId,
+        actor: &common_domain::actor::Actor,
+    ) -> Result<(), Status> {
+        if self.gate_open(organization_id, gates::QUOTES_FULL).await {
+            self.store
+                .record_quote_revision(tenant_id, quote_id, Some(actor_label(actor)))
+                .await
+                .map_err(Into::<QuoteApiError>::into)?;
+        }
+        self.store
+            .sync_quote_to_hubspot(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        Ok(())
+    }
+
+    /// Publishing a quote that matches an approval rule needs an approval of its current content.
+    async fn ensure_approved(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        quote_id: QuoteId,
+    ) -> Result<(), Status> {
+        let quote = self
+            .store
+            .get_quote_by_id(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        if quote.status != meteroid_store::domain::enums::QuoteStatusEnum::Draft {
+            return Ok(());
+        }
+        self.store
+            .refresh_quote_document(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        let (quote, requirement) = self
+            .store
+            .quote_approval_requirement(tenant_id, quote_id)
+            .await
+            .map_err(Into::<QuoteApiError>::into)?;
+        if requirement.is_satisfied(quote.document_hash.as_deref()) {
+            return Ok(());
+        }
+        let rules = requirement
+            .matched_rules
+            .iter()
+            .map(|r| r.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        Err(Status::failed_precondition(format!(
+            "This quote needs an approval before it is published ({rules})"
+        )))
+    }
+
     async fn ensure_signers_allowed(
         &self,
         organization_id: common_domain::ids::OrganizationId,
@@ -486,7 +1114,7 @@ impl QuoteServiceComponents {
         ensure_change_allowed(
             self.feature_resolver.as_ref(),
             organization_id,
-            gates::QUOTE_MULTIPLE_SIGNERS,
+            gates::QUOTES_FULL,
             signers > stored.max(1),
             QUOTE_MULTIPLE_SIGNERS_NOT_IN_PLAN,
         )
@@ -512,9 +1140,35 @@ impl QuoteServiceComponents {
         &self,
         tenant_id: common_domain::ids::TenantId,
         quote_id: QuoteId,
-        quote: CreateQuote,
+        mut quote: CreateQuote,
         default_quote_number: String,
     ) -> Result<PreparedQuote, Status> {
+        let line_details = std::mem::take(&mut quote.line_details);
+        let display_options =
+            mapping::quotes::display_options_to_domain(quote.display_options.take());
+        let sections = std::mem::take(&mut quote.sections)
+            .into_iter()
+            .map(mapping::quotes::section_to_domain)
+            .collect();
+        let countersigners = std::mem::take(&mut quote.countersigners)
+            .into_iter()
+            .map(mapping::quotes::countersigner_to_domain)
+            .collect();
+        let signature_level = mapping::quotes::signature_level_to_domain(quote.signature_level());
+        let hubspot_deal_id = quote
+            .hubspot_deal_id
+            .take()
+            .map(|d| super::v2::parse_hubspot_deal_id(&d))
+            .transpose()?
+            .flatten();
+        let template_id = quote
+            .template_id
+            .take()
+            .filter(|t| !t.is_empty())
+            .map(|t| common_domain::ids::QuoteTemplateId::from_proto(&t))
+            .transpose()?;
+        let consent_text = quote.consent_text.take().filter(|c| !c.trim().is_empty());
+        let customer_actions = quote.customer_actions.take();
         let customer_id = CustomerId::from_proto(&quote.customer_id)?;
         let plan_version_id = PlanVersionId::from_proto(&quote.plan_version_id)?;
 
@@ -609,6 +1263,18 @@ impl QuoteServiceComponents {
                 .into_iter()
                 .map(entitlement_spec_from_proto)
                 .collect::<Result<Vec<_>, _>>()?,
+            owner_id: None,
+            template_id,
+            display_options,
+            sections,
+            signature_level,
+            consent_text,
+            countersigners,
+            hubspot_deal_id,
+            max_discount_percent: None,
+            allow_questions: customer_actions.as_ref().is_none_or(|a| a.questions),
+            allow_change_requests: customer_actions.as_ref().is_none_or(|a| a.change_requests),
+            allow_decline: customer_actions.as_ref().is_none_or(|a| a.decline),
         };
 
         // Parse informative usage example quantities (display-only).
@@ -776,9 +1442,16 @@ impl QuoteServiceComponents {
             .version
             .as_ref()
             .ok_or_else(|| QuoteApiError::InvalidArgument("Plan version not found".to_string()))?;
+        // The subscription it converts to bills in the plan's currency.
+        if quote_new.currency != plan_version.currency {
+            return Err(Status::invalid_argument(format!(
+                "The quote is in {} but its plan bills in {}",
+                quote_new.currency, plan_version.currency
+            )));
+        }
 
         // Process quote add-ons (fetch add-on details first)
-        let (quote_add_ons, pending_addon_materializations) = if let Some(add_ons_proto) =
+        let (mut quote_add_ons, mut pending_addon_materializations) = if let Some(add_ons_proto) =
             quote.add_ons
         {
             let create_add_ons = create_subscription_add_ons_from_grpc(add_ons_proto)?;
@@ -847,6 +1520,14 @@ impl QuoteServiceComponents {
         } else {
             (vec![], vec![])
         };
+
+        super::v2::apply_line_details(
+            &line_details,
+            &mut quote_components,
+            &mut quote_add_ons,
+            &mut pending_addon_materializations,
+            &quote_new.currency,
+        )?;
 
         // Process quote coupons
         let quote_coupons: Vec<QuoteCouponNew> = if let Some(coupons_proto) = quote.coupons {
@@ -936,6 +1617,10 @@ fn process_quote_components(
                 is_override: false,
                 price_id: resolved.price_id,
                 example_usage_quantity: None,
+                description: None,
+                sort_order: 0,
+                discount_percent: None,
+                list_fee: None,
             });
         }
     }
@@ -978,6 +1663,10 @@ fn process_quote_components(
                 is_override: true,
                 price_id: overridden.price_entry.existing_price_id(),
                 example_usage_quantity: None,
+                description: None,
+                sort_order: 0,
+                discount_percent: None,
+                list_fee: None,
             });
         }
     }
@@ -1017,6 +1706,10 @@ fn process_quote_components(
             is_override: false,
             price_id: extra.price_entry.existing_price_id(),
             example_usage_quantity: None,
+            description: None,
+            sort_order: 0,
+            discount_percent: None,
+            list_fee: None,
         });
     }
 
@@ -1058,6 +1751,10 @@ fn process_quote_components(
             is_override: false,
             price_id: resolved.price_id,
             example_usage_quantity: None,
+            description: None,
+            sort_order: 0,
+            discount_percent: None,
+            list_fee: None,
         });
     }
 
@@ -1123,6 +1820,10 @@ fn process_quote_add_ons(
             product_id: resolved.product_id,
             price_id: resolved.price_id,
             quantity: cs_ao.quantity,
+            description: None,
+            sort_order: 0,
+            discount_percent: None,
+            list_fee: None,
         });
     }
 

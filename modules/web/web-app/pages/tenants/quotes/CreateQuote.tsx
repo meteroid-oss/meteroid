@@ -1,77 +1,59 @@
-import { create } from '@bufbuild/protobuf';
+import { create } from '@bufbuild/protobuf'
+import { Code, ConnectError } from '@connectrpc/connect'
 import { createConnectQueryKey, skipToken, useMutation } from '@connectrpc/connect-query'
-import {
-  Alert,
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  DateFormField,
-  DatePicker,
-  Form,
-  GenericFormField,
-  InputFormField,
-  Label,
-  SelectFormField,
-  SelectItem,
-  Switch,
-  TextareaFormField,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@md/ui'
+import { Alert, Button, Form } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { Eye, InfoIcon, Plus, Save, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
-import { useFieldArray } from 'react-hook-form'
+import { addDays, startOfDay } from 'date-fns'
+import { ArrowLeft, Save } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { z } from 'zod'
 
 import { Slot, hasSlot } from '@/edition'
-import { AddOnCouponSelector } from '@/features/addons/AddOnCouponSelector'
 import { scopeOptionsWithPending } from '@/features/billing/minimumCommitment'
-import { CustomerSelect } from '@/features/customers/CustomerSelect'
-import {
-  CustomPropertiesFields,
-  serializeCustomProperties,
-} from '@/features/customproperties/CustomPropertiesFields'
 import { resolveEntitlementSpecs } from '@/features/entitlements/creation/resolveEntitlementSpecs'
-import { PendingEntitlementsPanel } from '@/features/entitlements/pending/PendingEntitlementsPanel'
-import { SubscribablePlanVersionSelect } from '@/features/plans/SubscribablePlanVersionSelect'
 import {
-  buildExistingProductRef,
-  buildNewProductRef,
-  buildPriceInputs,
-  formDataToPrice,
-  toPricingTypeFromFeeType,
-  wrapAsNewPriceEntries,
-} from '@/features/pricing'
-import { QuotePriceComponentsWrapper } from '@/features/quotes/QuotePriceComponentsWrapper'
-import { QuoteView } from '@/features/quotes/QuoteView'
+  DraftConflictBanner,
+  DraftRestoreBanner,
+  StaleQuoteBanner,
+} from '@/features/quotes/editor/AutosaveBanners'
+import { DocumentSection } from '@/features/quotes/editor/DocumentSection'
+import { EntitlementsBlock } from '@/features/quotes/editor/EntitlementsBlock'
+import { InternalSection } from '@/features/quotes/editor/InternalSection'
+import { LinesSection } from '@/features/quotes/editor/LinesSection'
+import { PeopleSection } from '@/features/quotes/editor/PeopleSection'
+import { QuoteEditorHeader } from '@/features/quotes/editor/QuoteEditorHeader'
+import { QuoteEditorRail, QuoteFullPreview } from '@/features/quotes/editor/QuoteEditorRail'
+import { QuoteEditorOutline } from '@/features/quotes/editor/QuoteSectionNav'
+import { TermsSection } from '@/features/quotes/editor/TermsSection'
+import { buildCreateQuote, previewFormValues } from '@/features/quotes/editor/buildCreateQuote'
+import { fromTemplatePayload, toTemplatePayload } from '@/features/quotes/editor/draftPayload'
+import { createQuoteSchema } from '@/features/quotes/editor/quoteFormSchema'
+import { buildPreviewQuote, useQuotePreviewLines } from '@/features/quotes/editor/quotePreview'
+import {
+  discountError,
+  editorLines,
+  newQuoteV2State,
+  orderLines,
+  v2Presence,
+} from '@/features/quotes/editor/quoteV2'
+import { useQuoteAutosave } from '@/features/quotes/editor/useQuoteAutosave'
+import { useQuoteV2Gates } from '@/features/quotes/editor/useQuoteV2Gates'
 import {
   QuoteFormSeed,
   emptyPriceComponentsState,
   generateQuoteNumber,
 } from '@/features/quotes/quoteFormSeed'
-import { PriceComponentsState } from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
-import { PricingComponent } from '@/features/subscriptions/pricecomponents/SubscriptionPricingTable'
+import {
+  PriceComponentsState,
+  pricingConfigurationErrors,
+} from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
 import { useBasePath } from '@/hooks/useBasePath'
 import { entitlementCodes, useEntitlement } from '@/hooks/useEntitlement'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
-import { mapDatev2 } from '@/lib/mapping'
-import {
-  defaultNetTerms,
-  formatDefaultNetTerms,
-  getPrice,
-  priceToSubscriptionFee,
-  priceToSubscriptionPeriod,
-} from '@/lib/mapping/priceToSubscriptionFee'
+import { defaultNetTerms } from '@/lib/mapping/priceToSubscriptionFee'
 import { effectiveSubscriptionPrices } from '@/pages/tenants/subscription/create/state'
 import { listEntityActivity } from '@/rpc/api/activity/v1/activity-ActivityService_connectquery'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
@@ -79,7 +61,6 @@ import { listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connect
 import { ListCouponRequest_CouponFilter } from '@/rpc/api/coupons/v1/coupons_pb'
 import { listCreditUnits } from '@/rpc/api/creditunits/v1/creditunits-CreditUnitsService_connectquery'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import { CustomPropertyEntityType } from '@/rpc/api/customproperties/v1/models_pb'
 import { createFeature } from '@/rpc/api/entitlements/v1/entitlements-EntitlementsService_connectquery'
 import {
   getInvoicingEntity,
@@ -91,145 +72,82 @@ import {
   listPlans,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
-import { Price } from '@/rpc/api/prices/v1/models_pb'
-import { previewPrice } from '@/rpc/api/prices/v1/prices-PricesService_connectquery'
-import { PreviewPriceItemSchema } from '@/rpc/api/prices/v1/prices_pb';
-import {
-  CreateQuoteCouponSchema,
-  CreateQuoteCouponsSchema,
-  CreateQuoteSchema as CreateQuoteDataSchema,
-  DetailedQuoteSchema,
-  QuoteSchema,
-  QuoteStatus,
-  QuoteUsageExampleSchema,
-} from '@/rpc/api/quotes/v1/models_pb';
+import { QuoteStatus } from '@/rpc/api/quotes/v1/models_pb'
 import {
   createQuote,
   getQuote,
   listQuotes,
   updateQuote,
 } from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
-import { CreateQuoteRequestSchema, UpdateQuoteRequestSchema } from '@/rpc/api/quotes/v1/quotes_pb';
-import {
-  ActivationCondition,
-  BankTransferSchema,
-  CreateSubscriptionAddOnSchema,
-  CreateSubscriptionAddOnsSchema,
-  CreateSubscriptionComponentsSchema,
-  CreateSubscriptionComponents_ComponentOverrideSchema,
-  CreateSubscriptionComponents_ExtraComponentSchema,
-  ExternalSchema,
-  OnlinePaymentSchema,
-  PaymentMethodsConfigSchema,
-} from '@/rpc/api/subscriptions/v1/models_pb';
-
+import { CreateQuoteRequestSchema, UpdateQuoteRequestSchema } from '@/rpc/api/quotes/v1/quotes_pb'
 
 import type { PendingEntitlementSpec } from '@/features/entitlements/creation/types'
-import type { PreviewPriceItem } from '@/rpc/api/prices/v1/prices_pb';
-import type { DetailedQuote } from '@/rpc/api/quotes/v1/models_pb';
-import type { PaymentMethodsConfig } from '@/rpc/api/subscriptions/v1/models_pb';
+import type { EditorCrumb } from '@/features/quotes/editor/QuoteEditorHeader'
+import type { SectionIssue } from '@/features/quotes/editor/editorSections'
+import type { QuoteFormValues } from '@/features/quotes/editor/quoteFormSchema'
+import type { QuoteV2State } from '@/features/quotes/editor/quoteV2'
+import type { QuoteDraft } from '@/rpc/api/quotes/v1/models_pb'
+import type { ReactNode } from 'react'
 
-const recipientSchema = z.object({
-  name: z.string().min(1, 'Recipient name is required'),
-  email: z.string().email('Valid email is required'),
-})
-
-const createQuoteSchema = z.object({
-  quote_number: z.string().min(1, 'Quote number is required'),
-  customer_id: z.string().min(1, 'Customer is required'),
-  plan_version_id: z.string().min(1, 'Plan is required'),
-  start_date: z.date().optional(),
-  billing_start_date: z.date().optional(),
-  end_date: z.date().optional(),
-  trial_duration: z.number().min(0).optional(),
-  billing_day_anchor: z.preprocess(val => {
-    if (val === '') return undefined
-    return val
-  }, z.number().min(1).max(31).optional()),
-  expires_at: z.date().optional(),
-  valid_until: z.date().optional(),
-  internal_notes: z.string().optional(),
-  overview: z.string().optional(),
-  terms_and_services: z.string().optional(),
-  // Unset lets the server default it: due on receipt when the quote sells credit, else the plan's.
-  net_terms: z.preprocess(
-    val => (val === '' || val === null ? undefined : val),
-    z.number().int('Enter a whole number of days').min(0).optional()
-  ),
-  recipients: z.array(recipientSchema).min(1, 'At least one recipient is required'),
-  // Advanced settings
-  activation_condition: z.enum(['ON_START', 'ON_CHECKOUT', 'MANUAL']).default('ON_START'),
-  payment_methods_type: z.enum(['online', 'bankTransfer', 'external']).default('online'),
-  auto_advance_invoices: z.boolean().default(true),
-  charge_automatically: z.boolean().default(true),
-  invoice_memo: z.string().optional(),
-  create_subscription_on_acceptance: z.boolean().default(false),
-  customProperties: z.record(z.string(), z.unknown()).optional(),
-})
-
-type CreateQuoteFormData = z.infer<typeof createQuoteSchema>
-
-// Helper functions for activation condition and payment strategy
-const activationConditionFromString = (
-  condition: 'ON_START' | 'ON_CHECKOUT' | 'MANUAL'
-): ActivationCondition => {
-  switch (condition) {
-    case 'ON_START':
-      return ActivationCondition.ON_START
-    case 'ON_CHECKOUT':
-      return ActivationCondition.ON_CHECKOUT
-    case 'MANUAL':
-      return ActivationCondition.MANUAL
-    default:
-      return ActivationCondition.ON_START
-  }
-}
-
-type PaymentMethodsType = 'online' | 'bankTransfer' | 'external'
-
-const buildPaymentMethodsConfig = (type: PaymentMethodsType): PaymentMethodsConfig => {
-  switch (type) {
-    case 'online':
-      return create(
-        PaymentMethodsConfigSchema,
-        { config: { case: 'online', value: create(OnlinePaymentSchema) } }
-      );
-    case 'bankTransfer':
-      return create(PaymentMethodsConfigSchema, {
-        config: { case: 'bankTransfer', value: create(BankTransferSchema) },
-      });
-    case 'external':
-      return create(
-        PaymentMethodsConfigSchema,
-        { config: { case: 'external', value: create(ExternalSchema) } }
-      );
-  }
+/** The editor working on a template: no deal fields, no drafts, saved by the template's page. */
+export interface QuoteTemplateEditing {
+  crumbs: EditorCrumb[]
+  /** The field editing the template's name. */
+  title: ReactNode
+  /** The template's own fields, under the name. */
+  details: ReactNode
+  canSave: boolean
+  isSaving: boolean
+  /** Receives the editor state as a template payload, as "Save as template" encodes it. */
+  onSave: (payload: unknown) => void
 }
 
 interface CreateQuoteProps {
   seed?: QuoteFormSeed
   editQuoteId?: string
+  /** The edited quote's `updatedAt` when loaded ('' when never updated). */
+  loadedUpdatedAt?: string
+  /** The edited quote's status; a new quote is a draft. */
+  status?: QuoteStatus
   template?: { sourceQuoteNumber: string; planOutdated: boolean }
+  /** The autosaved draft this new quote resumes. */
+  initialDraft?: QuoteDraft
+  templateEditing?: QuoteTemplateEditing
 }
 
-export const CreateQuote = ({ seed, editQuoteId, template }: CreateQuoteProps = {}) => {
+export const CreateQuote = ({
+  seed,
+  editQuoteId,
+  loadedUpdatedAt,
+  status = QuoteStatus.DRAFT,
+  template,
+  initialDraft,
+  templateEditing,
+}: CreateQuoteProps = {}) => {
+  const isTemplate = Boolean(templateEditing)
   const navigate = useNavigate()
   const basePath = useBasePath()
   const queryClient = useQueryClient()
   const isEdit = Boolean(editQuoteId)
+  const [baselineUpdatedAt] = useState(loadedUpdatedAt)
+  const [staleSave, setStaleSave] = useState(false)
+  const forceSave = useRef(false)
   const [priceComponentsState, setPriceComponentsState] = useState<PriceComponentsState>(
     () => seed?.priceComponents ?? emptyPriceComponentsState()
   )
 
-  // Add-ons and coupons state
   const [selectedAddOns, setSelectedAddOns] = useState<{ addOnId: string; quantity?: number }[]>(
     () => seed?.addOns ?? []
   )
   const [selectedCoupons, setSelectedCoupons] = useState<{ couponId: string }[]>(
     () => seed?.coupons ?? []
   )
-  // Entitlements state
-  const [pendingEntitlements, setPendingEntitlements] = useState<PendingEntitlementSpec[]>([])
+  const [pendingEntitlements, setPendingEntitlements] = useState<PendingEntitlementSpec[]>(
+    () => seed?.pendingEntitlements ?? []
+  )
+  const [v2, setV2] = useState<QuoteV2State>(() => seed?.v2 ?? newQuoteV2State())
+  const [v2Present, setV2Present] = useState(() => v2Presence(v2))
+  const v2Gates = useQuoteV2Gates(v2Present)
 
   // Collect product ids from in-flight (not-yet-persisted) extra and overridden price components.
   // Only components with an existing productId contribute — new-product refs have no id yet.
@@ -246,7 +164,6 @@ export const CreateQuote = ({ seed, editQuoteId, template }: CreateQuoteProps = 
 
   const createFeatureMutation = useMutation(createFeature)
 
-
   // Quote-level minimum override, applied at creation (bundled into the CreateQuote request).
   // Undefined = inherit the plan's term. Without the commitments module a new quote cannot carry
   // one (the server refuses it), while an edited quote keeps its own unchanged.
@@ -255,10 +172,6 @@ export const CreateQuote = ({ seed, editQuoteId, template }: CreateQuoteProps = 
   )
 
   const createQuoteMutation = useMutation(createQuote, {
-    onSuccess: async data => {
-      const newQuoteId = data.quote?.quote?.id
-      navigate(`${basePath}/quotes/${newQuoteId}`)
-    },
     onError: error => {
       toast.error(`Failed to create quote: ${error.message}`)
     },
@@ -276,25 +189,28 @@ export const CreateQuote = ({ seed, editQuoteId, template }: CreateQuoteProps = 
         queryKey: createConnectQueryKey({ schema: listEntityActivity, cardinality: undefined }),
       })
       if (response.quote?.quote?.status === QuoteStatus.PENDING) {
-        toast.success('Quote updated: its link shows the changes. Resend it to let the customer know.')
+        toast.success(
+          'Quote updated: its link shows the changes. Resend it to let the customer know.'
+        )
       }
-      navigate(`${basePath}/quotes/${editQuoteId}`)
     },
     onError: error => {
-      toast.error(`Failed to update quote: ${error.message}`)
+      if (ConnectError.from(error).code !== Code.Aborted) {
+        toast.error(`Failed to update quote: ${error.message}`)
+      }
     },
   })
 
   const isSaving = createQuoteMutation.isPending || updateQuoteMutation.isPending
   const submitLabel = isEdit
     ? isSaving
-      ? 'Saving...'
-      : 'Save Changes'
+      ? 'Saving…'
+      : 'Save changes'
     : isSaving
-      ? 'Creating...'
-      : 'Create Quote'
+      ? 'Creating…'
+      : 'Create quote'
 
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const methods = useZodForm({
     schema: createQuoteSchema,
@@ -303,7 +219,6 @@ export const CreateQuote = ({ seed, editQuoteId, template }: CreateQuoteProps = 
       customer_id: searchParams.get('customerId')?.trim() ?? '',
       plan_version_id: '',
       recipients: [{ name: '', email: '' }],
-      // Advanced settings defaults
       activation_condition: 'ON_START',
       payment_methods_type: 'online',
       auto_advance_invoices: true,
@@ -312,25 +227,14 @@ export const CreateQuote = ({ seed, editQuoteId, template }: CreateQuoteProps = 
     },
   })
 
-  const {
-    fields: recipientFields,
-    append: appendRecipient,
-    remove: removeRecipient,
-  } = useFieldArray({
-    control: methods.control,
-    name: 'recipients',
-  })
-
-  const multipleSigners = useEntitlement(entitlementCodes.QUOTE_MULTIPLE_SIGNERS)
-  const [previewMode, setPreviewMode] = useState(false)
-  const [pricingValidation, setPricingValidation] = useState({
-    isValid: false,
-    errors: [] as string[],
-  })
-  const [customerId, planVersionId] = methods.watch(['customer_id', 'plan_version_id'])
+  const multipleSigners = useEntitlement(entitlementCodes.QUOTES_FULL)
+  const [customerId, planVersionId, quoteNumber] = methods.watch([
+    'customer_id',
+    'plan_version_id',
+    'quote_number',
+  ])
 
   // Component customizations reference the plan's components, so they don't survive a plan change.
-  // Reset during render so the remounted pricing editor starts from the cleared state.
   const [pricingPlanVersionId, setPricingPlanVersionId] = useState(planVersionId)
   if (pricingPlanVersionId !== planVersionId) {
     setPricingPlanVersionId(planVersionId)
@@ -369,10 +273,9 @@ export const CreateQuote = ({ seed, editQuoteId, template }: CreateQuoteProps = 
 
   const planCurrency = planQuery.data?.plan?.version?.currency
   const planTrialConfig = planQuery.data?.plan?.version?.trialConfig
-  const planType = planQuery.data?.plan?.plan?.planType
-  const isFreePlan = planType === PlanType.FREE
+  const isFreePlan = planQuery.data?.plan?.plan?.planType === PlanType.FREE
+  const planDefaultMinimum = planQuery.data?.plan?.version?.minimumCommitment
 
-  // Resolve trialing plan name
   const trialingPlanName = planTrialConfig?.trialingPlanId
     ? plansQuery.data?.plans.find(p => p.id === planTrialConfig.trialingPlanId)?.name
     : undefined
@@ -395,15 +298,15 @@ export const CreateQuote = ({ seed, editQuoteId, template }: CreateQuoteProps = 
     },
     { enabled: Boolean(planVersionId) }
   )
+  const planComponents = priceComponentsQuery.data?.components
 
   const removedProductIds = useMemo(() => {
     const removedSet = new Set(priceComponentsState.components.removed)
-    return (priceComponentsQuery.data?.components ?? [])
+    return (planComponents ?? [])
       .filter(c => removedSet.has(c.id) && c.productId)
       .map(c => c.productId!)
-  }, [priceComponentsState.components.removed, priceComponentsQuery.data?.components])
+  }, [priceComponentsState.components.removed, planComponents])
 
-  // Add-ons and coupons queries
   const addOnsQuery = useQuery(
     listAddOns,
     planVersionId
@@ -431,10 +334,10 @@ export const CreateQuote = ({ seed, editQuoteId, template }: CreateQuoteProps = 
   // Display only: unset terms are left to the server, which applies this same default.
   const planNetTerms = planQuery.data?.plan?.version?.netTerms
   const netTermsDefault =
-    planCurrency && planNetTerms !== undefined && priceComponentsQuery.data && addOnsQuery.data
+    planCurrency && planNetTerms !== undefined && planComponents && addOnsQuery.data
       ? defaultNetTerms(
           effectiveSubscriptionPrices(
-            priceComponentsQuery.data.components,
+            planComponents,
             priceComponentsState.components,
             selectedAddOns.map(sel => availableAddOns.find(a => a.id === sel.addOnId)?.price),
             planCurrency
@@ -443,25 +346,136 @@ export const CreateQuote = ({ seed, editQuoteId, template }: CreateQuoteProps = 
         )
       : undefined
 
-  // Invoicing entity providers query for payment provider check
   const invoicingEntityId = customerQuery.data?.customer?.invoicingEntityId
   const providersQuery = useQuery(
     getInvoicingEntityProviders,
     invoicingEntityId ? { id: invoicingEntityId } : skipToken
   )
 
+  // A template has no customer, hence no invoicing entity to check: each quote checks its own.
   const hasOnlinePaymentProvider =
-    !!providersQuery.data?.cardProvider || !!providersQuery.data?.directDebitProvider
+    isTemplate || !!providersQuery.data?.cardProvider || !!providersQuery.data?.directDebitProvider
   const isLoadingProviders = customerQuery.isLoading || providersQuery.isLoading
 
-  // Watch advanced settings for cross-validation
   const [activationCondition, paymentMethodsType, chargeAutomatically] = methods.watch([
     'activation_condition',
     'payment_methods_type',
     'charge_automatically',
   ])
 
-  const { getValues, setValue } = methods
+  const { getValues, setValue, watch } = methods
+
+  const orderedLines = orderLines(
+    editorLines(planComponents ?? [], priceComponentsState, selectedAddOns, availableAddOns),
+    v2.lineOrder
+  )
+
+  const pricingErrors = planComponents
+    ? pricingConfigurationErrors(planComponents, priceComponentsState)
+    : []
+  const pricingValid = Boolean(planComponents) && pricingErrors.length === 0
+  const hasDiscountError = orderedLines.some(l =>
+    discountError(v2.lineDetails[l.key]?.discountPercent ?? '')
+  )
+
+  const getSnapshot = (): QuoteFormSeed => ({
+    values: getValues(),
+    priceComponents: priceComponentsState,
+    addOns: selectedAddOns,
+    coupons: selectedCoupons,
+    minimumCommitment: minimumOverride,
+    pendingEntitlements,
+    v2,
+  })
+
+  const autosave = useQuoteAutosave({
+    quoteId: editQuoteId,
+    initialDraft,
+    getSnapshot,
+    getLabel: () =>
+      [customerQuery.data?.customer?.name, getValues('quote_number')].filter(Boolean).join(' · '),
+    onDraftCreated: id =>
+      setSearchParams(
+        params => {
+          params.set('draft', id)
+          return params
+        },
+        { replace: true }
+      ),
+    disabled: isTemplate,
+  })
+  const { touch } = autosave
+
+  useEffect(() => {
+    const subscription = watch((_, { type }) => {
+      if (type === 'change') touch()
+    })
+    return () => subscription.unsubscribe()
+  }, [watch, touch])
+
+  const editorStateChanges = useRef(0)
+  useEffect(() => {
+    if (editorStateChanges.current++ > 0) touch()
+  }, [
+    priceComponentsState,
+    selectedAddOns,
+    selectedCoupons,
+    minimumOverride,
+    pendingEntitlements,
+    v2,
+    touch,
+  ])
+
+  const applySnapshot = (snapshot: QuoteFormSeed) => {
+    methods.reset(snapshot.values)
+    setPricingPlanVersionId(snapshot.values.plan_version_id ?? '')
+    setPriceComponentsState(snapshot.priceComponents)
+    setSelectedAddOns(snapshot.addOns)
+    setSelectedCoupons(snapshot.coupons)
+    setMinimumOverride(
+      isEdit || hasSlot('quoteCreate.minimumCommitment') ? snapshot.minimumCommitment : undefined
+    )
+    setPendingEntitlements(snapshot.pendingEntitlements)
+    setV2(snapshot.v2)
+    setV2Present(v2Presence(snapshot.v2))
+  }
+
+  const applyTemplate = (payload: unknown, applied: { id: string; expiresAfterDays?: number }) => {
+    const snapshot = fromTemplatePayload(payload)
+    if (!snapshot) {
+      toast.error('This template could not be read')
+      return
+    }
+    const current = getValues()
+    applySnapshot({
+      ...snapshot,
+      values: {
+        ...snapshot.values,
+        customer_id: current.customer_id,
+        recipients: current.recipients,
+        quote_number: current.quote_number,
+        start_date: undefined,
+        billing_start_date: undefined,
+        end_date: undefined,
+        valid_until: undefined,
+        expires_at:
+          applied.expiresAfterDays !== undefined
+            ? addDays(startOfDay(new Date()), applied.expiresAfterDays)
+            : undefined,
+      },
+      v2: { ...snapshot.v2, templateId: applied.id, hubspotDealId: v2.hubspotDealId },
+    })
+  }
+
+  const restoreOffer = () => {
+    const snapshot = autosave.acceptOffer()
+    if (snapshot) applySnapshot(snapshot)
+  }
+
+  const loadTheirVersion = () => {
+    const snapshot = autosave.takeTheirs()
+    if (snapshot) applySnapshot(snapshot)
+  }
 
   // Auto-disable chargeAutomatically and reset activationCondition when no online provider
   useEffect(() => {
@@ -495,110 +509,56 @@ export const CreateQuote = ({ seed, editQuoteId, template }: CreateQuoteProps = 
     }
   }, [paymentMethodsType, chargeAutomatically, setValue])
 
-  const onSubmit = async (data: CreateQuoteFormData) => {
+  const onSubmit = async (data: QuoteFormValues) => {
     try {
       if (!planCurrency) throw new Error('Currency is required')
+      if (hasDiscountError) throw new Error('A line discount is above 0 and at most 100')
 
-      const resolvedEntitlements = await resolveEntitlementSpecs(
-        pendingEntitlements,
-        req => createFeatureMutation.mutateAsync(req),
+      const resolvedEntitlements = await resolveEntitlementSpecs(pendingEntitlements, req =>
+        createFeatureMutation.mutateAsync(req)
       )
 
-      const subscriptionComponents = create(CreateSubscriptionComponentsSchema, {
-        parameterizedComponents: priceComponentsState.components.parameterized,
-        overriddenComponents: priceComponentsState.components.overridden.map(c => {
-          const pricingType = toPricingTypeFromFeeType(
-            c.feeType,
-            c.formData.usageModel as string | undefined
-          )
-          return create(CreateSubscriptionComponents_ComponentOverrideSchema, {
-            componentId: c.componentId,
-            name: c.name,
-            price: wrapAsNewPriceEntries(
-              buildPriceInputs(pricingType, c.formData as Record<string, unknown>, planCurrency)
-            )[0],
-          });
-        }),
-        extraComponents: priceComponentsState.components.extra.map(c => {
-          const pricingType = toPricingTypeFromFeeType(
-            c.feeType,
-            c.formData.usageModel as string | undefined
-          )
-          return create(CreateSubscriptionComponents_ExtraComponentSchema, {
-            name: c.name,
-            product: c.productId
-              ? buildExistingProductRef(c.productId)
-              : buildNewProductRef(c.name, c.feeType, c.formData as Record<string, unknown>),
-            price: wrapAsNewPriceEntries(
-              buildPriceInputs(pricingType, c.formData as Record<string, unknown>, planCurrency)
-            )[0],
-          });
-        }),
-        removeComponents: priceComponentsState.components.removed,
-      })
-
-      // Build add-ons
-      const addOns = create(CreateSubscriptionAddOnsSchema, {
-        addOns: selectedAddOns.map(a =>
-          create(CreateSubscriptionAddOnSchema, { addOnId: a.addOnId, quantity: a.quantity ?? 1 })
-        ),
-      })
-
-      // Build coupons
-      const coupons = create(CreateQuoteCouponsSchema, {
-        coupons: selectedCoupons.map(c => create(CreateQuoteCouponSchema, { couponId: c.couponId })),
-      })
-
-      const createQuoteData = create(CreateQuoteDataSchema, {
-        quoteNumber: data.quote_number,
-        planVersionId: data.plan_version_id,
-        customerId: data.customer_id,
+      const createQuoteData = buildCreateQuote({
+        values: data,
         currency: planCurrency,
-        startDate: data.start_date ? mapDatev2(data.start_date) : undefined,
-        billingStartDate: data.billing_start_date ? mapDatev2(data.billing_start_date) : undefined,
-        endDate: data.end_date ? mapDatev2(data.end_date) : undefined,
-        trialDuration: data.trial_duration,
-        billingDayAnchor: data.billing_day_anchor,
-        expiresAt: data.expires_at ? mapDatev2(data.expires_at) : undefined,
-        validUntil: data.valid_until ? mapDatev2(data.valid_until) : undefined,
-        internalNotes: data.internal_notes,
-        overview: data.overview,
-        termsAndServices: data.terms_and_services,
-        netTerms: data.net_terms,
-        activationCondition: activationConditionFromString(data.activation_condition),
-        paymentMethodsConfig: buildPaymentMethodsConfig(data.payment_methods_type),
-        autoAdvanceInvoices: data.auto_advance_invoices,
-        chargeAutomatically: data.charge_automatically,
-        invoiceMemo: data.invoice_memo,
-        createSubscriptionOnAcceptance: data.create_subscription_on_acceptance,
-        customProperties: serializeCustomProperties(data.customProperties),
-        attachments: [], // TODO: Add attachment support
-        recipients: data.recipients.map(r => ({ name: r.name, email: r.email })),
-        components: subscriptionComponents,
-        addOns: addOns,
-        coupons: coupons,
+        pricing: priceComponentsState,
+        addOns: selectedAddOns,
+        coupons: selectedCoupons,
+        minimumOverride,
+        v2,
+        orderedLines,
         entitlements: resolvedEntitlements,
-        minimumCommitmentOverride: minimumOverride,
-        usageExamples: (priceComponentsState.components.usageExamples ?? [])
-          .filter(e => e.quantity.trim() !== '')
-          .map(
-            e =>
-              create(QuoteUsageExampleSchema, {
-                priceComponentId: e.componentId,
-                componentName: e.componentId ? undefined : e.name,
-                exampleQuantity: e.quantity,
-              })
-          ),
       })
 
       if (editQuoteId) {
-        await updateQuoteMutation.mutateAsync(
-          create(UpdateQuoteRequestSchema, { id: editQuoteId, quote: createQuoteData })
-        )
+        const force = forceSave.current
+        forceSave.current = false
+        try {
+          await updateQuoteMutation.mutateAsync(
+            create(UpdateQuoteRequestSchema, {
+              id: editQuoteId,
+              quote: createQuoteData,
+              expectedUpdatedAt: force ? undefined : baselineUpdatedAt,
+            })
+          )
+        } catch (error) {
+          if (ConnectError.from(error).code === Code.Aborted) {
+            setStaleSave(true)
+            toast.warning(
+              'Someone else saved this quote since you opened it: nothing was saved yet.'
+            )
+            return
+          }
+          throw error
+        }
+        void autosave.complete()
+        navigate(`${basePath}/quotes/${editQuoteId}`)
       } else {
-        await createQuoteMutation.mutateAsync(
+        const response = await createQuoteMutation.mutateAsync(
           create(CreateQuoteRequestSchema, { quote: createQuoteData })
         )
+        void autosave.complete()
+        navigate(`${basePath}/quotes/${response.quote?.quote?.id}`)
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
@@ -606,933 +566,336 @@ export const CreateQuote = ({ seed, editQuoteId, template }: CreateQuoteProps = 
     }
   }
 
-  const addRecipient = () => {
-    appendRecipient({ name: '', email: '' })
-  }
+  const { previewLines, exampleAmountByKey } = useQuotePreviewLines({
+    planComponents: planComponents ?? [],
+    pricing: priceComponentsState,
+    currency: planCurrency,
+    creditUnits,
+  })
 
-  const removeRecipientAt = (index: number) => {
-    if (recipientFields.length > 1) {
-      removeRecipient(index)
-    }
-  }
-
-  const createPreviewQuote = (
-    data: CreateQuoteFormData,
-    components: PricingComponent[]
-  ): DetailedQuote => {
-    const quote = create(QuoteSchema, {
-      id: 'preview-quote',
-      quoteNumber: data.quote_number,
-      planVersionId: data.plan_version_id,
-      customerId: data.customer_id,
+  const buildPreview = (values: Partial<QuoteFormValues>) =>
+    buildPreviewQuote({
+      values,
       currency: planCurrency,
-      startDate: data.start_date ? mapDatev2(data.start_date) : mapDatev2(new Date()),
-      billingStartDate: data.billing_start_date ? mapDatev2(data.billing_start_date) : undefined,
-      endDate: data.end_date ? mapDatev2(data.end_date) : undefined,
-      trialDuration: data.trial_duration,
-      billingDayAnchor: data.billing_day_anchor,
-      expiresAt: data.expires_at ? mapDatev2(data.expires_at) : undefined,
-      validUntil: data.valid_until ? mapDatev2(data.valid_until) : undefined,
-      internalNotes: data.internal_notes,
-      overview: data.overview,
-      termsAndServices: data.terms_and_services,
-      netTerms: data.net_terms ?? netTermsDefault?.netTerms,
-      recipients: data.recipients.map(r => ({ name: r.name, email: r.email })),
-      createdAt: new Date().toISOString(),
-    })
-
-    const addOnItems = selectedAddOns.flatMap(sel => {
-      const addOn = availableAddOns.find(a => a.id === sel.addOnId)
-      if (!addOn?.price) return []
-      return [{
-        id: addOn.id,
-        name: addOn.name,
-        quantity: sel.quantity ?? 1,
-        period: priceToSubscriptionPeriod(addOn.price),
-        fee: priceToSubscriptionFee(addOn.price, { creditUnits }),
-      }]
-    })
-
-    return create(DetailedQuoteSchema, {
-      quote,
-      components,
-      addOns: addOnItems,
+      lines: previewLines,
+      orderedLines,
+      v2,
+      addOns: selectedAddOns,
+      availableAddOns,
+      coupons: selectedCoupons,
+      availableCoupons,
+      creditUnits,
+      defaultNetTerms: netTermsDefault?.netTerms,
       customer: customerQuery.data?.customer,
       invoicingEntity: invoicingEntityQuery.data?.entity,
-    });
-  }
+    })
 
-  const buildPreviewPricing = (): {
-    components: PricingComponent[]
-    items: PreviewPriceItem[]
-  } => {
-    const priceComponentsData = priceComponentsQuery.data?.components || []
-    if (!planCurrency) return { components: [], items: [] }
-
-    const { parameterized, overridden, extra, removed, usageExamples } =
-      priceComponentsState.components
-
-    const exampleFor = (key: { componentId?: string; name?: string }): string | undefined =>
-      (usageExamples ?? []).find(e =>
-        key.componentId ? e.componentId === key.componentId : e.name === key.name
-      )?.quantity
-
-    const items: PreviewPriceItem[] = []
-
-    const makeComponent = (
-      id: string,
-      name: string,
-      price: Price,
-      quantity: string | undefined,
-      feeOptions?: { initialSlotCount?: number }
-    ): PricingComponent => {
-      // An example in credits has no money amount to preview.
-      if (
-        price.pricing.case === 'usagePricing' &&
-        !price.creditUnit &&
-        price.pricing.value.model.case &&
-        price.pricing.value.model.case !== 'matrix' &&
-        quantity &&
-        quantity.trim() !== ''
-      ) {
-        items.push(
-          create(PreviewPriceItemSchema, {
-            key: id,
-            usagePricing: price.pricing.value,
-            quantity,
-            currency: planCurrency,
-          })
-        )
-      }
-      return {
-        id,
-        name,
-        period: priceToSubscriptionPeriod(price),
-        fee: priceToSubscriptionFee(price, { ...feeOptions, creditUnits }),
-        exampleUsageQuantity: quantity,
-      }
-    }
-
-    const defaultPlanComponents = priceComponentsData
-      .filter(
-        pc =>
-          !removed.includes(pc.id) &&
-          !parameterized.some(c => c.componentId === pc.id) &&
-          !overridden.some(c => c.componentId === pc.id)
-      )
-      .flatMap(pc => {
-        const price = getPrice(pc)
-        if (!price) return []
-        return [makeComponent(pc.id, pc.name, price, exampleFor({ componentId: pc.id }))]
+  const buildTotalsRequest = (values: Partial<QuoteFormValues>) => {
+    if (!planCurrency) return undefined
+    try {
+      return buildCreateQuote({
+        values: previewFormValues(values),
+        currency: planCurrency,
+        pricing: priceComponentsState,
+        addOns: selectedAddOns,
+        coupons: selectedCoupons,
+        minimumOverride,
+        v2,
+        orderedLines,
+        entitlements: [],
       })
-
-    const parameterizedComponents = parameterized.flatMap(c => {
-      const pc = priceComponentsData.find(pc => pc.id === c.componentId)
-      if (!pc) return []
-      const price = getPrice(pc)
-      if (!price) return []
-      return [
-        makeComponent(pc.id, pc.name, price, exampleFor({ componentId: pc.id }), {
-          initialSlotCount: c.initialSlotCount,
-        }),
-      ]
-    })
-
-    const overriddenComponents = overridden.map(c => {
-      const price = formDataToPrice(c.feeType, c.formData as Record<string, unknown>, planCurrency)
-      return makeComponent(c.componentId, c.name, price, exampleFor({ componentId: c.componentId }))
-    })
-
-    const extraComponents = extra.map(c => {
-      const price = formDataToPrice(c.feeType, c.formData as Record<string, unknown>, planCurrency)
-      return makeComponent(c.name, c.name, price, exampleFor({ name: c.name }))
-    })
-
-    return {
-      components: [
-        ...defaultPlanComponents,
-        ...parameterizedComponents,
-        ...overriddenComponents,
-        ...extraComponents,
-      ],
-      items,
+    } catch {
+      return undefined
     }
   }
 
-  const { components: rawPreviewComponents, items: previewPriceItems } = buildPreviewPricing()
+  const effectiveMinimum = minimumOverride ?? planDefaultMinimum
+  const canPreview =
+    (isTemplate || Boolean(customerId)) &&
+    Boolean(planVersionId) &&
+    pricingValid &&
+    !priceComponentsQuery.isLoading
+  const canSave = templateEditing
+    ? templateEditing.canSave && !templateEditing.isSaving
+    : !isSaving && Boolean(customerId) && Boolean(planVersionId) && pricingValid
+  const save = templateEditing
+    ? () => templateEditing.onSave(toTemplatePayload(getSnapshot()))
+    : methods.handleSubmit(onSubmit)
+  const saveLabel = templateEditing
+    ? templateEditing.isSaving
+      ? 'Saving…'
+      : 'Save template'
+    : submitLabel
 
-  // uint64 fields in the request are BigInt, which react-query's default key
-  // hashing can't serialize — provide a BigInt-safe key.
-  const previewPriceQuery = useQuery(
-    previewPrice,
-    { items: previewPriceItems },
-    {
-      enabled: previewPriceItems.length > 0,
-      queryKeyHashFn: () =>
-        'previewPrice-' +
-        JSON.stringify(previewPriceItems, (_, v) => (typeof v === 'bigint' ? v.toString() : v)),
+  // The preview is a history entry, so the browser's Back returns to the form.
+  const previewPushed = useRef(false)
+  const previewMode = searchParams.get('preview') === '1' && canPreview
+  const openPreview = () => {
+    previewPushed.current = true
+    setSearchParams(params => {
+      params.set('preview', '1')
+      return params
+    })
+  }
+  const closePreview = () => {
+    if (previewPushed.current) {
+      previewPushed.current = false
+      navigate(-1)
+    } else {
+      setSearchParams(
+        params => {
+          params.delete('preview')
+          return params
+        },
+        { replace: true }
+      )
     }
-  )
+  }
 
-  const exampleAmountByKey = useMemo(
-    () => new Map((previewPriceQuery.data?.results ?? []).map(r => [r.key, r.amount])),
-    [previewPriceQuery.data]
-  )
-
-  const previewComponents: PricingComponent[] = useMemo(
-    () =>
-      rawPreviewComponents.map(c =>
-        exampleAmountByKey.has(c.id) ? { ...c, exampleUsageAmount: exampleAmountByKey.get(c.id) } : c
-      ),
-    [rawPreviewComponents, exampleAmountByKey]
-  )
+  const totalsBlockedReason =
+    !customerId || !planVersionId
+      ? 'Needs a customer and a plan'
+      : planComponents && !pricingValid
+        ? 'Pricing incomplete'
+        : hasDiscountError
+          ? 'Invalid line discount'
+          : undefined
+  const totalsLoading = !planCurrency || !planComponents
 
   if (previewMode) {
-    const formData = methods.getValues()
-    const previewQuote = createPreviewQuote(formData, previewComponents)
+    const values = methods.getValues()
 
     return (
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-semibold">Quote Preview</h1>
+      <div className="flex flex-col gap-6">
+        <header className="sticky top-0 z-20 -mx-6 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-background px-6 py-3">
+          <h1 className="text-2xl font-semibold">Preview</h1>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setPreviewMode(false)}>
-              Back to Edit
+            <Button variant="outline" hasIcon onClick={closePreview}>
+              <ArrowLeft className="h-4 w-4" />
+              Back to edit
             </Button>
-            <Button onClick={methods.handleSubmit(onSubmit)} disabled={isSaving}>
-              <Save className="w-4 h-4 mr-2" />
-              {submitLabel}
+            <Button hasIcon onClick={() => void save()} disabled={!canSave}>
+              <Save className="h-4 w-4" />
+              {saveLabel}
             </Button>
           </div>
-        </div>
-        <QuoteView quote={previewQuote} mode="preview" subscriptionComponents={previewComponents} />
+        </header>
+        <QuoteFullPreview
+          preview={buildPreview(values)}
+          totalsRequest={
+            totalsBlockedReason || totalsLoading ? undefined : buildTotalsRequest(values)
+          }
+          minimumCommitment={effectiveMinimum}
+        />
       </div>
     )
   }
 
+  const customerName = customerQuery.data?.customer?.name
+  const planName = planQuery.data?.plan?.plan?.name
+  const title =
+    customerName && planName
+      ? `${customerName} · ${planName}`
+      : customerName || planName || (isEdit && quoteNumber) || 'New quote'
+
+  const editorIssues: SectionIssue[] = [
+    ...pricingErrors.map(message => ({ section: 'quote-lines' as const, message })),
+    ...(hasDiscountError
+      ? [{ section: 'quote-lines' as const, message: 'A line discount is above 0 and at most 100' }]
+      : []),
+  ]
+
+  const minimumCommitmentField =
+    planVersionId &&
+    (customerId || isTemplate) &&
+    planCurrency &&
+    hasSlot('quoteCreate.minimumCommitment') ? (
+      <Slot
+        name="quoteCreate.minimumCommitment"
+        currency={planCurrency}
+        allowPending
+        components={scopeOptionsWithPending([
+          ...(planComponents ?? []).filter(
+            c => !priceComponentsState.components.removed.includes(c.id)
+          ),
+          ...priceComponentsState.components.extra.map(e => ({
+            name: e.name,
+            productId: e.productId,
+          })),
+        ])}
+        planDefault={planDefaultMinimum}
+        override={minimumOverride}
+        dropped={false}
+        allowDrop={false}
+        onChange={({ override }) => setMinimumOverride(override)}
+      />
+    ) : undefined
+
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-semibold">{isEdit ? 'Edit Quote' : 'Create Quote'}</h1>
-          <p className="text-muted-foreground">
-            {isEdit
-              ? 'Update this draft quote before publishing it'
-              : template
-                ? `Based on quote ${template.sourceQuoteNumber}`
-                : 'Build a professional quote for your customer'}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => setPreviewMode(true)}
-            disabled={
-              !customerId ||
-              !planVersionId ||
-              !pricingValidation.isValid ||
-              priceComponentsQuery.isLoading
+    <Form {...methods}>
+      {/* Saving is the header's explicit action only: an untyped button or Enter never submits. */}
+      <form onSubmit={e => e.preventDefault()} className="flex flex-col gap-5">
+        {templateEditing ? (
+          <QuoteEditorHeader
+            crumbs={templateEditing.crumbs}
+            title={templateEditing.title}
+            details={templateEditing.details}
+            onPreview={openPreview}
+            previewDisabled={!canPreview}
+            onSave={() => void save()}
+            saveDisabled={!canSave}
+            saveLabel={saveLabel}
+          />
+        ) : (
+          <QuoteEditorHeader
+            crumbs={[
+              { label: 'Quotes', to: `${basePath}/quotes` },
+              editQuoteId
+                ? { label: quoteNumber || 'Quote', to: `${basePath}/quotes/${editQuoteId}` }
+                : { label: 'New quote' },
+            ]}
+            title={title}
+            subtitle={template ? `Based on quote ${template.sourceQuoteNumber}` : undefined}
+            status={status}
+            autosaveStatus={autosave.status}
+            templates={
+              <Slot
+                name="quoteCreate.templates"
+                snapshot={() => toTemplatePayload(getSnapshot())}
+                apply={applyTemplate}
+                isEdit={isEdit}
+              />
             }
-          >
-            <Eye className="w-4 h-4 mr-2" />
-            Preview
-          </Button>
-          <Button
-            onClick={methods.handleSubmit(onSubmit)}
-            disabled={isSaving || !customerId || !planVersionId || !pricingValidation.isValid}
-          >
-            <Save className="w-4 h-4 mr-2" />
-            {submitLabel}
-          </Button>
-        </div>
-      </div>
+            onPreview={openPreview}
+            previewDisabled={!canPreview}
+            onSave={() => void save()}
+            saveDisabled={!canSave}
+            saveLabel={saveLabel}
+          />
+        )}
 
-      <Form {...methods}>
-        <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-6">
-          {template?.planOutdated && (
-            <Alert variant="warning">
-              The plan of quote {template.sourceQuoteNumber} has a newer version, so its pricing
-              could not be reused. Select a plan to configure pricing.
-            </Alert>
-          )}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Main Form */}
-            <div className="lg:col-span-2 space-y-6 pb-4">
-              {/* Customer & Plan Selection */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Customer & Plan</CardTitle>
-                  <CardDescription>Select the customer and plan for this quote</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 gap-4">
-                    <GenericFormField
-                      control={methods.control}
-                      layout="horizontal"
-                      label="Customer"
-                      name="customer_id"
-                      render={({ field }) => (
-                        <CustomerSelect value={field.value} onChange={field.onChange} />
-                      )}
-                    />
+        {staleSave && editQuoteId && (
+          <StaleQuoteBanner
+            savedVersionHref={`${basePath}/quotes/${editQuoteId}`}
+            onOverwrite={() => {
+              forceSave.current = true
+              setStaleSave(false)
+              void save()
+            }}
+          />
+        )}
+        {autosave.conflict && (
+          <DraftConflictBanner
+            draft={autosave.conflict}
+            onLoadTheirs={loadTheirVersion}
+            onKeepMine={autosave.keepMine}
+          />
+        )}
+        {autosave.offer && (
+          <DraftRestoreBanner
+            offer={autosave.offer}
+            onRestore={restoreOffer}
+            onDiscard={() => void autosave.discardOffer()}
+          />
+        )}
+        {template?.planOutdated && (
+          <Alert variant="warning">
+            The plan of quote {template.sourceQuoteNumber} has a newer version, so its pricing could
+            not be reused. Select a plan to configure pricing.
+          </Alert>
+        )}
 
-                    <GenericFormField
-                      control={methods.control}
-                      layout="horizontal"
-                      label="Plan"
-                      name="plan_version_id"
-                      render={({ field }) => (
-                        <SubscribablePlanVersionSelect
-                          value={field.value}
-                          onChange={field.onChange}
-                        />
-                      )}
-                    />
+        <div className="@container pb-4">
+          <div className="grid grid-cols-1 items-start gap-6 @4xl:grid-cols-[minmax(0,1fr)_320px] @6xl:grid-cols-[200px_minmax(0,1fr)_340px]">
+            <aside className="sticky top-28 hidden @6xl:block">
+              <QuoteEditorOutline editorIssues={editorIssues} template={isTemplate} />
+            </aside>
 
-                    <div className="space-y-0 grid gap-2 md:grid md:grid-cols-12 items-center">
-                      <Label className="col-span-4 text-xs text-muted-foreground">Currency</Label>
-                      <span className="col-span-8 text-sm">
-                        {planCurrency ?? 'Select a plan'}
-                      </span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+            <div className="flex min-w-0 flex-col gap-5">
+              <PeopleSection
+                v2={v2}
+                setV2={setV2}
+                allowMultipleRecipients={multipleSigners}
+                allowVerified={v2Gates.verified}
+                allowCountersigners={v2Gates.countersigners}
+                allowCustomerActions={v2Gates.customerActions}
+                onRecipientsChange={touch}
+                dealFields={!isTemplate}
+              />
 
-              {/* Quote Details */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Quote Details</CardTitle>
-                  <CardDescription>Basic information about this quote</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <InputFormField
-                      name="quote_number"
-                      label="Quote Number"
-                      control={methods.control}
-                      placeholder="Q-12345"
-                      description="Unique identifier for this quote"
-                      layout="vertical"
-                    />
-                    <DateFormField
-                      name="expires_at"
-                      label="Quote Expires On (Optional)"
-                      control={methods.control}
-                      layout="vertical"
-                      clearable
-                    />
-                  </div>
+              <LinesSection
+                customerId={customerId}
+                planVersionId={planVersionId}
+                currency={planCurrency}
+                planComponents={planComponents}
+                pricing={priceComponentsState}
+                setPricing={setPriceComponentsState}
+                pricingErrors={pricingErrors}
+                lines={orderedLines}
+                addOns={selectedAddOns}
+                setAddOns={setSelectedAddOns}
+                availableAddOns={availableAddOns}
+                coupons={selectedCoupons}
+                setCoupons={setSelectedCoupons}
+                availableCoupons={availableCoupons}
+                exampleAmountByKey={exampleAmountByKey}
+                v2={v2}
+                setV2={setV2}
+                lineEditing={v2Gates.lineEditing}
+                minimumCommitment={minimumCommitmentField}
+                requireCustomer={!isTemplate}
+              />
 
-                  <TextareaFormField
-                    name="overview"
-                    label="Overview"
-                    control={methods.control}
-                    placeholder="Brief overview of the quote (visible to customer)"
-                    layout="vertical"
-                  />
-
-                  <TextareaFormField
-                    name="terms_and_services"
-                    label="Terms & Services"
-                    control={methods.control}
-                    placeholder="Terms and conditions for this quote"
-                    layout="vertical"
-                  />
-
-                  <TextareaFormField
-                    name="internal_notes"
-                    label="Internal Notes"
-                    control={methods.control}
-                    placeholder="Internal notes (not visible to customer)"
-                    layout="vertical"
-                  />
-
-                  <CustomPropertiesFields
-                    control={methods.control}
-                    entityType={CustomPropertyEntityType.QUOTE}
-                    title={null}
-                  />
-                </CardContent>
-              </Card>
-
-              {/* Subscription Pricing */}
-              {planVersionId && customerId && planCurrency && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Subscription Pricing</CardTitle>
-                    <CardDescription>
-                      Configure the subscription components and pricing for this quote
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <QuotePriceComponentsWrapper
-                      key={planVersionId}
-                      planVersionId={planVersionId}
-                      currency={planCurrency}
-                      onValidationChange={(isValid, errors) =>
-                        setPricingValidation({ isValid, errors })
-                      }
-                      onStateChange={setPriceComponentsState}
-                      initialState={priceComponentsState}
-                      exampleAmountByKey={exampleAmountByKey}
-                    />
-                    {!pricingValidation.isValid && pricingValidation.errors.length > 0 && (
-                      <div className="bg-warning/10 border border-warning/20 p-3 rounded-lg">
-                        <p className="text-sm font-medium text-warning">
-                          Configuration Required:
-                        </p>
-                        <ul className="text-sm text-warning mt-1 list-disc list-inside">
-                          {pricingValidation.errors.map((error, index) => (
-                            <li key={index}>{error}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Contract terms */}
-              {planVersionId &&
-                customerId &&
-                planCurrency &&
-                hasSlot('quoteCreate.minimumCommitment') && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Contract terms</CardTitle>
-                    <CardDescription>
-                      Inherited from the plan by default. Override the minimum for this quote; it
-                      carries onto the subscription on conversion.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Slot
-                      name="quoteCreate.minimumCommitment"
-                      currency={planCurrency}
-                      allowPending
-                      components={scopeOptionsWithPending([
-                        ...(priceComponentsQuery.data?.components ?? []).filter(
-                          c => !priceComponentsState.components.removed.includes(c.id)
-                        ),
-                        ...priceComponentsState.components.extra.map(e => ({
-                          name: e.name,
-                          productId: e.productId,
-                        })),
-                      ])}
-                      planDefault={planQuery.data?.plan?.version?.minimumCommitment}
-                      override={minimumOverride}
-                      dropped={false}
-                      allowDrop={false}
-                      onChange={({ override }) => setMinimumOverride(override)}
-                    />
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Add-ons & Coupons */}
-              {planVersionId && customerId && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Add-ons & Discounts</CardTitle>
-                    <CardDescription>Optional add-ons and promotional coupons</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <AddOnCouponSelector
-                      selectedAddOns={selectedAddOns}
-                      onAddOnAdd={id =>
-                        setSelectedAddOns(prev => [...prev, { addOnId: id, quantity: 1 }])
-                      }
-                      onAddOnRemove={id =>
-                        setSelectedAddOns(prev => prev.filter(a => a.addOnId !== id))
-                      }
-                      onAddOnQuantityChange={(id, qty) =>
-                        setSelectedAddOns(prev =>
-                          prev.map(a => (a.addOnId === id ? { ...a, quantity: qty } : a))
-                        )
-                      }
-                      availableAddOns={availableAddOns}
-                      selectedCoupons={selectedCoupons}
-                      onCouponAdd={id => setSelectedCoupons(prev => [...prev, { couponId: id }])}
-                      onCouponRemove={id =>
-                        setSelectedCoupons(prev => prev.filter(c => c.couponId !== id))
-                      }
-                      availableCoupons={availableCoupons}
-                      currency={planCurrency}
-                    />
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Entitlements */}
               {env.entitlementsEnabled && planVersionId && !isEdit && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Entitlements</CardTitle>
-                    <CardDescription>Features and limits this quote will grant the customer.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <PendingEntitlementsPanel
-                      selection={{
-                        planVersionId,
-                        addOnIds: selectedAddOns.map(a => a.addOnId),
-                        extraProductIds,
-                        removedProductIds,
-                      }}
-                      pending={pendingEntitlements}
-                      onChange={setPendingEntitlements}
-                      entityLabel="quote"
-                    />
-                  </CardContent>
-                </Card>
+                <EntitlementsBlock
+                  selection={{
+                    planVersionId,
+                    addOnIds: selectedAddOns.map(a => a.addOnId),
+                    extraProductIds,
+                    removedProductIds,
+                  }}
+                  pending={pendingEntitlements}
+                  onChange={setPendingEntitlements}
+                />
               )}
 
-              {/* Subscription Settings */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Subscription Settings</CardTitle>
-                  <CardDescription>
-                    Configure subscription dates, activation, and payment options
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {/* Subscription Creation Toggle */}
-                  <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/30">
-                    <div className="flex items-center gap-2">
-                      <Label className="text-sm font-medium">
-                        Create subscription on acceptance
-                      </Label>
-                      <TooltipProvider delayDuration={100}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p className="max-w-xs">
-                              When enabled, a subscription will be automatically created when the
-                              quote is signed by all recipients.
-                            </p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <GenericFormField
-                      control={methods.control}
-                      name="create_subscription_on_acceptance"
-                      render={({ field }) => (
-                        <div className="flex items-center space-x-2">
-                          <Switch
-                            id="createSubscriptionOnAcceptance"
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                          />
-                          <Label
-                            htmlFor="createSubscriptionOnAcceptance"
-                            className="font-normal text-sm"
-                          >
-                            {field.value ? 'Enabled' : 'Disabled'}
-                          </Label>
-                        </div>
-                      )}
-                    />
-                  </div>
+              <DocumentSection sections={v2.sections} setV2={setV2} />
 
-                  {/* Subscription Dates */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="space-y-4">
-                      <h4 className="text-sm font-medium">Subscription Dates</h4>
-                      <GenericFormField
-                        control={methods.control}
-                        layout="vertical"
-                        label="Start Date (Optional)"
-                        name="start_date"
-                        description="Leave empty for subscription creation date"
-                        render={({ field }) => (
-                          <DatePicker
-                            mode="single"
-                            captionLayout="dropdown"
-                            className="min-w-[12em]"
-                            placeholder="Dynamic"
-                            date={field.value}
-                            onSelect={field.onChange}
-                            clearable
-                          />
-                        )}
-                      />
-                      <GenericFormField
-                        control={methods.control}
-                        layout="vertical"
-                        label="End Date (Optional)"
-                        name="end_date"
-                        render={({ field }) => (
-                          <DatePicker
-                            mode="single"
-                            captionLayout="dropdown"
-                            className="min-w-[12em]"
-                            placeholder="No end date"
-                            date={field.value}
-                            onSelect={field.onChange}
-                            clearable
-                          />
-                        )}
-                      />
-                    </div>
-                    <div className="space-y-4">
-                      <h4 className="text-sm font-medium">Billing Configuration</h4>
-                      <InputFormField
-                        name="billing_day_anchor"
-                        label="Billing Day"
-                        control={methods.control}
-                        type="number"
-                        placeholder="Anniversary"
-                        description="Day of month for billing (1-31). Leave empty for anniversary"
-                        layout="vertical"
-                      />
-                      <InputFormField
-                        name="net_terms"
-                        label="Net Terms"
-                        control={methods.control}
-                        type="number"
-                        min={0}
-                        placeholder={netTermsDefault ? String(netTermsDefault.netTerms) : undefined}
-                        description={`Payment terms in days, 0 is due on receipt. Leave empty for the default${netTermsDefault ? `: ${formatDefaultNetTerms(netTermsDefault)}` : ''}`}
-                        layout="vertical"
-                      />
-                    </div>
-                  </div>
+              <TermsSection
+                planVersionId={planVersionId}
+                trialConfig={planTrialConfig}
+                trialingPlanName={trialingPlanName}
+                isFreePlan={isFreePlan}
+                netTermsDefault={netTermsDefault}
+                hasOnlinePaymentProvider={hasOnlinePaymentProvider}
+                isLoadingProviders={isLoadingProviders}
+                hideDates={isTemplate}
+              />
 
-                  {/* Trial Configuration */}
-                  {planVersionId && (
-                    <div className="border-t pt-4">
-                      <h4 className="text-sm font-medium mb-4">Trial Configuration</h4>
-                      {planTrialConfig?.durationDays ? (
-                        <div className="space-y-4">
-                          <Alert variant="default" className="text-sm">
-                            <div className="space-y-1">
-                              <p>
-                                Plan default:{' '}
-                                <span className="font-medium">{planTrialConfig.durationDays} days</span>
-                                {trialingPlanName && (
-                                  <>
-                                    {' '}
-                                    with <span className="font-medium">&quot;{trialingPlanName}&quot;</span>{' '}
-                                    features
-                                  </>
-                                )}
-                              </p>
-                              <p className="text-muted-foreground text-xs">
-                                {isFreePlan
-                                  ? 'Free plan - no payment required.'
-                                  : planTrialConfig.trialIsFree
-                                    ? 'Free trial - payment method collected at checkout, billing starts after trial.'
-                                    : 'Paid trial - billing starts immediately.'}
-                              </p>
-                            </div>
-                          </Alert>
-                          <InputFormField
-                            name="trial_duration"
-                            label="Trial Duration (days)"
-                            type="number"
-                            placeholder={String(planTrialConfig.durationDays)}
-                            control={methods.control}
-                            description="Leave empty to use plan default, or set to 0 to skip trial"
-                            layout="vertical"
-                          />
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          No trial configured on this plan.
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="border-t pt-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Activation & Lifecycle */}
-                    <div className="space-y-4">
-                      <h4 className="text-sm font-medium">Activation & Lifecycle</h4>
-                      <SelectFormField
-                        name="activation_condition"
-                        label="Activation condition"
-                        placeholder="Select when to activate"
-                        control={methods.control}
-                      >
-                        <SelectItem value="ON_START">On Start Date</SelectItem>
-                        <SelectItem
-                          value="ON_CHECKOUT"
-                          disabled={!isLoadingProviders && !hasOnlinePaymentProvider}
-                        >
-                          On Checkout
-                          {!isLoadingProviders &&
-                            !hasOnlinePaymentProvider &&
-                            ' (requires a payment provider)'}
-                        </SelectItem>
-                        <SelectItem value="MANUAL">Manual Activation</SelectItem>
-                      </SelectFormField>
-
-                      <SelectFormField
-                        name="payment_methods_type"
-                        label="Payment methods"
-                        placeholder="Select payment method type"
-                        control={methods.control}
-                        labelTooltip={
-                          <TooltipProvider delayDuration={100}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
-                              </TooltipTrigger>
-                              <TooltipContent className="max-w-96">
-                                Online: Use card and/or direct debit payments via your payment
-                                providers.
-                                <br />
-                                Bank Transfer: Invoice customers with bank transfer instructions.
-                                <br />
-                                External: Manage payment collection outside the system.
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        }
-                      >
-                        <SelectItem value="online">Online (card / direct debit)</SelectItem>
-                        <SelectItem
-                          value="bankTransfer"
-                          disabled={activationCondition === 'ON_CHECKOUT'}
-                        >
-                          Bank transfer
-                          {activationCondition === 'ON_CHECKOUT' && ' (unavailable with Checkout)'}
-                        </SelectItem>
-                        <SelectItem
-                          value="external"
-                          disabled={activationCondition === 'ON_CHECKOUT'}
-                        >
-                          External
-                          {activationCondition === 'ON_CHECKOUT' && ' (unavailable with Checkout)'}
-                        </SelectItem>
-                      </SelectFormField>
-                    </div>
-
-                    {/* Invoice Options */}
-                    <div className="space-y-4">
-                      <h4 className="text-sm font-medium">Invoicing Options</h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-1">
-                            <Label className="text-sm font-medium">Auto-advance invoices</Label>
-                            <TooltipProvider delayDuration={100}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p className="max-w-xs">
-                                    Automatically finalize draft invoices when generated. Disable to
-                                    manually review and finalize invoices.
-                                  </p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          </div>
-                          <GenericFormField
-                            control={methods.control}
-                            name="auto_advance_invoices"
-                            render={({ field }) => (
-                              <div className="flex items-center space-x-2">
-                                <Switch
-                                  id="autoAdvanceInvoices"
-                                  checked={field.value}
-                                  onCheckedChange={field.onChange}
-                                />
-                                <Label
-                                  htmlFor="autoAdvanceInvoices"
-                                  className="font-normal text-sm"
-                                >
-                                  {field.value ? 'Enabled' : 'Disabled'}
-                                </Label>
-                              </div>
-                            )}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-1">
-                            <Label className="text-sm font-medium">Charge automatically</Label>
-                            <TooltipProvider delayDuration={100}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <InfoIcon className="h-4 w-4 text-muted-foreground cursor-help" />
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p className="max-w-xs">
-                                    {!hasOnlinePaymentProvider
-                                      ? 'Requires a card or direct debit payment provider to be configured on the invoicing entity.'
-                                      : paymentMethodsType === 'bankTransfer' ||
-                                          paymentMethodsType === 'external'
-                                        ? 'Not available with Bank Transfer or External payment methods. Switch to Online to enable.'
-                                        : 'Automatically try charging the customer when an invoice is finalized, if a payment method is configured.'}
-                                  </p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          </div>
-                          <GenericFormField
-                            control={methods.control}
-                            name="charge_automatically"
-                            render={({ field }) => (
-                              <div className="flex items-center space-x-2">
-                                <Switch
-                                  id="chargeAutomatically"
-                                  checked={field.value}
-                                  onCheckedChange={field.onChange}
-                                  disabled={
-                                    (!isLoadingProviders && !hasOnlinePaymentProvider) ||
-                                    paymentMethodsType === 'bankTransfer' ||
-                                    paymentMethodsType === 'external'
-                                  }
-                                />
-                                <Label
-                                  htmlFor="chargeAutomatically"
-                                  className={`font-normal text-sm ${(!isLoadingProviders && !hasOnlinePaymentProvider) || paymentMethodsType === 'bankTransfer' || paymentMethodsType === 'external' ? 'text-muted-foreground' : ''}`}
-                                >
-                                  {field.value ? 'Enabled' : 'Disabled'}
-                                </Label>
-                              </div>
-                            )}
-                          />
-                        </div>
-                      </div>
-                      <TextareaFormField
-                        name="invoice_memo"
-                        label="Invoice Memo"
-                        control={methods.control}
-                        placeholder="Custom note for invoices..."
-                        layout="vertical"
-                        rows={2}
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Recipients */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Recipients</CardTitle>
-                  <CardDescription>Who should receive this quote</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {recipientFields.map((field, index) => (
-                    <div key={field.id} className="p-4 border rounded-lg space-y-4">
-                      <div className="flex justify-between items-center">
-                        <h4 className="font-medium">Recipient {index + 1}</h4>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => removeRecipientAt(index)}
-                          disabled={recipientFields.length === 1}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <InputFormField
-                          name={`recipients.${index}.name`}
-                          label="Name"
-                          control={methods.control}
-                          placeholder="John Doe"
-                          layout="vertical"
-                        />
-
-                        <InputFormField
-                          name={`recipients.${index}.email`}
-                          label="Email"
-                          control={methods.control}
-                          type="email"
-                          placeholder="john@company.com"
-                          layout="vertical"
-                        />
-                      </div>
-                    </div>
-                  ))}
-
-                  {multipleSigners && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={addRecipient}
-                      className="w-full"
-                    >
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add Recipient
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-
-              <div>
-                <Button
-                  className="w-full"
-                  onClick={methods.handleSubmit(onSubmit)}
-                  disabled={isSaving}
-                >
-                  <Save className="w-4 h-4 mr-2" />
-                  {submitLabel}
-                </Button>
-              </div>
+              {!isTemplate && (
+                <InternalSection
+                  hubspotDealId={v2.hubspotDealId}
+                  setV2={setV2}
+                  allowHubspot={v2Gates.hubspot}
+                />
+              )}
             </div>
 
-            {/* Summary Sidebar */}
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Quote Summary</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span>Customer:</span>
-                      <span className="text-muted-foreground">
-                        {customerId ? 'Selected' : 'Not selected'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Plan:</span>
-                      <span className="text-muted-foreground">
-                        {planVersionId ? 'Selected' : 'Not selected'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Recipients:</span>
-                      <span className="text-muted-foreground">
-                        {recipientFields.length} recipient{recipientFields.length !== 1 ? 's' : ''}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Currency:</span>
-                      <span className="text-muted-foreground">{planCurrency ?? '—'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Pricing:</span>
-                      <span
-                        className={`text-sm ${pricingValidation.isValid ? 'text-success' : 'text-warning'}`}
-                      >
-                        {customerId && planVersionId
-                          ? pricingValidation.isValid
-                            ? 'Configured'
-                            : 'Needs configuration'
-                          : 'Plan or customer not selected'}
-                      </span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            <aside aria-label="Live preview" className="min-w-0 @4xl:sticky @4xl:top-28">
+              <QuoteEditorRail
+                buildPreview={buildPreview}
+                buildTotalsRequest={buildTotalsRequest}
+                totalsBlockedReason={totalsBlockedReason}
+                totalsLoading={totalsLoading}
+                minimumCommitment={effectiveMinimum}
+                canOpenPreview={canPreview}
+                onOpenPreview={openPreview}
+                showSummary={!isTemplate}
+              />
+            </aside>
           </div>
-        </form>
-      </Form>
-    </div>
+        </div>
+      </form>
+    </Form>
   )
 }
-
-
-

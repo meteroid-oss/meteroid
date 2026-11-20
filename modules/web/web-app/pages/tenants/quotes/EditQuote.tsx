@@ -42,5 +42,13 @@ export const EditQuote = () => {
     )
   }
 
-  return <CreateQuote key={quoteId} seed={seed} editQuoteId={quoteId} />
+  return (
+    <CreateQuote
+      key={quoteId}
+      seed={seed}
+      editQuoteId={quoteId}
+      loadedUpdatedAt={quote?.quote?.updatedAt ?? ''}
+      status={quote?.quote?.status}
+    />
+  )
 }

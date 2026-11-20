@@ -205,14 +205,8 @@ async fn get_credit_note_pdf_handler(
     }
 }
 
-/// The structured e-invoice (EN 16931 XML) as a download named after the document.
-///
-/// Stored beside the PDF rather than only inside it: a hybrid format embeds the same
-/// bytes, but a receiver's import, an accountant, or a Peppol transport wants the
-/// XML on its own.
-pub fn xml_download(data: bytes::Bytes, document_number: &str) -> Response {
-    let filename: String = document_number
-        .chars()
+fn safe_filename(name: &str) -> String {
+    name.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
                 c
@@ -220,7 +214,16 @@ pub fn xml_download(data: bytes::Bytes, document_number: &str) -> Response {
                 '_'
             }
         })
-        .collect();
+        .collect()
+}
+
+/// The structured e-invoice (EN 16931 XML) as a download named after the document.
+///
+/// Stored beside the PDF rather than only inside it: a hybrid format embeds the same
+/// bytes, but a receiver's import, an accountant, or a Peppol transport wants the
+/// XML on its own.
+pub fn xml_download(data: bytes::Bytes, document_number: &str) -> Response {
+    let filename = safe_filename(document_number);
     (
         StatusCode::OK,
         [

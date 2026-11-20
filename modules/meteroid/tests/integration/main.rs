@@ -71,6 +71,7 @@ mod test_product;
 mod test_product_family;
 mod test_purchase_links;
 mod test_quote;
+mod test_quote_v2;
 mod test_rate_limit;
 mod test_rbac;
 mod test_rest_client_api;

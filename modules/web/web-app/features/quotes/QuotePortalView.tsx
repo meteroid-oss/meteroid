@@ -1,377 +1,447 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query';
-import { zodResolver } from '@hookform/resolvers/zod'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   Alert,
   AlertDescription,
   Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  Input,
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  cn,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, Check, Pen, User, X } from 'lucide-react'
-import { FC, useRef, useState } from 'react'
-import { useForm } from 'react-hook-form'
-import SignatureCanvas from 'react-signature-canvas'
-import { z } from 'zod'
+import { Eye, Pen, RefreshCw } from 'lucide-react'
+import { FC, useMemo, useState } from 'react'
+import { toast } from 'sonner'
 
-import { QuoteStatusBadge } from '@/features/quotes/QuoteStatusBadge'
-import { QuoteStatus } from '@/rpc/api/quotes/v1/models_pb'
+import { QuoteSignerSlot } from '@/features/quotes/QuoteViewSigners'
+import { recurringSummary, termSummary } from '@/features/quotes/QuoteViewTotals'
+import { DeclineReasonDialog } from '@/features/quotes/detail/DeclineReasonDialog'
+import {
+  DEFAULT_CONSENT_TEXT,
+  hasSignedAs,
+  rpcErrorMessage,
+  sameEmail,
+} from '@/features/quotes/detail/signers'
+import { QuestionIntent, QuestionsPanel } from '@/features/quotes/portal/QuestionsPanel'
+import { QuoteActionBar, QuoteOutcome } from '@/features/quotes/portal/QuoteActionBar'
+import { QuotePortalTopBar } from '@/features/quotes/portal/QuotePortalTopBar'
+import { SignQuoteDialog } from '@/features/quotes/portal/SignQuoteDialog'
+import { quoteBrandStyle } from '@/features/quotes/portal/branding'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
+import { env } from '@/lib/env'
+import { QuoteSignatureLevel, QuoteSignerRole, QuoteStatus } from '@/rpc/api/quotes/v1/models_pb'
 import { QuotePortalDetails } from '@/rpc/portal/quotes/v1/models_pb'
 import {
+  declineQuote,
   getQuotePortal,
-  signQuote,
 } from '@/rpc/portal/quotes/v1/quotes-PortalQuoteService_connectquery'
-import { parseAndFormatDateTime } from '@/utils/date'
+import { SignQuoteResponse } from '@/rpc/portal/quotes/v1/quotes_pb'
+import { formatDateOnly, parseDateField } from '@/utils/date'
 
 import { QuoteView } from './QuoteView'
 
 export interface QuotePortalViewProps {
   quoteData: QuotePortalDetails
+  /** Read-only rendering for the seller: nothing is signed, declined or fetched with a token. */
+  preview?: boolean
 }
 
-const signQuoteSchema = z.object({
-  recipientEmail: z.string().email('Valid email is required'),
-  signedByName: z.string().min(1, 'Full name is required'),
-  signedByTitle: z.string().optional(),
-  signatureData: z.string().min(1, 'Signature is required'),
-  signatureMethod: z.string().default('digital_signature'),
-})
+const DAY_MS = 24 * 60 * 60 * 1000
 
-type SignQuoteFormData = z.infer<typeof signQuoteSchema>
+const QuotePortalView: FC<QuotePortalViewProps> = ({ quoteData, preview = false }) => {
+  const isDesktop = useMediaQuery('(min-width: 1024px)')
+  const comments = useMemo(() => quoteData.comments ?? [], [quoteData.comments])
 
-const QuotePortalView: FC<QuotePortalViewProps> = ({ quoteData }) => {
+  const [panelOpen, setPanelOpen] = useState(() => isDesktop && comments.length > 0)
+  const [intent, setIntent] = useState<QuestionIntent>('question')
+  const [anchor, setAnchor] = useState<string>()
+  const [focusRequest, setFocusRequest] = useState(0)
   const [showSignDialog, setShowSignDialog] = useState(false)
-  const signaturePadRef = useRef<SignatureCanvas>(null)
+  const [showDeclineDialog, setShowDeclineDialog] = useState(false)
+  const [codeVerified, setCodeVerified] = useState(quoteData.codeVerified)
+  const [outcome, setOutcome] = useState<SignQuoteResponse>()
+  const [stale, setStale] = useState(false)
+
+  const brandStyle = useMemo(() => quoteBrandStyle(quoteData, preview), [quoteData, preview])
 
   const queryClient = useQueryClient()
+  const refresh = () =>
+    queryClient.invalidateQueries({
+      queryKey: createConnectQueryKey({ schema: getQuotePortal.parent, cardinality: undefined }),
+    })
 
-  const signQuoteMutation = useMutation(signQuote, {
-    onSuccess: async () => {
-      queryClient.invalidateQueries({ queryKey: createConnectQueryKey({
-        schema: getQuotePortal.parent,
-        cardinality: undefined
-      }) })
-    },
-  })
+  const declineMutation = useMutation(declineQuote)
 
   const quote = quoteData.quote
   const customer = quoteData.customer
-  const signatures = quoteData.signatures || []
+  const signatures = quoteData.signatures
+  const countersigners = quoteData.countersigners
+  const sellerName = quoteData.entity?.legalName || 'The seller'
 
-  const isExpired = quote?.expiresAt && new Date(quote.expiresAt) < new Date()
+  const role = quoteData.currentSignerRole
+  const isCountersigner = role === QuoteSignerRole.SIGNER_COUNTERSIGNER
+  const isVerifiedLevel = quote?.signatureLevel === QuoteSignatureLevel.VERIFIED
+  const consentText = quote?.consentText || quoteData.defaultConsentText || DEFAULT_CONSENT_TEXT
+
+  const expiresAt = quote?.expiresAt ? parseDateField(quote.expiresAt) : undefined
+  const now = Date.now()
+  const isExpired =
+    quote?.status === QuoteStatus.EXPIRED || (expiresAt !== undefined && expiresAt.getTime() < now)
+  const daysLeft = expiresAt ? Math.floor((expiresAt.getTime() - now) / DAY_MS) : undefined
   const isDraft = quote?.status === QuoteStatus.DRAFT
-  const canSign = quote?.status === QuoteStatus.PENDING
-  const isAccepted = quote?.status === QuoteStatus.ACCEPTED
+  const isPending = quote?.status === QuoteStatus.PENDING
+  const isCancelled = quote?.status === QuoteStatus.CANCELLED
+  const isAccepted = quote?.status === QuoteStatus.ACCEPTED || Boolean(outcome?.accepted)
   const isDeclined = quote?.status === QuoteStatus.DECLINED
 
   const currentUserEmail = quoteData.currentRecipientEmail || customer?.billingEmail || ''
   const currentUserName = quoteData.currentRecipientName || customer?.name || ''
-  const hasCurrentUserSigned = signatures.some(s => s.signedByEmail === currentUserEmail)
+  const hasCurrentUserSigned = Boolean(outcome) || hasSignedAs(signatures, currentUserEmail, role)
+  const canSign = isPending && !isExpired && !hasCurrentUserSigned && !isAccepted
+  const allCustomersSigned = quoteData.recipients.every(r => r.hasSigned)
+  const awaitingCountersignature =
+    outcome?.awaitingCountersignature ??
+    (!isCountersigner && allCustomersSigned && countersigners.some(c => !c.hasSigned))
 
-  const signForm = useForm<z.input<typeof signQuoteSchema>, unknown, SignQuoteFormData>({
-    resolver: zodResolver(signQuoteSchema),
-    defaultValues: {
-      recipientEmail: currentUserEmail,
-      signedByName: currentUserName,
-      signedByTitle: '',
-      signatureData: '',
-      signatureMethod: 'digital_signature',
-    },
-  })
+  const discussionAvailable =
+    !isDraft &&
+    (quoteData.discussionEnabled || quoteData.changeRequestsEnabled || comments.length > 0)
+  const canRequestChanges = quoteData.changeRequestsEnabled && !isCountersigner
+  const canDecline = quoteData.declineEnabled && !isCountersigner
 
-  const clearSignature = () => {
-    if (signaturePadRef.current) {
-      signaturePadRef.current.clear()
-      signForm.setValue('signatureData', '')
+  const commentCountByLine = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const comment of comments) {
+      if (comment.anchor) counts[comment.anchor] = (counts[comment.anchor] ?? 0) + 1
     }
-  }
+    return counts
+  }, [comments])
 
-  const saveSignature = () => {
-    if (signaturePadRef.current) {
-      const dataURL = signaturePadRef.current.toDataURL()
-      signForm.setValue('signatureData', dataURL)
-    }
-  }
-
-  const onSignSubmit = async (formData: SignQuoteFormData) => {
-    try {
-      await signQuoteMutation.mutateAsync({
-        recipientEmail: currentUserEmail,
-        signedByName: formData.signedByName,
-        signedByTitle: formData.signedByTitle || undefined,
-        signatureData: formData.signatureData,
-        signatureMethod: formData.signatureMethod,
+  const signers = useMemo((): QuoteSignerSlot[] => {
+    const slots: QuoteSignerSlot[] = quoteData.recipients.map(recipient => {
+      const signature = signatures.find(
+        s =>
+          s.signerRole === QuoteSignerRole.SIGNER_CUSTOMER &&
+          sameEmail(s.signedByEmail, recipient.email)
+      )
+      const current = !isCountersigner && sameEmail(recipient.email, currentUserEmail)
+      return {
+        key: `customer:${recipient.email}`,
+        role: QuoteSignerRole.SIGNER_CUSTOMER,
+        name: recipient.name || recipient.email,
+        signed: recipient.hasSigned || Boolean(signature) || (current && hasCurrentUserSigned),
+        signedAt: signature?.signedAt,
+        current,
+      }
+    })
+    if (!isCountersigner && currentUserEmail && !slots.some(s => s.current)) {
+      slots.unshift({
+        key: `customer:${currentUserEmail}`,
+        role: QuoteSignerRole.SIGNER_CUSTOMER,
+        name: currentUserName || currentUserEmail,
+        signed: hasCurrentUserSigned,
+        current: true,
       })
-      setShowSignDialog(false)
-    } catch (error) {
-      console.error('Failed to sign quote:', error)
+    }
+    countersigners.forEach((countersigner, index) => {
+      const signature = signatures.find(
+        s =>
+          s.signerRole === QuoteSignerRole.SIGNER_COUNTERSIGNER &&
+          s.signedByName === countersigner.name
+      )
+      const current = isCountersigner && countersigner.isViewer
+      slots.push({
+        key: `countersigner:${index}`,
+        role: QuoteSignerRole.SIGNER_COUNTERSIGNER,
+        name: countersigner.name,
+        signed: countersigner.hasSigned || (current && hasCurrentUserSigned),
+        signedAt: signature?.signedAt,
+        current,
+      })
+    })
+    return slots
+  }, [
+    quoteData.recipients,
+    signatures,
+    countersigners,
+    isCountersigner,
+    currentUserEmail,
+    currentUserName,
+    hasCurrentUserSigned,
+  ])
+
+  const totals = quoteData.totals
+  const recurring = recurringSummary(totals)
+  const term = termSummary(quote)
+  const summary = recurring ? [recurring, term].filter(Boolean).join(' · ') : undefined
+  const outcomeState: QuoteOutcome | undefined = isDeclined
+    ? { kind: 'declined', reason: quote?.declineReason }
+    : isAccepted
+      ? { kind: 'accepted', signedPdfUrl: preview ? undefined : quoteData.pdfUrl }
+      : hasCurrentUserSigned
+        ? { kind: 'signed', awaitingCountersignature }
+        : isCancelled
+          ? { kind: 'cancelled' }
+          : isExpired
+            ? { kind: 'expired', on: quote?.expiresAt && formatDateOnly(quote.expiresAt) }
+            : isDraft
+              ? { kind: 'draft' }
+              : undefined
+
+  const openPanel = (nextIntent: QuestionIntent, nextAnchor?: string) => {
+    setIntent(nextIntent)
+    if (nextAnchor !== undefined) setAnchor(nextAnchor)
+    setPanelOpen(true)
+    // On phones, focusing the message field pops the keyboard over the thread being opened.
+    if (isDesktop || nextIntent === 'change' || nextAnchor !== undefined) {
+      setFocusRequest(n => n + 1)
     }
   }
 
+  const closePanel = () => {
+    setPanelOpen(false)
+    setFocusRequest(0)
+  }
+
+  const openSign = () => setShowSignDialog(true)
+
+  const handleDecline = async (reason: string | undefined) => {
+    try {
+      await declineMutation.mutateAsync({ reason })
+      setShowDeclineDialog(false)
+      toast.success('You declined the quote')
+      void refresh()
+    } catch (error) {
+      toast.error(rpcErrorMessage(error, 'The quote could not be declined'))
+    }
+  }
+
+  const reload = async () => {
+    await refresh()
+    setStale(false)
+  }
+
+  const logoUrl =
+    quoteData.logoUrl ??
+    (quoteData.entity?.logoAttachmentId
+      ? `${env.meteroidRestApiUri}/files/v1/logo/${quoteData.entity.logoAttachmentId}`
+      : undefined)
+
+  const panel = (onClose?: () => void) => (
+    <QuestionsPanel
+      quoteData={quoteData}
+      preview={preview}
+      currentUserEmail={currentUserEmail}
+      intent={intent}
+      anchor={anchor}
+      onAnchorChange={setAnchor}
+      focusRequest={focusRequest}
+      onClose={onClose}
+    />
+  )
 
   return (
-    <div className="min-h-screen  ">
-      {/* Header */}
-      <div className="border-b">
-        <div className="max-w-4xl mx-auto px-6 py-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl font-semibold">Quote {quote?.quoteNumber}</h1>
-              {currentUserEmail && (
-                <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1.5">
-                  <User className="h-3.5 w-3.5" />
-                  Viewing as {currentUserName || currentUserEmail}
-                  {currentUserName && (
-                    <span className="text-muted-foreground/70">({currentUserEmail})</span>
-                  )}
-                </p>
-              )}
-            </div>
-            <div className="text-right">
-              {quote && <QuoteStatusBadge status={quote.status} />}
-              {isExpired && quote?.expiresAt && (
-                <p className="text-sm text-red-600 mt-1">
-                  Expired on {new Date(quote.expiresAt).toLocaleDateString()}
-                </p>
-              )}
-            </div>
-          </div>
+    <div
+      className={cn(
+        'flex flex-col bg-muted/40 text-foreground dark:bg-background',
+        preview ? 'relative' : 'min-h-screen'
+      )}
+      style={brandStyle}
+    >
+      {preview && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center overflow-hidden"
+        >
+          <span className="-rotate-30 select-none text-8xl font-bold uppercase tracking-widest text-muted-foreground/10">
+            Preview
+          </span>
         </div>
-      </div>
+      )}
 
-      <div className="max-w-4xl mx-auto px-6 py-8">
-        <div className="space-y-6">
-          {/* Status Banner */}
-          {isDraft && (
+      <QuotePortalTopBar
+        sellerName={sellerName}
+        logoUrl={logoUrl}
+        quoteNumber={quote?.quoteNumber}
+        customerName={customer?.name}
+        viewerName={currentUserName}
+        viewerEmail={currentUserEmail}
+        status={quote?.status}
+        pdfUrl={preview || isAccepted ? undefined : quoteData.pdfUrl}
+        expired={isExpired && !isAccepted && !isDeclined}
+        daysLeft={daysLeft}
+        questions={
+          discussionAvailable
+            ? {
+                count: comments.length,
+                open: panelOpen,
+                onToggle: () => (panelOpen ? closePanel() : openPanel('question')),
+              }
+            : undefined
+        }
+      />
+
+      <div className="mx-auto flex w-full max-w-[1320px] flex-1 items-start gap-6 px-4 py-4 sm:px-6 sm:py-6">
+        <main className="min-w-0 flex-1 space-y-4">
+          {preview && (
             <Alert>
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                This quote has not been published yet and cannot be signed.
+              <Eye className="h-4 w-4" />
+              <AlertDescription>Preview as {currentUserName || currentUserEmail}</AlertDescription>
+            </Alert>
+          )}
+
+          {stale && (
+            <Alert variant="warning">
+              <RefreshCw className="h-4 w-4" />
+              <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+                This quote has changed.
+                <Button size="sm" variant="outline" onClick={() => void reload()}>
+                  Reload
+                </Button>
               </AlertDescription>
             </Alert>
           )}
 
-          {isExpired && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
+          {isCountersigner && isPending && !hasCurrentUserSigned && (
+            <Alert>
+              <Pen className="h-4 w-4" />
               <AlertDescription>
-                This quote has expired and can no longer be signed.
+                {customer?.name || 'The customer'} signed · your countersignature is requested
               </AlertDescription>
             </Alert>
           )}
 
-          {isAccepted && (
-            <Alert>
-              <Check className="h-4 w-4" />
-              <AlertDescription>This quote has been signed.</AlertDescription>
-            </Alert>
+          {summary && (
+            <div className="rounded-lg border border-border bg-card p-4 sm:hidden">
+              <p className="text-xl font-bold text-foreground">{recurring}</p>
+              {term && <p className="text-sm text-muted-foreground">{term}</p>}
+            </div>
           )}
 
-          {isDeclined && (
-            <Alert variant="destructive">
-              <X className="h-4 w-4" />
-              <AlertDescription>This quote has been declined.</AlertDescription>
-            </Alert>
+          {quote && (
+            <QuoteView
+              quote={{
+                components: quoteData.components,
+                addOns: quoteData.addOns,
+                couponTerms: quoteData.couponTerms,
+                quote,
+                customer,
+                invoicingEntity: quoteData.entity,
+              }}
+              mode="portal"
+              minimumCommitment={quoteData.minimumCommitment}
+              totals={totals}
+              commentCountByLine={commentCountByLine}
+              onLineSelect={
+                discussionAvailable ? lineName => openPanel('question', lineName) : undefined
+              }
+              selectedLine={panelOpen ? anchor : undefined}
+              signers={signers}
+              onSign={canSign ? openSign : undefined}
+              signDisabled={preview || stale}
+            />
           )}
 
-          {/* Quote Document */}
-          <Card>
-            <CardContent className="p-8">
-              {quote && (
-                <QuoteView
-                  quote={{
-                    components: quoteData.components,
-                    addOns: quoteData.addOns,
-                    quote: quoteData.quote,
-                    customer: quoteData.customer,
-                    invoicingEntity: quoteData.entity,
-                  }}
-                  mode="portal"
-                  minimumCommitment={quoteData.minimumCommitment}
-                  purchaseOrderEnabled={quoteData.purchaseOrderEnabled}
-                />
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Signatures Section */}
-          {signatures.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Signatures</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {signatures.map((signature, index) => (
-                    <div
-                      key={index}
-                      className="flex justify-between items-center p-3 bg-muted rounded-lg"
-                    >
-                      <div>
-                        <p className="font-medium">{signature.signedByName}</p>
-                        <p className="text-sm text-muted-foreground">{signature.signedByEmail}</p>
-                        {signature.signedByTitle && (
-                          <p className="text-sm text-muted-foreground">{signature.signedByTitle}</p>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-medium">
-                          {parseAndFormatDateTime(signature.signedAt)}
-                        </p>
-                        <p className="text-sm text-muted-foreground">{signature.signatureMethod}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+          {quoteData.showPoweredBy && (
+            <p className="flex items-center justify-center gap-1.5 pt-2 text-xs text-muted-foreground">
+              Powered by
+              <a
+                href="https://meteroid.com/?utm_source=quote-portal"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold text-foreground hover:underline"
+              >
+                Meteroid
+              </a>
+            </p>
           )}
+        </main>
 
-          {/* Sign Quote Action */}
-          {canSign && !isExpired && !hasCurrentUserSigned && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Sign Quote</CardTitle>
-                <CardDescription>
-                  Please review the quote above and provide your digital signature to accept
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button onClick={() => setShowSignDialog(true)} size="lg" className="w-full">
-                  <Pen className="w-5 h-5 mr-2" />
-                  Sign Quote
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {hasCurrentUserSigned && (
-            <Card>
-              <CardContent className="p-6 text-center">
-                <Check className="h-12 w-12 text-green-500 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">Quote Signed</h3>
-                <p className="text-muted-foreground">You have successfully signed this quote.</p>
-              </CardContent>
-            </Card>
-          )}
-        </div>
+        {isDesktop && discussionAvailable && panelOpen && (
+          <aside
+            aria-label="Questions and changes"
+            className="sticky top-4 flex max-h-[calc(100vh-8rem)] w-[340px] shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card"
+          >
+            {panel(closePanel)}
+          </aside>
+        )}
       </div>
 
-      {/* Sign Quote Dialog */}
-      <Dialog open={showSignDialog} onOpenChange={setShowSignDialog}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Sign Quote</DialogTitle>
-            <DialogDescription>
-              By signing this quote, you agree to the terms and pricing outlined above.
-            </DialogDescription>
-          </DialogHeader>
+      <QuoteActionBar
+        summary={summary}
+        outcome={outcomeState}
+        actions={
+          canSign
+            ? {
+                signLabel: isCountersigner ? 'Review & countersign' : 'Review & sign',
+                onSign: openSign,
+                onRequestChanges: canRequestChanges ? () => openPanel('change') : undefined,
+                onDecline: canDecline ? () => setShowDeclineDialog(true) : undefined,
+                disabled: preview,
+                signDisabled: stale,
+              }
+            : undefined
+        }
+      />
 
-          <Form {...signForm}>
-            <form onSubmit={signForm.handleSubmit(onSignSubmit)} className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={signForm.control}
-                  name="signedByName"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Full Name *</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="Your full name" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+      {!isDesktop && discussionAvailable && (
+        <Sheet open={panelOpen} onOpenChange={open => (open ? setPanelOpen(true) : closePanel())}>
+          <SheetContent
+            side="right"
+            size="small"
+            style={brandStyle}
+            aria-describedby={undefined}
+            className="flex flex-col gap-0 p-0"
+          >
+            <SheetHeader className="border-b border-border px-4 py-3 pr-12">
+              <SheetTitle className="text-base">Questions & changes</SheetTitle>
+            </SheetHeader>
+            {panel()}
+          </SheetContent>
+        </Sheet>
+      )}
 
-                {/* <FormField
-                  control={signForm.control}
-                  name="recipientEmail"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email *</FormLabel>
-                      <FormControl>
-                        <Input {...field} type="email" placeholder="your@email.com" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                /> */}
-
-                <FormField
-                  control={signForm.control}
-                  name="signedByTitle"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Title/Position (Optional)</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="e.g., CEO, Purchasing Manager" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              {/* Signature Pad */}
-              <div className="space-y-2">
-                <FormLabel>Digital Signature *</FormLabel>
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
-                  <SignatureCanvas
-                    ref={signaturePadRef}
-                    penColor="black"
-                    throttle={8}
-                    backgroundColor="white"
-                    canvasProps={{
-                      width: 600,
-                      height: 200,
-                      className: 'signature-canvas  ',
-                    }}
-                    onEnd={saveSignature}
-                  />
-                </div>
-                <div className="flex justify-between items-center">
-                  <p className="text-sm text-muted-foreground">Sign above to accept the quote</p>
-                  <Button type="button" variant="outline" size="sm" onClick={clearSignature}>
-                    Clear Signature
-                  </Button>
-                </div>
-                {signForm.formState.errors.signatureData && (
-                  <p className="text-sm text-red-600">
-                    {signForm.formState.errors.signatureData.message}
-                  </p>
-                )}
-              </div>
-
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setShowSignDialog(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={signQuoteMutation.isPending}>
-                  <Pen className="w-4 h-4 mr-2" />
-                  {signQuoteMutation.isPending ? 'Signing...' : 'Sign Quote'}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
+      {!preview && (
+        <>
+          <SignQuoteDialog
+            open={showSignDialog}
+            onOpenChange={setShowSignDialog}
+            style={brandStyle}
+            quoteNumber={quote?.quoteNumber}
+            summary={summary}
+            recipientEmail={currentUserEmail}
+            recipientName={currentUserName}
+            consentText={consentText}
+            documentHash={quote?.documentHash}
+            isCountersignature={isCountersigner}
+            verification={{
+              required: isVerifiedLevel,
+              verified: codeVerified,
+              onVerified: () => setCodeVerified(true),
+            }}
+            purchaseOrder={{
+              enabled: quoteData.purchaseOrderEnabled,
+              current: quote?.purchaseOrder,
+            }}
+            onPurchaseOrderSaved={() => void refresh()}
+            onSigned={(response: SignQuoteResponse) => {
+              setOutcome(response)
+              void refresh()
+            }}
+            onStale={() => setStale(true)}
+          />
+          <DeclineReasonDialog
+            open={showDeclineDialog}
+            onOpenChange={setShowDeclineDialog}
+            title="Decline quote"
+            description="Let the seller know you are not going ahead with this quote. You can say why."
+            confirmLabel="Decline quote"
+            isPending={declineMutation.isPending}
+            onConfirm={handleDecline}
+          />
+        </>
+      )}
     </div>
   )
 }

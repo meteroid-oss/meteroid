@@ -4,10 +4,11 @@ use crate::domain::plan_minimums::{CreateMinimumScope, MinimumScope};
 use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use crate::domain::subscription_coupons::AppliedCoupon;
 use crate::domain::{
-    AppliedCouponDetailed, BillingPeriodEnum, CheckoutSession, CheckoutType, CreateSubscription,
-    CreateSubscriptionAddOns, CreateSubscriptionComponents, InvoicingEntity, PriceComponent,
-    Subscription, SubscriptionActivationCondition, SubscriptionComponent, SubscriptionDetails,
-    SubscriptionMinimum, SubscriptionStatusEnum, TrialConfig,
+    AppliedCouponDetailed, CheckoutSession, CheckoutType, CreateSubscription,
+    CreateSubscriptionAddOns, CreateSubscriptionComponents, CreateSubscriptionFromQuote,
+    InvoicingEntity, PlanVersion, PriceComponent, Subscription, SubscriptionActivationCondition,
+    SubscriptionComponent, SubscriptionDetails, SubscriptionMinimum, SubscriptionNew,
+    SubscriptionStatusEnum, TrialConfig,
 };
 use crate::errors::StoreError;
 use crate::repositories::add_ons::AddOnInterface;
@@ -16,12 +17,13 @@ use crate::repositories::plans::PlansInterface;
 use crate::repositories::price_components::PriceComponentInterface;
 use crate::services::Services;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
+use crate::services::subscriptions::utils::billing_period_of;
 use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
 use chrono::Duration;
 use chrono::{Datelike, NaiveDate};
 use common_domain::ids::{
-    AddOnId, AppliedCouponId, BaseId, ProductId, SubscriptionAddOnId, SubscriptionId,
+    AddOnId, AppliedCouponId, BaseId, CouponId, ProductId, SubscriptionAddOnId, SubscriptionId,
     SubscriptionPriceComponentId, TenantId,
 };
 use diesel_models::invoicing_entities::InvoicingEntityProvidersRow;
@@ -140,9 +142,12 @@ impl Services {
             .build_preview_add_ons(conn, tenant_id, session.add_ons.as_ref())
             .await?;
 
-        let billing_period = self.extract_billing_period_from_components_and_add_ons(
-            &subscription_components,
-            &subscription_add_ons,
+        // The cadence creating the subscription settles on.
+        let billing_period = billing_period_of(
+            subscription_components
+                .iter()
+                .map(|c| &c.period)
+                .chain(subscription_add_ons.iter().map(|a| &a.period)),
         );
 
         let billing_start_date = session
@@ -328,36 +333,10 @@ impl Services {
     ) -> StoreResult<(ComputedInvoiceContent, SubscriptionDetails)> {
         let sub = &create.subscription;
 
-        let plan_with_version = self
-            .store
-            .get_plan_by_version_id_with_conn(conn, sub.plan_version_id, tenant_id)
-            .await?;
-
-        let plan_version = plan_with_version.version.as_ref().ok_or_else(|| {
-            Report::new(StoreError::ValueNotFound(
-                "Plan version not found".to_string(),
-            ))
-        })?;
-
         let price_components = self
             .store
             .list_price_components_with_conn(conn, sub.plan_version_id, tenant_id)
             .await?;
-
-        let customer = self
-            .store
-            .find_customer_by_id_with_conn(conn, sub.customer_id, tenant_id)
-            .await?;
-
-        let invoicing_entity_providers = InvoicingEntityProvidersRow::resolve_providers_by_id(
-            conn,
-            customer.invoicing_entity_id,
-            tenant_id,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        let invoicing_entity: InvoicingEntity = invoicing_entity_providers.entity.clone().into();
 
         let product_ids: Vec<ProductId> = price_components
             .iter()
@@ -409,26 +388,142 @@ impl Services {
             .build_preview_add_ons(conn, tenant_id, create.add_ons.as_ref())
             .await?;
 
-        let billing_period = self.extract_billing_period_from_components_and_add_ons(
-            &subscription_components,
-            &subscription_add_ons,
+        self.preview_first_invoice(
+            conn,
+            tenant_id,
+            PreviewedSubscription {
+                subscription: sub,
+                components: subscription_components,
+                add_ons: subscription_add_ons,
+                minimum_override: create.minimum_override.as_ref(),
+                drop_minimum: create.drop_minimum,
+                coupon_ids: create
+                    .coupons
+                    .iter()
+                    .flat_map(|c| c.coupons.iter().map(|c| c.coupon_id))
+                    .collect(),
+            },
+        )
+        .await
+    }
+
+    /// The first invoice of the subscription a quote converts to, as `preview_create_subscription`
+    /// computes it, from the lines the conversion creates.
+    pub(crate) async fn preview_subscription_from_quote(
+        &self,
+        conn: &mut PgConn,
+        create: &CreateSubscriptionFromQuote,
+        tenant_id: TenantId,
+    ) -> StoreResult<(ComputedInvoiceContent, SubscriptionDetails)> {
+        let components = create
+            .components
+            .iter()
+            .map(|c| SubscriptionComponent {
+                id: SubscriptionPriceComponentId::new(),
+                name: c.name.clone(),
+                subscription_id: SubscriptionId::new(),
+                price_component_id: c.price_component_id,
+                product_id: c.product_id,
+                fee: c.fee.clone(),
+                period: c.period,
+                price_id: c.price_id,
+                effective_from: c.effective_from,
+                effective_to: None,
+                lineage_id: None,
+                added_by_amendment: false,
+            })
+            .collect();
+        let add_ons = create
+            .add_ons
+            .iter()
+            .map(|a| SubscriptionAddOn {
+                id: SubscriptionAddOnId::new(),
+                subscription_id: SubscriptionId::new(),
+                add_on_id: a.add_on_id,
+                name: a.name.clone(),
+                period: a.period,
+                fee: a.fee.clone(),
+                product_id: a.product_id,
+                price_id: a.price_id,
+                created_at: common_clock::now().naive_utc(),
+                quantity: a.quantity,
+                effective_from: a.effective_from,
+                effective_to: None,
+                lineage_id: None,
+                added_by_amendment: false,
+            })
+            .collect();
+
+        self.preview_first_invoice(
+            conn,
+            tenant_id,
+            PreviewedSubscription {
+                subscription: &create.subscription,
+                components,
+                add_ons,
+                minimum_override: create.minimum_override.as_ref(),
+                drop_minimum: false,
+                coupon_ids: create.coupon_ids.clone(),
+            },
+        )
+        .await
+    }
+
+    async fn preview_first_invoice(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        preview: PreviewedSubscription<'_>,
+    ) -> StoreResult<(ComputedInvoiceContent, SubscriptionDetails)> {
+        let PreviewedSubscription {
+            subscription: sub,
+            components: subscription_components,
+            add_ons: subscription_add_ons,
+            minimum_override,
+            drop_minimum,
+            coupon_ids,
+        } = preview;
+
+        let plan_with_version = self
+            .store
+            .get_plan_by_version_id_with_conn(conn, sub.plan_version_id, tenant_id)
+            .await?;
+
+        let plan_version = plan_with_version.version.as_ref().ok_or_else(|| {
+            Report::new(StoreError::ValueNotFound(
+                "Plan version not found".to_string(),
+            ))
+        })?;
+
+        let customer = self
+            .store
+            .find_customer_by_id_with_conn(conn, sub.customer_id, tenant_id)
+            .await?;
+
+        let invoicing_entity_providers = InvoicingEntityProvidersRow::resolve_providers_by_id(
+            conn,
+            customer.invoicing_entity_id,
+            tenant_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let invoicing_entity: InvoicingEntity = invoicing_entity_providers.entity.clone().into();
+
+        // The cadence creating the subscription settles on.
+        let billing_period = billing_period_of(
+            subscription_components
+                .iter()
+                .map(|c| &c.period)
+                .chain(subscription_add_ons.iter().map(|a| &a.period)),
         );
 
         // Mirror process_subscription's first-period derivation. The summary always shows the
         // first *billable* period: for a free trial that is the post-trial period (the in-trial
         // invoice is zero), so billing starts after the trial. Paid/no trial bill immediately.
-        let effective_trial_duration: Option<u32> = sub
-            .trial_duration
-            .or(plan_version.trial_duration_days.map(|d| d as u32))
-            .filter(|&d| d > 0);
-        let has_free_trial = effective_trial_duration.is_some() && plan_version.trial_is_free;
-
+        let (effective_trial_duration, billing_start_date) =
+            trial_and_billing_start(sub, plan_version);
         let contract_start = sub.start_date;
-        let billing_start_date = if has_free_trial {
-            contract_start + Duration::days(i64::from(effective_trial_duration.unwrap()))
-        } else {
-            sub.billing_start_date.unwrap_or(contract_start)
-        };
 
         let billing_day_anchor = sub
             .billing_day_anchor
@@ -453,14 +548,14 @@ impl Services {
         // drop removes the floor, otherwise the plan snapshot applies. Scope resolution is
         // best-effort for preview — new-product extras have no product id yet (their lines carry
         // product_id = None and never count toward a product-scoped floor anyway).
-        let minimum = if let Some((amount_subunit, scope)) = &create.minimum_override {
+        let minimum = if let Some((amount_subunit, scope)) = minimum_override {
             Some(SubscriptionMinimum {
                 subscription_id,
                 amount_subunit: *amount_subunit,
                 scope: preview_minimum_scope(scope, &subscription_components),
                 is_override: true,
             })
-        } else if create.drop_minimum {
+        } else if drop_minimum {
             None
         } else {
             crate::repositories::plans::load_plan_minimum(conn, sub.plan_version_id)
@@ -524,14 +619,12 @@ impl Services {
         };
 
         let mut applied_coupons = Vec::new();
-        if let Some(coupons) = &create.coupons {
-            for c in &coupons.coupons {
-                if let Ok(preview_coupon) = self
-                    .build_preview_coupon_by_id(conn, tenant_id, c.coupon_id, &virtual_subscription)
-                    .await
-                {
-                    applied_coupons.push(preview_coupon);
-                }
+        for coupon_id in coupon_ids {
+            if let Ok(preview_coupon) = self
+                .build_preview_coupon_by_id(conn, tenant_id, coupon_id, &virtual_subscription)
+                .await
+            {
+                applied_coupons.push(preview_coupon);
             }
         }
 
@@ -584,30 +677,6 @@ impl Services {
             lineage_id: None,
             added_by_amendment: false,
         })
-    }
-
-    /// Extracts the billing period from subscription components and add-ons.
-    fn extract_billing_period_from_components_and_add_ons(
-        &self,
-        components: &[SubscriptionComponent],
-        add_ons: &[SubscriptionAddOn],
-    ) -> BillingPeriodEnum {
-        // Find the first recurring period that's not OneTime from components
-        for component in components {
-            if let Some(period) = component.period.as_billing_period_opt() {
-                return period;
-            }
-        }
-
-        // Check add-ons if no recurring period found in components
-        for add_on in add_ons {
-            if let Some(period) = add_on.period.as_billing_period_opt() {
-                return period;
-            }
-        }
-
-        // Default to monthly if no recurring period found
-        BillingPeriodEnum::Monthly
     }
 
     /// Builds subscription components from price components, applying session customizations.
@@ -1025,6 +1094,34 @@ async fn ensure_not_redeemed_by(
             )
         },
     )))
+}
+
+/// The trial a new subscription gets, and when its billing starts: after the trial when it is free.
+fn trial_and_billing_start(
+    sub: &SubscriptionNew,
+    plan_version: &PlanVersion,
+) -> (Option<u32>, NaiveDate) {
+    let trial = sub
+        .trial_duration
+        .or(plan_version.trial_duration_days.map(|d| d as u32))
+        .filter(|&d| d > 0);
+    let billing_start = match trial {
+        Some(days) if plan_version.trial_is_free => {
+            sub.start_date + Duration::days(i64::from(days))
+        }
+        _ => sub.billing_start_date.unwrap_or(sub.start_date),
+    };
+    (trial, billing_start)
+}
+
+/// A subscription about to be created, its lines resolved.
+struct PreviewedSubscription<'a> {
+    subscription: &'a SubscriptionNew,
+    components: Vec<SubscriptionComponent>,
+    add_ons: Vec<SubscriptionAddOn>,
+    minimum_override: Option<&'a (i64, CreateMinimumScope)>,
+    drop_minimum: bool,
+    coupon_ids: Vec<CouponId>,
 }
 
 /// Best-effort resolution of an override minimum scope for preview, against the resolved preview

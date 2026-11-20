@@ -10,6 +10,7 @@ use diesel_models::applied_coupons::AppliedCouponForDisplayRow;
 use diesel_models::coupon_plans::{CouponPlanRow, CouponPlanRowNew};
 use diesel_models::coupons::{CouponRow, CouponRowNew, CouponRowPatch, CouponStatusRowPatch};
 use diesel_models::query::coupons::CodeMatch;
+use diesel_models::quote_coupons::QuoteCouponRow;
 use error_stack::Report;
 use meteroid_store_macros::with_conn_delegate;
 use scoped_futures::ScopedFutureExt;
@@ -103,6 +104,34 @@ pub(crate) fn match_coupon_codes(
 
 /// Longest coupon code: what the portal accepts at redemption.
 pub const MAX_COUPON_CODE_LENGTH: usize = 64;
+
+/// A quote applies its coupons as they are at conversion, and its signers agreed to the terms
+/// they were shown.
+async fn refuse_if_on_open_quotes(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+    coupon_id: CouponId,
+) -> StoreResult<()> {
+    const LISTED: usize = 3;
+    let numbers = QuoteCouponRow::list_open_quote_numbers_by_coupon_id(
+        conn,
+        tenant_id,
+        coupon_id,
+        LISTED as i64 + 1,
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?;
+    if numbers.is_empty() {
+        return Ok(());
+    }
+    let mut listed = numbers[..numbers.len().min(LISTED)].join(", ");
+    if numbers.len() > LISTED {
+        listed.push_str(" and others");
+    }
+    Err(Report::new(StoreError::InvalidArgument(format!(
+        "the discount of a coupon cannot change while open quotes offer it: {listed}"
+    ))))
+}
 
 /// The code as stored. Every code is 1 to 64 characters with no surrounding whitespace. A
 /// promotional-credit code is also limited to letters, digits, `-` and `_`, never reusable, and
@@ -303,7 +332,7 @@ impl CouponInterface for Store {
             let actor = &actor;
             async move {
                 if let Some(discount) = &new_discount {
-                    let current: Coupon = CouponRow::get_by_id(conn, tenant_id, coupon_id)
+                    let current: Coupon = CouponRow::lock_by_id(conn, tenant_id, coupon_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?
                         .try_into()?;
@@ -313,6 +342,9 @@ impl CouponInterface for Store {
                             "a coupon cannot switch between promotional credit and an invoice discount"
                                 .to_owned(),
                         )));
+                    }
+                    if current.discount != *discount {
+                        refuse_if_on_open_quotes(conn, tenant_id, coupon_id).await?;
                     }
                 }
                 let row = coupon_row

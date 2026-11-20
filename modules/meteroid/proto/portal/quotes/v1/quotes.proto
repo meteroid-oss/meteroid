@@ -3,6 +3,7 @@ syntax = "proto3";
 package meteroid.portal.quotes.v1;
 
 import "portal/quotes/v1/models.proto";
+import "api/quotes/v1/models.proto";
 
 message GetQuotePortalRequest {
 }
@@ -17,12 +18,24 @@ message SignQuoteRequest {
   string signed_by_title = 3;
   string signature_data = 4;
   string signature_method = 5;
+  // The document_hash of the quote as displayed: refused when it changed since.
+  optional string document_hash = 6;
+  // The consent statement, exactly as displayed.
+  optional string consent_text = 7;
 }
 
 message SignQuoteResponse {
   bool success = 1;
   string signature_id = 2;
+  bool accepted = 3;
+  bool awaiting_countersignature = 4;
 }
+
+message DeclineQuoteRequest {
+  optional string reason = 1;
+}
+
+message DeclineQuoteResponse {}
 
 message SetQuotePurchaseOrderRequest {
   optional string purchase_order = 1;
@@ -30,8 +43,22 @@ message SetQuotePurchaseOrderRequest {
 
 message SetQuotePurchaseOrderResponse {}
 
+message AddQuoteCommentRequest {
+  string body = 1;
+  // Asks the seller to revise the quote.
+  bool request_changes = 2;
+  // The name of the quote line the comment is about.
+  optional string anchor = 3;
+}
+
+message AddQuoteCommentResponse {
+  api.quotes.v1.QuoteComment comment = 1;
+}
+
 service PortalQuoteService {
   rpc GetQuotePortal(GetQuotePortalRequest) returns (GetQuotePortalResponse) {}
   rpc SignQuote(SignQuoteRequest) returns (SignQuoteResponse) {}
   rpc SetQuotePurchaseOrder(SetQuotePurchaseOrderRequest) returns (SetQuotePurchaseOrderResponse) {}
+  rpc DeclineQuote(DeclineQuoteRequest) returns (DeclineQuoteResponse) {}
+  rpc AddQuoteComment(AddQuoteCommentRequest) returns (AddQuoteCommentResponse) {}
 }

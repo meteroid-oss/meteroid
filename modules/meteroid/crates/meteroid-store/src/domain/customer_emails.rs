@@ -43,6 +43,8 @@ pub enum EmailKind {
     AuthenticationRequired,
     PaymentReminder,
     QuoteReady,
+    /// Every party signed the quote.
+    QuoteAccepted,
     WalletBalanceLow,
     AutoTopUpFailed,
     BudgetThreshold,
@@ -82,6 +84,7 @@ impl EmailKind {
         matches!(
             self,
             Self::QuoteReady
+                | Self::QuoteAccepted
                 | Self::WalletBalanceLow
                 | Self::AutoTopUpFailed
                 | Self::BudgetThreshold
@@ -107,6 +110,17 @@ pub struct EmailDelivery {
 impl EmailDelivery {
     pub fn is_off(&self) -> bool {
         self.mode == crate::domain::enums::EmailDeliveryMode::Off
+    }
+
+    /// The addresses an email to `recipients` reaches: those this mode delivers to, less the
+    /// reserved test domains no transport sends to.
+    pub fn reaches(&self, recipients: &[String]) -> Vec<String> {
+        let sendable: Vec<String> = recipients
+            .iter()
+            .filter(|r| !meteroid_mailer::model::is_test_address(r))
+            .cloned()
+            .collect();
+        self.deliverable(&sendable)
     }
 
     /// The addresses this mode delivers to, in order: all in `Live`, the team's in `Test`.

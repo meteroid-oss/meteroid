@@ -197,6 +197,12 @@ pub async fn spawn_workers(
             store.clone(),
             entitlements.clone(),
         ));
+        let quote_documents = modules.quote_documents(&meteroid_kit::QuoteDocumentsDeps {
+            config: config.clone(),
+            store: (*store).clone(),
+            object_store: object_store_service.clone(),
+            feature_resolver: entitlements.clone(),
+        });
         consumed.push(PgmqQueue::SendEmailRequest);
         join_set.spawn(async move {
             processors::run_email_sender(
@@ -207,6 +213,7 @@ pub async fn spawn_workers(
                 public_url,
                 rest_api_external_url,
                 whitelabel,
+                quote_documents,
             )
             .await;
         });

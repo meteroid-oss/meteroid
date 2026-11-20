@@ -110,6 +110,7 @@ async fn core_seeds_sandbox_tenants_but_none_at_signup() {
         redis: None,
         analytics: no_analytics_hook(),
         egress: Egress::new(setup.config.webhook_out.clone(), None),
+        object_store: setup.object_store.clone(),
     };
     let signup = Modules::core()
         .sandboxes(&ctx)

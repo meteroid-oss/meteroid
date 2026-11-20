@@ -7,6 +7,7 @@ import "api/plans/v1/models.proto";
 import "api/subscriptions/v1/models.proto";
 import "common/v1/filters.proto";
 import "common/v1/pagination.proto";
+import "portal/quotes/v1/models.proto";
 
 message CreateQuoteRequest {
   CreateQuote quote = 1;
@@ -43,6 +44,9 @@ message UpdateQuoteRequest {
   string id = 1;
   // Full replacement of a draft quote. `entitlements` is ignored: manage them on the quote itself.
   CreateQuote quote = 2;
+  // The quote's `updated_at` (empty when never updated) the editor loaded. When it no longer
+  // matches, the save is refused with ABORTED; leave it unset to overwrite anyway.
+  optional string expected_updated_at = 3;
 }
 
 message UpdateQuoteResponse {
@@ -68,6 +72,26 @@ message PreviewQuoteRequest {
 
 message PreviewQuoteResponse {
   string html = 1;
+}
+
+// The portal as the recipient sees it, for the seller's preview.
+message PreviewQuotePortalRequest {
+  string quote_id = 1;
+  // Defaults to the first recipient.
+  optional string recipient_email = 2;
+}
+
+message PreviewQuotePortalResponse {
+  meteroid.portal.quotes.v1.QuotePortalDetails quote = 1;
+}
+
+// Totals of an unsaved quote, as the editor holds it.
+message PreviewQuoteTotalsRequest {
+  CreateQuote quote = 1;
+}
+
+message PreviewQuoteTotalsResponse {
+  QuoteTotals totals = 1;
 }
 
 
@@ -123,6 +147,97 @@ message ConvertQuoteToSubscriptionResponse {
   meteroid.api.subscriptions.v1.CreatedSubscription subscription = 2;
 }
 
+message SaveQuoteDraftRequest {
+  // Unset starts a draft; the draft of an existing quote is found by `quote_id`.
+  optional string id = 1;
+  optional string quote_id = 2;
+  // The version the editor loaded; unset only when starting a draft.
+  optional int32 expected_version = 3;
+  optional string label = 4;
+  string payload = 5;
+  int32 payload_version = 6;
+}
+
+message SaveQuoteDraftResponse {
+  QuoteDraft draft = 1;
+  // Someone saved a newer version: `draft` is theirs, nothing was written.
+  bool conflict = 2;
+}
+
+message GetQuoteDraftRequest {
+  oneof target {
+    string id = 1;
+    string quote_id = 2;
+  }
+}
+
+message GetQuoteDraftResponse {
+  optional QuoteDraft draft = 1;
+}
+
+message ListQuoteDraftsRequest {}
+
+message ListQuoteDraftsResponse {
+  repeated QuoteDraft drafts = 1;
+}
+
+message DeleteQuoteDraftRequest {
+  string id = 1;
+}
+
+message DeleteQuoteDraftResponse {}
+
+message ListQuoteRevisionsRequest {
+  string quote_id = 1;
+}
+
+message ListQuoteRevisionsResponse {
+  repeated QuoteRevision revisions = 1;
+}
+
+message ListQuoteEvidenceRequest {
+  string quote_id = 1;
+}
+
+message ListQuoteEvidenceResponse {
+  repeated QuoteEvidenceEvent events = 1;
+  // Every event's hash matches its content and the previous hash.
+  bool chain_intact = 2;
+}
+
+message CountersignQuoteRequest {
+  string quote_id = 1;
+  optional string signature_data = 2;
+  optional string title = 3;
+  string document_hash = 4;
+  optional string consent_text = 5;
+}
+
+message CountersignQuoteResponse {
+  DetailedQuote quote = 1;
+}
+
+message GetQuoteApprovalRequest {
+  string quote_id = 1;
+}
+
+message GetQuoteApprovalResponse {
+  // The rules the quote matches as it stands; empty when publishing needs no approval.
+  repeated QuoteApprovalRule matched_rules = 1;
+  optional QuoteApproval latest = 2;
+  // Approved for the current content.
+  bool satisfied = 3;
+}
+
+message DeclineQuoteRequest {
+  string id = 1;
+  optional string reason = 2;
+}
+
+message DeclineQuoteResponse {
+  DetailedQuote quote = 1;
+}
+
 service QuotesService {
   // Internal quote management
   rpc CreateQuote(CreateQuoteRequest) returns (CreateQuoteResponse) {}
@@ -135,10 +250,28 @@ service QuotesService {
   rpc CancelQuote(CancelQuoteRequest) returns (CancelQuoteResponse) {}
   rpc DuplicateQuote(DuplicateQuoteRequest) returns (DuplicateQuoteResponse) {}
   rpc UpdateQuote(UpdateQuoteRequest) returns (UpdateQuoteResponse) {}
+  rpc PreviewQuoteTotals(PreviewQuoteTotalsRequest) returns (PreviewQuoteTotalsResponse) {}
+  rpc PreviewQuotePortal(PreviewQuotePortalRequest) returns (PreviewQuotePortalResponse) {}
 
   // Convert quote to subscription
   rpc ConvertQuoteToSubscription(ConvertQuoteToSubscriptionRequest) returns (ConvertQuoteToSubscriptionResponse) {}
 
   // Token generation for portal access
   rpc GenerateQuotePortalToken(GenerateQuotePortalTokenRequest) returns (GenerateQuotePortalTokenResponse) {}
+
+  // Editor autosave
+  rpc SaveQuoteDraft(SaveQuoteDraftRequest) returns (SaveQuoteDraftResponse) {}
+  rpc GetQuoteDraft(GetQuoteDraftRequest) returns (GetQuoteDraftResponse) {}
+  rpc ListQuoteDrafts(ListQuoteDraftsRequest) returns (ListQuoteDraftsResponse) {}
+  rpc DeleteQuoteDraft(DeleteQuoteDraftRequest) returns (DeleteQuoteDraftResponse) {}
+
+  // History and signature evidence
+  rpc ListQuoteRevisions(ListQuoteRevisionsRequest) returns (ListQuoteRevisionsResponse) {}
+  rpc ListQuoteEvidence(ListQuoteEvidenceRequest) returns (ListQuoteEvidenceResponse) {}
+  rpc GetQuoteApproval(GetQuoteApprovalRequest) returns (GetQuoteApprovalResponse) {}
+
+  // A member of the seller's organization countersigning a quote the customer signed.
+  rpc CountersignQuote(CountersignQuoteRequest) returns (CountersignQuoteResponse) {}
+  // Records the customer's refusal, e.g. given outside the portal.
+  rpc DeclineQuote(DeclineQuoteRequest) returns (DeclineQuoteResponse) {}
 }

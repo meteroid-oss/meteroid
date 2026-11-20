@@ -1224,6 +1224,15 @@ impl Services {
                 },
                 vec![],
             ),
+            EmailKind::QuoteAccepted => (
+                Subject::Fixed,
+                Body::QuoteAccepted {
+                    quote_number: "Q-2026-0007".to_string(),
+                    accepted_on: today,
+                    cta: pay,
+                },
+                vec![],
+            ),
             EmailKind::CreditNoteIssued => (
                 Subject::Fixed,
                 Body::CreditNoteIssued {

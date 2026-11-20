@@ -37,6 +37,8 @@ modules/meteroid/crates/diesel-models/src/query/purchase_links.rs::PurchaseLinkS
 # Tenant rows.
 modules/meteroid/crates/diesel-models/src/query/invoicing_entities.rs::InvoicingEntityRow::select_for_update_by_id_and_tenant | tenant | document numbering after the customer and invoice; connector deletion takes it before the connector, as a checkout does
 modules/meteroid/crates/diesel-models/src/query/coupons.rs::CouponRow::list_by_ids_for_update | tenant | redemption limits, after the customers (checkout, credit codes, subscription creation lock them first), in id order
+modules/meteroid/crates/diesel-models/src/query/coupons.rs::CouponRow::lock_by_id | tenant | a discount edit, NO KEY UPDATE, before reading the open quotes using it; locks no customer
+modules/meteroid/crates/diesel-models/src/query/coupons.rs::CouponRow::lock_shared_by_quote_id | tenant | SHARE on a quote's coupons in id order, after the quote row, so its document hash waits for an in-flight discount edit; locks no customer
 modules/meteroid/crates/diesel-models/src/query/connectors.rs::ConnectorRow::lock_key_shared_by_id | tenant | KEY SHARE by paths starting a payment, after the customer and invoicing entity
 modules/meteroid/crates/diesel-models/src/query/prices.rs::PriceRow::lock_by_product_id | tenant | a matrix product's prices in id order, in a transaction that locks no customer and ends with the tenant's input bump
 modules/meteroid/crates/diesel-models/src/query/connectors.rs::ConnectorRow::lock_by_id | tenant | connector administration (activate, rename, credentials, status), locking no other row

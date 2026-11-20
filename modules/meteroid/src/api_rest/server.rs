@@ -90,6 +90,7 @@ where
         redis: None,
         analytics,
         egress: egress.clone(),
+        object_store: object_store.clone(),
     };
     let mut module_api = OpenApiRouter::new();
     let mut module_client = OpenApiRouter::new();

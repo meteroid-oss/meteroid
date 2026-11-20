@@ -13,6 +13,29 @@ invoice-paid-heading = Merci pour votre paiement !
 quote-ready-subject = Devis { $number } de { $company }
 quote-ready-heading = Vous avez reçu un devis
 
+## Quote signature code (one-time code before signing)
+quote-signature-code-subject = Votre code pour signer le devis { $number }
+quote-signature-code-heading = Votre code de signature
+quote-signature-code-intro = Saisissez ce code pour signer le devis { $number } de { $company }. Il expire dans { $minutes } minutes.
+quote-signature-code-ignore = Si vous n'avez pas essayé de signer ce devis, ignorez cet email.
+
+## Quote discussion (a message or a change request)
+quote-message-subject = Nouveau message sur le devis { $number }
+quote-changes-requested-subject = Modifications demandées sur le devis { $number }
+quote-message-heading = { $author } a envoyé un message à propos du devis { $number }
+quote-changes-requested-heading = { $author } demande des modifications du devis { $number }
+view-quote = Voir le devis
+quote-customer = Client
+
+## Quote accepted (kind quote_accepted), and its outcome to the team
+quote-accepted-subject = Le devis { $number } de { $company } est accepté
+quote-accepted-heading = Votre devis est accepté
+quote-seller = De
+quote-accepted-on = Accepté le
+view-signed-quote = Voir le devis signé
+quote-outcome-accepted-subject = { $customer } a accepté le devis { $number }
+quote-outcome-declined-subject = { $customer } a refusé le devis { $number }
+
 ## Credit note (kind credit_note_issued)
 credit-note-issued-subject = Votre avoir { $number } de { $company }
 credit-note-issued-heading = Un avoir a été émis

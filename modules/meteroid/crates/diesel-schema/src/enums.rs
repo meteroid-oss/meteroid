@@ -912,6 +912,8 @@ pub enum StoredObjectKindEnum {
     BatchJobInput,
     BatchJobErrorOutput,
     TaxReport,
+    QuoteCertificatePdf,
+    QuotePdf,
 }
 
 /// Canonical organization activation milestones: the single source
@@ -1264,4 +1266,30 @@ pub enum UsageAtZeroEnum {
     FollowPlan,
     AlwaysPause,
     NeverPause,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, Eq, PartialEq)]
+#[ExistingTypePath = "crate::schema::sql_types::QuoteSignatureLevelEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum QuoteSignatureLevelEnum {
+    Simple,
+    Verified,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, Eq, PartialEq)]
+#[ExistingTypePath = "crate::schema::sql_types::QuoteSignerRoleEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum QuoteSignerRoleEnum {
+    Customer,
+    Countersigner,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Copy, Eq, PartialEq)]
+#[ExistingTypePath = "crate::schema::sql_types::QuoteApprovalStatusEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum QuoteApprovalStatusEnum {
+    NotRequired,
+    Pending,
+    Approved,
+    Rejected,
 }

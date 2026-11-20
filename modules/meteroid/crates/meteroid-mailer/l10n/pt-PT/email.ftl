@@ -13,6 +13,29 @@ invoice-paid-heading = Obrigado pelo seu pagamento!
 quote-ready-subject = Orçamento { $number } de { $company }
 quote-ready-heading = Recebeu um orçamento
 
+## Quote signature code (one-time code before signing)
+quote-signature-code-subject = O seu código para assinar o orçamento { $number }
+quote-signature-code-heading = O seu código de assinatura
+quote-signature-code-intro = Introduza este código para assinar o orçamento { $number } de { $company }. Expira dentro de { $minutes } minutos.
+quote-signature-code-ignore = Se não tentou assinar este orçamento, ignore este e-mail.
+
+## Quote discussion (a message or a change request)
+quote-message-subject = Nova mensagem sobre o orçamento { $number }
+quote-changes-requested-subject = Alterações pedidas ao orçamento { $number }
+quote-message-heading = { $author } enviou uma mensagem sobre o orçamento { $number }
+quote-changes-requested-heading = { $author } pede alterações ao orçamento { $number }
+view-quote = Ver orçamento
+quote-customer = Cliente
+
+## Quote accepted (kind quote_accepted), and its outcome to the team
+quote-accepted-subject = O orçamento { $number } de { $company } foi aceite
+quote-accepted-heading = O seu orçamento foi aceite
+quote-seller = De
+quote-accepted-on = Aceite em
+view-signed-quote = Ver orçamento assinado
+quote-outcome-accepted-subject = { $customer } aceitou o orçamento { $number }
+quote-outcome-declined-subject = { $customer } recusou o orçamento { $number }
+
 ## Credit note (kind credit_note_issued)
 credit-note-issued-subject = A sua nota de crédito { $number } de { $company }
 credit-note-issued-heading = Foi emitida uma nota de crédito

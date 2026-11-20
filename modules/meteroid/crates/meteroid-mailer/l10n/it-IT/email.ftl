@@ -13,6 +13,29 @@ invoice-paid-heading = Grazie per il Suo pagamento!
 quote-ready-subject = Preventivo { $number } da { $company }
 quote-ready-heading = Ha ricevuto un preventivo
 
+## Quote signature code (one-time code before signing)
+quote-signature-code-subject = Il tuo codice per firmare il preventivo { $number }
+quote-signature-code-heading = Il tuo codice di firma
+quote-signature-code-intro = Inserisci questo codice per firmare il preventivo { $number } da { $company }. Scade tra { $minutes } minuti.
+quote-signature-code-ignore = Se non hai provato a firmare questo preventivo, ignora questa email.
+
+## Quote discussion (a message or a change request)
+quote-message-subject = Nuovo messaggio sul preventivo { $number }
+quote-changes-requested-subject = Modifiche richieste al preventivo { $number }
+quote-message-heading = { $author } ha inviato un messaggio sul preventivo { $number }
+quote-changes-requested-heading = { $author } chiede modifiche al preventivo { $number }
+view-quote = Visualizza preventivo
+quote-customer = Cliente
+
+## Quote accepted (kind quote_accepted), and its outcome to the team
+quote-accepted-subject = Il preventivo { $number } di { $company } è accettato
+quote-accepted-heading = Il tuo preventivo è accettato
+quote-seller = Da
+quote-accepted-on = Accettato il
+view-signed-quote = Visualizza preventivo firmato
+quote-outcome-accepted-subject = { $customer } ha accettato il preventivo { $number }
+quote-outcome-declined-subject = { $customer } ha rifiutato il preventivo { $number }
+
 ## Credit note (kind credit_note_issued)
 credit-note-issued-subject = La Sua nota di credito { $number } da { $company }
 credit-note-issued-heading = È stata emessa una nota di credito

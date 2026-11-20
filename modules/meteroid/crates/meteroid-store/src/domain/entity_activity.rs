@@ -314,6 +314,21 @@ pub enum ActivityType {
     #[strum(serialize = "quote.sent")]
     #[serde(rename = "quote.sent")]
     QuoteSent,
+    #[strum(serialize = "quote.revised")]
+    #[serde(rename = "quote.revised")]
+    QuoteRevised,
+    #[strum(serialize = "quote.countersigned")]
+    #[serde(rename = "quote.countersigned")]
+    QuoteCountersigned,
+    #[strum(serialize = "quote.approval_requested")]
+    #[serde(rename = "quote.approval_requested")]
+    QuoteApprovalRequested,
+    #[strum(serialize = "quote.approved")]
+    #[serde(rename = "quote.approved")]
+    QuoteApproved,
+    #[strum(serialize = "quote.approval_rejected")]
+    #[serde(rename = "quote.approval_rejected")]
+    QuoteApprovalRejected,
 
     #[strum(serialize = "subscription.paused")]
     #[serde(rename = "subscription.paused")]

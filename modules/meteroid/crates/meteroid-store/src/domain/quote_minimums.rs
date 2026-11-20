@@ -56,6 +56,24 @@ impl QuoteMinimum {
     }
 }
 
+impl From<QuoteMinimumNew> for QuoteMinimum {
+    fn from(new: QuoteMinimumNew) -> Self {
+        let (scope, pending_extra_product_names) = match new.scope {
+            CreateMinimumScope::AllComponents => (MinimumScope::AllComponents, vec![]),
+            CreateMinimumScope::Products {
+                product_ids,
+                extra_product_names,
+            } => (MinimumScope::Products(product_ids), extra_product_names),
+        };
+        QuoteMinimum {
+            quote_id: new.quote_id,
+            amount_subunit: new.amount_subunit,
+            scope,
+            pending_extra_product_names,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct QuoteMinimumNew {
     pub quote_id: QuoteId,

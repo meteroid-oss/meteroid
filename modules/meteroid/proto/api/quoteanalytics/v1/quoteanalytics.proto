@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package meteroid.api.quoteanalytics.v1;
+
+// Quote funnel and win rate (Enterprise, cpq module).
+
+enum QuoteAnalyticsGrouping {
+  BY_OWNER = 0;
+  BY_PLAN = 1;
+  BY_TEMPLATE = 2;
+  BY_MONTH = 3;
+}
+
+message QuoteFunnel {
+  uint32 created = 1;
+  uint32 published = 2;
+  uint32 viewed = 3;
+  uint32 accepted = 4;
+  uint32 declined = 5;
+  uint32 expired = 6;
+  uint32 cancelled = 7;
+  uint32 open = 8;
+  // accepted / (accepted + declined + expired), 0 when none is decided. Decimal string.
+  string win_rate = 9;
+  // Median days from publication to acceptance. Decimal string, absent without accepted quotes.
+  optional string median_days_to_accept = 10;
+  // Mean of the largest discount of the accepted quotes, in percent. Decimal string.
+  optional string average_discount_percent = 11;
+}
+
+message QuoteAnalyticsGroup {
+  // Owner, plan or template id, or `yyyy-MM` for months; empty for quotes without one.
+  string key = 1;
+  string label = 2;
+  QuoteFunnel funnel = 3;
+}
+
+message DeclineReasonCount {
+  string reason = 1;
+  uint32 count = 2;
+}
+
+message GetQuoteAnalyticsRequest {
+  // Quotes created in [from, to), yyyy-MM-dd.
+  string from = 1;
+  string to = 2;
+  QuoteAnalyticsGrouping grouping = 3;
+}
+
+message GetQuoteAnalyticsResponse {
+  QuoteFunnel total = 1;
+  repeated QuoteAnalyticsGroup groups = 2;
+  repeated DeclineReasonCount decline_reasons = 3;
+}
+
+service QuoteAnalyticsService {
+  rpc GetQuoteAnalytics(GetQuoteAnalyticsRequest) returns (GetQuoteAnalyticsResponse) {}
+}

@@ -29,7 +29,8 @@ pub use meteroid_rest_common::spec::EditionSpec;
 use meteroid_store::clients::pending_usage::PendingUsageSource;
 use meteroid_store::hooks::{
     AnalyticsHook, CreditControlHooks, InstanceEdition, MemberHooks, OrganizationHooks,
-    SignalHooks, StoreHooks, core_instance, no_analytics_hook, no_organization_hooks,
+    QuoteDocuments, SignalHooks, StoreHooks, core_instance, no_analytics_hook,
+    no_organization_hooks, no_quote_documents,
 };
 use meteroid_store::repositories::revenue_stats::{RevenueStats, postgres_revenue_stats};
 use meteroid_store::{Services, Store};
@@ -40,6 +41,7 @@ use utoipa_axum::router::OpenApiRouter;
 use meteroid_app::config::Config;
 use meteroid_app::features::{Entitlements, FeatureGate, OssEntitlements};
 use meteroid_app::services::egress::Egress;
+use meteroid_app::services::storage::ObjectStoreService;
 use meteroid_rest_common::delegated_auth::RestDelegatedAuth;
 
 pub struct ApiContext {
@@ -54,6 +56,7 @@ pub struct ApiContext {
     pub redis: Option<fred::prelude::Client>,
     pub analytics: Arc<dyn AnalyticsHook>,
     pub egress: Egress,
+    pub object_store: Arc<dyn ObjectStoreService>,
 }
 
 /// The licenses a customer holds, as the customer portal shows them.
@@ -194,6 +197,11 @@ pub trait ApiModule: Send + Sync {
         None
     }
 
+    /// Quote PDFs and their signature pages, in the API and the workers; core has none.
+    fn quote_documents(&self, _deps: &QuoteDocumentsDeps) -> Option<Arc<dyn QuoteDocuments>> {
+        None
+    }
+
     /// Once per process (API, workers or standalone), after migrations ran.
     async fn on_startup(&self, _store: &Store, _config: &Config) {}
 
@@ -205,6 +213,14 @@ pub trait ApiModule: Send + Sync {
     ) -> Vec<Arc<dyn EventHandler<Event>>> {
         Vec::new()
     }
+}
+
+/// What the quote documents hook is built from, the same in the API and the workers.
+pub struct QuoteDocumentsDeps {
+    pub config: Config,
+    pub store: Store,
+    pub object_store: Arc<dyn ObjectStoreService>,
+    pub feature_resolver: Arc<dyn Entitlements>,
 }
 
 pub struct WorkerContext {
@@ -351,6 +367,13 @@ impl Modules {
             .iter()
             .find_map(|module| module.revenue_stats(ctx))
             .unwrap_or_else(|| postgres_revenue_stats(&ctx.store))
+    }
+
+    pub fn quote_documents(&self, deps: &QuoteDocumentsDeps) -> Arc<dyn QuoteDocuments> {
+        self.api
+            .iter()
+            .find_map(|module| module.quote_documents(deps))
+            .unwrap_or_else(no_quote_documents)
     }
 
     pub fn consumes(&self, queue: meteroid_store::domain::pgmq::PgmqQueue) -> bool {

@@ -421,6 +421,15 @@ pub struct QuoteReadyContent {
 }
 
 #[derive(TemplateSimple)]
+#[template(path = "quote_signature_code.stpl")]
+pub struct QuoteSignatureCodeContent {
+    pub heading: String,
+    pub intro: String,
+    pub code: String,
+    pub ignore: String,
+}
+
+#[derive(TemplateSimple)]
 #[template(path = "credit_note_issued.stpl")]
 pub struct CreditNoteIssuedContent {
     pub heading: String,

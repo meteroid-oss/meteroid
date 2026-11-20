@@ -5,6 +5,7 @@ import { customAlphabet } from 'nanoid'
 import { parseCustomProperties } from '@/features/customproperties/CustomPropertiesFields'
 import { buildDefaults } from '@/features/plans/pricecomponents/ProductPricingForm'
 import { feeTypeFromPrice } from '@/features/pricing'
+import { emptyQuoteV2State, quoteToV2State } from '@/features/quotes/editor/quoteV2'
 import {
   ComponentOverride,
   ComponentParameterization,
@@ -12,8 +13,14 @@ import {
 } from '@/pages/tenants/subscription/create/state'
 import { FeeStructure_BillingType, PriceSchema } from '@/rpc/api/prices/v1/models_pb'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
-import { ActivationCondition, SubscriptionFeeBillingPeriod } from '@/rpc/api/subscriptions/v1/models_pb'
+import {
+  ActivationCondition,
+  SubscriptionFeeBillingPeriod,
+} from '@/rpc/api/subscriptions/v1/models_pb'
 
+import type { PendingEntitlementSpec } from '@/features/entitlements/creation/types'
+import type { QuoteFormValues } from '@/features/quotes/editor/quoteFormSchema'
+import type { QuoteV2State } from '@/features/quotes/editor/quoteV2'
 import type {
   PriceComponentsState,
   UsageExampleEntry,
@@ -153,7 +160,10 @@ export function quoteToPriceComponentsState(
 
   for (const component of quote.components) {
     const planComponent = planComponents.find(pc => pc.id === component.priceComponentId)
-    const price = subscriptionFeeToPrice(component.fee, component.period)
+    // The stored fee of a discounted line is the net one; the editor reapplies the discount.
+    const listFee =
+      component.discountPercent && component.listFee ? component.listFee : component.fee
+    const price = subscriptionFeeToPrice(listFee, component.period)
 
     if (component.exampleUsageQuantity) {
       usageExamples.push(
@@ -180,7 +190,7 @@ export function quoteToPriceComponentsState(
       extra.push({
         name: component.name,
         feeType,
-        formData: { ...structuralFormData(component.fee), ...buildDefaults(feeType, price) },
+        formData: { ...structuralFormData(listFee), ...buildDefaults(feeType, price) },
         productId: component.productId,
       })
     }
@@ -214,7 +224,7 @@ const activationConditionToString = (
 
 const parseDate = (value?: string): Date | undefined => (value ? parseISO(value) : undefined)
 
-export function quoteToFormValues(detailed: DetailedQuote) {
+export function quoteToFormValues(detailed: DetailedQuote): Partial<QuoteFormValues> {
   const quote = detailed.quote
   const paymentMethods = quote?.paymentMethodsConfig?.config.case
 
@@ -229,8 +239,6 @@ export function quoteToFormValues(detailed: DetailedQuote) {
     expires_at: parseDate(quote?.expiresAt),
     valid_until: parseDate(quote?.validUntil),
     internal_notes: quote?.internalNotes,
-    overview: quote?.overview,
-    terms_and_services: quote?.termsAndServices,
     net_terms: quote?.netTerms,
     recipients: quote?.recipients.length
       ? quote.recipients.map(r => ({ name: r.name, email: r.email }))
@@ -255,12 +263,15 @@ const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 10)
 export const generateQuoteNumber = () =>
   `Q-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${nanoid(5)}`
 
+/** Everything the quote editor holds; also the payload of its autosaved drafts. */
 export interface QuoteFormSeed {
-  values: ReturnType<typeof quoteToFormValues>
+  values: Partial<QuoteFormValues>
   priceComponents: PriceComponentsState
   addOns: { addOnId: string; quantity?: number }[]
   coupons: { couponId: string }[]
   minimumCommitment?: MinimumCommitment
+  pendingEntitlements: PendingEntitlementSpec[]
+  v2: QuoteV2State
 }
 
 export function quoteToFormSeed(
@@ -273,13 +284,15 @@ export function quoteToFormSeed(
     addOns: quote.addOns.map(a => ({ addOnId: a.addOnId, quantity: a.quantity })),
     coupons: quote.coupons.map(c => ({ couponId: c.couponId })),
     minimumCommitment: quote.minimumCommitment,
+    pendingEntitlements: [],
+    v2: quoteToV2State(quote),
   }
 }
 
 /**
  * Seed for a new quote based on an existing one: keeps the commercial terms, drops what is
- * specific to the original deal (number, customer, recipients, dates). Plan-bound pricing is
- * dropped too when the source plan version can no longer be subscribed to.
+ * specific to the original deal (number, customer, recipients, dates, CRM deal). Plan-bound pricing
+ * is dropped too when the source plan version can no longer be subscribed to.
  */
 export function quoteToTemplateSeed(
   quote: DetailedQuote,
@@ -298,7 +311,9 @@ export function quoteToTemplateSeed(
     valid_until: undefined,
   }
 
-  if (options.planVersionIsActive) return { ...seed, values }
+  const v2 = { ...seed.v2, hubspotDealId: '' }
+
+  if (options.planVersionIsActive) return { ...seed, values, v2 }
 
   return {
     values: { ...values, plan_version_id: '' },
@@ -306,6 +321,8 @@ export function quoteToTemplateSeed(
     addOns: [],
     coupons: seed.coupons,
     minimumCommitment: undefined,
+    pendingEntitlements: [],
+    v2: { ...v2, lineDetails: {}, lineOrder: undefined },
   }
 }
 
@@ -317,4 +334,13 @@ export const emptyPriceComponentsState = (): PriceComponentsState => ({
     extra: [],
     usageExamples: [],
   },
+})
+
+export const emptyQuoteFormSeed = (values: Partial<QuoteFormValues>): QuoteFormSeed => ({
+  values,
+  priceComponents: emptyPriceComponentsState(),
+  addOns: [],
+  coupons: [],
+  pendingEntitlements: [],
+  v2: emptyQuoteV2State(),
 })

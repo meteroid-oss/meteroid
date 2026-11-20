@@ -94,10 +94,10 @@ pub mod gates {
     /// Introducing or changing a minimum commitment on a plan, subscription or quote (the
     /// commitments module). Billing the minimums already stored stays open.
     pub const MINIMUM_COMMITMENTS: FeatureCode = FeatureCode::new("minimum_commitments");
-    /// More than one signer on a quote.
-    pub const QUOTE_MULTIPLE_SIGNERS: FeatureCode = FeatureCode::new("quote_multiple_signers");
-    /// The customer entering a purchase order on a quote.
-    pub const QUOTE_PURCHASE_ORDERS: FeatureCode = FeatureCode::new("quote_purchase_orders");
+    /// Advanced quoting: several signers, purchase orders, revisions, line editing and
+    /// discounts, templates, approvals, countersignatures, verified signatures, CRM deal links
+    /// and quote analytics.
+    pub const QUOTES_FULL: FeatureCode = FeatureCode::new("quotes_full");
     /// Credit products, credit units and portal top-ups of credit units.
     pub const CREDIT_PRICING: FeatureCode = FeatureCode::new("credit_pricing");
     /// Credit granted to one subscription, to usage only or to some products.
@@ -594,6 +594,8 @@ pub async fn ensure_usage_breakdown_allowed(
     .await
 }
 
+pub const QUOTES_FULL_NOT_IN_PLAN: &str = "Advanced quoting is not enabled for this organization.";
+
 pub async fn ensure_credit_pricing_allowed(
     resolver: &dyn Entitlements,
     org_id: OrganizationId,
@@ -715,7 +717,8 @@ mod tests {
         FeatureGate::new(MFA_POLICY),
     ];
 
-    const CORE_GATES: [FeatureCode; 18] = [
+    const CORE_GATES: [FeatureCode; 17] = [
+        gates::QUOTES_FULL,
         gates::CREDIT_PRICING,
         gates::SCOPED_CREDIT,
         gates::USAGE_COSTS,
@@ -723,8 +726,6 @@ mod tests {
         gates::PORTAL_SELF_SERVICE,
         gates::PORTAL_EMBEDDING,
         gates::PORTAL_THEMING,
-        gates::QUOTE_MULTIPLE_SIGNERS,
-        gates::QUOTE_PURCHASE_ORDERS,
         gates::WHITELABEL,
         gates::INVOICE_ANNEXES,
         gates::LICENSING,

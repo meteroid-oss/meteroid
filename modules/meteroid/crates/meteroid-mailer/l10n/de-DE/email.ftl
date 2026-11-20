@@ -13,6 +13,29 @@ invoice-paid-heading = Vielen Dank für Ihre Zahlung!
 quote-ready-subject = Angebot { $number } von { $company }
 quote-ready-heading = Sie haben ein Angebot erhalten
 
+## Quote signature code (one-time code before signing)
+quote-signature-code-subject = Ihr Code zum Unterzeichnen des Angebots { $number }
+quote-signature-code-heading = Ihr Signaturcode
+quote-signature-code-intro = Geben Sie diesen Code ein, um das Angebot { $number } von { $company } zu unterzeichnen. Er läuft in { $minutes } Minuten ab.
+quote-signature-code-ignore = Wenn Sie nicht versucht haben, dieses Angebot zu unterzeichnen, ignorieren Sie diese E-Mail.
+
+## Quote discussion (a message or a change request)
+quote-message-subject = Neue Nachricht zum Angebot { $number }
+quote-changes-requested-subject = Änderungen am Angebot { $number } angefragt
+quote-message-heading = { $author } hat eine Nachricht zum Angebot { $number } gesendet
+quote-changes-requested-heading = { $author } bittet um Änderungen am Angebot { $number }
+view-quote = Angebot ansehen
+quote-customer = Kunde
+
+## Quote accepted (kind quote_accepted), and its outcome to the team
+quote-accepted-subject = Angebot { $number } von { $company } ist angenommen
+quote-accepted-heading = Ihr Angebot ist angenommen
+quote-seller = Von
+quote-accepted-on = Angenommen am
+view-signed-quote = Unterzeichnetes Angebot ansehen
+quote-outcome-accepted-subject = { $customer } hat das Angebot { $number } angenommen
+quote-outcome-declined-subject = { $customer } hat das Angebot { $number } abgelehnt
+
 ## Credit note (kind credit_note_issued)
 credit-note-issued-subject = Ihre Rechnungskorrektur { $number } von { $company }
 credit-note-issued-heading = Eine Rechnungskorrektur wurde ausgestellt

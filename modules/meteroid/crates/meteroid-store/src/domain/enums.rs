@@ -692,6 +692,8 @@ pub enum StoredObjectKindEnum {
     BatchJobInput,
     BatchJobErrorOutput,
     TaxReport,
+    QuoteCertificatePdf,
+    QuotePdf,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -772,6 +774,31 @@ pub enum QuoteStatusEnum {
     Declined,
     Expired,
     Cancelled,
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq, Default)]
+#[map_owned(diesel_enums::QuoteSignatureLevelEnum)]
+pub enum QuoteSignatureLevelEnum {
+    #[default]
+    Simple,
+    Verified,
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq)]
+#[map_owned(diesel_enums::QuoteSignerRoleEnum)]
+pub enum QuoteSignerRoleEnum {
+    Customer,
+    Countersigner,
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq, Default)]
+#[map_owned(diesel_enums::QuoteApprovalStatusEnum)]
+pub enum QuoteApprovalStatusEnum {
+    #[default]
+    NotRequired,
+    Pending,
+    Approved,
+    Rejected,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]

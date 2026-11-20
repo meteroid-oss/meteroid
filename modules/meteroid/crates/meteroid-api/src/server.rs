@@ -115,6 +115,15 @@ pub async fn start_api_server_with_incoming(
         &rate_limiter,
     );
     let trusted_proxy_hops = config.api.trusted_proxy_hops;
+    let quote_links = crate::quotes::QuoteFileLinks {
+        rest_api_external_url: config.rest_api_external_url.clone(),
+    };
+    let quote_documents = modules.quote_documents(&meteroid_kit::QuoteDocumentsDeps {
+        config: config.clone(),
+        store: store.clone(),
+        object_store: object_store.clone(),
+        feature_resolver: feature_resolver.clone(),
+    });
 
     let module_ctx = ApiContext {
         config: config.clone(),
@@ -126,6 +135,7 @@ pub async fn start_api_server_with_incoming(
         redis: redis_client,
         analytics,
         egress,
+        object_store: object_store.clone(),
     };
     let mut module_routes = tonic::service::RoutesBuilder::default();
     for module in &modules.api {
@@ -274,6 +284,8 @@ pub async fn start_api_server_with_incoming(
             store.clone(),
             services.clone(),
             feature_resolver.clone(),
+            quote_documents.clone(),
+            quote_links.clone(),
         ))
         .add_service(api::instance::service(store.clone()))
         .add_service(api::invoices::service(
@@ -358,8 +370,9 @@ pub async fn start_api_server_with_incoming(
         .add_service(api::portal::quotes::service(
             store.clone(),
             services.clone(),
-            object_store.clone(),
             feature_resolver.clone(),
+            quote_documents,
+            quote_links.clone(),
         ))
         .add_service(api::portal::subscription::service(
             store.clone(),

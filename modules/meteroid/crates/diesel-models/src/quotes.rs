@@ -1,12 +1,14 @@
 use crate::enums::{
-    QuoteStatusEnum, SubscriptionActivationConditionEnum, SubscriptionFeeBillingPeriod,
+    QuoteApprovalStatusEnum, QuoteSignatureLevelEnum, QuoteSignerRoleEnum, QuoteStatusEnum,
+    SubscriptionActivationConditionEnum, SubscriptionFeeBillingPeriod,
 };
 use chrono::{NaiveDate, NaiveDateTime};
 
 use crate::customers::CustomerRow;
 use common_domain::ids::{
     CustomerId, InvoiceId, PlanVersionId, PriceComponentId, PriceId, ProductId, QuoteId,
-    QuotePriceComponentId, QuoteSignatureId, StoredDocumentId, SubscriptionId, TenantId,
+    QuotePriceComponentId, QuoteSignatureId, QuoteTemplateId, StoredDocumentId, SubscriptionId,
+    TenantId,
 };
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
@@ -56,6 +58,26 @@ pub struct QuoteRow {
     pub payment_methods_config: Option<serde_json::Value>,
     /// User-defined property values, keyed by definition `key`.
     pub custom_properties: serde_json::Value,
+    pub revision: i32,
+    pub document_hash: Option<String>,
+    pub published_at: Option<NaiveDateTime>,
+    pub first_viewed_at: Option<NaiveDateTime>,
+    pub owner_id: Option<uuid::Uuid>,
+    pub template_id: Option<QuoteTemplateId>,
+    pub decline_reason: Option<String>,
+    pub display_options: serde_json::Value,
+    pub sections: serde_json::Value,
+    pub signature_level: QuoteSignatureLevelEnum,
+    pub consent_text: Option<String>,
+    pub countersigners: serde_json::Value,
+    pub approval_status: QuoteApprovalStatusEnum,
+    pub hubspot_deal_id: Option<String>,
+    pub max_discount_percent: Option<rust_decimal::Decimal>,
+    pub changes_requested_at: Option<NaiveDateTime>,
+    pub allow_questions: bool,
+    pub allow_change_requests: bool,
+    pub allow_decline: bool,
+    pub last_sent_at: Option<NaiveDateTime>,
 }
 
 #[derive(Insertable, Debug)]
@@ -95,6 +117,18 @@ pub struct QuoteRowNew {
     pub payment_methods_config: Option<serde_json::Value>,
     /// User-defined property values, keyed by definition `key`.
     pub custom_properties: serde_json::Value,
+    pub owner_id: Option<uuid::Uuid>,
+    pub template_id: Option<QuoteTemplateId>,
+    pub display_options: serde_json::Value,
+    pub sections: serde_json::Value,
+    pub signature_level: QuoteSignatureLevelEnum,
+    pub consent_text: Option<String>,
+    pub countersigners: serde_json::Value,
+    pub hubspot_deal_id: Option<String>,
+    pub max_discount_percent: Option<rust_decimal::Decimal>,
+    pub allow_questions: bool,
+    pub allow_change_requests: bool,
+    pub allow_decline: bool,
 }
 
 #[derive(Debug, AsChangeset, Default)]
@@ -133,6 +167,15 @@ pub struct QuoteRowUpdate {
     pub invoice_threshold: Option<Option<rust_decimal::Decimal>>,
     pub create_subscription_on_acceptance: Option<bool>,
     pub payment_methods_config: Option<Option<serde_json::Value>>,
+    pub revision: Option<i32>,
+    pub document_hash: Option<Option<String>>,
+    pub published_at: Option<Option<NaiveDateTime>>,
+    pub first_viewed_at: Option<Option<NaiveDateTime>>,
+    pub decline_reason: Option<Option<String>>,
+    pub approval_status: Option<QuoteApprovalStatusEnum>,
+    pub hubspot_deal_id: Option<Option<String>>,
+    pub max_discount_percent: Option<Option<rust_decimal::Decimal>>,
+    pub last_sent_at: Option<Option<NaiveDateTime>>,
 }
 
 /// Full replacement of the editable columns of a draft quote; `None` clears the column.
@@ -168,6 +211,17 @@ pub struct QuoteRowReplace {
     pub payment_methods_config: Option<serde_json::Value>,
     pub custom_properties: serde_json::Value,
     pub updated_at: Option<NaiveDateTime>,
+    pub template_id: Option<QuoteTemplateId>,
+    pub display_options: serde_json::Value,
+    pub sections: serde_json::Value,
+    pub signature_level: QuoteSignatureLevelEnum,
+    pub consent_text: Option<String>,
+    pub countersigners: serde_json::Value,
+    pub hubspot_deal_id: Option<String>,
+    pub max_discount_percent: Option<rust_decimal::Decimal>,
+    pub allow_questions: bool,
+    pub allow_change_requests: bool,
+    pub allow_decline: bool,
 }
 
 impl From<QuoteRowNew> for QuoteRowReplace {
@@ -200,6 +254,17 @@ impl From<QuoteRowNew> for QuoteRowReplace {
             payment_methods_config: row.payment_methods_config,
             custom_properties: row.custom_properties,
             updated_at: Some(common_clock::now().naive_utc()),
+            template_id: row.template_id,
+            display_options: row.display_options,
+            sections: row.sections,
+            signature_level: row.signature_level,
+            consent_text: row.consent_text,
+            countersigners: row.countersigners,
+            hubspot_deal_id: row.hubspot_deal_id,
+            max_discount_percent: row.max_discount_percent,
+            allow_questions: row.allow_questions,
+            allow_change_requests: row.allow_change_requests,
+            allow_decline: row.allow_decline,
         }
     }
 }
@@ -229,6 +294,11 @@ pub struct QuoteSignatureRow {
     pub user_agent: Option<String>,
     pub verification_token: Option<String>,
     pub verified_at: Option<NaiveDateTime>,
+    pub signer_role: QuoteSignerRoleEnum,
+    pub revision: Option<i32>,
+    pub document_hash: Option<String>,
+    pub consent_text: Option<String>,
+    pub otp_verified_at: Option<NaiveDateTime>,
 }
 
 #[derive(Insertable, Debug)]
@@ -244,6 +314,11 @@ pub struct QuoteSignatureRowNew {
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
     pub verification_token: Option<String>,
+    pub signer_role: QuoteSignerRoleEnum,
+    pub revision: Option<i32>,
+    pub document_hash: Option<String>,
+    pub consent_text: Option<String>,
+    pub otp_verified_at: Option<NaiveDateTime>,
 }
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
@@ -260,6 +335,10 @@ pub struct QuoteComponentRow {
     pub is_override: bool,
     pub price_id: Option<PriceId>,
     pub example_usage_quantity: Option<rust_decimal::Decimal>,
+    pub description: Option<String>,
+    pub sort_order: i32,
+    pub discount_percent: Option<rust_decimal::Decimal>,
+    pub list_fee: Option<serde_json::Value>,
 }
 
 #[derive(Insertable, Debug)]
@@ -275,4 +354,8 @@ pub struct QuoteComponentRowNew {
     pub is_override: bool,
     pub price_id: Option<PriceId>,
     pub example_usage_quantity: Option<rust_decimal::Decimal>,
+    pub description: Option<String>,
+    pub sort_order: i32,
+    pub discount_percent: Option<rust_decimal::Decimal>,
+    pub list_fee: Option<serde_json::Value>,
 }

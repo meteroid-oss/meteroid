@@ -23,6 +23,35 @@ message QuotePortalDetails {
   optional meteroid.api.plans.v1.MinimumCommitment minimum_commitment = 14;
   // Whether the customer may enter a purchase order on this quote.
   bool purchase_order_enabled = 15;
+  // How the current recipient signs: as the customer, or countersigning for the seller.
+  api.quotes.v1.QuoteSignerRole current_signer_role = 16;
+  repeated QuoteCountersignerStatus countersigners = 17;
+  // The verified code was confirmed and can be used to sign.
+  bool code_verified = 18;
+  // Shown next to the signature when the quote sets none.
+  string default_consent_text = 19;
+  // Whether the recipient can write to the seller.
+  bool discussion_enabled = 20;
+  // The messages shared with the customer.
+  repeated api.quotes.v1.QuoteComment comments = 21;
+  bool change_requests_enabled = 22;
+  bool decline_enabled = 23;
+  // The invoicing entity's portal branding, as the customer portal applies it.
+  optional string theme_mode = 24;
+  optional string roundness = 25;
+  bool show_powered_by = 26;
+  optional api.quotes.v1.QuoteTotals totals = 27;
+  // The quote's PDF, signed once accepted (Enterprise, quote-documents module).
+  optional string pdf_url = 28;
+  repeated api.quotes.v1.QuoteCouponTerms coupon_terms = 29;
+}
+
+message QuoteCountersignerStatus {
+  string name = 1;
+  optional string title = 2;
+  bool has_signed = 3;
+  // The countersigner is the person viewing the portal.
+  bool is_viewer = 4;
 }
 
 message QuoteSignature {
@@ -32,6 +61,8 @@ message QuoteSignature {
   optional string signed_by_title = 4;
   string signed_at = 5;
   string signature_method = 6;
+  api.quotes.v1.QuoteSignerRole signer_role = 7;
+  optional int32 revision = 8;
 }
 
 message QuoteRecipient {

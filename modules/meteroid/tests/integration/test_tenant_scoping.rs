@@ -221,6 +221,18 @@ fn quote_new(tenant_id: TenantId, customer_id: CustomerId) -> QuoteNew {
         payment_methods_config: None,
         custom_properties: serde_json::Value::Null,
         entitlements: vec![],
+        owner_id: None,
+        template_id: None,
+        display_options: Default::default(),
+        sections: vec![],
+        signature_level: Default::default(),
+        consent_text: None,
+        countersigners: vec![],
+        hubspot_deal_id: None,
+        max_discount_percent: None,
+        allow_questions: true,
+        allow_change_requests: true,
+        allow_decline: true,
     }
 }
 

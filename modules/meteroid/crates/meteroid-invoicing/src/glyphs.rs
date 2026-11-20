@@ -10,7 +10,7 @@ use std::fmt::Write;
 use typst::foundations::{Dict, Value};
 use typst::text::Font;
 
-pub(crate) struct FontCoverage {
+pub struct FontCoverage {
     fonts: Vec<Font>,
 }
 
@@ -39,7 +39,7 @@ impl Rewrites {
 }
 
 impl FontCoverage {
-    pub(crate) fn new(fonts: &[Font]) -> Self {
+    pub fn new(fonts: &[Font]) -> Self {
         FontCoverage {
             fonts: fonts.to_vec(),
         }
@@ -47,7 +47,7 @@ impl FontCoverage {
 
     /// Rewrites every string in a template input dictionary, recursing into nested
     /// dictionaries and arrays. Non-textual values are passed through untouched.
-    pub(crate) fn sanitize_dict(&self, dict: Dict) -> Dict {
+    pub fn sanitize_dict(&self, dict: Dict) -> Dict {
         let mut rewrites = Rewrites::default();
         let sanitized = self.dict(dict, &mut rewrites);
 
@@ -64,7 +64,7 @@ impl FontCoverage {
 
     /// Whether a string reaches the page unchanged. Callers use it to pick a renderable
     /// alternative — a currency code for an uncovered symbol — before dropping to nothing.
-    pub(crate) fn renders(&self, text: &str) -> bool {
+    pub fn renders(&self, text: &str) -> bool {
         text.chars().all(|c| self.covers(c))
     }
 

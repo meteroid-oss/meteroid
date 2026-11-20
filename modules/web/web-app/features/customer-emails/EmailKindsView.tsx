@@ -95,6 +95,13 @@ export const EMAIL_KIND_META: EmailKindMeta[] = [
     attachesDocument: false,
   },
   {
+    kind: EmailKind.QUOTE_ACCEPTED,
+    label: 'Quote accepted',
+    description: '',
+    editableCopy: false,
+    attachesDocument: false,
+  },
+  {
     kind: EmailKind.WALLET_BALANCE_LOW,
     label: 'Low balance',
     description: "Sent when a customer's prepaid balance falls below its alert threshold.",
@@ -146,7 +153,10 @@ const GROUPS: KindGroup[] = [
     ],
   },
   { title: 'Collections', kinds: [byKind(EmailKind.PAYMENT_REMINDER)!] },
-  { title: 'Quotes', kinds: [byKind(EmailKind.QUOTE_READY)!] },
+  {
+    title: 'Quotes',
+    kinds: [EmailKind.QUOTE_READY, EmailKind.QUOTE_ACCEPTED].map(k => byKind(k)!),
+  },
   {
     title: 'Prepaid balance',
     kinds: [EmailKind.WALLET_BALANCE_LOW, EmailKind.AUTO_TOP_UP_FAILED].map(k => byKind(k)!),
@@ -205,7 +215,9 @@ const KindRow = ({
         {title}
         {chips}
       </div>
-      <div className="text-xs leading-snug text-muted-foreground">{description}</div>
+      {description && (
+        <div className="text-xs leading-snug text-muted-foreground">{description}</div>
+      )}
       {footer}
     </div>
     <div

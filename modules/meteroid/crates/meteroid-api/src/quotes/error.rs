@@ -11,6 +11,9 @@ pub enum QuoteApiError {
     #[error("Invalid argument: {0}")]
     #[code(InvalidArgument)]
     InvalidArgument(String),
+    #[error("{0}")]
+    #[code(Aborted)]
+    Conflict(String),
     #[error("Store error: {0}")]
     #[code(Internal)]
     StoreError(String, #[source] Box<dyn Error>),
@@ -22,6 +25,7 @@ impl From<Report<StoreError>> for QuoteApiError {
 
         match err {
             StoreError::InvalidArgument(msg) => Self::InvalidArgument(msg.clone()),
+            StoreError::Conflict(msg) => Self::Conflict(msg.clone()),
             StoreError::ValueNotFound(msg) => Self::InvalidArgument(msg.clone()),
             StoreError::DuplicateValue { entity, key } => {
                 let msg = match key {

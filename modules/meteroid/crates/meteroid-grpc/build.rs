@@ -52,7 +52,11 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
         "productfamilies",
         "products",
         "purchaselinks",
+        "quoteanalytics",
+        "quoteapprovals",
+        "quotecomments",
         "quotes",
+        "quotetemplates",
         "rbac",
         "savedviews",
         "schedules",
@@ -82,6 +86,8 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
             println!("cargo:rerun-if-changed={}", models_path.display());
         }
     }
+    // Services of a package beside its main file
+    proto_files.push(root.join("proto/api/quotes/v1/documents.proto"));
     // Internal service-to-service protos
     proto_files.push(root.join("proto/internal/v1/internal.proto"));
     proto_files.push(root.join("proto/portal/checkout/v1/checkout.proto"));
@@ -90,6 +96,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), Report<BuildError>> {
     proto_files.push(root.join("proto/portal/shared/v1/shared.proto"));
     proto_files.push(root.join("proto/portal/customer/v1/customer.proto"));
     proto_files.push(root.join("proto/portal/quotes/v1/quotes.proto"));
+    proto_files.push(root.join("proto/portal/quotes/v1/signing.proto"));
     proto_files.push(root.join("proto/portal/subscription/v1/subscription.proto"));
     proto_files.push(root.join("proto/portal/dashboard/v1/dashboard.proto"));
     proto_files.push(root.join("proto/portal/wallets/v1/wallets.proto"));

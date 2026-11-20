@@ -258,6 +258,18 @@ pub mod sql_types {
     pub struct PortalResourceKindEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "QuoteApprovalStatusEnum"))]
+    pub struct QuoteApprovalStatusEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "QuoteSignatureLevelEnum"))]
+    pub struct QuoteSignatureLevelEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "QuoteSignerRoleEnum"))]
+    pub struct QuoteSignerRoleEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "QuoteStatusEnum"))]
     pub struct QuoteStatusEnum;
 
@@ -1592,16 +1604,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    instance_telemetry (id) {
-        id -> Bool,
-        instance_id -> Uuid,
-        installed_at -> Timestamp,
-        first_version -> Text,
-        last_sent_at -> Nullable<Timestamp>,
-    }
-}
-
-diesel::table! {
     instance_license (id) {
         id -> Bool,
         instance_id -> Uuid,
@@ -1616,6 +1618,16 @@ diesel::table! {
         next_refresh_at -> Nullable<Timestamp>,
         refresh_failures -> Int4,
         revoked_at -> Nullable<Timestamp>,
+    }
+}
+
+diesel::table! {
+    instance_telemetry (id) {
+        id -> Bool,
+        instance_id -> Uuid,
+        installed_at -> Timestamp,
+        first_version -> Text,
+        last_sent_at -> Nullable<Timestamp>,
     }
 }
 
@@ -2425,6 +2437,8 @@ diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::QuoteStatusEnum;
     use super::sql_types::SubscriptionActivationConditionEnum;
+    use super::sql_types::QuoteSignatureLevelEnum;
+    use super::sql_types::QuoteApprovalStatusEnum;
 
     quote (id) {
         id -> Uuid,
@@ -2465,6 +2479,26 @@ diesel::table! {
         create_subscription_on_acceptance -> Bool,
         payment_methods_config -> Nullable<Jsonb>,
         custom_properties -> Jsonb,
+        revision -> Int4,
+        document_hash -> Nullable<Text>,
+        published_at -> Nullable<Timestamptz>,
+        first_viewed_at -> Nullable<Timestamptz>,
+        owner_id -> Nullable<Uuid>,
+        template_id -> Nullable<Uuid>,
+        decline_reason -> Nullable<Text>,
+        display_options -> Jsonb,
+        sections -> Jsonb,
+        signature_level -> QuoteSignatureLevelEnum,
+        consent_text -> Nullable<Text>,
+        countersigners -> Jsonb,
+        approval_status -> QuoteApprovalStatusEnum,
+        hubspot_deal_id -> Nullable<Text>,
+        max_discount_percent -> Nullable<Numeric>,
+        changes_requested_at -> Nullable<Timestamptz>,
+        allow_questions -> Bool,
+        allow_change_requests -> Bool,
+        allow_decline -> Bool,
+        last_sent_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -2482,6 +2516,10 @@ diesel::table! {
         product_id -> Nullable<Uuid>,
         price_id -> Nullable<Uuid>,
         quantity -> Int4,
+        description -> Nullable<Text>,
+        sort_order -> Int4,
+        discount_percent -> Nullable<Numeric>,
+        list_fee -> Nullable<Jsonb>,
     }
 }
 
@@ -2512,6 +2550,62 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::QuoteApprovalStatusEnum;
+
+    quote_approval (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        quote_id -> Uuid,
+        revision -> Int4,
+        document_hash -> Text,
+        rule_ids -> Array<Nullable<Uuid>>,
+        status -> QuoteApprovalStatusEnum,
+        requested_by -> Nullable<Uuid>,
+        requested_at -> Timestamptz,
+        request_note -> Nullable<Text>,
+        decided_by -> Nullable<Uuid>,
+        decided_at -> Nullable<Timestamptz>,
+        decision_note -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    quote_approval_rule (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        name -> Text,
+        min_discount_percent -> Nullable<Numeric>,
+        max_net_terms_days -> Nullable<Int4>,
+        max_trial_days -> Nullable<Int4>,
+        always -> Bool,
+        approver_user_ids -> Array<Nullable<Uuid>>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        archived_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    quote_comment (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        quote_id -> Uuid,
+        revision -> Int4,
+        author_user_id -> Nullable<Uuid>,
+        author_email -> Nullable<Text>,
+        author_name -> Text,
+        body -> Text,
+        shared -> Bool,
+        is_change_request -> Bool,
+        resolved_at -> Nullable<Timestamptz>,
+        resolved_by -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+        anchor -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::SubscriptionFeeBillingPeriod;
 
     quote_component (id) {
@@ -2525,6 +2619,10 @@ diesel::table! {
         is_override -> Bool,
         price_id -> Nullable<Uuid>,
         example_usage_quantity -> Nullable<Numeric>,
+        description -> Nullable<Text>,
+        sort_order -> Int4,
+        discount_percent -> Nullable<Numeric>,
+        list_fee -> Nullable<Jsonb>,
     }
 }
 
@@ -2537,6 +2635,72 @@ diesel::table! {
 }
 
 diesel::table! {
+    quote_draft (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        quote_id -> Nullable<Uuid>,
+        created_by -> Uuid,
+        updated_by -> Nullable<Uuid>,
+        label -> Nullable<Text>,
+        payload -> Jsonb,
+        payload_version -> Int4,
+        version -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    quote_evidence_event (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        quote_id -> Uuid,
+        seq -> Int4,
+        kind -> Text,
+        actor_email -> Nullable<Text>,
+        ip_address -> Nullable<Text>,
+        user_agent -> Nullable<Text>,
+        revision -> Int4,
+        document_hash -> Nullable<Text>,
+        details -> Jsonb,
+        occurred_at -> Timestamptz,
+        prev_hash -> Nullable<Text>,
+        hash -> Text,
+    }
+}
+
+diesel::table! {
+    quote_recipient_engagement (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        quote_id -> Uuid,
+        email -> Text,
+        view_count -> Int4,
+        first_viewed_at -> Timestamptz,
+        last_viewed_at -> Timestamptz,
+        last_viewed_revision -> Int4,
+    }
+}
+
+diesel::table! {
+    quote_revision (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        quote_id -> Uuid,
+        revision -> Int4,
+        snapshot -> Jsonb,
+        document_hash -> Text,
+        created_by -> Nullable<Text>,
+        created_at -> Timestamptz,
+        superseded_at -> Nullable<Timestamptz>,
+        pdf_document_id -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::QuoteSignerRoleEnum;
+
     quote_signature (id) {
         id -> Uuid,
         quote_id -> Uuid,
@@ -2550,6 +2714,73 @@ diesel::table! {
         user_agent -> Nullable<Text>,
         verification_token -> Nullable<Varchar>,
         verified_at -> Nullable<Timestamptz>,
+        signer_role -> QuoteSignerRoleEnum,
+        revision -> Nullable<Int4>,
+        document_hash -> Nullable<Text>,
+        consent_text -> Nullable<Text>,
+        otp_verified_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    quote_signature_certificate (quote_id) {
+        quote_id -> Uuid,
+        tenant_id -> Uuid,
+        revision -> Int4,
+        document_hash -> Text,
+        evidence_hash -> Text,
+        pdf_document_id -> Nullable<Uuid>,
+        pdf_hash -> Nullable<Text>,
+        seal_key_id -> Nullable<Text>,
+        seal_signature -> Nullable<Text>,
+        timestamp_authority -> Nullable<Text>,
+        timestamp_token -> Nullable<Text>,
+        created_at -> Timestamptz,
+        document_included -> Bool,
+    }
+}
+
+diesel::table! {
+    quote_signature_otp (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        quote_id -> Uuid,
+        email -> Text,
+        code_hash -> Text,
+        attempts -> Int4,
+        created_at -> Timestamptz,
+        expires_at -> Timestamptz,
+        verified_at -> Nullable<Timestamptz>,
+        consumed_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    quote_template (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        name -> Text,
+        description -> Nullable<Text>,
+        payload -> Jsonb,
+        expires_after_days -> Nullable<Int4>,
+        created_by -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        archived_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    quote_view (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        quote_id -> Uuid,
+        email -> Text,
+        revision -> Int4,
+        viewed_at -> Timestamptz,
+        last_seen_at -> Timestamptz,
+        ip_address -> Nullable<Text>,
+        user_agent -> Nullable<Text>,
     }
 }
 
@@ -3359,19 +3590,40 @@ diesel::joinable!(purchase_link_session -> tenant (tenant_id));
 diesel::joinable!(quote -> customer (customer_id));
 diesel::joinable!(quote -> invoice (converted_to_invoice_id));
 diesel::joinable!(quote -> plan_version (plan_version_id));
+diesel::joinable!(quote -> quote_template (template_id));
 diesel::joinable!(quote -> tenant (tenant_id));
 diesel::joinable!(quote_add_on -> add_on (add_on_id));
 diesel::joinable!(quote_add_on -> price (price_id));
 diesel::joinable!(quote_add_on -> product (product_id));
 diesel::joinable!(quote_add_on -> quote (quote_id));
 diesel::joinable!(quote_adjustment -> quote (quote_id));
+diesel::joinable!(quote_approval -> quote (quote_id));
+diesel::joinable!(quote_approval -> tenant (tenant_id));
+diesel::joinable!(quote_approval_rule -> tenant (tenant_id));
+diesel::joinable!(quote_comment -> quote (quote_id));
+diesel::joinable!(quote_comment -> tenant (tenant_id));
 diesel::joinable!(quote_component -> price (price_id));
 diesel::joinable!(quote_component -> price_component (price_component_id));
 diesel::joinable!(quote_component -> product (product_id));
 diesel::joinable!(quote_component -> quote (quote_id));
 diesel::joinable!(quote_coupon -> coupon (coupon_id));
 diesel::joinable!(quote_coupon -> quote (quote_id));
+diesel::joinable!(quote_draft -> quote (quote_id));
+diesel::joinable!(quote_draft -> tenant (tenant_id));
+diesel::joinable!(quote_evidence_event -> quote (quote_id));
+diesel::joinable!(quote_evidence_event -> tenant (tenant_id));
+diesel::joinable!(quote_recipient_engagement -> quote (quote_id));
+diesel::joinable!(quote_recipient_engagement -> tenant (tenant_id));
+diesel::joinable!(quote_revision -> quote (quote_id));
+diesel::joinable!(quote_revision -> tenant (tenant_id));
 diesel::joinable!(quote_signature -> quote (quote_id));
+diesel::joinable!(quote_signature_certificate -> quote (quote_id));
+diesel::joinable!(quote_signature_certificate -> tenant (tenant_id));
+diesel::joinable!(quote_signature_otp -> quote (quote_id));
+diesel::joinable!(quote_signature_otp -> tenant (tenant_id));
+diesel::joinable!(quote_template -> tenant (tenant_id));
+diesel::joinable!(quote_view -> quote (quote_id));
+diesel::joinable!(quote_view -> tenant (tenant_id));
 diesel::joinable!(role -> organization (organization_id));
 diesel::joinable!(sandbox_pool_tenant -> tenant (tenant_id));
 diesel::joinable!(sandbox_seed -> tenant (tenant_id));

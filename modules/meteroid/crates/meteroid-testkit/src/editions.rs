@@ -42,7 +42,7 @@ static CORE_TESTED: [FeatureGate; 6] = [
     FeatureGate::bundled(gates::USAGE_COSTS),
     FeatureGate::bundled(gates::EMAIL_CUSTOMIZATION),
     FeatureGate::bundled(gates::PORTAL_SELF_SERVICE),
-    FeatureGate::bundled(gates::QUOTE_MULTIPLE_SIGNERS),
+    FeatureGate::bundled(gates::QUOTES_FULL),
 ];
 
 struct CoreTestedGates;

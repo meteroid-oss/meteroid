@@ -7,8 +7,8 @@ use crate::l10n::{EmailL10N, email_l10n};
 use crate::template::{
     AuthenticationRequiredContent, BudgetAlertContent, ButtonTemplate, CreditNoteIssuedContent,
     CustomBodyContent, EmailColors, HeaderTemplate, InvoicePaidContent, InvoiceReadyContent,
-    PaymentFailedContent, QuoteReadyContent, StatusBadge, SummaryBoxTemplate, SummaryHero,
-    WalletNoticeContent, render_layout,
+    PaymentFailedContent, QuoteReadyContent, QuoteSignatureCodeContent, StatusBadge,
+    SummaryBoxTemplate, SummaryHero, WalletNoticeContent, render_layout,
 };
 use chrono::NaiveDate;
 use common_domain::l10n::long_date;
@@ -91,6 +91,35 @@ pub enum Body {
         quote_number: String,
         expires_at: Option<NaiveDate>,
         custom_message: Option<String>,
+        cta: Cta,
+    },
+    /// A message in a quote's discussion; the link leads to the portal or the app.
+    QuoteMessage {
+        quote_number: String,
+        customer_name: String,
+        author_name: String,
+        body: String,
+        change_request: bool,
+        cta: Cta,
+    },
+    /// The one-time code a signer enters before signing a quote.
+    QuoteSignatureCode {
+        quote_number: String,
+        code: String,
+        expires_in_minutes: u32,
+    },
+    /// Every party signed: the link leads to the signed quote in the portal.
+    QuoteAccepted {
+        quote_number: String,
+        accepted_on: NaiveDate,
+        cta: Cta,
+    },
+    /// To the quote's owner on the team: the customer accepted or declined it.
+    QuoteOutcome {
+        quote_number: String,
+        customer_name: String,
+        accepted: bool,
+        reason: Option<String>,
         cta: Cta,
     },
     CreditNoteIssued {
@@ -344,6 +373,122 @@ pub fn render(
                 cta: button(cta, l10n.view_and_sign_quote(), &color),
             };
             let subject = l10n.quote_ready_subject(&quote_number, company).to_string();
+            (
+                subject.clone(),
+                render_layout(lang, subject, None, header, footer, &l10n, content)?,
+            )
+        }
+        Body::QuoteMessage {
+            quote_number,
+            customer_name,
+            author_name,
+            body,
+            change_request,
+            cta,
+        } => {
+            let (heading, subject) = if change_request {
+                (
+                    l10n.quote_changes_requested_heading(&author_name, &quote_number),
+                    l10n.quote_changes_requested_subject(&quote_number),
+                )
+            } else {
+                (
+                    l10n.quote_message_heading(&author_name, &quote_number),
+                    l10n.quote_message_subject(&quote_number),
+                )
+            };
+            let content = QuoteReadyContent {
+                heading: heading.to_string(),
+                summary: SummaryBoxTemplate {
+                    hero: None,
+                    rows: vec![
+                        row(l10n.quote_number(), quote_number.clone()),
+                        row(l10n.quote_customer(), customer_name),
+                    ],
+                },
+                custom_message: non_blank(&Some(body)),
+                cta: button(cta, l10n.view_quote(), &color),
+            };
+            let subject = subject.to_string();
+            (
+                subject.clone(),
+                render_layout(lang, subject, None, header, footer, &l10n, content)?,
+            )
+        }
+        Body::QuoteSignatureCode {
+            quote_number,
+            code,
+            expires_in_minutes,
+        } => {
+            let content = QuoteSignatureCodeContent {
+                heading: l10n.quote_signature_code_heading().to_string(),
+                intro: l10n
+                    .quote_signature_code_intro(
+                        &quote_number,
+                        company,
+                        expires_in_minutes.to_string(),
+                    )
+                    .to_string(),
+                code,
+                ignore: l10n.quote_signature_code_ignore().to_string(),
+            };
+            let subject = l10n.quote_signature_code_subject(&quote_number).to_string();
+            (
+                subject.clone(),
+                render_layout(lang, subject, None, header, footer, &l10n, content)?,
+            )
+        }
+        Body::QuoteAccepted {
+            quote_number,
+            accepted_on,
+            cta,
+        } => {
+            let content = QuoteReadyContent {
+                heading: l10n.quote_accepted_heading().to_string(),
+                summary: SummaryBoxTemplate {
+                    hero: None,
+                    rows: vec![
+                        row(l10n.quote_number(), quote_number.clone()),
+                        row(l10n.quote_seller(), company),
+                        row(l10n.quote_accepted_on(), long_date(lang, &accepted_on)),
+                    ],
+                },
+                custom_message: None,
+                cta: button(cta, l10n.view_signed_quote(), &color),
+            };
+            let subject = l10n
+                .quote_accepted_subject(&quote_number, company)
+                .to_string();
+            (
+                subject.clone(),
+                render_layout(lang, subject, None, header, footer, &l10n, content)?,
+            )
+        }
+        Body::QuoteOutcome {
+            quote_number,
+            customer_name,
+            accepted,
+            reason,
+            cta,
+        } => {
+            let subject = if accepted {
+                l10n.quote_outcome_accepted_subject(&customer_name, &quote_number)
+            } else {
+                l10n.quote_outcome_declined_subject(&customer_name, &quote_number)
+            }
+            .to_string();
+            let content = QuoteReadyContent {
+                heading: subject.clone(),
+                summary: SummaryBoxTemplate {
+                    hero: None,
+                    rows: vec![
+                        row(l10n.quote_number(), quote_number.clone()),
+                        row(l10n.quote_customer(), customer_name),
+                    ],
+                },
+                custom_message: non_blank(&reason),
+                cta: button(cta, l10n.view_quote(), &color),
+            };
             (
                 subject.clone(),
                 render_layout(lang, subject, None, header, footer, &l10n, content)?,
@@ -784,6 +929,35 @@ mod tests {
                 },
             ),
             (
+                "quote_accepted",
+                Body::QuoteAccepted {
+                    quote_number: "Q-7".into(),
+                    accepted_on: NaiveDate::from_ymd_opt(2026, 4, 2).unwrap(),
+                    cta: Cta::new("https://portal.example/q"),
+                },
+            ),
+            (
+                "quote_outcome",
+                Body::QuoteOutcome {
+                    quote_number: "Q-7".into(),
+                    customer_name: "Globex".into(),
+                    accepted: false,
+                    reason: Some("Over budget".into()),
+                    cta: Cta::new("https://app.example/quotes/q"),
+                },
+            ),
+            (
+                "quote_message",
+                Body::QuoteMessage {
+                    quote_number: "Q-7".into(),
+                    customer_name: "Globex".into(),
+                    author_name: "Jane".into(),
+                    body: "Could the seats start at 20?".into(),
+                    change_request: true,
+                    cta: Cta::new("https://portal.example/q"),
+                },
+            ),
+            (
                 "credit_note_issued",
                 Body::CreditNoteIssued {
                     credit_note_number: "CN-3".into(),
@@ -905,7 +1079,7 @@ mod tests {
                     html.contains("meteroid-logo-small.png"),
                     "{ctx}: powered-by logo"
                 );
-                if kind != "quote_ready" {
+                if !kind.starts_with("quote_") {
                     assert!(html.contains("class=\"hero-amount\""), "{ctx}: hero");
                     assert!(html.contains("mso-hide:all"), "{ctx}: preheader");
                 }
@@ -917,6 +1091,18 @@ mod tests {
                     "invoice_ready" => (l10n.invoice_ready_heading(), Some(l10n.view_and_pay())),
                     "invoice_paid" => (l10n.invoice_paid_heading(), None),
                     "quote_ready" => (l10n.quote_ready_heading(), Some(l10n.view_and_sign_quote())),
+                    "quote_accepted" => (
+                        l10n.quote_accepted_heading(),
+                        Some(l10n.view_signed_quote()),
+                    ),
+                    "quote_outcome" => (
+                        l10n.quote_outcome_declined_subject("Globex", "Q-7"),
+                        Some(l10n.view_quote()),
+                    ),
+                    "quote_message" => (
+                        l10n.quote_changes_requested_heading("Jane", "Q-7"),
+                        Some(l10n.view_quote()),
+                    ),
                     "credit_note_issued" => (
                         l10n.credit_note_issued_heading(),
                         Some(l10n.view_credit_note()),

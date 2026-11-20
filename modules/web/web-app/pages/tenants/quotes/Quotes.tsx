@@ -5,7 +5,8 @@ import { useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { Gate } from '@/components/Gate'
-import { ListPageLayout, ListToolbarSearch, RefreshButton } from '@/components/layouts'
+import { ListPageHeader, ListToolbarSearch, RefreshButton, TableCard } from '@/components/layouts'
+import { Slot, hasSlot } from '@/edition'
 import { BaseFilter } from '@/features/TablePage'
 import { useCustomPropertyColumns } from '@/features/customproperties/useCustomPropertyColumns'
 import { FilterBar } from '@/features/filters/FilterBar'
@@ -13,7 +14,9 @@ import { useEntityFilters } from '@/features/filters/useEntityFilters'
 import { useRequestFilters } from '@/features/filters/useRequestFilters'
 import { ViewsBar } from '@/features/listviews/ViewsBar'
 import { useSavedViews } from '@/features/listviews/useSavedViews'
+import { QuoteListTabs } from '@/features/quotes/QuoteListTabs'
 import { QuotesTable } from '@/features/quotes/QuotesTable'
+import { UnsavedQuoteDrafts } from '@/features/quotes/drafts/UnsavedQuoteDrafts'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { enumSerde, useQueryState } from '@/hooks/useQueryState'
@@ -87,64 +90,78 @@ export const Quotes = () => {
   const isLoading = quotesQuery.isLoading || !queryEnabled
 
   return (
-    <ListPageLayout
-      title="Quotes"
-      count={totalCount}
-      actions={
-        <Gate perm="billing:quotes:manage">
-          <Button asChild variant="primary" size="sm" hasIcon>
-            <Link to={`${basePath}/quotes/create`}>
-              <Plus className="w-4 h-4" />
-              New Quote
-            </Link>
-          </Button>
-        </Gate>
-      }
-      footer={<ViewsBar views={savedViews} entityLabel="quotes" />}
-      toolbar={
-        <>
-          <ListToolbarSearch
-            value={search}
-            onChange={setSearch}
-            placeholder="Search quotes..."
-            className="max-w-xs"
-          />
-          <BaseFilter
-            entries={[
-              { label: 'Draft', value: 'DRAFT' },
-              { label: 'Pending', value: 'PENDING' },
-              { label: 'Accepted', value: 'ACCEPTED' },
-              { label: 'Declined', value: 'DECLINED' },
-              { label: 'Expired', value: 'EXPIRED' },
-              { label: 'Cancelled', value: 'CANCELLED' },
-            ]}
-            emptyLabel="All Statuses"
-            selected={status !== undefined ? [QuoteStatus[status]] : []}
-            onSelectionChange={(value, checked) =>
-              setStatus(checked ? QuoteStatus[value as keyof typeof QuoteStatus] : undefined)
-            }
-          />
-          <FilterBar
-            entityType={CustomPropertyEntityType.QUOTE}
-            filters={filters}
-            onChange={setFilters}
-          />
-        </>
-      }
-      toolbarTrailing={
-        <RefreshButton isLoading={isLoading} onClick={() => quotesQuery.refetch()} />
-      }
-    >
-      <QuotesTable
-        data={quotes}
-        totalCount={totalCount}
-        pagination={pagination}
-        setPagination={setPagination}
-        sorting={sorting}
-        onSortingChange={handleSortingChange}
-        isLoading={isLoading}
-        columnState={savedViews.columnState}
+    <div className="flex flex-col gap-4">
+      <ListPageHeader
+        title="Quotes"
+        count={totalCount}
+        tabs={<QuoteListTabs />}
+        actions={
+          <>
+            <Slot name="quoteList.actions" />
+            <Gate perm="billing:quotes:manage">
+              {hasSlot('quoteList.newQuote') ? (
+                <Slot name="quoteList.newQuote" />
+              ) : (
+                <Button asChild variant="primary" size="sm" hasIcon>
+                  <Link to={`${basePath}/quotes/create`}>
+                    <Plus className="w-4 h-4" />
+                    New Quote
+                  </Link>
+                </Button>
+              )}
+            </Gate>
+          </>
+        }
       />
-    </ListPageLayout>
+      <Slot name="quoteList.aside" />
+      <UnsavedQuoteDrafts />
+      <TableCard
+        footer={<ViewsBar views={savedViews} entityLabel="quotes" />}
+        toolbar={
+          <>
+            <ListToolbarSearch
+              value={search}
+              onChange={setSearch}
+              placeholder="Search quotes..."
+              className="max-w-xs"
+            />
+            <BaseFilter
+              entries={[
+                { label: 'Draft', value: 'DRAFT' },
+                { label: 'Pending', value: 'PENDING' },
+                { label: 'Accepted', value: 'ACCEPTED' },
+                { label: 'Declined', value: 'DECLINED' },
+                { label: 'Expired', value: 'EXPIRED' },
+                { label: 'Cancelled', value: 'CANCELLED' },
+              ]}
+              emptyLabel="All Statuses"
+              selected={status !== undefined ? [QuoteStatus[status]] : []}
+              onSelectionChange={(value, checked) =>
+                setStatus(checked ? QuoteStatus[value as keyof typeof QuoteStatus] : undefined)
+              }
+            />
+            <FilterBar
+              entityType={CustomPropertyEntityType.QUOTE}
+              filters={filters}
+              onChange={setFilters}
+            />
+          </>
+        }
+        toolbarTrailing={
+          <RefreshButton isLoading={isLoading} onClick={() => quotesQuery.refetch()} />
+        }
+      >
+        <QuotesTable
+          data={quotes}
+          totalCount={totalCount}
+          pagination={pagination}
+          setPagination={setPagination}
+          sorting={sorting}
+          onSortingChange={handleSortingChange}
+          isLoading={isLoading}
+          columnState={savedViews.columnState}
+        />
+      </TableCard>
+    </div>
   )
 }

@@ -18,6 +18,7 @@ enum EmailKind {
   AUTO_TOP_UP_FAILED = 9;
   BUDGET_THRESHOLD = 10;
   BUDGET_EXCEEDED = 11;
+  QUOTE_ACCEPTED = 12;
 }
 
 enum EmailAudienceMode {

@@ -2,7 +2,6 @@ import {
   Button,
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -12,14 +11,16 @@ import {
 } from '@md/ui'
 
 import { useTenant } from '@/hooks/useTenant'
-import { RecipientDetails } from '@/rpc/api/quotes/v1/models_pb'
 import { EmailDeliveryMode } from '@/rpc/api/tenants/v1/models_pb'
 
 interface SendQuoteDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   quoteNumber?: string
-  recipients?: RecipientDetails[]
+  /** Who is emailed: every recipient, or the one person a reminder is for. */
+  recipients?: { name: string; email: string }[]
+  /** The quote is already out: the email reminds of the current version. */
+  reminder?: boolean
   customMessage: string
   onCustomMessageChange: (msg: string) => void
   onConfirm: () => void
@@ -32,6 +33,7 @@ export const SendQuoteDialog = ({
   onOpenChange,
   quoteNumber,
   recipients,
+  reminder = false,
   customMessage,
   onCustomMessageChange,
   onConfirm,
@@ -43,38 +45,30 @@ export const SendQuoteDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" aria-describedby={undefined}>
         <DialogHeader>
-          <DialogTitle>Send Quote to Customer</DialogTitle>
-          <DialogDescription>
-            Publishes the quote and emails each recipient a link to view and sign it
-            {quoteNumber ? (
-              <>
-                {' '}
-                <span className="font-medium">{quoteNumber}</span>
-              </>
-            ) : null}
-            .
-          </DialogDescription>
+          <DialogTitle>
+            {reminder ? 'Send a reminder' : 'Send to customer'}
+            {quoteNumber && (
+              <span className="font-normal text-muted-foreground"> · {quoteNumber}</span>
+            )}
+          </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           {emailEnabled === false && (
             <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-              The Quote ready email is turned off in Settings › Customer emails. Turn it on to send
-              quotes, or publish the quote and share its link instead.
+              Quote emails are off (Settings › Customer emails).
             </div>
           )}
           {emailEnabled !== false && deliveryMode === EmailDeliveryMode.OFF && (
             <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-              Customer emails are off for this workspace: no email will be delivered. The quote is
-              still published and you can share its link.
+              Customer emails are off: nothing will be delivered.
             </div>
           )}
           {emailEnabled !== false && deliveryMode === EmailDeliveryMode.TEST && (
             <div className="rounded-lg border border-border bg-muted/50 p-3 text-sm">
-              Customer emails are in Test mode: only your team and the test recipients will receive
-              this email.
+              Test mode: only your team and test recipients receive it.
             </div>
           )}
           <div>
@@ -98,18 +92,17 @@ export const SendQuoteDialog = ({
                   </div>
                 ))
               ) : (
-                <div className="text-sm text-muted-foreground">No recipients configured</div>
+                <div className="text-sm text-muted-foreground">No recipients</div>
               )}
             </div>
           </div>
 
           <div>
-            <Label htmlFor="send-quote-message">Custom Message (optional)</Label>
+            <Label htmlFor="send-quote-message">Message (optional)</Label>
             <Textarea
               id="send-quote-message"
               value={customMessage}
               onChange={e => onCustomMessageChange(e.target.value)}
-              placeholder="Add a personalized message to include in the email..."
               className="mt-1"
               rows={3}
             />
@@ -121,7 +114,7 @@ export const SendQuoteDialog = ({
             Cancel
           </Button>
           <Button onClick={onConfirm} disabled={isPending || emailEnabled === false}>
-            {isPending ? 'Sending...' : 'Send Quote'}
+            {isPending ? 'Sending...' : reminder ? 'Send reminder' : 'Send Quote'}
           </Button>
         </DialogFooter>
       </DialogContent>

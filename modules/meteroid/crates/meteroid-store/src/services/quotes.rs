@@ -61,7 +61,7 @@ impl ServicesEdge {
     }
 }
 
-fn build_subscription_from_quote(
+pub(super) fn build_subscription_from_quote(
     detailed_quote: &DetailedQuote,
 ) -> StoreResult<CreateSubscriptionFromQuote> {
     let quote = &detailed_quote.quote;

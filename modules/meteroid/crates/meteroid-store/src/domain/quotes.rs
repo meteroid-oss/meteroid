@@ -2,6 +2,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
+use crate::domain::enums::{QuoteApprovalStatusEnum, QuoteSignatureLevelEnum, QuoteSignerRoleEnum};
 use crate::domain::{
     Customer, InvoicingEntity, QuoteStatusEnum, SubscriptionActivationCondition, SubscriptionFee,
     SubscriptionFeeBillingPeriod, subscriptions::PaymentMethodsConfig,
@@ -11,7 +12,7 @@ use crate::json_value_serde;
 use common_domain::ids::BaseId;
 use common_domain::ids::{
     AddOnId, CouponId, CustomerId, InvoiceId, PlanVersionId, PriceComponentId, PriceId, ProductId,
-    QuoteAddOnId, QuoteCouponId, QuoteId, QuotePriceComponentId, QuoteSignatureId,
+    QuoteAddOnId, QuoteCouponId, QuoteId, QuotePriceComponentId, QuoteSignatureId, QuoteTemplateId,
     StoredDocumentId, SubscriptionId, TenantId,
 };
 use diesel_models::quote_add_ons::{QuoteAddOnRow, QuoteAddOnRowNew};
@@ -77,6 +78,77 @@ pub struct Quote {
     pub payment_methods_config: Option<PaymentMethodsConfig>,
     /// User-defined property values, keyed by definition `key` (empty object when unset).
     pub custom_properties: serde_json::Value,
+    pub revision: i32,
+    /// SHA-256 of the canonical document the signers see (`QuoteDocument`).
+    pub document_hash: Option<String>,
+    pub published_at: Option<NaiveDateTime>,
+    pub first_viewed_at: Option<NaiveDateTime>,
+    pub owner_id: Option<uuid::Uuid>,
+    pub template_id: Option<QuoteTemplateId>,
+    pub decline_reason: Option<String>,
+    #[from(serde_json::from_value(~).map_err(|e| {
+        StoreError::SerdeError("Failed to deserialize display_options".to_string(), e)
+    })?)]
+    pub display_options: QuoteDisplayOptions,
+    #[from(serde_json::from_value(~).map_err(|e| {
+        StoreError::SerdeError("Failed to deserialize sections".to_string(), e)
+    })?)]
+    pub sections: Vec<QuoteSection>,
+    #[from(~.into())]
+    pub signature_level: QuoteSignatureLevelEnum,
+    pub consent_text: Option<String>,
+    #[from(serde_json::from_value(~).map_err(|e| {
+        StoreError::SerdeError("Failed to deserialize countersigners".to_string(), e)
+    })?)]
+    pub countersigners: Vec<QuoteCountersigner>,
+    #[from(~.into())]
+    pub approval_status: QuoteApprovalStatusEnum,
+    pub hubspot_deal_id: Option<String>,
+    pub max_discount_percent: Option<Decimal>,
+    pub changes_requested_at: Option<NaiveDateTime>,
+    pub allow_questions: bool,
+    pub allow_change_requests: bool,
+    pub allow_decline: bool,
+    pub last_sent_at: Option<NaiveDateTime>,
+}
+
+/// How the priced lines read on the document.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct QuoteDisplayOptions {
+    /// Lines whose amount is zero are left out of the document.
+    pub hide_zero_lines: bool,
+    /// Discounted lines show their list price struck through.
+    pub show_list_price: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum QuoteSectionPlacement {
+    #[default]
+    BeforePricing,
+    AfterPricing,
+}
+
+/// A free-text block of the document, in Markdown.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuoteSection {
+    pub title: String,
+    pub body: String,
+    #[serde(default)]
+    pub placement: QuoteSectionPlacement,
+}
+
+/// Someone on the seller's side who signs after the customer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuoteCountersigner {
+    pub name: String,
+    pub email: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    /// Signed on the seller's behalf as soon as the customer has signed.
+    #[serde(default)]
+    pub automatic: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,6 +209,94 @@ pub struct QuoteNew {
     /// Not persisted to `quote_rows` — inserted into the entitlements table instead.
     #[ghost]
     pub entitlements: Vec<crate::domain::entitlements::EntitlementSpec>,
+    pub owner_id: Option<uuid::Uuid>,
+    pub template_id: Option<QuoteTemplateId>,
+    #[into(serde_json::to_value(&~).map_err(|e| {
+        StoreError::SerdeError("Failed to serialize display_options".to_string(), e)
+    })?)]
+    pub display_options: QuoteDisplayOptions,
+    #[into(serde_json::to_value(&~).map_err(|e| {
+        StoreError::SerdeError("Failed to serialize sections".to_string(), e)
+    })?)]
+    pub sections: Vec<QuoteSection>,
+    #[map(~.into())]
+    pub signature_level: QuoteSignatureLevelEnum,
+    pub consent_text: Option<String>,
+    #[into(serde_json::to_value(&~).map_err(|e| {
+        StoreError::SerdeError("Failed to serialize countersigners".to_string(), e)
+    })?)]
+    pub countersigners: Vec<QuoteCountersigner>,
+    pub hubspot_deal_id: Option<String>,
+    pub max_discount_percent: Option<Decimal>,
+    pub allow_questions: bool,
+    pub allow_change_requests: bool,
+    pub allow_decline: bool,
+}
+
+impl Quote {
+    /// The quote as it would read once inserted, for computations over an editor's unsaved state.
+    pub fn unsaved(new: QuoteNew) -> Self {
+        Quote {
+            id: new.id,
+            status: new.status,
+            created_at: common_clock::now().naive_utc(),
+            updated_at: None,
+            tenant_id: new.tenant_id,
+            customer_id: new.customer_id,
+            plan_version_id: new.plan_version_id,
+            currency: new.currency,
+            quote_number: new.quote_number,
+            trial_duration_days: new.trial_duration_days,
+            billing_start_date: new.billing_start_date,
+            billing_end_date: new.billing_end_date,
+            billing_day_anchor: new.billing_day_anchor,
+            activation_condition: new.activation_condition,
+            valid_until: new.valid_until,
+            expires_at: new.expires_at,
+            accepted_at: None,
+            declined_at: None,
+            internal_notes: new.internal_notes,
+            cover_image: new.cover_image,
+            overview: new.overview,
+            terms_and_services: new.terms_and_services,
+            net_terms: new.net_terms,
+            attachments: new.attachments,
+            pdf_document_id: new.pdf_document_id,
+            sharing_key: new.sharing_key,
+            converted_to_invoice_id: None,
+            converted_to_subscription_id: None,
+            converted_at: None,
+            recipients: new.recipients,
+            purchase_order: None,
+            auto_advance_invoices: new.auto_advance_invoices,
+            charge_automatically: new.charge_automatically,
+            invoice_memo: new.invoice_memo,
+            invoice_threshold: new.invoice_threshold,
+            create_subscription_on_acceptance: new.create_subscription_on_acceptance,
+            payment_methods_config: new.payment_methods_config,
+            custom_properties: new.custom_properties,
+            revision: 1,
+            document_hash: None,
+            published_at: None,
+            first_viewed_at: None,
+            owner_id: new.owner_id,
+            template_id: new.template_id,
+            decline_reason: None,
+            display_options: new.display_options,
+            sections: new.sections,
+            signature_level: new.signature_level,
+            consent_text: new.consent_text,
+            countersigners: new.countersigners,
+            approval_status: QuoteApprovalStatusEnum::NotRequired,
+            hubspot_deal_id: new.hubspot_deal_id,
+            max_discount_percent: new.max_discount_percent,
+            changes_requested_at: None,
+            allow_questions: new.allow_questions,
+            allow_change_requests: new.allow_change_requests,
+            allow_decline: new.allow_decline,
+            last_sent_at: None,
+        }
+    }
 }
 
 #[derive(o2o, Debug, Clone)]
@@ -148,6 +308,34 @@ pub struct QuoteWithCustomer {
     pub customer: Customer,
 }
 
+/// What a quote adds up to, for display: amounts in the quote currency's major units.
+#[derive(Debug, Clone, PartialEq)]
+pub struct QuoteTotals {
+    pub currency: String,
+    /// By cadence, shortest first; one-time charges last.
+    pub recurring: Vec<QuoteRecurringTotal>,
+    /// Some line bills consumption, which `recurring` leaves out.
+    pub has_usage: bool,
+    pub first_invoice_subtotal: Option<Decimal>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct QuoteRecurringTotal {
+    pub period: SubscriptionFeeBillingPeriod,
+    pub amount: Decimal,
+    pub list_amount: Decimal,
+}
+
+/// An editor's quote, prepared like a create but not stored.
+#[derive(Debug, Clone)]
+pub struct UnsavedQuote {
+    pub quote: QuoteNew,
+    pub components: Vec<QuotePriceComponentNew>,
+    pub add_ons: Vec<QuoteAddOnNew>,
+    pub coupons: Vec<QuoteCouponNew>,
+    pub minimum: Option<(i64, crate::domain::plan_minimums::CreateMinimumScope)>,
+}
+
 #[derive(Debug, Clone)]
 pub struct DetailedQuote {
     pub quote: Quote,
@@ -156,9 +344,22 @@ pub struct DetailedQuote {
     pub components: Vec<QuotePriceComponent>,
     pub add_ons: Vec<QuoteAddOn>,
     pub coupons: Vec<QuoteCoupon>,
+    /// The coupons `coupons` refers to, as currently defined.
+    pub coupon_details: Vec<crate::domain::coupons::Coupon>,
     pub signatures: Vec<QuoteSignature>,
     pub entitlements: Vec<crate::domain::entitlements::Entitlement>,
     pub minimum: Option<crate::domain::QuoteMinimum>,
+}
+
+impl DetailedQuote {
+    /// The terms of the quote's coupons, in the order they were added.
+    pub fn coupon_terms(&self) -> Vec<crate::domain::quote_document::QuoteDocumentCoupon> {
+        self.coupons
+            .iter()
+            .filter_map(|c| self.coupon_details.iter().find(|d| d.id == c.coupon_id))
+            .map(Into::into)
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -173,6 +374,11 @@ pub struct QuotePriceComponent {
     pub is_override: bool,
     pub price_id: Option<PriceId>,
     pub example_usage_quantity: Option<Decimal>,
+    pub description: Option<String>,
+    pub sort_order: i32,
+    pub discount_percent: Option<Decimal>,
+    /// The fee before `discount_percent`, when discounted.
+    pub list_fee: Option<SubscriptionFee>,
 }
 
 impl TryFrom<QuoteComponentRow> for QuotePriceComponent {
@@ -197,7 +403,32 @@ impl TryFrom<QuoteComponentRow> for QuotePriceComponent {
             is_override: row.is_override,
             price_id: row.price_id,
             example_usage_quantity: row.example_usage_quantity,
+            description: row.description,
+            sort_order: row.sort_order,
+            discount_percent: row.discount_percent,
+            list_fee: row.list_fee.map(TryInto::try_into).transpose()?,
         })
+    }
+}
+
+impl QuotePriceComponent {
+    pub fn unsaved(new: QuotePriceComponentNew) -> Self {
+        QuotePriceComponent {
+            id: QuotePriceComponentId::new(),
+            name: new.name,
+            quote_id: new.quote_id,
+            price_component_id: new.price_component_id,
+            product_id: new.product_id,
+            period: new.period,
+            fee: new.fee,
+            is_override: new.is_override,
+            price_id: new.price_id,
+            example_usage_quantity: new.example_usage_quantity,
+            description: new.description,
+            sort_order: new.sort_order,
+            discount_percent: new.discount_percent,
+            list_fee: new.list_fee,
+        }
     }
 }
 
@@ -212,6 +443,11 @@ pub struct QuotePriceComponentNew {
     pub is_override: bool,
     pub price_id: Option<PriceId>,
     pub example_usage_quantity: Option<Decimal>,
+    pub description: Option<String>,
+    pub sort_order: i32,
+    pub discount_percent: Option<Decimal>,
+    /// The fee before `discount_percent`, when discounted.
+    pub list_fee: Option<SubscriptionFee>,
 }
 
 impl TryInto<QuoteComponentRowNew> for QuotePriceComponentNew {
@@ -219,6 +455,7 @@ impl TryInto<QuoteComponentRowNew> for QuotePriceComponentNew {
 
     fn try_into(self) -> Result<QuoteComponentRowNew, Self::Error> {
         let legacy_fee = Some(self.fee.try_into()?);
+        let list_fee = self.list_fee.map(TryInto::try_into).transpose()?;
 
         Ok(QuoteComponentRowNew {
             id: QuotePriceComponentId::new(),
@@ -231,6 +468,10 @@ impl TryInto<QuoteComponentRowNew> for QuotePriceComponentNew {
             is_override: self.is_override,
             price_id: self.price_id,
             example_usage_quantity: self.example_usage_quantity,
+            description: self.description,
+            sort_order: self.sort_order,
+            discount_percent: self.discount_percent,
+            list_fee,
         })
     }
 }
@@ -250,6 +491,12 @@ pub struct QuoteSignature {
     pub user_agent: Option<String>,
     pub verification_token: Option<String>,
     pub verified_at: Option<NaiveDateTime>,
+    #[from(~.into())]
+    pub signer_role: QuoteSignerRoleEnum,
+    pub revision: Option<i32>,
+    pub document_hash: Option<String>,
+    pub consent_text: Option<String>,
+    pub otp_verified_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Clone, o2o)]
@@ -265,6 +512,12 @@ pub struct QuoteSignatureNew {
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
     pub verification_token: Option<String>,
+    #[into(~.into())]
+    pub signer_role: QuoteSignerRoleEnum,
+    pub revision: Option<i32>,
+    pub document_hash: Option<String>,
+    pub consent_text: Option<String>,
+    pub otp_verified_at: Option<NaiveDateTime>,
 }
 
 // Quote Add-On structs
@@ -279,6 +532,10 @@ pub struct QuoteAddOn {
     pub product_id: Option<ProductId>,
     pub price_id: Option<PriceId>,
     pub quantity: i32,
+    pub description: Option<String>,
+    pub sort_order: i32,
+    pub discount_percent: Option<Decimal>,
+    pub list_fee: Option<SubscriptionFee>,
 }
 
 impl TryFrom<QuoteAddOnRow> for QuoteAddOn {
@@ -302,7 +559,31 @@ impl TryFrom<QuoteAddOnRow> for QuoteAddOn {
             product_id: row.product_id,
             price_id: row.price_id,
             quantity: row.quantity,
+            description: row.description,
+            sort_order: row.sort_order,
+            discount_percent: row.discount_percent,
+            list_fee: row.list_fee.map(TryInto::try_into).transpose()?,
         })
+    }
+}
+
+impl QuoteAddOn {
+    pub fn unsaved(new: QuoteAddOnNew) -> Self {
+        QuoteAddOn {
+            id: QuoteAddOnId::new(),
+            name: new.name,
+            quote_id: new.quote_id,
+            add_on_id: new.add_on_id,
+            period: new.period,
+            fee: new.fee,
+            product_id: new.product_id,
+            price_id: new.price_id,
+            quantity: new.quantity,
+            description: new.description,
+            sort_order: new.sort_order,
+            discount_percent: new.discount_percent,
+            list_fee: new.list_fee,
+        }
     }
 }
 
@@ -316,6 +597,10 @@ pub struct QuoteAddOnNew {
     pub product_id: Option<ProductId>,
     pub price_id: Option<PriceId>,
     pub quantity: i32,
+    pub description: Option<String>,
+    pub sort_order: i32,
+    pub discount_percent: Option<Decimal>,
+    pub list_fee: Option<SubscriptionFee>,
 }
 
 impl TryInto<QuoteAddOnRowNew> for QuoteAddOnNew {
@@ -327,6 +612,7 @@ impl TryInto<QuoteAddOnRowNew> for QuoteAddOnNew {
         } else {
             Some(self.fee.try_into()?)
         };
+        let list_fee = self.list_fee.map(TryInto::try_into).transpose()?;
 
         Ok(QuoteAddOnRowNew {
             id: QuoteAddOnId::new(),
@@ -338,6 +624,10 @@ impl TryInto<QuoteAddOnRowNew> for QuoteAddOnNew {
             product_id: self.product_id,
             price_id: self.price_id,
             quantity: self.quantity,
+            description: self.description,
+            sort_order: self.sort_order,
+            discount_percent: self.discount_percent,
+            list_fee,
         })
     }
 }
@@ -349,6 +639,16 @@ pub struct QuoteCoupon {
     pub id: QuoteCouponId,
     pub quote_id: QuoteId,
     pub coupon_id: CouponId,
+}
+
+impl QuoteCoupon {
+    pub fn unsaved(new: QuoteCouponNew) -> Self {
+        QuoteCoupon {
+            id: QuoteCouponId::new(),
+            quote_id: new.quote_id,
+            coupon_id: new.coupon_id,
+        }
+    }
 }
 
 #[derive(Debug, Clone, o2o)]

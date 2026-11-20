@@ -30,6 +30,7 @@ pub enum SentEmailAttachmentKind {
     InvoicePdf,
     ReceiptPdf,
     CreditNotePdf,
+    QuotePdf,
 }
 
 /// One stored attachment recorded against a sent email: enough to fetch the

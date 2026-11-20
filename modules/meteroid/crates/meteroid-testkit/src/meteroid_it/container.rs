@@ -374,6 +374,8 @@ pub struct MeteroidSetup {
     pub store: meteroid_store::Store,
     pub services: Services,
     pub object_store: Arc<dyn ObjectStoreService>,
+    /// The edition's quote documents, as the workers build them.
+    pub quote_documents: Arc<dyn meteroid_store::hooks::QuoteDocuments>,
     _database: TestDatabase,
 }
 
@@ -514,12 +516,21 @@ async fn start_meteroid_from_config(
 
     setup_eventbus_handlers(store.clone(), config.clone(), &modules).await;
 
+    // One object store for both servers: a file the gRPC API stores is served over REST.
+    let object_store = in_memory_object_store();
+    let quote_documents = modules.quote_documents(&meteroid::module::QuoteDocumentsDeps {
+        config: config.clone(),
+        store: store.clone(),
+        object_store: object_store.clone(),
+        feature_resolver: modules.entitlements(&store),
+    });
+
     log::info!("Starting gRPC server {}", config.api.grpc_listen_addr);
     let private_server = meteroid::api::server::start_api_server_with_incoming(
         config.clone(),
         store.clone(),
         services.clone(),
-        in_memory_object_store(),
+        object_store.clone(),
         rate_limiter.clone(),
         None,
         grpc_incoming,
@@ -528,7 +539,6 @@ async fn start_meteroid_from_config(
         std::sync::Arc::new(meteroid::api_rest::webhook_catalog::RestWebhookCatalog),
     );
 
-    let object_store = in_memory_object_store();
     let ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
     // Built on the first connection: most tests never call the REST API, and building it (the
     // OpenAPI documents above all) is most of a server start.
@@ -586,6 +596,7 @@ async fn start_meteroid_from_config(
         store,
         services,
         object_store,
+        quote_documents,
         _database: database,
     }
 }

@@ -107,6 +107,15 @@ fn test_quote_payload(
         coupons: None,
         payment_methods_config: None,
         entitlements: vec![],
+        template_id: None,
+        line_details: vec![],
+        display_options: None,
+        sections: vec![],
+        signature_level: 0,
+        consent_text: None,
+        countersigners: vec![],
+        hubspot_deal_id: None,
+        customer_actions: None,
     }
 }
 
@@ -177,6 +186,7 @@ async fn test_quote_update() {
         .update_quote(tonic::Request::new(api::quotes::v1::UpdateQuoteRequest {
             id: created_quote.id.clone(),
             quote: Some(payload),
+            expected_updated_at: None,
         }))
         .await
         .expect("Failed to update quote")
@@ -217,6 +227,7 @@ async fn test_quote_update() {
                 .update_quote(tonic::Request::new(api::quotes::v1::UpdateQuoteRequest {
                     id,
                     quote: Some(test_quote_payload(slots, None)),
+                    expected_updated_at: None,
                 }))
                 .await
         }
@@ -249,6 +260,11 @@ async fn test_quote_update() {
                 ip_address: None,
                 user_agent: None,
                 verification_token: None,
+                signer_role: meteroid_store::domain::enums::QuoteSignerRoleEnum::Customer,
+                revision: None,
+                document_hash: None,
+                consent_text: None,
+                otp_verified_at: None,
             },
             ids::TENANT_ID,
         )
@@ -787,6 +803,15 @@ async fn test_quote_with_inline_entitlements() {
                         )),
                     }),
                 }],
+                template_id: None,
+                line_details: vec![],
+                display_options: None,
+                sections: vec![],
+                signature_level: 0,
+                consent_text: None,
+                countersigners: vec![],
+                hubspot_deal_id: None,
+                customer_actions: None,
             }),
         }))
         .await
@@ -924,6 +949,15 @@ async fn test_quote_conversion_carries_entitlements() {
                         )),
                     }),
                 }],
+                template_id: None,
+                line_details: vec![],
+                display_options: None,
+                sections: vec![],
+                signature_level: 0,
+                consent_text: None,
+                countersigners: vec![],
+                hubspot_deal_id: None,
+                customer_actions: None,
             }),
         }))
         .await
@@ -1257,6 +1291,15 @@ pub(crate) fn quote_granting(feature_id: &str) -> api::quotes::v1::CreateQuoteRe
                     )),
                 }),
             }],
+            template_id: None,
+            line_details: vec![],
+            display_options: None,
+            sections: vec![],
+            signature_level: 0,
+            consent_text: None,
+            countersigners: vec![],
+            hubspot_deal_id: None,
+            customer_actions: None,
         }),
     }
 }

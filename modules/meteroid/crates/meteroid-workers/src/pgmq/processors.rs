@@ -19,6 +19,7 @@ use meteroid_app::services::invoice_rendering::PdfRenderingService;
 use meteroid_app::services::storage::ObjectStoreService;
 use meteroid_mailer::service::MailerService;
 use meteroid_store::domain::pgmq::PgmqQueue;
+use meteroid_store::hooks::{QuoteDocuments, no_quote_documents};
 use meteroid_store::{Services, Store};
 use pennylane_client::client::PennylaneClient;
 use std::sync::Arc;
@@ -218,6 +219,7 @@ pub async fn run_once_send_email(
     object_store: Arc<dyn ObjectStoreService>,
     public_url: String,
     rest_api_url: String,
+    quote_documents: Arc<dyn QuoteDocuments>,
 ) -> PgmqResult<usize> {
     let queue = PgmqQueue::SendEmailRequest;
     let processor = Arc::new(EmailSender::new(
@@ -228,6 +230,7 @@ pub async fn run_once_send_email(
         store.clone(),
         services,
         Arc::new(NoWhitelabel),
+        quote_documents,
     ));
     crate::pgmq::processor::run_once(
         queue,
@@ -262,6 +265,7 @@ pub async fn handle_send_email_messages(
         store,
         services,
         Arc::new(NoWhitelabel),
+        no_quote_documents(),
     );
     sender.handle(msgs).await.map(|r| r.succeeded.len())
 }
@@ -275,6 +279,7 @@ pub async fn run_email_sender(
     public_url: String,
     rest_api_url: String,
     whitelabel: Arc<dyn WhitelabelResolver>,
+    quote_documents: Arc<dyn QuoteDocuments>,
 ) {
     let queue = PgmqQueue::SendEmailRequest;
     let processor = Arc::new(EmailSender::new(
@@ -285,6 +290,7 @@ pub async fn run_email_sender(
         store.clone(),
         services,
         whitelabel,
+        quote_documents,
     ));
 
     run(ProcessorConfig {

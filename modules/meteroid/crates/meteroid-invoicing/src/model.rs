@@ -169,7 +169,7 @@ pub struct TaxBreakdownItem {
     pub prepaid_credit: bool,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct Address {
     pub line1: Option<String>,
     pub line2: Option<String>,

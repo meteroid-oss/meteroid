@@ -13,6 +13,29 @@ invoice-paid-heading = ¡Gracias por su pago!
 quote-ready-subject = Presupuesto { $number } de { $company }
 quote-ready-heading = Ha recibido un presupuesto
 
+## Quote signature code (one-time code before signing)
+quote-signature-code-subject = Su código para firmar el presupuesto { $number }
+quote-signature-code-heading = Su código de firma
+quote-signature-code-intro = Introduzca este código para firmar el presupuesto { $number } de { $company }. Caduca en { $minutes } minutos.
+quote-signature-code-ignore = Si no ha intentado firmar este presupuesto, ignore este correo.
+
+## Quote discussion (a message or a change request)
+quote-message-subject = Nuevo mensaje sobre el presupuesto { $number }
+quote-changes-requested-subject = Cambios solicitados en el presupuesto { $number }
+quote-message-heading = { $author } ha enviado un mensaje sobre el presupuesto { $number }
+quote-changes-requested-heading = { $author } solicita cambios en el presupuesto { $number }
+view-quote = Ver presupuesto
+quote-customer = Cliente
+
+## Quote accepted (kind quote_accepted), and its outcome to the team
+quote-accepted-subject = El presupuesto { $number } de { $company } está aceptado
+quote-accepted-heading = Su presupuesto está aceptado
+quote-seller = De
+quote-accepted-on = Aceptado el
+view-signed-quote = Ver presupuesto firmado
+quote-outcome-accepted-subject = { $customer } aceptó el presupuesto { $number }
+quote-outcome-declined-subject = { $customer } rechazó el presupuesto { $number }
+
 ## Credit note (kind credit_note_issued)
 credit-note-issued-subject = Su factura rectificativa { $number } de { $company }
 credit-note-issued-heading = Se ha emitido una factura rectificativa

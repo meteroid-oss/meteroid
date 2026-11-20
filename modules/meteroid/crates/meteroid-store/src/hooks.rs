@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use common_domain::ids::{
-    BudgetId, CreditGrantId, CreditUnitId, CustomerId, OrganizationId, ProductId, SubscriptionId,
-    TenantId, UserId, WalletId,
+    BudgetId, CreditGrantId, CreditUnitId, CustomerId, OrganizationId, ProductId, QuoteId,
+    StoredDocumentId, SubscriptionId, TenantId, UserId, WalletId,
 };
 use diesel_models::PgConn;
 use diesel_models::customer_credit::{CustomerCreditAccountRow, CustomerCreditOperationRow};
@@ -25,6 +25,7 @@ use crate::domain::customer_signals::OpenSignals;
 use crate::domain::enums::DeclineKind;
 use crate::domain::fx::FxTable;
 use crate::domain::payment_transactions::PaymentTransaction;
+use crate::domain::quotes::Quote;
 use crate::domain::{BillableMetric, FullPlan, Organization};
 use crate::errors::StoreError;
 use crate::services::credit::forecast::ForecastDocument;
@@ -139,6 +140,51 @@ impl AnalyticsHook for NoAnalyticsHook {
 
 pub fn no_analytics_hook() -> Arc<dyn AnalyticsHook> {
     Arc::new(NoAnalyticsHook)
+}
+
+/// A quote's PDF, the one email attachments and downloads carry.
+#[derive(Debug, Clone)]
+pub struct QuotePdfFile {
+    pub filename: String,
+    pub content: Vec<u8>,
+    /// `None` when rendered without being kept.
+    pub document_id: Option<StoredDocumentId>,
+}
+
+/// Quote PDFs and their signature pages, from the edition's `quote-documents` module; core has
+/// none, so its quotes carry no PDF link and its acceptance emails no attachment.
+#[async_trait::async_trait]
+pub trait QuoteDocuments: Send + Sync {
+    /// A link to the quote's PDF, signed once accepted. Never renders: the download does.
+    async fn pdf_url(&self, tenant_id: TenantId, quote: &Quote) -> StoreResult<Option<String>>;
+
+    /// The accepted quote's signed PDF, issued with its signature pages when not yet.
+    async fn signed_pdf(
+        &self,
+        tenant_id: TenantId,
+        quote_id: QuoteId,
+    ) -> StoreResult<Option<QuotePdfFile>>;
+}
+
+struct NoQuoteDocuments;
+
+#[async_trait::async_trait]
+impl QuoteDocuments for NoQuoteDocuments {
+    async fn pdf_url(&self, _tenant_id: TenantId, _quote: &Quote) -> StoreResult<Option<String>> {
+        Ok(None)
+    }
+
+    async fn signed_pdf(
+        &self,
+        _tenant_id: TenantId,
+        _quote_id: QuoteId,
+    ) -> StoreResult<Option<QuotePdfFile>> {
+        Ok(None)
+    }
+}
+
+pub fn no_quote_documents() -> Arc<dyn QuoteDocuments> {
+    Arc::new(NoQuoteDocuments)
 }
 
 /// Signals core screens and billing take part in, kept by the edition's alerting. Core's own

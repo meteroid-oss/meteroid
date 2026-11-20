@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package meteroid.api.quoteapprovals.v1;
+
+import "api/quotes/v1/models.proto";
+
+// Approval rules and decisions on quotes (Enterprise, cpq module). Publishing checks them in core.
+
+message ListQuoteApprovalRulesRequest {}
+
+message ListQuoteApprovalRulesResponse {
+  repeated meteroid.api.quotes.v1.QuoteApprovalRule rules = 1;
+}
+
+message QuoteApprovalRuleInput {
+  string name = 1;
+  optional string min_discount_percent = 2;
+  optional int32 max_net_terms_days = 3;
+  optional int32 max_trial_days = 4;
+  bool always = 5;
+  repeated string approver_user_ids = 6;
+}
+
+message CreateQuoteApprovalRuleRequest {
+  QuoteApprovalRuleInput rule = 1;
+}
+
+message CreateQuoteApprovalRuleResponse {
+  meteroid.api.quotes.v1.QuoteApprovalRule rule = 1;
+}
+
+message UpdateQuoteApprovalRuleRequest {
+  string id = 1;
+  QuoteApprovalRuleInput rule = 2;
+}
+
+message UpdateQuoteApprovalRuleResponse {
+  meteroid.api.quotes.v1.QuoteApprovalRule rule = 1;
+}
+
+message ArchiveQuoteApprovalRuleRequest {
+  string id = 1;
+}
+
+message ArchiveQuoteApprovalRuleResponse {}
+
+message RequestQuoteApprovalRequest {
+  string quote_id = 1;
+  optional string note = 2;
+}
+
+message RequestQuoteApprovalResponse {
+  meteroid.api.quotes.v1.QuoteApproval approval = 1;
+}
+
+message DecideQuoteApprovalRequest {
+  string approval_id = 1;
+  bool approve = 2;
+  optional string note = 3;
+}
+
+message DecideQuoteApprovalResponse {
+  meteroid.api.quotes.v1.QuoteApproval approval = 1;
+}
+
+message PendingQuoteApproval {
+  meteroid.api.quotes.v1.QuoteApproval approval = 1;
+  string quote_number = 2;
+  string customer_name = 3;
+  // Whether the caller may decide it.
+  bool can_decide = 4;
+}
+
+message ListPendingQuoteApprovalsRequest {}
+
+message ListPendingQuoteApprovalsResponse {
+  repeated PendingQuoteApproval approvals = 1;
+}
+
+service QuoteApprovalsService {
+  rpc ListQuoteApprovalRules(ListQuoteApprovalRulesRequest) returns (ListQuoteApprovalRulesResponse) {}
+  rpc CreateQuoteApprovalRule(CreateQuoteApprovalRuleRequest) returns (CreateQuoteApprovalRuleResponse) {}
+  rpc UpdateQuoteApprovalRule(UpdateQuoteApprovalRuleRequest) returns (UpdateQuoteApprovalRuleResponse) {}
+  rpc ArchiveQuoteApprovalRule(ArchiveQuoteApprovalRuleRequest) returns (ArchiveQuoteApprovalRuleResponse) {}
+  rpc RequestQuoteApproval(RequestQuoteApprovalRequest) returns (RequestQuoteApprovalResponse) {}
+  rpc DecideQuoteApproval(DecideQuoteApprovalRequest) returns (DecideQuoteApprovalResponse) {}
+  rpc ListPendingQuoteApprovals(ListPendingQuoteApprovalsRequest) returns (ListPendingQuoteApprovalsResponse) {}
+}

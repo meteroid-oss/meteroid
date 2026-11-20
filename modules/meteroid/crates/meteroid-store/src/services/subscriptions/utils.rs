@@ -1023,10 +1023,20 @@ pub fn extract_billing_period(
     components: &[SubscriptionComponentNewInternal],
     add_ons: &[SubscriptionAddOnNewInternal],
 ) -> BillingPeriodEnum {
-    components
-        .iter()
-        .map(|x| &x.period)
-        .chain(add_ons.iter().map(|x| &x.period))
+    billing_period_of(
+        components
+            .iter()
+            .map(|x| &x.period)
+            .chain(add_ons.iter().map(|x| &x.period)),
+    )
+}
+
+/// A subscription bills on the shortest cadence of its fees; monthly when all are one-time.
+pub(crate) fn billing_period_of<'a>(
+    periods: impl IntoIterator<Item = &'a SubscriptionFeeBillingPeriod>,
+) -> BillingPeriodEnum {
+    periods
+        .into_iter()
         .filter_map(SubscriptionFeeBillingPeriod::as_billing_period_opt)
         .min()
         .unwrap_or(BillingPeriodEnum::Monthly)

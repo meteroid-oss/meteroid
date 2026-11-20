@@ -261,6 +261,46 @@ fn deal_properties() -> Vec<NewProperty> {
             has_unique_value: false,
             hidden: false,
         },
+        NewProperty {
+            name: DealProperty::MeteroidQuoteId.to_string(),
+            description: Some("Quote ID in Meteroid".to_string()),
+            label: "Meteroid quote ID".to_string(),
+            type_: PropertyType::String,
+            field_type: PropertyFieldType::Text,
+            group_name: PropertyGroup::MeteroidInfo.to_string(),
+            has_unique_value: false,
+            hidden: false,
+        },
+        NewProperty {
+            name: DealProperty::MeteroidQuoteNumber.to_string(),
+            description: Some("Quote number in Meteroid".to_string()),
+            label: "Meteroid quote number".to_string(),
+            type_: PropertyType::String,
+            field_type: PropertyFieldType::Text,
+            group_name: PropertyGroup::MeteroidInfo.to_string(),
+            has_unique_value: false,
+            hidden: false,
+        },
+        NewProperty {
+            name: DealProperty::MeteroidQuoteStatus.to_string(),
+            description: Some("Quote status in Meteroid".to_string()),
+            label: "Meteroid quote status".to_string(),
+            type_: PropertyType::String,
+            field_type: PropertyFieldType::Text,
+            group_name: PropertyGroup::MeteroidInfo.to_string(),
+            has_unique_value: false,
+            hidden: false,
+        },
+        NewProperty {
+            name: DealProperty::MeteroidQuoteRevision.to_string(),
+            description: Some("Quote revision in Meteroid".to_string()),
+            label: "Meteroid quote revision".to_string(),
+            type_: PropertyType::Number,
+            field_type: PropertyFieldType::Number,
+            group_name: PropertyGroup::MeteroidInfo.to_string(),
+            has_unique_value: false,
+            hidden: false,
+        },
     ]
 }
 
@@ -391,4 +431,12 @@ enum DealProperty {
     MeteroidSubscriptionStatus,
     #[strum(to_string = "meteroid_subscription_mrr_cents")]
     MeteroidSubscriptionMrrCents,
+    #[strum(to_string = "meteroid_quote_id")]
+    MeteroidQuoteId,
+    #[strum(to_string = "meteroid_quote_number")]
+    MeteroidQuoteNumber,
+    #[strum(to_string = "meteroid_quote_status")]
+    MeteroidQuoteStatus,
+    #[strum(to_string = "meteroid_quote_revision")]
+    MeteroidQuoteRevision,
 }

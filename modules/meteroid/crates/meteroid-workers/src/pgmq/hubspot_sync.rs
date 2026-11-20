@@ -18,12 +18,16 @@ use meteroid_oauth::model::{OAuthTokens, OauthProvider};
 use meteroid_store::Store;
 use meteroid_store::domain::ConnectorProviderEnum;
 use meteroid_store::domain::connectors::{Connector, ConnectorConfig, HubspotPublicData};
+use meteroid_store::domain::enums::QuoteStatusEnum;
 use meteroid_store::domain::outbox_event::{CustomerEvent, SubscriptionEvent};
 use meteroid_store::domain::pgmq::{
-    HubspotSyncCustomerDomain, HubspotSyncRequestEvent, HubspotSyncSubscription, PgmqMessage,
+    HubspotSyncCustomerDomain, HubspotSyncQuote, HubspotSyncRequestEvent, HubspotSyncSubscription,
+    PgmqMessage,
 };
+use meteroid_store::repositories::QuotesInterface;
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::oauth::OauthInterface;
+use meteroid_store::repositories::quote_signing::QuoteSigningInterface;
 use meteroid_store::repositories::{CustomersInterface, SubscriptionInterface};
 use moka::Expiry;
 use moka::future::Cache;
@@ -113,6 +117,7 @@ impl HubspotSync {
         let mut subscriptions_to_sync = vec![];
         let mut customer_outbox_to_sync = vec![];
         let mut subscription_outbox_to_sync = vec![];
+        let mut quotes_to_sync = vec![];
         let mut ignored_messages = vec![];
 
         for (evt, msg) in conn.events {
@@ -140,6 +145,8 @@ impl HubspotSync {
                         ignored_messages.push(msg);
                     }
                 }
+                // A quote is linked to a deal on purpose: it syncs whatever `auto_sync` says.
+                HubspotSyncRequestEvent::Quote(data) => quotes_to_sync.push((data, msg)),
             }
         }
 
@@ -168,8 +175,14 @@ impl HubspotSync {
                 format!("Failed to sync subscription outbox events: {e:?}")
             });
 
+        let succeeded_quotes = self
+            .sync_quotes(&conn, quotes_to_sync)
+            .await
+            .unwrap_to_default_warn(|e| format!("Failed to sync quotes: {e:?}"));
+
         Ok(succeeded_props
             .into_iter()
+            .chain(succeeded_quotes)
             .chain(succeeded_domains)
             .chain(succeeded_subscriptions)
             .chain(succeeded_cus_outbox)
@@ -397,6 +410,28 @@ impl HubspotSync {
                 })
         };
 
+        // The deal a quote was linked to becomes the subscription's, instead of a second deal.
+        let linked = self
+            .store
+            .list_quote_deal_links(outboxes.iter().map(|(e, _)| e.subscription_id).collect())
+            .await
+            .change_context(PgmqError::HandleMessages)?;
+        for (subscription_id, deal_id) in linked {
+            if let Err(e) = self
+                .client
+                .update_deal(
+                    &deal_id,
+                    serde_json::json!({ "meteroid_subscription_id": subscription_id.to_string() }),
+                    &conn.access_token,
+                )
+                .await
+            {
+                log::warn!(
+                    "Failed to link deal {deal_id} to subscription {subscription_id}: {e:?}"
+                );
+            }
+        }
+
         let new_deals = outboxes
             .iter()
             .filter_map(|(event, msg_id)| {
@@ -599,6 +634,76 @@ pub(crate) async fn get_connector_cached(
         .get_hubspot_connector(tenant_id)
         .await
         .change_context(PgmqError::HandleMessages)
+}
+
+impl HubspotSync {
+    async fn sync_quotes(
+        &self,
+        conn: &HubspotConnector,
+        quotes: Vec<(Box<HubspotSyncQuote>, MessageId)>,
+    ) -> PgmqResult<Vec<MessageId>> {
+        let mut succeeded = vec![];
+        for (event, msg_id) in quotes {
+            let quote = self
+                .store
+                .get_quote_by_id(event.tenant_id, event.id)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+            let Some(deal_id) = quote.hubspot_deal_id.clone() else {
+                succeeded.push(msg_id);
+                continue;
+            };
+
+            let mut properties = serde_json::json!({
+                "meteroid_quote_id": quote.id.to_string(),
+                "meteroid_quote_number": quote.quote_number,
+                "meteroid_quote_status": format!("{:?}", quote.status).to_uppercase(),
+                "meteroid_quote_revision": quote.revision,
+                "meteroid_customer_id": quote.customer_id.to_string(),
+            });
+            // Stage ids are per pipeline: only the default pipeline's are known.
+            let stage = match quote.status {
+                QuoteStatusEnum::Accepted => Some("closedwon"),
+                QuoteStatusEnum::Declined => Some("closedlost"),
+                _ => None,
+            };
+            if let Some(stage) = stage
+                && self
+                    .client
+                    .get_deal_pipeline(&deal_id, &conn.access_token)
+                    .await
+                    .ok()
+                    .flatten()
+                    .as_deref()
+                    == Some("default")
+            {
+                properties["dealstage"] = stage.into();
+            }
+
+            let mut result = self
+                .client
+                .update_deal(&deal_id, properties.clone(), &conn.access_token)
+                .await;
+            if let Err(hubspot_client::error::HubspotError::ClientError { error, .. }) = &result
+                && error.contains("PROPERTY_DOESNT_EXIST")
+            {
+                // Connected before the quote properties existed.
+                let _ = self
+                    .client
+                    .create_meteroid_properties(&conn.access_token)
+                    .await;
+                result = self
+                    .client
+                    .update_deal(&deal_id, properties, &conn.access_token)
+                    .await;
+            }
+            match result {
+                Ok(()) => succeeded.push(msg_id),
+                Err(e) => log::warn!("Failed to sync quote {} to deal {deal_id}: {e:?}", quote.id),
+            }
+        }
+        Ok(succeeded)
+    }
 }
 
 #[derive(Clone)]

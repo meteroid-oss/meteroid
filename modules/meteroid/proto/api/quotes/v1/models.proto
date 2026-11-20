@@ -2,11 +2,71 @@ syntax = "proto3";
 
 package meteroid.api.quotes.v1;
 
+import "api/coupons/v1/models.proto";
 import "api/customers/v1/models.proto";
 import "api/entitlements/v1/models.proto";
 import "api/invoicingentities/v1/models.proto";
 import "api/subscriptions/v1/models.proto";
 import "api/plans/v1/models.proto";
+
+enum QuoteSignatureLevel {
+  // Typed or drawn signature, with the signer's IP address and browser.
+  SIMPLE = 0;
+  // Also a one-time code emailed to the signer, and a sealed completion certificate.
+  VERIFIED = 1;
+}
+
+enum QuoteApprovalStatus {
+  APPROVAL_NOT_REQUIRED = 0;
+  APPROVAL_PENDING = 1;
+  APPROVAL_APPROVED = 2;
+  APPROVAL_REJECTED = 3;
+}
+
+enum QuoteSignerRole {
+  SIGNER_CUSTOMER = 0;
+  SIGNER_COUNTERSIGNER = 1;
+}
+
+message QuoteDisplayOptions {
+  bool hide_zero_lines = 1;
+  bool show_list_price = 2;
+}
+
+enum QuoteSectionPlacement {
+  BEFORE_PRICING = 0;
+  AFTER_PRICING = 1;
+}
+
+message QuoteSection {
+  string title = 1;
+  // Markdown.
+  string body = 2;
+  QuoteSectionPlacement placement = 3;
+}
+
+message QuoteCountersigner {
+  string name = 1;
+  string email = 2;
+  optional string title = 3;
+  // Signed on the seller's behalf as soon as the customer has signed.
+  bool automatic = 4;
+}
+
+// Presentation and discount of one priced line, matched to a component or add-on of the request.
+message QuoteLineDetail {
+  oneof target {
+    // A plan component (parameterized, overridden or kept as is).
+    string price_component_id = 1;
+    // An extra component, by its name.
+    string extra_component_name = 2;
+    string add_on_id = 3;
+  }
+  optional string description = 4;
+  int32 sort_order = 5;
+  // Decimal string, (0, 100].
+  optional string discount_percent = 6;
+}
 
 enum QuoteStatus {
   DRAFT = 0;
@@ -68,6 +128,54 @@ message Quote {
 
   // JSON-encoded object of user-defined custom property values, keyed by definition key.
   optional string custom_properties = 37;
+
+  int32 revision = 38;
+  // SHA-256 of the document the signers see; a signature carries the one it was given.
+  optional string document_hash = 39;
+  optional string published_at = 40;
+  optional string first_viewed_at = 41;
+  optional string owner_id = 42;
+  optional string template_id = 43;
+  optional string decline_reason = 44;
+  QuoteDisplayOptions display_options = 45;
+  repeated QuoteSection sections = 46;
+  QuoteSignatureLevel signature_level = 47;
+  optional string consent_text = 48;
+  repeated QuoteCountersigner countersigners = 49;
+  QuoteApprovalStatus approval_status = 50;
+  optional string hubspot_deal_id = 51;
+  optional string max_discount_percent = 52;
+  // Set while a change request of the customer is open.
+  optional string changes_requested_at = 53;
+  QuoteCustomerActions customer_actions = 54;
+  // When the quote was last emailed to its recipients.
+  optional string last_sent_at = 55;
+}
+
+// What a customer recipient may do in the portal besides signing.
+message QuoteCustomerActions {
+  bool questions = 1;
+  bool change_requests = 2;
+  bool decline = 3;
+}
+
+message QuoteRecurringTotal {
+  meteroid.api.subscriptions.v1.SubscriptionFeeBillingPeriod period = 1;
+  // Decimal strings in major units: after line discounts, before coupons and tax.
+  string amount = 2;
+  // Before line discounts; equal to `amount` when nothing is discounted.
+  string list_amount = 3;
+}
+
+// Computed by the server from the quote's lines, add-ons and coupons. Display-only.
+message QuoteTotals {
+  string currency = 1;
+  repeated QuoteRecurringTotal recurring = 2;
+  // Usage-based lines, billed on consumption, are not in `recurring`.
+  bool has_usage = 3;
+  // The first invoice after coupons, before tax, as the subscription created on acceptance
+  // would issue it. Absent when it cannot be previewed.
+  optional string first_invoice_subtotal = 4;
 }
 
 message RecipientDetails {
@@ -89,6 +197,43 @@ message DetailedQuote {
   optional meteroid.api.plans.v1.MinimumCommitment minimum_commitment = 10;
   // Whether "Send to customer" can email the quote. Only set by GetQuote.
   optional bool quote_email_enabled = 11;
+  // Who opened the portal link and how often. Only set by GetQuote, and absent when the plan
+  // does not include quote analytics.
+  optional QuoteEngagement engagement = 12;
+  optional QuoteTotals totals = 13;
+  // Verified signing needs emailed codes that this workspace can't send. Only set by GetQuote.
+  bool signature_codes_unavailable = 14;
+  // The quote's PDF, signed once accepted; set by GetQuote once published, with the module.
+  optional string pdf_url = 15;
+  // The terms of `coupons`, in the same order.
+  repeated QuoteCouponTerms coupon_terms = 16;
+}
+
+message QuoteEngagement {
+  // One entry per person who opened the quote; no entry means not opened yet.
+  repeated QuoteRecipientEngagement recipients = 1;
+  // Newest first; each person's latest 50.
+  repeated QuoteViewSession sessions = 2;
+}
+
+// Opens within 30 minutes of the session's last open extend it.
+message QuoteViewSession {
+  string email = 1;
+  uint32 revision = 2;
+  string viewed_at = 3;
+  string last_seen_at = 4;
+  optional string ip_address = 5;
+  // "Browser on OS", from the user agent.
+  optional string device = 6;
+}
+
+message QuoteRecipientEngagement {
+  string email = 1;
+  // Opens within 30 minutes of the previous one count as one view.
+  uint32 view_count = 2;
+  string first_viewed_at = 3;
+  string last_viewed_at = 4;
+  uint32 last_viewed_revision = 5;
 }
 
 
@@ -105,6 +250,11 @@ message QuoteComponent {
   // major units. Absent for non-usage components or models that can't be priced
   // from a single quantity (e.g. matrix). Display-only, never billed.
   optional string example_usage_amount = 9;
+  optional string description = 10;
+  int32 sort_order = 11;
+  optional string discount_percent = 12;
+  // The fee before the discount.
+  optional meteroid.api.subscriptions.v1.SubscriptionFee list_fee = 13;
 }
 
 message QuoteUsageExample {
@@ -121,12 +271,25 @@ message QuoteAddOn {
   meteroid.api.subscriptions.v1.SubscriptionFeeBillingPeriod period = 5;
   meteroid.api.subscriptions.v1.SubscriptionFee fee = 6;
   uint32 quantity = 7;
+  optional string description = 8;
+  int32 sort_order = 9;
+  optional string discount_percent = 10;
+  optional meteroid.api.subscriptions.v1.SubscriptionFee list_fee = 11;
 }
 
 message QuoteCoupon {
   string id = 1;
   string quote_id = 2;
   string coupon_id = 3;
+}
+
+// A coupon's terms as the quote document shows them; applied to the subscription on conversion.
+message QuoteCouponTerms {
+  string code = 1;
+  optional string description = 2;
+  meteroid.api.coupons.v1.CouponDiscount discount = 3;
+  // Billing periods the discount applies to; absent: every period.
+  optional uint32 recurring_value = 4;
 }
 
 message QuoteSignature {
@@ -142,6 +305,11 @@ message QuoteSignature {
   optional string user_agent = 10;
   optional string verification_token = 11;
   optional string verified_at = 12;
+  QuoteSignerRole signer_role = 13;
+  optional int32 revision = 14;
+  optional string document_hash = 15;
+  optional string consent_text = 16;
+  optional string code_verified_at = 17;
 }
 
 message CreateQuote {
@@ -198,6 +366,111 @@ message CreateQuote {
 
   // JSON-encoded object of custom property values, validated against the tenant's quote definitions.
   optional string custom_properties = 33;
+
+  optional string template_id = 34;
+  repeated QuoteLineDetail line_details = 35;
+  QuoteDisplayOptions display_options = 36;
+  repeated QuoteSection sections = 37;
+  QuoteSignatureLevel signature_level = 38;
+  optional string consent_text = 39;
+  repeated QuoteCountersigner countersigners = 40;
+  optional string hubspot_deal_id = 41;
+  // Absent: every action allowed.
+  optional QuoteCustomerActions customer_actions = 42;
+}
+
+// Unsaved editor state. `payload` is the web editor's JSON, opaque to the server.
+message QuoteDraft {
+  string id = 1;
+  optional string quote_id = 2;
+  string created_by = 3;
+  optional string updated_by = 4;
+  optional string label = 5;
+  string payload = 6;
+  int32 payload_version = 7;
+  int32 version = 8;
+  string created_at = 9;
+  string updated_at = 10;
+}
+
+message QuoteRevision {
+  int32 revision = 1;
+  string document_hash = 2;
+  // JSON of the frozen document.
+  string document = 3;
+  optional string created_by = 4;
+  string created_at = 5;
+  optional string superseded_at = 6;
+}
+
+message QuoteEvidenceEvent {
+  int32 seq = 1;
+  string kind = 2;
+  optional string actor_email = 3;
+  optional string ip_address = 4;
+  optional string user_agent = 5;
+  int32 revision = 6;
+  optional string document_hash = 7;
+  // JSON object.
+  string details = 8;
+  string occurred_at = 9;
+  string hash = 10;
+}
+
+message QuoteSignatureCertificate {
+  int32 revision = 1;
+  string document_hash = 2;
+  string evidence_hash = 3;
+  // The file `pdf_hash` covers: the signed quote with these pages, or a standalone certificate
+  // issued before signed PDFs existed.
+  optional string pdf_url = 4;
+  optional string pdf_hash = 5;
+  optional string seal_key_id = 6;
+  optional string seal_signature = 7;
+  optional string timestamp_authority = 8;
+  string created_at = 9;
+}
+
+message QuoteApprovalRule {
+  string id = 1;
+  string name = 2;
+  optional string min_discount_percent = 3;
+  optional int32 max_net_terms_days = 4;
+  optional int32 max_trial_days = 5;
+  bool always = 6;
+  repeated string approver_user_ids = 7;
+}
+
+message QuoteApproval {
+  string id = 1;
+  string quote_id = 2;
+  int32 revision = 3;
+  QuoteApprovalStatus status = 4;
+  repeated string rule_ids = 5;
+  optional string requested_by = 6;
+  string requested_at = 7;
+  optional string request_note = 8;
+  optional string decided_by = 9;
+  optional string decided_at = 10;
+  optional string decision_note = 11;
+}
+
+// A message in the discussion on a quote: a team note, or shared with the customer.
+message QuoteComment {
+  string id = 1;
+  string quote_id = 2;
+  int32 revision = 3;
+  optional string author_user_id = 4;
+  optional string author_email = 5;
+  string author_name = 6;
+  string body = 7;
+  bool shared = 8;
+  bool is_change_request = 9;
+  optional string resolved_at = 10;
+  string created_at = 11;
+  bool from_customer = 12;
+  // The name of the quote line the comment is about, as it read when written.
+  optional string anchor = 13;
 }
 
 message CreateQuoteCoupon {

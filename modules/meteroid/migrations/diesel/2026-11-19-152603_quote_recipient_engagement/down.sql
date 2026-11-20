@@ -1,0 +1,1 @@
+DROP TABLE quote_recipient_engagement;

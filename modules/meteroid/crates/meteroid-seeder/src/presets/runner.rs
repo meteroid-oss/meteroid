@@ -2,6 +2,7 @@ use chrono::Days;
 use meteroid_store::domain::enums::{
     PlanStatusEnum, SubscriptionActivationCondition, TenantEnvironmentEnum,
 };
+use meteroid_store::repositories::quote_signing::QuoteSigningInterface;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -1607,6 +1608,10 @@ async fn seed_quotes(
                     is_override: false,
                     price_id: resolved.price_id,
                     example_usage_quantity: None,
+                    description: None,
+                    sort_order: 0,
+                    discount_percent: None,
+                    list_fee: None,
                 })
             })
             .collect();
@@ -1643,11 +1648,24 @@ async fn seed_quotes(
             payment_methods_config: None,
             custom_properties: serde_json::Value::Null,
             entitlements: vec![],
+            owner_id: None,
+            template_id: None,
+            display_options: Default::default(),
+            sections: vec![],
+            signature_level: Default::default(),
+            consent_text: None,
+            countersigners: vec![],
+            hubspot_deal_id: None,
+            max_discount_percent: None,
+            allow_questions: true,
+            allow_change_requests: true,
+            allow_decline: true,
         };
 
         store
             .insert_quote_with_details(quote, components, vec![], vec![], vec![], Actor::System)
             .await?;
+        store.refresh_quote_document(tenant_id, quote_id).await?;
         store
             .publish_quote(Actor::System, quote_id, tenant_id)
             .await?;

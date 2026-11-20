@@ -1,33 +1,31 @@
-import { useMutation } from '@connectrpc/connect-query'
-import {
-  Button,
-  Card,
-  CardContent,
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  Input,
-  Label,
-} from '@md/ui'
-import { Edit2, Trash2 } from 'lucide-react'
-import { FC, useState } from 'react'
-import { toast } from 'sonner'
+import { Card, CardContent } from '@md/ui'
+import { FC, ReactNode } from 'react'
 
 import { MinimumCommitmentDisplay, productScopeOptions } from '@/features/billing/minimumCommitment'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
+import { QuoteDiscounts } from '@/features/quotes/QuoteViewDiscounts'
 import {
-  PricingComponent,
-  SubscriptionPricingTable,
-} from '@/features/subscriptions/pricecomponents/SubscriptionPricingTable'
+  QuoteSignatureBlocks,
+  QuoteSignerSlot,
+  signerSlotsFromQuote,
+} from '@/features/quotes/QuoteViewSigners'
+import { QuoteTotalsRows } from '@/features/quotes/QuoteViewTotals'
+import { QuoteLine, QuoteLinesTable, addOnLine } from '@/features/quotes/detail/QuoteLinesTable'
+import { QuoteSections } from '@/features/quotes/detail/QuoteMarkdown'
 import { env } from '@/lib/env'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
 import { InvoicingEntity, InvoicingEntityPublic } from '@/rpc/api/invoicingentities/v1/models_pb'
 import { MinimumCommitment } from '@/rpc/api/plans/v1/models_pb'
-import { Quote, QuoteAddOn, QuoteComponent, QuoteSignature } from '@/rpc/api/quotes/v1/models_pb'
-import { setQuotePurchaseOrder } from '@/rpc/portal/quotes/v1/quotes-PortalQuoteService_connectquery'
-import { parseAndFormatDate, parseAndFormatDateTime } from '@/utils/date'
+import {
+  Quote,
+  QuoteAddOn,
+  QuoteComponent,
+  QuoteCouponTerms,
+  QuoteSectionPlacement,
+  QuoteSignature,
+  QuoteTotals,
+} from '@/rpc/api/quotes/v1/models_pb'
+import { parseAndFormatDate } from '@/utils/date'
 
 export interface QuoteViewProps {
   quote: {
@@ -36,15 +34,25 @@ export interface QuoteViewProps {
     customer?: Customer
     components?: QuoteComponent[]
     addOns?: QuoteAddOn[]
+    couponTerms?: QuoteCouponTerms[]
     signatures?: QuoteSignature[]
   }
   mode?: 'preview' | 'detailed' | 'portal'
   className?: string
-  subscriptionComponents?: PricingComponent[]
+  subscriptionComponents?: QuoteLine[]
   /** Effective minimum-commitment term to show on the document (override or plan default). */
   minimumCommitment?: MinimumCommitment
-  /** In the portal: whether the customer may enter a purchase order. */
-  purchaseOrderEnabled?: boolean
+  totals?: QuoteTotals
+  /** Comment count per line, keyed by the line's name (a comment's anchor). */
+  commentCountByLine?: Record<string, number>
+  /** Makes each line name a button, e.g. to discuss that line. */
+  onLineSelect?: (lineName: string) => void
+  selectedLine?: string
+  /** Replaces the signers derived from the quote's recipients, countersigners and signatures. */
+  signers?: QuoteSignerSlot[]
+  /** The current signer's unsigned block becomes the call to sign. */
+  onSign?: () => void
+  signDisabled?: boolean
 }
 
 const LegalIdentifiers = ({
@@ -60,156 +68,89 @@ const LegalIdentifiers = ({
   </>
 )
 
+const Section = ({ title, children }: { title: string; children: ReactNode }) => (
+  <section className="mb-8">
+    <h3 className="mb-3 font-semibold text-foreground">{title}</h3>
+    {children}
+  </section>
+)
+
+const DetailRow = ({ label, value }: { label: string; value: ReactNode }) => (
+  <div className="flex justify-between gap-4 text-sm">
+    <span className="text-muted-foreground">{label}</span>
+    <span className="text-right text-foreground">{value}</span>
+  </div>
+)
+
 export const QuoteView: FC<QuoteViewProps> = ({
   quote,
   mode = 'detailed',
   className = '',
   subscriptionComponents,
   minimumCommitment,
-  purchaseOrderEnabled = false,
+  totals,
+  commentCountByLine,
+  onLineSelect,
+  selectedLine,
+  signers,
+  onSign,
+  signDisabled,
 }) => {
-  const isPurchaseOrderEditable = mode == 'portal' && purchaseOrderEnabled
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [purchaseOrderValue, setPurchaseOrderValue] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
-
-  const setPurchaseOrder = async (purchaseOrder: string | undefined) => {
-    if (!quote.quote?.id) return
-
-    try {
-      await setQuotePurchaseOrderMutation.mutateAsync({
-        purchaseOrder: purchaseOrder,
-      })
-      toast.success('Purchase order successfully set')
-      window.location.reload()
-    } catch (error) {
-      toast.error('Failed to set purchase order')
-    }
-  }
-
-  const setQuotePurchaseOrderMutation = useMutation(setQuotePurchaseOrder)
-
-  const handleOpenModal = () => {
-    setPurchaseOrderValue(quote.quote?.purchaseOrder || '')
-    setIsModalOpen(true)
-  }
-
-  const handleUpdatePurchaseOrder = async (value?: string) => {
-    if (!quote.quote?.id) return
-
-    setIsLoading(true)
-    try {
-      await setPurchaseOrder(value)
-      setIsModalOpen(false)
-    } catch (error) {
-      console.error('Failed to update purchase order:', error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const renderEditablePurchaseOrder = () => {
-    if (!isPurchaseOrderEditable) return null
-
-    return (
-      <div className="mt-2">
-        {quote.quote?.purchaseOrder ? (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Purchase Order:</span>
-            <span className="text-sm font-medium">{quote.quote.purchaseOrder}</span>
-            <button
-              onClick={handleOpenModal}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              aria-label="Edit purchase order"
-            >
-              <Edit2 className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={() => handleUpdatePurchaseOrder(undefined)}
-              className="text-muted-foreground hover:text-destructive transition-colors"
-              aria-label="Delete purchase order"
-              disabled={isLoading}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={handleOpenModal}
-            className="text-sm text-blue-600 hover:text-blue-700 hover:underline"
-          >
-            Add Purchase Order
-          </button>
-        )}
-      </div>
-    )
-  }
+  const q = quote.quote
+  const entity = quote.invoicingEntity
 
   const renderQuoteHeader = () => (
-    <div className="mb-8">
-      <div className="flex justify-between items-start mb-4">
-        <div>
-          <h1 className="text-2xl font-bold">Quote</h1>
-          <p className="text-lg font-medium text-foreground">
-            {quote.quote?.quoteNumber || 'DRAFT'}
+    <div className="mb-8 flex flex-col-reverse items-start justify-between gap-4 sm:flex-row">
+      <div className="min-w-0">
+        <h1 className="text-2xl font-bold text-foreground">Quote</h1>
+        <p className="text-lg font-medium text-foreground">{q?.quoteNumber || 'DRAFT'}</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {q?.createdAt ? parseAndFormatDate(q.createdAt) : new Date().toLocaleDateString()}
+        </p>
+        {q?.expiresAt && (
+          <p className="mt-1 text-sm text-muted-foreground">
+            Expires: <span className="text-foreground">{parseAndFormatDate(q.expiresAt)}</span>
           </p>
-          <p className="text-sm text-muted-foreground mt-1">
-            {quote.quote?.createdAt
-              ? parseAndFormatDate(quote.quote.createdAt)
-              : new Date().toLocaleDateString()}
+        )}
+        {q?.purchaseOrder && (
+          <p className="mt-1 text-sm text-muted-foreground">
+            Purchase order: <span className="text-foreground">{q.purchaseOrder}</span>
           </p>
-          {quote.quote?.expiresAt && (
-            <p className="text-sm text-destructive mt-1">
-              Expires: {parseAndFormatDate(quote.quote.expiresAt)}
-            </p>
-          )}
-          {!isPurchaseOrderEditable && quote.quote?.purchaseOrder && (
-            <p className="text-sm text-muted-foreground mt-1">
-              Purchase Order: <span className="text-foreground">{quote.quote.purchaseOrder}</span>
-            </p>
-          )}
-          {renderEditablePurchaseOrder()}
-        </div>
-        {/* Invoicing Entity Logo */}
-        {quote.invoicingEntity?.logoAttachmentId && (
-          <div className="w-32 h-12 rounded-lg overflow-hidden shrink-0">
-            <img
-              src={
-                env.meteroidRestApiUri + '/files/v1/logo/' + quote.invoicingEntity.logoAttachmentId
-              }
-              alt="Company logo"
-              className="w-full h-full object-contain"
-            />
-          </div>
         )}
       </div>
+      {entity?.logoAttachmentId && (
+        <div className="h-12 w-32 shrink-0 overflow-hidden rounded-lg">
+          <img
+            src={env.meteroidRestApiUri + '/files/v1/logo/' + entity.logoAttachmentId}
+            alt={entity.legalName ? `${entity.legalName} logo` : 'Company logo'}
+            className="h-full w-full object-contain object-left sm:object-right"
+          />
+        </div>
+      )}
     </div>
   )
 
   const renderFromToSection = () => (
-    <div className="grid grid-cols-2 gap-8 mb-8">
+    <div className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 sm:gap-8">
       <div>
-        <h3 className="font-semibold text-foreground mb-2">From:</h3>
+        <h3 className="mb-2 font-semibold text-foreground">From:</h3>
         <div className="text-sm text-muted-foreground">
-          {quote.invoicingEntity ? (
+          {entity ? (
             <>
-              <p className="font-medium text-foreground">{quote.invoicingEntity.legalName}</p>
-              {quote.invoicingEntity.city && (
+              <p className="font-medium text-foreground">{entity.legalName}</p>
+              {entity.city && (
                 <AddressLinesCompact
                   address={{
-                    city: quote.invoicingEntity.city,
-                    country: quote.invoicingEntity.country,
-                    line1: quote.invoicingEntity.addressLine1,
-                    line2: quote.invoicingEntity.addressLine2,
-                    state: quote.invoicingEntity.state,
-                    zipCode: quote.invoicingEntity.zipCode,
+                    city: entity.city,
+                    country: entity.country,
+                    line1: entity.addressLine1,
+                    line2: entity.addressLine2,
+                    state: entity.state,
+                    zipCode: entity.zipCode,
                   }}
                 />
               )}
-              <LegalIdentifiers
-                vatNumber={quote.invoicingEntity.vatNumber}
-                legalNumber={quote.invoicingEntity.legalNumber}
-              />
+              <LegalIdentifiers vatNumber={entity.vatNumber} legalNumber={entity.legalNumber} />
             </>
           ) : (
             <p className="font-medium text-foreground">Your Company</p>
@@ -217,8 +158,8 @@ export const QuoteView: FC<QuoteViewProps> = ({
         </div>
       </div>
       <div>
-        <h3 className="font-semibold text-foreground mb-2">To:</h3>
-        <div className="text-sm text-muted-foreground">
+        <h3 className="mb-2 font-semibold text-foreground">To:</h3>
+        <div className="break-words text-sm text-muted-foreground">
           {quote.customer ? (
             <>
               <p className="font-medium text-foreground">{quote.customer.name}</p>
@@ -231,261 +172,144 @@ export const QuoteView: FC<QuoteViewProps> = ({
                 legalNumber={quote.customer.legalNumber}
               />
             </>
-          ) : quote.quote?.customerId ? (
-            <p className="font-medium text-foreground">Customer ID: {quote.quote.customerId}</p>
+          ) : q?.customerId ? (
+            <p className="font-medium text-foreground">Customer ID: {q.customerId}</p>
           ) : (
-            <p className="font-medium  text-muted-foreground">No customer selected</p>
+            <p className="font-medium text-muted-foreground">No customer selected</p>
           )}
         </div>
       </div>
     </div>
   )
 
-  const renderSubscriptionComponents = () => {
-    // Use passed subscription components for preview mode, or convert quote components for other modes
-    let pricingComponents: PricingComponent[]
+  const lineProps = { commentCountByLine, onLineSelect, selectedLine }
 
-    if (mode === 'preview' && subscriptionComponents) {
-      pricingComponents = subscriptionComponents
-    } else {
-      // Convert QuoteComponents to PricingComponents for the shared table
-      pricingComponents = quote.components || []
-    }
-
-    if (!quote.quote?.currency) {
+  const renderPricing = () => {
+    if (!q?.currency) {
       return (
         <div className="mb-8">
-          <p className="font-medium  text-muted-foreground">No currency selected</p>
+          <p className="font-medium text-muted-foreground">No currency selected</p>
         </div>
       )
     }
-
-    return (
-      <div className="mb-8">
-        <SubscriptionPricingTable
-          components={pricingComponents}
-          currency={quote.quote.currency}
-          labelClassName="px-0"
-        />
-      </div>
-    )
-  }
-
-  const renderAddOns = () => {
-    const addOns = quote.addOns
-    if (!addOns || addOns.length === 0 || !quote.quote?.currency) return null
-
-    const addOnComponents: PricingComponent[] = addOns.map(addOn => ({
-      id: addOn.id,
-      name: addOn.name + (addOn.quantity > 1 ? ` (x${addOn.quantity})` : ''),
-      period: addOn.period,
-      fee: addOn.fee,
-    }))
-
-    return (
-      <div className="mb-8">
-        <SubscriptionPricingTable
-          components={addOnComponents}
-          currency={quote.quote.currency}
-          labelClassName="px-0"
-          label="Add-ons"
-        />
-      </div>
-    )
-  }
-
-  const renderSubscriptionDetails = () => {
-    if (!quote.quote) return null
-
-    return (
-      <div className="mb-8">
-        <h3 className="font-semibold text-foreground mb-4">Subscription Details</h3>
-        <div className="bg-muted/50 p-4 rounded-lg space-y-2 grid lg:grid-cols-2">
-          <div className="">
-            <div className="flex justify-between">
-              <span className="text-sm text-muted-foreground">Start Date:</span>
-              <span className="text-sm">
-                {quote.quote.startDate ? parseAndFormatDate(quote.quote.startDate) : 'Immediately'}
-              </span>
-            </div>
-            {quote.quote.endDate && (
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">End Date:</span>
-                <span className="text-sm">{parseAndFormatDate(quote.quote.endDate)}</span>
-              </div>
-            )}
-            {quote.quote.billingStartDate && (
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Billing Start Date:</span>
-                <span className="text-sm">{parseAndFormatDate(quote.quote.billingStartDate)}</span>
-              </div>
-            )}
-            {quote.quote.trialDuration && quote.quote.trialDuration > 0 && (
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Trial Duration:</span>
-                <span className="text-sm">{quote.quote.trialDuration} days</span>
-              </div>
-            )}
-            {quote.quote.billingDayAnchor && (
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Billing Day:</span>
-                <span className="text-sm">Day {quote.quote.billingDayAnchor} of each month</span>
-              </div>
-            )}
-
-            {quote.quote.netTerms !== undefined && (
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Payment Terms:</span>
-                <span className="text-sm">
-                  {quote.quote.netTerms === 0
-                    ? 'Due on receipt'
-                    : `Net ${quote.quote.netTerms} days`}
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  const renderContractTerms = () => {
-    if (!minimumCommitment || !quote.quote?.currency) return null
-
-    // Scope is keyed by product; resolve product names from the quote's components.
-    const componentOptions = productScopeOptions(quote.components || [])
-
-    return (
-      <div className="mb-8">
-        <h3 className="font-semibold text-foreground mb-4">Contract Terms</h3>
-        <div className="bg-muted/50 p-4 rounded-lg">
-          <MinimumCommitmentDisplay
-            commitment={minimumCommitment}
-            currency={quote.quote.currency}
-            components={componentOptions}
-          />
-        </div>
-      </div>
-    )
-  }
-
-  const renderOverview = () => {
-    if (!quote.quote?.overview) return null
-
-    return (
-      <div className="mb-8">
-        <h3 className="font-semibold text-foreground mb-2">Overview:</h3>
-        <p className="text-sm text-muted-foreground whitespace-pre-line">{quote.quote.overview}</p>
-      </div>
-    )
-  }
-
-  const renderAdditionalInfo = () => {
-    const hasInfo = quote.quote?.termsAndServices || quote.quote?.internalNotes
-
-    if (!hasInfo) return null
+    const lines: QuoteLine[] =
+      mode === 'preview' && subscriptionComponents ? subscriptionComponents : quote.components || []
+    const addOns = quote.addOns ?? []
 
     return (
       <>
-        {quote.quote?.termsAndServices && (
-          <div className="mb-8">
-            <h3 className="font-semibold text-foreground mb-2">Terms & Services:</h3>
-            <p className="text-sm text-muted-foreground whitespace-pre-line">
-              {quote.quote.termsAndServices}
-            </p>
-          </div>
+        <QuoteLinesTable
+          lines={lines}
+          currency={q.currency}
+          displayOptions={q.displayOptions}
+          {...lineProps}
+        />
+        {addOns.length > 0 && (
+          <QuoteLinesTable
+            lines={addOns.map(addOnLine)}
+            currency={q.currency}
+            label="Add-ons"
+            displayOptions={q.displayOptions}
+            hideWhenEmpty
+            {...lineProps}
+          />
+        )}
+        <QuoteDiscounts coupons={quote.couponTerms ?? []} />
+        {totals && (
+          <QuoteTotalsRows
+            totals={totals}
+            showListPrice={Boolean(q.displayOptions?.showListPrice)}
+          />
         )}
       </>
     )
   }
 
-  const renderSignatureArea = () => {
-    if (mode === 'portal') return null
-
-    const signatures = quote.signatures || []
+  const renderSubscriptionDetails = () => {
+    if (!q) return null
 
     return (
-      <div className="border-t pt-8">
-        <h3 className="font-semibold mb-4">Signatures</h3>
-        {signatures.length > 0 ? (
-          <div className="space-y-3">
-            {signatures.map((signature, index) => (
-              <div
-                key={index}
-                className="flex justify-between items-center p-3 bg-muted/50 rounded-lg"
-              >
-                <div>
-                  <p className="font-medium text-sm">{signature.signedByName}</p>
-                  <p className="text-sm text-muted-foreground">{signature.signedByEmail}</p>
-                  {signature.signedByTitle && (
-                    <p className="text-sm text-muted-foreground">{signature.signedByTitle}</p>
-                  )}
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-medium">
-                    {signature.signedAt ? parseAndFormatDateTime(signature.signedAt) : '—'}
-                  </p>
-                  {signature.signatureMethod && (
-                    <p className="text-xs text-muted-foreground">{signature.signatureMethod}</p>
-                  )}
-                  <p className="text-xs text-muted-foreground">{signature.id}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="bg-muted/30 border-2 border-dashed border-muted-foreground/30 p-8 rounded-lg text-center">
-            <p className="text-muted-foreground">No signatures yet</p>
-          </div>
-        )}
-      </div>
+      <Section title="Subscription Details">
+        <div className="grid gap-x-8 gap-y-2 rounded-lg bg-muted/50 p-4 lg:grid-cols-2">
+          <DetailRow
+            label="Start Date:"
+            value={q.startDate ? parseAndFormatDate(q.startDate) : 'Immediately'}
+          />
+          {q.endDate && <DetailRow label="End Date:" value={parseAndFormatDate(q.endDate)} />}
+          {q.billingStartDate && (
+            <DetailRow label="Billing Start Date:" value={parseAndFormatDate(q.billingStartDate)} />
+          )}
+          {q.trialDuration !== undefined && q.trialDuration > 0 && (
+            <DetailRow label="Trial Duration:" value={`${q.trialDuration} days`} />
+          )}
+          {q.billingDayAnchor && (
+            <DetailRow label="Billing Day:" value={`Day ${q.billingDayAnchor} of each month`} />
+          )}
+          <DetailRow
+            label="Payment Terms:"
+            value={q.netTerms === 0 ? 'Due on receipt' : `Net ${q.netTerms} days`}
+          />
+        </div>
+      </Section>
     )
   }
 
-  return (
-    <>
-      <Card className={className}>
-        <CardContent className="p-8">
-          {renderQuoteHeader()}
-          {renderFromToSection()}
-          {renderOverview()}
-          {renderSubscriptionComponents()}
-          {renderAddOns()}
-          {renderSubscriptionDetails()}
-          {renderContractTerms()}
-          {renderAdditionalInfo()}
-          {renderSignatureArea()}
-        </CardContent>
-      </Card>
+  const renderContractTerms = () => {
+    if (!minimumCommitment || !q?.currency) return null
 
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Purchase Order</DialogTitle>
-          </DialogHeader>
-          <div className="py-4">
-            <Label htmlFor="purchase-order">Purchase Order Number</Label>
-            <Input
-              id="purchase-order"
-              value={purchaseOrderValue}
-              onChange={e => setPurchaseOrderValue(e.target.value)}
-              placeholder="Enter purchase order number..."
-              className="mt-2"
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsModalOpen(false)} disabled={isLoading}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => handleUpdatePurchaseOrder(purchaseOrderValue || undefined)}
-              disabled={isLoading}
-            >
-              {isLoading ? 'Saving...' : 'Save'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+    // Scope is keyed by product; resolve product names from the quote's components.
+    const componentOptions = productScopeOptions(quote.components || [])
+
+    return (
+      <Section title="Contract Terms">
+        <div className="rounded-lg bg-muted/50 p-4">
+          <MinimumCommitmentDisplay
+            commitment={minimumCommitment}
+            currency={q.currency}
+            components={componentOptions}
+          />
+        </div>
+      </Section>
+    )
+  }
+
+  const renderSignatures = () => (
+    <section className="border-t border-border pt-8">
+      <h3 className="mb-4 font-semibold text-foreground">Signatures</h3>
+      <QuoteSignatureBlocks
+        signers={signers ?? signerSlotsFromQuote(q, quote.signatures ?? [])}
+        onSign={onSign}
+        signDisabled={signDisabled}
+      />
+    </section>
+  )
+
+  return (
+    <Card className={className}>
+      <CardContent className="p-5 sm:p-8">
+        {renderQuoteHeader()}
+        {renderFromToSection()}
+        {q?.overview && (
+          <section className="mb-8">
+            <h3 className="mb-2 font-semibold text-foreground">Overview:</h3>
+            <p className="whitespace-pre-line text-sm text-muted-foreground">{q.overview}</p>
+          </section>
+        )}
+        <QuoteSections sections={q?.sections} placement={QuoteSectionPlacement.BEFORE_PRICING} />
+        {renderPricing()}
+        <QuoteSections sections={q?.sections} placement={QuoteSectionPlacement.AFTER_PRICING} />
+        {renderSubscriptionDetails()}
+        {renderContractTerms()}
+        {q?.termsAndServices && (
+          <section className="mb-8">
+            <h3 className="mb-2 font-semibold text-foreground">Terms & Services:</h3>
+            <p className="whitespace-pre-line text-sm text-muted-foreground">
+              {q.termsAndServices}
+            </p>
+          </section>
+        )}
+        {renderSignatures()}
+      </CardContent>
+    </Card>
   )
 }

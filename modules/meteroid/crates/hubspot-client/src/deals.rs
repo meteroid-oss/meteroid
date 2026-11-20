@@ -13,6 +13,21 @@ pub trait DealsApi {
         deals: Vec<NewDeal>,
         access_token: &SecretString,
     ) -> Result<BatchUpsertResponse, HubspotError>;
+
+    /// Updates an existing deal's properties, by its HubSpot id.
+    async fn update_deal(
+        &self,
+        deal_id: &str,
+        properties: serde_json::Value,
+        access_token: &SecretString,
+    ) -> Result<(), HubspotError>;
+
+    /// The pipeline the deal is in.
+    async fn get_deal_pipeline(
+        &self,
+        deal_id: &str,
+        access_token: &SecretString,
+    ) -> Result<Option<String>, HubspotError>;
 }
 
 #[async_trait::async_trait]
@@ -31,6 +46,43 @@ impl DealsApi for HubspotClient {
             access_token,
         )
         .await
+    }
+
+    /// <https://developers.hubspot.com/docs/reference/api/crm/objects/deals#patch-%2Fcrm%2Fv3%2Fobjects%2Fdeals%2F%7Bdealid%7D>
+    async fn update_deal(
+        &self,
+        deal_id: &str,
+        properties: serde_json::Value,
+        access_token: &SecretString,
+    ) -> Result<(), HubspotError> {
+        let _: serde_json::Value = self
+            .execute(
+                &format!("/crm/v3/objects/deals/{deal_id}"),
+                reqwest::Method::PATCH,
+                access_token,
+                Some(json!({ "properties": properties })),
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn get_deal_pipeline(
+        &self,
+        deal_id: &str,
+        access_token: &SecretString,
+    ) -> Result<Option<String>, HubspotError> {
+        let deal: serde_json::Value = self
+            .execute::<(), _>(
+                &format!("/crm/v3/objects/deals/{deal_id}?properties=pipeline"),
+                reqwest::Method::GET,
+                access_token,
+                None,
+            )
+            .await?;
+        Ok(deal
+            .pointer("/properties/pipeline")
+            .and_then(|p| p.as_str())
+            .map(str::to_string))
     }
 }
 

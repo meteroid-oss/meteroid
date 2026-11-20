@@ -4,7 +4,7 @@ use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 
 use crate::{DbResult, PgConn};
-use common_domain::ids::{BaseId, CouponId, TenantId};
+use common_domain::ids::{BaseId, CouponId, QuoteId, TenantId};
 use diesel::dsl::not;
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, NullableExpressionMethods, PgSortExpressionMethods,
@@ -98,6 +98,61 @@ impl CouponRow {
             .first(conn)
             .await
             .attach("Error while getting coupon")
+            .into_db_result()
+    }
+
+    /// Holds the coupon against changes and against `lock_shared_by_quote_id` until the
+    /// transaction ends; key-share locks (redemptions) do not conflict.
+    pub async fn lock_by_id(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        id: CouponId,
+    ) -> DbResult<CouponRow> {
+        use crate::schema::coupon::dsl as c_dsl;
+
+        let query = c_dsl::coupon
+            .filter(c_dsl::id.eq(id))
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .for_no_key_update();
+
+        crate::debug_sql(&query);
+
+        query
+            .first(conn)
+            .await
+            .attach("Error while locking coupon")
+            .into_db_result()
+    }
+
+    /// Waits for in-flight edits of the quote's coupons, so what is read next is what they commit.
+    pub async fn lock_shared_by_quote_id(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        quote_id: QuoteId,
+    ) -> DbResult<()> {
+        use crate::schema::coupon::dsl as c_dsl;
+        use crate::schema::quote_coupon::dsl as qc_dsl;
+
+        let query = c_dsl::coupon
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .filter(
+                c_dsl::id.eq_any(
+                    qc_dsl::quote_coupon
+                        .filter(qc_dsl::quote_id.eq(quote_id))
+                        .select(qc_dsl::coupon_id),
+                ),
+            )
+            .order(c_dsl::id)
+            .select(c_dsl::id)
+            .for_share();
+
+        crate::debug_sql(&query);
+
+        query
+            .load::<CouponId>(conn)
+            .await
+            .map(|_| ())
+            .attach("Error while locking quote coupons")
             .into_db_result()
     }
 

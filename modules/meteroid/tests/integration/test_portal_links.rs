@@ -213,6 +213,7 @@ async fn quote_link_is_recovered_for_its_recipient_only(#[future] test_env: Test
             quote_id,
             TENANT_ID,
             None,
+            None,
         )
         .await
         .unwrap();

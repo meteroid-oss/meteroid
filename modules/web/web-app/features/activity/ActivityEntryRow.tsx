@@ -279,6 +279,11 @@ function renderEntry(entry: ActivityEntry): RenderedEntry {
         icon: <CircleX className="h-4 w-4 text-destructive" />,
         title: <>{entityRef(entry, 'Invoice', 'Invoice')} voided</>,
       }
+    case 'invoice.closed':
+      return {
+        icon: <FileText className="h-4 w-4 text-muted-foreground" />,
+        title: <>{entityRef(entry, 'Invoice', 'Invoice')} closed with nothing to bill</>,
+      }
     case 'invoice.deleted': {
       const total = typeof md.total === 'number' ? md.total : undefined
       const currency = typeof md.currency === 'string' ? md.currency : undefined
@@ -499,6 +504,51 @@ function renderEntry(entry: ActivityEntry): RenderedEntry {
         icon: <Eye className="h-4 w-4 text-muted-foreground" />,
         title: <>{entityRef(entry, 'Quote', 'Quote')} viewed by recipient</>,
       }
+    case 'quote.revised':
+      return {
+        icon: <PencilLine className="h-4 w-4" />,
+        title: (
+          <>
+            {entityRef(entry, 'Quote', 'Quote')} revised
+            {typeof md.revision === 'number' && <> to revision {md.revision}</>}
+          </>
+        ),
+      }
+    case 'quote.countersigned': {
+      const name = (md.signed_by_name as string | undefined) ?? entry.actorName ?? entry.actorId
+      return {
+        icon: <ShieldCheck className="h-4 w-4 text-success" />,
+        title: (
+          <>
+            {entityRef(entry, 'Quote', 'Quote')} countersigned
+            {name ? (
+              <>
+                {' '}
+                by <span className="font-medium">{name}</span>
+              </>
+            ) : null}
+          </>
+        ),
+      }
+    }
+    case 'quote.approval_requested':
+      return {
+        icon: <MailQuestion className="h-4 w-4" />,
+        title: <>Approval requested for {entityRef(entry, 'quote', 'quote')}</>,
+        subtitle: typeof md.note === 'string' ? md.note : undefined,
+      }
+    case 'quote.approved':
+      return {
+        icon: <CheckCircle2 className="h-4 w-4 text-success" />,
+        title: <>{entityRef(entry, 'Quote', 'Quote')} approved</>,
+        subtitle: typeof md.note === 'string' ? md.note : undefined,
+      }
+    case 'quote.approval_rejected':
+      return {
+        icon: <XCircle className="h-4 w-4 text-destructive" />,
+        title: <>{entityRef(entry, 'Quote', 'Quote')} approval rejected</>,
+        subtitle: typeof md.note === 'string' ? md.note : undefined,
+      }
     case 'quote.signature_added': {
       const name = (md.signed_by_name as string | undefined) ?? entry.actorName ?? entry.actorId
       const ip = typeof md.signed_from_ip === 'string' ? md.signed_from_ip : undefined
@@ -558,7 +608,12 @@ function renderEntry(entry: ActivityEntry): RenderedEntry {
       const kind = typeof md.kind === 'string' ? emailKindName(md.kind) : 'Email'
       return {
         icon: <Send className="h-4 w-4 text-foreground" />,
-        title: <>{kind} email resent for {entityRef(entry, entityTypeLabel(entry.entityType), 'this record')}</>,
+        title: (
+          <>
+            {kind} email resent for{' '}
+            {entityRef(entry, entityTypeLabel(entry.entityType), 'this record')}
+          </>
+        ),
         subtitle:
           typeof md.delivery_unknown_activity_id === 'string'
             ? 'Sent again after a delivery that could not be confirmed'
@@ -570,7 +625,12 @@ function renderEntry(entry: ActivityEntry): RenderedEntry {
       const reason = skipReason(md.reason)
       return {
         icon: <MailX className="h-4 w-4 text-muted-foreground" />,
-        title: <>{kind} email skipped for {entityRef(entry, entityTypeLabel(entry.entityType), 'this record')}</>,
+        title: (
+          <>
+            {kind} email skipped for{' '}
+            {entityRef(entry, entityTypeLabel(entry.entityType), 'this record')}
+          </>
+        ),
         subtitle: reason ? `Reason: ${reason}` : undefined,
       }
     }
@@ -580,7 +640,12 @@ function renderEntry(entry: ActivityEntry): RenderedEntry {
       const isReminder = rawKind === 'payment_reminder'
       return {
         icon: <MailQuestion className="h-4 w-4 text-warning" />,
-        title: <>{kind} email delivery unknown for {entityRef(entry, entityTypeLabel(entry.entityType), 'this record')}</>,
+        title: (
+          <>
+            {kind} email delivery unknown for{' '}
+            {entityRef(entry, entityTypeLabel(entry.entityType), 'this record')}
+          </>
+        ),
         subtitle: isReminder
           ? 'The send was interrupted before delivery was confirmed and was not retried automatically. If the customer did not receive it, use Send now on the invoice’s reminders card.'
           : 'The send was interrupted before delivery was confirmed and was not retried automatically. If the customer did not receive it, use Send again.',

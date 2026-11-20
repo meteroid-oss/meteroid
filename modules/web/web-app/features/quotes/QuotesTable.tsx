@@ -13,7 +13,7 @@ import {
   useCustomPropertyColumns,
   withCustomPropertyColumns,
 } from '@/features/customproperties/useCustomPropertyColumns'
-import { QuoteStatusBadge } from '@/features/quotes/QuoteStatusBadge'
+import { ChangesRequestedBadge, QuoteStatusBadge } from '@/features/quotes/QuoteStatusBadge'
 import { SendQuoteDialog } from '@/features/quotes/SendQuoteDialog'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
@@ -75,7 +75,12 @@ export const QuotesTable: FC<QuotesTableProps> = ({
       {
         id: 'status',
         header: 'Status',
-        cell: ({ row }) => <QuoteStatusBadge status={row.original.status} />,
+        cell: ({ row }) => (
+          <div className="flex items-center gap-1">
+            <QuoteStatusBadge status={row.original.status} />
+            {row.original.changesRequestedAt && <ChangesRequestedBadge />}
+          </div>
+        ),
       },
       {
         header: 'Type',

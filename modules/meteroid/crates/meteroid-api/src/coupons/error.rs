@@ -12,6 +12,10 @@ pub enum CouponApiError {
     #[code(InvalidArgument)]
     MissingArgument(String),
 
+    #[error("Invalid argument: {0}")]
+    #[code(InvalidArgument)]
+    InvalidArgument(String),
+
     #[error("Store error: {0}")]
     #[code(Internal)]
     StoreError(String, #[source] Box<dyn Error>),
@@ -19,6 +23,9 @@ pub enum CouponApiError {
 
 impl From<Report<StoreError>> for CouponApiError {
     fn from(value: Report<StoreError>) -> Self {
+        if let StoreError::InvalidArgument(msg) = value.current_context() {
+            return Self::InvalidArgument(msg.clone());
+        }
         let err = Box::new(value.into_error());
         Self::StoreError("Error in api coupon service".to_string(), err)
     }

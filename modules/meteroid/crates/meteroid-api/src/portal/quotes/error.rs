@@ -43,6 +43,14 @@ pub enum PortalQuoteApiError {
     #[code(FailedPrecondition)]
     NotEditable,
 
+    #[error("This quote is being revised: you will receive the new version")]
+    #[code(FailedPrecondition)]
+    BeingRevised,
+
+    #[error("{0}")]
+    #[code(FailedPrecondition)]
+    FailedPrecondition(String),
+
     #[error("{}", crate::portal::INTERNAL_ERROR)]
     #[code(Internal)]
     ObjectStoreError(#[source] Box<dyn Error>),
@@ -50,7 +58,13 @@ pub enum PortalQuoteApiError {
 
 impl From<Report<StoreError>> for PortalQuoteApiError {
     fn from(err: Report<StoreError>) -> Self {
-        PortalQuoteApiError::StoreError(Box::new(err.into_error()))
+        match err.current_context() {
+            StoreError::InvalidArgument(msg) => PortalQuoteApiError::InvalidArgument(msg.clone()),
+            StoreError::FailedPrecondition(msg) => {
+                PortalQuoteApiError::FailedPrecondition(msg.clone())
+            }
+            _ => PortalQuoteApiError::StoreError(Box::new(err.into_error())),
+        }
     }
 }
 

@@ -10,6 +10,7 @@ import type { EmailKind } from '@/rpc/api/customeremails/v1/models_pb'
 import type { CustomerBrief, CustomerPaymentMethod } from '@/rpc/api/customers/v1/models_pb'
 import type { InvoiceAnnex } from '@/rpc/api/invoices/v1/models_pb'
 import type { MinimumCommitment, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
+import type { DetailedQuote } from '@/rpc/api/quotes/v1/models_pb'
 import type { Subscription } from '@/rpc/api/subscriptions/v1/models_pb'
 import type { PendingInvoiceCredit } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 import type { Wallet, WalletStatus, WalletSummary } from '@/rpc/api/wallets/v1/models_pb'
@@ -302,6 +303,57 @@ export interface MetricBreakdownKeyContext {
   mode: 'create' | 'edit'
 }
 
+/** The quote editor, for templates: what it holds now, and loading a template into it. */
+export interface QuoteTemplatesContext {
+  /** The editor's state as a template payload (no customer, recipients, number or dates). */
+  snapshot: () => unknown
+  apply: (payload: unknown, template: { id: string; expiresAfterDays?: number }) => void
+  isEdit: boolean
+}
+
+/** A tab of the quotes page, after Quotes. */
+export interface QuoteListTab {
+  label: string
+  /** Under `quotes/`, e.g. `templates`; also the start of the paths the tab stays active on. */
+  path: string
+}
+
+export interface QuoteDetailContext {
+  quote: DetailedQuote
+  /** Reloads the quote after a change the slot made. */
+  onChanged: () => void
+}
+
+export interface QuoteDetailNoticesContext extends QuoteDetailContext {
+  /** Opens the discussion's composer, about a line of the quote when one is given. */
+  onReply: (anchor?: string) => void
+}
+
+export interface QuoteDetailRailContext extends QuoteDetailContext {
+  /** The line the composer is about, picked from the document; unset for the whole quote. */
+  anchor?: string
+  onAnchorChange: (anchor: string | undefined) => void
+  /** Changes each time a line is picked or a reply is asked for: the composer takes the focus. */
+  focusRequest: number
+}
+
+/** What the page shows of the discussion inside the document. */
+export interface QuoteLineComments {
+  useLineComments: (quote: DetailedQuote) => {
+    /** Messages per line, keyed by the line's name. */
+    countByLine: Record<string, number>
+    /** Picking a line opens the composer about it. */
+    canComment: boolean
+  }
+}
+
+/** The portal signer confirming their email before a verified signature. */
+export interface PortalQuoteSignatureCodeContext {
+  email: string
+  onVerified: () => void
+  disabled?: boolean
+}
+
 export interface PortalCreditSettingsContext {
   control: Control<PortalCreditValues>
   /** No invoicing entity is loaded yet. */
@@ -401,12 +453,36 @@ export interface ComponentSlots {
   'subscriptionCreate.minimumCommitment': MinimumCommitmentFieldContext
   /** The Contract terms of the quote form; without one, an edited quote keeps its minimum and a new one takes the plan's. */
   'quoteCreate.minimumCommitment': MinimumCommitmentFieldContext
+  /** Header of the quote form: starting from a template, saving the quote as one. */
+  'quoteCreate.templates': QuoteTemplatesContext
+  /** On the quote page, above the tabs: approvals, the customer's change requests. */
+  'quoteDetail.notices': QuoteDetailNoticesContext
+  /** On the quote page's side rail, after the signers: the discussion. */
+  'quoteDetail.rail': QuoteDetailRailContext
+  /**
+   * The primary action of a draft quote that needs an approval it does not have yet; the first
+   * one is used. Without one, sending stays disabled.
+   */
+  'quoteDetail.approvalAction': QuoteDetailContext
+  /** In the signers card of an accepted quote, after the signed PDF: the certificate's details. */
+  'quoteDetail.certificate': QuoteDetailContext
+  /** Above the quote list: pending approvals. */
+  'quoteList.aside': Record<never, never>
+  /** In the quote list header, before New Quote. */
+  'quoteList.actions': Record<never, never>
+  /** Replaces the quote list's New Quote button, e.g. with one that also starts from a template. */
+  'quoteList.newQuote': Record<never, never>
   /** Rows of the portal credit settings, after Top-ups; bound to the core form and saved with it. */
   'portalCreditSettings.rows': PortalCreditSettingsContext
   /** Portal banners, before the hard-limit one. */
   'portal.alerts': PortalAlertsContext
   /** At the end of the portal overview, after the recent invoices. */
   'portal.overview.sections': Record<never, never>
+  /**
+   * The code a verified signature's signer confirms before signing; the first one is used.
+   * Without one, such a quote cannot be signed from the portal.
+   */
+  'portal.quoteSignatureCode': PortalQuoteSignatureCodeContext
   /** On each wallet of the portal Credit page. */
   'portal.balance.wallet': PortalBalanceWalletContext
   /** Once on the portal Credit page, after the wallets: the dialogs a module opens. */
@@ -427,6 +503,12 @@ export type Slots = {
   'customerList.columns': CustomerListColumn
   /** Tabs of the customer page, placed among the core tabs. */
   'customerDetail.tabs': DetailTab<CustomerDetailContext>
+  /** Tabs of the quote page, placed among Document, Revisions, Audit trail and Settings. */
+  'quoteDetail.tabs': DetailTab<QuoteDetailContext>
+  /** Comment counts on the document's lines; the first one is used. */
+  'quoteDetail.lineComments': QuoteLineComments
+  /** Tabs of the quotes page, after Quotes; without one, the page has no tabs. */
+  'quoteList.tabs': QuoteListTab
   /** Entries of the subscription's action menu, after Edit Billing Settings. */
   'subscriptionDetail.actions': DetailAction<SubscriptionDetailContext>
   /** Notices of the help page, picked by `?topic=<id>`. */

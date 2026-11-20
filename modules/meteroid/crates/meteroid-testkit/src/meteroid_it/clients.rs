@@ -29,7 +29,12 @@ use meteroid_grpc::meteroid::api::paymentreminders::v1::payment_reminders_servic
 use meteroid_grpc::meteroid::api::plans::v1::plans_service_client::PlansServiceClient;
 use meteroid_grpc::meteroid::api::productfamilies::v1::product_families_service_client::ProductFamiliesServiceClient;
 use meteroid_grpc::meteroid::api::products::v1::products_service_client::ProductsServiceClient;
+use meteroid_grpc::meteroid::api::quoteanalytics::v1::quote_analytics_service_client::QuoteAnalyticsServiceClient;
+use meteroid_grpc::meteroid::api::quoteapprovals::v1::quote_approvals_service_client::QuoteApprovalsServiceClient;
+use meteroid_grpc::meteroid::api::quotecomments::v1::quote_comments_service_client::QuoteCommentsServiceClient;
+use meteroid_grpc::meteroid::api::quotes::v1::quote_documents_service_client::QuoteDocumentsServiceClient;
 use meteroid_grpc::meteroid::api::quotes::v1::quotes_service_client::QuotesServiceClient;
+use meteroid_grpc::meteroid::api::quotetemplates::v1::quote_templates_service_client::QuoteTemplatesServiceClient;
 use meteroid_grpc::meteroid::api::schedules::v1::schedules_service_client::SchedulesServiceClient;
 use meteroid_grpc::meteroid::api::signals::v1::signals_service_client::SignalsServiceClient;
 use meteroid_grpc::meteroid::api::stats::v1::stats_service_client::StatsServiceClient;
@@ -77,6 +82,11 @@ pub struct AllClients {
     pub event_insights: EventInsightsServiceClient<TestLayeredClientService>,
     pub organizations: OrganizationsServiceClient<TestLayeredClientService>,
     pub quotes: QuotesServiceClient<TestLayeredClientService>,
+    pub quote_documents: QuoteDocumentsServiceClient<TestLayeredClientService>,
+    pub quote_templates: QuoteTemplatesServiceClient<TestLayeredClientService>,
+    pub quote_approvals: QuoteApprovalsServiceClient<TestLayeredClientService>,
+    pub quote_comments: QuoteCommentsServiceClient<TestLayeredClientService>,
+    pub quote_analytics: QuoteAnalyticsServiceClient<TestLayeredClientService>,
 }
 
 impl AllClients {
@@ -123,6 +133,11 @@ impl AllClients {
             event_insights: EventInsightsServiceClient::new(service.clone()),
             organizations: OrganizationsServiceClient::new(service.clone()),
             quotes: QuotesServiceClient::new(service.clone()),
+            quote_documents: QuoteDocumentsServiceClient::new(service.clone()),
+            quote_templates: QuoteTemplatesServiceClient::new(service.clone()),
+            quote_approvals: QuoteApprovalsServiceClient::new(service.clone()),
+            quote_comments: QuoteCommentsServiceClient::new(service.clone()),
+            quote_analytics: QuoteAnalyticsServiceClient::new(service.clone()),
         }
     }
 

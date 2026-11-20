@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package meteroid.api.quotes.v1;
+
+import "api/quotes/v1/models.proto";
+
+// The signature certificate of an accepted quote (Enterprise, quote-documents module).
+
+message GetQuoteSignatureCertificateRequest {
+  string quote_id = 1;
+}
+
+message GetQuoteSignatureCertificateResponse {
+  optional QuoteSignatureCertificate certificate = 1;
+}
+
+service QuoteDocumentsService {
+  rpc GetQuoteSignatureCertificate(GetQuoteSignatureCertificateRequest) returns (GetQuoteSignatureCertificateResponse) {}
+}
