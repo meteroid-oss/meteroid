@@ -40,6 +40,18 @@ pub fn next_available_slug(base: &str, taken: &[String]) -> String {
     slug
 }
 
+/// The first of `base`, `base 2`, `base 3`, … that is not in `taken`, for a tenant the system
+/// names itself. `taken` must include archived tenants.
+pub fn next_available_name(base: &str, taken: &[String]) -> String {
+    let mut name = base.to_string();
+    let mut i = 2;
+    while taken.contains(&name) {
+        name = format!("{base} {i}");
+        i += 1;
+    }
+    name
+}
+
 #[async_trait::async_trait]
 pub trait TenantInterface {
     async fn insert_tenant(
@@ -68,6 +80,13 @@ pub trait TenantInterface {
         &self,
         organization_id: OrganizationId,
     ) -> StoreResult<Vec<Tenant>>;
+
+    /// Every tenant name in the organization, archived tenants included: none of them can be
+    /// given to another tenant.
+    async fn list_tenant_names_by_organization_id(
+        &self,
+        organization_id: OrganizationId,
+    ) -> StoreResult<Vec<String>>;
 
     /// All non-archived sandbox tenants across organizations (for the
     /// sandbox-maintenance worker).
@@ -389,6 +408,17 @@ impl TenantInterface for Store {
             .await
             .map_err(Into::into)
             .map(|x| x.into_iter().map(Into::into).collect())
+    }
+
+    async fn list_tenant_names_by_organization_id(
+        &self,
+        organization_id: OrganizationId,
+    ) -> StoreResult<Vec<String>> {
+        let mut conn = self.get_conn().await?;
+
+        TenantRow::list_names_by_organization_id(&mut conn, organization_id)
+            .await
+            .map_err(Into::into)
     }
 
     async fn list_sandbox_tenants(&self) -> StoreResult<Vec<Tenant>> {

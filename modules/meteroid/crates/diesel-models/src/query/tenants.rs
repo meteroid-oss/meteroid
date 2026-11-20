@@ -231,6 +231,26 @@ impl TenantRow {
             .into_db_result()
     }
 
+    /// Every name in the org, archived rows included: the name unique index
+    /// `(name, organization_id)` covers archived tenants too.
+    pub async fn list_names_by_organization_id(
+        conn: &mut PgConn,
+        organization_id: OrganizationId,
+    ) -> DbResult<Vec<String>> {
+        use crate::schema::tenant::dsl as t_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = t_dsl::tenant
+            .filter(t_dsl::organization_id.eq(organization_id))
+            .select(t_dsl::name);
+
+        query
+            .get_results(conn)
+            .await
+            .attach("Error while listing tenant names by organization")
+            .into_db_result()
+    }
+
     pub async fn list_by_environment(
         conn: &mut PgConn,
         environment: crate::enums::TenantEnvironmentEnum,
