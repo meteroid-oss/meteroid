@@ -58,7 +58,11 @@ c) Make copies of the Software solely for backup or archival purposes.
 Affiliates, has fewer than 50 employees (full-time equivalent) and less than
 EUR 2,000,000 (or its equivalent in another currency) in annual revenue, both
 measured over its last completed financial year, or over its current one if it
-has none.
+has none. Annual revenue is the higher of (a) its revenue for that year,
+excluding taxes, as its financial statements report it, and (b) the amounts it
+invoiced through the Software in production environments over the last 12
+months, including on behalf of third parties, excluding taxes and net of credit
+notes.
 
 3.2. A Licensee that is not a Qualifying Organization needs a Commercial
 License to use the Software, including its Free Features. The Commercial
