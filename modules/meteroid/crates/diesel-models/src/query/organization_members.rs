@@ -3,11 +3,10 @@ use crate::organization_members::OrganizationMemberRow;
 
 use crate::{DbResult, PgConn};
 
-use common_domain::ids::OrganizationId;
+use common_domain::ids::{OrganizationId, UserId};
 use diesel::ExpressionMethods;
 use diesel::QueryDsl;
 use error_stack::ResultExt;
-use uuid::Uuid;
 
 impl OrganizationMemberRow {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<OrganizationMemberRow> {
@@ -30,7 +29,7 @@ impl OrganizationMemberRow {
     /// Customers are tenant-scoped and members org-scoped, so no FK can express membership.
     pub async fn lock_membership(
         conn: &mut PgConn,
-        user_id_param: Uuid,
+        user_id_param: UserId,
         org_id_param: OrganizationId,
     ) -> DbResult<bool> {
         use crate::schema::organization_member::dsl::{
@@ -45,7 +44,7 @@ impl OrganizationMemberRow {
             .select(user_id)
             .for_share();
 
-        let found: Option<Uuid> = query
+        let found: Option<UserId> = query
             .first(conn)
             .await
             .optional()
@@ -59,8 +58,8 @@ impl OrganizationMemberRow {
     pub async fn filter_members(
         conn: &mut PgConn,
         org_id_param: OrganizationId,
-        user_ids: &[Uuid],
-    ) -> DbResult<Vec<Uuid>> {
+        user_ids: &[UserId],
+    ) -> DbResult<Vec<UserId>> {
         use crate::schema::organization_member::dsl::{
             organization_id, organization_member, user_id,
         };
@@ -81,7 +80,7 @@ impl OrganizationMemberRow {
 
     pub async fn find_by_user_and_org(
         conn: &mut PgConn,
-        user_id_param: Uuid,
+        user_id_param: UserId,
         org_id_param: OrganizationId,
     ) -> DbResult<OrganizationMemberRow> {
         use crate::schema::organization_member::dsl::{
@@ -104,7 +103,7 @@ impl OrganizationMemberRow {
 
     pub async fn delete_member(
         conn: &mut PgConn,
-        user_id_param: Uuid,
+        user_id_param: UserId,
         org_id_param: OrganizationId,
     ) -> DbResult<()> {
         use crate::schema::organization_member::dsl::{
@@ -131,7 +130,7 @@ impl OrganizationMemberRow {
 
     pub async fn update_role(
         conn: &mut PgConn,
-        user_id_param: Uuid,
+        user_id_param: UserId,
         org_id_param: OrganizationId,
         new_role: crate::enums::OrganizationUserRole,
         new_role_id: Option<common_domain::ids::RoleId>,
@@ -179,7 +178,7 @@ impl OrganizationMemberRow {
     }
     pub async fn list_by_user_for_update(
         conn: &mut PgConn,
-        user_id_param: Uuid,
+        user_id_param: UserId,
     ) -> DbResult<Vec<OrganizationMemberRow>> {
         use crate::schema::organization_member::dsl::{organization_member, user_id};
         use diesel_async::RunQueryDsl;

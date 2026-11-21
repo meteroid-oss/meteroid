@@ -3,7 +3,7 @@ use crate::errors::IntoDbResult;
 use crate::sent_email::{SentEmailRow, SentEmailRowNew, SentEmailWithEntityRow};
 use crate::{DbResult, PgConn};
 use chrono::NaiveDateTime;
-use common_domain::ids::{EntityActivityId, InvoicingEntityId, TenantId};
+use common_domain::ids::{CustomerId, EntityActivityId, InvoicingEntityId, TenantId};
 use diesel::{BoolExpressionMethods, ExpressionMethods, QueryDsl, SelectableHelper};
 use error_stack::ResultExt;
 use uuid::Uuid;
@@ -16,7 +16,7 @@ pub struct SentEmailFilter {
     pub entity_type: Option<String>,
     pub entity_id: Option<Uuid>,
     /// Emails sent to the customer or about one of its entities.
-    pub customer_id: Option<Uuid>,
+    pub customer_id: Option<CustomerId>,
 }
 
 /// Keyset cursor on `(sent_at DESC, id DESC)`.

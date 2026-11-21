@@ -1198,8 +1198,8 @@ impl CustomerLifecycleSignalRow {
     /// columns: the same aggregate passes, scoped to one `customer_id`.
     pub async fn fetch_for_customer(
         conn: &mut PgConn,
-        customer_id: uuid::Uuid,
-        tenant_id: uuid::Uuid,
+        customer_id: CustomerId,
+        tenant_id: TenantId,
     ) -> DbResult<Option<CustomerLifecycleSignalRow>> {
         use diesel_async::RunQueryDsl;
 

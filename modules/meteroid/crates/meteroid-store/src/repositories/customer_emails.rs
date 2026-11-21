@@ -170,7 +170,7 @@ impl TryFrom<SentEmailWithEntityRow> for SentEmailDetail {
             email: SentEmail::from(row.email),
             entity_type: row.entity_type,
             entity_id: row.entity_id,
-            customer_id: row.agg_customer_id.map(CustomerId::from),
+            customer_id: row.agg_customer_id,
         })
     }
 }
@@ -178,7 +178,8 @@ impl TryFrom<SentEmailWithEntityRow> for SentEmailDetail {
 impl From<SentEmailWithEntityRow> for SentEmailSummary {
     fn from(row: SentEmailWithEntityRow) -> Self {
         let customer_id = row.agg_customer_id.or_else(|| {
-            (row.entity_type == EntityType::Customer.to_string()).then_some(row.entity_id)
+            (row.entity_type == EntityType::Customer.to_string())
+                .then_some(CustomerId::from(row.entity_id))
         });
         Self {
             id: row.email.id,
@@ -189,7 +190,7 @@ impl From<SentEmailWithEntityRow> for SentEmailSummary {
             locale: row.email.locale,
             entity_type: row.entity_type,
             entity_id: row.entity_id,
-            customer_id: customer_id.map(CustomerId::from),
+            customer_id,
             resent_from: row.email.resent_from,
         }
     }
@@ -216,7 +217,7 @@ impl From<EntityActivityRow> for SkippedEmailSummary {
             reason,
             entity_type: row.entity_type,
             entity_id: row.entity_id,
-            customer_id: row.agg_customer_id.map(CustomerId::from),
+            customer_id: row.agg_customer_id,
         }
     }
 }
@@ -1534,11 +1535,10 @@ impl CustomerEmailsInterface for Store {
                             "request_id": request_id,
                         }));
                 if let Some(customer) = entry.agg_customer_id {
-                    audit = audit.agg_customer(CustomerId::from(customer));
+                    audit = audit.agg_customer(customer);
                 }
                 if let Some(subscription) = entry.agg_subscription_id {
-                    audit = audit
-                        .agg_subscription(common_domain::ids::SubscriptionId::from(subscription));
+                    audit = audit.agg_subscription(subscription);
                 }
                 self.internal
                     .record_audit_tx(conn, tenant_id, actor, AuditInput::Activity(audit))

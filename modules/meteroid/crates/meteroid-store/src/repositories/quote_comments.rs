@@ -108,12 +108,12 @@ impl Store {
         tenant_id: TenantId,
         quote: &QuoteRow,
     ) -> StoreResult<Vec<String>> {
-        let mut ids: Vec<UserId> = quote.owner_id.map(Into::into).into_iter().collect();
+        let mut ids: Vec<UserId> = quote.owner_id.into_iter().collect();
         for comment in QuoteCommentRow::list_by_quote_id(conn, tenant_id, quote.id, false)
             .await
             .map_err(db_err)?
         {
-            if let Some(id) = comment.author_user_id.map(UserId::from)
+            if let Some(id) = comment.author_user_id
                 && !ids.contains(&id)
             {
                 ids.push(id);
@@ -244,11 +244,9 @@ impl QuoteCommentsInterface for Store {
                                 "Publish the quote before writing to the customer",
                             ));
                         }
-                        let user = UserRow::find_by_id(conn, user_id.as_uuid())
-                            .await
-                            .map_err(db_err)?;
+                        let user = UserRow::find_by_id(conn, *user_id).await.map_err(db_err)?;
                         let name = author_name_tx(conn, tenant_id, &quote, &user).await?;
-                        (Some(user_id.as_uuid()), None, name, comment.shared)
+                        (Some(*user_id), None, name, comment.shared)
                     }
                     QuoteCommentAuthor::Recipient { email } => {
                         if quote.status != QuoteStatusEnum::Pending {
@@ -371,7 +369,7 @@ impl QuoteCommentsInterface for Store {
                         tenant_id,
                         row.quote_id,
                         Some(id),
-                        Some(resolved_by.as_uuid()),
+                        Some(resolved_by),
                         common_clock::now().naive_utc(),
                     )
                     .await

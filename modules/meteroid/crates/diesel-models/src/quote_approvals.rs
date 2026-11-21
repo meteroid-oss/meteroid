@@ -1,8 +1,7 @@
 use crate::enums::QuoteApprovalStatusEnum;
 use chrono::NaiveDateTime;
-use common_domain::ids::{QuoteApprovalId, QuoteApprovalRuleId, QuoteId, TenantId};
+use common_domain::ids::{QuoteApprovalId, QuoteApprovalRuleId, QuoteId, TenantId, UserId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Identifiable, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::quote_approval_rule)]
@@ -15,7 +14,7 @@ pub struct QuoteApprovalRuleRow {
     pub max_net_terms_days: Option<i32>,
     pub max_trial_days: Option<i32>,
     pub always: bool,
-    pub approver_user_ids: Vec<Option<Uuid>>,
+    pub approver_user_ids: Vec<Option<UserId>>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
@@ -31,7 +30,7 @@ pub struct QuoteApprovalRuleRowNew {
     pub max_net_terms_days: Option<i32>,
     pub max_trial_days: Option<i32>,
     pub always: bool,
-    pub approver_user_ids: Vec<Option<Uuid>>,
+    pub approver_user_ids: Vec<Option<UserId>>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -43,7 +42,7 @@ pub struct QuoteApprovalRuleRowPatch {
     pub max_net_terms_days: Option<i32>,
     pub max_trial_days: Option<i32>,
     pub always: bool,
-    pub approver_user_ids: Vec<Option<Uuid>>,
+    pub approver_user_ids: Vec<Option<UserId>>,
     pub updated_at: NaiveDateTime,
 }
 
@@ -56,12 +55,12 @@ pub struct QuoteApprovalRow {
     pub quote_id: QuoteId,
     pub revision: i32,
     pub document_hash: String,
-    pub rule_ids: Vec<Option<Uuid>>,
+    pub rule_ids: Vec<Option<QuoteApprovalRuleId>>,
     pub status: QuoteApprovalStatusEnum,
-    pub requested_by: Option<Uuid>,
+    pub requested_by: Option<UserId>,
     pub requested_at: NaiveDateTime,
     pub request_note: Option<String>,
-    pub decided_by: Option<Uuid>,
+    pub decided_by: Option<UserId>,
     pub decided_at: Option<NaiveDateTime>,
     pub decision_note: Option<String>,
 }
@@ -74,8 +73,8 @@ pub struct QuoteApprovalRowNew {
     pub quote_id: QuoteId,
     pub revision: i32,
     pub document_hash: String,
-    pub rule_ids: Vec<Option<Uuid>>,
+    pub rule_ids: Vec<Option<QuoteApprovalRuleId>>,
     pub status: QuoteApprovalStatusEnum,
-    pub requested_by: Option<Uuid>,
+    pub requested_by: Option<UserId>,
     pub request_note: Option<String>,
 }

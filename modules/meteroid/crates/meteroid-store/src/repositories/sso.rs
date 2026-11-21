@@ -189,13 +189,10 @@ impl SsoInterface for Store {
         let (user_id, response) = match existing {
             Some(user) => {
                 let uid = user.id;
-                let is_member = OrganizationMemberRow::find_by_user_and_org(
-                    &mut conn,
-                    uid.as_uuid(),
-                    organization_id,
-                )
-                .await
-                .is_ok();
+                let is_member =
+                    OrganizationMemberRow::find_by_user_and_org(&mut conn, uid, organization_id)
+                        .await
+                        .is_ok();
                 if !is_member {
                     // Prefer the invite (keeps its role); else JIT if enabled.
                     let joined = match &invite_key {
@@ -268,7 +265,7 @@ impl SsoInterface for Store {
                     .publish(Event::user_created(None, new_user.id, None))
                     .await;
 
-                let user = UserRow::find_by_id(&mut conn, new_user.id.as_uuid())
+                let user = UserRow::find_by_id(&mut conn, new_user.id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
                 let response = finalize_login(self, &mut conn, user).await?;

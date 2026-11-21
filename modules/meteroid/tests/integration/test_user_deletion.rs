@@ -134,7 +134,7 @@ async fn test_delete_user() {
 
     // Anonymised in place: the id survives, the personal data does not.
     let mut conn = store.get_conn().await.unwrap();
-    let row = UserRow::find_by_id(&mut conn, *second_id).await.unwrap();
+    let row = UserRow::find_by_id(&mut conn, second_id).await.unwrap();
     assert_eq!(row.email, format!("deleted+{second_id}@deleted.invalid"));
     assert!(row.archived_at.is_some());
     assert!(row.password_hash.is_none());

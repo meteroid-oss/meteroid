@@ -3,8 +3,7 @@
 use super::error::ActivityApiError;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use common_domain::ids::{CustomerId, SubscriptionId};
-use common_domain::ids::{OrganizationId, TenantId, UserId};
+use common_domain::ids::{BaseId, OrganizationId, TenantId, UserId};
 use meteroid_app::conversions::ProtoConv;
 use meteroid_app::services::support::SUPPORT_ACTOR_NAME;
 use meteroid_grpc::meteroid::api::activity::v1::{ActivityEntry, ActorType as ProtoActorType};
@@ -68,10 +67,10 @@ pub fn collect_entity_refs(entries: &[EntityActivity]) -> Vec<(EntityType, Uuid)
             out.push((et, e.entity_id));
         }
         if let Some(c) = e.agg_customer_id {
-            out.push((EntityType::Customer, c));
+            out.push((EntityType::Customer, c.as_uuid()));
         }
         if let Some(s) = e.agg_subscription_id {
-            out.push((EntityType::Subscription, s));
+            out.push((EntityType::Subscription, s.as_uuid()));
         }
     }
     out
@@ -110,12 +109,16 @@ pub fn to_proto_entry(
             .and_then(|u| actor_names.get(&(a.actor_type, u)).cloned()),
     };
 
-    let agg_customer_name = a
-        .agg_customer_id
-        .and_then(|u| entity_names.get(&(EntityType::Customer, u)).cloned());
-    let agg_subscription_name = a
-        .agg_subscription_id
-        .and_then(|u| entity_names.get(&(EntityType::Subscription, u)).cloned());
+    let agg_customer_name = a.agg_customer_id.and_then(|u| {
+        entity_names
+            .get(&(EntityType::Customer, u.as_uuid()))
+            .cloned()
+    });
+    let agg_subscription_name = a.agg_subscription_id.and_then(|u| {
+        entity_names
+            .get(&(EntityType::Subscription, u.as_uuid()))
+            .cloned()
+    });
 
     ActivityEntry {
         id: a.id.as_proto(),
@@ -127,10 +130,8 @@ pub fn to_proto_entry(
         actor_name,
         metadata_json: a.metadata.map(|m| m.to_string()),
         occurred_at: a.occurred_at.as_proto(),
-        agg_customer_id: a.agg_customer_id.map(|u| CustomerId::from(u).as_proto()),
-        agg_subscription_id: a
-            .agg_subscription_id
-            .map(|u| SubscriptionId::from(u).as_proto()),
+        agg_customer_id: a.agg_customer_id.map(|id| id.as_proto()),
+        agg_subscription_id: a.agg_subscription_id.map(|id| id.as_proto()),
         entity_name,
         entity_deleted,
         agg_customer_name,

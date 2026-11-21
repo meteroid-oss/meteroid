@@ -1575,15 +1575,11 @@ impl Store {
 
         // A quote created through the API has no owner: nobody on the team to tell.
         if let Some(owner_id) = quote.owner_id {
-            let owner = UserRow::find_members_by_ids(
-                conn,
-                &[common_domain::ids::UserId::from(owner_id)],
-                tenant_id,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .into_iter()
-            .next();
+            let owner = UserRow::find_members_by_ids(conn, &[owner_id], tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .next();
             if let Some(owner) = owner {
                 messages.push(
                     SendEmailRequest::QuoteOutcome {

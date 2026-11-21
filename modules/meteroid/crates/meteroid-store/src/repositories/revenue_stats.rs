@@ -10,7 +10,6 @@ use common_domain::ids::{CustomerId, PlanId, TenantId};
 use diesel_models::enums::MrrMovementType as DbMovementType;
 use diesel_models::revenue_stats::{CustomerNameRow, MrrLogRow, MrrMovementDayRow, RevenueDayRow};
 use error_stack::Report;
-use uuid::Uuid;
 
 use crate::domain::fx::FxTable;
 use crate::domain::stats::{
@@ -119,10 +118,6 @@ fn convert(
         .unwrap_or_default()
 }
 
-fn plan_uuids(plan_ids: &[PlanId]) -> Vec<Uuid> {
-    plan_ids.iter().map(|p| **p).collect()
-}
-
 #[async_trait::async_trait]
 impl RevenueStats for PgRevenueStats {
     async fn mrr_timeseries(
@@ -134,7 +129,6 @@ impl RevenueStats for PgRevenueStats {
         split_by_plan: bool,
         reporting_currency: &str,
     ) -> StoreResult<MrrTimeseriesRows> {
-        let plans = plan_uuids(plan_ids);
         let mut conn = self.store.get_conn().await?;
         let before = MrrMovementDayRow::list(
             &mut conn,
@@ -142,7 +136,7 @@ impl RevenueStats for PgRevenueStats {
             None,
             from,
             false,
-            &plans,
+            plan_ids,
             split_by_plan,
         )
         .await
@@ -153,7 +147,7 @@ impl RevenueStats for PgRevenueStats {
             Some(from),
             to,
             true,
-            &plans,
+            plan_ids,
             split_by_plan,
         )
         .await
@@ -166,7 +160,7 @@ impl RevenueStats for PgRevenueStats {
             )
             .await?;
 
-        let mut opening: BTreeMap<Option<Uuid>, i64> = BTreeMap::new();
+        let mut opening: BTreeMap<Option<PlanId>, i64> = BTreeMap::new();
         for row in before
             .iter()
             .filter(|r| convertible(&tables, r.date, &r.currency))
@@ -174,7 +168,7 @@ impl RevenueStats for PgRevenueStats {
             *opening.entry(row.plan_id).or_default() +=
                 convert(&tables, row.date, row.net, &row.currency);
         }
-        let mut points: BTreeMap<(NaiveDate, Option<Uuid>), MrrTimeseriesPointRow> =
+        let mut points: BTreeMap<(NaiveDate, Option<PlanId>), MrrTimeseriesPointRow> =
             BTreeMap::new();
         for row in within
             .iter()
@@ -186,7 +180,7 @@ impl RevenueStats for PgRevenueStats {
                     .entry((row.date, row.plan_id))
                     .or_insert_with(|| MrrTimeseriesPointRow {
                         date: row.date,
-                        plan_id: row.plan_id.map(PlanId::from),
+                        plan_id: row.plan_id,
                         ..Default::default()
                     });
             point.net_mrr_cents += c(row.net);
@@ -204,10 +198,7 @@ impl RevenueStats for PgRevenueStats {
         Ok(MrrTimeseriesRows {
             opening: opening
                 .into_iter()
-                .map(|(plan_id, mrr_cents)| MrrOpeningBalanceRow {
-                    plan_id: plan_id.map(PlanId::from),
-                    mrr_cents,
-                })
+                .map(|(plan_id, mrr_cents)| MrrOpeningBalanceRow { plan_id, mrr_cents })
                 .collect(),
             points: points.into_values().collect(),
         })
@@ -222,15 +213,9 @@ impl RevenueStats for PgRevenueStats {
         reporting_currency: &str,
     ) -> StoreResult<Vec<RevenueDailyPointRow>> {
         let mut conn = self.store.get_conn().await?;
-        let rows = RevenueDayRow::list(
-            &mut conn,
-            tenant_id,
-            Some((from, to)),
-            &plan_uuids(plan_ids),
-            false,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+        let rows = RevenueDayRow::list(&mut conn, tenant_id, Some((from, to)), plan_ids, false)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
         drop(conn);
         let tables = self
             .fx_tables(rows.iter().map(|r| r.date), reporting_currency)
@@ -267,10 +252,9 @@ impl RevenueStats for PgRevenueStats {
             .map(|row| MrrLogEntry {
                 created_at: row.created_at,
                 applies_to: row.applies_to,
-                customer_id: CustomerId::from(row.customer_id).to_string(),
+                customer_id: row.customer_id.to_string(),
                 customer_name: row.customer_name,
-                subscription_id: common_domain::ids::SubscriptionId::from(row.subscription_id)
-                    .to_string(),
+                subscription_id: row.subscription_id.to_string(),
                 plan_name: row.plan_name,
                 description: row.description,
                 mrr_type: match row.movement_type {
@@ -300,7 +284,7 @@ impl RevenueStats for PgRevenueStats {
             .fx_tables(rows.iter().map(|r| r.date), reporting_currency)
             .await?;
         let year = common_clock::now().date_naive().year();
-        let mut totals: HashMap<Uuid, (i64, i64)> = HashMap::new();
+        let mut totals: HashMap<CustomerId, (i64, i64)> = HashMap::new();
         for row in rows
             .iter()
             .filter(|r| convertible(&tables, r.date, &r.currency))
@@ -315,11 +299,11 @@ impl RevenueStats for PgRevenueStats {
                 total.0 += amount;
             }
         }
-        let mut ranked: Vec<(Uuid, (i64, i64))> = totals.into_iter().collect();
+        let mut ranked: Vec<(CustomerId, (i64, i64))> = totals.into_iter().collect();
         ranked.sort_by(|a, b| b.1.1.cmp(&a.1.1).then(a.0.cmp(&b.0)));
         ranked.truncate(limit as usize);
-        let ids: Vec<Uuid> = ranked.iter().map(|(id, _)| *id).collect();
-        let names: HashMap<Uuid, String> = CustomerNameRow::list(&mut conn, tenant_id, &ids)
+        let ids: Vec<CustomerId> = ranked.iter().map(|(id, _)| *id).collect();
+        let names: HashMap<CustomerId, String> = CustomerNameRow::list(&mut conn, tenant_id, &ids)
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()
@@ -329,7 +313,7 @@ impl RevenueStats for PgRevenueStats {
             .into_iter()
             .map(|(id, (revenue_ytd, revenue_all_time))| RevenueByCustomer {
                 customer_name: names.get(&id).cloned().unwrap_or_default(),
-                customer_id: CustomerId::from(id),
+                customer_id: id,
                 revenue_ytd,
                 revenue_all_time,
                 currency: reporting_currency.to_string(),

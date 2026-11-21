@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use common_domain::ids::{BaseId, EntityActivityId, TenantId};
+use common_domain::ids::{BaseId, CustomerId, EntityActivityId, SubscriptionId, TenantId};
 use diesel_models::entity_activity::{EntityActivityRow, EntityActivityRowNew};
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
@@ -810,8 +810,8 @@ pub struct EntityActivity {
     pub actor_alias: Option<String>,
     pub metadata: Option<serde_json::Value>,
     pub occurred_at: NaiveDateTime,
-    pub agg_customer_id: Option<Uuid>,
-    pub agg_subscription_id: Option<Uuid>,
+    pub agg_customer_id: Option<CustomerId>,
+    pub agg_subscription_id: Option<SubscriptionId>,
 }
 
 pub(crate) fn build_row_new(
@@ -823,11 +823,11 @@ pub(crate) fn build_row_new(
     // so the insert fails cleanly rather than as an opaque DB error.
     let agg_customer_id = match activity.entity_type {
         EntityType::Customer => None,
-        _ => activity.agg_customer_id.map(|id| id.as_uuid()),
+        _ => activity.agg_customer_id,
     };
     let agg_subscription_id = match activity.entity_type {
         EntityType::Subscription => None,
-        _ => activity.agg_subscription_id.map(|id| id.as_uuid()),
+        _ => activity.agg_subscription_id,
     };
 
     EntityActivityRowNew {

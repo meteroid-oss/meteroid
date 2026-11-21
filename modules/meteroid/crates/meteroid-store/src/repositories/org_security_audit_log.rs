@@ -143,21 +143,19 @@ pub async fn record_auth_event_for_user_orgs(
         }
     };
 
-    let org_rows = match diesel_models::organizations::OrganizationRow::list_by_user_id(
-        &mut conn,
-        user_id.as_uuid(),
-    )
-    .await
-    {
-        Ok(rows) => rows,
-        Err(err) => {
-            tracing::warn!(
-                ?err,
-                "audit: could not list user's orgs; dropping {event_type:?}"
-            );
-            return;
-        }
-    };
+    let org_rows =
+        match diesel_models::organizations::OrganizationRow::list_by_user_id(&mut conn, user_id)
+            .await
+        {
+            Ok(rows) => rows,
+            Err(err) => {
+                tracing::warn!(
+                    ?err,
+                    "audit: could not list user's orgs; dropping {event_type:?}"
+                );
+                return;
+            }
+        };
 
     let actor = Actor::User { id: user_id };
     for org in org_rows {
@@ -166,7 +164,7 @@ pub async fn record_auth_event_for_user_orgs(
             event_type,
             actor: actor.clone(),
             actor_email: Some(user_email.to_string()),
-            target_user_id: Some(user_id.as_uuid()),
+            target_user_id: Some(user_id),
             target_email: Some(user_email.to_string()),
             metadata: metadata.clone(),
             context: context.clone(),

@@ -6,7 +6,6 @@ use crate::{DbResult, PgConn};
 use common_domain::ids::{OrganizationId, TenantId, UserId};
 use diesel::{ExpressionMethods, JoinOnDsl, OptionalExtension, QueryDsl, SelectableHelper};
 use error_stack::ResultExt;
-use uuid::Uuid;
 
 impl UserRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<()> {
@@ -27,7 +26,7 @@ impl UserRowNew {
 }
 
 impl UserRow {
-    pub async fn find_by_id(conn: &mut PgConn, id: Uuid) -> DbResult<UserRow> {
+    pub async fn find_by_id(conn: &mut PgConn, id: UserId) -> DbResult<UserRow> {
         use crate::schema::user::dsl as u_dsl;
         use diesel_async::RunQueryDsl;
 
@@ -91,7 +90,7 @@ impl UserRow {
 
     pub async fn find_by_id_and_org_id(
         conn: &mut PgConn,
-        id: Uuid,
+        id: UserId,
         organization_id: OrganizationId,
     ) -> DbResult<UserWithRoleRow> {
         use crate::schema::organization_member::dsl as om_dsl;
@@ -115,7 +114,7 @@ impl UserRow {
 
     pub async fn find_by_id_and_tenant_id(
         conn: &mut PgConn,
-        id: Uuid,
+        id: UserId,
         tenant_id: TenantId,
     ) -> DbResult<UserWithRoleRow> {
         use crate::schema::organization_member::dsl as om_dsl;
@@ -221,7 +220,7 @@ impl UserRow {
 
     pub async fn update_password_hash(
         conn: &mut PgConn,
-        user_id: Uuid,
+        user_id: UserId,
         new_password_hash: &str,
     ) -> DbResult<()> {
         use crate::schema::user::dsl as u_dsl;

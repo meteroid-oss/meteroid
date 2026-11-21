@@ -187,9 +187,9 @@ impl EntityActivityInterface for Store {
             "customer" | "subscription" => {
                 let mut filter = EntityActivityFilter::default();
                 if entity_type == "customer" {
-                    filter.rollup_customer_id = Some(entity_id);
+                    filter.rollup_customer_id = Some(entity_id.into());
                 } else {
-                    filter.rollup_subscription_id = Some(entity_id);
+                    filter.rollup_subscription_id = Some(entity_id.into());
                 }
                 EntityActivityRow::list_filtered(
                     &mut conn,
@@ -342,8 +342,8 @@ impl EntityActivityInterfaceEmail for Store {
                     actor_uuid: actor.as_uuid(),
                     actor_alias: actor.actor_alias(),
                     metadata: Some(activity_metadata),
-                    agg_customer_id: sent.agg_customer_id.map(|c| c.as_uuid()),
-                    agg_subscription_id: sent.agg_subscription_id.map(|s| s.as_uuid()),
+                    agg_customer_id: sent.agg_customer_id,
+                    agg_subscription_id: sent.agg_subscription_id,
                 };
                 activity_row
                     .insert(conn)

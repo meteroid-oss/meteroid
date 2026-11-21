@@ -78,8 +78,8 @@ impl QuoteDraftsInterface for Store {
                         id: QuoteDraftId::new(),
                         tenant_id,
                         quote_id: save.quote_id,
-                        created_by: user_id.as_uuid(),
-                        updated_by: Some(user_id.as_uuid()),
+                        created_by: user_id,
+                        updated_by: Some(user_id),
                         label: save.label,
                         payload: save.payload,
                         payload_version: save.payload_version,
@@ -109,7 +109,7 @@ impl QuoteDraftsInterface for Store {
                     save.payload,
                     save.payload_version,
                     save.label,
-                    user_id.as_uuid(),
+                    user_id,
                 )
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;

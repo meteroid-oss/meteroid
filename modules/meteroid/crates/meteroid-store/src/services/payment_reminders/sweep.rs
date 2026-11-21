@@ -600,7 +600,7 @@ impl StoreInternal {
         }
         let sequence_ids: Vec<PaymentReminderSequenceId> = rows
             .iter()
-            .map(|r| PaymentReminderSequenceId::from(r.sequence_id))
+            .map(|r| r.sequence_id)
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
@@ -616,7 +616,7 @@ impl StoreInternal {
         }
         let mut restamped = 0;
         for row in rows {
-            let Some(offsets) = steps.get(&PaymentReminderSequenceId::from(row.sequence_id)) else {
+            let Some(offsets) = steps.get(&row.sequence_id) else {
                 continue;
             };
             let anchor = anchor_date(row.due_at, row.finalized_at, &window);
@@ -630,7 +630,7 @@ impl StoreInternal {
             ) else {
                 continue;
             };
-            InvoiceReminderUpdates::defer(conn, InvoiceId::from(row.invoice_id), tenant_id, next)
+            InvoiceReminderUpdates::defer(conn, row.invoice_id, tenant_id, next)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
             restamped += 1;
@@ -728,11 +728,11 @@ impl Services {
             };
             after = Some(ScanCursor {
                 at: last.next_reminder_at,
-                invoice_id: InvoiceId::from(last.invoice_id),
+                invoice_id: last.invoice_id,
             });
             for row in &page {
-                let invoice_id = InvoiceId::from(row.invoice_id);
-                let tenant_id = TenantId::from(row.tenant_id);
+                let invoice_id = row.invoice_id;
+                let tenant_id = row.tenant_id;
                 if !visited.insert(invoice_id) {
                     continue;
                 }
@@ -993,8 +993,8 @@ impl Services {
         now: NaiveDateTime,
         stats: &mut SweepStats,
     ) -> StoreResult<()> {
-        let tenant_id = TenantId::from(entity.tenant_id);
-        let invoicing_entity_id = InvoicingEntityId::from(entity.invoicing_entity_id);
+        let tenant_id = entity.tenant_id;
+        let invoicing_entity_id = entity.invoicing_entity_id;
         let rules = self
             .store
             .internal
@@ -1028,7 +1028,7 @@ impl Services {
             scanned += page.len();
             after = Some(ScanCursor {
                 at: last.anchor,
-                invoice_id: InvoiceId::from(last.invoice_id),
+                invoice_id: last.invoice_id,
             });
             let exhausted = (page.len() as i64) < ENROLL_BATCH;
             self.enroll_batch(conn, &rules, now, page, stats).await?;
@@ -1073,12 +1073,7 @@ impl Services {
     ) -> StoreResult<()> {
         let candidates: Vec<(InvoiceId, Option<PaymentReminderSequenceId>)> = rows
             .iter()
-            .map(|r| {
-                (
-                    InvoiceId::from(r.invoice_id),
-                    r.customer_override_id.map(PaymentReminderSequenceId::from),
-                )
-            })
+            .map(|r| (r.invoice_id, r.customer_override_id))
             .collect();
         let resolved = self
             .store
@@ -1086,7 +1081,7 @@ impl Services {
             .resolve_sequences(conn, rules, &candidates)
             .await?;
         for row in rows {
-            let invoice_id = InvoiceId::from(row.invoice_id);
+            let invoice_id = row.invoice_id;
             let Some(winner) = resolved.get(&invoice_id) else {
                 continue;
             };

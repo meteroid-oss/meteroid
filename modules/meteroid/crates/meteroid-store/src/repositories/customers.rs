@@ -917,10 +917,9 @@ impl CustomersInterface for Store {
     ) -> StoreResult<String> {
         let mut conn = self.get_conn().await?;
 
-        let row =
-            CustomerLifecycleSignalRow::fetch_for_customer(&mut conn, *customer_id, *tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let row = CustomerLifecycleSignalRow::fetch_for_customer(&mut conn, customer_id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         let signals = row.map(signals_from_row).unwrap_or_default();
 

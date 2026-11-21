@@ -2190,10 +2190,7 @@ pub(crate) async fn settlement_holdings_tx(
     if settlements.is_empty() {
         return Ok(Vec::new());
     }
-    let ids = settlements
-        .iter()
-        .map(|s| s.id.as_uuid())
-        .collect::<Vec<_>>();
+    let ids = settlements.iter().map(|s| s.id).collect::<Vec<_>>();
     let draws = CustomerCreditEntryRow::list_settlement_draws(conn, tenant_id, &ids).await?;
     let mut grant_ids = draws.iter().map(|e| e.grant_id).collect::<Vec<_>>();
     grant_ids.sort_by_key(|id| id.as_uuid());
@@ -2668,8 +2665,7 @@ pub(crate) async fn return_settlement_tx(
     };
     let source = give_back_source(settlement.id.as_uuid(), DrawSource::UsageSettlement);
     let draws =
-        CustomerCreditEntryRow::list_settlement_draws(conn, tenant_id, &[settlement.id.as_uuid()])
-            .await?;
+        CustomerCreditEntryRow::list_settlement_draws(conn, tenant_id, &[settlement.id]).await?;
     let mut returned = 0_i64;
     let mut given_to = Vec::new();
     for draw in draws {
@@ -2702,7 +2698,7 @@ pub(crate) async fn return_settlement_tx(
 pub(crate) async fn settlement_holders_tx(
     conn: &mut PgConn,
     tenant_id: TenantId,
-    settlement_ids: &[Uuid],
+    settlement_ids: &[UsageSettlementId],
 ) -> StoreResult<Vec<(GrantCandidate, i64)>> {
     if settlement_ids.is_empty() {
         return Ok(Vec::new());
@@ -2854,7 +2850,7 @@ pub(crate) async fn estimate_settled_tx(
     if rows.is_empty() {
         return Ok(Vec::new());
     }
-    let settlements = rows.iter().map(|s| s.id.as_uuid()).collect::<Vec<_>>();
+    let settlements = rows.iter().map(|s| s.id).collect::<Vec<_>>();
     let draws =
         CustomerCreditEntryRow::list_settlement_draws(conn, tenant_id, &settlements).await?;
     let mut ids = draws.iter().map(|e| e.grant_id).collect::<Vec<_>>();

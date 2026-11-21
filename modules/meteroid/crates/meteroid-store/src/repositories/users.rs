@@ -305,14 +305,14 @@ impl UserInterface for Store {
     async fn me(&self, auth_user_id: UserId) -> StoreResult<Me> {
         let mut conn = self.get_conn().await?;
 
-        let org_rows = OrganizationRow::list_by_user_id(&mut conn, *auth_user_id)
+        let org_rows = OrganizationRow::list_by_user_id(&mut conn, auth_user_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
         let any_org_requires_mfa = org_rows.iter().any(|o| o.mfa_required);
         let organizations: Vec<Organization> = org_rows.into_iter().map(Into::into).collect();
 
-        let user: User = UserRow::find_by_id(&mut conn, *auth_user_id)
+        let user: User = UserRow::find_by_id(&mut conn, auth_user_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)
             .map(Into::into)?;
@@ -398,7 +398,7 @@ impl UserInterface for Store {
     ) -> StoreResult<UserWithRole> {
         let mut conn = self.get_conn().await?;
 
-        UserRow::find_by_id_and_org_id(&mut conn, *id, org_id)
+        UserRow::find_by_id_and_org_id(&mut conn, id, org_id)
             .await
             .map_err(Into::into)
             .map(Into::into)
@@ -411,7 +411,7 @@ impl UserInterface for Store {
     ) -> StoreResult<UserWithRole> {
         let mut conn = self.get_conn().await?;
 
-        UserRow::find_by_id_and_tenant_id(&mut conn, *id, tenant_id)
+        UserRow::find_by_id_and_tenant_id(&mut conn, id, tenant_id)
             .await
             .map_err(Into::into)
             .map(Into::into)
@@ -428,25 +428,20 @@ impl UserInterface for Store {
         if user_ids.is_empty() || admin_org == org_id {
             return Ok(HashSet::new());
         }
-        let uuids: Vec<Uuid> = user_ids.iter().map(|u| u.as_uuid()).collect();
         let mut conn = self.get_conn().await?;
-        let staff = OrganizationMemberRow::filter_members(&mut conn, admin_org, &uuids)
+        let staff = OrganizationMemberRow::filter_members(&mut conn, admin_org, user_ids)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
         if staff.is_empty() {
             return Ok(HashSet::new());
         }
-        let members: HashSet<Uuid> =
+        let members: HashSet<UserId> =
             OrganizationMemberRow::filter_members(&mut conn, org_id, &staff)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
                 .collect();
-        Ok(staff
-            .into_iter()
-            .filter(|u| !members.contains(u))
-            .map(UserId::from)
-            .collect())
+        Ok(staff.into_iter().filter(|u| !members.contains(u)).collect())
     }
 
     async fn find_user_by_email_and_organization(
@@ -504,7 +499,7 @@ impl UserInterface for Store {
             .publish(Event::user_created(None, user_new.id, None))
             .await;
 
-        UserRow::find_by_id(&mut conn, *user_new.id)
+        UserRow::find_by_id(&mut conn, user_new.id)
             .await
             .map_err(Into::<Report<StoreError>>::into)
             .map(|row| (row.into(), true))
@@ -525,7 +520,7 @@ impl UserInterface for Store {
     async fn _find_user_by_id(&self, id: UserId) -> StoreResult<User> {
         let mut conn = self.get_conn().await?;
 
-        UserRow::find_by_id(&mut conn, *id)
+        UserRow::find_by_id(&mut conn, id)
             .await
             .map_err(Into::into)
             .map(Into::into)
@@ -689,13 +684,14 @@ impl UserInterface for Store {
         .map_err(|_| StoreError::InvalidArgument("invalid token".into()))?;
 
         let user_id = Uuid::parse_str(token_data.claims.sub.as_str())
+            .map(UserId::from)
             .map_err(|_| StoreError::InvalidArgument("invalid token".into()))?;
 
         let new_password_hash = hash_password(new_password.expose_secret())?;
 
         let mut conn = self.get_conn().await?;
 
-        if !UserRow::is_active(&mut conn, UserId::from(user_id))
+        if !UserRow::is_active(&mut conn, user_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?
         {
@@ -806,7 +802,7 @@ impl UserInterface for Store {
     async fn init_mfa_enrollment(&self, user_id: UserId) -> StoreResult<MfaEnrollmentInit> {
         let mut conn = self.get_conn().await?;
 
-        let user = UserRow::find_by_id(&mut conn, user_id.as_uuid())
+        let user = UserRow::find_by_id(&mut conn, user_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -839,7 +835,7 @@ impl UserInterface for Store {
     ) -> StoreResult<MfaActivated> {
         let mut conn = self.get_conn().await?;
 
-        let user = UserRow::find_by_id(&mut conn, user_id.as_uuid())
+        let user = UserRow::find_by_id(&mut conn, user_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -885,7 +881,7 @@ impl UserInterface for Store {
     async fn disable_mfa(&self, user_id: UserId, password: SecretString) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        let user = UserRow::find_by_id(&mut conn, user_id.as_uuid())
+        let user = UserRow::find_by_id(&mut conn, user_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -914,7 +910,7 @@ impl UserInterface for Store {
     ) -> StoreResult<MfaActivated> {
         let mut conn = self.get_conn().await?;
 
-        let user = UserRow::find_by_id(&mut conn, user_id.as_uuid())
+        let user = UserRow::find_by_id(&mut conn, user_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -964,6 +960,7 @@ impl UserInterface for Store {
         .map_err(|_| StoreError::LoginError("invalid or expired MFA challenge".into()))?;
 
         let user_uuid = Uuid::parse_str(token_data.claims.sub.as_str())
+            .map(UserId::from)
             .map_err(|_| StoreError::LoginError("invalid MFA challenge".into()))?;
 
         let mut conn = self.get_conn().await?;
@@ -1357,7 +1354,7 @@ pub(crate) async fn register_user_internal(
                         crate::domain::org_security_audit_log::SecurityEventType::MemberInviteAccepted,
                     actor: crate::domain::org_security_audit_log::Actor::User { id: user_id },
                     actor_email: Some(req.email.clone()),
-                    target_user_id: Some(user_id.as_uuid()),
+                    target_user_id: Some(user_id),
                     target_email: Some(req.email.clone()),
                     metadata: None,
                     context: request_context,
@@ -1366,7 +1363,7 @@ pub(crate) async fn register_user_internal(
             .await;
     }
 
-    let user: User = UserRow::find_by_id(&mut conn, *user_id)
+    let user: User = UserRow::find_by_id(&mut conn, user_id)
         .await
         .map_err(Into::<Report<StoreError>>::into)
         .map(Into::into)?;
@@ -1417,7 +1414,7 @@ async fn user_is_org_member(store: &Store, email: &str, organization_id: Organiz
     let Ok(Some(user)) = UserRow::find_by_email(&mut conn, email.to_string()).await else {
         return false;
     };
-    OrganizationMemberRow::find_by_user_and_org(&mut conn, user.id.as_uuid(), organization_id)
+    OrganizationMemberRow::find_by_user_and_org(&mut conn, user.id, organization_id)
         .await
         .is_ok()
 }

@@ -29,7 +29,7 @@ pub const AUDIENCE_FACTS_SQL: &str = include_str!("../../sql/payment_reminders/a
 #[derive(Debug, QueryableByName)]
 pub struct AudienceMatchRow {
     #[diesel(sql_type = sql_types::Uuid)]
-    pub invoice_id: Uuid,
+    pub invoice_id: InvoiceId,
 }
 
 /// The customer-only `WITH f` CTE (`$1` = tenant, `$2` = customer ids): no invoice columns.
@@ -39,17 +39,17 @@ pub const CUSTOMER_AUDIENCE_FACTS_SQL: &str =
 #[derive(Debug, QueryableByName)]
 pub struct AudienceCustomerMatchRow {
     #[diesel(sql_type = sql_types::Uuid)]
-    pub customer_id: Uuid,
+    pub customer_id: CustomerId,
 }
 
 #[derive(Debug, QueryableByName)]
 pub struct AudiencePreviewSampleRow {
     #[diesel(sql_type = sql_types::Uuid)]
-    pub invoice_id: Uuid,
+    pub invoice_id: InvoiceId,
     #[diesel(sql_type = sql_types::Text)]
     pub invoice_number: String,
     #[diesel(sql_type = sql_types::Uuid)]
-    pub customer_id: Uuid,
+    pub customer_id: CustomerId,
     #[diesel(sql_type = sql_types::Text)]
     pub customer_name: String,
     #[diesel(sql_type = sql_types::BigInt)]
@@ -61,13 +61,13 @@ pub struct AudiencePreviewSampleRow {
 #[derive(Debug, QueryableByName)]
 struct SequenceIdRow {
     #[diesel(sql_type = sql_types::Uuid)]
-    id: Uuid,
+    id: PaymentReminderSequenceId,
 }
 
 #[derive(Debug, QueryableByName)]
 pub struct SequenceInFlightRow {
     #[diesel(sql_type = sql_types::Uuid)]
-    pub sequence_id: Uuid,
+    pub sequence_id: PaymentReminderSequenceId,
     #[diesel(sql_type = sql_types::BigInt)]
     pub in_flight: i64,
 }
@@ -75,7 +75,7 @@ pub struct SequenceInFlightRow {
 #[derive(Debug, QueryableByName)]
 struct CustomerIdRow {
     #[diesel(sql_type = sql_types::Uuid)]
-    id: Uuid,
+    id: CustomerId,
 }
 
 fn locked_customers(conn: &PgConn, locked: &[CustomerLock]) -> Vec<Uuid> {
@@ -156,10 +156,7 @@ impl PaymentReminderSequenceRowNew {
         .attach("Error while seeding the default payment_reminder_sequence")
         .into_db_result()?;
 
-        Ok(rows
-            .into_iter()
-            .next()
-            .map(|r| PaymentReminderSequenceId::from(r.id)))
+        Ok(rows.into_iter().next().map(|r| r.id))
     }
 }
 
@@ -393,7 +390,7 @@ impl PaymentReminderSequenceRow {
         .await
         .attach("Error while listing the customers of a reminder sequence")
         .into_db_result()?;
-        Ok(rows.into_iter().map(|r| CustomerId::from(r.id)).collect())
+        Ok(rows.into_iter().map(|r| r.id).collect())
     }
 
     /// Among the `locked` customers.
@@ -417,7 +414,7 @@ impl PaymentReminderSequenceRow {
         .attach("Error while clearing customer reminder overrides")
         .into_db_result()?;
 
-        Ok(rows.into_iter().map(|r| CustomerId::from(r.id)).collect())
+        Ok(rows.into_iter().map(|r| r.id).collect())
     }
 }
 
@@ -664,10 +661,7 @@ pub async fn list_open_invoice_ids_for_entity(
     .attach("Error while listing open invoices for an audience preview")
     .into_db_result()?;
 
-    Ok(rows
-        .into_iter()
-        .map(|r| InvoiceId::from(r.invoice_id))
-        .collect())
+    Ok(rows.into_iter().map(|r| r.invoice_id).collect())
 }
 
 /// Finalized invoices of the entity, newest first, consolidated children excluded.
@@ -691,10 +685,7 @@ pub async fn list_recent_invoice_ids_for_entity(
     .attach("Error while listing recent invoices for an audience preview")
     .into_db_result()?;
 
-    Ok(rows
-        .into_iter()
-        .map(|r| InvoiceId::from(r.invoice_id))
-        .collect())
+    Ok(rows.into_iter().map(|r| r.invoice_id).collect())
 }
 
 /// Live customers of the entity, newest first.
@@ -717,10 +708,7 @@ pub async fn list_customer_ids_for_entity(
     .attach("Error while listing customers for an audience preview")
     .into_db_result()?;
 
-    Ok(rows
-        .into_iter()
-        .map(|r| CustomerId::from(r.customer_id))
-        .collect())
+    Ok(rows.into_iter().map(|r| r.customer_id).collect())
 }
 
 /// Guarded writes on `invoice_payment_reminder`. Per-invoice writers run under the caller's
@@ -1317,9 +1305,9 @@ WHERE r.invoice_id = u.id AND r.state = 'ENROLLED' AND r.next_reminder_at IS NOT
 #[derive(Debug, Clone, QueryableByName)]
 pub struct ReminderCandidateRow {
     #[diesel(sql_type = sql_types::Uuid)]
-    pub invoice_id: Uuid,
+    pub invoice_id: InvoiceId,
     #[diesel(sql_type = sql_types::Uuid)]
-    pub customer_id: Uuid,
+    pub customer_id: CustomerId,
     #[diesel(sql_type = sql_types::Timestamp)]
     pub due_at: NaiveDateTime,
     #[diesel(sql_type = sql_types::Timestamp)]
@@ -1327,15 +1315,15 @@ pub struct ReminderCandidateRow {
     #[diesel(sql_type = sql_types::Timestamp)]
     pub anchor: NaiveDateTime,
     #[diesel(sql_type = sql_types::Nullable<sql_types::Uuid>)]
-    pub customer_override_id: Option<Uuid>,
+    pub customer_override_id: Option<PaymentReminderSequenceId>,
 }
 
 #[derive(Debug, Clone, QueryableByName)]
 pub struct EntityReachRow {
     #[diesel(sql_type = sql_types::Uuid)]
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     #[diesel(sql_type = sql_types::Uuid)]
-    pub invoicing_entity_id: Uuid,
+    pub invoicing_entity_id: InvoicingEntityId,
     #[diesel(sql_type = sql_types::Integer)]
     pub max_offset: i32,
 }
@@ -1343,9 +1331,9 @@ pub struct EntityReachRow {
 #[derive(Debug, Clone, QueryableByName)]
 pub struct ReminderDueRow {
     #[diesel(sql_type = sql_types::Uuid)]
-    pub invoice_id: Uuid,
+    pub invoice_id: InvoiceId,
     #[diesel(sql_type = sql_types::Uuid)]
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     #[diesel(sql_type = sql_types::Timestamp)]
     pub next_reminder_at: NaiveDateTime,
 }
@@ -1354,9 +1342,9 @@ pub struct ReminderDueRow {
 #[derive(Debug, Clone, QueryableByName)]
 pub struct ReminderInFlightRow {
     #[diesel(sql_type = sql_types::Uuid)]
-    pub invoice_id: Uuid,
+    pub invoice_id: InvoiceId,
     #[diesel(sql_type = sql_types::Uuid)]
-    pub sequence_id: Uuid,
+    pub sequence_id: PaymentReminderSequenceId,
     #[diesel(sql_type = sql_types::Nullable<sql_types::Integer>)]
     pub last_offset_days: Option<i32>,
     #[diesel(sql_type = sql_types::Timestamp)]

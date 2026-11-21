@@ -1,11 +1,10 @@
 use crate::errors::IntoDbResult;
 use crate::quote_drafts::{QuoteDraftRow, QuoteDraftRowNew};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{QuoteDraftId, QuoteId, TenantId};
+use common_domain::ids::{QuoteDraftId, QuoteId, TenantId, UserId};
 use diesel::{ExpressionMethods, OptionalExtension, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
-use uuid::Uuid;
 
 impl QuoteDraftRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<QuoteDraftRow> {
@@ -95,7 +94,7 @@ impl QuoteDraftRow {
         payload: serde_json::Value,
         payload_version: i32,
         label: Option<String>,
-        updated_by: Uuid,
+        updated_by: UserId,
     ) -> DbResult<Option<QuoteDraftRow>> {
         use crate::schema::quote_draft::dsl as d;
 

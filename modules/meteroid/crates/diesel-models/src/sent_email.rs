@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use common_domain::ids::{EntityActivityId, InvoicingEntityId, TenantId};
+use common_domain::ids::{CustomerId, EntityActivityId, InvoicingEntityId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
@@ -63,5 +63,5 @@ pub struct SentEmailWithEntityRow {
     pub entity_id: uuid::Uuid,
     #[diesel(select_expression = crate::schema::entity_activity::agg_customer_id)]
     #[diesel(select_expression_type = crate::schema::entity_activity::agg_customer_id)]
-    pub agg_customer_id: Option<uuid::Uuid>,
+    pub agg_customer_id: Option<CustomerId>,
 }

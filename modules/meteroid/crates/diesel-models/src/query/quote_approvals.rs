@@ -5,11 +5,10 @@ use crate::quote_approvals::{
     QuoteApprovalRuleRowPatch,
 };
 use crate::{DbResult, PgConn};
-use common_domain::ids::{QuoteApprovalId, QuoteApprovalRuleId, QuoteId, TenantId};
+use common_domain::ids::{QuoteApprovalId, QuoteApprovalRuleId, QuoteId, TenantId, UserId};
 use diesel::{ExpressionMethods, OptionalExtension, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
-use uuid::Uuid;
 
 impl QuoteApprovalRuleRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<QuoteApprovalRuleRow> {
@@ -172,7 +171,7 @@ impl QuoteApprovalRow {
         tenant_id: TenantId,
         id: QuoteApprovalId,
         status: QuoteApprovalStatusEnum,
-        decided_by: Uuid,
+        decided_by: UserId,
         note: Option<String>,
     ) -> DbResult<Option<QuoteApprovalRow>> {
         use crate::schema::quote_approval::dsl as d;

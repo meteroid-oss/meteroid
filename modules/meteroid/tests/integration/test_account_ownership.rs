@@ -344,7 +344,7 @@ async fn member_removal_waits_for_an_assignment_holding_the_membership(
         .await
         .unwrap();
     assert!(
-        OrganizationMemberRow::lock_membership(&mut assignment, leaving.as_uuid(), ORGANIZATION_ID)
+        OrganizationMemberRow::lock_membership(&mut assignment, leaving, ORGANIZATION_ID)
             .await
             .unwrap()
     );

@@ -81,7 +81,7 @@ impl QuotesService for QuoteServiceComponents {
             )
             .await?;
         if let common_domain::actor::Actor::User { id } = &actor {
-            prepared.quote_new.owner_id = Some(id.as_uuid());
+            prepared.quote_new.owner_id = Some(*id);
         }
         super::v2::ensure_v2_allowed(
             self.feature_resolver.as_ref(),

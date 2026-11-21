@@ -439,7 +439,7 @@ impl StoreInternal {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
-                .map(|r| (PaymentReminderSequenceId::from(r.sequence_id), r.in_flight))
+                .map(|r| (r.sequence_id, r.in_flight))
                 .collect();
         rows.into_iter()
             .map(|row| {
@@ -1050,9 +1050,9 @@ impl PaymentRemindersInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()
             .map(|r| AudiencePreviewRow {
-                invoice_id: InvoiceId::from(r.invoice_id),
+                invoice_id: r.invoice_id,
                 invoice_number: r.invoice_number,
-                customer_id: CustomerId::from(r.customer_id),
+                customer_id: r.customer_id,
                 customer_name: r.customer_name,
                 amount_due: r.amount_due,
                 currency: r.currency,

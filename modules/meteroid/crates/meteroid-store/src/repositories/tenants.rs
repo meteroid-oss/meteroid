@@ -541,7 +541,7 @@ impl TenantInterface for Store {
         invalidate_tenant_cache(&tenant_id).await;
 
         let mut conn = self.get_conn().await?;
-        let actor_email = UserRow::find_by_id(&mut conn, actor.as_uuid())
+        let actor_email = UserRow::find_by_id(&mut conn, actor)
             .await
             .ok()
             .map(|u| u.email);

@@ -6,7 +6,7 @@ use crate::errors::StoreError;
 use crate::repositories::org_security_audit_log::SecurityAuditInterface;
 use crate::repositories::organizations::{mark_organization_for_deletion, release_member_accounts};
 use crate::store::Store;
-use common_domain::ids::{BaseId, OrganizationId, TenantId, UserId};
+use common_domain::ids::{OrganizationId, TenantId, UserId};
 use diesel_models::entity_list_views::EntityListViewDefaultRow;
 use diesel_models::enums::OrganizationUserRole;
 use diesel_models::organization_invites::OrganizationInviteRow;
@@ -53,7 +53,7 @@ impl UserDeletionInterface for Store {
         let (deleted, marked_tenants) = self
             .transaction_bumping_tenants(|conn| {
                 async move {
-                    let user = UserRow::find_by_id(conn, *user_id)
+                    let user = UserRow::find_by_id(conn, user_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -67,7 +67,7 @@ impl UserDeletionInterface for Store {
                         )));
                     }
 
-                    let memberships = OrganizationMemberRow::list_by_user_for_update(conn, *user_id)
+                    let memberships = OrganizationMemberRow::list_by_user_for_update(conn, user_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -98,7 +98,7 @@ impl UserDeletionInterface for Store {
                             ))));
                         }
 
-                        OrganizationMemberRow::delete_member(conn, *user_id, org_id)
+                        OrganizationMemberRow::delete_member(conn, user_id, org_id)
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
                         release_member_accounts(conn, member_hooks, org_id, user_id).await?;
@@ -128,7 +128,7 @@ impl UserDeletionInterface for Store {
                 event_type: SecurityEventType::UserDeleted,
                 actor: Actor::User { id: actor },
                 actor_email: None,
-                target_user_id: Some(user_id.as_uuid()),
+                target_user_id: Some(user_id),
                 target_email: None,
                 metadata: None,
                 context: request_context.clone(),
@@ -141,7 +141,7 @@ impl UserDeletionInterface for Store {
                 event_type: SecurityEventType::OrganizationDeletionScheduled,
                 actor: Actor::User { id: actor },
                 actor_email: None,
-                target_user_id: Some(user_id.as_uuid()),
+                target_user_id: Some(user_id),
                 target_email: None,
                 metadata: None,
                 context: request_context.clone(),

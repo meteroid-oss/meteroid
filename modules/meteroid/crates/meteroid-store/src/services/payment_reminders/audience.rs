@@ -293,10 +293,7 @@ pub async fn evaluate_audience(
     .get_results(conn)
     .await
     .map_err(|e| Into::<Report<StoreError>>::into(DatabaseErrorContainer::from(e)))?;
-    Ok(rows
-        .into_iter()
-        .map(|r| InvoiceId::from(r.invoice_id))
-        .collect())
+    Ok(rows.into_iter().map(|r| r.invoice_id).collect())
 }
 
 /// Same over customers, for an audience that passed [`check_customer_level`].
@@ -319,10 +316,7 @@ pub async fn evaluate_customer_audience(
     .get_results(conn)
     .await
     .map_err(|e| Into::<Report<StoreError>>::into(DatabaseErrorContainer::from(e)))?;
-    Ok(rows
-        .into_iter()
-        .map(|r| CustomerId::from(r.customer_id))
-        .collect())
+    Ok(rows.into_iter().map(|r| r.customer_id).collect())
 }
 
 // ---- save-time validation ---------------------------------------------------------------

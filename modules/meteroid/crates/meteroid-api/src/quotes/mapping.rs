@@ -210,9 +210,7 @@ pub mod quotes {
             document_hash: quote.document_hash.clone(),
             published_at: quote.published_at.as_proto(),
             first_viewed_at: quote.first_viewed_at.as_proto(),
-            owner_id: quote
-                .owner_id
-                .map(|id| common_domain::ids::UserId::from(id).as_proto()),
+            owner_id: quote.owner_id.map(|id| id.as_proto()),
             template_id: quote.template_id.map(|id| id.as_proto()),
             decline_reason: quote.decline_reason.clone(),
             display_options: Some(display_options_to_proto(&quote.display_options)),

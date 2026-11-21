@@ -816,7 +816,7 @@ async fn settle_expiry_tx(
         )
         .await?
         .iter()
-        .map(|settlement| settlement.id.as_uuid())
+        .map(|settlement| settlement.id)
         .collect::<Vec<_>>();
         let held = settlement_holders_tx(conn, tenant_id, &earlier).await?;
         let (paid_by, settled_now) = settle_usage_tx(

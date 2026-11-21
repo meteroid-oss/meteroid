@@ -2,11 +2,10 @@ use crate::errors::IntoDbResult;
 use crate::quote_comments::{QuoteCommentRow, QuoteCommentRowNew};
 use crate::{DbResult, PgConn};
 use chrono::NaiveDateTime;
-use common_domain::ids::{QuoteCommentId, QuoteId, TenantId};
+use common_domain::ids::{QuoteCommentId, QuoteId, TenantId, UserId};
 use diesel::{ExpressionMethods, OptionalExtension, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
-use uuid::Uuid;
 
 impl QuoteCommentRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<QuoteCommentRow> {
@@ -76,7 +75,7 @@ impl QuoteCommentRow {
         tenant_id: TenantId,
         quote_id: QuoteId,
         only: Option<QuoteCommentId>,
-        resolved_by: Option<Uuid>,
+        resolved_by: Option<UserId>,
         at: NaiveDateTime,
     ) -> DbResult<usize> {
         use crate::schema::quote_comment::dsl as d;

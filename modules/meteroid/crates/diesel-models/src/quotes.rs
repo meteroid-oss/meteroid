@@ -8,7 +8,7 @@ use crate::customers::CustomerRow;
 use common_domain::ids::{
     CustomerId, InvoiceId, PlanVersionId, PriceComponentId, PriceId, ProductId, QuoteId,
     QuotePriceComponentId, QuoteSignatureId, QuoteTemplateId, StoredDocumentId, SubscriptionId,
-    TenantId,
+    TenantId, UserId,
 };
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
@@ -62,7 +62,7 @@ pub struct QuoteRow {
     pub document_hash: Option<String>,
     pub published_at: Option<NaiveDateTime>,
     pub first_viewed_at: Option<NaiveDateTime>,
-    pub owner_id: Option<uuid::Uuid>,
+    pub owner_id: Option<UserId>,
     pub template_id: Option<QuoteTemplateId>,
     pub decline_reason: Option<String>,
     pub display_options: serde_json::Value,
@@ -117,7 +117,7 @@ pub struct QuoteRowNew {
     pub payment_methods_config: Option<serde_json::Value>,
     /// User-defined property values, keyed by definition `key`.
     pub custom_properties: serde_json::Value,
-    pub owner_id: Option<uuid::Uuid>,
+    pub owner_id: Option<UserId>,
     pub template_id: Option<QuoteTemplateId>,
     pub display_options: serde_json::Value,
     pub sections: serde_json::Value,

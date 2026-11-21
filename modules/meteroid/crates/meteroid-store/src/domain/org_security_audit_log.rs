@@ -1,7 +1,6 @@
-use common_domain::ids::OrganizationId;
+use common_domain::ids::{OrganizationId, UserId};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
-use uuid::Uuid;
 
 pub use common_domain::actor::{Actor, ActorType};
 
@@ -167,7 +166,7 @@ pub struct RecordSecurityEvent {
     pub actor: Actor,
     /// Snapshotted at write-time so the trail survives user deletion.
     pub actor_email: Option<String>,
-    pub target_user_id: Option<Uuid>,
+    pub target_user_id: Option<UserId>,
     pub target_email: Option<String>,
     pub metadata: Option<serde_json::Value>,
     pub context: SecurityRequestContext,

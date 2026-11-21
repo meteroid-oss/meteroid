@@ -88,7 +88,7 @@ impl RolesInterface for Store {
                     // Admin would leave the organization with nobody able to manage it.
                     let current = OrganizationMemberRow::find_by_user_and_org(
                         conn,
-                        target_user.as_uuid(),
+                        target_user,
                         org_id,
                     )
                     .await
@@ -112,7 +112,7 @@ impl RolesInterface for Store {
 
                     OrganizationMemberRow::update_role(
                         conn,
-                        target_user.as_uuid(),
+                        target_user,
                         org_id,
                         role.into(),
                         custom_role_id,
@@ -130,11 +130,11 @@ impl RolesInterface for Store {
         // same role must not pollute the security log. Recorded after commit
         // (best-effort) so an audit write never rolls back the change.
         if previous_role != role || previous_custom_role_id != custom_role_id {
-            let actor_email = UserRow::find_by_id(&mut conn, actor_id.as_uuid())
+            let actor_email = UserRow::find_by_id(&mut conn, actor_id)
                 .await
                 .ok()
                 .map(|u| u.email);
-            let target_email = UserRow::find_by_id(&mut conn, target_user.as_uuid())
+            let target_email = UserRow::find_by_id(&mut conn, target_user)
                 .await
                 .ok()
                 .map(|u| u.email);
@@ -144,7 +144,7 @@ impl RolesInterface for Store {
                 event_type: SecurityEventType::MemberRoleChanged,
                 actor: Actor::User { id: actor_id },
                 actor_email,
-                target_user_id: Some(target_user.as_uuid()),
+                target_user_id: Some(target_user),
                 target_email,
                 metadata: Some(serde_json::json!({
                     "from_role": format!("{previous_role:?}"),
@@ -166,10 +166,9 @@ impl RolesInterface for Store {
         org_id: OrganizationId,
     ) -> StoreResult<MemberAccess> {
         let mut conn = self.get_conn().await?;
-        let member =
-            OrganizationMemberRow::find_by_user_and_org(&mut conn, user_id.as_uuid(), org_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let member = OrganizationMemberRow::find_by_user_and_org(&mut conn, user_id, org_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         let role: OrganizationUserRole = member.role.into();
         let permissions = match (role, member.role_id) {

@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use common_domain::ids::{EntityActivityId, TenantId};
+use common_domain::ids::{CustomerId, EntityActivityId, SubscriptionId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use uuid::Uuid;
 
@@ -17,8 +17,8 @@ pub struct EntityActivityRow {
     pub actor_type: ActorTypeEnum,
     pub metadata: Option<serde_json::Value>,
     pub occurred_at: NaiveDateTime,
-    pub agg_customer_id: Option<Uuid>,
-    pub agg_subscription_id: Option<Uuid>,
+    pub agg_customer_id: Option<CustomerId>,
+    pub agg_subscription_id: Option<SubscriptionId>,
     pub actor_uuid: Option<Uuid>,
     pub actor_alias: Option<String>,
 }
@@ -35,6 +35,6 @@ pub struct EntityActivityRowNew {
     pub actor_uuid: Option<Uuid>,
     pub actor_alias: Option<String>,
     pub metadata: Option<serde_json::Value>,
-    pub agg_customer_id: Option<Uuid>,
-    pub agg_subscription_id: Option<Uuid>,
+    pub agg_customer_id: Option<CustomerId>,
+    pub agg_subscription_id: Option<SubscriptionId>,
 }

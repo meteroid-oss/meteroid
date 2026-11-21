@@ -5,11 +5,10 @@ use crate::errors::IntoDbResult;
 use crate::revenue_stats::{CustomerNameRow, MrrLogRow, MrrMovementDayRow, RevenueDayRow};
 use crate::{DbResult, PgConn};
 use chrono::NaiveDate;
-use common_domain::ids::TenantId;
+use common_domain::ids::{CustomerId, PlanId, TenantId};
 use diesel::sql_types;
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
-use uuid::Uuid;
 
 const MOVEMENT_COLUMNS: &str = r"
     SUM(m.net_mrr_change)::bigint AS net,
@@ -33,7 +32,7 @@ impl MrrMovementDayRow {
         from: Option<NaiveDate>,
         to: NaiveDate,
         to_inclusive: bool,
-        plan_ids: &[Uuid],
+        plan_ids: &[PlanId],
         split_by_plan: bool,
     ) -> DbResult<Vec<MrrMovementDayRow>> {
         let to_op = if to_inclusive { "<=" } else { "<" };
@@ -104,7 +103,7 @@ impl RevenueDayRow {
         conn: &mut PgConn,
         tenant_id: TenantId,
         range: Option<(NaiveDate, NaiveDate)>,
-        plan_ids: &[Uuid],
+        plan_ids: &[PlanId],
         by_customer: bool,
     ) -> DbResult<Vec<RevenueDayRow>> {
         // `cash`: the share of an invoice not paid with purchased credit, which counted as
@@ -195,7 +194,7 @@ impl CustomerNameRow {
     pub async fn list(
         conn: &mut PgConn,
         tenant_id: TenantId,
-        ids: &[Uuid],
+        ids: &[CustomerId],
     ) -> DbResult<Vec<CustomerNameRow>> {
         diesel::sql_query("SELECT id, name FROM customer WHERE tenant_id = $1 AND id = ANY($2)")
             .bind::<sql_types::Uuid, _>(tenant_id)

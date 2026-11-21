@@ -33,12 +33,7 @@ impl From<QuoteApprovalRuleRow> for QuoteApprovalRule {
             max_net_terms_days: r.max_net_terms_days,
             max_trial_days: r.max_trial_days,
             always: r.always,
-            approver_user_ids: r
-                .approver_user_ids
-                .into_iter()
-                .flatten()
-                .map(Into::into)
-                .collect(),
+            approver_user_ids: r.approver_user_ids.into_iter().flatten().collect(),
             created_at: r.created_at,
         }
     }
@@ -88,12 +83,12 @@ impl From<QuoteApprovalRow> for QuoteApproval {
             quote_id: r.quote_id,
             revision: r.revision,
             document_hash: r.document_hash,
-            rule_ids: r.rule_ids.into_iter().flatten().map(Into::into).collect(),
+            rule_ids: r.rule_ids.into_iter().flatten().collect(),
             status: r.status.into(),
-            requested_by: r.requested_by.map(Into::into),
+            requested_by: r.requested_by,
             requested_at: r.requested_at,
             request_note: r.request_note,
-            decided_by: r.decided_by.map(Into::into),
+            decided_by: r.decided_by,
             decided_at: r.decided_at,
             decision_note: r.decision_note,
         }

@@ -18,7 +18,9 @@ use crate::enums::ConnectorProviderEnum;
 use crate::extend::connection_metadata;
 use crate::extend::order::{OrderByParam, OrderDirection};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use common_domain::ids::{BaseId, ConnectorId, CustomerId, PlanId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    BaseId, ConnectorId, CustomerId, InvoiceId, PlanId, SubscriptionId, TenantId,
+};
 use error_stack::ResultExt;
 
 impl SubscriptionRowNew {
@@ -254,7 +256,7 @@ impl SubscriptionRow {
     pub async fn get_subscription_id_by_invoice_id(
         conn: &mut PgConn,
         tenant_id_param: &TenantId,
-        invoice_id: &uuid::Uuid,
+        invoice_id: InvoiceId,
     ) -> DbResult<Option<SubscriptionId>> {
         use crate::schema::invoice::dsl as i_dsl;
         use crate::schema::subscription::dsl as s_dsl;

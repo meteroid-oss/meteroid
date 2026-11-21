@@ -605,11 +605,11 @@ impl SubscriptionEventRow {
         #[derive(diesel::QueryableByName)]
         struct Pending {
             #[diesel(sql_type = Uuid)]
-            tenant_id: uuid::Uuid,
+            tenant_id: common_domain::ids::TenantId,
             #[diesel(sql_type = Uuid)]
-            customer_id: uuid::Uuid,
+            customer_id: common_domain::ids::CustomerId,
             #[diesel(sql_type = Uuid)]
-            subscription_id: uuid::Uuid,
+            subscription_id: SubscriptionId,
             #[diesel(sql_type = Date)]
             applies_to: NaiveDate,
             #[diesel(sql_type = Bool)]
@@ -637,9 +637,9 @@ impl SubscriptionEventRow {
         Ok(rows
             .into_iter()
             .map(|row| SettlingSwitchDue {
-                tenant_id: common_domain::ids::TenantId::from(row.tenant_id),
-                customer_id: common_domain::ids::CustomerId::from(row.customer_id),
-                subscription_id: SubscriptionId::from(row.subscription_id),
+                tenant_id: row.tenant_id,
+                customer_id: row.customer_id,
+                subscription_id: row.subscription_id,
                 applies_to: row.applies_to,
                 invoices_changed: row.invoices_changed,
                 due: row.due,

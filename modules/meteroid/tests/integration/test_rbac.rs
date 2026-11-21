@@ -73,7 +73,7 @@ async fn test_assign_member_role_records_security_event(#[future] test_env: Test
 
     let events = role_change_events(&env).await;
     assert_eq!(events.len(), 1, "expected one member.role.changed event");
-    assert_eq!(events[0].target_user_id, Some(target.as_uuid()));
+    assert_eq!(events[0].target_user_id, Some(target));
     assert_eq!(events[0].actor_id, Some(USER_ID.as_uuid()));
 
     // Re-assigning the same role changes nothing → no new event.

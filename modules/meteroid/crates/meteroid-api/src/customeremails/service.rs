@@ -715,7 +715,7 @@ impl CustomerEmailsService for CustomerEmailsServiceComponents {
                 .map(|k| k.to_string()),
             entity_type,
             entity_id,
-            customer_id: CustomerId::from_proto_opt(req.customer_id)?.map(|c| c.as_uuid()),
+            customer_id: CustomerId::from_proto_opt(req.customer_id)?,
         };
         let cursor = req
             .cursor

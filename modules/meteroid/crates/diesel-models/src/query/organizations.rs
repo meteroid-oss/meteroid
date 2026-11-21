@@ -1,6 +1,6 @@
 use crate::errors::IntoDbResult;
 use crate::organizations::{OrganizationRow, OrganizationRowNew};
-use common_domain::ids::{OrganizationId, TenantId};
+use common_domain::ids::{OrganizationId, TenantId, UserId};
 
 use crate::{DbResult, PgConn};
 
@@ -152,7 +152,7 @@ impl OrganizationRow {
 
     pub async fn list_by_user_id(
         conn: &mut PgConn,
-        user_id: uuid::Uuid,
+        user_id: UserId,
     ) -> DbResult<Vec<OrganizationRow>> {
         use crate::schema::organization::dsl as o_dsl;
         use crate::schema::organization_member::dsl as om_dsl;

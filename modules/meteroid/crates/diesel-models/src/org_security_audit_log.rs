@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use common_domain::ids::{OrgSecurityAuditLogId, OrganizationId};
+use common_domain::ids::{OrgSecurityAuditLogId, OrganizationId, UserId};
 use diesel::{Insertable, Queryable, Selectable};
 use uuid::Uuid;
 
@@ -15,7 +15,7 @@ pub struct OrgSecurityAuditLogRow {
     pub actor_type: ActorTypeEnum,
     pub actor_id: Option<Uuid>,
     pub actor_email: Option<String>,
-    pub target_user_id: Option<Uuid>,
+    pub target_user_id: Option<UserId>,
     pub target_email: Option<String>,
     pub metadata: Option<serde_json::Value>,
     pub ip_address: Option<String>,
@@ -35,7 +35,7 @@ pub struct OrgSecurityAuditLogRowNew {
     pub actor_type: ActorTypeEnum,
     pub actor_id: Option<Uuid>,
     pub actor_email: Option<String>,
-    pub target_user_id: Option<Uuid>,
+    pub target_user_id: Option<UserId>,
     pub target_email: Option<String>,
     pub metadata: Option<serde_json::Value>,
     pub ip_address: Option<String>,

@@ -1,7 +1,7 @@
 use chrono::{NaiveDate, NaiveDateTime};
+use common_domain::ids::{CustomerId, PlanId, SubscriptionId};
 use diesel::QueryableByName;
 use diesel::sql_types::{BigInt, Date, Integer, Nullable, Text, Timestamp, Uuid as SqlUuid};
-use uuid::Uuid;
 
 /// MRR movements of one day, currency and (when split) plan, in the movement currency.
 #[derive(QueryableByName, Debug)]
@@ -11,7 +11,7 @@ pub struct MrrMovementDayRow {
     #[diesel(sql_type = Text)]
     pub currency: String,
     #[diesel(sql_type = Nullable<SqlUuid>)]
-    pub plan_id: Option<Uuid>,
+    pub plan_id: Option<PlanId>,
     #[diesel(sql_type = BigInt)]
     pub net: i64,
     #[diesel(sql_type = BigInt)]
@@ -43,11 +43,11 @@ pub struct MrrLogRow {
     #[diesel(sql_type = Date)]
     pub applies_to: NaiveDate,
     #[diesel(sql_type = SqlUuid)]
-    pub customer_id: Uuid,
+    pub customer_id: CustomerId,
     #[diesel(sql_type = Text)]
     pub customer_name: String,
     #[diesel(sql_type = SqlUuid)]
-    pub subscription_id: Uuid,
+    pub subscription_id: SubscriptionId,
     #[diesel(sql_type = Text)]
     pub plan_name: String,
     #[diesel(sql_type = Text)]
@@ -68,7 +68,7 @@ pub struct RevenueDayRow {
     #[diesel(sql_type = Text)]
     pub currency: String,
     #[diesel(sql_type = Nullable<SqlUuid>)]
-    pub customer_id: Option<Uuid>,
+    pub customer_id: Option<CustomerId>,
     #[diesel(sql_type = BigInt)]
     pub net: i64,
 }
@@ -76,7 +76,7 @@ pub struct RevenueDayRow {
 #[derive(QueryableByName, Debug)]
 pub struct CustomerNameRow {
     #[diesel(sql_type = SqlUuid)]
-    pub id: Uuid,
+    pub id: CustomerId,
     #[diesel(sql_type = Text)]
     pub name: String,
 }

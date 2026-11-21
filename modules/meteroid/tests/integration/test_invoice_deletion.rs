@@ -90,8 +90,8 @@ async fn test_delete_draft_invoice_is_audited_and_webhooked(#[future] test_env: 
 
     assert_eq!(deleted.actor_type, ActorTypeEnum::User);
     assert_eq!(deleted.actor_uuid, Some(USER_ID.as_uuid()));
-    assert_eq!(deleted.agg_customer_id, Some(draft.customer_id.as_uuid()));
-    assert_eq!(deleted.agg_subscription_id, Some(sub_id.as_uuid()));
+    assert_eq!(deleted.agg_customer_id, Some(draft.customer_id));
+    assert_eq!(deleted.agg_subscription_id, Some(sub_id));
 
     let events = webhook_events(&env).await;
     assert!(

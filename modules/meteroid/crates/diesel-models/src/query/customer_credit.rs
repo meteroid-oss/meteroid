@@ -13,7 +13,7 @@ use crate::{DbResult, PgConn};
 use chrono::{DateTime, Utc};
 use common_domain::ids::{
     BaseId, CreditGrantId, CreditNoteId, CustomerId, InvoiceId, ProductId, SubscriptionId,
-    TenantId, WalletId,
+    TenantId, UsageSettlementId, WalletId,
 };
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, JoinOnDsl, OptionalExtension, QueryDsl,
@@ -1160,7 +1160,7 @@ impl CustomerCreditEntryRow {
     pub async fn list_settlement_draws(
         conn: &mut PgConn,
         tenant_id: TenantId,
-        settlement_ids: &[Uuid],
+        settlement_ids: &[UsageSettlementId],
     ) -> DbResult<Vec<Self>> {
         use crate::schema::customer_credit_entry::dsl as e;
         e::customer_credit_entry

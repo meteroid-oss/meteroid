@@ -4,7 +4,7 @@ use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 use chrono::NaiveDateTime;
 use common_domain::actor::ActorType;
-use common_domain::ids::{EntityActivityId, OAuthAppId, TenantId};
+use common_domain::ids::{CustomerId, EntityActivityId, OAuthAppId, SubscriptionId, TenantId};
 use diesel::{BoolExpressionMethods, ExpressionMethods, QueryDsl, SelectableHelper};
 use error_stack::ResultExt;
 use uuid::Uuid;
@@ -20,8 +20,8 @@ pub struct EntityActivityFilter {
     pub entity_type: Option<String>,
     pub occurred_after: Option<NaiveDateTime>,
     pub occurred_before: Option<NaiveDateTime>,
-    pub rollup_customer_id: Option<Uuid>,
-    pub rollup_subscription_id: Option<Uuid>,
+    pub rollup_customer_id: Option<CustomerId>,
+    pub rollup_subscription_id: Option<SubscriptionId>,
 }
 
 /// Keyset cursor on `(occurred_at DESC, id DESC)`.

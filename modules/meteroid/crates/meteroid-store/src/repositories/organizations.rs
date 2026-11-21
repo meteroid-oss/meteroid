@@ -151,10 +151,9 @@ pub(crate) async fn ensure_org_member(
     let tenant = TenantRow::find_by_id(conn, tenant_id)
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
-    let is_member =
-        OrganizationMemberRow::lock_membership(conn, user_id.as_uuid(), tenant.organization_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+    let is_member = OrganizationMemberRow::lock_membership(conn, user_id, tenant.organization_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
     if !is_member {
         return Err(Report::new(StoreError::InvalidArgument(format!(
             "User {user_id} is not a member of this organization"
@@ -357,7 +356,7 @@ impl OrganizationsInterface for Store {
                 .map_err(Into::<Report<StoreError>>::into)?;
         }
 
-        let actor_user = UserRow::find_by_id(&mut conn, *actor_id)
+        let actor_user = UserRow::find_by_id(&mut conn, actor_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
         if actor_user.email.to_lowercase() == invited_email.to_lowercase() {
@@ -372,7 +371,7 @@ impl OrganizationsInterface for Store {
             Ok(Some(existing_user)) => {
                 match OrganizationMemberRow::find_by_user_and_org(
                     &mut conn,
-                    *existing_user.id,
+                    existing_user.id,
                     org_id,
                 )
                 .await
@@ -510,7 +509,7 @@ impl OrganizationsInterface for Store {
         let org = OrganizationRow::get_by_id(&mut conn, org_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
-        let actor_user = UserRow::find_by_id(&mut conn, *actor_id)
+        let actor_user = UserRow::find_by_id(&mut conn, actor_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
         drop(conn);
@@ -575,7 +574,7 @@ impl OrganizationsInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        let actor_user = UserRow::find_by_id(&mut conn, *actor_id)
+        let actor_user = UserRow::find_by_id(&mut conn, actor_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -684,7 +683,7 @@ impl OrganizationsInterface for Store {
                         .into());
                     }
 
-                    let user = UserRow::find_by_id(conn, *user_id)
+                    let user = UserRow::find_by_id(conn, user_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -697,7 +696,7 @@ impl OrganizationsInterface for Store {
 
                     match OrganizationMemberRow::find_by_user_and_org(
                         conn,
-                        *user_id,
+                        user_id,
                         invite.organization_id,
                     )
                     .await
@@ -745,7 +744,7 @@ impl OrganizationsInterface for Store {
                     crate::domain::org_security_audit_log::SecurityEventType::MemberInviteAccepted,
                 actor: crate::domain::org_security_audit_log::Actor::User { id: user_id },
                 actor_email: Some(user_email.clone()),
-                target_user_id: Some(user_id.as_uuid()),
+                target_user_id: Some(user_id),
                 target_email: Some(user_email),
                 metadata: None,
                 context: request_context,
@@ -767,7 +766,7 @@ impl OrganizationsInterface for Store {
 
         self.transaction_with(&mut conn, |conn| {
             async move {
-                let member = OrganizationMemberRow::find_by_user_and_org(conn, *actor, org_id)
+                let member = OrganizationMemberRow::find_by_user_and_org(conn, actor, org_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -784,7 +783,7 @@ impl OrganizationsInterface for Store {
                     }
                 }
 
-                OrganizationMemberRow::delete_member(conn, *actor, org_id)
+                OrganizationMemberRow::delete_member(conn, actor, org_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -799,7 +798,7 @@ impl OrganizationsInterface for Store {
         // Best-effort: at this point the row is already gone, so fetch the
         // user's email separately for the audit trail.
         let mut conn = self.get_conn().await?;
-        let actor_user = UserRow::find_by_id(&mut conn, *actor)
+        let actor_user = UserRow::find_by_id(&mut conn, actor)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
         self.record_security_event_best_effort(
@@ -808,7 +807,7 @@ impl OrganizationsInterface for Store {
                 event_type: crate::domain::org_security_audit_log::SecurityEventType::MemberLeft,
                 actor: crate::domain::org_security_audit_log::Actor::User { id: actor },
                 actor_email: Some(actor_user.email.clone()),
-                target_user_id: Some(actor.as_uuid()),
+                target_user_id: Some(actor),
                 target_email: Some(actor_user.email),
                 metadata: None,
                 context: request_context,
@@ -830,10 +829,10 @@ impl OrganizationsInterface for Store {
 
         // Look up emails up front while both users are guaranteed to exist —
         // the delete below races with anything that might purge the user row.
-        let actor_user = UserRow::find_by_id(&mut conn, *actor)
+        let actor_user = UserRow::find_by_id(&mut conn, actor)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
-        let target_user = UserRow::find_by_id(&mut conn, *target_user_id)
+        let target_user = UserRow::find_by_id(&mut conn, target_user_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -847,7 +846,7 @@ impl OrganizationsInterface for Store {
                     .into());
                 }
 
-                OrganizationMemberRow::delete_member(conn, *target_user_id, org_id)
+                OrganizationMemberRow::delete_member(conn, target_user_id, org_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -865,7 +864,7 @@ impl OrganizationsInterface for Store {
                 event_type: crate::domain::org_security_audit_log::SecurityEventType::MemberRemoved,
                 actor: crate::domain::org_security_audit_log::Actor::User { id: actor },
                 actor_email: Some(actor_user.email),
-                target_user_id: Some(target_user_id.as_uuid()),
+                target_user_id: Some(target_user_id),
                 target_email: Some(target_user.email),
                 metadata: None,
                 context: request_context,
@@ -879,7 +878,7 @@ impl OrganizationsInterface for Store {
     async fn list_organizations_for_user(&self, user_id: UserId) -> StoreResult<Vec<Organization>> {
         let mut conn = self.get_conn().await?;
 
-        let orgs = OrganizationRow::list_by_user_id(&mut conn, *user_id)
+        let orgs = OrganizationRow::list_by_user_id(&mut conn, user_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -1055,7 +1054,7 @@ impl OrganizationsInterface for Store {
         }
 
         let mut conn = self.get_conn().await?;
-        let actor_email = UserRow::find_by_id(&mut conn, actor.as_uuid())
+        let actor_email = UserRow::find_by_id(&mut conn, actor)
             .await
             .ok()
             .map(|u| u.email);
@@ -1100,15 +1099,11 @@ impl OrganizationsInterface for Store {
     ) -> StoreResult<Organization> {
         let mut conn = self.get_conn().await?;
 
-        let member = OrganizationMemberRow::find_by_user_and_org(
-            &mut conn,
-            actor.as_uuid(),
-            organization_id,
-        )
-        .await
-        .map_err(|_| {
-            StoreError::InvalidArgument("user is not a member of this organization".into())
-        })?;
+        let member = OrganizationMemberRow::find_by_user_and_org(&mut conn, actor, organization_id)
+            .await
+            .map_err(|_| {
+                StoreError::InvalidArgument("user is not a member of this organization".into())
+            })?;
 
         if member.role != OrganizationUserRole::Admin {
             return Err(StoreError::InvalidArgument(
@@ -1129,7 +1124,7 @@ impl OrganizationsInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        let actor_user = UserRow::find_by_id(&mut conn, actor.as_uuid())
+        let actor_user = UserRow::find_by_id(&mut conn, actor)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -1202,12 +1197,11 @@ pub async fn require_org_admin(
     organization_id: OrganizationId,
     manages: &str,
 ) -> StoreResult<()> {
-    let member =
-        OrganizationMemberRow::find_by_user_and_org(conn, actor.as_uuid(), organization_id)
-            .await
-            .map_err(|_| {
-                StoreError::InvalidArgument("user is not a member of this organization".into())
-            })?;
+    let member = OrganizationMemberRow::find_by_user_and_org(conn, actor, organization_id)
+        .await
+        .map_err(|_| {
+            StoreError::InvalidArgument("user is not a member of this organization".into())
+        })?;
     if member.role != OrganizationUserRole::Admin {
         error_stack::bail!(StoreError::InvalidArgument(format!(
             "only organization admins can manage {manages}"

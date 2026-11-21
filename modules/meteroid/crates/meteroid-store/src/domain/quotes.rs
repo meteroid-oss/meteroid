@@ -83,7 +83,7 @@ pub struct Quote {
     pub document_hash: Option<String>,
     pub published_at: Option<NaiveDateTime>,
     pub first_viewed_at: Option<NaiveDateTime>,
-    pub owner_id: Option<uuid::Uuid>,
+    pub owner_id: Option<common_domain::ids::UserId>,
     pub template_id: Option<QuoteTemplateId>,
     pub decline_reason: Option<String>,
     #[from(serde_json::from_value(~).map_err(|e| {
@@ -209,7 +209,7 @@ pub struct QuoteNew {
     /// Not persisted to `quote_rows` — inserted into the entitlements table instead.
     #[ghost]
     pub entitlements: Vec<crate::domain::entitlements::EntitlementSpec>,
-    pub owner_id: Option<uuid::Uuid>,
+    pub owner_id: Option<common_domain::ids::UserId>,
     pub template_id: Option<QuoteTemplateId>,
     #[into(serde_json::to_value(&~).map_err(|e| {
         StoreError::SerdeError("Failed to serialize display_options".to_string(), e)

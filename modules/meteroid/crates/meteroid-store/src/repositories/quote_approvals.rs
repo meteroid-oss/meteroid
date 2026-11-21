@@ -140,10 +140,10 @@ impl QuoteApprovalsInterface for Store {
                         rule_ids: requirement
                             .matched_rules
                             .iter()
-                            .map(|r| Some(r.id.as_uuid()))
+                            .map(|r| Some(r.id))
                             .collect(),
                         status: QuoteApprovalStatusEnum::Pending.into(),
-                        requested_by: Some(requested_by.as_uuid()),
+                        requested_by: Some(requested_by),
                         request_note: note,
                     }
                     .insert(conn)
@@ -214,7 +214,7 @@ impl QuoteApprovalsInterface for Store {
                         tenant_id,
                         id,
                         status.into(),
-                        decided_by.as_uuid(),
+                        decided_by,
                         note.clone(),
                     )
                     .await
