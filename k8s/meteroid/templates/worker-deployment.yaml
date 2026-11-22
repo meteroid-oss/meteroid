@@ -97,6 +97,10 @@ spec:
             - name: AWS_ENDPOINT
               value: {{ .Values.global.objectStore.s3Endpoint }}
             {{- end }}    
+            {{- if and .Values.global.objectStore .Values.global.objectStore.region }}
+            - name: AWS_REGION
+              value: {{ .Values.global.objectStore.region }}
+            {{- end }}
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:

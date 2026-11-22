@@ -67,6 +67,7 @@ global:
   objectStore:
     uri: ""
     # s3Endpoint: ""
+    # region: ""
 
   secrets:
     # if using an external secret use this
