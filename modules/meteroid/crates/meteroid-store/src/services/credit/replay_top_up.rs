@@ -7,7 +7,6 @@ use crate::adapters::payment::model::{ChargeRequest, IdempotencyKey, connector_w
 use crate::domain::payment_transactions::PaymentIntent;
 use crate::errors::StoreError;
 use crate::services::payment::resolve_connector_for_method;
-use crate::store::PgConn;
 use common_domain::ids::{BaseId, CustomerPaymentMethodId, PaymentTransactionId, TenantId};
 use diesel_models::customer_connection::CustomerConnectionDetailsRow;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
@@ -16,22 +15,26 @@ use error_stack::ResultExt;
 /// Charges `method_id` off-session through its gateway for the replay's `payment_id`, keyed by it.
 pub(super) async fn charge_card_off_session(
     store: &Store,
-    conn: &mut PgConn,
     tenant_id: TenantId,
     method_id: CustomerPaymentMethodId,
     payment_id: PaymentTransactionId,
     amount_minor: i64,
     currency: &str,
 ) -> StoreResult<PaymentIntent> {
-    let (connector, gateway) =
-        resolve_connector_for_method(store, conn, tenant_id, method_id).await?;
-    let method = CustomerPaymentMethodRow::get_by_id(conn, &tenant_id, &method_id)
-        .await
-        .map_err(|err| StoreError::DatabaseError(err.error))?;
-    let connection =
-        CustomerConnectionDetailsRow::get_by_id(conn, &tenant_id, &method.connection_id)
+    // Read in its own scope: the connection is back in the pool before the provider call.
+    let (connector, gateway, method, connection) = {
+        let mut conn = store.get_conn().await?;
+        let (connector, gateway) =
+            resolve_connector_for_method(store, &mut conn, tenant_id, method_id).await?;
+        let method = CustomerPaymentMethodRow::get_by_id(&mut conn, &tenant_id, &method_id)
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
+        let connection =
+            CustomerConnectionDetailsRow::get_by_id(&mut conn, &tenant_id, &method.connection_id)
+                .await
+                .map_err(|err| StoreError::DatabaseError(err.error))?;
+        (connector, gateway, method, connection)
+    };
     let outcome = gateway
         .charge_off_session(ChargeRequest {
             transaction_id: payment_id,

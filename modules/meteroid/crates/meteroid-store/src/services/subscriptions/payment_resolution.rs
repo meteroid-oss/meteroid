@@ -9,13 +9,9 @@ use crate::domain::subscriptions::PaymentMethodsConfig;
 use crate::domain::{Customer, CustomerPaymentMethod, InvoicingEntityProviderSensitive};
 use crate::errors::StoreError;
 use crate::services::Services;
-use crate::store::PgConn;
 use common_domain::ids::{BankAccountId, BaseId, CustomerConnectionId, TenantId};
 use diesel_models::customer_connection::CustomerConnectionRow;
-use error_stack::{Report, ResultExt};
-
-use std::time::Duration;
-const PAYMENT_PROVIDER_TIMEOUT: Duration = Duration::from_secs(45);
+use error_stack::Report;
 
 #[derive(Debug, Clone, Default)]
 pub struct ResolvedPaymentMethods {
@@ -77,7 +73,6 @@ impl ResolvedPaymentMethods {
 impl Services {
     pub async fn resolve_payment_methods(
         &self,
-        conn: &mut PgConn,
         tenant_id: TenantId,
         payment_methods_config: Option<&PaymentMethodsConfig>,
         customer: &Customer,
@@ -91,7 +86,6 @@ impl Services {
         match config {
             PaymentMethodsConfig::Online { config } => {
                 self.resolve_online_payment_methods(
-                    conn,
                     tenant_id,
                     customer,
                     invoicing_entity_providers,
@@ -108,7 +102,6 @@ impl Services {
 
     async fn resolve_online_payment_methods(
         &self,
-        conn: &mut PgConn,
         tenant_id: TenantId,
         customer: &Customer,
         invoicing_entity_providers: &InvoicingEntityProviderSensitive,
@@ -133,10 +126,17 @@ impl Services {
             });
         }
 
-        let existing_connections =
-            CustomerConnectionRow::list_connections_by_customer_id(conn, &tenant_id, &customer.id)
-                .await
-                .map_err(|err| StoreError::DatabaseError(err.error))?;
+        // Read in its own scope: the connection is back in the pool before any provider call.
+        let existing_connections = {
+            let mut conn = self.store.get_conn().await?;
+            CustomerConnectionRow::list_connections_by_customer_id(
+                &mut conn,
+                &tenant_id,
+                &customer.id,
+            )
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?
+        };
 
         let mut card_connection_id = None;
         let mut direct_debit_connection_id = None;
@@ -159,13 +159,7 @@ impl Services {
             // must NEVER crash the checkout / invoice-payment page. Degrade the
             // affected method to "unavailable" and let the other providers render.
             (card_connection_id, card_unavailable_reason) = self
-                .resolve_connection_or_degrade(
-                    conn,
-                    customer,
-                    provider,
-                    &existing_connections,
-                    "card",
-                )
+                .resolve_connection_or_degrade(customer, provider, &existing_connections, "card")
                 .await;
         }
 
@@ -176,7 +170,6 @@ impl Services {
             } else {
                 (direct_debit_connection_id, direct_debit_unavailable_reason) = self
                     .resolve_connection_or_degrade(
-                        conn,
                         customer,
                         provider,
                         &existing_connections,
@@ -229,14 +222,13 @@ impl Services {
     /// the customer still sees the invoice and any working payment methods.
     async fn resolve_connection_or_degrade(
         &self,
-        conn: &mut PgConn,
         customer: &Customer,
         provider: &Connector,
         existing_connections: &[CustomerConnectionRow],
         method_slot: &str,
     ) -> (Option<CustomerConnectionId>, Option<String>) {
         match self
-            .get_or_create_connection_for_provider(conn, customer, provider, existing_connections)
+            .get_or_create_connection_for_provider(customer, provider, existing_connections)
             .await
         {
             Ok(connection_id) => (connection_id, None),
@@ -256,14 +248,10 @@ impl Services {
 
     async fn get_or_create_connection_for_provider(
         &self,
-        conn: &mut PgConn,
         customer: &Customer,
         provider: &Connector,
         existing_connections: &[CustomerConnectionRow],
     ) -> StoreResult<Option<CustomerConnectionId>> {
-        use crate::adapters::payment::initialize_payment_connector;
-        use crate::adapters::payment::model::{CreateCustomerRequest, IdempotencyKey};
-
         if let Some(existing) = existing_connections
             .iter()
             .find(|c| c.connector_id == provider.id)
@@ -271,49 +259,9 @@ impl Services {
             return Ok(Some(existing.id));
         }
 
-        let connector_impl = initialize_payment_connector(provider)
-            .change_context(StoreError::PaymentProviderError)?;
-
-        // Idempotency: customer × provider. Retry after a network blip
-        // returns the original external customer rather than creating a duplicate.
-        let request = CreateCustomerRequest {
-            idempotency_key: IdempotencyKey::new(format!(
-                "customer:{}:{}",
-                customer.id.as_base62(),
-                provider.id.as_base62()
-            )),
-        };
-
-        let external_ref = tokio::time::timeout(
-            PAYMENT_PROVIDER_TIMEOUT,
-            connector_impl.create_customer(customer, request),
-        )
-        .await
-        .map_err(|_| {
-            Report::new(StoreError::PaymentProviderError)
-                .attach("Payment provider request timed out")
-        })?;
-        self.store
-            .note_rejected_credentials(provider, &external_ref)
-            .await;
-        let external_ref = external_ref.change_context(StoreError::PaymentProviderError)?;
-
-        let external_id = external_ref.external_id;
-
-        let new_connection = CustomerConnectionRow {
-            id: CustomerConnectionId::new(),
-            customer_id: customer.id,
-            connector_id: provider.id,
-            external_customer_id: external_id,
-            supported_payment_types: None,
-        };
-
-        let inserted = new_connection
-            .insert(conn)
+        self.create_customer_connection(customer, provider, None)
             .await
-            .map_err(|err| StoreError::DatabaseError(err.error))?;
-
-        Ok(Some(inserted.id))
+            .map(Some)
     }
 }
 

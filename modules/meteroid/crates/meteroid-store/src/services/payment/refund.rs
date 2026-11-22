@@ -671,6 +671,8 @@ impl Services {
             .ensure_active_locked(&mut conn)
             .await
             .change_context(ConnectorError::Database)?;
+        // Back to the pool before the provider call.
+        drop(conn);
 
         let capabilities = connector_impl.capabilities();
         if !capabilities.supports_refunds() {

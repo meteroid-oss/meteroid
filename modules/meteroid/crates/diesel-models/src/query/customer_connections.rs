@@ -20,6 +20,40 @@ impl CustomerConnectionRow {
             .into_db_result()
     }
 
+    /// Inserts the connection, or returns the one the customer already has on this connector.
+    /// For callers that create the provider customer without holding a lock, where two requests
+    /// can reach the insert at the same time.
+    pub async fn insert_if_absent(&self, conn: &mut PgConn) -> DbResult<CustomerConnectionRow> {
+        use crate::schema::customer_connection::dsl as cc_dsl;
+        use diesel::OptionalExtension;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::insert_into(cc_dsl::customer_connection)
+            .values(self)
+            .on_conflict((cc_dsl::customer_id, cc_dsl::connector_id))
+            .do_nothing();
+        crate::debug_sql(&query);
+
+        let inserted: Option<CustomerConnectionRow> = query
+            .get_result(conn)
+            .await
+            .optional()
+            .attach("Error while inserting customer to connector")
+            .into_db_result()?;
+        if let Some(row) = inserted {
+            return Ok(row);
+        }
+
+        cc_dsl::customer_connection
+            .filter(cc_dsl::customer_id.eq(self.customer_id))
+            .filter(cc_dsl::connector_id.eq(self.connector_id))
+            .select(CustomerConnectionRow::as_select())
+            .get_result(conn)
+            .await
+            .attach("Error while reading the customer's existing connection")
+            .into_db_result()
+    }
+
     pub async fn upsert(
         conn: &mut PgConn,
         tenant_id: &TenantId,

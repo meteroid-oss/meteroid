@@ -1858,19 +1858,15 @@ impl Services {
             ReplayStart::Recorded(outcome) => return Ok(outcome),
             ReplayStart::Armed(armed) => armed,
         };
-        let intent = {
-            let mut conn = self.store.get_conn().await?;
-            super::replay_top_up::charge_card_off_session(
-                &self.store,
-                &mut conn,
-                tenant_id,
-                armed.payment_method_id,
-                armed.payment_transaction_id,
-                armed.charge_minor,
-                &armed.currency,
-            )
-            .await?
-        };
+        let intent = super::replay_top_up::charge_card_off_session(
+            &self.store,
+            tenant_id,
+            armed.payment_method_id,
+            armed.payment_transaction_id,
+            armed.charge_minor,
+            &armed.currency,
+        )
+        .await?;
         let intent = PaymentIntent {
             processed_at: (intent.status != DomainPaymentStatus::Pending).then_some(at.naive_utc()),
             ..intent

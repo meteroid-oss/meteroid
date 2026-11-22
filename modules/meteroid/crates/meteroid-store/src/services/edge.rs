@@ -1154,12 +1154,7 @@ impl ServicesEdge {
         invoicing_entity_id: common_domain::ids::InvoicingEntityId,
     ) -> StoreResult<(Option<CustomerConnectionId>, Option<CustomerConnectionId>)> {
         self.services
-            .get_or_create_customer_connections(
-                &mut self.get_conn().await?,
-                tenant_id,
-                customer_id,
-                invoicing_entity_id,
-            )
+            .get_or_create_customer_connections(tenant_id, customer_id, invoicing_entity_id)
             .await
     }
 
@@ -1172,15 +1167,16 @@ impl ServicesEdge {
     ) -> StoreResult<ResolvedPaymentMethods> {
         use diesel_models::invoicing_entities::InvoicingEntityProvidersRow;
 
-        let mut conn = self.get_conn().await?;
-
-        let providers_row = InvoicingEntityProvidersRow::resolve_providers_by_id(
-            &mut conn,
-            customer.invoicing_entity_id,
-            tenant_id,
-        )
-        .await
-        .map_err(|err| StoreError::DatabaseError(err.error))?;
+        let providers_row = {
+            let mut conn = self.get_conn().await?;
+            InvoicingEntityProvidersRow::resolve_providers_by_id(
+                &mut conn,
+                customer.invoicing_entity_id,
+                tenant_id,
+            )
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?
+        };
 
         let invoicing_entity_providers = InvoicingEntityProviderSensitive::from_row(
             providers_row,
@@ -1189,7 +1185,6 @@ impl ServicesEdge {
 
         self.services
             .resolve_payment_methods(
-                &mut conn,
                 tenant_id,
                 payment_methods_config,
                 customer,

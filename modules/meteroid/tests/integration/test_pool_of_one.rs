@@ -14,6 +14,7 @@ use meteroid_store::domain::{
 };
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use meteroid_store::repositories::checkout_sessions::CheckoutSessionsInterface;
+use meteroid_store::repositories::customers::CustomersInterfaceAuto;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use meteroid_store::store::{PgConfig, PgPoolConfig, diesel_make_pg_pool};
 use rstest::rstest;
@@ -265,5 +266,77 @@ async fn test_self_serve_checkout_completion_runs_on_a_pool_of_one(#[future] tes
     assert!(
         matches!(completed, CheckoutCompletionResult::Completed { .. }),
         "the mock provider settles at once"
+    );
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_creating_customer_connections_runs_on_a_pool_of_one(#[future] test_env: TestEnv) {
+    let env = test_env.await;
+    env.seed_mock_payment_provider(false).await;
+    let customer = env
+        .store()
+        .find_customer_by_id(CUST_SPOTIFY_ID, TENANT_ID)
+        .await
+        .expect("customer");
+    let services = on_a_pool_of_one(&env);
+
+    let (card, _) = within(
+        "creating the customer's provider connections",
+        services.get_or_create_customer_connections(
+            TENANT_ID,
+            customer.id,
+            customer.invoicing_entity_id,
+        ),
+    )
+    .await
+    .expect("connections are created");
+    assert!(card.is_some(), "the card provider gets a connection");
+}
+
+/// A request that created the provider customer without holding a lock can find the connection
+/// already stored by another one: it must get that connection back, not a unique-key error.
+#[rstest]
+#[tokio::test]
+async fn test_a_connection_stored_meanwhile_is_returned_instead_of_a_conflict(
+    #[future] test_env: TestEnv,
+) {
+    use common_domain::ids::{BaseId, CustomerConnectionId};
+    use diesel_models::customer_connection::CustomerConnectionRow;
+
+    let env = test_env.await;
+    env.seed_mock_payment_provider(false).await;
+    let customer = env
+        .store()
+        .find_customer_by_id(CUST_SPOTIFY_ID, TENANT_ID)
+        .await
+        .expect("customer");
+    let (card, _) = env
+        .services()
+        .get_or_create_customer_connections(TENANT_ID, customer.id, customer.invoicing_entity_id)
+        .await
+        .expect("connections are created");
+    let stored_id = card.expect("the card provider gets a connection");
+
+    let mut conn = env.store().get_conn().await.expect("a connection");
+    let stored = CustomerConnectionRow::get_by_id(&mut conn, &TENANT_ID, &stored_id)
+        .await
+        .expect("the stored connection");
+    let late = CustomerConnectionRow {
+        id: CustomerConnectionId::new(),
+        customer_id: stored.customer_id,
+        connector_id: stored.connector_id,
+        external_customer_id: "created_by_the_slower_request".to_string(),
+        supported_payment_types: stored.supported_payment_types.clone(),
+    };
+
+    let kept = late
+        .insert_if_absent(&mut conn)
+        .await
+        .expect("the late insert does not conflict");
+    assert_eq!(kept.id, stored.id, "the first connection is kept");
+    assert_eq!(
+        kept.external_customer_id, stored.external_customer_id,
+        "the first provider customer is kept"
     );
 }

@@ -76,224 +76,160 @@ impl Services {
     /// This ensures customers can add payment methods even if they don't have connections yet
     pub(in crate::services) async fn get_or_create_customer_connections(
         &self,
-        conn: &mut PgConn,
         tenant_id: TenantId,
         customer_id: common_domain::ids::CustomerId,
         invoicing_entity_id: common_domain::ids::InvoicingEntityId,
     ) -> StoreResult<(Option<CustomerConnectionId>, Option<CustomerConnectionId>)> {
         use diesel_models::customer_connection::CustomerConnectionRow;
+        use diesel_models::enums::PaymentMethodTypeEnum as PaymentType;
 
         let customer = self
             .store
             .find_customer_by_id(customer_id, tenant_id)
             .await?;
 
-        let invoicing_entity = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
-            conn,
-            invoicing_entity_id,
-            tenant_id,
-        )
-        .await
-        .map_err(|err| StoreError::DatabaseError(err.error))?;
+        // Read everything first: the connection is back in the pool before any provider call.
+        let (invoicing_entity, providers, existing_connections) = {
+            let mut conn = self.store.get_conn().await?;
 
-        let providers = diesel_models::invoicing_entities::InvoicingEntityProvidersRow::resolve_providers_by_id(
-            conn,
-            invoicing_entity_id,
-            tenant_id,
-        )
-        .await
-        .map_err(|err| StoreError::DatabaseError(err.error))?;
+            let invoicing_entity = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
+                &mut conn,
+                invoicing_entity_id,
+                tenant_id,
+            )
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+            let providers = InvoicingEntityProvidersRow::resolve_providers_by_id(
+                &mut conn,
+                invoicing_entity_id,
+                tenant_id,
+            )
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+            let existing_connections = CustomerConnectionRow::list_connections_by_customer_id(
+                &mut conn,
+                &tenant_id,
+                &customer_id,
+            )
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+            (invoicing_entity, providers, existing_connections)
+        };
 
         let providers_sensitive = crate::domain::InvoicingEntityProviderSensitive::from_row(
             providers,
             &self.store.settings.crypt_key,
         )?;
 
-        let existing_connections = diesel_models::customer_connection::CustomerConnectionRow::list_connections_by_customer_id(
-            conn,
-            &tenant_id,
-            &customer_id,
-        )
-        .await
-        .map_err(|err| StoreError::DatabaseError(err.error))?;
+        let existing_on = |provider: &Connector| {
+            existing_connections
+                .iter()
+                .find(|c| c.connector_id == provider.id)
+                .map(|c| c.id)
+        };
+        let direct_debit_types = || get_direct_debit_types_for_country(&invoicing_entity.country);
 
         let mut card_connection_id = None;
         let mut direct_debit_connection_id = None;
 
-        // Check if the same provider is used for both card and direct debit
-        let same_provider = match (
+        match (
             &providers_sensitive.card_provider,
             &providers_sensitive.direct_debit_provider,
         ) {
-            (Some(card), Some(dd)) => card.id == dd.id,
-            _ => false,
-        };
-
-        if same_provider {
-            // Same provider handles both card and direct debit
-            // Create a single connection with combined payment types
-            let provider = providers_sensitive.card_provider.as_ref().unwrap();
-
-            let existing = existing_connections
-                .iter()
-                .find(|c| c.connector_id == provider.id);
-
-            let connection_id = if let Some(conn_row) = existing {
-                conn_row.id
-            } else {
-                // Create new customer in payment provider
-                let connector_impl = initialize_payment_connector(provider)
-                    .change_context(StoreError::PaymentProviderError)?;
-
-                let external_ref = tokio::time::timeout(
-                    PAYMENT_PROVIDER_TIMEOUT,
-                    connector_impl
-                        .create_customer(&customer, customer_idempotency(customer.id, provider.id)),
-                )
-                .await
-                .map_err(|_| {
-                    Report::new(StoreError::PaymentProviderError)
-                        .attach("Payment provider request timed out")
-                })?;
-                self.store
-                    .note_rejected_credentials(provider, &external_ref)
-                    .await;
-                let external_ref = external_ref.change_context(StoreError::PaymentProviderError)?;
-
-                let external_id = external_ref.external_id;
-
-                // Combine payment types: Card + appropriate direct debit types based on country
-                let mut payment_types =
-                    vec![Some(diesel_models::enums::PaymentMethodTypeEnum::Card)];
-                payment_types.extend(get_direct_debit_types_for_country(
-                    &invoicing_entity.country,
-                ));
-
-                let new_connection = CustomerConnectionRow {
-                    id: CustomerConnectionId::new(),
-                    customer_id,
-                    connector_id: provider.id,
-                    external_customer_id: external_id,
-                    supported_payment_types: Some(payment_types),
+            // One provider takes both: a single connection carrying card and direct debit.
+            (Some(card), Some(direct_debit)) if card.id == direct_debit.id => {
+                let connection_id = match existing_on(card) {
+                    Some(id) => id,
+                    None => {
+                        let mut payment_types = vec![Some(PaymentType::Card)];
+                        payment_types.extend(direct_debit_types());
+                        self.create_customer_connection(&customer, card, Some(payment_types))
+                            .await?
+                    }
                 };
-
-                let inserted = new_connection
-                    .insert(conn)
-                    .await
-                    .map_err(|err| StoreError::DatabaseError(err.error))?;
-
-                inserted.id
-            };
-
-            // Use the same connection ID for both
-            card_connection_id = Some(connection_id);
-            direct_debit_connection_id = Some(connection_id);
-        } else {
-            // Different providers for card and direct debit - create separate connections
-            if let Some(card_provider) = &providers_sensitive.card_provider {
-                let existing = existing_connections
-                    .iter()
-                    .find(|c| c.connector_id == card_provider.id);
-
-                if let Some(conn_row) = existing {
-                    card_connection_id = Some(conn_row.id);
-                } else {
-                    let connector_impl = initialize_payment_connector(card_provider)
-                        .change_context(StoreError::PaymentProviderError)?;
-
-                    let external_ref = tokio::time::timeout(
-                        PAYMENT_PROVIDER_TIMEOUT,
-                        connector_impl.create_customer(
-                            &customer,
-                            customer_idempotency(customer.id, card_provider.id),
-                        ),
-                    )
-                    .await
-                    .map_err(|_| {
-                        Report::new(StoreError::PaymentProviderError)
-                            .attach("Payment provider request timed out")
-                    })?;
-                    self.store
-                        .note_rejected_credentials(card_provider, &external_ref)
-                        .await;
-                    let external_ref =
-                        external_ref.change_context(StoreError::PaymentProviderError)?;
-
-                    let external_id = external_ref.external_id;
-
-                    // Create connection in our database with Card payment type
-                    let new_connection = CustomerConnectionRow {
-                        id: CustomerConnectionId::new(),
-                        customer_id,
-                        connector_id: card_provider.id,
-                        external_customer_id: external_id,
-                        supported_payment_types: Some(vec![Some(
-                            diesel_models::enums::PaymentMethodTypeEnum::Card,
-                        )]),
-                    };
-
-                    let inserted = new_connection
-                        .insert(conn)
-                        .await
-                        .map_err(|err| StoreError::DatabaseError(err.error))?;
-
-                    card_connection_id = Some(inserted.id);
-                }
+                card_connection_id = Some(connection_id);
+                direct_debit_connection_id = Some(connection_id);
             }
-
-            // Check for direct debit provider connection
-            if let Some(direct_debit_provider) = &providers_sensitive.direct_debit_provider {
-                let existing = existing_connections
-                    .iter()
-                    .find(|c| c.connector_id == direct_debit_provider.id);
-
-                if let Some(conn_row) = existing {
-                    direct_debit_connection_id = Some(conn_row.id);
-                } else {
-                    let connector_impl = initialize_payment_connector(direct_debit_provider)
-                        .change_context(StoreError::PaymentProviderError)?;
-
-                    let external_ref = tokio::time::timeout(
-                        PAYMENT_PROVIDER_TIMEOUT,
-                        connector_impl.create_customer(
-                            &customer,
-                            customer_idempotency(customer.id, direct_debit_provider.id),
-                        ),
-                    )
-                    .await
-                    .map_err(|_| {
-                        Report::new(StoreError::PaymentProviderError)
-                            .attach("Payment provider request timed out")
-                    })?;
-                    self.store
-                        .note_rejected_credentials(direct_debit_provider, &external_ref)
-                        .await;
-                    let external_ref =
-                        external_ref.change_context(StoreError::PaymentProviderError)?;
-
-                    let external_id = external_ref.external_id;
-
-                    let new_connection = CustomerConnectionRow {
-                        id: CustomerConnectionId::new(),
-                        customer_id,
-                        connector_id: direct_debit_provider.id,
-                        external_customer_id: external_id,
-                        supported_payment_types: Some(get_direct_debit_types_for_country(
-                            &invoicing_entity.country,
-                        )),
-                    };
-
-                    let inserted = new_connection
-                        .insert(conn)
-                        .await
-                        .map_err(|err| StoreError::DatabaseError(err.error))?;
-
-                    direct_debit_connection_id = Some(inserted.id);
+            (card, direct_debit) => {
+                if let Some(provider) = card {
+                    card_connection_id = Some(match existing_on(provider) {
+                        Some(id) => id,
+                        None => {
+                            self.create_customer_connection(
+                                &customer,
+                                provider,
+                                Some(vec![Some(PaymentType::Card)]),
+                            )
+                            .await?
+                        }
+                    });
+                }
+                if let Some(provider) = direct_debit {
+                    direct_debit_connection_id = Some(match existing_on(provider) {
+                        Some(id) => id,
+                        None => {
+                            self.create_customer_connection(
+                                &customer,
+                                provider,
+                                Some(direct_debit_types()),
+                            )
+                            .await?
+                        }
+                    });
                 }
             }
         }
 
         Ok((card_connection_id, direct_debit_connection_id))
+    }
+
+    /// Creates the customer at the provider, then stores the connection. No pooled connection is
+    /// held during the provider call. Two requests racing here end on the same connection: the
+    /// provider call is keyed per customer and provider, and the insert keeps the first row.
+    pub(in crate::services) async fn create_customer_connection(
+        &self,
+        customer: &crate::domain::Customer,
+        provider: &Connector,
+        supported_payment_types: Option<Vec<Option<diesel_models::enums::PaymentMethodTypeEnum>>>,
+    ) -> StoreResult<CustomerConnectionId> {
+        use diesel_models::customer_connection::CustomerConnectionRow;
+
+        let connector_impl = initialize_payment_connector(provider)
+            .change_context(StoreError::PaymentProviderError)?;
+
+        let external_ref = tokio::time::timeout(
+            PAYMENT_PROVIDER_TIMEOUT,
+            connector_impl
+                .create_customer(customer, customer_idempotency(customer.id, provider.id)),
+        )
+        .await
+        .map_err(|_| {
+            Report::new(StoreError::PaymentProviderError)
+                .attach("Payment provider request timed out")
+        })?;
+        self.store
+            .note_rejected_credentials(provider, &external_ref)
+            .await;
+        let external_ref = external_ref.change_context(StoreError::PaymentProviderError)?;
+
+        let new_connection = CustomerConnectionRow {
+            id: CustomerConnectionId::new(),
+            customer_id: customer.id,
+            connector_id: provider.id,
+            external_customer_id: external_ref.external_id,
+            supported_payment_types,
+        };
+
+        let mut conn = self.store.get_conn().await?;
+        let stored = new_connection
+            .insert_if_absent(&mut conn)
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+        Ok(stored.id)
     }
 
     pub(in crate::services) async fn create_setup_intent_for_type(
