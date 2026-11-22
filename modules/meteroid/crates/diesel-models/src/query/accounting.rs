@@ -172,7 +172,10 @@ impl ProductAccountingRow {
         conn: &mut PgConn,
         tenant_id: TenantId,
     ) -> DbResult<ProductAccountingRow> {
-        use crate::schema::{invoicing_entity::dsl as ie_dsl, product_accounting::dsl as pa_dsl};
+        use crate::schema::{
+            invoicing_entity::dsl as ie_dsl, product::dsl as p_dsl,
+            product_accounting::dsl as pa_dsl,
+        };
         use diesel_async::RunQueryDsl;
 
         let _invoicing_entity_exists = ie_dsl::invoicing_entity
@@ -182,6 +185,15 @@ impl ProductAccountingRow {
             .first::<InvoicingEntityId>(conn)
             .await
             .attach("Invoicing entity not found or does not belong to tenant")
+            .into_db_result()?;
+
+        let _product_exists = p_dsl::product
+            .filter(p_dsl::id.eq(self.product_id))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .select(p_dsl::id)
+            .first::<ProductId>(conn)
+            .await
+            .attach("Product not found or does not belong to tenant")
             .into_db_result()?;
 
         let query = diesel::insert_into(pa_dsl::product_accounting)

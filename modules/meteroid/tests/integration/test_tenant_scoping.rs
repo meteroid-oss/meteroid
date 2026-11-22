@@ -400,3 +400,38 @@ async fn test_product_accounting_of_other_tenant_is_not_returned(#[future] test_
         .expect("list as owner");
     assert_eq!(own.len(), 1);
 }
+
+#[rstest]
+#[tokio::test]
+async fn test_product_accounting_for_other_tenant_product_is_not_found(
+    #[future] test_env: TestEnv,
+) {
+    let env = test_env.await;
+    let store = env.store();
+    let (other, other_entity) = other_tenant(&env).await;
+
+    let res = store
+        .upsert_product_accounting(
+            other,
+            ProductAccounting {
+                product_id: PRODUCT_SEATS_ID,
+                invoicing_entity_id: other_entity,
+                product_code: Some("STOLEN".to_string()),
+                ledger_account_code: Some("6000".to_string()),
+            },
+        )
+        .await;
+    assert!(is_not_found(&res), "expected ValueNotFound, got {res:?}");
+
+    let mut conn = env.conn().await;
+    let written = store
+        .list_product_tax_configuration_by_product_ids_and_invoicing_entity_id_grouped(
+            &mut conn,
+            other,
+            vec![PRODUCT_SEATS_ID],
+            other_entity,
+        )
+        .await
+        .expect("list as other tenant");
+    assert!(written.is_empty());
+}
