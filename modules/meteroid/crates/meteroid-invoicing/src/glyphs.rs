@@ -116,7 +116,7 @@ impl FontCoverage {
             || self
                 .fonts
                 .iter()
-                .any(|font| font.ttf().glyph_index(c).is_some())
+                .any(|font| font.info().coverage.contains(c as u32))
     }
 }
 

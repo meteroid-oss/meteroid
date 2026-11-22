@@ -12,9 +12,9 @@ use meteroid_money::{FormattableCurrency, iso};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use typst::foundations::{Bytes, Decimal as TypstDecimal, Dict, IntoValue};
-use typst::layout::PagedDocument;
 use typst::text::Font;
 use typst_as_lib::TypstEngine;
+use typst_layout::PagedDocument;
 
 static INVOICE_CORE: &str = include_str!("../templates/invoice.typ");
 static TEMPLATE_CORE: &str = include_str!("../templates/template.typ");
@@ -1137,7 +1137,7 @@ pub fn document_text(document: &PagedDocument) -> String {
     }
 
     let mut out = String::new();
-    for page in &document.pages {
+    for page in document.pages() {
         walk(&page.frame, &mut out);
         out.push('\n');
     }

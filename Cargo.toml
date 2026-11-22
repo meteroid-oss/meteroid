@@ -110,7 +110,7 @@ base62 = "2.2.3"
 base64 = "0.22.0"
 backon = "1.5.2"
 # Only to remove a test container whose start failed; the version testcontainers resolves.
-bollard = { version = "0.20.2", default-features = false }
+bollard = { version = "0.21.1", default-features = false }
 bytes = "1.10.1"
 cached = "0.59.0"
 chacha20poly1305 = "0.10.1"
@@ -150,8 +150,8 @@ humantime = { version = "2.3.0" }
 hyper = { version = "1.7.0", default-features = false }
 image = "0.25.2"
 ordermap = "1.0.0"
-init-tracing-opentelemetry = { version = "0.38.0" }
-axum-tracing-opentelemetry = { version = "0.38.0" }
+init-tracing-opentelemetry = { version = "0.44.0", default-features = false }
+axum-tracing-opentelemetry = { version = "0.42.1" }
 insta = { version = "1.43.1", features = ["json"] }
 itertools = "0.14.0"
 jsonwebtoken = { version = "10.0.0", default-features = false }
@@ -171,11 +171,11 @@ oauth2-reqwest = "0.1.0-alpha.3"
 o2o = { version = "0.5.3", default-features = false, features = ["syn2"] }
 object_store = { version = "0.13.2", default-features = false }
 once_cell = "1.18.0"
-opentelemetry = { version = "0.32.0", features = ["metrics", "trace", "logs"] }
-opentelemetry-otlp = { version = "0.32.0", default-features = false, features = ["grpc-tonic", "internal-logs", "logs", "metrics", "trace"] }
-opentelemetry_sdk = { version = "0.32.0", features = ["trace", "metrics", "rt-tokio", "rt-tokio-current-thread"] }
-opentelemetry-appender-tracing = { version = "0.32.0" }
-opentelemetry-resource-detectors = { version = "0.11.0" }
+opentelemetry = { version = "0.33.1", features = ["metrics", "trace", "logs"] }
+opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["grpc-tonic", "internal-logs", "logs", "metrics", "trace"] }
+opentelemetry_sdk = { version = "0.33.1", features = ["trace", "metrics", "rt-tokio", "rt-tokio-current-thread"] }
+opentelemetry-appender-tracing = { version = "0.33.1" }
+opentelemetry-resource-detectors = { version = "0.13.1" }
 paste = "1.0.15"
 pbjson-build = "0.9.0"
 pin-project = "1.1.3"
@@ -216,11 +216,9 @@ signature = "2.2.0"
 syn = "2.0.52"
 strum = { version = "0.28", default-features = false }
 tap = "1.0.1"
-testcontainers = { version = "0.27.1", features = ["watchdog"] }
+testcontainers = { version = "0.28.0", features = ["watchdog"] }
 thiserror = "2.0.3"
-# 0.3.47 fixes RUSTSEC-2026-0009; 0.3.48 reintroduces an E0119 coherence break
-# with typst-library 0.14.2 under Rust 1.94, so cap below it until typst is upgraded.
-time = ">=0.3.47, <0.3.48"
+time = "0.3.47"
 tokio = { version = "1.33.0", default-features = false }
 tokio-postgres = { version = "0.7.7", default-features = false }
 tokio-postgres-rustls = "0.14.0"
@@ -230,23 +228,20 @@ tonic = "0.14.2"
 tonic-health = "0.14.2"
 tonic-prost = "0.14.2"
 tonic-reflection = "0.14.2"
-tonic-tracing-opentelemetry = "0.38.0"
+tonic-tracing-opentelemetry = "0.42.1"
 tonic-web = "0.14.2"
 tonic-prost-build = "0.14.2"
 tower = { version = "0.5.0" }
-tower-http = { version = "0.6.1", features = ["add-extension", "auth", "catch-panic", "cors", "limit", "set-header", "trace"] }
+tower-http = { version = "0.7.1", features = ["add-extension", "auth", "catch-panic", "cors", "limit", "set-header", "trace"] }
 tower-layer = { version = "0.3.3" }
 tracing = { version = "0.1.39", features = ["log"] }
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.18", features = ["registry", "tracing-log", "fmt", "env-filter", "json"] }
-# Held by meteroid-invoicing as a pin on typst's transitive dependency.
-# ecow 0.2.7 adds extra AsRef<_> impls on EcoString, making `self.as_ref().repr()` in
-# typst-library 0.14.x ambiguous (E0282) under Rust 1.94. Pin to the last working release.
-ecow = "=0.2.6"
-typst = { version = "0.14.1" }
-typst-pdf = { version = "0.14.1" }
-typst-svg = { version = "0.14.1" }
-typst-as-lib = { version = "0.15.0", features = [] }
+typst = { version = "0.15.1" }
+typst-layout = { version = "0.15.1" }
+typst-pdf = { version = "0.15.1" }
+typst-svg = { version = "0.15.1" }
+typst-as-lib = { version = "0.18.0", features = [] }
 unic-langid = "0.9"
 url = "2.5"
 urlencoding = "2.1"

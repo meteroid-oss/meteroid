@@ -6,7 +6,7 @@ use crate::typst_render::{EInvoiceAttachment, TypstInvoiceRenderer};
 use async_trait::async_trait;
 use bytes::Bytes;
 use typst::foundations::{Datetime, Smart};
-use typst::layout::PagedDocument;
+use typst_layout::PagedDocument;
 use typst_pdf::{self, PdfOptions, PdfStandard, PdfStandards, Timestamp};
 
 /// PDF/A demands a document date, and an embedded file carries one of its own —
@@ -32,7 +32,9 @@ fn generate_pdf_from_document(
         page_ranges: None,
         timestamp,
         ident: Smart::Auto,
+        creator: Smart::Auto,
         tagged: true,
+        pretty: false,
     };
 
     let pdf = typst_pdf::pdf(document, &pdf_options).map_err(|e| {

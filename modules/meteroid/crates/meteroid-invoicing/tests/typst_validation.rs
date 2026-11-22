@@ -21,7 +21,8 @@ use meteroid_money::{Money, iso};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::str::FromStr;
-use typst::layout::{Frame, FrameItem, PagedDocument};
+use typst::layout::{Frame, FrameItem};
+use typst_layout::PagedDocument;
 
 #[tokio::test]
 async fn test_typst_invoice_generation_validates_template() {
@@ -203,7 +204,7 @@ fn rendered_text(document: &PagedDocument) -> String {
     }
 
     let mut out = String::new();
-    for page in &document.pages {
+    for page in document.pages() {
         walk(&page.frame, &mut out);
     }
     out
@@ -222,7 +223,7 @@ fn page_text(document: &PagedDocument, page: usize) -> String {
     }
 
     let mut out = String::new();
-    walk(&document.pages[page].frame, &mut out);
+    walk(&document.pages()[page].frame, &mut out);
     out
 }
 
@@ -523,7 +524,7 @@ fn a_long_usage_breakdown_starts_on_the_first_page_and_runs_onto_the_next() {
         .expect("Failed to render invoice");
 
     let first_page = page_text(&document, 0);
-    assert!(document.pages.len() > 1, "{first_page}");
+    assert!(document.pages().len() > 1, "{first_page}");
     assert!(first_page.contains(&invoice.lines[0].name), "{first_page}");
     assert!(first_page.contains("By project_id"), "{first_page}");
     assert!(first_page.contains("tenant-010"), "{first_page}");

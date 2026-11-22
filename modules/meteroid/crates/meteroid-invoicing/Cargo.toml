@@ -22,14 +22,12 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 serde_json.workspace = true
 typst = { workspace = true }
+typst-layout = { workspace = true }
 typst-pdf = { workspace = true }
 typst-svg = { workspace = true }
 typst-as-lib = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 common-domain.workspace = true
-# Not used directly: pins typst's transitive versions (see the root Cargo.toml).
-ecow.workspace = true
-time.workspace = true
 workspace-hack = { version = "0.1", path = "../../../../crates/workspace-hack" }
 
 [dev-dependencies]
@@ -44,5 +42,3 @@ serde_json.workspace = true
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(trybuild)'] }
 
-[package.metadata.cargo-shear]
-ignored = ["ecow", "time"]
