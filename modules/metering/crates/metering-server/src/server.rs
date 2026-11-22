@@ -164,8 +164,15 @@ async fn start_api_server(
     let api_key_auth_layer = ExternalApiAuthLayer::new(internal_client.clone()).filter(only_api);
 
     let query_service = if mode.serves_query() {
-        let connector =
-            Arc::new(ClickhouseConnector::init(&config.clickhouse, &config.kafka, vec![]).await?);
+        let connector = Arc::new(
+            ClickhouseConnector::init(
+                &config.clickhouse,
+                &config.consumer.tables,
+                &config.kafka,
+                vec![],
+            )
+            .await?,
+        );
         Some(crate::query::service(connector))
     } else {
         None

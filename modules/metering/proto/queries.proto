@@ -356,6 +356,24 @@ message ProfileEventPropertiesResponse {
   repeated PropertyProfile properties = 2;
 }
 
+message LookupEventRequest {
+  string tenant_id = 1;
+  string customer_id = 2;
+  string event_id = 3;
+}
+
+message LookupEventResponse {
+  // The live copies within the 35-day id window, by ingestion. Empty: unknown, older or voided.
+  repeated LiveEvent events = 1;
+
+  message LiveEvent {
+    string code = 1;
+    google.protobuf.Timestamp timestamp = 2;
+    map<string, string> properties = 3;
+    google.protobuf.Timestamp ingested_at = 4;
+  }
+}
+
 // Metering query plane: raw-event meters and event search. The analytics/explore
 // plane (semantic metrics, segments, momentum, retention) lives in the separate
 // meteroid.analytics.v1.AnalyticsQueryService served by analytics-api.
@@ -385,4 +403,6 @@ service UsageQueryService {
   rpc DiscoverProperties(DiscoverPropertiesRequest) returns (DiscoverPropertiesResponse);
   rpc DiscoverPropertyValues(DiscoverPropertyValuesRequest) returns (DiscoverPropertyValuesResponse);
   rpc ProfileEventProperties(ProfileEventPropertiesRequest) returns (ProfileEventPropertiesResponse);
+  // Internal: the live copies of one event, checked before an amend or a void (ADR-0012).
+  rpc LookupEvent(LookupEventRequest) returns (LookupEventResponse);
 }

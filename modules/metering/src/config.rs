@@ -58,6 +58,16 @@ pub struct ConsumerConfig {
     )]
     pub insert_retry_budget_ms: u64,
 
+    /// Also the connector's (`ClickhouseConnector::init`).
+    #[envconfig(nested)]
+    pub tables: EventTablesConfig,
+}
+
+/// The local tables the consumer writes and the change lookup reads. `event_voids_local` is
+/// `metric_core::sql::EVENT_VOIDS_TABLE`, shared with the readers.
+#[cfg(feature = "clickhouse")]
+#[derive(Envconfig, Clone, Debug)]
+pub struct EventTablesConfig {
     #[envconfig(
         from = "CLICKHOUSE_RAW_EVENTS_LOCAL_TABLE",
         default = "raw_events_local_v2"

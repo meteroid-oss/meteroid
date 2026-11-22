@@ -2,7 +2,6 @@
 //! ends at V4.
 
 use super::MigrationsError;
-use crate::ingest::domain::RawEventRow;
 use clickhouse::{Client, Row};
 use common_domain::ids::{CustomerId, TenantId};
 use error_stack::{Report, ResultExt};
@@ -36,7 +35,23 @@ struct Base62EventRow {
     properties: Vec<(String, String)>,
 }
 
-impl TryFrom<Base62EventRow> for RawEventRow {
+/// The columns of `raw_events_v2` when this copy runs, between V7 and V8: later migrations add theirs.
+#[derive(Row, serde::Serialize)]
+struct UuidEventRow {
+    id: String,
+    code: String,
+    #[serde(with = "clickhouse::serde::uuid")]
+    customer_id: uuid::Uuid,
+    #[serde(with = "clickhouse::serde::uuid")]
+    tenant_id: uuid::Uuid,
+    #[serde(with = "clickhouse::serde::chrono::datetime64::nanos")]
+    timestamp: chrono::DateTime<chrono::Utc>,
+    #[serde(with = "clickhouse::serde::chrono::datetime64::nanos")]
+    ingested_at: chrono::DateTime<chrono::Utc>,
+    properties: std::collections::BTreeMap<String, String>,
+}
+
+impl TryFrom<Base62EventRow> for UuidEventRow {
     type Error = String;
 
     fn try_from(row: Base62EventRow) -> Result<Self, Self::Error> {
@@ -44,7 +59,7 @@ impl TryFrom<Base62EventRow> for RawEventRow {
             .map_err(|e| format!("customer_id `{}`: {e}", row.customer_id))?;
         let tenant_id = TenantId::from_str(&row.tenant_id)
             .map_err(|e| format!("tenant_id `{}`: {e}", row.tenant_id))?;
-        Ok(RawEventRow {
+        Ok(UuidEventRow {
             id: row.id,
             code: row.code,
             customer_id: *customer_id,
@@ -216,7 +231,7 @@ pub(super) async fn copy_base62_events(
         .change_context(MigrationsError::Execution)
         .attach_with(failed(source))?;
     let mut inserter = sync_client
-        .inserter::<RawEventRow>("raw_events_v2")
+        .inserter::<UuidEventRow>("raw_events_v2")
         .with_max_rows(100_000);
     let (mut copied, mut unconverted) = (0u64, Vec::new());
     let mut unconverted_count = 0u64;
@@ -227,7 +242,7 @@ pub(super) async fn copy_base62_events(
         .change_context(MigrationsError::Execution)
         .attach_with(failed(source))?
     {
-        match RawEventRow::try_from(row) {
+        match UuidEventRow::try_from(row) {
             Ok(event) => {
                 inserter
                     .write(&event)

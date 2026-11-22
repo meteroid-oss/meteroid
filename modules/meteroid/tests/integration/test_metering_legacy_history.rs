@@ -95,9 +95,14 @@ async fn test_pre_rc4_history_keeps_its_usage_events() {
     assert_eq!(expected.len(), 2);
 
     for _ in 0..2 {
-        ClickhouseConnector::init(&config.clickhouse, &config.kafka, vec![])
-            .await
-            .expect("migrations run over a pre-rc4 history");
+        ClickhouseConnector::init(
+            &config.clickhouse,
+            &config.consumer.tables,
+            &config.kafka,
+            vec![],
+        )
+        .await
+        .expect("migrations run over a pre-rc4 history");
     }
 
     let copied: Vec<Copied> = ch
@@ -127,5 +132,5 @@ async fn test_pre_rc4_history_keeps_its_usage_events() {
         .fetch_all()
         .await
         .expect("history");
-    assert_eq!(versions, (1..=10).collect::<Vec<_>>());
+    assert_eq!(versions, (1..=11).collect::<Vec<_>>());
 }

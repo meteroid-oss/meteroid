@@ -1,5 +1,5 @@
 use crate::config::KafkaConfig;
-use crate::ingest::domain::RawEvent;
+use crate::ingest::domain::{EventKind, RawEvent};
 use crate::ingest::errors::IngestError;
 use crate::ingest::metrics::{INGEST_BATCH_SIZE, INGESTED_EVENTS_TOTAL};
 use crate::ingest::sinks::{FailedRecord, Sink};
@@ -78,9 +78,11 @@ impl KafkaSink {
         }
     }
 
+    /// Amends and voids are not counted as ingested events.
     async fn process_ack(
         delivery: DeliveryFuture,
         attributes: &[KeyValue],
+        kind: EventKind,
     ) -> Result<(), IngestError> {
         match delivery.await {
             Err(_) => {
@@ -95,7 +97,9 @@ impl KafkaSink {
                 Err(IngestError::RetryableSinkError)
             }
             Ok(Ok(_)) => {
-                INGESTED_EVENTS_TOTAL.add(1, attributes);
+                if kind == EventKind::Event {
+                    INGESTED_EVENTS_TOTAL.add(1, attributes);
+                }
                 Ok(())
             }
         }
@@ -123,7 +127,7 @@ impl Sink for KafkaSink {
             set.spawn(async move {
                 match send_result {
                     Ok(ack) => {
-                        if let Err(error) = Self::process_ack(ack, &attributes).await {
+                        if let Err(error) = Self::process_ack(ack, &attributes, event.kind).await {
                             vec![FailedRecord { event, error }]
                         } else {
                             vec![]
@@ -212,6 +216,7 @@ mod tests {
             timestamp: chrono::Utc::now().naive_utc(),
             ingested_at: chrono::Utc::now().naive_utc(),
             keep_last: false,
+            kind: Default::default(),
             properties: HashMap::from([("key".to_string(), "value".to_string())]),
         };
 
@@ -246,6 +251,7 @@ mod tests {
             timestamp: chrono::Utc::now().naive_utc(),
             ingested_at: chrono::Utc::now().naive_utc(),
             keep_last: false,
+            kind: Default::default(),
             properties: HashMap::from([("key".to_string(), big_data.to_string())]),
         };
 

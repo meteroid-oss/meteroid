@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tonic::Status;
 
 use crate::cache::CUSTOMER_ID_CACHE;
-use crate::ingest::domain::{FailedEvent, RawEvent};
+use crate::ingest::domain::{EventKind, FailedEvent, RawEvent};
 use crate::ingest::sinks::Sink;
 use common_grpc::middleware::client::LayeredClientService;
 use meteroid_grpc::meteroid::internal::v1::ResolveCustomerAliasesRequest;
@@ -225,6 +225,27 @@ impl EventProcessor {
 
         Ok(IngestResult { failures })
     }
+
+    /// Queues an amend or a void, keyed like the event so it applies in order with its copies.
+    pub async fn enqueue_change(&self, change: RawEvent) -> Result<(), Status> {
+        let attributes = &[KeyValue::new("tenant_id", change.tenant_id.as_proto())];
+        let failed = self
+            .sink
+            .send(vec![change], attributes)
+            .await
+            .map_err(|e| {
+                Status::internal("Unable to send the change")
+                    .set_source(Arc::new(e))
+                    .clone()
+            })?;
+        match failed.into_iter().next() {
+            Some(record) => Err(Status::unavailable(format!(
+                "Unable to send the change: {}",
+                record.error
+            ))),
+            None => Ok(()),
+        }
+    }
 }
 
 fn into_failures(events: Vec<FailedEvent>) -> Vec<IngestFailure> {
@@ -257,6 +278,7 @@ fn to_domain_event(
         ingested_at: (now + chrono::Duration::nanoseconds(position as i64)).naive_utc(),
         properties: event.properties,
         keep_last,
+        kind: EventKind::Event,
     }
 }
 
@@ -279,33 +301,36 @@ pub fn validate_event(
     let ts = if event.timestamp.is_empty() {
         *now
     } else {
-        match DateTime::parse_from_rfc3339(&event.timestamp) {
-            Ok(parsed_ts) => {
-                let ts = parsed_ts.to_utc();
-                let diff = ts - *now;
-
-                if diff > chrono::Duration::hours(1) {
-                    return Err(format!("Timestamp is too far in the future : {diff}"));
-                }
-
-                let oldest_allowed = if allow_backfill {
-                    *now - MAX_BACKFILL_AGE
-                } else {
-                    *now - chrono::Duration::days(1)
-                };
-                if ts < oldest_allowed {
-                    return Err(format!("Timestamp is too far in the past : {diff}"));
-                }
-
-                ts
-            }
-            Err(e) => {
-                return Err(format!("Invalid timestamp format: {e}"));
-            }
-        }
+        validate_timestamp(&event.timestamp, now, allow_backfill)?
     };
 
     Ok((customer.clone(), ts))
+}
+
+pub fn validate_timestamp(
+    timestamp: &str,
+    now: &DateTime<Utc>,
+    allow_backfill: bool,
+) -> Result<DateTime<Utc>, String> {
+    let ts = DateTime::parse_from_rfc3339(timestamp)
+        .map_err(|e| format!("Invalid timestamp format: {e}"))?
+        .to_utc();
+    let diff = ts - *now;
+
+    if diff > chrono::Duration::hours(1) {
+        return Err(format!("Timestamp is too far in the future : {diff}"));
+    }
+
+    let oldest_allowed = if allow_backfill {
+        *now - MAX_BACKFILL_AGE
+    } else {
+        *now - chrono::Duration::days(1)
+    };
+    if ts < oldest_allowed {
+        return Err(format!("Timestamp is too far in the past : {diff}"));
+    }
+
+    Ok(ts)
 }
 
 #[cfg(test)]

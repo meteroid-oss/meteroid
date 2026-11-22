@@ -64,9 +64,14 @@ async fn setup() -> Env {
     let (container, http_port, tcp_port) = metering_it::container::start_clickhouse().await;
     let config =
         metering_it::config::mocked_config(0, 0, http_port, tcp_port, 0, "unused".to_string());
-    let connector = ClickhouseConnector::init(&config.clickhouse, &config.kafka, vec![])
-        .await
-        .expect("connector init");
+    let connector = ClickhouseConnector::init(
+        &config.clickhouse,
+        &config.consumer.tables,
+        &config.kafka,
+        vec![],
+    )
+    .await
+    .expect("connector init");
     let client = clickhouse::Client::default()
         .with_url(&config.clickhouse.http_address)
         .with_user(&config.clickhouse.username)

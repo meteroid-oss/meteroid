@@ -217,6 +217,13 @@ impl From<Report<StoreError>> for RestApiError {
             StoreError::UsageUnavailable | StoreError::MeteringNotReady => {
                 RestApiError::Unavailable(err.current_context().to_string())
             }
+            _ if err
+                .downcast_ref::<tonic::Status>()
+                .is_some_and(|status| status.code() == tonic::Code::Unavailable) =>
+            {
+                log::warn!("Upstream service unavailable while handling REST request: {err:?}");
+                RestApiError::Unavailable("please retry later".to_string())
+            }
             _ => {
                 // the response body only exposes an opaque 500, so keep the
                 // full error chain (attachments + source location) in the logs
@@ -237,6 +244,7 @@ impl From<tonic::Status> for RestApiError {
             }
             tonic::Code::Unauthenticated => RestApiError::Unauthorized,
             tonic::Code::PermissionDenied => RestApiError::Forbidden,
+            tonic::Code::Unavailable => RestApiError::Unavailable("please retry later".to_string()),
             code => {
                 log::error!(
                     "gRPC error while handling REST request: {code:?} {}",
@@ -260,4 +268,25 @@ pub enum ObjectStoreError {
     SignedUrlError,
     #[error("Unsupported object store: {0}")]
     UnsupportedStore(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn store_errors_map_to_their_status() {
+        let unavailable = Report::new(tonic::Status::unavailable("metering is down"))
+            .change_context(StoreError::MeteringServiceError);
+        assert!(matches!(
+            RestApiError::from(unavailable),
+            RestApiError::Unavailable(_)
+        ));
+        let other = Report::new(tonic::Status::internal("boom"))
+            .change_context(StoreError::MeteringServiceError);
+        assert!(matches!(
+            RestApiError::from(other),
+            RestApiError::StoreError
+        ));
+    }
 }

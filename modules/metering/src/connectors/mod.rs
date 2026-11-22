@@ -5,7 +5,7 @@ pub use metric_core::{errors, json};
 use crate::connectors::errors::ConnectorError;
 use crate::domain::{
     CustomerActivity, CustomerFirstEvent, DiscoveredProperty, EventCodeCount,
-    EventPropertiesProfile, PropertyValueCount, QueryMeterParams, QueryRawEventsParams,
+    EventPropertiesProfile, LiveEvent, PropertyValueCount, QueryMeterParams, QueryRawEventsParams,
     QueryRawEventsResult, TenantEventScan, TenantFirstEvent, Usage, UsageActivityParams,
 };
 use common_domain::ids::{CustomerId, TenantId};
@@ -87,6 +87,13 @@ pub trait Connector {
         top_values: u32,
         limit: u32,
     ) -> Result<EventPropertiesProfile, Report<ConnectorError>>;
+    /// The live copies of `(tenant, customer, id)` within the 35-day id window (ADR-0012 §4).
+    async fn lookup_event(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
+        id: &str,
+    ) -> Result<Vec<LiveEvent>, Report<ConnectorError>>;
 }
 
 pub struct PrintConnector {}
@@ -181,5 +188,14 @@ impl Connector for PrintConnector {
             total_events: 0,
             properties: vec![],
         })
+    }
+    async fn lookup_event(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
+        id: &str,
+    ) -> Result<Vec<LiveEvent>, Report<ConnectorError>> {
+        println!("Looking up event {id} of {customer_id:?} in {tenant_id:?}");
+        Ok(vec![])
     }
 }

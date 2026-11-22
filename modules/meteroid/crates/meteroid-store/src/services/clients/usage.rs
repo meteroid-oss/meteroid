@@ -140,6 +140,35 @@ pub struct IngestEventsResult {
     pub failures: Vec<IngestEventsFailure>,
 }
 
+/// A live stored copy of an event (ADR-0009): what an amend or a void replaces.
+#[derive(Debug, Clone)]
+pub struct LiveEvent {
+    pub code: String,
+    pub timestamp: NaiveDateTime,
+    pub properties: HashMap<String, String>,
+    pub ingested_at: NaiveDateTime,
+}
+
+#[derive(Debug, Clone)]
+pub enum EventChange {
+    Amend {
+        timestamp: NaiveDateTime,
+        properties: HashMap<String, String>,
+    },
+    Void,
+}
+
+#[derive(Debug, Clone)]
+pub struct EventChangeRequest {
+    pub customer_id: CustomerId,
+    pub event_id: String,
+    pub change: EventChange,
+    pub allow_backfilling: bool,
+    pub keep_last_events: bool,
+    /// The amend's new row is stored with this stamp, after every live copy.
+    pub ingested_at: NaiveDateTime,
+}
+
 /// Window size for a tenant-wide usage time series.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TenantUsageGrain {
@@ -347,6 +376,30 @@ pub trait UsageClient: Send + Sync {
         tenant_id: &TenantId,
         request: IngestEventsRequest,
     ) -> StoreResult<IngestEventsResult>;
+
+    /// The live copies of one event within the 35-day id window. Default impl is unsupported; the
+    /// metering-backed client overrides it.
+    async fn lookup_event(
+        &self,
+        _tenant_id: &TenantId,
+        _customer_id: &CustomerId,
+        _event_id: &str,
+    ) -> StoreResult<Vec<LiveEvent>> {
+        Err(error_stack::Report::new(StoreError::InvalidArgument(
+            "lookup_event is not supported by this usage client".to_string(),
+        )))
+    }
+
+    /// Queues an amend or a void of one event, applied asynchronously by the consumer.
+    async fn enqueue_event_change(
+        &self,
+        _tenant_id: &TenantId,
+        _request: EventChangeRequest,
+    ) -> StoreResult<()> {
+        Err(error_stack::Report::new(StoreError::InvalidArgument(
+            "enqueue_event_change is not supported by this usage client".to_string(),
+        )))
+    }
 
     /// Customers that received events after `since`, oldest activity first, resuming strictly
     /// after `after`. Default impl is unsupported; the metering-backed client overrides it.

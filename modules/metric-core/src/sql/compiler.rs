@@ -8,7 +8,8 @@ use crate::metric::{
     PropertyValueType, ThresholdOp, TimeWeight, TimeWeightedSpec, UnaryOp,
 };
 use crate::sql::{
-    BindValue, EventDedup, Fragment, LATEST_EVENT_ORDER, PropertyColumn, SafeQuery, dimension_alias,
+    BindValue, EventDedup, EventsSource, EventsTable, Fragment, LATEST_EVENT_ORDER, PropertyColumn,
+    SafeQuery, VoidScope, dimension_alias,
 };
 use chrono::Utc;
 use common_domain::ids::BaseId;
@@ -274,11 +275,16 @@ struct Series {
 pub fn compile(
     registry: &MetricRegistry,
     query: &MetricQuery,
-    events_table: &str,
+    events: impl Into<EventsTable>,
     database: &str,
 ) -> Result<SafeQuery, MetricError> {
     registry.validate()?;
-    let dedup = EventDedup::new(query.keep_last_events);
+    let table: EventsTable = events.into();
+    let events = table.source(
+        database,
+        query.tenant_id.as_uuid(),
+        EventDedup::new(query.keep_last_events),
+    );
     let def = registry
         .get(&query.metric)
         .ok_or_else(|| MetricError::UnknownMetric(query.metric.clone()))?;
@@ -299,7 +305,7 @@ pub fn compile(
     let cohort = query
         .cohort
         .as_ref()
-        .map(|c| compile_cohort(registry, c, query, events_table, dedup))
+        .map(|c| compile_cohort(registry, c, query, events))
         .transpose()?;
 
     // A carry-over gauge persists a balance: it must see windows before `from` to inherit an opening level, so it primes from epoch like a running total.
@@ -336,21 +342,12 @@ pub fn compile(
             registry,
             def,
             &history_query,
-            events_table,
-            dedup,
+            events,
             database,
             cohort.as_ref(),
         )?
     } else {
-        build_series(
-            registry,
-            def,
-            query,
-            events_table,
-            dedup,
-            database,
-            cohort.as_ref(),
-        )?
+        build_series(registry, def, query, events, database, cohort.as_ref())?
     };
 
     // Forward-fill the gauge level across empty windows; the floor back to `>= from` happens here (a transform, if any, re-windows the already-filled series).
@@ -392,8 +389,7 @@ fn build_series(
     registry: &MetricRegistry,
     def: &MetricDef,
     query: &MetricQuery,
-    events_table: &str,
-    dedup: EventDedup,
+    events: EventsSource<'_>,
     database: &str,
     cohort: Option<&CohortClause>,
 ) -> Result<Series, MetricError> {
@@ -416,8 +412,7 @@ fn build_series(
                 &def.event_code,
                 ValueAgg::Aggregate(spec.clone()),
                 query,
-                events_table,
-                dedup,
+                events,
                 database,
                 cohort,
             ),
@@ -429,8 +424,7 @@ fn build_series(
                     &def.event_code,
                     ValueAgg::Gauge(spec.clone()),
                     query,
-                    events_table,
-                    dedup,
+                    events,
                     database,
                     cohort,
                 ),
@@ -439,11 +433,11 @@ fn build_series(
                 )),
             },
             GaugeOp::TimeWeighted(tw) => {
-                time_weighted_series(&def.event_code, tw, query, events_table, dedup, cohort)
+                time_weighted_series(&def.event_code, tw, query, events, cohort)
             }
         },
         MetricKind::Derived(expr) => {
-            derived_series(registry, expr, query, events_table, dedup, database, cohort)
+            derived_series(registry, expr, query, events, database, cohort)
         }
     }
 }
@@ -510,8 +504,7 @@ fn simple_series(
     event_code: &str,
     agg: ValueAgg,
     query: &MetricQuery,
-    events_table: &str,
-    dedup: EventDedup,
+    events: EventsSource<'_>,
     database: &str,
     cohort: Option<&CohortClause>,
 ) -> Result<Series, MetricError> {
@@ -606,10 +599,16 @@ fn simple_series(
         group_columns.push(dim_group_sql(d, &dim_ctx, &mut group_binds)?);
     }
 
-    let source = build_dedup_subquery(events_table, dedup, &conditions);
+    let mut scope = VoidScope::default()
+        .code(event_code)
+        .customers(query.customer_ids.iter().map(|id| id.as_uuid()))
+        .since(format!("toDateTime({})", query.from.timestamp()));
+    if let Some(to) = query.to {
+        scope = scope.until(format!("toDateTime({})", to.timestamp()));
+    }
+    let source = events.from_sql(METER_EVENT_COLUMNS, &conditions.join(" AND "), &scope);
 
-    let mut sql = format!("SELECT {}", select_columns.join(", "));
-    sql.push_str(&format!(" FROM ( {source} )"));
+    let mut sql = format!("SELECT {} {source}", select_columns.join(", "));
     if !group_columns.is_empty() {
         sql.push_str(&format!(" GROUP BY {}", group_columns.join(", ")));
     }
@@ -814,35 +813,11 @@ fn push_dimension_filters(
 
 const METER_EVENT_COLUMNS: &str = "id, customer_id, timestamp, ingested_at, properties";
 
-fn build_dedup_subquery(events_table: &str, dedup: EventDedup, conditions: &[String]) -> String {
-    let where_clause = if conditions.is_empty() {
-        String::new()
-    } else {
-        format!("WHERE {}", conditions.join(" AND "))
-    };
-    format!(
-        "SELECT {METER_EVENT_COLUMNS} FROM {events_table} {where_clause}{}",
-        dedup.limit_by_suffix()
-    )
-}
-
-/// `FROM <events> WHERE <conditions>`, through the keep-last dedup subquery when it applies.
-fn events_source(events_table: &str, dedup: EventDedup, conditions: &str) -> String {
-    match dedup {
-        EventDedup::LastIngested => format!(
-            "FROM ( SELECT {METER_EVENT_COLUMNS} FROM {events_table} WHERE {conditions}{} )",
-            dedup.limit_by_suffix()
-        ),
-        EventDedup::Off => format!("FROM {events_table} WHERE {conditions}"),
-    }
-}
-
 fn time_weighted_series(
     event_code: &str,
     tw: &TimeWeightedSpec,
     query: &MetricQuery,
-    events_table: &str,
-    dedup: EventDedup,
+    events: EventsSource<'_>,
     cohort: Option<&CohortClause>,
 ) -> Result<Series, MetricError> {
     let to = query.to.unwrap_or_else(Utc::now);
@@ -931,27 +906,25 @@ fn time_weighted_series(
     binds.push(BindValue::I64(to.timestamp()));
     binds.push(BindValue::Uuid(query.tenant_id.as_uuid()));
 
-    let (code_filter, code_bind) = if tw.lifecycle_codes.is_empty() {
-        ("code = ?", BindValue::String(event_code.to_string()))
+    let (code_filter, code_bind, scope) = if tw.lifecycle_codes.is_empty() {
+        let scope = VoidScope::default().code(event_code);
+        ("code = ?", BindValue::String(event_code.to_string()), scope)
     } else {
-        ("code IN ?", BindValue::Strings(tw.lifecycle_codes.clone()))
+        let scope = VoidScope::default().codes(&tw.lifecycle_codes);
+        (
+            "code IN ?",
+            BindValue::Strings(tw.lifecycle_codes.clone()),
+            scope,
+        )
     };
-    // Keep-last dedups before the window function, scoped to the tenant so the sort stays small.
-    let lifecycle_source = match dedup {
-        EventDedup::LastIngested => {
-            binds.push(BindValue::Uuid(query.tenant_id.as_uuid()));
-            binds.push(code_bind);
-            format!(
-                "( SELECT id, customer_id, tenant_id, timestamp, properties FROM {events_table} \
-                 WHERE tenant_id = ? AND {code_filter}{} )",
-                dedup.limit_by_suffix()
-            )
-        }
-        EventDedup::Off => {
-            binds.push(code_bind);
-            format!("{events_table}\n        WHERE {code_filter}")
-        }
-    };
+    // Filtered (and keep-last deduped) before the window function, scoped to the tenant.
+    binds.push(BindValue::Uuid(query.tenant_id.as_uuid()));
+    binds.push(code_bind);
+    let lifecycle_source = events.from_sql(
+        "id, customer_id, tenant_id, timestamp, properties",
+        &format!("tenant_id = ? AND {code_filter}"),
+        &scope,
+    );
 
     let mut customer_param = if query.customer_ids.is_empty() {
         String::new()
@@ -982,7 +955,7 @@ fn time_weighted_series(
                 ORDER BY timestamp
                 ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
             ) AS end_time{group_dim_selects}{weight_value_select}
-        FROM {lifecycle_source}
+        {lifecycle_source}
     ),
     instance_periods AS (
         SELECT
@@ -1457,10 +1430,16 @@ pub fn compile_cohort_members(
     registry: &MetricRegistry,
     cohort: &CohortDef,
     query: &MetricQuery,
-    events_table: &str,
+    events: impl Into<EventsTable>,
+    database: &str,
 ) -> Result<SafeQuery, MetricError> {
     registry.validate()?;
-    let dedup = EventDedup::new(query.keep_last_events);
+    let table: EventsTable = events.into();
+    let events = table.source(
+        database,
+        query.tenant_id.as_uuid(),
+        EventDedup::new(query.keep_last_events),
+    );
     if cohort.predicates.is_empty() {
         return Err(MetricError::Invalid(
             "cohort".to_string(),
@@ -1473,7 +1452,7 @@ pub fn compile_cohort_members(
     let mut selects = Vec::new();
     let mut binds: Vec<BindValue> = Vec::new();
     for p in &cohort.predicates {
-        let (sql, mut b) = compile_cohort_predicate(registry, p, query, events_table, dedup)?;
+        let (sql, mut b) = compile_cohort_predicate(registry, p, query, events)?;
         selects.push(format!("( SELECT customer_id FROM ( {sql} ) AS p )"));
         binds.append(&mut b);
     }
@@ -1490,8 +1469,7 @@ fn compile_cohort(
     registry: &MetricRegistry,
     cohort: &CohortDef,
     query: &MetricQuery,
-    events_table: &str,
-    dedup: EventDedup,
+    events: EventsSource<'_>,
 ) -> Result<CohortClause, MetricError> {
     if cohort.predicates.is_empty() {
         return Err(MetricError::Invalid(
@@ -1502,7 +1480,7 @@ fn compile_cohort(
     let mut selects = Vec::new();
     let mut binds: Vec<BindValue> = Vec::new();
     for p in &cohort.predicates {
-        let (sql, mut b) = compile_cohort_predicate(registry, p, query, events_table, dedup)?;
+        let (sql, mut b) = compile_cohort_predicate(registry, p, query, events)?;
         selects.push(format!("( {sql} )"));
         binds.append(&mut b);
     }
@@ -1516,8 +1494,7 @@ fn compile_cohort_predicate(
     registry: &MetricRegistry,
     predicate: &CohortPredicate,
     query: &MetricQuery,
-    events_table: &str,
-    dedup: EventDedup,
+    events: EventsSource<'_>,
 ) -> Result<(String, Vec<BindValue>), MetricError> {
     match predicate {
         CohortPredicate::Dimension {
@@ -1602,15 +1579,7 @@ fn compile_cohort_predicate(
             metric,
             op,
             threshold,
-        } => metric_active_set(
-            registry,
-            metric,
-            *op,
-            *threshold,
-            query,
-            events_table,
-            dedup,
-        ),
+        } => metric_active_set(registry, metric, *op, *threshold, query, events),
         CohortPredicate::MetricInactive { metric, max_active } => {
             // Anti-join the active set against the tenant customer universe: a metric
             // a customer never emits leaves no group row, so the active set can't see
@@ -1621,8 +1590,7 @@ fn compile_cohort_predicate(
                 ThresholdOp::Gt,
                 max_active.unwrap_or(0.0),
                 query,
-                events_table,
-                dedup,
+                events,
             )?;
             let mut binds = vec![BindValue::Uuid(query.tenant_id.as_uuid())];
             binds.extend(active_binds);
@@ -1644,23 +1612,17 @@ fn compile_cohort_predicate(
             *pct,
             *prior_window_days,
             query,
-            events_table,
-            dedup,
+            events,
         ),
         CohortPredicate::And { children } => {
-            compile_cohort_set_op(registry, children, query, events_table, dedup, "INTERSECT")
+            compile_cohort_set_op(registry, children, query, events, "INTERSECT")
         }
-        CohortPredicate::Or { children } => compile_cohort_set_op(
-            registry,
-            children,
-            query,
-            events_table,
-            dedup,
-            "UNION DISTINCT",
-        ),
+        CohortPredicate::Or { children } => {
+            compile_cohort_set_op(registry, children, query, events, "UNION DISTINCT")
+        }
         CohortPredicate::Not { child } => {
             let (child_sql, mut child_binds) =
-                compile_cohort_predicate(registry, child, query, events_table, dedup)?;
+                compile_cohort_predicate(registry, child, query, events)?;
             let mut binds = vec![BindValue::Uuid(query.tenant_id.as_uuid())];
             binds.append(&mut child_binds);
             let sql = format!(
@@ -1818,8 +1780,7 @@ fn compile_cohort_set_op(
     registry: &MetricRegistry,
     children: &[CohortPredicate],
     query: &MetricQuery,
-    events_table: &str,
-    dedup: EventDedup,
+    events: EventsSource<'_>,
     op: &str,
 ) -> Result<(String, Vec<BindValue>), MetricError> {
     if children.is_empty() {
@@ -1831,7 +1792,7 @@ fn compile_cohort_set_op(
     let mut parts = Vec::new();
     let mut binds: Vec<BindValue> = Vec::new();
     for child in children {
-        let (sql, mut b) = compile_cohort_predicate(registry, child, query, events_table, dedup)?;
+        let (sql, mut b) = compile_cohort_predicate(registry, child, query, events)?;
         parts.push(format!("SELECT customer_id FROM ( {sql} ) AS c"));
         binds.append(&mut b);
     }
@@ -1848,8 +1809,7 @@ fn metric_active_set(
     op: ThresholdOp,
     threshold: f64,
     query: &MetricQuery,
-    events_table: &str,
-    dedup: EventDedup,
+    events: EventsSource<'_>,
 ) -> Result<(String, Vec<BindValue>), MetricError> {
     let def = registry
         .get(metric)
@@ -1881,7 +1841,13 @@ fn metric_active_set(
             // Divide by the unit-conversion factor so the threshold is compared in the
             // metric's converted (billed) unit, not raw event units.
             let having = apply_unit_conversion(spec, raw_having_expr(spec, &mut binds)?);
-            let source = events_source(events_table, dedup, &conditions.join(" AND "));
+            let mut scope = VoidScope::default()
+                .code(&def.event_code)
+                .since(format!("toDateTime({})", query.from.timestamp()));
+            if let Some(to) = query.to {
+                scope = scope.until(format!("toDateTime({})", to.timestamp()));
+            }
+            let source = events.from_sql(METER_EVENT_COLUMNS, &conditions.join(" AND "), &scope);
             let sql = format!(
                 "SELECT customer_id {source} GROUP BY customer_id HAVING {having} {cmp} {lit}"
             );
@@ -1955,8 +1921,7 @@ fn metric_delta_set(
     pct: f64,
     prior_window_days: Option<u32>,
     query: &MetricQuery,
-    events_table: &str,
-    dedup: EventDedup,
+    events: EventsSource<'_>,
 ) -> Result<(String, Vec<BindValue>), MetricError> {
     let def = registry
         .get(metric)
@@ -1989,6 +1954,7 @@ fn metric_delta_set(
     let cmp = op.as_sql();
 
     let mut binds: Vec<BindValue> = Vec::new();
+    let mut where_binds: Vec<BindValue> = Vec::new();
 
     // Bind order follows textual emission: the SELECT's `cur` aggregate binds, then `prior`'s,
     // then WHERE (the scan bounds). The HAVING references the aliases only (no binds) and
@@ -2000,14 +1966,19 @@ fn metric_delta_set(
             let cur = raw_delta_agg(spec, cur_pred, &[from_ts], &mut binds)?;
             let prior = raw_delta_agg(spec, prior_pred, &[from_ts, prior_from_ts], &mut binds)?;
             let mut conditions = vec!["tenant_id = ?".to_string()];
-            binds.push(BindValue::Uuid(query.tenant_id.as_uuid()));
+            where_binds.push(BindValue::Uuid(query.tenant_id.as_uuid()));
             conditions.push("code = ?".to_string());
-            binds.push(BindValue::String(def.event_code.clone()));
+            where_binds.push(BindValue::String(def.event_code.clone()));
             conditions.push("timestamp >= toDateTime(?)".to_string());
-            binds.push(BindValue::I64(prior_from_ts));
+            where_binds.push(BindValue::I64(prior_from_ts));
             conditions.push("timestamp <= toDateTime(?)".to_string());
-            binds.push(BindValue::I64(to_ts));
-            let source = events_source(events_table, dedup, &conditions.join(" AND "));
+            where_binds.push(BindValue::I64(to_ts));
+            binds.append(&mut where_binds);
+            let scope = VoidScope::default()
+                .code(&def.event_code)
+                .since(format!("toDateTime({prior_from_ts})"))
+                .until(format!("toDateTime({to_ts})"));
+            let source = events.from_sql(METER_EVENT_COLUMNS, &conditions.join(" AND "), &scope);
             format!(
                 "SELECT customer_id, toFloat64({cur}) AS cur, toFloat64({prior}) AS prior \
                  {source} GROUP BY customer_id \
@@ -2031,11 +2002,12 @@ fn metric_delta_set(
             let prior =
                 fact_delta_agg(spec, fs, &prior_pred, &[from_ts, prior_from_ts], &mut binds);
             let mut conditions = vec![format!("{} = ?", fs.tenant_column)];
-            binds.push(BindValue::Uuid(query.tenant_id.as_uuid()));
+            where_binds.push(BindValue::Uuid(query.tenant_id.as_uuid()));
             conditions.push(format!("{ts} >= toDateTime(?)"));
-            binds.push(BindValue::I64(prior_from_ts));
+            where_binds.push(BindValue::I64(prior_from_ts));
             conditions.push(format!("{ts} <= toDateTime(?)"));
-            binds.push(BindValue::I64(to_ts));
+            where_binds.push(BindValue::I64(to_ts));
+            binds.append(&mut where_binds);
             format!(
                 "SELECT {0} AS customer_id, toFloat64({cur}) AS cur, toFloat64({prior}) AS prior \
                  FROM {1} FINAL WHERE {2} GROUP BY {0} \
@@ -2175,8 +2147,7 @@ fn derived_series(
     registry: &MetricRegistry,
     expr: &Expr,
     query: &MetricQuery,
-    events_table: &str,
-    dedup: EventDedup,
+    events: EventsSource<'_>,
     database: &str,
     cohort: Option<&CohortClause>,
 ) -> Result<Series, MetricError> {
@@ -2289,7 +2260,7 @@ fn derived_series(
         let alias = operand_alias(key, transform.as_ref());
         let sub = match transform {
             // Plain within-window operand: the existing sub-series.
-            None => build_series(registry, def, query, events_table, dedup, database, cohort)?,
+            None => build_series(registry, def, query, events, database, cohort)?,
             // Transformed operand: build the sub-series over a history-primed range, then apply the
             // window function to it. Running/lagged cumulatives prime from epoch so the first
             // *displayed* window already carries a correct opening balance.
@@ -2306,15 +2277,7 @@ fn derived_series(
                 } else {
                     query.clone()
                 };
-                let base = build_series(
-                    registry,
-                    def,
-                    &sub_query,
-                    events_table,
-                    dedup,
-                    database,
-                    cohort,
-                )?;
+                let base = build_series(registry, def, &sub_query, events, database, cohort)?;
                 transformed_sub_series(base, t)
             }
         };
@@ -2801,6 +2764,26 @@ mod tests {
     use common_domain::ids::TenantId;
     use rstest::rstest;
 
+    /// The void filter `EventsSource` appends for `base_query`'s tenant, narrowed by `scope`.
+    fn live(scope: &str) -> String {
+        let voids = format!("{}{scope}", voids_of_tenant());
+        format!(
+            ") AND is_tombstone = 0 AND ((SELECT count() {voids}) = 0 OR (customer_id, id, \
+             ingested_at) NOT IN (SELECT customer_id, id, ingested_at {voids}))"
+        )
+    }
+
+    fn voids_of_tenant() -> String {
+        format!(
+            "FROM meteroid.event_voids_local WHERE tenant_id = toUUID('{}')",
+            TenantId::default().as_uuid()
+        )
+    }
+
+    /// `base_query`'s code and window.
+    const USAGE_DAY: &str = " AND code IN ('usage') AND timestamp >= toDateTime(1704067200) \
+        AND timestamp <= toDateTime(1704153600)";
+
     fn normalize(sql: &str) -> String {
         sql.split_whitespace().collect::<Vec<_>>().join(" ")
     }
@@ -2833,7 +2816,8 @@ mod tests {
         ));
         let q = base_query("bytes");
         let out = compile(&reg, &q, "raw_events_v2", "meteroid").unwrap();
-        let expected = r#"
+        let expected = format!(
+            r#"
             SELECT
                 toDateTime(tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?), ?) AS window_start,
                 toDateTime(tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?), ?) AS window_end,
@@ -2841,16 +2825,18 @@ mod tests {
             FROM (
                 SELECT id, customer_id, timestamp, ingested_at, properties
                 FROM raw_events_v2
-                WHERE tenant_id = ? AND code = ? AND timestamp >= toDateTime(?)
+                WHERE (tenant_id = ? AND code = ? AND timestamp >= toDateTime(?)
                     AND timestamp <= toDateTime(?)
-                    AND properties[?] != '' AND isNotNull(toFloat64OrNull(properties[?]))
+                    AND properties[?] != '' AND isNotNull(toFloat64OrNull(properties[?])){}
             )
             GROUP BY
                 tumbleStart(toDateTime(timestamp), toIntervalDay(1), ?),
                 tumbleEnd(toDateTime(timestamp), toIntervalDay(1), ?)
             ORDER BY window_start
-        "#;
-        assert_eq!(normalize(&out.sql), normalize(expected));
+        "#,
+            live(USAGE_DAY)
+        );
+        assert_eq!(normalize(&out.sql), normalize(&expected));
     }
 
     #[test]
@@ -3010,8 +2996,11 @@ mod tests {
             &reg,
             def,
             &q,
-            "raw_events_v2",
-            EventDedup::Off,
+            EventsTable::new("raw_events_v2").source(
+                "meteroid",
+                q.tenant_id.as_uuid(),
+                EventDedup::Off,
+            ),
             "meteroid",
             None,
         )
@@ -4413,7 +4402,10 @@ mod tests {
             "{sql}"
         );
         assert!(
-            sql.contains("SELECT customer_id FROM raw_events_v2 WHERE tenant_id = ? AND code = ?"),
+            sql.contains(
+                "SELECT customer_id FROM ( SELECT id, customer_id, timestamp, ingested_at, properties \
+                 FROM raw_events_v2 WHERE (tenant_id = ? AND code = ?"
+            ),
             "{sql}"
         );
         assert!(sql.contains("HAVING count(*) > 0"), "{sql}");
@@ -4467,7 +4459,7 @@ mod tests {
         };
         let q = base_query("bytes");
         let sql = normalize(
-            &compile_cohort_members(&reg, &cohort, &q, "raw_events_v2")
+            &compile_cohort_members(&reg, &cohort, &q, "raw_events_v2", "meteroid")
                 .unwrap()
                 .sql,
         );
@@ -4512,9 +4504,15 @@ mod tests {
             }],
         };
         let sql = normalize(
-            &compile_cohort_members(&reg, &cohort, &base_query("bytes"), "raw_events_v2")
-                .unwrap()
-                .sql,
+            &compile_cohort_members(
+                &reg,
+                &cohort,
+                &base_query("bytes"),
+                "raw_events_v2",
+                "meteroid",
+            )
+            .unwrap()
+            .sql,
         );
         assert!(
             sql.contains("HAVING (sum(toFloat64OrZero(properties[?]))) / 1024 > 5"),
@@ -4542,6 +4540,7 @@ mod tests {
                 &cohort,
                 &base_query("bytes"),
                 "raw_events_v2",
+                "meteroid",
             )
             .unwrap()
             .sql,
@@ -4552,6 +4551,7 @@ mod tests {
                 &cohort,
                 &base_query("bytes"),
                 "raw_events_v2",
+                "meteroid",
             )
             .unwrap()
             .sql,
@@ -4588,7 +4588,7 @@ mod tests {
                     prior_window_days,
                 }],
             };
-            compile_cohort_members(&reg, &cohort, &q, "raw_events_v2")
+            compile_cohort_members(&reg, &cohort, &q, "raw_events_v2", "meteroid")
                 .unwrap()
                 .binds
                 .iter()
@@ -4640,7 +4640,7 @@ mod tests {
         };
         let q = base_query("net_new_mrr");
         let sql = normalize(
-            &compile_cohort_members(&reg, &cohort, &q, "raw_events_v2")
+            &compile_cohort_members(&reg, &cohort, &q, "raw_events_v2", "meteroid")
                 .unwrap()
                 .sql,
         );
@@ -4683,15 +4683,22 @@ mod tests {
             Some("amount"),
         ));
         let sql = inline_binds(
-            &compile_cohort_members(&raw, &delta("bytes"), &base_query("bytes"), "raw_events_v2")
-                .unwrap(),
+            &compile_cohort_members(
+                &raw,
+                &delta("bytes"),
+                &base_query("bytes"),
+                "raw_events_v2",
+                "meteroid",
+            )
+            .unwrap(),
         );
         assert!(
             sql.contains(&format!(
                 "toFloat64(sumIf(toFloat64OrZero(properties['amount']), timestamp >= toDateTime({from}))) AS cur, \
                  toFloat64(sumIf(toFloat64OrZero(properties['amount']), timestamp < toDateTime({from}) AND timestamp >= toDateTime({prior_from}))) AS prior \
-                 FROM raw_events_v2 WHERE tenant_id = '{tenant}' AND code = 'usage' \
-                 AND timestamp >= toDateTime({prior_from}) AND timestamp <= toDateTime({to})"
+                 FROM ( SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2 \
+                 WHERE (tenant_id = '{tenant}' AND code = 'usage' \
+                 AND timestamp >= toDateTime({prior_from}) AND timestamp <= toDateTime({to}))"
             )),
             "{sql}"
         );
@@ -4707,6 +4714,7 @@ mod tests {
                 &delta("net_new_mrr"),
                 &base_query("net_new_mrr"),
                 "raw_events_v2",
+                "meteroid",
             )
             .unwrap(),
         );
@@ -4784,7 +4792,7 @@ mod tests {
                 },
             ],
         };
-        let out = compile_cohort_members(&reg, &cohort, &q, "raw_events_v2").unwrap();
+        let out = compile_cohort_members(&reg, &cohort, &q, "raw_events_v2", "meteroid").unwrap();
         let sql = normalize(&out.sql);
         assert!(
             sql.starts_with("SELECT DISTINCT customer_id FROM ("),
@@ -4803,7 +4811,7 @@ mod tests {
         let q = base_query("x");
         let cohort = crate::metric::CohortDef { predicates: vec![] };
         assert!(matches!(
-            compile_cohort_members(&reg, &cohort, &q, "raw_events_v2").unwrap_err(),
+            compile_cohort_members(&reg, &cohort, &q, "raw_events_v2", "meteroid").unwrap_err(),
             MetricError::Invalid(_, _)
         ));
     }
@@ -4891,18 +4899,23 @@ mod tests {
         normalize(&out.sql)
     }
 
-    const SUM_SERIES_WHERE: &str = "SELECT id, customer_id, timestamp, ingested_at, properties \
-        FROM raw_events_v2 \
-        WHERE tenant_id = ? AND code = ? AND timestamp >= toDateTime(?) \
-        AND timestamp <= toDateTime(?) \
-        AND properties[?] != '' AND isNotNull(toFloat64OrNull(properties[?]))";
+    fn sum_series_where() -> String {
+        format!(
+            "SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2 \
+             WHERE (tenant_id = ? AND code = ? AND timestamp >= toDateTime(?) \
+             AND timestamp <= toDateTime(?) \
+             AND properties[?] != '' AND isNotNull(toFloat64OrNull(properties[?])){}",
+            live(USAGE_DAY)
+        )
+    }
 
     #[test]
     fn keep_last_tenant_keeps_the_last_copy_ingested() {
         let sql = sum_series_sql(true);
         assert!(
             sql.contains(&format!(
-                "FROM ( {SUM_SERIES_WHERE} ORDER BY ingested_at DESC LIMIT 1 BY id, customer_id )"
+                "FROM ( {} ORDER BY ingested_at DESC LIMIT 1 BY id, customer_id )",
+                sum_series_where()
             )),
             "{sql}"
         );
@@ -4912,7 +4925,7 @@ mod tests {
     fn default_tenant_reads_without_a_sort() {
         let sql = sum_series_sql(false);
         assert!(
-            sql.contains(&format!("FROM ( {SUM_SERIES_WHERE} ) GROUP BY")),
+            sql.contains(&format!("FROM ( {} ) GROUP BY", sum_series_where())),
             "{sql}"
         );
         assert!(!sql.contains("LIMIT 1 BY"), "{sql}");
@@ -4937,7 +4950,11 @@ mod tests {
         let out = uptime_sql(false);
         assert!(!out.sql.contains("LIMIT 1 BY"), "{}", out.sql);
         assert!(
-            normalize(&out.sql).contains("FROM raw_events_v2 WHERE code = ? )"),
+            normalize(&out.sql).contains(&format!(
+                "FROM ( SELECT id, customer_id, tenant_id, timestamp, properties FROM raw_events_v2 \
+                 WHERE (tenant_id = ? AND code = ?{} ) ), instance_periods AS",
+                live(" AND code IN ('compute')")
+            )),
             "{}",
             out.sql
         );
@@ -4948,11 +4965,12 @@ mod tests {
         let out = uptime_sql(true);
         let sql = normalize(&out.sql);
         assert!(
-            sql.contains(
+            sql.contains(&format!(
                 "FROM ( SELECT id, customer_id, tenant_id, timestamp, properties FROM raw_events_v2 \
-                 WHERE tenant_id = ? AND code = ? \
-                 ORDER BY ingested_at DESC LIMIT 1 BY id, customer_id ) ), instance_periods AS"
-            ),
+                 WHERE (tenant_id = ? AND code = ?{} \
+                 ORDER BY ingested_at DESC LIMIT 1 BY id, customer_id ) ), instance_periods AS",
+                live(" AND code IN ('compute')")
+            )),
             "{sql}"
         );
         let tenant = TenantId::default().as_uuid();
@@ -4980,7 +4998,7 @@ mod tests {
         let cohort = crate::metric::CohortDef {
             predicates: vec![predicate],
         };
-        let out = compile_cohort_members(&reg, &cohort, &q, "raw_events_v2").unwrap();
+        let out = compile_cohort_members(&reg, &cohort, &q, "raw_events_v2", "meteroid").unwrap();
         assert_eq!(out.sql.matches('?').count(), out.binds.len(), "{}", out.sql);
         normalize(&out.sql)
     }
@@ -5008,16 +5026,24 @@ mod tests {
     fn cohort_raw_reads_dedup_only_for_keep_last_tenants(#[case] predicate: CohortPredicate) {
         let default = cohort_members_sql(predicate.clone(), false);
         assert!(
-            default.contains("FROM raw_events_v2 WHERE tenant_id = ?"),
+            default.contains(
+                "FROM ( SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2 \
+                 WHERE (tenant_id = ? AND code = ?"
+            ),
             "{default}"
         );
+        let narrowed = format!(
+            "(SELECT count() {} AND code IN ('usage') AND",
+            voids_of_tenant()
+        );
+        assert!(default.contains(&narrowed), "{default}");
         assert!(!default.contains("LIMIT 1 BY"), "{default}");
 
         let keep_last = cohort_members_sql(predicate, true);
         assert!(
             keep_last.contains(
                 "FROM ( SELECT id, customer_id, timestamp, ingested_at, properties FROM raw_events_v2 \
-                 WHERE tenant_id = ? AND code = ?"
+                 WHERE (tenant_id = ? AND code = ?"
             ),
             "{keep_last}"
         );
@@ -5026,6 +5052,48 @@ mod tests {
                 "ORDER BY ingested_at DESC LIMIT 1 BY id, customer_id ) GROUP BY customer_id"
             ),
             "{keep_last}"
+        );
+    }
+
+    #[test]
+    fn delta_binds_follow_the_sql_text() {
+        let reg = MetricRegistry::new().with(MetricDef::aggregate(
+            "bytes",
+            "usage",
+            AggregateOp::Sum,
+            Some("amount"),
+        ));
+        let cohort = crate::metric::CohortDef {
+            predicates: vec![delta_predicate()],
+        };
+        let out = compile_cohort_members(
+            &reg,
+            &cohort,
+            &base_query("bytes"),
+            "raw_events_v2",
+            "meteroid",
+        )
+        .unwrap();
+        assert!(
+            normalize(&out.sql).starts_with(
+                "SELECT DISTINCT customer_id FROM ( ( SELECT customer_id FROM ( SELECT customer_id \
+                 FROM ( SELECT customer_id, toFloat64(sumIf(toFloat64OrZero(properties[?])"
+            ),
+            "{}",
+            out.sql
+        );
+        assert!(
+            matches!(
+                &out.binds[..3],
+                [BindValue::String(p), BindValue::I64(_), BindValue::String(_)] if p == "amount"
+            ),
+            "the SELECT's aggregates bind first: {:?}",
+            out.binds
+        );
+        assert!(
+            matches!(&out.binds[5], BindValue::Uuid(t) if *t == TenantId::default().as_uuid()),
+            "then the WHERE: {:?}",
+            out.binds
         );
     }
 

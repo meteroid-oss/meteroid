@@ -22,9 +22,14 @@ async fn test_raw_events_listing_survives_small_limits() {
         0,
         "unused".to_string(),
     );
-    let connector = ClickhouseConnector::init(&config.clickhouse, &config.kafka, vec![])
-        .await
-        .expect("connector init");
+    let connector = ClickhouseConnector::init(
+        &config.clickhouse,
+        &config.consumer.tables,
+        &config.kafka,
+        vec![],
+    )
+    .await
+    .expect("connector init");
 
     let tenant_id = Uuid::now_v7();
     let ch = metering_it::clickhouse::get_client(ch_http_port);

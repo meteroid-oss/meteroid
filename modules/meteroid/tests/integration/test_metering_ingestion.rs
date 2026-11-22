@@ -6,8 +6,13 @@ use backon::Retryable;
 use chrono::{Days, NaiveTime};
 use common_domain::ids::{BillableMetricId, TenantId};
 use itertools::Itertools;
+use metering_grpc::meteroid::metering::v1::enqueue_event_change_request::EventChangeKind;
+use metering_grpc::meteroid::metering::v1::query_meter_request::QueryWindowSize;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
-use metering_grpc::meteroid::metering::v1::{Event, IngestRequest, QueryRawEventsRequest, event};
+use metering_grpc::meteroid::metering::v1::{
+    EnqueueEventChangeRequest, Event, IngestRequest, LookupEventRequest, QueryMeterRequest,
+    QueryRawEventsRequest, event, meter::AggregationType,
+};
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid_grpc::meteroid::api;
 use meteroid_mailer::config::MailerConfig;
@@ -611,6 +616,158 @@ async fn test_metering_ingestion() {
         "long ids are looked up and their re-sends dropped"
     );
 
+    // ---- ADR-0012: an amend replaces the live copy, a void cancels it ----
+    let customer_2_event = |id: &str, day: u64, tokens: &str| {
+        let mut event = unique_events[6].clone();
+        event.id = id.to_string();
+        event.timestamp = (period_1_start + Days::new(day)).to_rfc3339();
+        event
+            .properties
+            .insert("tokens".to_string(), tokens.to_string());
+        event
+    };
+    let usage_client = metering_clients.usage.clone();
+    let customer_2_usage = || {
+        meter_sum(
+            usage_client.clone(),
+            customer_2.to_string(),
+            period_1_start - chrono::Duration::days(1),
+            period_2_start,
+        )
+    };
+    let base_usage = customer_2_usage().await;
+    ingest(
+        &mut metering_clients,
+        vec![
+            customer_2_event("amend-me", 2, "100"),
+            customer_2_event("void-me", 3, "40"),
+        ],
+    )
+    .await;
+    metering_it::kafka::wait_until_consumed(kafka_port, topic)
+        .await
+        .unwrap();
+    assert_eq!(customer_2_usage().await, base_usage + Decimal::from(140));
+    let original = lookup(&mut metering_clients, &customer_2.to_string(), "amend-me").await;
+    assert_eq!(original.len(), 1);
+    assert_eq!(original[0].properties["tokens"], "100");
+
+    let amended_at = period_1_start + Days::new(2) + chrono::Duration::hours(1);
+    let amend = |id: &str, tokens: &str| {
+        let mut properties = unique_events[6].properties.clone();
+        properties.insert("tokens".to_string(), tokens.to_string());
+        change(
+            customer_2.to_string(),
+            id,
+            EventChangeKind::Amend,
+            amended_at,
+            properties,
+        )
+    };
+    let void = change(
+        customer_2.to_string(),
+        "void-me",
+        EventChangeKind::Void,
+        now,
+        Default::default(),
+    );
+    let internal = &mut metering_clients.internal_events;
+    internal
+        .enqueue_event_change(amend("amend-me", "7"))
+        .await
+        .unwrap();
+    internal.enqueue_event_change(void.clone()).await.unwrap();
+    internal
+        .enqueue_event_change(amend("never-sent", "1"))
+        .await
+        .unwrap();
+    let mut keep_last = void.clone();
+    keep_last.keep_last_events = true;
+    assert_eq!(
+        internal
+            .enqueue_event_change(keep_last)
+            .await
+            .unwrap_err()
+            .code(),
+        tonic::Code::InvalidArgument,
+        "keep-last tenants correct by re-sending"
+    );
+    // An event and its amend, sent back to back, likely land in one consumer batch.
+    ingest(
+        &mut metering_clients,
+        vec![customer_2_event("amend-in-batch", 4, "60")],
+    )
+    .await;
+    let internal = &mut metering_clients.internal_events;
+    internal
+        .enqueue_event_change(amend("amend-in-batch", "6"))
+        .await
+        .unwrap();
+    metering_it::kafka::wait_until_consumed(kafka_port, topic)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        customer_2_usage().await,
+        base_usage + Decimal::from(7 + 6),
+        "the amended values count once, the voided event not at all"
+    );
+    let amended = lookup(&mut metering_clients, &customer_2.to_string(), "amend-me").await;
+    assert_eq!(amended.len(), 1);
+    assert_eq!(amended[0].properties["tokens"], "7");
+    assert_eq!(
+        amended[0].timestamp.unwrap().seconds,
+        amended_at.timestamp()
+    );
+    assert!(
+        lookup(&mut metering_clients, &customer_2.to_string(), "void-me")
+            .await
+            .is_empty()
+    );
+    assert_eq!(
+        stored_rows(ch_http_port, "amend-me").await,
+        (3, 1),
+        "row, tombstone, new row"
+    );
+    assert_eq!(
+        stored_rows(ch_http_port, "void-me").await,
+        (2, 1),
+        "row, tombstone"
+    );
+    assert_eq!(stored_rows(ch_http_port, "amend-in-batch").await, (3, 1));
+    assert_eq!(
+        stored_rows(ch_http_port, "never-sent").await,
+        (0, 0),
+        "nothing to amend"
+    );
+
+    let explored = get_eventually_grpc_raw_events(
+        metering_clients.usage.clone(),
+        ids::TENANT_ID,
+        period_1_start + Days::new(2),
+        period_1_start + Days::new(5),
+        2,
+    )
+    .await
+    .expect("the explorer lists the live copies");
+    let mut tokens: Vec<(&str, &str)> = explored
+        .iter()
+        .map(|e| (e.id.as_str(), e.properties["tokens"].as_str()))
+        .collect();
+    tokens.sort();
+    assert_eq!(tokens, [("amend-in-batch", "6"), ("amend-me", "7")]);
+
+    // A replayed void finds no live copy and writes nothing.
+    metering_clients
+        .internal_events
+        .enqueue_event_change(void)
+        .await
+        .unwrap();
+    metering_it::kafka::wait_until_consumed(kafka_port, topic)
+        .await
+        .unwrap();
+    assert_eq!(stored_rows(ch_http_port, "void-me").await, (2, 1));
+
     // No longer offered over the API: a tenant that had it keeps it.
     meteroid_setup
         .store
@@ -810,6 +967,98 @@ async fn ingest(clients: &mut metering_it::clients::AllClients, events: Vec<Even
         .expect("Could not ingest events")
         .into_inner();
     assert!(response.failures.is_empty(), "{:?}", response.failures);
+}
+
+fn change(
+    customer_id: String,
+    id: &str,
+    kind: EventChangeKind,
+    timestamp: chrono::DateTime<chrono::Utc>,
+    properties: std::collections::HashMap<String, String>,
+) -> EnqueueEventChangeRequest {
+    EnqueueEventChangeRequest {
+        tenant_id: ids::TENANT_ID.as_proto(),
+        customer_id,
+        event_id: id.to_string(),
+        kind: kind as i32,
+        timestamp: timestamp.to_rfc3339(),
+        properties,
+        allow_backfilling: true,
+        keep_last_events: false,
+        ingested_at: None,
+    }
+}
+
+async fn lookup(
+    clients: &mut metering_it::clients::AllClients,
+    customer_id: &str,
+    id: &str,
+) -> Vec<metering_grpc::meteroid::metering::v1::lookup_event_response::LiveEvent> {
+    clients
+        .usage
+        .lookup_event(LookupEventRequest {
+            tenant_id: ids::TENANT_ID.as_proto(),
+            customer_id: customer_id.to_string(),
+            event_id: id.to_string(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .events
+}
+
+async fn meter_sum(
+    client: UsageQueryServiceClient<TestLayeredClientService>,
+    customer_id: String,
+    from: chrono::DateTime<chrono::Utc>,
+    to: chrono::DateTime<chrono::Utc>,
+) -> Decimal {
+    let usage = client
+        .clone()
+        .query_meter(QueryMeterRequest {
+            tenant_id: ids::TENANT_ID.as_proto(),
+            meter_slug: String::new(),
+            meter_aggregation_type: AggregationType::Sum as i32,
+            customer_ids: vec![customer_id],
+            from: Some(prost_types::Timestamp {
+                seconds: from.timestamp(),
+                nanos: 0,
+            }),
+            to: Some(prost_types::Timestamp {
+                seconds: to.timestamp(),
+                nanos: 0,
+            }),
+            group_by_properties: vec![],
+            window_size: QueryWindowSize::AggregateAll as i32,
+            timezone: None,
+            code: "api_calls".to_string(),
+            segmentation_filter: None,
+            value_property: Some("tokens".to_string()),
+            filters: vec![],
+            keep_last_events: false,
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .usage;
+    usage
+        .iter()
+        .map(|u| u.value.as_ref().unwrap().value.parse::<Decimal>().unwrap())
+        .sum()
+}
+
+/// `(rows, tombstones)` stored for an id, whatever their state.
+async fn stored_rows(port: metering_it::clickhouse::HttpPort, id: &str) -> (u64, u64) {
+    metering_it::clickhouse::get_client(port)
+        .query(
+            "SELECT count(), sum(is_tombstone) FROM raw_events_v2 WHERE tenant_id = ? AND id = ?",
+        )
+        .bind((*ids::TENANT_ID).to_string())
+        .bind(id)
+        .fetch_one::<(u64, u64)>()
+        .await
+        .unwrap()
 }
 
 async fn stored_copies(port: metering_it::clickhouse::HttpPort, id: Option<&str>) -> u64 {

@@ -4,14 +4,16 @@ use common_grpc::middleware::client::LayeredClientService;
 
 use crate::conversions::ProtoConv;
 use error_stack::{Report, ResultExt, bail};
+use metering_grpc::meteroid::metering::v1::enqueue_event_change_request::EventChangeKind;
 use metering_grpc::meteroid::metering::v1::internal_events_service_client::InternalEventsServiceClient;
 use metering_grpc::meteroid::metering::v1::meter::AggregationType;
 use metering_grpc::meteroid::metering::v1::query_meter_request::{self, QueryWindowSize};
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
 use metering_grpc::meteroid::metering::v1::{
-    DiscoverEventCodesRequest, DiscoverPropertiesRequest, DiscoverPropertyValuesRequest, Filter,
-    InternalIngestRequest, ListCustomerFirstEventsRequest, ListTenantFirstEventsRequest,
-    PollUsageActivityRequest, ProfileEventPropertiesRequest, PropertyFilter,
+    DiscoverEventCodesRequest, DiscoverPropertiesRequest, DiscoverPropertyValuesRequest,
+    EnqueueEventChangeRequest, Filter, InternalIngestRequest, ListCustomerFirstEventsRequest,
+    ListTenantFirstEventsRequest, LookupEventRequest, PollUsageActivityRequest,
+    ProfileEventPropertiesRequest, PropertyFilter,
     PurgeTenantsRequest as MeteringPurgeTenantsRequest, QueryMeterRequest, QueryMeterResponse,
     QueryRawEventsRequest, SegmentationFilter, UsageAttribution, poll_usage_activity_request,
     property_filter,
@@ -27,11 +29,12 @@ use meteroid_store::clients::pending_usage::{
 };
 use meteroid_store::clients::usage::{
     ActivityPosition, CustomerActivity, CustomerFirstIngestedEvent, DiscoveredProperty,
-    EventCodeCount, EventPropertiesProfile, EventSearchOptions, EventSearchResult,
-    GroupedUsageData, MetricEvent, MetricEventCursor, MetricUsageBreakdown, MetricUsagePoint,
-    MetricUsageQuery, PropertyNumericStats, PropertyProfile, PropertyValueCount, TenantEventScan,
-    TenantFirstIngestedEvent, TenantUsageGrain, TenantUsagePoint, UsageClient, UsageData,
-    UsageSeriesPoint, WindowedUsageData, WindowedUsagePoint,
+    EventChange, EventChangeRequest, EventCodeCount, EventPropertiesProfile, EventSearchOptions,
+    EventSearchResult, GroupedUsageData, LiveEvent, MetricEvent, MetricEventCursor,
+    MetricUsageBreakdown, MetricUsagePoint, MetricUsageQuery, PropertyNumericStats,
+    PropertyProfile, PropertyValueCount, TenantEventScan, TenantFirstIngestedEvent,
+    TenantUsageGrain, TenantUsagePoint, UsageClient, UsageData, UsageSeriesPoint,
+    WindowedUsageData, WindowedUsagePoint,
 };
 use meteroid_store::domain::{BillableMetric, UsagePeriod, UsageScope};
 use meteroid_store::errors::StoreError;
@@ -1317,6 +1320,93 @@ impl UsageClient for MeteringUsageClient {
         })
     }
 
+    async fn lookup_event(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
+        event_id: &str,
+    ) -> StoreResult<Vec<LiveEvent>> {
+        let request = LookupEventRequest {
+            tenant_id: tenant_id.as_proto(),
+            customer_id: customer_id.as_proto(),
+            event_id: event_id.to_string(),
+        };
+        let response = tokio::time::timeout(
+            GRPC_TIMEOUT,
+            self.usage_grpc_client.clone().lookup_event(request),
+        )
+        .await
+        .map_err(|_| {
+            error_stack::Report::new(StoreError::MeteringServiceError)
+                .attach("lookup_event timed out")
+        })?
+        .change_context(StoreError::MeteringServiceError)
+        .attach("Failed to look up the event")?
+        .into_inner();
+
+        response
+            .events
+            .into_iter()
+            .map(|event| {
+                Ok(LiveEvent {
+                    code: event.code,
+                    timestamp: required_timestamp(event.timestamp)?,
+                    properties: event.properties,
+                    ingested_at: required_timestamp(event.ingested_at)?,
+                })
+            })
+            .collect()
+    }
+
+    async fn enqueue_event_change(
+        &self,
+        tenant_id: &TenantId,
+        request: EventChangeRequest,
+    ) -> StoreResult<()> {
+        let (kind, timestamp, properties) = match request.change {
+            EventChange::Amend {
+                timestamp,
+                properties,
+            } => (
+                EventChangeKind::Amend,
+                timestamp.and_utc().to_rfc3339(),
+                properties,
+            ),
+            EventChange::Void => (EventChangeKind::Void, String::new(), Default::default()),
+        };
+        let grpc_request = EnqueueEventChangeRequest {
+            tenant_id: tenant_id.as_proto(),
+            customer_id: request.customer_id.as_proto(),
+            event_id: request.event_id,
+            kind: kind as i32,
+            timestamp,
+            properties,
+            allow_backfilling: request.allow_backfilling,
+            keep_last_events: request.keep_last_events,
+            ingested_at: Some(datetime_to_timestamp(request.ingested_at)),
+        };
+        let result = tokio::time::timeout(
+            GRPC_TIMEOUT,
+            self.ingest_grpc_service
+                .clone()
+                .enqueue_event_change(grpc_request),
+        )
+        .await
+        .map_err(|_| {
+            error_stack::Report::new(StoreError::MeteringServiceError)
+                .attach("enqueue_event_change timed out")
+        })?;
+        match result {
+            Ok(_) => Ok(()),
+            Err(status) if status.code() == tonic::Code::InvalidArgument => {
+                bail!(StoreError::InvalidArgument(status.message().to_string()))
+            }
+            Err(status) => Err(error_stack::Report::new(status)
+                .change_context(StoreError::MeteringServiceError)
+                .attach("Failed to enqueue the event change")),
+        }
+    }
+
     async fn purge_tenants(&self, tenant_ids: &[TenantId]) -> StoreResult<()> {
         if tenant_ids.is_empty() {
             return Ok(());
@@ -1573,6 +1663,13 @@ impl PendingUsageSource for MeteringUsageClient {
 fn invalid_metering_id(e: impl std::fmt::Display) -> error_stack::Report<StoreError> {
     error_stack::Report::new(StoreError::MeteringServiceError)
         .attach(format!("invalid id in metering response: {e}"))
+}
+
+fn required_timestamp(ts: Option<prost_types::Timestamp>) -> StoreResult<NaiveDateTime> {
+    ts.as_ref().and_then(timestamp_to_datetime).ok_or_else(|| {
+        error_stack::Report::new(StoreError::MeteringServiceError)
+            .attach("metering returned an event without a valid timestamp")
+    })
 }
 
 pub fn datetime_to_timestamp(dt: NaiveDateTime) -> prost_types::Timestamp {

@@ -1,5 +1,5 @@
 use super::{FailedRecord, Sink};
-use crate::ingest::domain::RawEvent;
+use crate::ingest::domain::{EventKind, RawEvent};
 use crate::ingest::errors::IngestError;
 use crate::ingest::metrics::{INGEST_BATCH_SIZE, INGESTED_EVENTS_TOTAL};
 use async_trait::async_trait;
@@ -19,7 +19,8 @@ impl Sink for PrintSink {
         let _enter = span.enter();
 
         INGEST_BATCH_SIZE.record(events.len() as u64, attributes);
-        INGESTED_EVENTS_TOTAL.add(events.len() as u64, attributes);
+        let ingested = events.iter().filter(|e| e.kind == EventKind::Event).count();
+        INGESTED_EVENTS_TOTAL.add(ingested as u64, attributes);
 
         info!("Ingested batch: {}", events.len());
 

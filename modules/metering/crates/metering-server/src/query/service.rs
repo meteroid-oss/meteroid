@@ -11,12 +11,12 @@ use metering_grpc::meteroid::metering::v1::{
     DiscoverPropertiesResponse, DiscoverPropertyValuesRequest, DiscoverPropertyValuesResponse,
     DiscoveredProperty, Event, EventCodeCount, ListCustomerFirstEventsRequest,
     ListCustomerFirstEventsResponse, ListTenantFirstEventsRequest, ListTenantFirstEventsResponse,
-    PollUsageActivityRequest, PollUsageActivityResponse, ProfileEventPropertiesRequest,
-    ProfileEventPropertiesResponse, PropertyNumericStats, PropertyProfile, PropertyValueCount,
-    PurgeTenantsRequest, PurgeTenantsResponse, QueryMeterRequest, QueryMeterResponse,
-    QueryRawEventsRequest, QueryRawEventsResponse, list_customer_first_events_response,
-    list_tenant_first_events_response, poll_usage_activity_response, property_filter,
-    query_raw_events_request::SortOrder,
+    LookupEventRequest, LookupEventResponse, PollUsageActivityRequest, PollUsageActivityResponse,
+    ProfileEventPropertiesRequest, ProfileEventPropertiesResponse, PropertyNumericStats,
+    PropertyProfile, PropertyValueCount, PurgeTenantsRequest, PurgeTenantsResponse,
+    QueryMeterRequest, QueryMeterResponse, QueryRawEventsRequest, QueryRawEventsResponse,
+    list_customer_first_events_response, list_tenant_first_events_response, lookup_event_response,
+    poll_usage_activity_response, property_filter, query_raw_events_request::SortOrder,
 };
 use tonic::{Request, Response, Status};
 
@@ -536,6 +536,33 @@ impl UsageQueryServiceGrpc for UsageQueryService {
             .collect();
 
         Ok(Response::new(ListCustomerFirstEventsResponse { customers }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn lookup_event(
+        &self,
+        request: Request<LookupEventRequest>,
+    ) -> Result<Response<LookupEventResponse>, Status> {
+        let req = request.into_inner();
+        let events = self
+            .connector
+            .lookup_event(
+                &TenantId::from_proto(req.tenant_id)?,
+                &CustomerId::from_proto(req.customer_id)?,
+                &req.event_id,
+            )
+            .await
+            .map_err(Into::<MeteringApiError>::into)?
+            .into_iter()
+            .map(|event| lookup_event_response::LiveEvent {
+                code: event.code,
+                timestamp: Some(datetime_to_timestamp(event.timestamp)),
+                properties: event.properties,
+                ingested_at: Some(datetime_to_timestamp(event.ingested_at)),
+            })
+            .collect();
+
+        Ok(Response::new(LookupEventResponse { events }))
     }
 
     #[tracing::instrument(skip_all)]

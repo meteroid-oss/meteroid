@@ -319,3 +319,12 @@ pub struct EventPropertiesProfile {
     pub total_events: u64,
     pub properties: Vec<PropertyProfile>,
 }
+
+/// A stored copy of an event that neither a tombstone nor a void cancels (ADR-0012 §4).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LiveEvent {
+    pub code: String,
+    pub timestamp: DateTime<Utc>,
+    pub properties: HashMap<String, String>,
+    pub ingested_at: DateTime<Utc>,
+}

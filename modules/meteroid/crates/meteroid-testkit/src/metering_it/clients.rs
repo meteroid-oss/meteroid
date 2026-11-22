@@ -3,6 +3,7 @@ use tonic::transport::Channel;
 use common_config::auth::InternalAuthConfig;
 
 use metering_grpc::meteroid::metering::v1::events_service_client::EventsServiceClient;
+use metering_grpc::meteroid::metering::v1::internal_events_service_client::InternalEventsServiceClient;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
 
 use common_grpc::middleware::client::auth::create_api_auth_layer;
@@ -14,6 +15,7 @@ pub type TestLayeredClientService = AdminAuthService<ApiAuthService<Channel>>;
 
 pub struct AllClients {
     pub events: EventsServiceClient<TestLayeredClientService>,
+    pub internal_events: InternalEventsServiceClient<TestLayeredClientService>,
     pub usage: UsageQueryServiceClient<TestLayeredClientService>,
 }
 
@@ -27,6 +29,7 @@ impl AllClients {
 
         Self {
             events: EventsServiceClient::new(service.clone()),
+            internal_events: InternalEventsServiceClient::new(service.clone()),
             usage: UsageQueryServiceClient::new(service.clone()),
         }
     }

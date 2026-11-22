@@ -1,11 +1,12 @@
-use crate::config::{ClickhouseConfig, KafkaConfig};
+use crate::config::{ClickhouseConfig, EventTablesConfig, KafkaConfig};
 use crate::connectors::Connector;
 use crate::connectors::errors::ConnectorError;
 use crate::domain::{
     CustomerActivity, CustomerFirstEvent, DiscoveredProperty, EventAttribution, EventCodeCount,
-    EventPropertiesProfile, PropertyValueCount, QueryMeterParams, QueryRawEventsParams,
+    EventPropertiesProfile, LiveEvent, PropertyValueCount, QueryMeterParams, QueryRawEventsParams,
     QueryRawEventsResult, TenantEventScan, TenantFirstEvent, Usage, UsageActivityParams,
 };
+use crate::ingest::domain::EventKind;
 use async_trait::async_trait;
 use common_domain::ids::{BaseId, CustomerId, TenantId};
 use std::collections::HashMap;
@@ -15,20 +16,18 @@ use error_stack::{Report, ResultExt};
 use std::sync::Arc;
 
 mod discovery;
+pub mod event_rows;
 pub mod extensions;
 pub mod sql;
 
 use crate::connectors::clickhouse::extensions::ConnectorClickhouseExtension;
 use crate::connectors::clickhouse::sql::PropertyColumn;
+use metric_core::sql::{EVENT_VOIDS_TABLE, EventsTable};
 
 use crate::connectors::json::JsonFieldExtractor;
 use crate::migrations;
 use clickhouse::Client;
 use tokio::io::AsyncBufReadExt;
-
-/// Underlying local (replicated) table behind the `raw_events_v2` Distributed
-/// table — mutations must target it. Matches the metering migrations.
-const RAW_EVENTS_LOCAL_TABLE: &str = "raw_events_local_v2";
 
 /// Since 25.4, lazy materialization crashes `ORDER BY … LIMIT <= 10` reads of the Distributed
 /// events table when served by the local replica. Older servers reject the unknown setting.
@@ -46,7 +45,9 @@ static DECIMAL_FALLBACK_VALUES: std::sync::LazyLock<opentelemetry::metrics::Coun
 pub struct ClickhouseConnector {
     client: Arc<Client>,
     extensions: Vec<Arc<dyn ConnectorClickhouseExtension + Send + Sync>>,
-    events_table: String,
+    events: EventsTable,
+    /// The local tables behind `events`, which mutations and the change lookup target.
+    tables: EventTablesConfig,
     database: String,
     cluster_name: String,
 }
@@ -54,6 +55,7 @@ pub struct ClickhouseConnector {
 impl ClickhouseConnector {
     pub async fn init(
         clickhouse_config: &ClickhouseConfig,
+        tables: &EventTablesConfig,
         kafka_config: &KafkaConfig,
         extensions: Vec<Arc<dyn ConnectorClickhouseExtension + Send + Sync>>,
     ) -> Result<Self, Report<ConnectorError>> {
@@ -83,7 +85,8 @@ impl ClickhouseConnector {
         Ok(ClickhouseConnector {
             client,
             extensions,
-            events_table: clickhouse_config.raw_events_table.clone(),
+            events: EventsTable::new(&clickhouse_config.raw_events_table),
+            tables: tables.clone(),
             database: clickhouse_config.database.clone(),
             cluster_name: clickhouse_config.cluster_name.clone(),
         })
@@ -139,7 +142,7 @@ impl Connector for ClickhouseConnector {
             }
             None => {
                 let safe_query =
-                    sql::query_raw::query_meter_sql(params.clone(), &self.events_table)
+                    sql::query_raw::query_meter_sql(params.clone(), &self.events, &self.database)
                         .map_err(ConnectorError::InvalidQuery)?;
                 tracing::debug!("Generated query: {}", safe_query.sql);
                 safe_query.into_query(&self.client)
@@ -242,8 +245,9 @@ impl Connector for ClickhouseConnector {
         &self,
         params: QueryRawEventsParams,
     ) -> Result<QueryRawEventsResult, Report<ConnectorError>> {
-        let safe_query = sql::query_raw::query_raw_events_sql(params.clone(), &self.events_table)
-            .map_err(ConnectorError::InvalidQuery)?;
+        let safe_query =
+            sql::query_raw::query_raw_events_sql(params.clone(), &self.events, &self.database)
+                .map_err(ConnectorError::InvalidQuery)?;
 
         let rows = safe_query
             .into_query(&self.client)
@@ -260,8 +264,9 @@ impl Connector for ClickhouseConnector {
                 tenant_id: TenantId::from(row.tenant_id),
                 timestamp: row.timestamp.naive_utc(),
                 ingested_at: row.ingested_at.naive_utc(),
-                properties: row.properties,
+                properties: row.properties.into_iter().collect(),
                 keep_last: false,
+                kind: EventKind::Event,
             })
             .collect();
 
@@ -282,17 +287,22 @@ impl Connector for ClickhouseConnector {
             .collect::<Vec<_>>()
             .join(",");
 
-        let sql = format!(
-            "ALTER TABLE {}.{} ON CLUSTER '{}' DELETE WHERE tenant_id IN ({})",
-            self.database, RAW_EVENTS_LOCAL_TABLE, self.cluster_name, ids
-        );
-
-        self.client
-            .query(&sql)
-            .execute()
-            .await
-            .change_context(ConnectorError::QueryError)
-            .attach("Failed to purge tenants raw events")?;
+        for table in [
+            self.tables.raw_events_local_table.as_str(),
+            self.tables.event_ids_local_table.as_str(),
+            EVENT_VOIDS_TABLE,
+        ] {
+            let sql = format!(
+                "ALTER TABLE {}.{} ON CLUSTER '{}' DELETE WHERE tenant_id IN ({})",
+                self.database, table, self.cluster_name, ids
+            );
+            self.client
+                .query(&sql)
+                .execute()
+                .await
+                .change_context(ConnectorError::QueryError)
+                .attach(format!("Failed to purge tenants from {table}"))?;
+        }
 
         Ok(())
     }
@@ -325,7 +335,8 @@ impl Connector for ClickhouseConnector {
         for filter in filters {
             let sql = format!(
                 "SELECT tenant_id, MIN(ingested_at) AS first_ingested_at FROM {}{} GROUP BY tenant_id",
-                self.events_table, filter
+                self.events.unfiltered(),
+                filter
             );
 
             let rows = self
@@ -371,7 +382,7 @@ impl Connector for ClickhouseConnector {
             let sql = format!(
                 "SELECT customer_id, MIN(ingested_at) AS first_ingested_at FROM {} \
                  WHERE tenant_id = toUUID('{}') AND customer_id IN ({}) GROUP BY customer_id",
-                self.events_table,
+                self.events.unfiltered(),
                 tenant_id.as_uuid(),
                 ids
             );
@@ -390,6 +401,34 @@ impl Connector for ClickhouseConnector {
             }));
         }
         Ok(out)
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn lookup_event(
+        &self,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
+        id: &str,
+    ) -> Result<Vec<LiveEvent>, Report<ConnectorError>> {
+        let key = (
+            tenant_id.as_uuid().to_string(),
+            customer_id.as_uuid().to_string(),
+            id.to_string(),
+        );
+        let rows = event_rows::lookup(&self.client, &self.cluster_name, &self.tables, &[key])
+            .await
+            .change_context(ConnectorError::QueryError)
+            .attach("Failed to look up the event")?;
+        Ok(rows
+            .into_iter()
+            .filter(|row| row.voided == 0)
+            .map(|row| LiveEvent {
+                code: row.code,
+                timestamp: row.timestamp,
+                properties: row.properties.into_iter().collect(),
+                ingested_at: row.ingested_at,
+            })
+            .collect())
     }
 
     #[tracing::instrument(skip(self))]
@@ -454,7 +493,8 @@ impl Connector for ClickhouseConnector {
     ) -> Result<Vec<EventCodeCount>, Report<ConnectorError>> {
         discovery::discover_event_codes(
             &self.client,
-            &self.events_table,
+            &self.events,
+            &self.database,
             tenant_id.as_uuid(),
             search,
             limit,
@@ -471,7 +511,8 @@ impl Connector for ClickhouseConnector {
     ) -> Result<Vec<DiscoveredProperty>, Report<ConnectorError>> {
         discovery::discover_properties(
             &self.client,
-            &self.events_table,
+            &self.events,
+            &self.database,
             tenant_id.as_uuid(),
             event_code,
             lookback_days,
@@ -490,7 +531,8 @@ impl Connector for ClickhouseConnector {
     ) -> Result<Vec<PropertyValueCount>, Report<ConnectorError>> {
         discovery::discover_property_values(
             &self.client,
-            &self.events_table,
+            &self.events,
+            &self.database,
             tenant_id.as_uuid(),
             event_code,
             property_key,
@@ -511,7 +553,8 @@ impl Connector for ClickhouseConnector {
     ) -> Result<EventPropertiesProfile, Report<ConnectorError>> {
         discovery::profile_event_properties(
             &self.client,
-            &self.events_table,
+            &self.events,
+            &self.database,
             tenant_id.as_uuid(),
             event_code,
             from_ts,

@@ -6,6 +6,7 @@ use std::collections::HashMap;
 
 use clickhouse::Client;
 use error_stack::{Report, ResultExt};
+use metric_core::sql::{EventDedup, EventsTable, VoidScope};
 use tokio::io::AsyncBufReadExt;
 
 use crate::connectors::errors::ConnectorError;
@@ -15,16 +16,42 @@ use crate::domain::{
     PropertyProfile, PropertyValueCount,
 };
 
+const RECENT: &str = "now() - INTERVAL 90 DAY";
+
+/// The tenant's live events (ADR-0012 §6); these reads have no keep-last flag.
+fn live_events(
+    events: &EventsTable,
+    database: &str,
+    tenant_id: uuid::Uuid,
+    columns: &str,
+    conditions: &str,
+    scope: VoidScope,
+) -> String {
+    events
+        .source(database, tenant_id, EventDedup::Off)
+        .from_sql(columns, conditions, &scope)
+}
+
 /// Each key with its value cardinality and a small sample, most frequent key first.
 #[tracing::instrument(skip(client))]
 pub(super) async fn discover_properties(
     client: &Client,
-    events_table: &str,
+    events: &EventsTable,
+    database: &str,
     tenant_id: uuid::Uuid,
     event_code: &str,
     lookback_days: u32,
     limit: u32,
 ) -> Result<Vec<DiscoveredProperty>, Report<ConnectorError>> {
+    let since = format!("now() - INTERVAL {lookback_days} DAY");
+    let source = live_events(
+        events,
+        database,
+        tenant_id,
+        "properties",
+        &format!("tenant_id = toUUID('{tenant_id}') AND code = ? AND timestamp >= {since}"),
+        VoidScope::default().code(event_code).since(since.as_str()),
+    );
     let sql = format!(
         r#"
         SELECT
@@ -33,19 +60,12 @@ pub(super) async fn discover_properties(
           topK(8)(val)                 AS samples,
           toUInt64(countIf(val != '' AND isNotNull(toFloat64OrNull(val)))) AS numeric_count,
           toUInt64(countIf(val != '')) AS nonempty_count
-        FROM {table}
+        {source}
         ARRAY JOIN mapKeys(properties) AS key, mapValues(properties) AS val
-        WHERE tenant_id = toUUID('{tenant}')
-          AND code = ?
-          AND timestamp >= now() - INTERVAL {days} DAY
         GROUP BY key
         ORDER BY count() DESC
         LIMIT {limit}
         "#,
-        table = events_table,
-        tenant = tenant_id,
-        days = lookback_days,
-        limit = limit,
     );
 
     let mut lines = client
@@ -107,7 +127,8 @@ pub(super) async fn discover_properties(
 #[tracing::instrument(skip(client))]
 pub(super) async fn profile_event_properties(
     client: &Client,
-    events_table: &str,
+    events: &EventsTable,
+    database: &str,
     tenant_id: uuid::Uuid,
     event_code: &str,
     from_ts: i64,
@@ -129,17 +150,27 @@ pub(super) async fn profile_event_properties(
     } else {
         "now()".to_string()
     };
-    let time_where = format!("timestamp >= {from_expr} AND timestamp < {to_expr}",);
+    let source = live_events(
+        events,
+        database,
+        tenant_id,
+        "properties",
+        &format!(
+            "tenant_id = toUUID('{tenant_id}') AND code = ? \
+             AND timestamp >= {from_expr} AND timestamp < {to_expr}"
+        ),
+        VoidScope::default()
+            .code(event_code)
+            .since(from_expr.as_str())
+            .until(to_expr.as_str()),
+    );
 
     // (1) Coverage denominator: total events of this code in range.
     let total_sql = format!(
         r#"
         SELECT toUInt64(count()) AS total
-        FROM {table}
-        WHERE tenant_id = toUUID('{tenant}') AND code = ? AND {time_where}
+        {source}
         "#,
-        table = events_table,
-        tenant = tenant_id,
     );
     let total_events = {
         let mut lines = client
@@ -181,16 +212,12 @@ pub(super) async fn profile_event_properties(
           sum(toFloat64OrNull(val))                                 AS num_sum,
           quantile(0.5)(toFloat64OrNull(val))                       AS num_p50,
           quantile(0.95)(toFloat64OrNull(val))                      AS num_p95
-        FROM {table}
+        {source}
         ARRAY JOIN mapKeys(properties) AS key, mapValues(properties) AS val
-        WHERE tenant_id = toUUID('{tenant}') AND code = ? AND {time_where}
         GROUP BY key
         ORDER BY event_count DESC
         LIMIT {limit}
         "#,
-        table = events_table,
-        tenant = tenant_id,
-        limit = limit,
     );
     let mut profiles: Vec<PropertyProfile> = Vec::new();
     let mut index: HashMap<String, usize> = HashMap::new();
@@ -261,16 +288,13 @@ pub(super) async fn profile_event_properties(
         let values_sql = format!(
             r#"
             SELECT key AS key, val AS value, toUInt64(count()) AS cnt
-            FROM {table}
+            {source}
             ARRAY JOIN mapKeys(properties) AS key, mapValues(properties) AS val
-            WHERE tenant_id = toUUID('{tenant}') AND code = ? AND val != '' AND {time_where}
+            WHERE val != ''
             GROUP BY key, value
             ORDER BY key, cnt DESC
             LIMIT {top_values} BY key
             "#,
-            table = events_table,
-            tenant = tenant_id,
-            top_values = top_values,
         );
         let mut lines = client
             .query(&values_sql)
@@ -312,7 +336,8 @@ pub(super) async fn profile_event_properties(
 #[tracing::instrument(skip(client))]
 pub(super) async fn discover_event_codes(
     client: &Client,
-    events_table: &str,
+    events: &EventsTable,
+    database: &str,
     tenant_id: uuid::Uuid,
     search: &str,
     limit: u32,
@@ -320,22 +345,24 @@ pub(super) async fn discover_event_codes(
     let search_frag = if search.is_empty() {
         ""
     } else {
-        "AND code ILIKE ?"
+        " AND code ILIKE ?"
     };
+    let source = live_events(
+        events,
+        database,
+        tenant_id,
+        "code",
+        &format!("tenant_id = toUUID('{tenant_id}') AND timestamp >= {RECENT}{search_frag}"),
+        VoidScope::default().since(RECENT),
+    );
     let sql = format!(
         r#"
         SELECT code AS code, toUInt64(count()) AS cnt
-        FROM {table}
-        WHERE tenant_id = toUUID('{tenant}')
-          AND timestamp >= now() - INTERVAL 90 DAY
-          {search_frag}
+        {source}
         GROUP BY code
         ORDER BY cnt DESC
         LIMIT {limit}
         "#,
-        table = events_table,
-        tenant = tenant_id,
-        limit = limit,
     );
 
     let mut query = client.query(&sql);
@@ -377,7 +404,8 @@ pub(super) async fn discover_event_codes(
 #[tracing::instrument(skip(client))]
 pub(super) async fn discover_property_values(
     client: &Client,
-    events_table: &str,
+    events: &EventsTable,
+    database: &str,
     tenant_id: uuid::Uuid,
     event_code: &str,
     property_key: &str,
@@ -389,24 +417,26 @@ pub(super) async fn discover_property_values(
     } else {
         "AND val ILIKE ?"
     };
+    let source = live_events(
+        events,
+        database,
+        tenant_id,
+        "properties",
+        &format!("tenant_id = toUUID('{tenant_id}') AND code = ? AND timestamp >= {RECENT}"),
+        VoidScope::default().code(event_code).since(RECENT),
+    );
     let sql = format!(
         r#"
         SELECT val AS value, toUInt64(count()) AS cnt
-        FROM {table}
+        {source}
         ARRAY JOIN mapKeys(properties) AS key, mapValues(properties) AS val
-        WHERE tenant_id = toUUID('{tenant}')
-          AND code = ?
-          AND key = ?
+        WHERE key = ?
           AND val != ''
-          AND timestamp >= now() - INTERVAL 90 DAY
           {search_frag}
         GROUP BY value
         ORDER BY cnt DESC
         LIMIT {limit}
         "#,
-        table = events_table,
-        tenant = tenant_id,
-        limit = limit,
     );
 
     let mut query = client.query(&sql).bind(event_code).bind(property_key);

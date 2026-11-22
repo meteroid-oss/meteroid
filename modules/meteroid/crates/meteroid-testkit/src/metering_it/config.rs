@@ -5,7 +5,7 @@ use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
 use common_config::telemetry::TelemetryConfig;
 use kafka::config::KafkaConnectionConfig;
-use metering::config::{ClickhouseConfig, Config, ConsumerConfig, KafkaConfig};
+use metering::config::{ClickhouseConfig, Config, ConsumerConfig, EventTablesConfig, KafkaConfig};
 
 pub fn mocked_config(
     meteroid_port: u16,
@@ -29,8 +29,10 @@ pub fn mocked_config(
             insert_quorum: "auto".to_string(),
             insert_quorum_timeout_ms: 30_000,
             insert_retry_budget_ms: 240_000,
-            raw_events_local_table: "raw_events_local_v2".to_string(),
-            event_ids_local_table: "event_ids_local".to_string(),
+            tables: EventTablesConfig {
+                raw_events_local_table: "raw_events_local_v2".to_string(),
+                event_ids_local_table: "event_ids_local".to_string(),
+            },
         },
         listen_addr: format!("127.0.0.1:{}", metering_port).parse().unwrap(),
         meteroid_endpoint: format!("http://127.0.0.1:{}", meteroid_port),
