@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { schemas } from '@/lib/schemas'
+import { sameOriginPath } from '@/lib/utils/url'
 import {
   getInviteDetails,
   getInstance,
@@ -20,7 +21,7 @@ export const RegistrationForm = ({ invite }: { invite?: string }) => {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
-  const returnUrl = searchParams.get('returnUrl')
+  const returnUrl = sameOriginPath(searchParams.get('returnUrl'))
   const signupSource = searchParams.get('source') ?? undefined
 
   const { data: inviteData } = useQuery(
@@ -67,7 +68,7 @@ export const RegistrationForm = ({ invite }: { invite?: string }) => {
       signupSource,
     })
 
-    if (returnUrl && returnUrl.startsWith('/')) {
+    if (returnUrl) {
       sessionStorage.setItem(RETURN_URL_KEY, returnUrl)
     }
 

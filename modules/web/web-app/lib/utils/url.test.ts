@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { safeRedirectUrl } from './url'
+import { safeRedirectUrl, sameOriginPath } from './url'
 
 describe('safeRedirectUrl', () => {
   it('keeps http(s) and relative targets', () => {
@@ -25,5 +25,30 @@ describe('safeRedirectUrl', () => {
     expect(safeRedirectUrl(undefined)).toBeUndefined()
     expect(safeRedirectUrl(null)).toBeUndefined()
     expect(safeRedirectUrl('')).toBeUndefined()
+  })
+})
+
+describe('sameOriginPath', () => {
+  it('keeps in-app paths with their query and hash', () => {
+    expect(sameOriginPath('/tenant/acme/customers?page=2#top')).toBe(
+      '/tenant/acme/customers?page=2#top'
+    )
+    expect(sameOriginPath('/')).toBe('/')
+  })
+
+  it('refuses targets that resolve to another origin', () => {
+    expect(sameOriginPath('//evil.example')).toBeUndefined()
+    expect(sameOriginPath('/\\evil.example')).toBeUndefined()
+    expect(sameOriginPath('/.\\/evil.example')).toBeUndefined()
+    expect(sameOriginPath('/.//evil.example/x')).toBeUndefined()
+    expect(sameOriginPath('/%2e/\\evil.example')).toBeUndefined()
+    expect(sameOriginPath('https://evil.example/')).toBeUndefined()
+    expect(sameOriginPath('javascript:alert(1)')).toBeUndefined()
+  })
+
+  it('treats empty input as no target', () => {
+    expect(sameOriginPath(undefined)).toBeUndefined()
+    expect(sameOriginPath(null)).toBeUndefined()
+    expect(sameOriginPath('')).toBeUndefined()
   })
 })

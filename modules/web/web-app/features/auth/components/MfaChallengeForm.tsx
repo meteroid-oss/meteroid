@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { useSession } from '@/features/auth/session'
 import { useAutoSubmitOtp } from '@/hooks/useAutoSubmitOtp'
 import { useZodForm } from '@/hooks/useZodForm'
+import { sameOriginPath } from '@/lib/utils/url'
 import { verifyMfa } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 import { LoginResponseSchema } from '@/rpc/api/users/v1/users_pb'
 
@@ -24,7 +25,7 @@ export const MfaChallengeForm = () => {
   const [, setSession] = useSession()
   const [error, setError] = useState<string>()
   const challengeToken = searchParams.get('token') ?? ''
-  const returnUrl = searchParams.get('returnUrl')
+  const returnUrl = sameOriginPath(searchParams.get('returnUrl'))
 
   const methods = useZodForm({
     schema: mfaSchema,
@@ -36,7 +37,7 @@ export const MfaChallengeForm = () => {
     onSuccess: data => {
       setSession(create(LoginResponseSchema, { token: data.token, user: data.user }))
       setTimeout(() => {
-        if (returnUrl && returnUrl.startsWith('/')) {
+        if (returnUrl) {
           navigate(returnUrl)
         } else {
           navigate('/')

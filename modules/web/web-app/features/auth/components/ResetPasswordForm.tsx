@@ -40,6 +40,8 @@ export const ResetPasswordForm = () => {
             label="Password"
             control={methods.control}
             placeholder="New password"
+            type="password"
+            autoComplete="new-password"
             showPasswordToggle
             autoFocus
           />
@@ -48,6 +50,8 @@ export const ResetPasswordForm = () => {
             label="Confirm Password"
             control={methods.control}
             placeholder="Re-enter password"
+            type="password"
+            autoComplete="new-password"
             showPasswordToggle
           />
           <Button

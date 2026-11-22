@@ -9,6 +9,7 @@ import { useSession } from '@/features/auth/session'
 import { useZodForm } from '@/hooks/useZodForm'
 import { queryClient } from '@/lib/react-query'
 import { schemas } from '@/lib/schemas'
+import { sameOriginPath } from '@/lib/utils/url'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { completeRegistration } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 import { LoginResponseSchema } from '@/rpc/api/users/v1/users_pb'
@@ -56,10 +57,9 @@ export const ValidateEmailForm = () => {
 
     sessionStorage.removeItem(INVITE_TOKEN_KEY)
 
-    const pendingReturnUrl = sessionStorage.getItem(RETURN_URL_KEY)
+    const pendingReturnUrl = sameOriginPath(sessionStorage.getItem(RETURN_URL_KEY))
     sessionStorage.removeItem(RETURN_URL_KEY)
 
-    // Navigate to login with returnUrl if available
     const loginPath = pendingReturnUrl ? `/login?returnUrl=${encodeURIComponent(pendingReturnUrl)}` : '/login'
     navigate(loginPath, {
       state: 'accountCreated',
@@ -74,6 +74,8 @@ export const ValidateEmailForm = () => {
             label="Password"
             control={methods.control}
             placeholder="Create password"
+            type="password"
+            autoComplete="new-password"
             showPasswordToggle
             autoFocus
           />
@@ -82,6 +84,8 @@ export const ValidateEmailForm = () => {
             label="Confirm Password"
             control={methods.control}
             placeholder="Re-enter password"
+            type="password"
+            autoComplete="new-password"
             showPasswordToggle
           />
           <Button

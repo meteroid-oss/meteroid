@@ -9,6 +9,7 @@ import { useSession } from '@/features/auth/session'
 import { SsoDiscovery, discoverSso, startSso } from '@/features/auth/sso'
 import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
+import { sameOriginPath } from '@/lib/utils/url'
 import { login } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
 export const LoginForm = () => {
@@ -21,7 +22,7 @@ export const LoginForm = () => {
   const [stage, setStage] = useState<'email' | 'password'>('email')
   const [sso, setSso] = useState<SsoDiscovery | null>(null)
   const [checking, setChecking] = useState(false)
-  const returnUrl = searchParams.get('returnUrl')
+  const returnUrl = sameOriginPath(searchParams.get('returnUrl'))
   const methods = useZodForm({
     schema: schemas.me.emailPasswordSchema,
     defaultValues: {
@@ -35,7 +36,7 @@ export const LoginForm = () => {
     onSuccess: data => {
       if (data.mfaChallengeToken) {
         const params = new URLSearchParams({ token: data.mfaChallengeToken })
-        if (returnUrl && returnUrl.startsWith('/')) {
+        if (returnUrl) {
           params.set('returnUrl', returnUrl)
         }
         navigate(`/mfa-challenge?${params.toString()}`)
@@ -51,8 +52,7 @@ export const LoginForm = () => {
       setTimeout(() => {
         if (pendingInvite) {
           navigate(`/invite-authenticated?token=${pendingInvite}`)
-        } else if (returnUrl && returnUrl.startsWith('/')) {
-          // Redirect to returnUrl if it's a valid relative path
+        } else if (returnUrl) {
           navigate(returnUrl)
         } else {
           navigate('/')
