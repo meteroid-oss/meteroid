@@ -9,6 +9,7 @@ import {
 } from '@md/ui'
 import { ArrowDown, ArrowUp, ChevronRight, Lock, Plus, Trash2 } from 'lucide-react'
 
+import { Slot } from '@/edition'
 import { EditorSection } from '@/features/quotes/editor/EditorSection'
 import {
   canMoveSection,
@@ -18,7 +19,7 @@ import {
 } from '@/features/quotes/editor/documentBlocks'
 import { QuoteSectionPlacement } from '@/rpc/api/quotes/v1/models_pb'
 
-import type { QuoteV2State, SectionState } from '@/features/quotes/editor/quoteV2'
+import type { AttachmentState, QuoteV2State, SectionState } from '@/features/quotes/editor/quoteV2'
 import type { Dispatch, ReactNode, SetStateAction } from 'react'
 
 const summary = (text: string | undefined) => {
@@ -61,10 +62,11 @@ const Block = ({ title, kind, preview, defaultOpen, controls, children }: BlockP
 
 interface DocumentSectionProps {
   sections: SectionState[]
+  attachments: AttachmentState[]
   setV2: Dispatch<SetStateAction<QuoteV2State>>
 }
 
-export const DocumentSection = ({ sections, setV2 }: DocumentSectionProps) => {
+export const DocumentSection = ({ sections, attachments, setV2 }: DocumentSectionProps) => {
   const ordered = readingOrder(sections)
   const beforeCount = ordered.filter(isBeforePricing).length
 
@@ -163,6 +165,21 @@ export const DocumentSection = ({ sections, setV2 }: DocumentSectionProps) => {
           <Plus className="h-4 w-4" />
           Add section
         </Button>
+
+        <Slot
+          name="quoteCreate.attachments"
+          attachments={attachments}
+          onAdd={attachment =>
+            setV2(prev =>
+              prev.attachments.some(a => a.id === attachment.id)
+                ? prev
+                : { ...prev, attachments: [...prev.attachments, attachment] }
+            )
+          }
+          onRemove={id =>
+            setV2(prev => ({ ...prev, attachments: prev.attachments.filter(a => a.id !== id) }))
+          }
+        />
       </div>
     </EditorSection>
   )

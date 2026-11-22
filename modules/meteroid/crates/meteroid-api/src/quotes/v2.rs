@@ -1,6 +1,7 @@
 //! The parts of a quote the `quotes_full` gate covers: line presentation and discounts,
-//! countersigners, signature level, CRM link, restricted customer actions. Core applies them; writes that introduce
-//! or change them need the gate, writes that keep the stored values do not.
+//! countersigners, signature level, CRM link, restricted customer actions, attached files. Core
+//! applies them; writes that introduce or change them need the gate, writes that keep the stored
+//! values do not.
 
 use common_domain::ids::{AddOnId, PriceComponentId};
 use meteroid_app::features::{Entitlements, QUOTES_FULL_NOT_IN_PLAN, gates};
@@ -9,7 +10,7 @@ use meteroid_store::constants::Currencies;
 use meteroid_store::domain::enums::QuoteSignatureLevelEnum;
 use meteroid_store::domain::quote_document::discount_fee;
 use meteroid_store::domain::quotes::{
-    DetailedQuote, QuoteAddOnNew, QuoteNew, QuotePriceComponentNew,
+    DetailedQuote, QuoteAddOnNew, QuoteAttachment, QuoteNew, QuotePriceComponentNew,
 };
 use meteroid_store::services::PendingMaterialization;
 use rust_decimal::Decimal;
@@ -228,6 +229,10 @@ pub(crate) async fn ensure_v2_allowed(
             && stored_quote.map(|q| q.signature_level) != Some(QuoteSignatureLevelEnum::Verified))
         || (quote.hubspot_deal_id.is_some()
             && quote.hubspot_deal_id != stored_quote.and_then(|q| q.hubspot_deal_id.clone()))
+        || adds_attachments(
+            &quote.attachments,
+            stored_quote.map_or(&[][..], |q| &q.attachments),
+        )
         || (quote.template_id.is_some()
             && quote.template_id != stored_quote.and_then(|q| q.template_id))
         || (actions != (true, true, true)
@@ -242,6 +247,12 @@ pub(crate) async fn ensure_v2_allowed(
         QUOTES_FULL_NOT_IN_PLAN,
     )
     .await
+}
+
+/// Removing files keeps the others as stored, so a lapsed plan can still drop one.
+fn adds_attachments(requested: &[QuoteAttachment], stored: &[QuoteAttachment]) -> bool {
+    let mut kept = stored.iter().map(|a| a.id);
+    !requested.iter().all(|a| kept.any(|id| id == a.id))
 }
 
 /// Accepts a HubSpot deal id or a deal's URL (`.../record/0-3/<id>`).
@@ -282,6 +293,24 @@ mod tests {
         );
         assert_eq!(parse_hubspot_deal_id("").unwrap(), None);
         assert!(parse_hubspot_deal_id("not-a-deal").is_err());
+    }
+
+    #[test]
+    fn only_removing_attachments_keeps_the_rest_as_stored() {
+        let file = |n: u128| QuoteAttachment {
+            id: common_domain::ids::QuoteAttachmentId::from_const(uuid::Uuid::from_u128(n)),
+            filename: format!("{n}.pdf"),
+            content_type: "application/pdf".to_string(),
+            size_bytes: 1,
+            sha256: String::new(),
+        };
+        let stored = [file(1), file(2), file(3)];
+        assert!(!adds_attachments(&stored, &stored));
+        assert!(!adds_attachments(&[file(1), file(3)], &stored));
+        assert!(!adds_attachments(&[], &stored));
+        assert!(adds_attachments(&[file(3), file(1)], &stored), "reordered");
+        assert!(adds_attachments(&[file(1), file(4)], &stored), "added");
+        assert!(adds_attachments(&[file(1)], &[]));
     }
 
     #[test]

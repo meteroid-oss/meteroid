@@ -1,5 +1,6 @@
 import type { MinimumComponentOption } from '@/features/billing/minimumCommitment'
 import type { Denomination } from '@/features/plans/creditRule'
+import type { AttachmentState } from '@/features/quotes/editor/quoteV2'
 import type { PortalCreditValues } from '@/features/settings/components/portalCreditForm'
 import type { UsageProjection } from '@/features/subscriptions/PeriodUsageBar'
 import type { ExpiryContext } from '@/features/subscriptions/subscriptionOverview'
@@ -10,7 +11,7 @@ import type { EmailKind } from '@/rpc/api/customeremails/v1/models_pb'
 import type { CustomerBrief, CustomerPaymentMethod } from '@/rpc/api/customers/v1/models_pb'
 import type { InvoiceAnnex } from '@/rpc/api/invoices/v1/models_pb'
 import type { MinimumCommitment, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
-import type { DetailedQuote } from '@/rpc/api/quotes/v1/models_pb'
+import type { DetailedQuote, QuoteAttachment } from '@/rpc/api/quotes/v1/models_pb'
 import type { Subscription } from '@/rpc/api/subscriptions/v1/models_pb'
 import type { PendingInvoiceCredit } from '@/rpc/api/subscriptions/v1/subscriptions_pb'
 import type { Wallet, WalletStatus, WalletSummary } from '@/rpc/api/wallets/v1/models_pb'
@@ -313,6 +314,20 @@ export interface QuoteTemplatesContext {
   isEdit: boolean
 }
 
+/** The files attached to the quote being edited: the form keeps them and sends their ids. */
+export interface QuoteAttachmentsFieldContext {
+  attachments: AttachmentState[]
+  /** Appends to the form's current files, however many uploads complete meanwhile. */
+  onAdd: (attachment: AttachmentState) => void
+  onRemove: (id: string) => void
+}
+
+/** The files a quote's document lists; download links are set outside the editor's preview. */
+export interface QuoteViewAttachmentsContext {
+  attachments: QuoteAttachment[]
+  mode: 'preview' | 'detailed' | 'portal'
+}
+
 /** A tab of the quotes page, after Quotes. */
 export interface QuoteListTab {
   label: string
@@ -455,6 +470,10 @@ export interface ComponentSlots {
   'subscriptionCreate.minimumCommitment': MinimumCommitmentFieldContext
   /** The Contract terms of the quote form; without one, an edited quote keeps its minimum and a new one takes the plan's. */
   'quoteCreate.minimumCommitment': MinimumCommitmentFieldContext
+  /** In the Document section of the quote form, after the sections; without one, an edited quote keeps its files. */
+  'quoteCreate.attachments': QuoteAttachmentsFieldContext
+  /** In the quote's document, before the signatures: the files signed with it. */
+  'quoteView.attachments': QuoteViewAttachmentsContext
   /** Header of the quote form: starting from a template, saving the quote as one. */
   'quoteCreate.templates': QuoteTemplatesContext
   /** On the quote page, above the tabs: approvals, the customer's change requests. */

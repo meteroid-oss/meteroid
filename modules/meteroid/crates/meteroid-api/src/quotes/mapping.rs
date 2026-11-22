@@ -179,11 +179,6 @@ pub mod quotes {
             cover_image: quote.cover_image.map(|id| id.as_proto()),
             overview: quote.overview.clone(),
             terms_and_services: quote.terms_and_services.clone(),
-            attachments: quote
-                .attachments
-                .iter()
-                .filter_map(|opt| opt.map(|id| id.as_proto()))
-                .collect(),
             recipients: quote
                 .recipients
                 .iter()
@@ -234,6 +229,7 @@ pub mod quotes {
                 decline: quote.allow_decline,
             }),
             last_sent_at: quote.last_sent_at.as_proto(),
+            attachments: quote.attachments.iter().map(attachment_to_proto).collect(),
         };
         if !for_portal {
             return proto;
@@ -248,6 +244,19 @@ pub mod quotes {
             hubspot_deal_id: None,
             max_discount_percent: None,
             ..proto
+        }
+    }
+
+    pub fn attachment_to_proto(
+        attachment: &domain::quotes::QuoteAttachment,
+    ) -> v1::QuoteAttachment {
+        v1::QuoteAttachment {
+            id: attachment.id.as_proto(),
+            filename: attachment.filename.clone(),
+            content_type: attachment.content_type.clone(),
+            size_bytes: attachment.size_bytes,
+            sha256: attachment.sha256.clone(),
+            download_url: None,
         }
     }
 

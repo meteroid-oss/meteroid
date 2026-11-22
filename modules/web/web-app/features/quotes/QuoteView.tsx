@@ -1,6 +1,7 @@
 import { Card, CardContent } from '@md/ui'
 import { FC, ReactNode } from 'react'
 
+import { Slot } from '@/edition'
 import { MinimumCommitmentDisplay, productScopeOptions } from '@/features/billing/minimumCommitment'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { QuoteDiscounts } from '@/features/quotes/QuoteViewDiscounts'
@@ -308,6 +309,7 @@ export const QuoteView: FC<QuoteViewProps> = ({
             </p>
           </section>
         )}
+        <Slot name="quoteView.attachments" attachments={q?.attachments ?? []} mode={mode} />
         {renderSignatures()}
       </CardContent>
     </Card>

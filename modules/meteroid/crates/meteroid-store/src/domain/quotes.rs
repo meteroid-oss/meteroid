@@ -12,8 +12,8 @@ use crate::json_value_serde;
 use common_domain::ids::BaseId;
 use common_domain::ids::{
     AddOnId, CouponId, CustomerId, InvoiceId, PlanVersionId, PriceComponentId, PriceId, ProductId,
-    QuoteAddOnId, QuoteCouponId, QuoteId, QuotePriceComponentId, QuoteSignatureId, QuoteTemplateId,
-    StoredDocumentId, SubscriptionId, TenantId,
+    QuoteAddOnId, QuoteAttachmentId, QuoteCouponId, QuoteId, QuotePriceComponentId,
+    QuoteSignatureId, QuoteTemplateId, StoredDocumentId, SubscriptionId, TenantId,
 };
 use diesel_models::quote_add_ons::{QuoteAddOnRow, QuoteAddOnRowNew};
 use diesel_models::quote_coupons::{QuoteCouponRow, QuoteCouponRowNew};
@@ -55,7 +55,10 @@ pub struct Quote {
     // the markdown text after pricing
     pub terms_and_services: Option<String>,
     pub net_terms: i32,
-    pub attachments: Vec<Option<StoredDocumentId>>,
+    #[from(serde_json::from_value(~).map_err(| e | {
+    StoreError::SerdeError("Failed to deserialize attachments".to_string(), e)
+    }) ?)]
+    pub attachments: Vec<QuoteAttachment>,
     pub pdf_document_id: Option<StoredDocumentId>,
     pub sharing_key: Option<String>,
     pub converted_to_invoice_id: Option<InvoiceId>,
@@ -159,6 +162,16 @@ pub struct RecipientDetails {
 
 json_value_serde!(RecipientDetails);
 
+/// An uploaded file that is part of the agreement. Immutable: the document hashes it as is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuoteAttachment {
+    pub id: QuoteAttachmentId,
+    pub filename: String,
+    pub content_type: String,
+    pub size_bytes: i64,
+    pub sha256: String,
+}
+
 #[derive(o2o, Debug, Clone)]
 #[owned_try_into(QuoteRowNew, StoreErrorReport)]
 pub struct QuoteNew {
@@ -185,7 +198,10 @@ pub struct QuoteNew {
     pub overview: Option<String>,
     pub terms_and_services: Option<String>,
     pub net_terms: i32,
-    pub attachments: Vec<Option<StoredDocumentId>>,
+    #[into(serde_json::to_value(&~).map_err(|e| {
+        StoreError::SerdeError("Failed to serialize attachments".to_string(), e)
+    })?)]
+    pub attachments: Vec<QuoteAttachment>,
     pub pdf_document_id: Option<StoredDocumentId>,
     pub sharing_key: Option<String>,
     #[into(serde_json::to_value(& ~).map_err(| e | {

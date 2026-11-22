@@ -6,6 +6,12 @@ import { DetailedQuote, QuoteSignerRole } from '@/rpc/api/quotes/v1/models_pb'
 export const DEFAULT_CONSENT_TEXT =
   'I have read this quote and accept it, with its terms and pricing, on behalf of my organization.'
 
+export const DEFAULT_CONSENT_TEXT_WITH_ATTACHMENTS =
+  'I have read this quote and its attached documents and accept them, with their terms and pricing, on behalf of my organization.'
+
+export const defaultConsentText = (hasAttachments: boolean) =>
+  hasAttachments ? DEFAULT_CONSENT_TEXT_WITH_ATTACHMENTS : DEFAULT_CONSENT_TEXT
+
 export const QUOTE_CHANGED_MESSAGE = 'The quote changed since it was opened'
 
 export const rpcErrorMessage = (error: unknown, fallback: string) =>

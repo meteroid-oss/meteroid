@@ -149,7 +149,6 @@ export function buildCreateQuote({
     invoiceMemo: data.invoice_memo,
     createSubscriptionOnAcceptance: data.create_subscription_on_acceptance,
     customProperties: serializeCustomProperties(data.customProperties),
-    attachments: [],
     recipients: data.recipients.map(r => ({ name: r.name, email: r.email })),
     components,
     addOns: create(CreateSubscriptionAddOnsSchema, {

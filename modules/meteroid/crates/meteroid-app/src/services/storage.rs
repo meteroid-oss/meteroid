@@ -36,6 +36,7 @@ pub enum ObjectKind {
     TaxReport,
     QuoteCertificatePdf,
     QuotePdf,
+    QuoteAttachment,
 }
 
 impl ObjectKind {
@@ -55,6 +56,7 @@ impl ObjectKind {
             ObjectKind::TaxReport => "tax_report".to_string(),
             ObjectKind::QuoteCertificatePdf => "quote_certificate_pdf".to_string(),
             ObjectKind::QuotePdf => "quote_pdf".to_string(),
+            ObjectKind::QuoteAttachment => "quote_attachment".to_string(),
         }
     }
 
@@ -72,6 +74,7 @@ impl ObjectKind {
             ObjectKind::TaxReport => StoredObjectKindEnum::TaxReport,
             ObjectKind::QuoteCertificatePdf => StoredObjectKindEnum::QuoteCertificatePdf,
             ObjectKind::QuotePdf => StoredObjectKindEnum::QuotePdf,
+            ObjectKind::QuoteAttachment => StoredObjectKindEnum::QuoteAttachment,
         }
     }
 

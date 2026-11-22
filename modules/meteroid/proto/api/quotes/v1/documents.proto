@@ -4,7 +4,8 @@ package meteroid.api.quotes.v1;
 
 import "api/quotes/v1/models.proto";
 
-// The signature certificate of an accepted quote (Enterprise, quote-documents module).
+// The signature certificate of an accepted quote and the files attached to quotes (Enterprise,
+// quote-documents module).
 
 message GetQuoteSignatureCertificateRequest {
   string quote_id = 1;
@@ -14,6 +15,17 @@ message GetQuoteSignatureCertificateResponse {
   optional QuoteSignatureCertificate certificate = 1;
 }
 
+// A PDF to attach to quotes or templates; quotes refer to it by id.
+message UploadQuoteAttachmentRequest {
+  string filename = 1;
+  bytes content = 2;
+}
+
+message UploadQuoteAttachmentResponse {
+  QuoteAttachment attachment = 1;
+}
+
 service QuoteDocumentsService {
   rpc GetQuoteSignatureCertificate(GetQuoteSignatureCertificateRequest) returns (GetQuoteSignatureCertificateResponse) {}
+  rpc UploadQuoteAttachment(UploadQuoteAttachmentRequest) returns (UploadQuoteAttachmentResponse) {}
 }

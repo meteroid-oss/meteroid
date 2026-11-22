@@ -2471,7 +2471,7 @@ diesel::table! {
         overview -> Nullable<Text>,
         terms_and_services -> Nullable<Text>,
         net_terms -> Int4,
-        attachments -> Array<Nullable<Uuid>>,
+        attachments -> Jsonb,
         pdf_document_id -> Nullable<Uuid>,
         sharing_key -> Nullable<Varchar>,
         converted_to_invoice_id -> Nullable<Uuid>,
@@ -2506,6 +2506,20 @@ diesel::table! {
         allow_change_requests -> Bool,
         allow_decline -> Bool,
         last_sent_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    quote_attachment (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        document_id -> Uuid,
+        filename -> Text,
+        content_type -> Text,
+        size_bytes -> Int8,
+        sha256 -> Text,
+        created_by -> Nullable<Uuid>,
+        created_at -> Timestamptz,
     }
 }
 
@@ -3601,6 +3615,7 @@ diesel::joinable!(quote -> invoice (converted_to_invoice_id));
 diesel::joinable!(quote -> plan_version (plan_version_id));
 diesel::joinable!(quote -> quote_template (template_id));
 diesel::joinable!(quote -> tenant (tenant_id));
+diesel::joinable!(quote_attachment -> tenant (tenant_id));
 diesel::joinable!(quote_add_on -> add_on (add_on_id));
 diesel::joinable!(quote_add_on -> price (price_id));
 diesel::joinable!(quote_add_on -> product (product_id));

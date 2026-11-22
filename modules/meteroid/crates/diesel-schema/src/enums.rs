@@ -914,6 +914,7 @@ pub enum StoredObjectKindEnum {
     TaxReport,
     QuoteCertificatePdf,
     QuotePdf,
+    QuoteAttachment,
 }
 
 /// Canonical organization activation milestones: the single source

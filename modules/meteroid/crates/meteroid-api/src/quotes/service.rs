@@ -223,6 +223,14 @@ impl QuotesService for QuoteServiceComponents {
             .pdf_url(tenant_id, &detailed_quote_domain.quote)
             .await
             .map_err(Into::<QuoteApiError>::into)?;
+        if let Some(quote) = detailed_quote.quote.as_mut() {
+            super::link_attachments(
+                self.quote_documents.as_ref(),
+                tenant_id,
+                detailed_quote_domain.quote.id,
+                quote,
+            )?;
+        }
 
         Ok(Response::new(GetQuoteResponse {
             quote: Some(detailed_quote),
@@ -1026,6 +1034,21 @@ impl QuoteServiceComponents {
             .is_enabled(code)
     }
 
+    async fn resolve_attachments(
+        &self,
+        tenant_id: common_domain::ids::TenantId,
+        ids: Vec<String>,
+    ) -> Result<Vec<meteroid_store::domain::quotes::QuoteAttachment>, Status> {
+        let ids = ids
+            .iter()
+            .map(common_domain::ids::QuoteAttachmentId::from_proto)
+            .collect::<Result<Vec<_>, _>>()?;
+        self.quote_documents
+            .resolve_attachments(tenant_id, &ids)
+            .await
+            .map_err(|e| Into::<QuoteApiError>::into(e).into())
+    }
+
     /// Recomputes what the edit changed: the document hash, the largest discount, the
     /// approval status, and the linked deal.
     async fn after_quote_write(
@@ -1143,6 +1166,9 @@ impl QuoteServiceComponents {
         mut quote: CreateQuote,
         default_quote_number: String,
     ) -> Result<PreparedQuote, Status> {
+        let attachments = self
+            .resolve_attachments(tenant_id, std::mem::take(&mut quote.attachments))
+            .await?;
         let line_details = std::mem::take(&mut quote.line_details);
         let display_options =
             mapping::quotes::display_options_to_domain(quote.display_options.take());
@@ -1235,12 +1261,7 @@ impl QuoteServiceComponents {
             terms_and_services: quote.terms_and_services,
             // Set once the quote's components are resolved, when the request names none.
             net_terms: requested_net_terms.unwrap_or_default(),
-            attachments: quote
-                .attachments
-                .into_iter()
-                .filter_map(|s| s.parse().ok())
-                .map(Some)
-                .collect(),
+            attachments,
             pdf_document_id: None,
             sharing_key: Some(uuid::Uuid::new_v4().to_string()),
             recipients,

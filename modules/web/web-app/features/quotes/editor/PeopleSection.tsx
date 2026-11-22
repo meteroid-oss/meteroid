@@ -20,8 +20,8 @@ import { ChevronRight, InfoIcon, Plus, Trash2 } from 'lucide-react'
 import { useFieldArray, useFormContext } from 'react-hook-form'
 
 import { CustomerSelect } from '@/features/customers/CustomerSelect'
+import { defaultConsentText } from '@/features/quotes/detail/signers'
 import { EditorSection } from '@/features/quotes/editor/EditorSection'
-import { DEFAULT_CONSENT_TEXT } from '@/features/quotes/editor/quoteV2'
 import { QuoteSignatureLevel } from '@/rpc/api/quotes/v1/models_pb'
 
 import type { QuoteFormValues } from '@/features/quotes/editor/quoteFormSchema'
@@ -308,7 +308,7 @@ export const PeopleSection = ({
                 id="quoteConsentText"
                 value={v2.consentText}
                 onChange={e => setV2(prev => ({ ...prev, consentText: e.target.value }))}
-                placeholder={DEFAULT_CONSENT_TEXT}
+                placeholder={defaultConsentText(v2.attachments.length > 0)}
                 rows={2}
               />
             </CollapsibleContent>

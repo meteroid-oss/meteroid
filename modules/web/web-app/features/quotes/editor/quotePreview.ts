@@ -14,6 +14,7 @@ import { previewPrice } from '@/rpc/api/prices/v1/prices-PricesService_connectqu
 import { PreviewPriceItemSchema } from '@/rpc/api/prices/v1/prices_pb'
 import {
   DetailedQuoteSchema,
+  QuoteAttachmentSchema,
   QuoteCouponTermsSchema,
   QuoteSchema,
 } from '@/rpc/api/quotes/v1/models_pb'
@@ -255,6 +256,15 @@ export function buildPreviewQuote({
     consentText: v2Fields.consentText,
     countersigners: v2Fields.countersigners,
     customerActions: v2Fields.customerActions,
+    attachments: v2.attachments.map(a =>
+      create(QuoteAttachmentSchema, {
+        id: a.id,
+        filename: a.filename,
+        contentType: 'application/pdf',
+        sizeBytes: BigInt(a.sizeBytes),
+        sha256: a.sha256,
+      })
+    ),
   })
 
   const addOnItems = addOns.flatMap(sel => {

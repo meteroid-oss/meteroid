@@ -56,6 +56,14 @@ export const ALL_CUSTOMER_ACTIONS: CustomerActionsState = {
 const allCustomerActions = (actions: CustomerActionsState) =>
   actions.questions && actions.changeRequests && actions.decline
 
+/** A file attached to the quote, as uploaded: the editor keeps it and sends its id. */
+export interface AttachmentState {
+  id: string
+  filename: string
+  sizeBytes: number
+  sha256: string
+}
+
 export interface QuoteV2State {
   templateId?: string
   lineDetails: Record<LineKey, LineDetailState>
@@ -68,10 +76,8 @@ export interface QuoteV2State {
   countersigners: CountersignerState[]
   hubspotDealId: string
   customerActions: CustomerActionsState
+  attachments: AttachmentState[]
 }
-
-export const DEFAULT_CONSENT_TEXT =
-  'I have read this quote and accept it, with its terms and pricing, on behalf of my organization.'
 
 export const emptyQuoteV2State = (): QuoteV2State => ({
   lineDetails: {},
@@ -82,6 +88,7 @@ export const emptyQuoteV2State = (): QuoteV2State => ({
   countersigners: [],
   hubspotDealId: '',
   customerActions: { ...ALL_CUSTOMER_ACTIONS },
+  attachments: [],
 })
 
 export const OVERVIEW_TITLE = 'Overview'
@@ -181,6 +188,12 @@ export function quoteToV2State(detailed: DetailedQuote): QuoteV2State {
           decline: quote.customerActions.decline,
         }
       : { ...ALL_CUSTOMER_ACTIONS },
+    attachments: (quote?.attachments ?? []).map(a => ({
+      id: a.id,
+      filename: a.filename,
+      sizeBytes: Number(a.sizeBytes),
+      sha256: a.sha256,
+    })),
   }
 }
 
@@ -284,6 +297,7 @@ export function v2ToCreateQuote(v2: QuoteV2State, orderedLines: EditorLine[]) {
     customerActions: allCustomerActions(v2.customerActions)
       ? undefined
       : create(QuoteCustomerActionsSchema, v2.customerActions),
+    attachments: v2.attachments.map(a => a.id),
   }
 }
 
@@ -298,6 +312,7 @@ export const v2Presence = (v2: QuoteV2State) => ({
   countersigners: v2.countersigners.length > 0,
   hubspot: v2.hubspotDealId.trim() !== '',
   customerActions: !allCustomerActions(v2.customerActions),
+  attachments: v2.attachments.length > 0,
 })
 
 export type V2Presence = ReturnType<typeof v2Presence>

@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use common_domain::ids::{
-    BudgetId, CreditGrantId, CreditUnitId, CustomerId, OrganizationId, ProductId, QuoteId,
-    StoredDocumentId, SubscriptionId, TenantId, UserId, WalletId,
+    BudgetId, CreditGrantId, CreditUnitId, CustomerId, OrganizationId, ProductId,
+    QuoteAttachmentId, QuoteId, StoredDocumentId, SubscriptionId, TenantId, UserId, WalletId,
 };
 use diesel_models::PgConn;
 use diesel_models::customer_credit::{CustomerCreditAccountRow, CustomerCreditOperationRow};
@@ -25,7 +25,7 @@ use crate::domain::customer_signals::OpenSignals;
 use crate::domain::enums::DeclineKind;
 use crate::domain::fx::FxTable;
 use crate::domain::payment_transactions::PaymentTransaction;
-use crate::domain::quotes::Quote;
+use crate::domain::quotes::{Quote, QuoteAttachment};
 use crate::domain::{BillableMetric, FullPlan, Organization};
 use crate::errors::StoreError;
 use crate::services::credit::forecast::ForecastDocument;
@@ -164,6 +164,21 @@ pub trait QuoteDocuments: Send + Sync {
         tenant_id: TenantId,
         quote_id: QuoteId,
     ) -> StoreResult<Option<QuotePdfFile>>;
+
+    /// The uploaded files `ids` name, in order; refused when one is not the tenant's.
+    async fn resolve_attachments(
+        &self,
+        tenant_id: TenantId,
+        ids: &[QuoteAttachmentId],
+    ) -> StoreResult<Vec<QuoteAttachment>>;
+
+    /// A download link to one of the quote's attachments.
+    fn attachment_url(
+        &self,
+        tenant_id: TenantId,
+        quote_id: QuoteId,
+        attachment_id: QuoteAttachmentId,
+    ) -> StoreResult<Option<String>>;
 }
 
 struct NoQuoteDocuments;
@@ -179,6 +194,28 @@ impl QuoteDocuments for NoQuoteDocuments {
         _tenant_id: TenantId,
         _quote_id: QuoteId,
     ) -> StoreResult<Option<QuotePdfFile>> {
+        Ok(None)
+    }
+
+    async fn resolve_attachments(
+        &self,
+        _tenant_id: TenantId,
+        ids: &[QuoteAttachmentId],
+    ) -> StoreResult<Vec<QuoteAttachment>> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        Err(Report::new(StoreError::InvalidArgument(
+            "Attaching files to a quote is not available in this edition".to_string(),
+        )))
+    }
+
+    fn attachment_url(
+        &self,
+        _tenant_id: TenantId,
+        _quote_id: QuoteId,
+        _attachment_id: QuoteAttachmentId,
+    ) -> StoreResult<Option<String>> {
         Ok(None)
     }
 }

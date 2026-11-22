@@ -13,7 +13,7 @@ import {
 import { useState } from 'react'
 import { toast } from 'sonner'
 
-import { DEFAULT_CONSENT_TEXT, rpcErrorMessage } from '@/features/quotes/detail/signers'
+import { defaultConsentText, rpcErrorMessage } from '@/features/quotes/detail/signers'
 import { ConsentCheckbox } from '@/features/quotes/portal/ConsentCheckbox'
 import { DetailedQuote, QuoteCountersigner } from '@/rpc/api/quotes/v1/models_pb'
 import { countersignQuote } from '@/rpc/api/quotes/v1/quotes-QuotesService_connectquery'
@@ -33,7 +33,8 @@ export const CountersignDialog = ({
   countersigner,
   onSigned,
 }: Props) => {
-  const consentText = quote.quote?.consentText || DEFAULT_CONSENT_TEXT
+  const consentText =
+    quote.quote?.consentText || defaultConsentText(Boolean(quote.quote?.attachments.length))
   const [consented, setConsented] = useState(false)
   const [title, setTitle] = useState(countersigner.title ?? '')
   const mutation = useMutation(countersignQuote)

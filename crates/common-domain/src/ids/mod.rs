@@ -33,6 +33,7 @@ id_type!(QuoteApprovalId, "quo_apv_");
 id_type!(QuoteCommentId, "quo_cmt_");
 id_type!(QuoteRecipientEngagementId, "quo_eng_");
 id_type!(QuoteViewId, "quo_vw_");
+id_type!(QuoteAttachmentId, "quo_att_");
 id_type!(InvoicingEntityId, "ive_");
 id_type!(InvoiceAnnexTemplateId, "iat_");
 id_type!(AddOnId, "add_");

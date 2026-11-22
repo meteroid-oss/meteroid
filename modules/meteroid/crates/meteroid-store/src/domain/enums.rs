@@ -694,6 +694,7 @@ pub enum StoredObjectKindEnum {
     TaxReport,
     QuoteCertificatePdf,
     QuotePdf,
+    QuoteAttachment,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

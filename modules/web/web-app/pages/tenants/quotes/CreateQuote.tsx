@@ -859,7 +859,7 @@ export const CreateQuote = ({
                 />
               )}
 
-              <DocumentSection sections={v2.sections} setV2={setV2} />
+              <DocumentSection sections={v2.sections} attachments={v2.attachments} setV2={setV2} />
 
               <TermsSection
                 planVersionId={planVersionId}

@@ -408,11 +408,13 @@ pub(crate) async fn quote_portal_details(
         .map_err(Into::<PortalQuoteApiError>::into)?;
 
     // Map quote to proto
-    let proto_quote = crate::quotes::mapping::quotes::quote_to_proto(
+    let mut proto_quote = crate::quotes::mapping::quotes::quote_to_proto(
         &detailed_quote.quote,
         Some(detailed_quote.customer.name.clone()),
         true,
     );
+    crate::quotes::link_attachments(documents, tenant, detailed_quote.quote.id, &mut proto_quote)?;
+    let has_attachments = !detailed_quote.quote.attachments.is_empty();
 
     // Map customer to proto
     let proto_customer =
@@ -509,7 +511,12 @@ pub(crate) async fn quote_portal_details(
         ) as i32,
         countersigners,
         code_verified,
-        default_consent_text: DEFAULT_CONSENT_TEXT.to_string(),
+        default_consent_text: if has_attachments {
+            DEFAULT_CONSENT_TEXT_WITH_ATTACHMENTS
+        } else {
+            DEFAULT_CONSENT_TEXT
+        }
+        .to_string(),
         pdf_url,
     })
 }
@@ -532,6 +539,7 @@ impl PortalQuoteServiceComponents {
 const PORTAL_SIGNATURE_METHODS: [&str; 3] = ["digital_signature", "drawn", "typed"];
 
 pub(crate) const DEFAULT_CONSENT_TEXT: &str = "I have read this quote and accept it, with its terms and pricing, on behalf of my organization.";
+pub(crate) const DEFAULT_CONSENT_TEXT_WITH_ATTACHMENTS: &str = "I have read this quote and its attached documents and accept them, with their terms and pricing, on behalf of my organization.";
 
 pub(crate) fn origin_of<T>(request: &Request<T>) -> RequestOrigin {
     let context = meteroid_app::security_context::from_request(request);

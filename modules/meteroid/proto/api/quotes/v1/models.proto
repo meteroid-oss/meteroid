@@ -107,7 +107,7 @@ message Quote {
   optional string cover_image = 21;
   optional string overview = 22;
   optional string terms_and_services = 23;
-  repeated string attachments = 24;
+  reserved 24;
   repeated RecipientDetails recipients = 25;
 
   int32 net_terms = 26;
@@ -150,6 +150,19 @@ message Quote {
   QuoteCustomerActions customer_actions = 54;
   // When the quote was last emailed to its recipients.
   optional string last_sent_at = 55;
+  // Part of the agreement: the document hash covers each file's SHA-256.
+  repeated QuoteAttachment attachments = 56;
+}
+
+// An uploaded PDF signed with the quote (Enterprise, quote-documents module).
+message QuoteAttachment {
+  string id = 1;
+  string filename = 2;
+  string content_type = 3;
+  int64 size_bytes = 4;
+  string sha256 = 5;
+  // Set by GetQuote and the portal, with the module.
+  optional string download_url = 6;
 }
 
 // What a customer recipient may do in the portal besides signing.

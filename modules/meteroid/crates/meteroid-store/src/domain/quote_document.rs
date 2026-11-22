@@ -2,7 +2,7 @@
 //! records the hash it was given; a quote edited since then no longer matches.
 
 use chrono::{NaiveDate, NaiveDateTime};
-use common_domain::ids::{CouponId, ProductId, StoredDocumentId};
+use common_domain::ids::{CouponId, ProductId};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -12,7 +12,8 @@ use crate::domain::customers::Address;
 use crate::domain::plan_minimums::MinimumScope;
 use crate::domain::price_components::UsagePricingModel;
 use crate::domain::quotes::{
-    DetailedQuote, QuoteCountersigner, QuoteDisplayOptions, QuoteSection, RecipientDetails,
+    DetailedQuote, QuoteAttachment, QuoteCountersigner, QuoteDisplayOptions, QuoteSection,
+    RecipientDetails,
 };
 use crate::domain::{SubscriptionFee, SubscriptionFeeBillingPeriod};
 
@@ -42,7 +43,8 @@ pub struct QuoteDocument {
     pub minimum: Option<QuoteDocumentMinimum>,
     pub recipients: Vec<RecipientDetails>,
     pub countersigners: Vec<QuoteCountersigner>,
-    pub attachments: Vec<StoredDocumentId>,
+    /// Their content's hash is part of the document's: a signature covers the files it was given.
+    pub attachments: Vec<QuoteAttachment>,
     pub consent_text: Option<String>,
 }
 
@@ -169,7 +171,7 @@ impl QuoteDocument {
             }),
             recipients: q.recipients.clone(),
             countersigners: q.countersigners.clone(),
-            attachments: q.attachments.iter().flatten().copied().collect(),
+            attachments: q.attachments.clone(),
             consent_text: q.consent_text.clone(),
         }
     }
@@ -309,6 +311,29 @@ mod tests {
             serde_json::from_value(serde_json::to_value(&with_terms).unwrap()).unwrap();
         assert_eq!(read.coupons, vec![terms]);
         assert_eq!(read.hash(), with_terms.hash());
+    }
+
+    #[test]
+    fn an_attachment_content_is_part_of_the_hash() {
+        let without = document(vec![]);
+        assert_eq!(
+            serde_json::to_value(&without).unwrap()["attachments"],
+            serde_json::json!([])
+        );
+
+        let file = |sha256: &str| QuoteAttachment {
+            id: common_domain::ids::QuoteAttachmentId::default(),
+            filename: "MSA.pdf".to_string(),
+            content_type: "application/pdf".to_string(),
+            size_bytes: 1024,
+            sha256: sha256.to_string(),
+        };
+        let mut with_msa = without.clone();
+        with_msa.attachments = vec![file("aa")];
+        let mut with_other_msa = with_msa.clone();
+        with_other_msa.attachments = vec![file("bb")];
+        assert_ne!(with_msa.hash(), without.hash());
+        assert_ne!(with_msa.hash(), with_other_msa.hash());
     }
 
     #[test]
