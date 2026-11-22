@@ -15,7 +15,8 @@ use crate::{helpers, metering_it, meteroid_it};
 use backon::Retryable;
 use chrono::{DateTime, Datelike, Days, Months, NaiveDate, NaiveTime, Utc};
 use common_domain::actor::Actor;
-use common_domain::ids::{BaseId, BillableMetricId, CustomerId, SubscriptionId};
+use common_domain::ids::{BaseId, BillableMetricId, CustomerId, InvoiceId, SubscriptionId};
+use diesel_models::credit_notes::CreditNoteRow;
 use diesel_models::customers::CustomerRowNew;
 use diesel_models::enums::SubscriptionStatusEnum;
 use diesel_models::subscriptions::SubscriptionRow;
@@ -25,7 +26,7 @@ use meteroid_mailer::config::MailerConfig;
 use meteroid_store::clients::usage::UsageClient;
 use meteroid_store::domain::billable_metrics::{Dimension, SegmentationMatrix};
 use meteroid_store::domain::enums::BillingMetricAggregateEnum;
-use meteroid_store::domain::enums::InvoiceStatusEnum;
+use meteroid_store::domain::enums::{InvoiceStatusEnum, InvoiceType};
 use meteroid_store::domain::invoice_annex_templates::{
     AnnexColumn, AnnexDefinition, AnnexTemplateNew, ColumnAggregation, ColumnSource, EventSource,
     EventTableDefinition,
@@ -185,16 +186,18 @@ impl Stack {
         end: Option<NaiveDate>,
         usage_filter: Option<(&str, &str)>,
     ) -> Result<SubscriptionId, error_stack::Report<StoreError>> {
-        self.subscribe_with(customer_id, start, end, None, usage_filter)
+        self.subscribe_with(customer_id, start, end, None, false, usage_filter)
             .await
     }
 
+    /// `advance_fee` keeps the plan's €35 monthly rate, billed in advance.
     async fn subscribe_with(
         &self,
         customer_id: CustomerId,
         start: NaiveDate,
         end: Option<NaiveDate>,
         billing_day_anchor: Option<u16>,
+        advance_fee: bool,
         usage_filter: Option<(&str, &str)>,
     ) -> Result<SubscriptionId, error_stack::Report<StoreError>> {
         let rate = |model: &str, euros: i64| MatrixRow {
@@ -244,7 +247,11 @@ impl Stack {
                                 rates: vec![rate("lite", 2), rate("standard", 12), rate("max", 60)],
                             },
                         )],
-                        remove_components: vec![COMP_LEETCODE_RATE_ID],
+                        remove_components: if advance_fee {
+                            vec![]
+                        } else {
+                            vec![COMP_LEETCODE_RATE_ID]
+                        },
                     }),
                     add_ons: None,
                     coupons: None,
@@ -343,6 +350,19 @@ impl Stack {
             )
             .await
             .expect("the entity's grace");
+    }
+
+    async fn grace_elapsed(&self) {
+        use diesel_async::RunQueryDsl;
+        let mut conn = self.meteroid.store.get_conn().await.unwrap();
+        diesel::sql_query(
+            "UPDATE invoice SET finalize_after = now() - interval '1 minute' \
+             WHERE tenant_id = $1 AND finalize_after IS NOT NULL",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(TENANT_ID)
+        .execute(&mut conn)
+        .await
+        .expect("drafts due");
     }
 
     async fn process_cycles(&self) {
@@ -514,6 +534,14 @@ impl Stack {
     }
 
     async fn finalized(&self, subscription_id: SubscriptionId) -> Vec<Invoice> {
+        self.invoices_of(subscription_id)
+            .await
+            .into_iter()
+            .filter(|invoice| invoice.status == InvoiceStatusEnum::Finalized)
+            .collect()
+    }
+
+    async fn invoices_of(&self, subscription_id: SubscriptionId) -> Vec<Invoice> {
         self.meteroid
             .store
             .list_invoices(
@@ -537,8 +565,19 @@ impl Stack {
             .items
             .into_iter()
             .map(|invoice| invoice.invoice)
-            .filter(|invoice| invoice.status == InvoiceStatusEnum::Finalized)
             .collect()
+    }
+
+    /// What finalized credit notes gave back on the invoice, tax included.
+    async fn credited(&self, invoice_id: InvoiceId) -> i64 {
+        let mut conn = self.meteroid.store.get_conn().await.unwrap();
+        CreditNoteRow::list_by_invoice_id(&mut conn, TENANT_ID, invoice_id)
+            .await
+            .expect("credit notes")
+            .iter()
+            .filter(|note| note.finalized_at.is_some() && note.voided_at.is_none())
+            .map(|note| note.total.abs())
+            .sum()
     }
 }
 
@@ -719,17 +758,59 @@ async fn test_each_event_is_billed_by_one_subscription_or_listed_as_unattributed
 /// mid-period re-attributes all of the period's usage not yet invoiced.
 #[tokio::test]
 async fn test_preview_and_invoice_agree_and_a_filter_change_applies_to_unbilled_usage() {
-    preview_and_invoice_agree(false).await;
+    preview_and_invoice_agree(Opened::Earlier).await;
 }
 
-/// Periods from 40 days ago, so today is never a period's first day unless anchored on it.
-async fn preview_and_invoice_agree(renewed_today: bool) {
+/// The same, cancelled on the day the period renewed, once its renewal invoice was issued: the
+/// usage of that day up to the cancellation is billed once, on a final invoice of its own.
+#[tokio::test]
+async fn test_a_cancellation_on_the_renewal_day_bills_that_day_s_usage() {
+    preview_and_invoice_agree(Opened::RenewedToday { issued: true }).await;
+}
+
+/// The same, while the renewal invoice billing a fee in advance is still a draft in its grace
+/// period: it keeps billing its own period only, its fee credited back whole once issued, and the
+/// final invoice bills that day's usage.
+#[tokio::test]
+async fn test_a_cancellation_on_the_renewal_day_leaves_the_renewal_draft_its_own_period() {
+    preview_and_invoice_agree(Opened::RenewedToday { issued: false }).await;
+}
+
+/// The same, on subscriptions started today whose first invoice billed a fee in advance: the fee
+/// is credited back whole, the usage billed on a final invoice.
+#[tokio::test]
+async fn test_a_cancellation_on_the_first_day_bills_that_day_s_usage() {
+    preview_and_invoice_agree(Opened::StartedToday).await;
+}
+
+/// When the period open at the cancellation began.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Opened {
+    /// Periods from 40 days ago: today is not a period's first day.
+    Earlier,
+    /// Renewed today; the renewal invoice issued, or still a draft in its grace period, billing
+    /// the €35 rate in advance.
+    RenewedToday { issued: bool },
+    /// Started today, its first invoice billing the €35 rate in advance.
+    StartedToday,
+}
+
+async fn preview_and_invoice_agree(opened: Opened) {
     clear_of_midnight(600).await;
     let stack = Stack::start().await;
     let clock = Utc::now();
     let today = clock.date_naive();
-    let start = today - Days::new(40);
-    let anchor = renewed_today.then(|| today.day() as u16);
+    let (start, anchor) = match opened {
+        Opened::Earlier => (today - Days::new(40), None),
+        Opened::RenewedToday { .. } => (today - Days::new(40), Some(today.day() as u16)),
+        Opened::StartedToday => (today, None),
+    };
+    // The period opened today bills a fee in advance, which the cancellation gives back whole.
+    let advance_fee = matches!(
+        opened,
+        Opened::StartedToday | Opened::RenewedToday { issued: false }
+    );
+    let opens_today = opened != Opened::Earlier;
     let now = (clock - chrono::Duration::minutes(1)).max(at(today, 0));
 
     stack
@@ -764,23 +845,27 @@ async fn preview_and_invoice_agree(renewed_today: bool) {
         )
         .await;
 
+    // Before subscribing: a first invoice is issued as the subscription is created.
+    match opened {
+        Opened::RenewedToday { issued: true } | Opened::StartedToday => stack.grace_hours(0).await,
+        Opened::RenewedToday { issued: false } => stack.grace_hours(48).await,
+        Opened::Earlier => {}
+    }
     let a = stack
         .subscribe_with(
             CUST_SPOTIFY_ID,
             start,
             None,
             anchor,
+            advance_fee,
             Some(("api_key", "key-A")),
         )
         .await
         .expect("A");
     let b = stack
-        .subscribe_with(CUST_SPOTIFY_ID, start, None, anchor, None)
+        .subscribe_with(CUST_SPOTIFY_ID, start, None, anchor, advance_fee, None)
         .await
         .expect("B");
-    if renewed_today {
-        stack.grace_hours(0).await;
-    }
     stack.process_cycles().await;
     for subscription in [a, b] {
         let period = stack
@@ -789,9 +874,29 @@ async fn preview_and_invoice_agree(renewed_today: bool) {
             .current_period_start;
         assert_eq!(
             period == today,
-            renewed_today,
+            opens_today,
             "the open period starts {period}"
         );
+        let today_s = stack
+            .invoices_of(subscription)
+            .await
+            .into_iter()
+            .filter(|invoice| invoice.billing_period_start == today)
+            .map(|invoice| invoice.status)
+            .collect::<Vec<_>>();
+        match opened {
+            Opened::Earlier => assert!(today_s.is_empty(), "{today_s:?}"),
+            Opened::RenewedToday { issued: false } => {
+                assert_eq!(today_s, vec![InvoiceStatusEnum::Draft])
+            }
+            Opened::RenewedToday { issued: true } | Opened::StartedToday => assert!(
+                matches!(
+                    today_s[..],
+                    [InvoiceStatusEnum::Finalized | InvoiceStatusEnum::Closed]
+                ),
+                "{today_s:?}"
+            ),
+        }
     }
     assert_eq!(stack.invoiced(a, start).await, 0);
     assert_eq!(stack.invoiced(b, start).await, 0);
@@ -814,6 +919,8 @@ async fn preview_and_invoice_agree(renewed_today: bool) {
 
     // Ending both now bills the period so far: each invoice is its preview. A negative grace
     // settles the termination inline, so the closing invoices finalize within the test.
+    // One at a time: B's attribution depends on A's end, so B's cancellation priced while A's is
+    // still uncommitted reads metering again and is retried later, past this test's passes.
     stack.grace_hours(-1).await;
     for subscription in [a, b] {
         stack
@@ -828,10 +935,95 @@ async fn preview_and_invoice_agree(renewed_today: bool) {
             )
             .await
             .expect("terminate");
+        stack.process_cycles().await;
+        assert_eq!(
+            stack.subscription_row(subscription).await.status,
+            SubscriptionStatusEnum::Cancelled
+        );
     }
-    stack.process_cycles().await;
     assert_eq!(stack.invoiced(a, start).await, 2_400);
     assert_eq!(stack.invoiced(b, start).await, 1_400);
+
+    // A renewal draft outlives the termination in its grace: once that elapses it is issued, and
+    // the endings sweep credits it, as its worker does; run twice, it credits nothing more.
+    if opened == (Opened::RenewedToday { issued: false }) {
+        stack.grace_elapsed().await;
+        stack.process_cycles().await;
+    }
+    for _ in 0..2 {
+        stack
+            .meteroid
+            .services
+            .settle_missed_plan_change_endings(100)
+            .await
+            .expect("endings sweep");
+    }
+
+    // Today's usage is on one invoice of each: the final one when the period opened today, whose
+    // lines read it from the period's start to the cancellation. Nothing is left to bill it again.
+    for (subscription, usage) in [(a, 2_400), (b, 1_400)] {
+        let invoices = stack.invoices_of(subscription).await;
+        let finals = invoices
+            .iter()
+            .filter(|invoice| invoice.invoice_type == InvoiceType::Final)
+            .collect::<Vec<_>>();
+        if !opens_today {
+            assert!(finals.is_empty());
+            continue;
+        }
+        assert!(
+            invoices.iter().all(|invoice| matches!(
+                invoice.status,
+                InvoiceStatusEnum::Finalized | InvoiceStatusEnum::Closed
+            )),
+            "{:?}",
+            invoices
+                .iter()
+                .map(|invoice| (&invoice.invoice_type, &invoice.status))
+                .collect::<Vec<_>>()
+        );
+        let [final_invoice] = finals[..] else {
+            panic!("one final invoice, not {}", finals.len());
+        };
+        assert_eq!(final_invoice.status, InvoiceStatusEnum::Finalized);
+        assert_eq!(final_invoice.billing_period_start, today);
+        let lines = final_invoice
+            .line_items
+            .iter()
+            .filter(|line| line.metric_id == Some(stack.metric.id))
+            .collect::<Vec<_>>();
+        assert!(
+            lines.iter().all(|line| line.start_date == today
+                && line.end_date == today
+                && line.usage_ends_at.is_some_and(|end| end > now)),
+            "{lines:?}"
+        );
+        assert_eq!(
+            lines.iter().map(|line| line.amount_subtotal).sum::<i64>(),
+            usage
+        );
+        // The period's own invoice bills none of it.
+        assert!(
+            invoices
+                .iter()
+                .filter(|invoice| invoice.invoice_type != InvoiceType::Final)
+                .flat_map(|invoice| &invoice.line_items)
+                .all(|line| line.metric_id != Some(stack.metric.id) || line.amount_subtotal == 0),
+        );
+        // The fee the period's own invoice billed in advance came back whole, once.
+        if advance_fee {
+            let opening = invoices
+                .iter()
+                .find(|invoice| {
+                    invoice.invoice_type == InvoiceType::Recurring
+                        && invoice.billing_period_start == today
+                })
+                .expect("the period's own invoice");
+            assert_eq!(opening.status, InvoiceStatusEnum::Finalized);
+            assert!(opening.total > 0);
+            assert_eq!(stack.credited(opening.id).await, opening.total);
+        }
+    }
 }
 
 /// A filtered subscription's claim ends with it: cancelled at a date, or cancelled at once before

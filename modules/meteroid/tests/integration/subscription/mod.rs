@@ -24,6 +24,7 @@ mod credit_unit_wallets;
 mod dated_prices;
 mod derived_state;
 mod emission_date;
+mod final_invoice;
 mod hosted_checkout;
 mod hosted_invoice_payment;
 mod invoice_deadlines;
